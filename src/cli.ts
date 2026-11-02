@@ -39,7 +39,15 @@ function initCommand(args: string[]): string {
   if (positional.length > 1) {
     refuse('INIT_TOO_MANY_ARGUMENTS', `init takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   }
-  return describeInit(initProject(positional[0] as string, { install }));
+  const result = initProject(positional[0] as string, { install });
+  if (result.installError !== null) {
+    process.stdout.write(`${describeInit(result)}\n`);
+    refuse(
+      'INIT_INSTALL_FAILED',
+      `bun install failed in ${result.dir}; the project and its first commit are in place. Run bun install there, then commit bun.lock.\n${result.installError}`,
+    );
+  }
+  return describeInit(result);
 }
 
 /** Subcommands by name. `interview` (#3) and init's collection options (#7) plug in here. */

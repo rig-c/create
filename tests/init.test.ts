@@ -191,3 +191,20 @@ test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')(
   },
   300_000,
 );
+
+test('a failed install still leaves the project created and committed, refused by name', () => {
+  const root = tempDir();
+  // An unreachable registry and an empty cache make bun install fail without the network.
+  const env = { ...gitEnv(), BUN_CONFIG_REGISTRY: 'http://127.0.0.1:9/', BUN_INSTALL_CACHE_DIR: join(tempDir(), 'cache') };
+  const dir = join(root, 'demo-project');
+  const result = cli(['init', dir], root, env);
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain('INIT_INSTALL_FAILED');
+  expect(result.stderr).toContain('Run bun install there, then commit bun.lock');
+  expect(result.stdout).toContain('bun install FAILED');
+  expect(run(['git', 'status', '--porcelain', '--untracked-files=no'], dir, env).stdout).toBe('');
+  const files = run(['git', 'ls-files'], dir, env).stdout.split('\n');
+  expect(files).toContain('project.json');
+  expect(files).not.toContain('bun.lock');
+  expect(run(['git', 'rev-list', '--count', 'HEAD'], dir, env).stdout.trim()).toBe('1');
+});

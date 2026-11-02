@@ -26,6 +26,8 @@ export interface InitResult {
   dir: string;
   name: string;
   installed: boolean;
+  /** Why `bun install` failed, when it did; the project is still created and committed without bun.lock. */
+  installError: string | null;
   committed: string[];
   commit: string;
   fallbackIdentity: boolean;
@@ -112,15 +114,14 @@ export function initProject(target: string, options: InitOptions): InitResult {
 
   written.push(...writeAgentGuide(dir));
 
+  // An install failure does not stop init: the project and its first commit
+  // are still made (without bun.lock), so the recovery is to run `bun install`
+  // in the project and commit bun.lock — never to delete it and start again.
+  let installError: string | null = null;
   if (options.install) {
     const install = run([process.execPath, 'install'], dir);
-    if (!install.ok) {
-      refuse(
-        'INIT_INSTALL_FAILED',
-        `bun install failed in ${dir}; the files above are left in place (delete the folder to retry, or rerun with --no-install)\n${install.out}`,
-      );
-    }
-    written.push('bun.lock');
+    if (install.ok) written.push('bun.lock');
+    else installError = install.out;
   }
 
   const gitInit = run(['git', 'init', '-q'], dir);
@@ -140,7 +141,8 @@ export function initProject(target: string, options: InitOptions): InitResult {
   return {
     dir,
     name,
-    installed: options.install,
+    installed: options.install && installError === null,
+    installError,
     committed: written,
     commit: head.out,
     fallbackIdentity,
@@ -156,7 +158,9 @@ export function describeInit(result: InitResult): string {
     `Created project ${result.name} at ${result.dir}`,
     result.installed
       ? `  installed ${pins} (bun.lock written)`
-      : `  pinned ${pins}; install skipped (--no-install)`,
+      : result.installError === null
+        ? `  pinned ${pins}; install skipped (--no-install)`
+        : `  pinned ${pins}; bun install FAILED, so bun.lock is not in the first commit`,
     `  first commit ${result.commit}: ${result.committed.join(', ')}`,
   ];
   if (result.fallbackIdentity) {

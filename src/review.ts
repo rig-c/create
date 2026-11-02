@@ -118,10 +118,23 @@ export function readVersions(project: JsonObject): Versions {
     if (v.rig_version !== null && v.rig_version !== undefined) {
       malformed.push({ path: `${path}.rig_version`, why: 'a rig version has rig_version null; only a post version names the rig it is built on' });
     }
+    // The LAST human rig-review verdict decides: a later bounce withdraws an
+    // earlier acceptance. An acceptance must be dated, or the post-before-
+    // acceptance order cannot be checked.
     let accepted: Acceptance | null = null;
     for (const [verdict, d] of asArray(v.verdicts).entries()) {
-      if (!isObject(d) || d.verdict !== 'accepted' || d.review !== RIG_REVIEW || !isHuman(asString(d.by))) continue;
-      accepted = { verdict, by: d.by as string, at: asString(d.at) ?? '', verbatim: asString(d.verbatim) ?? '' };
+      if (!isObject(d) || d.review !== RIG_REVIEW || !isHuman(asString(d.by)) || d.verdict === 'provisional') continue;
+      if (d.verdict !== 'accepted') {
+        accepted = null;
+        continue;
+      }
+      const at = asString(d.at);
+      if (at === null || !Number.isFinite(Date.parse(at))) {
+        malformed.push({ path: `${path}.verdicts[${verdict}].at`, why: 'an acceptance carries a valid `at`; an undated acceptance authorises nothing' });
+        accepted = null;
+        continue;
+      }
+      accepted = { verdict, by: d.by as string, at, verbatim: asString(d.verbatim) ?? '' };
     }
     const stills: Still[] = [];
     const malformedStills: { index: number; why: string }[] = [];
@@ -158,7 +171,10 @@ function postBasisProblem(post: PostVersion, versions: Versions): string | null 
   }
   const builtAt = post.at === null ? Number.NaN : Date.parse(post.at);
   const acceptedAt = Date.parse(rig.accepted.at);
-  if (Number.isFinite(builtAt) && Number.isFinite(acceptedAt) && builtAt < acceptedAt) {
+  if (!Number.isFinite(builtAt)) {
+    return `${post.path}.at is ${JSON.stringify(post.at)}; a post version is dated, or it cannot be shown to follow rig v${rv}'s acceptance`;
+  }
+  if (builtAt < acceptedAt) {
     return `${post.path}.rig_version=v${rv}: v${post.n} was built at ${post.at}, before rig v${rv} was accepted at ${rig.accepted.at}`;
   }
   return null;

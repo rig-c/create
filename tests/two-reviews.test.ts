@@ -204,3 +204,27 @@ describe('rig-create handoff', () => {
     expect(r.stdout).toContain('rig-create handoff');
   });
 });
+
+describe('review fixes: the last human verdict decides, and order is dated', () => {
+  const codesOf = (r: CheckReport): string[] => r.refusals.map((f) => f.code);
+
+  test('a later human bounce withdraws the acceptance', () => {
+    const r = checkProject(
+      fixture((p) => {
+        arr(version(p, 2).verdicts).push({ by: 'owner', at: '2026-11-20T10:00:00Z', review: 'rig-review', verdict: 'bounced', verbatim: 'No, the hem tears after all.', on_items: [] });
+      }),
+    );
+    expect(codesOf(r)).toContain('POST_ON_UNACCEPTED_RIG');
+  });
+
+  test('an undated acceptance authorises nothing', () => {
+    const r = checkProject(fixture((p) => { delete obj(arr(version(p, 2).verdicts)[0]).at; }));
+    expect(codesOf(r)).toContain('VERSION_MALFORMED');
+    expect(codesOf(r)).toContain('POST_ON_UNACCEPTED_RIG');
+  });
+
+  test('an undated post version is refused', () => {
+    const r = checkProject(fixture((p) => { delete version(p, 3).at; }));
+    expect(codesOf(r)).toContain('POST_ON_UNACCEPTED_RIG');
+  });
+});

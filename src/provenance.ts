@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
 
-import { answered, asArray, asString, isDecision, isObject, itemFor, type Ctx, type Item } from './check.ts';
+import { answered, asArray, asString, collectionQuestion, isDecision, isObject, itemFor, type Ctx, type Item } from './check.ts';
 import type { PartsSections } from './parts-sections.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { SECTION_PLACEMENT } from './waypoints.ts';
@@ -51,8 +51,12 @@ function versionLabel(v: JsonObject, index: number): string {
   return typeof v.n === 'number' ? `versions[v${v.n}]` : `versions[${index}]`;
 }
 
-function sha256(file: string): string {
-  return createHash('sha256').update(readFileSync(file)).digest('hex');
+function sha256(file: string): string | null {
+  try {
+    return createHash('sha256').update(readFileSync(file)).digest('hex');
+  } catch {
+    return null; // a directory or an unreadable file: reported as `unreadable`, never a crash
+  }
 }
 
 /** Reads the config's top-level keys when the file is the one the version was built from. */
@@ -64,7 +68,9 @@ function readConfigSections(dir: string, config: Json | undefined): { read: Conf
   if (rel === '' || rel.startsWith('..') || rel.startsWith(sep)) return { read: 'unreadable', path, sections: null };
   if (!existsSync(file)) return { read: 'absent', path, sections: null };
   const expected = isObject(config) ? asString(config.sha256) : null;
-  if (expected === null || sha256(file) !== expected) return { read: 'changed', path, sections: null };
+  const actual = sha256(file);
+  if (actual === null) return { read: 'unreadable', path, sections: null };
+  if (expected === null || actual !== expected) return { read: 'changed', path, sections: null };
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, 'utf8'));
@@ -81,16 +87,23 @@ function readConfigSections(dir: string, config: Json | undefined): { read: Conf
  * replaced was built from the answer as it was then (INTERVIEW.md § Answer
  * shape: a replaced answer moves whole into `history[]`).
  */
-function answersOf(item: Item): JsonObject[] {
+function answersOf(item: Item, ctx: Pick<Ctx, 'collection'>): JsonObject[] {
   const s = item.state;
   const current = s.state === 'user' || s.state === 'delegated' || s.state === 'not_applicable' ? [s.answer] : [];
-  return [...current, ...asArray(item.record.history).filter(isObject)];
+  const history = asArray(item.record.history).filter(isObject);
+  // An inherited answer's earlier versions live in the collection question's history, not the member's.
+  if (isObject(item.raw) && item.raw.basis === 'inherited' && ctx.collection !== null && isObject(item.raw.from)) {
+    const question = asString(item.raw.from.question);
+    const source = question === null ? undefined : collectionQuestion(ctx.collection, question);
+    if (source !== undefined) history.push(...asArray(source.history).filter(isObject));
+  }
+  return [...current, ...history];
 }
 
 /** The stored sentences a quote may be taken from: each answer's `verbatim` and every `additions[].verbatim`. */
-function sentences(item: Item): string[] {
+function sentences(item: Item, ctx: Pick<Ctx, 'collection'>): string[] {
   const out: string[] = [];
-  for (const answer of answersOf(item)) {
+  for (const answer of answersOf(item, ctx)) {
     const verbatim = asString(answer.verbatim);
     if (verbatim !== null) out.push(verbatim);
     for (const add of asArray(answer.additions)) if (isObject(add) && asString(add.verbatim) !== null) out.push(add.verbatim as string);
@@ -99,9 +112,9 @@ function sentences(item: Item): string[] {
 }
 
 /** A delegation the citation can rest on: an answer that is delegated, or a user answer that left part open, with the agent's decision written. */
-function delegationOf(item: Item): 'ok' | 'not-delegated' | 'undecided' {
+function delegationOf(item: Item, ctx: Pick<Ctx, 'collection'>): 'ok' | 'not-delegated' | 'undecided' {
   let undecided = false;
-  for (const answer of answersOf(item)) {
+  for (const answer of answersOf(item, ctx)) {
     if (answer.delegated === true) {
       if (isDecision(answer.agent_decision)) return 'ok';
       undecided = true;
@@ -149,11 +162,11 @@ function checkEntry(ctx: Ctx, kind: 'rig' | 'post', path: string, raw: Json): vo
     return;
   }
   if (quote !== null && quote !== '') {
-    if (!sentences(item).some((s) => s.includes(quote))) {
+    if (!sentences(item, ctx).some((s) => s.includes(quote))) {
       ctx.refusals.push({ code: 'QUOTE_NOT_FOUND', path, message: `${named}: quote ${JSON.stringify(quote)} is in no verbatim or additions[] of ${item.path} (current or history[]); a quote is an exact fragment of a stored sentence` });
     }
   } else {
-    const d = delegationOf(item);
+    const d = delegationOf(item, ctx);
     if (d === 'not-delegated') {
       ctx.refusals.push({ code: 'DELEGATION_NOT_GIVEN', path, message: `${named}: cites '${guide}' as delegated, but no answer at ${item.path} (current or history[]) is a delegation or carries an agent_decision — the user did not hand this over` });
     } else if (d === 'undecided') {

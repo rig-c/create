@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { checkProject } from '../src/check.ts';
-import type { JsonObject } from '../src/templates.ts';
+import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { citedSections, codes, fixture, obj, supersede, version, waypoint, withCode } from './fixtures.ts';
 
@@ -228,5 +230,35 @@ describe('a post version', () => {
     }));
     expect(codes(report)).toEqual(['CITATION_WRONG_PHASE']);
     expect(report.refusals[0]?.path).toBe('versions[v4].provenance.sections[framing][0]');
+  });
+});
+
+describe('review fixes: hashing errors and inherited history', () => {
+  test('a config path that is a directory reads as unreadable, not a crash', () => {
+    const dir = fixture(() => {}, 'example-project.json', { 'derived/v2/config.json/inner.txt': 'x' });
+    const report = checkProject(dir);
+    expect(report.provenance.find((p) => p.version === 'versions[v2]')?.config).toBe('unreadable');
+  });
+
+  test("an inherited answer's earlier sentences come from the collection question's history", () => {
+    const root = tempDir();
+    const example = readTemplate('example-project.json');
+    const old = obj(waypoint(example, 'constraints').guide);
+    const collection = {
+      schema: 'rig-create/collection@0',
+      name: 'crew',
+      interview: {
+        waypoints: [
+          { id: 'constraints', guide: { delegated: false, by: 'user', at: '2026-11-30T10:00:00Z', verbatim: 'Nothing sways.', value: 'none' }, history: [old] },
+        ],
+      },
+    };
+    writeFileSync(join(root, 'collection.json'), JSON.stringify(collection));
+    const member = join(root, 'members', 'keeper');
+    mkdirSync(member, { recursive: true });
+    waypoint(example, 'constraints').guide = { basis: 'inherited', from: { collection: 'crew', question: 'constraints' }, by: 'interviewer', at: '2026-11-10T14:14:00Z' };
+    writeFileSync(join(member, 'project.json'), JSON.stringify(example));
+    const report = checkProject(member);
+    expect(withCode(report, 'QUOTE_NOT_FOUND').filter((f) => f.path.includes('[constraints]'))).toEqual([]);
   });
 });

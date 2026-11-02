@@ -10,7 +10,7 @@
  *
  * Later cards plug in as further `check*` functions over the same `Ctx`:
  * provenance per config section (src/provenance.ts, over `versions[].provenance`), the
- * review order and post hand-off (#8, by extending src/stages.ts), feedback
+ * review order and post hand-off (src/review.ts, with src/stages.ts), feedback
  * answered by the next version (#9, over `versions[].verdicts` and
  * `answers_feedback`), collection pins (#7, over `collection.json`).
  */
@@ -130,6 +130,16 @@ function readJsonObject(file: string): ReadJson {
 // ------------------------------------------------------------- answer states
 
 /** Looks an answer up in a collection's interview by question id (COLLECTIONS.md § What the collection owns). */
+/** The question record a collection answer sits on (its `history[]` lives there), or undefined. */
+export function collectionQuestion(collection: JsonObject, question: string): JsonObject | undefined {
+  const interview = isObject(collection.interview) ? collection.interview : {};
+  const post = isObject(interview.post) ? interview.post : {};
+  for (const list of [interview.questions, interview.framing, interview.waypoints, post.items]) {
+    for (const q of asArray(list)) if (isObject(q) && q.id === question) return q;
+  }
+  return undefined;
+}
+
 function collectionAnswer(collection: JsonObject, question: string): Json | undefined {
   const interview = isObject(collection.interview) ? collection.interview : {};
   for (const q of asArray(interview.questions)) if (isObject(q) && q.id === question) return q.answer;

@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
+import { checkReviews } from './review.ts';
 import { PAUSED_STAGE, PHASE_APPROVED_BY, SKIPPED_WHEN_NO_POST, STAGE_VALUES, STAGES, stageIndex, stageOfPhase } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
@@ -584,6 +585,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   checkAnswers(ctx);
   checkPlan(ctx);
   checkStages(ctx);
+  checkReviews(ctx);
 
   return {
     ok: refusals.length === 0,

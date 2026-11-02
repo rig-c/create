@@ -47,6 +47,18 @@ decision to the agent, never left blank for the agent to fill.
 Nothing is published yet. The structure is being piloted by hand first; the issues
 here track what moves in, in order.
 
+## Docs
+
+- [docs/PROJECT.md](docs/PROJECT.md) — the project folder, data by lifetime,
+  stages and sign-offs, the plan, versions.
+- [docs/INTERVIEW.md](docs/INTERVIEW.md) — the three user steps, answer states
+  and shape, waypoints, post-production, provenance, polish feedback.
+- [docs/COLLECTIONS.md](docs/COLLECTIONS.md) — several rigs that belong together:
+  inherited answers, the reference member, composition, pins.
+- [templates/](templates/) — the empty `project.json` and `collection.json`
+  skeletons, and a worked example ([example-interview.md](templates/example-interview.md),
+  [example-project.json](templates/example-project.json)) on a made-up painting.
+
 ## Licence
 
 [MIT](LICENSE).

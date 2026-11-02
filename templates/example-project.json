@@ -1,0 +1,734 @@
+{
+  "schema": "rig-create/project@0",
+  "name": "lantern-keeper",
+  "title": "The lantern keeper (a made-up painting, for the shape only)",
+  "stage": "accepted",
+  "stage_values": [
+    "interview",
+    "plan-approved",
+    "rigging",
+    "rig-review",
+    "post-interview",
+    "post",
+    "direction-review",
+    "accepted",
+    "paused"
+  ],
+  "signoffs": [
+    { "stage": "interview", "checkpoint": null, "by": "user", "at": "2026-11-10T14:20:00Z", "verbatim": "that's everything" },
+    { "stage": "plan-approved", "checkpoint": null, "by": "user", "at": "2026-11-10T16:05:00Z", "verbatim": "go" },
+    { "stage": "rigging", "checkpoint": "assemble", "by": "user", "at": "2026-11-11T09:40:00Z", "verbatim": "the cut is fine" },
+    { "stage": "rigging", "checkpoint": "constraints", "by": "user", "at": "2026-11-11T13:10:00Z", "verbatim": "ok, the scarf looks right in the sketch" },
+    { "stage": "plan-approved", "checkpoint": null, "steps": ["bones", "constraints"], "by": "user", "at": "2026-11-12T10:30:00Z", "verbatim": "yes, re-run those two" },
+    { "stage": "rigging", "checkpoint": "constraints", "by": "user", "at": "2026-11-12T15:00:00Z", "verbatim": "better" },
+    { "stage": "rig-review", "checkpoint": null, "by": "user", "at": "2026-11-13T09:15:00Z", "verbatim": "yes, that's her" },
+    { "stage": "post-interview", "checkpoint": null, "by": "user", "at": "2026-11-13T10:30:00Z", "verbatim": "go" },
+    { "stage": "direction-review", "checkpoint": null, "by": "user", "at": "2026-11-15T11:00:00Z", "verbatim": "done, I like it" }
+  ],
+  "interview": {
+    "question_set": "rig-create/interview@0 (waypoints read from @rig-c/parts 2.2.0)",
+    "held": true,
+    "date": "2026-11-10",
+    "interviewer": "agent",
+    "respondent": "user",
+    "framing": [
+      {
+        "id": "rig_type",
+        "text": "What is this: a character rig (standing idle / complex motion / a monster with its own moves) or a full-screen scene (minimal motion: breath, blink / motion tied to game logic)?",
+        "source": "rig-create",
+        "required_for": ["all"],
+        "answer": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-10T14:01:00Z",
+          "verbatim": "A standing character, idle. She holds a lantern.",
+          "value": "character.idle",
+          "source": "interview, chat"
+        },
+        "history": []
+      },
+      {
+        "id": "reference",
+        "text": "'Make it feel like this': a video, an existing demo, a game you have in mind?",
+        "source": "rig-create",
+        "required_for": ["all"],
+        "answer": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-10T14:02:00Z",
+          "verbatim": "None.",
+          "value": "none",
+          "source": "interview, chat"
+        },
+        "history": []
+      }
+    ],
+    "waypoints": [
+      {
+        "id": "seethrough",
+        "config": ["seethrough"],
+        "prompts": [
+          {
+            "id": "x_layers",
+            "text": "Is there anything the layer split must keep together or keep apart: a hat with the head, a held object on its own?",
+            "source": "rig-create",
+            "required_for": ["all"]
+          }
+        ],
+        "guide": {
+          "delegated": true,
+          "by": "user",
+          "at": "2026-11-10T14:03:00Z",
+          "verbatim": "auto",
+          "source": "interview, chat",
+          "agent_decision": {
+            "value": { "passes": ["full", "head"], "head_box": "her face and the hair tail's root, from the painting" },
+            "by": "agent",
+            "at": "2026-11-10T15:10:00Z",
+            "reasoning": "Blink needs the eyelids as their own layers; at full-figure resolution the face is too small for the split to find them. The lantern is far enough from the body that the full pass separates it on its own."
+          }
+        },
+        "history": []
+      },
+      {
+        "id": "assemble",
+        "config": ["assemble", "limbs", "scene", "waist", "alternates"],
+        "prompts": [
+          {
+            "id": "split_granularity",
+            "text": "How finely should it be cut?",
+            "source": "rig-create",
+            "required_for": ["all"]
+          },
+          {
+            "id": "split_emphasis",
+            "text": "Which parts matter most: more detail, or kept exactly as painted?",
+            "source": "rig-create",
+            "required_for": ["all"]
+          }
+        ],
+        "guide": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-10T14:06:00Z",
+          "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you.",
+          "value": {
+            "split_granularity": "standard",
+            "split_emphasis": [
+              { "part": "face", "want": "untouched" },
+              { "part": "lantern", "want": "own part" }
+            ]
+          },
+          "source": "interview, chat",
+          "agent_decision": {
+            "covers": "the part list beyond what the sentence names, and the draw order",
+            "value": [
+              "background", "lighthouse", "coat_tail_l", "coat_tail_r", "legs", "torso",
+              "upperarm_l", "forearm_l", "hand_l", "scarf", "head", "hair_tail", "hair_front",
+              "eyelids_l", "eyelids_r", "upperarm_r", "forearm_r", "hand_r", "lantern"
+            ],
+            "by": "agent",
+            "at": "2026-11-10T15:25:00Z",
+            "reasoning": "Standard cut: limbs at shoulder, elbow and wrist; the coat tails and scarf as their own parts because the constraints guide puts wind on them; the hair tail its own part for the same reason. Nothing is cut below the knee because nothing there moves."
+          }
+        },
+        "history": []
+      },
+      {
+        "id": "bones",
+        "config": ["bones"],
+        "prompts": [
+          {
+            "id": "x_chains",
+            "text": "What moves on its own: hair strands, coat tails, sleeves, held things?",
+            "source": "rig-create",
+            "required_for": ["all"]
+          }
+        ],
+        "guide": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-10T14:09:00Z",
+          "verbatim": "A chain down the scarf, one in each coat tail, one in her hair tail.",
+          "value": [
+            { "chain": "scarf" },
+            { "chain": "coat_tail_l" },
+            { "chain": "coat_tail_r" },
+            { "chain": "hair_tail" }
+          ],
+          "source": "interview, chat",
+          "additions": [
+            {
+              "by": "user",
+              "at": "2026-11-12T09:30:00Z",
+              "verbatim": "It should hang from her hand and swing on its own.",
+              "value": [{ "hinge": "lantern", "from": "hand_r" }],
+              "source": "polish feedback, v1"
+            }
+          ]
+        },
+        "history": []
+      },
+      {
+        "id": "meshes",
+        "config": ["meshes", "regions"],
+        "prompts": [
+          {
+            "id": "x_deform",
+            "text": "What must bend smoothly as one piece, and what must stay rigid?",
+            "source": "rig-create",
+            "required_for": ["all"]
+          }
+        ],
+        "guide": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-10T14:11:00Z",
+          "verbatim": "The coat is one piece that bends with her breath. Face and lantern stay rigid.",
+          "value": {
+            "meshes": ["torso"],
+            "rigid": ["head", "lantern"]
+          },
+          "source": "interview, chat"
+        },
+        "history": []
+      },
+      {
+        "id": "constraints",
+        "config": ["constraints", "stops", "cloth"],
+        "prompts": [
+          {
+            "id": "split_effects",
+            "text": "Which parts have special effects (sway on physics, move in wind, jiggle, glow, flicker), and how far do they move?",
+            "source": "rig-create",
+            "required_for": ["all"]
+          }
+        ],
+        "guide": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-10T14:14:00Z",
+          "verbatim": "The scarf and the coat tails move in the wind off the sea, the scarf a little more than the coat. Her hair tail barely moves. Nothing else on physics.",
+          "value": [
+            { "part": "scarf", "effect": "wind", "extent": "a little more than the coat tails" },
+            { "part": "coat_tail_l", "effect": "wind", "extent": "as said" },
+            { "part": "coat_tail_r", "effect": "wind", "extent": "as said" },
+            { "part": "hair_tail", "effect": "wind", "extent": "barely" },
+            { "part": "*", "effect": "still", "extent": "every other part" }
+          ],
+          "source": "interview, chat"
+        },
+        "history": []
+      },
+      {
+        "id": "motion",
+        "config": ["motion"],
+        "prompts": [
+          {
+            "id": "motions",
+            "text": "Which moves? Name each one.",
+            "source": "rig-create",
+            "required_for": [
+              "character.idle",
+              "character.complex",
+              "character.monster",
+              "fullscreen.minimal"
+            ]
+          },
+          {
+            "id": "game_states",
+            "text": "Which states, and what moves it from one to the next?",
+            "source": "rig-create",
+            "required_for": ["fullscreen.game_logic"]
+          }
+        ],
+        "guide": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-10T14:17:00Z",
+          "verbatim": "Breath and blink. The lantern flame flickers.",
+          "value": [
+            { "motion": "breath" },
+            { "motion": "blink" },
+            { "motion": "flame_flicker", "note": "on the lantern part" }
+          ],
+          "source": "interview, chat"
+        },
+        "history": []
+      }
+    ],
+    "post": {
+      "held": true,
+      "date": "2026-11-13",
+      "items": [
+        {
+          "id": "camera_depth",
+          "config": ["turn", "depth"],
+          "text": "Does the view move (a 2.5D head-turn with parallax, a push-in) or is it fixed?",
+          "source": "rig-create",
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-13T10:02:00Z",
+            "verbatim": "A slow push-in, no parallax.",
+            "value": { "camera": "push_in", "depth": false },
+            "source": "post-interview, chat"
+          },
+          "history": []
+        },
+        {
+          "id": "post_timing",
+          "config": [],
+          "text": "How long, does it loop, and where are the beats?",
+          "source": "rig-create",
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-13T10:04:00Z",
+            "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.",
+            "value": { "seconds": 8, "loop": true, "beats": [{ "what": "beam sweep", "when": "near the end" }] },
+            "source": "post-interview, chat"
+          },
+          "history": []
+        },
+        {
+          "id": "post_composition",
+          "config": [],
+          "text": "What is around the figure: background, framing, other figures, light?",
+          "source": "rig-create",
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-13T10:06:00Z",
+            "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
+            "value": { "framing": "lighthouse fully in frame", "light": "as painted" },
+            "source": "post-interview, chat"
+          },
+          "history": []
+        }
+      ]
+    }
+  },
+  "plan": {
+    "drafted_by": "agent",
+    "drafted_at": "2026-11-10T15:40:00Z",
+    "steps": [
+      {
+        "id": "seethrough",
+        "phase": "rig",
+        "order": 1,
+        "does": "Decompose the painting into layers: a full pass and a head pass",
+        "produces": "config seethrough; derived/layers/",
+        "rests_on": ["seethrough"],
+        "bar": "Both passes produce eyelid layers on both eyes; the lantern comes out as its own layer",
+        "checkpoint_proposed": false,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-10T16:00:00Z", "verbatim": "no need", "value": false },
+        "status": "done"
+      },
+      {
+        "id": "assemble",
+        "phase": "rig",
+        "order": 2,
+        "does": "Turn layers into parts, in draw order, limbs cut at their joints; propose the split as an image, one label per part",
+        "produces": "config assemble, limbs; split.proposal_image, split.parts[]",
+        "rests_on": ["assemble", "constraints"],
+        "bar": "Every part the assemble guide names exists (face untouched, lantern its own part); limbs cut at shoulder, elbow, wrist; every part has one label; the setup-pose recomposite matches the painting",
+        "checkpoint_proposed": true,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-10T16:01:00Z", "verbatim": "yes, show me the cut", "value": true },
+        "status": "done"
+      },
+      {
+        "id": "bones",
+        "phase": "rig",
+        "order": 3,
+        "does": "Place the bones; chains on the scarf, both coat tails and the hair tail; a hinge for the lantern under hand_r",
+        "produces": "config bones",
+        "rests_on": ["bones"],
+        "bar": "Exactly the four chains the sentence names, plus the lantern hinge from the v1 feedback; no other chain",
+        "checkpoint_proposed": false,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-10T16:02:00Z", "verbatim": "no", "value": false },
+        "status": "done"
+      },
+      {
+        "id": "meshes",
+        "phase": "rig",
+        "order": 4,
+        "does": "Torso as a weighted mesh; head and lantern as rigid regions; the rest proposed",
+        "produces": "config meshes, regions",
+        "rests_on": ["meshes", "assemble"],
+        "bar": "torso is a mesh; head and lantern are regions; 0 changed pixels inside the face box outside the eyelid masks, every frame",
+        "checkpoint_proposed": false,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-10T16:02:30Z", "verbatim": "no", "value": false },
+        "status": "done"
+      },
+      {
+        "id": "constraints",
+        "phase": "rig",
+        "order": 5,
+        "does": "Wind physics on scarf, coat tails and hair tail; a stop on the lantern hinge; nothing else on physics",
+        "produces": "config constraints, stops",
+        "rests_on": ["constraints", "bones"],
+        "bar": "Only scarf, coat tails, hair tail and the lantern hinge move on physics; the scarf's amplitude is the largest and the hair tail's the smallest; every other part changes 0 pixels from physics",
+        "checkpoint_proposed": true,
+        "checkpoint": {
+          "delegated": true,
+          "by": "user",
+          "at": "2026-11-10T16:03:00Z",
+          "verbatim": "you decide",
+          "source": "plan review, chat",
+          "agent_decision": {
+            "value": true,
+            "by": "agent",
+            "at": "2026-11-10T16:04:00Z",
+            "reasoning": "Physics extents are the item most often sent back; a motion sketch before the build is cheaper than a rebuild after."
+          }
+        },
+        "status": "done"
+      },
+      {
+        "id": "motion",
+        "phase": "rig",
+        "order": 6,
+        "does": "Breath on the torso, blink on the eyelids, flicker on the lantern; render the still-frame check",
+        "produces": "config motion; the still-frame check for rig-review",
+        "rests_on": ["motion", "rig_type"],
+        "bar": "Every loop closes; breath, blink and flicker are each present as a track; the still-frame check renders at a fixed camera",
+        "checkpoint_proposed": false,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-10T16:04:30Z", "verbatim": "no", "value": false },
+        "status": "done"
+      },
+      {
+        "id": "camera",
+        "phase": "post",
+        "order": 7,
+        "does": "A slow push-in over the loop; no depth built",
+        "produces": "the take's camera track",
+        "rests_on": ["camera_depth"],
+        "bar": "The push-in spans the full loop; no layer parallax; no depth sheet is built",
+        "checkpoint_proposed": false,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-13T10:20:00Z", "verbatim": "no", "value": false },
+        "status": "done"
+      },
+      {
+        "id": "timing",
+        "phase": "post",
+        "order": 8,
+        "does": "Eight-second loop; one beam sweep late in the loop",
+        "produces": "the take's length and beat sheet",
+        "rests_on": ["post_timing", "motion"],
+        "bar": "The loop closes at 8.0 s; exactly one beam sweep, starting between 5.5 s and 7.0 s",
+        "checkpoint_proposed": false,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-13T10:21:00Z", "verbatim": "no", "value": false },
+        "status": "done"
+      },
+      {
+        "id": "composition",
+        "phase": "post",
+        "order": 9,
+        "does": "Frame with the whole lighthouse in shot; keep the painting's exposure",
+        "produces": "the take's framing",
+        "rests_on": ["post_composition"],
+        "bar": "The lighthouse is fully in frame on every frame; mean luminance within 2% of the painting's",
+        "checkpoint_proposed": false,
+        "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-13T10:22:00Z", "verbatim": "no", "value": false },
+        "status": "done"
+      }
+    ]
+  },
+  "split": {
+    "label_values": ["physics", "wind", "jiggle", "rigid", "still"],
+    "proposal_image": "evidence/split/proposal.png",
+    "proposed_by": "agent",
+    "proposed_at": "2026-11-11T09:10:00Z",
+    "parts": [
+      { "name": "background", "label": "still", "note": "" },
+      { "name": "lighthouse", "label": "still", "note": "" },
+      { "name": "coat_tail_l", "label": "wind", "note": "" },
+      { "name": "coat_tail_r", "label": "wind", "note": "" },
+      { "name": "legs", "label": "still", "note": "" },
+      { "name": "torso", "label": "still", "note": "moves on the breath track, not on physics" },
+      { "name": "upperarm_l", "label": "still", "note": "" },
+      { "name": "forearm_l", "label": "still", "note": "" },
+      { "name": "hand_l", "label": "still", "note": "" },
+      { "name": "scarf", "label": "wind", "note": "largest amplitude" },
+      { "name": "head", "label": "rigid", "note": "face untouched" },
+      { "name": "hair_tail", "label": "wind", "note": "barely" },
+      { "name": "hair_front", "label": "still", "note": "" },
+      { "name": "eyelids_l", "label": "still", "note": "blink track" },
+      { "name": "eyelids_r", "label": "still", "note": "blink track" },
+      { "name": "upperarm_r", "label": "still", "note": "" },
+      { "name": "forearm_r", "label": "still", "note": "" },
+      { "name": "hand_r", "label": "still", "note": "" },
+      { "name": "lantern", "label": "rigid", "note": "flicker track; hangs from hand_r since v2" }
+    ]
+  },
+  "inputs": [
+    {
+      "path": "inputs/painting.png",
+      "sha256": "dfe043fffb97edc92701b1239e15f026c2b4859cf0065f957f5299303416766b",
+      "bytes": 4183290,
+      "origin": "the user's painting, handed over at the start of the interview"
+    }
+  ],
+  "derived": [
+    {
+      "path": "derived/layers/",
+      "what": "See-through layers, full pass and head pass",
+      "command": "parts layers --config derived/v1/config.json",
+      "inputs": [
+        { "path": "inputs/painting.png", "sha256": "dfe043fffb97edc92701b1239e15f026c2b4859cf0065f957f5299303416766b" }
+      ],
+      "bytes": 61202944
+    },
+    {
+      "path": "derived/v1/config.json",
+      "what": "the rig config v1 was built from",
+      "command": "written by the agent from the guides; sections cited in versions[0].provenance",
+      "inputs": [],
+      "bytes": 18211
+    },
+    {
+      "path": "derived/v2/config.json",
+      "what": "the rig config v2 was built from",
+      "command": "written by the agent from the guides; sections cited in versions[1].provenance",
+      "inputs": [],
+      "bytes": 18740
+    }
+  ],
+  "versions": [
+    {
+      "n": 1,
+      "kind": "rig",
+      "rig_version": null,
+      "at": "2026-11-11T17:30:00Z",
+      "built_by": "agent",
+      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "answers_feedback": [],
+      "changed": "first rig version",
+      "outputs": [
+        { "path": "outputs/v1/skeleton.json", "sha256": "078ac07a231f8f2749edf4906c1517dc8df04c1cc59866dfb7507f2aba4ce8f3", "bytes": 212998 },
+        { "path": "outputs/v1/atlas.png", "sha256": "347f9f67ca9ba2cb4f09e82a73a7d1d9a8d15fc9b073bd3863f89ecf9e9194be", "bytes": 3902211 }
+      ],
+      "evidence": [
+        { "path": "evidence/v1/still-frame.png", "sha256": "c15f4c3fefb52f482778c20836a4dab5dce16947e089db0f0b595d9f5eb5b4e3", "what": "the rig at the fixed camera, mid-loop, used at rig-review" }
+      ],
+      "provenance": {
+        "config": { "path": "derived/v1/config.json", "sha256": "d198cadf6e02c011f11be5ba47f8253e7787424320a234018f10ada419a7b14a" },
+        "sections": {
+          "seethrough": [
+            { "entry": "*", "guide": "seethrough", "delegated": true }
+          ],
+          "assemble": [
+            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part." },
+            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted." },
+            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true }
+          ],
+          "limbs": [
+            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints." }
+          ],
+          "bones": [
+            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf" },
+            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail" },
+            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail" }
+          ],
+          "meshes": [
+            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath." }
+          ],
+          "regions": [
+            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid." },
+            { "entry": "every other part", "guide": "assemble", "delegated": true }
+          ],
+          "constraints": [
+            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat" },
+            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea" },
+            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves." }
+          ],
+          "motion": [
+            { "entry": "breath", "guide": "motion", "quote": "Breath" },
+            { "entry": "blink", "guide": "motion", "quote": "blink" },
+            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." },
+            { "entry": "duration", "guide": "rig_type", "delegated": true }
+          ]
+        }
+      },
+      "verdicts": [
+        {
+          "by": "user",
+          "at": "2026-11-12T09:30:00Z",
+          "review": "rig-review",
+          "verdict": "bounced",
+          "verbatim": "The lantern swings with the whole arm, like it's glued to her hand. It should hang from her hand and swing on its own. And the scarf whips around too hard; I said a little more than the coat, not a flag.",
+          "source": "chat",
+          "on_items": [
+            { "id": "bones", "answer_was": "not-asked" },
+            { "id": "constraints", "answer_was": "user" }
+          ]
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "kind": "rig",
+      "rig_version": null,
+      "at": "2026-11-12T18:00:00Z",
+      "built_by": "agent",
+      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "answers_feedback": [{ "version": 1, "verdict": 0 }],
+      "changed": "The lantern hangs from hand_r on its own hinge bone with a stop (new bones guide sentence from v1 feedback); the scarf's wind amplitude reduced to just above the coat tails'",
+      "outputs": [
+        { "path": "outputs/v2/skeleton.json", "sha256": "bccbb57626e8c212cab40596abc9584148bcb8d4dc2215a1de92e4c2cc3c4dba", "bytes": 214106 },
+        { "path": "outputs/v2/atlas.png", "sha256": "0f036ba3966425678ac8d4fd7d9c115effcaeb79159a75c05a07b1a0eb3a9666", "bytes": 3902211 }
+      ],
+      "evidence": [
+        { "path": "evidence/v2/still-frame.png", "sha256": "dc859658e5c8b4cbd66d10d85a5780649e9679be4c4717e3878487925913a55f", "what": "the rig at the fixed camera, mid-loop, used at rig-review" }
+      ],
+      "provenance": {
+        "config": { "path": "derived/v2/config.json", "sha256": "16d9ef7330ff8dd3642d2d7fecbe1979aae55e8ea5a35859cd4061b18989592a" },
+        "sections": {
+          "seethrough": [
+            { "entry": "*", "guide": "seethrough", "delegated": true }
+          ],
+          "assemble": [
+            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part." },
+            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted." },
+            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true }
+          ],
+          "limbs": [
+            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints." }
+          ],
+          "bones": [
+            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf" },
+            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail" },
+            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail" },
+            { "entry": "lantern_hinge", "guide": "bones", "quote": "It should hang from her hand and swing on its own." }
+          ],
+          "meshes": [
+            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath." }
+          ],
+          "regions": [
+            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid." },
+            { "entry": "every other part", "guide": "assemble", "delegated": true }
+          ],
+          "constraints": [
+            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat" },
+            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea" },
+            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves." },
+            { "entry": "lantern_hinge_physics", "guide": "bones", "quote": "swing on its own" }
+          ],
+          "stops": [
+            { "entry": "lantern_hinge", "guide": "bones", "delegated": true }
+          ],
+          "motion": [
+            { "entry": "breath", "guide": "motion", "quote": "Breath" },
+            { "entry": "blink", "guide": "motion", "quote": "blink" },
+            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." },
+            { "entry": "duration", "guide": "rig_type", "delegated": true }
+          ]
+        }
+      },
+      "verdicts": [
+        {
+          "by": "user",
+          "at": "2026-11-13T09:15:00Z",
+          "review": "rig-review",
+          "verdict": "accepted",
+          "verbatim": "yes, that's her",
+          "source": "chat",
+          "on_items": []
+        }
+      ]
+    },
+    {
+      "n": 3,
+      "kind": "post",
+      "rig_version": 2,
+      "at": "2026-11-14T16:00:00Z",
+      "built_by": "agent",
+      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "answers_feedback": [],
+      "changed": "first post version on rig v2",
+      "outputs": [
+        { "path": "outputs/v3/take.mp4", "sha256": "5215feb4d65bf48cbf0bf38e069ac35a0b73b579c8b2b2ea09a333c60a612865", "bytes": 22841103 }
+      ],
+      "evidence": [
+        { "path": "evidence/v3/beat-sheet.png", "sha256": "9379cc453a56cf8370a5ca9939d661f2383edd9089d510a978cb09532db4945d", "what": "frames at 0, 2, 4, 6 and 8 s with the beam sweep marked" }
+      ],
+      "provenance": {
+        "config": { "path": "derived/v3/take.json", "sha256": "4cd0f57549e7c463383ea7fd68f736558706cc4aa77a6d013fa423c5a8ae47c7" },
+        "sections": {
+          "camera": [
+            { "entry": "push_in", "guide": "camera_depth", "quote": "A slow push-in, no parallax." }
+          ],
+          "timing": [
+            { "entry": "duration 8 s, loop", "guide": "post_timing", "quote": "Eight seconds, looping." },
+            { "entry": "beam_sweep", "guide": "post_timing", "quote": "The beam sweeps past once, near the end." }
+          ],
+          "framing": [
+            { "entry": "crop", "guide": "post_composition", "quote": "Keep the whole lighthouse in frame." },
+            { "entry": "exposure", "guide": "post_composition", "quote": "don't brighten it" }
+          ]
+        }
+      },
+      "verdicts": [
+        {
+          "by": "user",
+          "at": "2026-11-14T18:40:00Z",
+          "review": "direction-review",
+          "verdict": "bounced",
+          "verbatim": "The beam sweeps right at the start. I said near the end.",
+          "source": "chat",
+          "on_items": [
+            { "id": "post_timing", "answer_was": "user" }
+          ]
+        }
+      ]
+    },
+    {
+      "n": 4,
+      "kind": "post",
+      "rig_version": 2,
+      "at": "2026-11-15T10:00:00Z",
+      "built_by": "agent",
+      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "answers_feedback": [{ "version": 3, "verdict": 0 }],
+      "changed": "beam sweep moved to start at 6.2 s",
+      "outputs": [
+        { "path": "outputs/v4/take.mp4", "sha256": "7a23b6f0df77a5b4e82f85eca806f10ec70475b71800f6741ca7d61e312dba93", "bytes": 22839877 }
+      ],
+      "evidence": [
+        { "path": "evidence/v4/beat-sheet.png", "sha256": "51731f17808dece75bb165c8e5d695bf791ad5b2621aa91849deb38e168de318", "what": "frames at 0, 2, 4, 6 and 8 s with the beam sweep marked" }
+      ],
+      "provenance": {
+        "config": { "path": "derived/v4/take.json", "sha256": "a254add3c9b992eda452000bc8fa8828d33506fd70fcbf871893e448efe2f5dc" },
+        "sections": {
+          "camera": [
+            { "entry": "push_in", "guide": "camera_depth", "quote": "A slow push-in, no parallax." }
+          ],
+          "timing": [
+            { "entry": "duration 8 s, loop", "guide": "post_timing", "quote": "Eight seconds, looping." },
+            { "entry": "beam_sweep at 6.2 s", "guide": "post_timing", "quote": "near the end" }
+          ],
+          "framing": [
+            { "entry": "crop", "guide": "post_composition", "quote": "Keep the whole lighthouse in frame." },
+            { "entry": "exposure", "guide": "post_composition", "quote": "don't brighten it" }
+          ]
+        }
+      },
+      "verdicts": [
+        {
+          "by": "user",
+          "at": "2026-11-15T11:00:00Z",
+          "review": "direction-review",
+          "verdict": "accepted",
+          "verbatim": "done, I like it",
+          "source": "chat",
+          "on_items": []
+        }
+      ]
+    }
+  ],
+  "archive": null,
+  "notes": [
+    "A made-up painting and a made-up conversation, for the shape of the record only."
+  ]
+}

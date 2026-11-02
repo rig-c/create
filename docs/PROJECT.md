@@ -75,9 +75,9 @@ which stages end on a sign-off are written once, in `src/stages.ts`;
 | `interview` | 1 | Framing answers and a guide at every rig waypoint the plan passes ([INTERVIEW.md](INTERVIEW.md)): the user's sentences, a delegation ("auto"), or not applicable — never left for the agent to fill. | The user signs `{ "stage": "interview" }`. |
 | `plan-approved` | 1 | The rig steps (`phase: "rig"`) are drafted from the guides, with the agent's decision written on every delegated item. The user sets each step's checkpoint and signs. | `{ "stage": "plan-approved" }`. |
 | `rigging` | 1 | The rig steps run in order; each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. | The last rig step's bar is met. |
-| `rig-review` | 1 → 3 | **First review, on a still frame**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version. |
+| `rig-review` | 1 → 3 | **First review, on a still frame**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version: an `accepted` verdict with `review: "rig-review"` on it, resting on its still frame, and `{ "stage": "rig-review" }` signed ([below](#the-rig-review-rests-on-a-still-frame)). |
 | `post-interview` | 2 | The post items (camera and 2.5D, timing, composition) are asked, and the post steps (`phase: "post"`) drafted from them. | The user signs `{ "stage": "post-interview" }` — guides and post steps together. |
-| `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it). | The last post step's bar is met. |
+| `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it); post tooling asks `rig-create handoff` first ([below](#the-hand-off-to-post-production)). | The last post step's bar is met. |
 | `direction-review` | 2 → 3 | **Second review, direction**: camera, depth, timing, framing. Same feedback rule. | The user accepts one post version. |
 | `accepted` | — | Done. If finals go somewhere else, `archive` says where. | — |
 | `paused` | — | Work stopped by a human sign-off. Resuming starts at the first stage whose sign-off is missing. | — |
@@ -89,6 +89,61 @@ depth complaint cannot bounce a correct rig. `post-interview` mirrors
 so they are not asked about a rig that may still change. A rig change after
 `rig-review` means a new rig version and a new first review, and the post
 version built on the old rig is redone on the new one.
+
+### The rig review rests on a still frame
+
+The rig is accepted at `rig-review` by **one verdict on one version**: a
+human `verdicts[]` entry with `"review": "rig-review"` and `"verdict":
+"accepted"` on a `kind: "rig"` version. The `{ "stage": "rig-review" }`
+sign-off moves the stage; the verdict names the version. They are the same
+act and are written in the same turn (the sign-off has no version field
+because the verdict already carries `by`, `at` and `verbatim` on the version
+it is about — a second copy would be a second place for one decision).
+
+That acceptance rests on a **still-frame record** in the same version's
+`evidence[]`:
+
+```json
+{ "kind": "still", "path": "evidence/v2/still-frame.png", "sha256": "…", "camera": "fixed", "frame": 2, "what": "the rig at the fixed camera, posed 2 s into the loop" }
+```
+
+| Field | Holds |
+| --- | --- |
+| `kind` | `"still"` — what marks this entry as the rig review's frame; other evidence entries may leave `kind` out |
+| `path`, `sha256` | the image under `evidence/v<N>/` and its 64-hex sha256 |
+| `camera` | `"fixed"`: no camera move, no parallax, no post-production; any other value is not a still frame |
+| `frame` | the time in seconds into the motion the rig is posed at; `0` for the setup pose |
+| `what` | what it shows, in words |
+
+This repository does not render the still: rig-c/core and rig-c/review render,
+the agent records the file here. An acceptance with no such record is refused
+(`RIG_ACCEPTED_WITHOUT_STILL`, [CHECKS.md](CHECKS.md)); a bounce needs none to
+be recorded, though what it rested on still goes in `evidence/`.
+
+**A rig changed after `rig-review`** is a new rig version, and the project is
+back at `rig-review` for it: past that stage, the latest rig version must carry
+its own acceptance (`RIG_VERSION_UNACCEPTED`). Once it is accepted, the post
+version built on the old rig is redone on the new one — the current (latest)
+post version naming an older accepted rig is refused (`POST_ON_SUPERSEDED_RIG`);
+earlier post versions are history and are left as they are. This is a refusal,
+not a warning: a direction review of a take built on a rig the user has since
+replaced would accept something that no longer matches the rig.
+
+### The hand-off to post-production
+
+```
+rig-create handoff [<project dir>] [--rig <n>] [--json]
+```
+
+Post-production tooling runs this before it runs. It exits `0` and prints the
+one rig version post work may run on — the latest accepted rig version, with
+its acceptance and its still frame — and exits `1` with a named refusal when
+there is none: no `rig-review` sign-off (`RIG_REVIEW_UNSIGNED`), no accepted
+rig version or a newer rig version not yet reviewed (`RIG_VERSION_UNACCEPTED`),
+an acceptance with no still frame (`RIG_ACCEPTED_WITHOUT_STILL`). With
+`--rig <n>` it also refuses when `<n>` is not that version
+(`POST_ON_UNACCEPTED_RIG`, `POST_ON_SUPERSEDED_RIG`). The `n` it prints is what
+the post version's `rig_version` holds. It reads the record and writes nothing.
 
 **When post is not passed.** If every post item is answered *not applicable* in
 `post-interview` (a collection member whose composition belongs to the
@@ -168,12 +223,12 @@ both kinds:
 | --- | --- |
 | `n` | the version number, `1, 2, …` |
 | `kind` | `rig` or `post` |
-| `rig_version` | for a post version, the `n` of the accepted rig it is built on; `null` for a rig version |
+| `rig_version` | for a post version, the `n` of the accepted rig it is built on (accepted before the post version's `at`); `null` for a rig version |
 | `at`, `built_by`, `built_with` | when, which agent or tool, and the package versions used (`{ "@rig-c/parts": "…", "@rig-c/core": "…" }`) |
 | `answers_feedback` | the verdicts this version answers: `[{ "version", "verdict" }]` (version number and index into its `verdicts[]`); empty for a first version |
 | `changed` | what changed from the previous version of the same kind, in a sentence |
 | `outputs` | `outputs/v<N>/` files with sha256 and size, frozen when shown |
-| `evidence` | `evidence/v<N>/` files with sha256 and what each shows |
+| `evidence` | `evidence/v<N>/` files with sha256 and what each shows; on a rig version accepted at `rig-review`, one is the still-frame record (`kind: "still"`, `camera: "fixed"`, `frame`) |
 | `provenance` | the config this version was built from and, per section, its citations |
 | `verdicts` | what people said: `by`, `at`, `review`, `verdict` (`accepted`, `bounced`, `provisional`), `verbatim`, `source`, `on_items[]` |
 

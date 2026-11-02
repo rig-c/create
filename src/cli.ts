@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { HANDOFF_HELP, handoffCommand } from './review.ts';
 
 const HELP = `rig-create — create and run a rig project
 
@@ -12,6 +13,8 @@ Usage:
   rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
   rig-create interview --check [<project dir>] [--json]
                                                     refuse by name every hole the interview and plan still have
+  rig-create handoff [<project dir>] [--rig <n>] [--json]
+                                                    name the accepted rig version post work runs on, or refuse
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
@@ -20,6 +23,8 @@ init:
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
 
 ${INTERVIEW_HELP}
+
+${HANDOFF_HELP}
 `;
 
 /** A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1). */
@@ -60,6 +65,7 @@ function initCommand(args: string[]): string {
 const COMMANDS: Record<string, Command> = {
   init: initCommand,
   interview: interviewCommand,
+  handoff: handoffCommand,
 };
 
 export function main(argv: string[]): number {

@@ -1,8 +1,8 @@
 /**
  * The project's stages, in order, and how each one is left — the one place the
  * order is written (docs/PROJECT.md § Stages). `interview --check` reads it;
- * rig-c/create#8 (review order, post hand-off) extends it here rather than in
- * the checker.
+ * the review order and the post hand-off (src/review.ts) read `REVIEW_ACCEPTS`
+ * below rather than naming stages themselves.
  *
  * `closed_by`:
  * - `signoff`: the stage ends only on a human `signoffs[]` entry naming it
@@ -61,3 +61,17 @@ export function stageOfPhase(phase: 'rig' | 'post'): string {
 export function stageIndex(id: string): number {
   return STAGES.findIndex((s) => s.id === id);
 }
+
+/**
+ * The two reviews and the version kind each one accepts (PROJECT.md § Stages):
+ * `rig-review` accepts one `kind: "rig"` version on its still frame, and post
+ * work runs only on it; `direction-review` accepts one `kind: "post"` version.
+ * A verdict's `review` names one of these keys.
+ */
+export const REVIEW_ACCEPTS: Readonly<Record<'rig-review' | 'direction-review', 'rig' | 'post'>> = {
+  'rig-review': 'rig',
+  'direction-review': 'post',
+};
+
+/** The review that accepts the rig version post work runs on. */
+export const RIG_REVIEW = 'rig-review' satisfies keyof typeof REVIEW_ACCEPTS;

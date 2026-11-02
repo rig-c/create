@@ -262,7 +262,9 @@ judged for them. They are not rig waypoints. Their guides are asked when
 `post-interview` opens, after the rig has passed `rig-review`, in the same
 answer shape and under the same rule: every post item the plan passes carries a
 sentence or a delegation. Asking them earlier would ask about a rig that may
-still change.
+still change. "Accepted" means one rig version accepted at `rig-review` on its
+still frame; the post work runs on that version, which `rig-create handoff`
+names ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-to-post-production)).
 
 | id | Config sections | Prompt | What the agent decides there | Guide sentence, example |
 | --- | --- | --- | --- | --- |

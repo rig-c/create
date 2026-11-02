@@ -111,7 +111,35 @@ Exit `1`. Each names its object in `path`.
 | `SIGNOFF_AHEAD_OF_STAGE` | a sign-off names a stage later than the project's `stage` | move the stage, or remove the entry that was never given |
 | `SIGNOFF_UNKNOWN_CHECKPOINT` | a sign-off's `checkpoint` names no step of that stage's phase | name the step |
 | `STAGE_UNSIGNED` | the project's `stage` is past a stage that ends on a sign-off, and no `{ "stage": <it>, "checkpoint": null }` entry exists | the person signs it, or the stage goes back to where the signatures reach |
+| `VERSION_MALFORMED` | a `versions[]` entry has no integer `n`, a `kind` other than `rig` / `post`, or a rig version has a non-null `rig_version` | fix the entry ([PROJECT.md § Versions](PROJECT.md#versions)) |
+| `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review rests on a still frame](PROJECT.md#the-rig-review-rests-on-a-still-frame)); it does not count as a still until it is |
+| `RIG_ACCEPTED_WITHOUT_STILL` | a rig version has a human `accepted` verdict at `rig-review` and no well-formed still-frame record in its `evidence[]` | record the still the user accepted on (rig-c/core or rig-c/review renders it) |
+| `POST_ON_UNACCEPTED_RIG` | a post version's `rig_version` is not an integer, names no rig version, names one with no human `accepted` rig-review verdict, or the post version was built (`at`) before that acceptance | build post work on the accepted rig version; `rig-create handoff` names it |
+| `RIG_VERSION_UNACCEPTED` | the stage is past `rig-review` and the latest rig version has no accepted rig-review verdict (or there is no rig version) | a rig change after rig-review is a new first review: move the stage back to `rig-review` and review the new rig on its still frame |
+| `POST_ON_SUPERSEDED_RIG` | the latest post version is on an accepted rig version older than the latest accepted one | redo the post work on the new rig, as a new post version |
 | `PAUSED_UNSIGNED` | `stage` is `paused` with no `{ "stage": "paused" }` sign-off | the person who stopped it signs |
+
+## The hand-off command
+
+```
+rig-create handoff [<project dir>] [--rig <n>] [--json]
+```
+
+What post-production tooling runs before it runs
+([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-to-post-production)).
+Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
+`accepted`, `still`); exit `1` prints the first refusal on stderr as
+`rig-create: CODE: message`; exit `2` on a usage error (`HANDOFF_RIG_INVALID`,
+`HANDOFF_TOO_MANY_ARGUMENTS`, `UNKNOWN_OPTION`).
+
+| Code | Fires when |
+| --- | --- |
+| `PROJECT_JSON_MISSING`, `PROJECT_JSON_INVALID` | as above |
+| `RIG_REVIEW_UNSIGNED` | no human `{ "stage": "rig-review", "checkpoint": null }` sign-off |
+| `RIG_VERSION_UNACCEPTED` | no rig version has an accepted rig-review verdict, or a newer rig version than the accepted one has none |
+| `RIG_ACCEPTED_WITHOUT_STILL` | the accepted rig version has no still-frame record |
+| `POST_ON_UNACCEPTED_RIG` | `--rig <n>` names no rig version, or one never accepted |
+| `POST_ON_SUPERSEDED_RIG` | `--rig <n>` names a rig version accepted before the current one |
 
 ## Warnings
 

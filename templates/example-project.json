@@ -510,7 +510,7 @@
         { "path": "outputs/v1/atlas.png", "sha256": "347f9f67ca9ba2cb4f09e82a73a7d1d9a8d15fc9b073bd3863f89ecf9e9194be", "bytes": 3902211 }
       ],
       "evidence": [
-        { "path": "evidence/v1/still-frame.png", "sha256": "c15f4c3fefb52f482778c20836a4dab5dce16947e089db0f0b595d9f5eb5b4e3", "what": "the rig at the fixed camera, mid-loop, used at rig-review" }
+        { "kind": "still", "path": "evidence/v1/still-frame.png", "sha256": "c15f4c3fefb52f482778c20836a4dab5dce16947e089db0f0b595d9f5eb5b4e3", "camera": "fixed", "frame": 2, "what": "the rig at the fixed camera, posed 2 s into the loop, used at rig-review" }
       ],
       "provenance": {
         "config": { "path": "derived/v1/config.json", "sha256": "d198cadf6e02c011f11be5ba47f8253e7787424320a234018f10ada419a7b14a" },
@@ -580,7 +580,7 @@
         { "path": "outputs/v2/atlas.png", "sha256": "0f036ba3966425678ac8d4fd7d9c115effcaeb79159a75c05a07b1a0eb3a9666", "bytes": 3902211 }
       ],
       "evidence": [
-        { "path": "evidence/v2/still-frame.png", "sha256": "dc859658e5c8b4cbd66d10d85a5780649e9679be4c4717e3878487925913a55f", "what": "the rig at the fixed camera, mid-loop, used at rig-review" }
+        { "kind": "still", "path": "evidence/v2/still-frame.png", "sha256": "dc859658e5c8b4cbd66d10d85a5780649e9679be4c4717e3878487925913a55f", "camera": "fixed", "frame": 2, "what": "the rig at the fixed camera, posed 2 s into the loop, used at rig-review" }
       ],
       "provenance": {
         "config": { "path": "derived/v2/config.json", "sha256": "16d9ef7330ff8dd3642d2d7fecbe1979aae55e8ea5a35859cd4061b18989592a" },

@@ -1,0 +1,52 @@
+# rig-c/create
+
+**Every rig starts as a project, and every project starts with the user's direction.**
+
+This repository is where the rig-c project layer is built: the folder a rig is made
+in, the interview that comes before any rigging, the plan the user signs, and the
+guide an agent reads before it touches anything. It does not cut parts
+([rig-c/parts](https://github.com/rig-c/parts) does) and it does not compile or
+gate rigs ([rig-c/core](https://github.com/rig-c/core) does). It decides *what* and
+*why*; those packages do *how*.
+
+## Why it exists
+
+An agent rigging a painting passes through the same places every time: the layer
+split, the cut of each part, the bones, what deforms and what stays rigid, what
+gets physics or wind, which motions it plays. Left alone at each of those places,
+it guesses — and a guessed direction is only found out when a person watches the
+result and sends it back. A precise direction, given before the work, is done in
+one pass.
+
+So the user gives direction at those places, in their own sentences, before the
+work starts:
+
+1. **Base motion** — the cut, the bones, what deforms, physics, the motions.
+   Reviewed on a still frame, the rig alone.
+2. **Direction** — camera, depth and timing, applied after the rig is accepted.
+   Reviewed as a take.
+3. **Polish** — what the user says after seeing a result, kept word for word and
+   tied to the place it is about.
+
+Choosing "auto" at any place is allowed. It is recorded as the user handing that
+decision to the agent, never left blank for the agent to fill.
+
+## What will live here
+
+- A project scaffold: one folder per rig, one record of its direction, sign-offs
+  and versions, and data split by lifetime (inputs and evidence kept; derived data,
+  outputs and scratch rebuilt or discarded).
+- The interview, organised by the places the rig work always passes through.
+- Translation of the user's sentences into checks the rig must keep, enforced by
+  rig-c's `invariants` and named failures.
+- Collections: several rigs that belong together, sharing direction and pinned to
+  exact member builds.
+- The guide an agent starts from, pointing at the installed packages' own
+  documentation rather than copying it.
+
+Nothing is published yet. The structure is being piloted by hand first; the issues
+here track what moves in, in order.
+
+## Licence
+
+[MIT](LICENSE).

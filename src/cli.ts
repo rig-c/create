@@ -7,6 +7,7 @@ import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
 import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 
 const HELP = `rig-create — create and run a rig project
@@ -20,6 +21,8 @@ Usage:
                                                     refuse by name every hole the interview and plan still have
   rig-create handoff [<project dir>] [--rig <n>] [--json]
                                                     name the accepted rig version post work runs on, or refuse
+  rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s> [--item <id>[:<answer_was>]]... [<project dir>]
+                                                    record what a person said about a shown version, word for word
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
@@ -31,6 +34,8 @@ ${INTERVIEW_HELP}
 
 ${HANDOFF_HELP}
 ${COLLECTION_HELP}
+
+${REVIEW_HELP}
 `;
 
 /** A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1). */
@@ -81,6 +86,7 @@ const COMMANDS: Record<string, Command> = {
   interview: interviewCommand,
   handoff: handoffCommand,
   collection: collectionCommand,
+  review: reviewCommand,
 };
 
 export function main(argv: string[]): number {

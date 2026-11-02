@@ -12,7 +12,8 @@ report as one object — `ok`, `stage`, `effective_stage`, `parts` (version and
 where the sections were read from), `derived` (the waypoint and post item ids
 derived from parts), `provenance[]` (per version checked: `version`, `kind`,
 `config_path`, `config` — whether the config file was read, below — and the
-`sections` checked), `refusals[]` and `warnings[]`, each `{ code, path, message }`
+`sections` checked), `feedback[]` (per human bounced verdict, § Polish
+feedback), `refusals[]` and `warnings[]`, each `{ code, path, message }`
 — for agents and later checks to read.
 
 The contract it checks is [INTERVIEW.md](INTERVIEW.md) and
@@ -110,6 +111,37 @@ each config section cites the guide sentence or the delegation it rests on.
   well as the current answer: a version built before an answer was replaced
   was built from the answer as it was then.
 
+## Polish feedback
+
+Every verdict in `versions[].verdicts[]` is read against
+[INTERVIEW.md § Polish feedback](INTERVIEW.md#polish-feedback).
+
+- **Which feedback needs an answer.** A human (`by` not `agent`) `bounced`
+  verdict, unless a later human `accepted` verdict of the same review on the
+  same version withdrew it (the last human verdict decides, as for
+  acceptance). `provisional` holds a place and needs none.
+- **What answers it.** Any later version (higher `n`) whose `answers_feedback`
+  lists `{ "version": <n>, "verdict": <index> }`. Any kind, not only the same
+  kind: rig feedback given at the direction review is answered by a new rig
+  version. With a later version built and none listing it, it is a refusal
+  (`FEEDBACK_UNANSWERED`); with no later version yet it is open work, a warning
+  (`FEEDBACK_OPEN`) — the record is truthful and the next build is simply not
+  made, and a refusal there would fail the check between every bounce and its
+  rebuild.
+- **A `not-asked` item** needs an `additions[]` entry at that answer (current or
+  `history[]`) with `source: "polish feedback, v<n>"` whose `verbatim` is a
+  fragment of the verdict's `verbatim`.
+- **Counted by cause.** `feedback[]` holds, per bounced verdict, `verdict` (its
+  path), `version`, `index`, `review`, `by`, `at`, `items` (`user`,
+  `delegated`, `not_asked` counts from its `on_items`), `answered_by` (version
+  numbers) and `withdrawn`; the text report prints one line per bounce and the
+  totals. `user` is an agent error, `delegated` a cost the user chose,
+  `not_asked` a gap in the guides.
+- `answer_was` is not re-derived here: the answer may have changed since the
+  verdict (a delegated item the user then answered), and the command that
+  wrote it checked it against the record as it stood ([§ The review
+  command](#the-review-command)).
+
 ## Refusals
 
 Exit `1`. Each names its object in `path`.
@@ -165,6 +197,11 @@ Exit `1`. Each names its object in `path`.
 | `CITATION_GUIDE_SILENT` | an entry's `guide` names an item with no answer | answer the item (it is also reported on its own) |
 | `CITATION_WRONG_PHASE` | a `post` version's entry cites a rig waypoint | cite the post item (or framing answer) it rests on; a rig change is a new rig version |
 | `QUOTE_NOT_FOUND` | an entry's `quote` is in no `verbatim` or `additions[].verbatim` of the cited answer (current or `history[]`) | quote the stored sentence exactly; feedback no guide covered goes into `additions[]` first |
+| `VERDICT_MALFORMED` | a verdict lacks `by`, `at` or `verbatim`, has a `verdict` other than `accepted` / `bounced` / `provisional` or a `review` other than `rig-review` / `direction-review`, `on_items` is not a list, or an item lacks `id` or a valid `answer_was` | write it in the verdict shape ([PROJECT.md § Versions](PROJECT.md#versions)); `rig-create review` writes it |
+| `FEEDBACK_UNANSWERED` | a human bounced verdict on version N, not withdrawn, and a version later than N exists while none lists `{ "version": N, "verdict": i }` in `answers_feedback` | list it in the version built from that feedback, with what changed in `changed`; if the feedback was not acted on, say so to the user — a later version that ignores it is the bounce coming back |
+| `FEEDBACK_REF_UNKNOWN` | an `answers_feedback` entry is not `{ version, verdict }` integers, names no version or no verdict index, or names a version not earlier than its own | point it at the verdict it answers |
+| `FEEDBACK_ITEM_UNKNOWN` | an `on_items[]` id is no framing, waypoint or post item | name the answer the feedback is about; a decision no prompt reaches becomes an `x_` prompt at its waypoint, and the item names that waypoint |
+| `FEEDBACK_NOT_ADDED` | an item is `not-asked` and its answer has no `additions[]` entry with `source: "polish feedback, v<N>"` quoting the verdict | add the sentence to the guide (`rig-create review` does it when it records the verdict) before the next version is built |
 | `DELEGATION_NOT_GIVEN` | an entry is `delegated: true`, and no answer of the cited item (current or `history[]`) is a delegation or carries an `agent_decision` — or the delegation has no `agent_decision` | cite the sentence instead, or ask the user; a user answer is not a delegation unless it left part open and the agent's decision is written beside it |
 
 ## The hand-off command
@@ -189,6 +226,36 @@ Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
 | `POST_ON_UNACCEPTED_RIG` | `--rig <n>` names no rig version, or one never accepted |
 | `POST_ON_SUPERSEDED_RIG` | `--rig <n>` names a rig version accepted before the current one |
 
+## The review command
+
+```
+rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s>
+  [--item <id>[:<answer_was>]]... [--quote <id>=<s>] [--value <id>=<json>] [<project dir>] [--json]
+```
+
+Records one verdict ([INTERVIEW.md § Recording a verdict](INTERVIEW.md#recording-a-verdict)).
+Exit `0` prints what was recorded (with `--json`: `verdict_path`, `verdict`,
+`items[]` with `answer_was`, `how` — `derived` or `named` — and `addition`,
+`stage`); exit `1` prints the refusal on stderr and writes nothing; exit `2` on
+a usage error (`REVIEW_VERSION_INVALID`, `REVIEW_OPTION_MISSING`,
+`REVIEW_OPTION_INVALID`, `REVIEW_TOO_MANY_ARGUMENTS`, `FEEDBACK_ITEM_DUPLICATE`,
+`FEEDBACK_ITEM_AMBIGUOUS`, `FEEDBACK_QUOTE_NOT_IN_VERBATIM`,
+`FEEDBACK_QUOTE_NOT_NOT_ASKED`, `UNKNOWN_OPTION`).
+
+| Code | Fires when |
+| --- | --- |
+| `PROJECT_JSON_MISSING`, `PROJECT_JSON_INVALID` | as above |
+| `REVIEW_VERSION_UNKNOWN` | `versions[]` has no entry with that `n` |
+| `REVIEW_WRONG_KIND` | `--review` does not judge that version's kind (`rig-review` → `rig`, `direction-review` → `post`) |
+| `FEEDBACK_ITEM_UNKNOWN` | `--item` names no framing, waypoint or post item; `review` does not create `x_` prompts |
+| `FEEDBACK_ITEM_CONTRADICTS` | the named `answer_was` is one the record rules out: anything but `delegated` on a delegation, `delegated` on a user sentence with no delegated part |
+| `FEEDBACK_ITEM_AMBIGUOUS` | no `answer_was` is named on a user sentence that left part to the agent; the record cannot choose |
+| `FEEDBACK_ITEM_NOT_APPLICABLE` | the item is answered not applicable; ask it first |
+| `FEEDBACK_ITEM_SILENT` | the item has no answer (or an unreadable one); ask it first |
+| `FEEDBACK_ITEM_INHERITED` | a `not-asked` item is inherited from a collection; the sentence goes in the collection's answer, or the member overrides it first |
+| `FEEDBACK_QUOTE_NOT_IN_VERBATIM` | a `--quote` is empty or not a fragment of `--verbatim` |
+| `FEEDBACK_QUOTE_NOT_NOT_ASKED` | `--quote` / `--value` names an item that is not `not-asked`, or no `--item` |
+
 ## Warnings
 
 Exit `0`. Bookkeeping that names no missing decision.
@@ -200,6 +267,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `SECTION_RETIRED` | the table places a section on a waypoint or post item, but the installed parts no longer has it | drop it from the table and the record's `config[]` |
 | `WAYPOINT_CONFIG_STALE` | a record waypoint's `config[]` is not the set of sections parts places there | regenerate `config[]` |
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
+| `FEEDBACK_OPEN` | the latest version has a human bounced verdict and no version is built after it yet | build the next version and list the verdict in its `answers_feedback` |
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
 
 ## Collections

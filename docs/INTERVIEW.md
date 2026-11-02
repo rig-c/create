@@ -59,11 +59,11 @@ Rules that follow from the table:
 - **A changed answer reopens what rests on it.** Every plan step whose
   `rests_on` names that answer needs the plan signed again before it runs.
 
-A machine check of these rules — refusing by name every waypoint with neither a
-guide nor a delegation, every step that rests on no answer, every stage moved
-without a sign-off — is a later card; this document is the contract it checks.
-Delegation is a pass for that check, never a hole: the refusal fires only on
-silence.
+`rig-create interview --check` is the machine check of these rules — refusing
+by name every waypoint with neither a guide nor a delegation, every step that
+rests on no answer, every stage moved without a sign-off; this document is the
+contract it checks and [CHECKS.md](CHECKS.md) lists its codes. Delegation is a
+pass for that check, never a hole: the refusal fires only on silence.
 
 ## Answer shape
 
@@ -170,16 +170,18 @@ seeing a build. Read from `@rig-c/parts` 2.2.0:
 | Config section | Where it goes | Why |
 | --- | --- | --- |
 | `seethrough` | waypoint `seethrough` | how the painting is decomposed into layers |
-| `assemble`, `limbs`, `scene`, `waist`, `alternates` | waypoint `assemble` | what becomes a part, where the cuts are, what the painting is, which outfit sets exist |
+| `assemble`, `limbs`, `scene`, `waist` | waypoint `assemble` | what becomes a part, where the cuts are, what the painting is, which outfit sets exist (`assemble.alternates` is a field of `assemble`, not a section of its own) |
 | `bones` | waypoint `bones` | where bones sit, which parts get chains |
 | `meshes`, `regions` | waypoint `meshes` | what deforms and what rides rigid |
 | `constraints`, `stops`, `cloth` | waypoint `constraints` | what moves on physics and how far |
 | `motion` | waypoint `motion` | what moves, how far, how fast |
 | `turn`, `depth` | post item `camera_depth` | head-turn and 2.5D depth are direction, asked after the rig is accepted |
-| `key`, `generation`, `proposed_rig_scale`, `requirements`, `motion_seams` | not a waypoint | a name, a record of a run, a value the tool proposes, a path to a checks file, an observation — none is a direction call. `requirements` is where translated guide sentences will land, not where they are asked. |
+| `key`, `generation`, `proposed_rig_scale`, `requirements`, `motion_seams`, `note` | not a waypoint | a name, a record of a run, a value the tool proposes, a path to a checks file, an observation, an annotation — none is a direction call. `requirements` is where translated guide sentences will land, not where they are asked. |
 
 A section that cannot be placed on this table when it appears is a question for
-the user before it is written.
+the user before it is written. The table lives as data in `src/waypoints.ts`,
+and the section list is read from the installed package, so
+`interview --check` refuses such a section by name ([CHECKS.md](CHECKS.md)).
 
 **Every waypoint the plan passes carries a guide — the user's sentences or an
 explicit delegation. Nothing is decided silently.** The guide is one answer in
@@ -328,6 +330,21 @@ The next version's `answers_feedback` lists the verdicts it answers (version
 number and verdict index), and its `changed` says what changed. Feedback on the
 rig given at the direction review goes back to the rig waypoints and makes a
 new rig version, which needs a new first review.
+
+## Checking the interview
+
+```
+rig-create interview --check [<project dir>] [--json]
+```
+
+Before any rigging, and after any change to the record, the check reads
+`project.json` and refuses by name everything still open: a waypoint the plan
+passes with neither a guide nor a delegation, a delegated item the agent has not
+decided while the plan is signed, a plan step resting on no answer, a stage
+moved without its sign-off, a `@rig-c/parts` section the waypoint table does not
+place. It reports every refusal, not the first; exit `0` means the record is
+complete for its stage. The codes, what fires each and how to clear it are in
+[CHECKS.md](CHECKS.md).
 
 ## Questions outside this set
 

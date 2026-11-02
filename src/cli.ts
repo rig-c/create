@@ -3,21 +3,27 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describeInit, initProject } from './init.ts';
+import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 
 const HELP = `rig-create — create and run a rig project
 
 Usage:
-  rig-create init <dir> [--no-install]   create a project folder, its repository and pinned packages
-  rig-create --help                      show this help
-  rig-create --version                   show the version
+  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
+  rig-create interview --check [<project dir>] [--json]
+                                                    refuse by name every hole the interview and plan still have
+  rig-create --help                                 show this help
+  rig-create --version                              show the version
 
 init:
   <dir>          an empty or missing folder; a non-empty one is refused
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
+
+${INTERVIEW_HELP}
 `;
 
-type Command = (args: string[]) => string;
+/** A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1). */
+type Command = (args: string[]) => string | CommandResult;
 
 function version(): string {
   const pkg: unknown = JSON.parse(readFileSync(join(import.meta.dir, '..', 'package.json'), 'utf8'));
@@ -50,9 +56,10 @@ function initCommand(args: string[]): string {
   return describeInit(result);
 }
 
-/** Subcommands by name. `interview` (#3) and init's collection options (#7) plug in here. */
+/** Subcommands by name. init's collection options (#7) plug in here. */
 const COMMANDS: Record<string, Command> = {
   init: initCommand,
+  interview: interviewCommand,
 };
 
 export function main(argv: string[]): number {
@@ -70,8 +77,13 @@ export function main(argv: string[]): number {
     if (command === undefined) {
       refuse('UNKNOWN_COMMAND', `no command named ${first} (see rig-create --help)`, USAGE_EXIT);
     }
-    process.stdout.write(`${command(rest)}\n`);
-    return 0;
+    const result = command(rest);
+    if (typeof result === 'string') {
+      process.stdout.write(`${result}\n`);
+      return 0;
+    }
+    process.stdout.write(`${result.stdout}\n`);
+    return result.exit;
   } catch (error) {
     if (error instanceof Refusal) {
       process.stderr.write(`${formatRefusal(error)}\n`);

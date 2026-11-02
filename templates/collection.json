@@ -98,7 +98,7 @@
       },
       {
         "id": "assemble",
-        "config": ["assemble", "limbs", "scene", "waist", "alternates"],
+        "config": ["assemble", "limbs", "scene", "waist"],
         "prompts": [
           {
             "id": "split_granularity",

@@ -53,6 +53,8 @@ here track what moves in, in order.
   stages and sign-offs, the plan, versions.
 - [docs/INTERVIEW.md](docs/INTERVIEW.md) — the three user steps, answer states
   and shape, waypoints, post-production, provenance, polish feedback.
+- [docs/CHECKS.md](docs/CHECKS.md) — `rig-create interview --check`: every
+  refusal code, what fires it, how to clear it.
 - [docs/COLLECTIONS.md](docs/COLLECTIONS.md) — several rigs that belong together:
   inherited answers, the reference member, composition, pins.
 - [docs/CRAFT.md](docs/CRAFT.md) — craft notes: the default proposed at each

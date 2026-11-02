@@ -65,7 +65,10 @@ work that is expensive to redo; an agent that could advance them would be
 grading its own work.
 
 A project is *in* a stage while that stage's work happens; the sign-off named
-in the last column ends it and moves the project to the next.
+in the last column ends it and moves the project to the next. The order and
+which stages end on a sign-off are written once, in `src/stages.ts`;
+`rig-create interview --check` refuses a stage moved past a missing sign-off
+([CHECKS.md](CHECKS.md)).
 
 | Stage | User step | What happens | Ends with |
 | --- | --- | --- | --- |

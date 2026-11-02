@@ -287,18 +287,32 @@ function readPins(raw: Json | undefined, version: number, refusals: Finding[]): 
       refusals.push({ code: 'PIN_MALFORMED', path: `versions[${version}].pins[${index}]`, message: `versions[n=${version}].pins[${index}]: a pin is { member, version (number or null), rigs[] }` });
       return;
     }
+    // A pin that cannot be compared is malformed, never a silent pass: every rig
+    // carries a non-empty files[] and every file a role, path and sha256.
     const rigs: PinRig[] = [];
-    for (const r of p.rigs) {
-      if (!isObject(r)) continue;
+    let unreadable: string | null = p.rigs.length === 0 ? 'rigs[] is empty' : null;
+    p.rigs.forEach((r, ri) => {
+      if (unreadable !== null) return;
+      if (!isObject(r) || !Array.isArray(r.files) || r.files.length === 0) {
+        unreadable = `rigs[${ri}] has no files[] (each rig is { variant, files[{ role, path, sha256 }] })`;
+        return;
+      }
       const files: PinFile[] = [];
-      for (const f of asArray(r.files)) {
-        if (!isObject(f)) continue;
-        const role = asString(f.role);
-        const path = asString(f.path);
-        const sha256 = asString(f.sha256);
-        if (role !== null && path !== null && sha256 !== null) files.push({ role, path, sha256 });
+      for (const [fi, f] of r.files.entries()) {
+        const role = isObject(f) ? asString(f.role) : null;
+        const path = isObject(f) ? asString(f.path) : null;
+        const sha256 = isObject(f) ? asString(f.sha256) : null;
+        if (role === null || path === null || sha256 === null) {
+          unreadable = `rigs[${ri}].files[${fi}] needs role, path and sha256`;
+          return;
+        }
+        files.push({ role, path, sha256 });
       }
       rigs.push({ variant: asString(r.variant) ?? DEFAULT_VARIANT, files });
+    });
+    if (unreadable !== null) {
+      refusals.push({ code: 'PIN_MALFORMED', path: `versions[${version}].pins[${index}]`, message: `versions[n=${version}].pins[${index}] (${member}): ${unreadable}; a pin that cannot be compared verifies nothing` });
+      return;
     }
     pins.push({ member, version: p.version as number | null, rigs });
   });

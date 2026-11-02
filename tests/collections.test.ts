@@ -354,6 +354,20 @@ describe('pins', () => {
     writeFileSync(model, 'legacy build, touched');
     expect(checkCollection(dir).refusals.map((f) => `${f.code} ${f.path}`)).toEqual(['PIN_STALE members[keeper]']);
   });
+
+  test('a pin whose file hashes cannot be read is malformed, not a pass', () => {
+    const dir = initCollection();
+    editCollection(dir, answerAll);
+    expect(addMember(dir, 'keeper').code).toBe(0);
+    editCollection(dir, (c) => {
+      c.versions = [{
+        n: 1,
+        pins: [{ member: 'keeper', version: null, rigs: [{ variant: 'default', model_sha256: sha('old shape') }] }],
+        outputs: [{ path: 'outputs/v1/lineup.png', sha256: sha('lineup v1'), bytes: 9 }],
+      }];
+    });
+    expect(checkCollection(dir).refusals.map((f) => f.code)).toContain('PIN_MALFORMED');
+  });
 });
 
 describe('collection --check on the record', () => {

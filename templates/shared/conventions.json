@@ -1,0 +1,23 @@
+{
+  "schema": "rig-create/conventions@0",
+  "collection": null,
+  "variants": {
+    "values": [],
+    "source": null,
+    "what_changes": null,
+    "what_stays": null
+  },
+  "shared_motion": {
+    "source": null,
+    "note": null
+  },
+  "shared_pose": {
+    "what": null,
+    "receipts": []
+  },
+  "bone_naming": {
+    "declared": null,
+    "observed": null
+  },
+  "notes": []
+}

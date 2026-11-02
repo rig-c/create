@@ -55,6 +55,8 @@ here track what moves in, in order.
   and shape, waypoints, post-production, provenance, polish feedback.
 - [docs/COLLECTIONS.md](docs/COLLECTIONS.md) — several rigs that belong together:
   inherited answers, the reference member, composition, pins.
+- [docs/CRAFT.md](docs/CRAFT.md) — craft notes: the default proposed at each
+  waypoint, and execution defects handed to rig-c/parts gates.
 - [templates/](templates/) — the empty `project.json` and `collection.json`
   skeletons, and a worked example ([example-interview.md](templates/example-interview.md),
   [example-project.json](templates/example-project.json)) on a made-up painting.

@@ -165,7 +165,7 @@ both kinds:
 | `n` | the version number, `1, 2, …` |
 | `kind` | `rig` or `post` |
 | `rig_version` | for a post version, the `n` of the accepted rig it is built on; `null` for a rig version |
-| `at`, `built_by`, `built_with` | when, which agent or tool, and the package versions used (`{ "@rig-c/parts": "…", "rig-c": "…" }`) |
+| `at`, `built_by`, `built_with` | when, which agent or tool, and the package versions used (`{ "@rig-c/parts": "…", "@rig-c/core": "…" }`) |
 | `answers_feedback` | the verdicts this version answers: `[{ "version", "verdict" }]` (version number and index into its `verdicts[]`); empty for a first version |
 | `changed` | what changed from the previous version of the same kind, in a sentence |
 | `outputs` | `outputs/v<N>/` files with sha256 and size, frozen when shown |

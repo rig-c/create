@@ -502,7 +502,7 @@
       "rig_version": null,
       "at": "2026-11-11T17:30:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "built_with": { "@rig-c/parts": "2.2.0", "@rig-c/core": "3.1.0" },
       "answers_feedback": [],
       "changed": "first rig version",
       "outputs": [
@@ -572,7 +572,7 @@
       "rig_version": null,
       "at": "2026-11-12T18:00:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "built_with": { "@rig-c/parts": "2.2.0", "@rig-c/core": "3.1.0" },
       "answers_feedback": [{ "version": 1, "verdict": 0 }],
       "changed": "The lantern hangs from hand_r on its own hinge bone with a stop (new bones guide sentence from v1 feedback); the scarf's wind amplitude reduced to just above the coat tails'",
       "outputs": [
@@ -644,7 +644,7 @@
       "rig_version": 2,
       "at": "2026-11-14T16:00:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "built_with": { "@rig-c/parts": "2.2.0", "@rig-c/core": "3.1.0" },
       "answers_feedback": [],
       "changed": "first post version on rig v2",
       "outputs": [
@@ -689,7 +689,7 @@
       "rig_version": 2,
       "at": "2026-11-15T10:00:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.2.0", "rig-c": "3.1.0" },
+      "built_with": { "@rig-c/parts": "2.2.0", "@rig-c/core": "3.1.0" },
       "answers_feedback": [{ "version": 3, "verdict": 0 }],
       "changed": "beam sweep moved to start at 6.2 s",
       "outputs": [

@@ -204,8 +204,8 @@ and `reference` decides what every review compares against.
 | W5 | `constraints` | which parts move on physics, how strongly, with wind and gravity, and where a chain must stop | `split_effects` | *"The hem moves in the wind down to the knee; the bust jiggles; the sleeves barely move."* |
 | W6 | `motion` | the tracks (what moves, how far, how fast), the loop length, blinking; for a game-logic scene, the states | `motions`, `game_states` | *"A slow breath, about three seconds; blink now and then; the head does not sway."* |
 
-Craft notes — defaults the interviewer may propose at a waypoint ("Usually X —
-shall we?") — are a later card. When they exist, the interviewer may read one
+[CRAFT.md](CRAFT.md) holds the craft notes: per waypoint, the default the
+interviewer may propose ("Usually X — shall we?"). The interviewer may read one
 out as a proposal; the user's reply is the guide, and a default nobody was asked
 about decides nothing.
 

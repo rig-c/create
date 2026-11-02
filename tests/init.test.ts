@@ -40,6 +40,7 @@ describe('init --no-install into an empty folder', () => {
     expect(listTree(dir)).toEqual([
       '.gitignore',
       'AGENTS.md',
+      'CLAUDE.md',
       'derived/',
       'evidence/',
       'evidence/.gitkeep',
@@ -88,6 +89,7 @@ describe('init --no-install into an empty folder', () => {
     expect(tracked).toEqual([
       '.gitignore',
       'AGENTS.md',
+      'CLAUDE.md',
       'evidence/.gitkeep',
       'inputs/references/.gitkeep',
       'package.json',

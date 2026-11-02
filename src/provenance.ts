@@ -87,7 +87,7 @@ function readConfigSections(dir: string, config: Json | undefined): { read: Conf
  * replaced was built from the answer as it was then (INTERVIEW.md § Answer
  * shape: a replaced answer moves whole into `history[]`).
  */
-function answersOf(item: Item, ctx: Pick<Ctx, 'collection'>): JsonObject[] {
+export function answersOf(item: Item, ctx: Pick<Ctx, 'collection'>): JsonObject[] {
   const s = item.state;
   const current = s.state === 'user' || s.state === 'delegated' || s.state === 'not_applicable' ? [s.answer] : [];
   const history = asArray(item.record.history).filter(isObject);

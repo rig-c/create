@@ -19,6 +19,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
+import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkReviews } from './review.ts';
 import { PAUSED_STAGE, PHASE_APPROVED_BY, SKIPPED_WHEN_NO_POST, STAGE_VALUES, STAGES, stageIndex, stageOfPhase } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -44,6 +45,8 @@ export interface CheckReport {
   readonly derived: { waypoints: string[]; post_items: string[] } | null;
   /** Per version built from a config: whether the config file was read to list its sections (docs/CHECKS.md § Provenance). */
   readonly provenance: ProvenanceSummary[];
+  /** Per human bounced verdict: its items counted by cause, and the versions that answer it (docs/CHECKS.md § Polish feedback). */
+  readonly feedback: FeedbackSummary[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
 }
@@ -216,7 +219,7 @@ export function answered(state: AnswerState): boolean {
 
 // ------------------------------------------------------------------ loading
 
-function loadCollection(dir: string): JsonObject | null {
+export function loadCollection(dir: string): JsonObject | null {
   if (basename(dirname(dir)) !== 'members') return null;
   const file = join(dirname(dirname(dir)), 'collection.json');
   if (!existsSync(file)) return null;
@@ -224,7 +227,7 @@ function loadCollection(dir: string): JsonObject | null {
   return read.ok ? read.value : null;
 }
 
-function collectItems(project: JsonObject, ctx: Pick<Ctx, 'collection'>): Item[] {
+export function collectItems(project: JsonObject, ctx: Pick<Ctx, 'collection'>): Item[] {
   const interview = isObject(project.interview) ? project.interview : {};
   const items: Item[] = [];
   for (const q of asArray(interview.framing)) {
@@ -548,6 +551,7 @@ export function checkProject(projectDirArg: string): CheckReport {
     parts: null,
     derived: null,
     provenance: [],
+    feedback: [],
     refusals,
     warnings,
     ...partial,
@@ -601,6 +605,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   checkStages(ctx);
   checkReviews(ctx);
   const provenance = checkProvenance(ctx, parts);
+  const feedback = checkFeedback(ctx);
 
   return {
     ok: refusals.length === 0,
@@ -610,6 +615,7 @@ export function checkProject(projectDirArg: string): CheckReport {
     parts: parts === null ? null : { version: parts.version, read_from: parts.read_from, dir: parts.dir },
     derived: derived === null ? null : { waypoints: derived.waypoints.map((w) => w.id), post_items: derived.post_items.map((p) => p.id) },
     provenance,
+    feedback,
     refusals,
     warnings,
   };
@@ -627,6 +633,7 @@ export function formatReport(report: CheckReport): string {
     lines.push(`  stage ${report.stage}${report.effective_stage !== report.stage ? ` (checked as ${report.effective_stage})` : ''}`);
   }
   lines.push(...formatProvenance(report.provenance));
+  lines.push(...formatFeedback(report.feedback));
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);
   const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;

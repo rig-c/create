@@ -336,6 +336,57 @@ number and verdict index), and its `changed` says what changed. Feedback on the
 rig given at the direction review goes back to the rig waypoints and makes a
 new rig version, which needs a new first review.
 
+### Recording a verdict
+
+```
+rig-create review <version> --verdict accepted|bounced|provisional --by <who>
+  --review rig-review|direction-review --verbatim "<words>" --source <where>
+  [--item <id>[:user|delegated|not-asked]]... [--quote <id>=<fragment>]
+  [--value <id>=<json>] [<project dir>] [--json]
+```
+
+Appends one verdict to `versions[v<N>].verdicts[]`, dated now, with the words
+stored exactly as given, and prints what it recorded. The review must be the
+one that judges that kind of version (`rig-review` a rig version,
+`direction-review` a post version); rig feedback given at the direction review
+is recorded on the post version shown and names the rig waypoints in its items.
+
+`answer_was` comes from the record wherever the record decides it, and a value
+the record contradicts is refused by name (`FEEDBACK_ITEM_CONTRADICTS`):
+
+| The item's current answer | `answer_was` when not named | Also allowed |
+| --- | --- | --- |
+| a delegation | `delegated` | — |
+| a user sentence | `user` | `not-asked` — the feedback names something the sentence did not cover, which only the reader can tell |
+| a user sentence that left part open (`agent_decision` beside it) | none: name it (`FEEDBACK_ITEM_AMBIGUOUS`) | `user`, `delegated`, `not-asked` |
+| not applicable, or no answer | refused (`FEEDBACK_ITEM_NOT_APPLICABLE`, `FEEDBACK_ITEM_SILENT`): ask the question first | — |
+
+A `not-asked` item is written in the same turn as a new sentence in that
+answer's `additions[]`: `by` and `at` of the verdict, `verbatim` = the
+`--quote` fragment (default: the whole feedback; it must be a fragment of it),
+`value` = `--value` (default `null`, to be normalised before the next version)
+and `source: "polish feedback, v<N>"`. The original sentence is not edited.
+Because the guide changed, the steps resting on it need the plan re-signed
+before they run again (`GUIDE_CHANGED_UNSIGNED`).
+
+An item id that is no framing, waypoint or post item is refused
+(`FEEDBACK_ITEM_UNKNOWN`); `review` does not create an `x_` prompt. A prompt
+is a question with its own text and `required_for`, asked of the user like the
+rest (§ Questions outside this set) — a verdict cannot write it — and an `x_`
+prompt's answer lives in its waypoint's guide, so the item the verdict names is
+that waypoint either way. Add the prompt, then name the waypoint.
+
+`review` never moves `stage` and writes no sign-off: a verdict says what a
+person thought of a version, and a stage moves only on a sign-off. An
+acceptance is recorded with this command and signed with its sign-off in the
+same turn ([PROJECT.md § Stages](PROJECT.md#stages)).
+
+`interview --check` then refuses a bounced version that a later version does
+not answer, an `answers_feedback` ref that points at no earlier verdict, and a
+`not-asked` item whose sentence is not in the guide; and it counts every bounce
+by cause, so a bounce on a delegated item reads as the user's chosen cost
+([CHECKS.md § Polish feedback](CHECKS.md#polish-feedback)).
+
 ## Checking the interview
 
 ```

@@ -165,7 +165,7 @@ function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, depth = 0
     return { state: 'not_applicable', answer: raw };
   }
   if (raw.delegated === true) {
-    return { state: 'delegated', answer: raw, decided: isObject(raw.agent_decision) };
+    return { state: 'delegated', answer: raw, decided: isDecision(raw.agent_decision) };
   }
   if (raw.delegated === false) {
     if (!('value' in raw) || !('verbatim' in raw)) return { state: 'malformed', why: 'a user answer carries verbatim and value' };
@@ -174,10 +174,24 @@ function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, depth = 0
   return { state: 'malformed', why: 'neither a user answer (delegated: false), a delegation (delegated: true) nor not applicable' };
 }
 
-/** The moments an answer changed: when it was given, and every addition. NaN dates are skipped. */
+/**
+ * A written agent decision: it carries its choice (`value`) and a non-empty
+ * `reasoning`. An empty object is not a decision.
+ */
+function isDecision(raw: Json | undefined): boolean {
+  return isObject(raw) && 'value' in raw && typeof raw.reasoning === 'string' && raw.reasoning.trim() !== '';
+}
+
+/**
+ * The moments an answer changed: when it was given, when the agent's decision
+ * on it (full or partial delegation) was written, and every addition. A
+ * decision changed after a sign-off is a change the sign-off never covered.
+ * NaN dates are skipped.
+ */
 function changeTimes(state: AnswerState): number[] {
   if (state.state !== 'user' && state.state !== 'delegated' && state.state !== 'not_applicable') return [];
   const times = [time(state.answer.at)];
+  if (isObject(state.answer.agent_decision)) times.push(time(state.answer.agent_decision.at));
   for (const add of asArray(state.answer.additions)) if (isObject(add)) times.push(time(add.at));
   return times.filter((t) => !Number.isNaN(t));
 }
@@ -421,8 +435,11 @@ function checkPlan(ctx: Ctx): void {
     if (approvals.length > 0) {
       if (checkpoint.state === 'silent') {
         ctx.refusals.push({ code: 'CHECKPOINT_UNANSWERED', path: `${path}.checkpoint`, message: `${path}.checkpoint is null, yet ${approvedBy} is signed; the user sets each step's checkpoint (or delegates it) before signing` });
-      } else if (checkpoint.state === 'delegated' && !checkpoint.decided) {
-        ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path: `${path}.checkpoint`, message: `${path}.checkpoint: delegated, but agent_decision is missing and ${approvedBy} is signed` });
+      } else if (
+        checkpoint.state === 'delegated' &&
+        (!checkpoint.decided || typeof (checkpoint.answer.agent_decision as JsonObject).value !== 'boolean')
+      ) {
+        ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path: `${path}.checkpoint`, message: `${path}.checkpoint: delegated, but agent_decision has no boolean value and reasoning, and ${approvedBy} is signed` });
       }
     }
     if (checkpoint.state === 'malformed') {

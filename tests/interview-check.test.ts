@@ -425,3 +425,32 @@ describe('the command', () => {
     expect(cli(['--help'], tempDir(), gitEnv()).stdout).toContain('rig-create interview --check [<project dir>] [--json]');
   });
 });
+
+describe('review fixes: an agent decision is real and dated', () => {
+  test('an empty agent_decision is not a decision', () => {
+    const report = checkProject(fixture((p) => { obj(waypoint(p, 'seethrough').guide).agent_decision = {}; }));
+    expect(withCode(report, 'DELEGATION_UNDECIDED').map((f) => f.path)).toEqual(['interview.waypoints[seethrough].guide']);
+  });
+
+  test('a delegated checkpoint needs a boolean decision', () => {
+    const report = checkProject(
+      fixture((p) => {
+        const checkpointed = arr(obj(p.plan).steps).map(obj).find((s) => obj(s.checkpoint).delegated === true);
+        if (checkpointed === undefined) throw new Error('example has no delegated checkpoint');
+        obj(checkpointed.checkpoint).agent_decision = {};
+      }),
+    );
+    expect(withCode(report, 'DELEGATION_UNDECIDED').length).toBe(1);
+    expect(withCode(report, 'DELEGATION_UNDECIDED')[0]?.path).toEndWith('.checkpoint');
+  });
+
+  test('a decision rewritten after the sign-off sends its steps back', () => {
+    const report = checkProject(
+      fixture((p) => {
+        const decision = obj(obj(waypoint(p, 'assemble').guide).agent_decision);
+        decision.at = '2030-01-01T00:00:00Z';
+      }),
+    );
+    expect(withCode(report, 'GUIDE_CHANGED_UNSIGNED').length).toBeGreaterThan(0);
+  });
+});

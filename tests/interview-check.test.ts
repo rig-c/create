@@ -8,6 +8,7 @@ import { sectionsFromSource } from '../src/parts-sections.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
+import { supersede } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
 /** The section list @rig-c/parts 2.2.0's loader accepts at the top level (its `TOP_KEYS`), used by the fake parts sources planted below. */
@@ -168,7 +169,7 @@ describe('a waypoint with no guide and no delegation', () => {
   });
 
   test('delegation is a pass: the refusal disappears', () => {
-    const report = checkProject(fixture((p) => { waypoint(p, 'bones').guide = DELEGATED_GUIDE; }));
+    const report = checkProject(fixture((p) => { supersede(waypoint(p, 'bones'), 'guide', DELEGATED_GUIDE); }));
     expect(codes(report)).toEqual([]);
   });
 
@@ -193,7 +194,7 @@ describe('a waypoint with no guide and no delegation', () => {
     const na = { not_applicable: true, because: 'pre-layered input, no see-through pass', by: 'interviewer', at: '2026-11-10T14:03:00Z' };
     const pass = checkProject(
       fixture((p) => {
-        waypoint(p, 'seethrough').guide = na;
+        supersede(waypoint(p, 'seethrough'), 'guide', na);
         obj(p.plan).steps = arr(obj(p.plan).steps).filter((s) => obj(s).id !== 'seethrough');
       }),
     );
@@ -291,7 +292,7 @@ describe('a stage moved without a human sign-off', () => {
     const report = checkProject(
       fixture((p) => {
         for (const item of arr(obj(obj(p.interview).post).items).map(obj)) {
-          item.guide = { not_applicable: true, because: 'composition belongs to the collection', by: 'interviewer', at: '2026-11-13T10:00:00Z' };
+          supersede(item, 'guide', { not_applicable: true, because: 'composition belongs to the collection', by: 'interviewer', at: '2026-11-13T10:00:00Z' });
         }
         obj(p.plan).steps = arr(obj(p.plan).steps).filter((s) => obj(s).phase === 'rig');
         dropSignoffs(p, (s) => s.stage !== 'direction-review');
@@ -369,7 +370,7 @@ describe('collection members', () => {
     byId(arr(obj(collection.interview).waypoints), 'motion').guide = collectionMotion;
     writeFileSync(join(col, 'collection.json'), JSON.stringify(collection, null, 2));
     const project = readTemplate('example-project.json');
-    waypoint(project, 'motion').guide = { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' };
+    supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
     const dir = join(col, 'members', 'keeper');
     writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2));
     return dir;

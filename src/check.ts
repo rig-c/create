@@ -9,7 +9,7 @@
  * (src/waypoints.ts). The stage order comes from src/stages.ts.
  *
  * Later cards plug in as further `check*` functions over the same `Ctx`:
- * provenance per config section (#6, over `versions[].provenance`), the
+ * provenance per config section (src/provenance.ts, over `versions[].provenance`), the
  * review order and post hand-off (#8, by extending src/stages.ts), feedback
  * answered by the next version (#9, over `versions[].verdicts` and
  * `answers_feedback`), collection pins (#7, over `collection.json`).
@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
+import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkReviews } from './review.ts';
 import { PAUSED_STAGE, PHASE_APPROVED_BY, SKIPPED_WHEN_NO_POST, STAGE_VALUES, STAGES, stageIndex, stageOfPhase } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -41,13 +42,15 @@ export interface CheckReport {
   readonly effective_stage: string | null;
   readonly parts: { version: string; read_from: string; dir: string } | null;
   readonly derived: { waypoints: string[]; post_items: string[] } | null;
+  /** Per version built from a config: whether the config file was read to list its sections (docs/CHECKS.md § Provenance). */
+  readonly provenance: ProvenanceSummary[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
 }
 
 type Phase = 'rig' | 'post';
 
-type AnswerState =
+export type AnswerState =
   | { state: 'silent'; via?: string }
   | { state: 'user'; answer: JsonObject }
   | { state: 'delegated'; answer: JsonObject; decided: boolean }
@@ -55,7 +58,7 @@ type AnswerState =
   | { state: 'malformed'; why: string }
   | { state: 'unresolved'; why: string };
 
-interface Item {
+export interface Item {
   readonly id: string;
   readonly path: string;
   readonly kind: 'framing' | 'waypoint' | 'post';
@@ -81,7 +84,7 @@ interface Step {
   readonly record: JsonObject;
 }
 
-interface Ctx {
+export interface Ctx {
   readonly dir: string;
   readonly project: JsonObject;
   readonly refusals: Finding[];
@@ -96,13 +99,13 @@ interface Ctx {
 
 // ---------------------------------------------------------------- JSON access
 
-function isObject(v: Json | undefined): v is JsonObject {
+export function isObject(v: Json | undefined): v is JsonObject {
   return v !== null && v !== undefined && typeof v === 'object' && !Array.isArray(v);
 }
-function asArray(v: Json | undefined): Json[] {
+export function asArray(v: Json | undefined): Json[] {
   return Array.isArray(v) ? v : [];
 }
-function asString(v: Json | undefined): string | null {
+export function asString(v: Json | undefined): string | null {
   return typeof v === 'string' ? v : null;
 }
 function time(v: Json | undefined): number {
@@ -179,7 +182,7 @@ function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, depth = 0
  * A written agent decision: it carries its choice (`value`) and a non-empty
  * `reasoning`. An empty object is not a decision.
  */
-function isDecision(raw: Json | undefined): boolean {
+export function isDecision(raw: Json | undefined): boolean {
   return isObject(raw) && 'value' in raw && typeof raw.reasoning === 'string' && raw.reasoning.trim() !== '';
 }
 
@@ -197,7 +200,7 @@ function changeTimes(state: AnswerState): number[] {
   return times.filter((t) => !Number.isNaN(t));
 }
 
-function answered(state: AnswerState): boolean {
+export function answered(state: AnswerState): boolean {
   return state.state === 'user' || state.state === 'delegated' || state.state === 'not_applicable';
 }
 
@@ -291,7 +294,7 @@ function effectiveIndex(ctx: Ctx): number {
 function stepFor(ctx: Ctx, id: string): Step | undefined {
   return ctx.steps.find((s) => s.id === id);
 }
-function itemFor(ctx: Ctx, id: string): Item | undefined {
+export function itemFor(ctx: Ctx, id: string): Item | undefined {
   return ctx.items.find((i) => i.id === id);
 }
 /** Every post item answered not applicable — the project may skip `post` and `direction-review`. */
@@ -534,6 +537,7 @@ export function checkProject(projectDirArg: string): CheckReport {
     effective_stage: null,
     parts: null,
     derived: null,
+    provenance: [],
     refusals,
     warnings,
     ...partial,
@@ -586,6 +590,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   checkPlan(ctx);
   checkStages(ctx);
   checkReviews(ctx);
+  const provenance = checkProvenance(ctx, parts);
 
   return {
     ok: refusals.length === 0,
@@ -594,6 +599,7 @@ export function checkProject(projectDirArg: string): CheckReport {
     effective_stage: effectiveStage,
     parts: parts === null ? null : { version: parts.version, read_from: parts.read_from, dir: parts.dir },
     derived: derived === null ? null : { waypoints: derived.waypoints.map((w) => w.id), post_items: derived.post_items.map((p) => p.id) },
+    provenance,
     refusals,
     warnings,
   };
@@ -610,6 +616,7 @@ export function formatReport(report: CheckReport): string {
   if (report.stage !== null) {
     lines.push(`  stage ${report.stage}${report.effective_stage !== report.stage ? ` (checked as ${report.effective_stage})` : ''}`);
   }
+  lines.push(...formatProvenance(report.provenance));
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);
   const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;

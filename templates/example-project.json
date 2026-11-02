@@ -546,8 +546,7 @@
           "motion": [
             { "entry": "breath", "guide": "motion", "quote": "Breath" },
             { "entry": "blink", "guide": "motion", "quote": "blink" },
-            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." },
-            { "entry": "duration", "guide": "rig_type", "delegated": true }
+            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." }
           ]
         }
       },
@@ -616,13 +615,12 @@
             { "entry": "lantern_hinge_physics", "guide": "bones", "quote": "swing on its own" }
           ],
           "stops": [
-            { "entry": "lantern_hinge", "guide": "bones", "delegated": true }
+            { "entry": "lantern_hinge", "guide": "bones", "quote": "hang from her hand" }
           ],
           "motion": [
             { "entry": "breath", "guide": "motion", "quote": "Breath" },
             { "entry": "blink", "guide": "motion", "quote": "blink" },
-            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." },
-            { "entry": "duration", "guide": "rig_type", "delegated": true }
+            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." }
           ]
         }
       },

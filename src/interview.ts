@@ -14,9 +14,10 @@ export interface CommandResult {
 
 export const INTERVIEW_HELP = `interview:
   --check          check project.json: every waypoint has a guide or a delegation, every plan step rests on an answer,
-                   every stage moved has its sign-off, every @rig-c/parts section has a place (docs/CHECKS.md)
+                   every stage moved has its sign-off, every @rig-c/parts section has a place,
+                   every config section of a version cites its guide (docs/CHECKS.md)
   <project dir>    the project folder (default: the current directory)
-  --json           print the report as JSON (ok, stage, parts, derived, refusals[], warnings[])`;
+  --json           print the report as JSON (ok, stage, parts, derived, provenance[], refusals[], warnings[])`;
 
 export function interviewCommand(args: string[]): CommandResult {
   let check = false;

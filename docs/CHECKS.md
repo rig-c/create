@@ -10,7 +10,9 @@ sign-off index, a parts section). Exit `0` when nothing is refused (warnings do
 not fail it), `1` when anything is, `2` on a usage error. `--json` prints the
 report as one object — `ok`, `stage`, `effective_stage`, `parts` (version and
 where the sections were read from), `derived` (the waypoint and post item ids
-derived from parts), `refusals[]` and `warnings[]`, each `{ code, path, message }`
+derived from parts), `provenance[]` (per version checked: `version`, `kind`,
+`config_path`, `config` — whether the config file was read, below — and the
+`sections` checked), `refusals[]` and `warnings[]`, each `{ code, path, message }`
 — for agents and later checks to read.
 
 The contract it checks is [INTERVIEW.md](INTERVIEW.md) and
@@ -71,6 +73,39 @@ a plan step), written to `project.json`.
   approval and changed-guide checks apply from then. A checkpoint sign-off is
   required only once the step is `done`.
 
+## Provenance
+
+Every `versions[]` entry of kind `rig` or `post` is checked against
+[INTERVIEW.md § Provenance](INTERVIEW.md#provenance-every-config-section-cites-its-guide):
+each config section cites the guide sentence or the delegation it rests on.
+
+- **Which sections the config has.** When `provenance.config.path` names a
+  file under the project and its sha256 is `provenance.config.sha256`, the
+  file's top-level keys are the sections, and a key provenance does not list
+  is uncited. Otherwise — `derived/` is not kept, so this is the usual case —
+  the sections `provenance.sections` lists are the ones checked, and the report
+  says so: `provenance[].config` is `absent` (no file), `changed` (the file's
+  hash is not the recorded one; also a `PROVENANCE_CONFIG_CHANGED` warning) or
+  `unreadable` (not a JSON object, or a path outside the project), and the text
+  report names those versions. No field is added to the record for this.
+- **Which sections need a citation.** In a `rig` version the config is a
+  `@rig-c/parts` config, and a section the placement table places `none`
+  (`key`, `generation`, `proposed_rig_scale`, `requirements`, `motion_seams`,
+  `note`) is not a direction call: it needs no citation, though an entry
+  written under it is still checked. In a `post` version the config is the post
+  tool's; its sections are not parts sections and are not on the table, so
+  every one is a direction call and needs a citation, and it cites a post item
+  or a framing answer — never a rig waypoint (rig feedback makes a new rig
+  version).
+- **What a citation resolves against.** `guide` resolves as a step's
+  `rests_on` does (a framing, waypoint or post item id that is answered). A
+  `quote` is an exact, case-sensitive substring of that answer's `verbatim` or
+  of an `additions[].verbatim`. `delegated: true` needs an answer that is a
+  delegation with an `agent_decision`, or a user answer that left part open
+  with an `agent_decision` beside it. Both look in the answer's `history[]` as
+  well as the current answer: a version built before an answer was replaced
+  was built from the answer as it was then.
+
 ## Refusals
 
 Exit `1`. Each names its object in `path`.
@@ -118,6 +153,15 @@ Exit `1`. Each names its object in `path`.
 | `RIG_VERSION_UNACCEPTED` | the stage is past `rig-review` and the latest rig version has no accepted rig-review verdict (or there is no rig version) | a rig change after rig-review is a new first review: move the stage back to `rig-review` and review the new rig on its still frame |
 | `POST_ON_SUPERSEDED_RIG` | the latest post version is on an accepted rig version older than the latest accepted one | redo the post work on the new rig, as a new post version |
 | `PAUSED_UNSIGNED` | `stage` is `paused` with no `{ "stage": "paused" }` sign-off | the person who stopped it signs |
+| `PROVENANCE_MISSING` | a `rig` or `post` version has no `provenance.sections` object | write the version's provenance: the config it was built from and, per section, its citations |
+| `SECTION_UNCITED` | a section that needs a citation (§ Provenance) is listed with no entries, or is in the read config and not listed | cite the guide sentence or delegation it rests on; if there is none, ask for one, or take the section out of the config before the version is shown |
+| `SECTION_UNKNOWN` | a `rig` version's provenance names a section that is no `@rig-c/parts` section and not on the placement table | name the section as the config does; a misspelt name leaves the real one uncited |
+| `ENTRY_UNCITED` | an entry has neither a non-empty `quote` nor `delegated: true` (or is not an object) | quote the sentence it follows, cite the delegation, or remove the entry |
+| `CITATION_GUIDE_UNKNOWN` | an entry's `guide` is missing or names no framing, waypoint or post item | name the answer id it rests on |
+| `CITATION_GUIDE_SILENT` | an entry's `guide` names an item with no answer | answer the item (it is also reported on its own) |
+| `CITATION_WRONG_PHASE` | a `post` version's entry cites a rig waypoint | cite the post item (or framing answer) it rests on; a rig change is a new rig version |
+| `QUOTE_NOT_FOUND` | an entry's `quote` is in no `verbatim` or `additions[].verbatim` of the cited answer (current or `history[]`) | quote the stored sentence exactly; feedback no guide covered goes into `additions[]` first |
+| `DELEGATION_NOT_GIVEN` | an entry is `delegated: true`, and no answer of the cited item (current or `history[]`) is a delegation or carries an `agent_decision` — or the delegation has no `agent_decision` | cite the sentence instead, or ask the user; a user answer is not a delegation unless it left part open and the agent's decision is written beside it |
 
 ## The hand-off command
 
@@ -152,3 +196,4 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `SECTION_RETIRED` | the table places a section on a waypoint or post item, but the installed parts no longer has it | drop it from the table and the record's `config[]` |
 | `WAYPOINT_CONFIG_STALE` | a record waypoint's `config[]` is not the set of sections parts places there | regenerate `config[]` |
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
+| `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |

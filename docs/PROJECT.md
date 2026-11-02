@@ -32,7 +32,8 @@ record is [../templates/example-project.json](../templates/example-project.json)
 ```
 
 A project is its own git repository, so the history of its decisions is its
-`git log`. `rig-create init <dir>` writes the layout above, a `.gitignore`
+`git log`. A collection member is the exception: it lives in its collection's
+repository, which holds its history ([COLLECTIONS.md § Making one](COLLECTIONS.md#making-one)). `rig-create init <dir>` writes the layout above, a `.gitignore`
 for the untracked folders, a `package.json` pinning the rig-c packages, and a
 first commit.
 

@@ -17,7 +17,7 @@
  * export of the list is the connection point that retires this file's regexes.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 export const PARTS_PACKAGE = '@rig-c/parts';
 const CONFIG_SOURCE = join('src', 'config.ts');
@@ -42,9 +42,15 @@ export class PartsUnreadable extends Error {
 /** The create repository's own install, used when a project has none (running the check in this repo, or before `bun install` in a project). */
 export const OWN_NODE_MODULES = join(import.meta.dir, '..', 'node_modules');
 
-/** Where the installed package is looked for, in order: the project's own install, then create's. */
+/**
+ * Where the installed package is looked for, in order: the project's own
+ * install, the collection's for a member (`<collection>/members/<name>/`, which
+ * installs nothing itself: docs/COLLECTIONS.md), then create's.
+ */
 export function partsCandidates(projectDir: string): string[] {
-  return [join(projectDir, 'node_modules', ...PARTS_PACKAGE.split('/')), join(OWN_NODE_MODULES, ...PARTS_PACKAGE.split('/'))];
+  const pkg = PARTS_PACKAGE.split('/');
+  const collection = basename(dirname(projectDir)) === 'members' ? [join(dirname(dirname(projectDir)), 'node_modules', ...pkg)] : [];
+  return [join(projectDir, 'node_modules', ...pkg), ...collection, join(OWN_NODE_MODULES, ...pkg)];
 }
 
 export function locateParts(projectDir: string): string | null {

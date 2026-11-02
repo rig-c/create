@@ -31,8 +31,9 @@ record is [../templates/example-project.json](../templates/example-project.json)
 ```
 
 A project is its own git repository, so the history of its decisions is its
-`git log`. Project creation by one command is a later card; the layout above is
-what that command will write.
+`git log`. `rig-create init <dir>` writes the layout above, a `.gitignore`
+for the untracked folders, a `package.json` pinning the rig-c packages, and a
+first commit.
 
 ## Data is split by lifetime
 

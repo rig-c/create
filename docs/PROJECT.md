@@ -22,6 +22,7 @@ record is [../templates/example-project.json](../templates/example-project.json)
 ```
 <project>/
   project.json         the decision record: interview, plan, split, stage, sign-offs, versions
+  AGENTS.md            the agent guide: the order, and which installed docs to read; CLAUDE.md imports it
   inputs/              immutable: the painting, the user's references
     references/
   evidence/v<N>/       what a verdict rested on: crops, sheets, check tables

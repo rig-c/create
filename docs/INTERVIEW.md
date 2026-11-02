@@ -304,8 +304,11 @@ kept:
   `delegated: true` points at the delegation or `agent_decision` instead.
 - An entry with no citation is a decision nobody gave. It is either cited (by
   finding the sentence, or asking for one) or removed before the version is
-  shown. A machine check that refuses an uncited section by name is a later
-  card.
+  shown. `interview --check` refuses, by section name, a section with no
+  citation and a citation that does not resolve — a `guide` that is no answer,
+  a `quote` found in none of that answer's stored sentences, a `delegated: true`
+  on an answer the user did not hand over
+  ([CHECKS.md § Provenance](CHECKS.md#provenance)).
 - A bounce's `on_items` names the waypoint, and the provenance says which
   sentence or delegation the bounced entry came from.
 

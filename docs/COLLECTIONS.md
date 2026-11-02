@@ -16,15 +16,57 @@ the schema is `rig-create/collection@0`, v0 like a project's
 ```
 <collection>/
   collection.json      shared interview, member order, cross bars, composition, pins
+  AGENTS.md            the collection's agent guide; CLAUDE.md imports it
+  package.json         the rig-c packages, pinned once for every member
   shared/
     conventions.json   conventions every member follows
-  members/<name>/      an ordinary project (the layout in PROJECT.md)
+  members/<name>/      an ordinary project (the layout in PROJECT.md), without package.json or .git
   inputs/              the group painting, shared references
+    references/
   evidence/v<N>/       what a collection verdict rested on
   derived/             regenerable (ignored by git)
   outputs/v<N>/        lineup, outfit-switch takes (ignored by git)
-  scratch/
+  scratch/             (ignored by git)
 ```
+
+### Making one
+
+```
+rig-create init --collection <dir> [--no-install]
+rig-create init --member <collection dir> <name>
+```
+
+`init --collection` writes the layout above: `collection.json` and
+`shared/conventions.json` from the templates, both named after the folder, a
+`.gitignore` for the untracked folders, the `package.json` pins, the install
+(unless skipped), the agent guide, and a first commit of exactly those files.
+**The collection is one git repository.** A collection version pins member
+builds, so the collection's history has to hold the member records it pins; a
+member with a repository of its own would be an opaque gitlink to it.
+
+`init --member` takes the collection folder and a **name**, not a path: it
+derives `members/<name>/`, so a member cannot be made outside `members/`, and a
+folder that is not a collection is refused (`INIT_NOT_A_COLLECTION`) before
+anything is written. It writes an ordinary project there (`project.json`,
+`.gitignore`, `inputs/references/`, `evidence/`, the ignored folders, the
+agent guide, its doc links pointing at the collection's install), registers it
+in `collection.json` `members[]` (`{ name, project, input: null, note: null }`),
+and commits exactly those files and `collection.json` in the collection's
+repository. It has **no `package.json` and no repository of its own**: the
+collection pins the packages once, so every member is built with the same
+versions and a cross bar measures one toolchain; `interview --check` in a
+member reads the collection's install.
+
+Every framing answer, waypoint guide and post item guide the collection gave
+starts in the member as an `inherited` reference (below), written with
+`"by": "rig-create"`. Where the collection's answer is `null` or `"per-member"`,
+the member's starts `null`: the member's own question, asked in its interview.
+Refused by name: a duplicate (`INIT_MEMBER_EXISTS`, in `members[]` or as a
+folder), a name that is not one folder name (`INIT_MEMBER_NAME_INVALID`), a
+collection with no `name` (`INIT_COLLECTION_UNNAMED`), and a `collection.json`
+with uncommitted changes (`INIT_COLLECTION_DIRTY`), so the member's commit never
+carries someone else's edit. Outside a git work tree the files are written and
+nothing is committed.
 
 ### Members live inside the collection
 
@@ -129,16 +171,76 @@ config, per variant):
 ```json
 "pins": [
   { "member": "keeper", "version": 2, "rigs": [
-      { "variant": "default", "model_sha256": "…", "atlas_sha256": "…", "config_sha256": "…" },
-      { "variant": "winter", "model_sha256": "…", "atlas_sha256": "…", "config_sha256": "…" } ] }
+      { "variant": "default", "files": [
+          { "role": "model", "path": "outputs/v2/skeleton.json", "sha256": "…" },
+          { "role": "atlas", "path": "outputs/v2/atlas.atlas", "sha256": "…" },
+          { "role": "atlas", "path": "outputs/v2/atlas.png", "sha256": "…" },
+          { "role": "config", "path": "derived/v2/config.json", "sha256": "…" } ] },
+      { "variant": "winter", "files": [ … ] } ] }
 ]
 ```
+
+A rig is a list of files, not one hash per role: an atlas is its `.atlas` text
+and one or more page images, and one `atlas_sha256` cannot pin them. Paths are
+relative to the member's folder.
 
 The hashes are what is checked; the version number is the readable name. A new
 member version changes nothing in the collection until a new collection version
 pins it. A collection output whose recorded sources do not hash to its pins is
-stale and is not shown. A check that fails by member name when a member is
-rebuilt without the pins being updated is a later card.
+stale and is not shown.
 
 Where a member has no `versions[]` yet (work that predates this structure), the
 pin carries `"version": null` and the hashes alone, and says so in `note`.
+
+### Recording a collection version
+
+```
+rig-create collection pin [<dir>] [--changed <sentence>]
+```
+
+Run when a collection output is made: put it in `outputs/v<N>/` (`N` the next
+collection version), then pin. It appends `versions[]` entry `N` to
+`collection.json` with `pins`, the sha256 and size of every file under
+`outputs/v<N>/`, `changed`, and empty `composition_inputs`, `evidence`,
+`verdicts` and `answers_feedback` to fill. It writes, it does not commit.
+
+Each member is pinned at its **latest rig version** (`kind: "rig"`, highest
+`n`). The rig files are read from that version: each `outputs[]` entry that is
+a model (`.json`, `.skel`) or an atlas (`.atlas`, page images), or that names
+its own `role`; and `provenance.config`, for every variant. An output names its
+variant with `variant` (default `default`); a take or a contact sheet is not a
+rig file and is not pinned. Every file present on disk is hashed there.
+Refused by member name, all at once and nothing written: a member with no
+project record (`MEMBER_PROJECT_MISSING`), no rig version or no rig file
+(`PIN_NO_BUILD`), and a file on disk that no longer hashes to the version that
+lists it (`PIN_SOURCE_DRIFT`) — it was rebuilt in place; record a new member
+version first, so the pin names a build that exists.
+
+### The pin check
+
+```
+rig-create collection --check [<dir>] [--json]
+rig-create interview --check <collection dir | collection.json>
+```
+
+Both run the same check. The pins checked are those of the **latest collection
+version that has outputs** — the one a person would be shown; a version pinned
+before its output exists is not checked yet. Every member in `members[]` is
+compared with its pin, and each difference is a refusal naming the member:
+
+- `PIN_STALE members[<name>]`: the member's latest rig version is not the
+  pinned one; a pinned file's sha256 (on disk where present, else as recorded)
+  differs from the pin; a pinned file is no longer listed; a rig file of the
+  version is not pinned. For a `"version": null` pin, a member that now has
+  versions, or a pinned file on disk that no longer hashes to it.
+- `PIN_MISSING members[<name>]`: a member the pinned version does not pin.
+- `PIN_UNKNOWN_MEMBER members[<name>]`: a pin for a name not in `members[]`.
+
+The check also reads the collection record: schema, stage (from the collection
+stages above), sign-offs (human, known stage, every `signoff` stage passed is
+signed, `paused` signed), the collection's own questions, framing answers and
+waypoint guides (`INTERVIEW_INCOMPLETE` at `interview`, `COLLECTION_ITEM_SILENT`
+after it; post item guides the same from `post-interview`), and that every
+`members[]` entry has its `project.json`. It does not check `plan.order`, the
+cross bars or composition, and it does not run each member's interview check:
+run `interview --check` in the member. Codes: [CHECKS.md § Collections](CHECKS.md#collections).

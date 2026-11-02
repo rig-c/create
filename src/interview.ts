@@ -5,6 +5,7 @@
  * for agents and later checks (#6, #8, #9) to read.
  */
 import { checkProject, formatReport } from './check.ts';
+import { checkCollection, collectionDirOf, formatCollectionReport } from './pins-check.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 
 export interface CommandResult {
@@ -16,7 +17,8 @@ export const INTERVIEW_HELP = `interview:
   --check          check project.json: every waypoint has a guide or a delegation, every plan step rests on an answer,
                    every stage moved has its sign-off, every @rig-c/parts section has a place,
                    every config section of a version cites its guide (docs/CHECKS.md)
-  <project dir>    the project folder (default: the current directory)
+  <project dir>    the project folder (default: the current directory); a collection folder (or its collection.json)
+                   runs the collection check (see collection --check)
   --json           print the report as JSON (ok, stage, parts, derived, provenance[], refusals[], warnings[])`;
 
 export function interviewCommand(args: string[]): CommandResult {
@@ -33,7 +35,14 @@ export function interviewCommand(args: string[]): CommandResult {
   if (positional.length > 1) {
     refuse('INTERVIEW_TOO_MANY_ARGUMENTS', `interview --check takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   }
-  const report = checkProject(positional[0] ?? process.cwd());
+  const target = positional[0] ?? process.cwd();
+  // A collection is checked by the collection check (src/pins-check.ts), not refused as SCHEMA_UNKNOWN.
+  const collectionDir = collectionDirOf(target);
+  if (collectionDir !== null) {
+    const report = checkCollection(collectionDir);
+    return { stdout: json ? JSON.stringify(report, null, 2) : formatCollectionReport(report), exit: report.ok ? 0 : 1 };
+  }
+  const report = checkProject(target);
   return {
     stdout: json ? JSON.stringify(report, null, 2) : formatReport(report),
     exit: report.ok ? 0 : 1,

@@ -116,7 +116,7 @@ function time(v: Json | undefined): number {
 
 type ReadJson = { ok: true; value: JsonObject } | { ok: false; error: string };
 
-function readJsonObject(file: string): ReadJson {
+export function readJsonObject(file: string): ReadJson {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, 'utf8'));
@@ -140,7 +140,7 @@ export function collectionQuestion(collection: JsonObject, question: string): Js
   return undefined;
 }
 
-function collectionAnswer(collection: JsonObject, question: string): Json | undefined {
+export function collectionAnswer(collection: JsonObject, question: string): Json | undefined {
   const interview = isObject(collection.interview) ? collection.interview : {};
   for (const q of asArray(interview.questions)) if (isObject(q) && q.id === question) return q.answer;
   for (const q of asArray(interview.framing)) if (isObject(q) && q.id === question) return q.answer;
@@ -150,7 +150,7 @@ function collectionAnswer(collection: JsonObject, question: string): Json | unde
   return undefined;
 }
 
-function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, depth = 0): AnswerState {
+export function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, depth = 0): AnswerState {
   if (raw === null || raw === undefined) return { state: 'silent' };
   if (!isObject(raw)) return { state: 'malformed', why: 'an answer is an object or null' };
   if (raw.basis === 'inherited') {
@@ -265,7 +265,7 @@ function collectSteps(project: JsonObject, refusals: Finding[]): Step[] {
   return steps;
 }
 
-function collectSignoffs(project: JsonObject, refusals: Finding[]): Signoff[] {
+export function collectSignoffs(project: JsonObject, refusals: Finding[]): Signoff[] {
   const out: Signoff[] = [];
   asArray(project.signoffs).forEach((s, index) => {
     const path = `signoffs[${index}]`;

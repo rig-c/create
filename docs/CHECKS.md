@@ -39,7 +39,11 @@ a plan step), written to `project.json`.
 - **A collection member** (`<collection>/members/<name>/project.json`) has its
   `inherited` answers resolved against `<collection>/collection.json`. An
   inherited answer whose collection answer is `null` (or `"per-member"`) is
-  silence, reported at the member's waypoint with the reason.
+  silence, reported at the member's waypoint with the reason. Its `@rig-c/parts`
+  is looked for in the member's folder, then in the collection's install.
+- **A collection** (a folder with `collection.json` and no `project.json`, or
+  the `collection.json` itself) is not a project: `interview --check` runs the
+  collection check on it, the same as `collection --check` ([§ Collections](#collections)).
 
 ## Answer states, as the check reads them
 
@@ -114,7 +118,7 @@ Exit `1`. Each names its object in `path`.
 | --- | --- | --- |
 | `PROJECT_JSON_MISSING` | no `project.json` in the folder | run in a project folder, or name one |
 | `PROJECT_JSON_INVALID` | the file is not a JSON object | fix the JSON |
-| `SCHEMA_UNKNOWN` | `schema` is not `rig-create/project@0` (a `collection.json`, or a later shape) | point the check at a project record |
+| `SCHEMA_UNKNOWN` | `schema` is not `rig-create/project@0` (a later shape, or a `project.json` holding a collection record) | point the check at a project record; a collection folder is checked as a collection |
 | `STAGE_UNKNOWN` | `stage` is not one of the stages | set a stage from `stage_values`; nothing else is checked until it is |
 | `PARTS_NOT_INSTALLED` | `@rig-c/parts` is in neither the project's nor this repository's `node_modules/` | `bun install` in the project |
 | `PARTS_SECTIONS_UNREADABLE` | the installed parts source has neither `TOP_KEYS` nor `interface CharacterConfig` | a parts release moved the list: update `src/parts-sections.ts` (or take parts' own export once it has one) |
@@ -197,3 +201,44 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `WAYPOINT_CONFIG_STALE` | a record waypoint's `config[]` is not the set of sections parts places there | regenerate `config[]` |
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
+
+## Collections
+
+```
+rig-create collection --check [<collection dir>] [--json]
+rig-create collection pin [<collection dir>] [--changed <sentence>]
+```
+
+What is checked, and why, is [COLLECTIONS.md § The pin check](COLLECTIONS.md#the-pin-check).
+Exit codes as above. `--json` prints `{ kind: "collection", ok, collection_dir,
+stage, effective_stage, members[], pins_checked, refusals[], warnings[] }`;
+`pins_checked` is the collection version compared, `null` when no version has
+outputs. The record codes `SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`,
+`INTERVIEW_INCOMPLETE`, `ANSWER_MALFORMED`, `SIGNOFF_*`, `STAGE_UNSIGNED`,
+`PAUSED_UNSIGNED` and `STAGE_VALUES_STALE` fire as for a project, against the
+collection's stages.
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `COLLECTION_JSON_MISSING` | no `collection.json` in the folder | run in a collection folder, or name one |
+| `COLLECTION_JSON_INVALID` | the file is not a JSON object | fix the JSON |
+| `COLLECTION_ITEM_SILENT` | a collection question, framing answer or waypoint guide is `null` and the stage is past `interview` (a post item guide: past `post-interview`) | answer it, delegate it, or answer `"per-member"` to leave it to each member |
+| `MEMBER_MALFORMED` | a `members[]` entry is not an object with a string `name` | fix the entry |
+| `MEMBER_PROJECT_MISSING` | a member's `project.json` (its `project` path, default `members/<name>/project.json`) is missing or not JSON | restore it, or remove the member |
+| `PIN_STALE` | the member's current build differs from its pin in the latest collection version with outputs: another rig version, a file hash, a file listed or no longer listed | make the collection output again from the current builds and `collection pin`; or rebuild the member to the pinned build |
+| `PIN_MISSING` | a member has no pin in that version | the same: a new collection version pins it |
+| `PIN_UNKNOWN_MEMBER` | that version pins a name not in `members[]` | register the member again, or make a new collection version without it |
+| `PIN_MALFORMED` | a pin is not `{ member, version (number or null), rigs[] }` | fix the pin |
+
+`collection pin` refuses, writing nothing:
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `PIN_NO_MEMBERS` | `members[]` is empty | add members |
+| `PIN_NO_BUILD` | a member has no rig version, its version lists no model or atlas, or a rig file has no sha256 and is not on disk | build and record the member version |
+| `PIN_SOURCE_DRIFT` | a rig file on disk does not hash to the member version that lists it (rebuilt in place) | record the rebuild as a new member version, then pin |
+
+| Warning | Fires when | Clear it by |
+| --- | --- | --- |
+| `MEMBER_UNREGISTERED` | a folder under `members/` is not in `members[]` | register it, or remove it |
+| `OUTPUT_CHANGED` | a collection output on disk does not hash to the version that recorded it | outputs are frozen when pinned: restore it, or make and pin a new version |

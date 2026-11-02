@@ -43,13 +43,13 @@ export function packageNameFor(folder: string): string {
   return name === '' ? 'rig-project' : name;
 }
 
-function run(cmd: string[], cwd: string): { ok: boolean; out: string } {
+export function run(cmd: string[], cwd: string): { ok: boolean; out: string } {
   const proc = Bun.spawnSync(cmd, { cwd, stdout: 'pipe', stderr: 'pipe' });
   const out = `${proc.stdout.toString()}${proc.stderr.toString()}`.trim();
   return { ok: proc.exitCode === 0, out };
 }
 
-function checkTarget(dir: string): void {
+export function checkTarget(dir: string): void {
   if (!existsSync(dir)) return;
   if (!statSync(dir).isDirectory()) {
     refuse('INIT_NOT_A_DIRECTORY', `${dir} exists and is not a directory`);
@@ -67,7 +67,7 @@ function writeProjectJson(dir: string, name: string): void {
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
 }
 
-function writePackageJson(dir: string, name: string): void {
+export function writePackageJson(dir: string, name: string): void {
   const pkg = {
     name: packageNameFor(name),
     private: true,
@@ -77,7 +77,7 @@ function writePackageJson(dir: string, name: string): void {
   writeFileSync(join(dir, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);
 }
 
-function hasGitIdentity(dir: string): boolean {
+export function hasGitIdentity(dir: string): boolean {
   return run(['git', 'config', 'user.name'], dir).ok && run(['git', 'config', 'user.email'], dir).ok;
 }
 

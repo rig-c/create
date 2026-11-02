@@ -2,8 +2,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { collectionInitCommand } from './collection.ts';
 import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
+import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 
@@ -11,6 +13,9 @@ const HELP = `rig-create — create and run a rig project
 
 Usage:
   rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
+  rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
+  rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
+  rig-create collection pin|--check [<dir>]         pin member builds for a collection version; refuse stale pins
   rig-create interview --check [<project dir>] [--json]
                                                     refuse by name every hole the interview and plan still have
   rig-create handoff [<project dir>] [--rig <n>] [--json]
@@ -25,6 +30,7 @@ init:
 ${INTERVIEW_HELP}
 
 ${HANDOFF_HELP}
+${COLLECTION_HELP}
 `;
 
 /** A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1). */
@@ -39,6 +45,14 @@ function version(): string {
 }
 
 function initCommand(args: string[]): string {
+  if (args.includes('--collection') || args.includes('--member')) {
+    const made = collectionInitCommand(args);
+    if (made.installError !== null) {
+      process.stdout.write(`${made.stdout}\n`);
+      refuse('INIT_INSTALL_FAILED', `bun install failed in ${made.dir}; the collection and its first commit are in place. Run bun install there, then commit bun.lock.\n${made.installError}`);
+    }
+    return made.stdout;
+  }
   let install = true;
   const positional: string[] = [];
   for (const arg of args) {
@@ -61,11 +75,12 @@ function initCommand(args: string[]): string {
   return describeInit(result);
 }
 
-/** Subcommands by name. init's collection options (#7) plug in here. */
+/** Subcommands by name. */
 const COMMANDS: Record<string, Command> = {
   init: initCommand,
   interview: interviewCommand,
   handoff: handoffCommand,
+  collection: collectionCommand,
 };
 
 export function main(argv: string[]): number {

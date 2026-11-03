@@ -206,7 +206,7 @@ installed package.
 
 Not every section is a waypoint. A section is one when writing it is a
 **direction call** — something the user could have an opinion about before
-seeing a build. Read from `@rig-c/parts` 2.2.0:
+seeing a build. Read from `@rig-c/parts` 2.3.0:
 
 | Config section | Where it goes | Why |
 | --- | --- | --- |

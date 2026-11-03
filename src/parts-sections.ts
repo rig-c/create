@@ -1,32 +1,39 @@
 /**
- * The top-level sections of a `@rig-c/parts` config, read from the installed
- * package — the pipeline's own list, not a hand copy.
+ * The top-level sections of a `@rig-c/parts` config, taken from the installed
+ * package's own export — the pipeline's list, not a hand copy.
  *
- * parts exports no section list (its package.json has no `exports`, and the
- * accept list in `src/config.ts` is a module-private `const TOP_KEYS`), so
- * this reads the installed source text. Two readings, in order:
+ * parts exports the list as `CONFIG_SECTIONS` from `src/config.ts` (from
+ * 2.3.0; its package.json has no `exports` map, so the subpath is importable).
+ * It is loaded at run time from the parts found for the project being checked
+ * (`locateParts`), not imported from this repository's own dependency, because
+ * `interview --check` reports the sections of the version installed there.
+ * There is no static import either, not even a type-only one: it would make
+ * this repository's typecheck compile the parts and core sources, which do not
+ * typecheck outside their own repositories. A test loads the export from this
+ * repository's pinned install instead.
  *
- * 1. `const TOP_KEYS = [...]` — what the loader accepts at the top level; an
- *    unknown key is refused by name there, so this list is the pipeline's
- *    truth about which sections exist.
- * 2. The fields of `export interface CharacterConfig { … }` — the typed shape,
- *    used only when (1) is not found.
- *
- * Neither found: `PARTS_SECTIONS_UNREADABLE`, so a parts release that moves
- * the list fails loudly instead of silently deriving no waypoints. A parts-side
- * export of the list is the connection point that retires this file's regexes.
+ * Bun's `require` loads that ES module synchronously, so the check stays
+ * synchronous. A parts with no such export (older than 2.3.0, or a release that
+ * moves it) is `PARTS_SECTIONS_UNREADABLE`, so it fails loudly instead of
+ * silently deriving no waypoints.
  */
 import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 
 export const PARTS_PACKAGE = '@rig-c/parts';
 const CONFIG_SOURCE = join('src', 'config.ts');
+const SECTIONS_EXPORT = 'CONFIG_SECTIONS';
+
+/** The export's shape: section names, in parts' order. */
+type Sections = readonly string[];
 
 export interface PartsSections {
   readonly version: string;
   /** The package folder the sections were read from. */
   readonly dir: string;
-  readonly read_from: 'TOP_KEYS' | 'CharacterConfig';
+  /** The export the list was taken from. */
+  readonly read_from: typeof SECTIONS_EXPORT;
   readonly sections: readonly string[];
 }
 
@@ -60,31 +67,10 @@ export function locateParts(projectDir: string): string | null {
   return null;
 }
 
-const TOP_KEYS_RE = /^\s*(?:export\s+)?const\s+TOP_KEYS\s*(?::[^=]+)?=\s*\[([^\]]*)\]/m;
-const INTERFACE_RE = /export\s+interface\s+CharacterConfig\s*\{([\s\S]*?)\n\}/;
+const load = createRequire(import.meta.url);
 
-function quotedNames(list: string): string[] {
-  return [...list.matchAll(/['"]([A-Za-z_][\w-]*)['"]/g)].map((m) => m[1] as string);
-}
-
-function interfaceFields(body: string): string[] {
-  const withoutComments = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-  return [...withoutComments.matchAll(/^\s*(?:readonly\s+)?([A-Za-z_]\w*)\??\s*:/gm)].map((m) => m[1] as string);
-}
-
-/** Reads the section list out of one parts source file. Exported for the test that plants a fake source. */
-export function sectionsFromSource(source: string): { read_from: PartsSections['read_from']; sections: string[] } | null {
-  const top = TOP_KEYS_RE.exec(source);
-  if (top !== null) {
-    const sections = quotedNames(top[1] as string);
-    if (sections.length > 0) return { read_from: 'TOP_KEYS', sections };
-  }
-  const iface = INTERFACE_RE.exec(source);
-  if (iface !== null) {
-    const sections = interfaceFields(iface[1] as string);
-    if (sections.length > 0) return { read_from: 'CharacterConfig', sections };
-  }
-  return null;
+function isSections(v: unknown): v is Sections {
+  return Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string');
 }
 
 export function readPartsSections(projectDir: string): PartsSections {
@@ -98,12 +84,15 @@ export function readPartsSections(projectDir: string): PartsSections {
   const pkg: unknown = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
   const version =
     pkg !== null && typeof pkg === 'object' && 'version' in pkg && typeof pkg.version === 'string' ? pkg.version : 'unknown';
-  const parsed = sectionsFromSource(readFileSync(join(dir, CONFIG_SOURCE), 'utf8'));
-  if (parsed === null) {
-    throw new PartsUnreadable(
-      'PARTS_SECTIONS_UNREADABLE',
-      `${PARTS_PACKAGE} ${version} at ${dir}: neither TOP_KEYS nor interface CharacterConfig found in ${CONFIG_SOURCE}; the section list cannot be derived`,
-    );
+  const unreadable = (why: string): PartsUnreadable =>
+    new PartsUnreadable('PARTS_SECTIONS_UNREADABLE', `${PARTS_PACKAGE} ${version} at ${dir}: ${why}; the section list cannot be derived (it is exported from 2.3.0)`);
+  let mod: unknown;
+  try {
+    mod = load(join(dir, CONFIG_SOURCE));
+  } catch (e) {
+    throw unreadable(`${CONFIG_SOURCE} does not load (${e instanceof Error ? e.message : String(e)})`);
   }
-  return { version, dir, read_from: parsed.read_from, sections: parsed.sections };
+  const sections = mod !== null && typeof mod === 'object' && SECTIONS_EXPORT in mod ? (mod as Record<string, unknown>)[SECTIONS_EXPORT] : undefined;
+  if (!isSections(sections)) throw unreadable(`${CONFIG_SOURCE} has no ${SECTIONS_EXPORT} export holding section names`);
+  return { version, dir, read_from: SECTIONS_EXPORT, sections: [...sections] };
 }

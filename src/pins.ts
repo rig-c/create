@@ -13,5 +13,5 @@
  */
 export const PINNED_PACKAGES = {
   '@rig-c/core': '3.1.0',
-  '@rig-c/parts': '2.2.0',
+  '@rig-c/parts': '2.3.0',
 } as const satisfies Record<string, string>;

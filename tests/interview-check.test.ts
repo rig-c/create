@@ -1,29 +1,24 @@
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 import { checkProject, type CheckReport } from '../src/check.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
-import { sectionsFromSource } from '../src/parts-sections.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
 import { supersede } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
-/** The section list @rig-c/parts 2.2.0's loader accepts at the top level (its `TOP_KEYS`), used by the fake parts sources planted below. */
-const PARTS_2_2_0_SECTIONS = [
+/** The section list @rig-c/parts 2.3.0 exports (its `CONFIG_SECTIONS`), used by the fake parts sources planted below. */
+const PARTS_SECTIONS = [
   'key', 'generation', 'seethrough', 'assemble', 'limbs', 'bones', 'meshes', 'regions', 'motion', 'constraints',
   'stops', 'turn', 'scene', 'cloth', 'proposed_rig_scale', 'requirements', 'motion_seams', 'depth', 'waist',
 ];
 
-function topKeysSource(sections: string[]): string {
-  return `// a fake @rig-c/parts src/config.ts\nconst TOP_KEYS = [${sections.map((s) => `'${s}'`).join(', ')}] as const;\n`;
-}
-
-function interfaceSource(sections: string[]): string {
-  const fields = sections.map((s) => `  /** doc */\n  ${s}?: unknown; // trailing`).join('\n');
-  return `export interface Other {\n  a: string;\n}\nexport interface CharacterConfig {\n${fields}\n}\n`;
+function sectionsSource(sections: string[]): string {
+  return `// a fake @rig-c/parts src/config.ts\nexport const CONFIG_SECTIONS = [${sections.map((s) => `'${s}'`).join(', ')}] as const;\n`;
 }
 
 /** Plants a fake installed @rig-c/parts in a project folder, so the derivation reads it instead of this repo's. */
@@ -96,7 +91,7 @@ describe('the filled example', () => {
     expect(report.warnings).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.parts?.version).toBe(PINNED_PACKAGES['@rig-c/parts']);
-    expect(report.parts?.read_from).toBe('TOP_KEYS');
+    expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
     expect(report.derived?.waypoints).toEqual(['seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion']);
     expect(report.derived?.post_items?.sort()).toEqual(['camera_depth', 'post_composition', 'post_timing']);
   });
@@ -146,7 +141,7 @@ describe('the empty template at stage interview', () => {
   });
 
   test("the template's waypoint config lists are exactly what the pinned parts derives", () => {
-    const derived = deriveWaypoints(PARTS_2_2_0_SECTIONS);
+    const derived = deriveWaypoints(PARTS_SECTIONS);
     const template = arr(obj(readTemplate('project.json').interview).waypoints).map(obj);
     expect(template.map((w) => ({ id: w.id, config: w.config }))).toEqual(derived.waypoints.map((w) => ({ id: w.id, config: [...w.config] })));
     expect(derived.unplaced).toEqual([]);
@@ -305,19 +300,19 @@ describe('a stage moved without a human sign-off', () => {
 describe('waypoints come from the installed @rig-c/parts', () => {
   test('a section not on the placement table is refused by name, with the parts version', () => {
     const dir = fixture();
-    plantParts(dir, '2.9.0', topKeysSource([...PARTS_2_2_0_SECTIONS, 'foo']));
+    plantParts(dir, '2.9.0', sectionsSource([...PARTS_SECTIONS, 'foo']));
     const report = checkProject(dir);
     const found = withCode(report, 'SECTION_UNPLACED');
     expect(found).toHaveLength(1);
     expect(found[0]?.message).toStartWith("@rig-c/parts 2.9.0 has section 'foo'");
     expect(report.parts?.version).toBe('2.9.0');
-    // The record was read from 2.2.0: a warning, not a refusal.
+    // The record was read from the pin, not 2.9.0: a warning, not a refusal.
     expect(report.warnings.map((w) => w.code)).toContain('QUESTION_SET_STALE');
   });
 
   test('a section that parts dropped from a waypoint is a warning, and a waypoint parts no longer passes is refused as missing from the record only when added', () => {
     const dir = fixture();
-    plantParts(dir, '2.2.0', topKeysSource(PARTS_2_2_0_SECTIONS.filter((s) => s !== 'cloth')));
+    plantParts(dir, PINNED_PACKAGES['@rig-c/parts'], sectionsSource(PARTS_SECTIONS.filter((s) => s !== 'cloth')));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
     expect(report.warnings.map((w) => w.code).sort()).toEqual(['SECTION_RETIRED', 'WAYPOINT_CONFIG_STALE']);
@@ -334,29 +329,38 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(withCode(report, 'WAYPOINT_MISSING').map((f) => f.path)).toEqual(['interview.waypoints[meshes]']);
   });
 
-  test('the CharacterConfig interface is the fallback when TOP_KEYS is not found', () => {
-    expect(sectionsFromSource(interfaceSource(['key', 'bones', 'note']))).toEqual({ read_from: 'CharacterConfig', sections: ['key', 'bones', 'note'] });
-    expect(sectionsFromSource('nothing here')).toBeNull();
+  test('a section the pinned version does not have is refused as SECTION_UNPLACED and named in the report', () => {
     const dir = fixture();
-    plantParts(dir, '2.2.0', interfaceSource(PARTS_2_2_0_SECTIONS));
-    expect(checkProject(dir).parts?.read_from).toBe('CharacterConfig');
+    plantParts(dir, PINNED_PACKAGES['@rig-c/parts'], sectionsSource([...PARTS_SECTIONS.slice(0, 5), 'sway', ...PARTS_SECTIONS.slice(5)]));
+    const report = checkProject(dir);
+    expect(codes(report)).toEqual(['SECTION_UNPLACED']);
+    expect(withCode(report, 'SECTION_UNPLACED')[0]?.message).toContain("'sway'");
+    expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
+    expect(report.warnings).toEqual([]);
   });
 
-  test('a parts source with neither is refused, not silently empty', () => {
+  test('a parts without the CONFIG_SECTIONS export (older than 2.3.0) is refused, not silently empty', () => {
     const dir = fixture();
-    plantParts(dir, '3.0.0', '// moved elsewhere\n');
+    plantParts(dir, '2.2.0', `// what 2.2.0 had: a module-private list\nconst TOP_KEYS = [${PARTS_SECTIONS.map((x) => `'${x}'`).join(', ')}] as const;\nexport const unused = TOP_KEYS;\n`);
     const report = checkProject(dir);
     expect(codes(report)).toEqual(['PARTS_SECTIONS_UNREADABLE']);
+    expect(withCode(report, 'PARTS_SECTIONS_UNREADABLE')[0]?.message).toContain('@rig-c/parts 2.2.0');
   });
 
-  test("the repository's own pinned parts reads as the pin and places every section", () => {
-    const source = readFileSync(join(import.meta.dir, '..', 'node_modules', '@rig-c', 'parts', 'src', 'config.ts'), 'utf8');
-    const parsed = sectionsFromSource(source);
-    expect(parsed?.read_from).toBe('TOP_KEYS');
-    expect(parsed?.sections).toEqual(PARTS_2_2_0_SECTIONS);
-    for (const section of parsed?.sections ?? []) expect(SECTION_PLACEMENT[section]).toBeDefined();
+  test('a parts source that does not load is refused, not thrown', () => {
+    const dir = fixture();
+    plantParts(dir, '3.0.0', "import './missing.ts';\nexport const CONFIG_SECTIONS = ['key'];\n");
+    expect(codes(checkProject(dir))).toEqual(['PARTS_SECTIONS_UNREADABLE']);
+  });
+
+  test("the repository's own pinned parts exports CONFIG_SECTIONS, reads as the pin and places every section", () => {
+    const own = createRequire(import.meta.url)(join(import.meta.dir, '..', 'node_modules', '@rig-c', 'parts', 'src', 'config.ts')) as { CONFIG_SECTIONS?: unknown };
+    expect(own.CONFIG_SECTIONS).toEqual(PARTS_SECTIONS);
+    for (const section of PARTS_SECTIONS) expect(SECTION_PLACEMENT[section]).toBeDefined();
     const pkg = JSON.parse(readFileSync(join(import.meta.dir, '..', 'package.json'), 'utf8'));
     expect(pkg.devDependencies['@rig-c/parts']).toBe(PINNED_PACKAGES['@rig-c/parts']);
+    const installed = JSON.parse(readFileSync(join(import.meta.dir, '..', 'node_modules', '@rig-c', 'parts', 'package.json'), 'utf8'));
+    expect(installed.version).toBe(PINNED_PACKAGES['@rig-c/parts']);
   });
 });
 

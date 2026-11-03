@@ -118,6 +118,8 @@ Not applicable:
   corrected.
 - `source` says where the words were given (chat, a call, a note) so the
   record can be traced; chat is not a record — the decision is copied here.
+  A **derived answer**, taken from words already on record instead of asked
+  again, says so here ([§ Derived answers](#derived-answers)).
 - A sentence may leave part of a waypoint open ("the rest is up to you"). Then
   the agent's choice for that part is written to `agent_decision` beside the
   sentence, with `covers` naming what it fills, and that part reads as
@@ -131,6 +133,45 @@ Not applicable:
   never loses what was once decided.
 - Collection members add a `basis` field to every answer
   ([COLLECTIONS.md § Inherited, overridden, own](COLLECTIONS.md#inherited-overridden-own)).
+
+### Derived answers
+
+Before asking, the interviewer reads what is already on record — earlier
+answers, an intake note in `inputs/`, a reviewer's past verdicts — and takes
+from it every answer those words already give. Only what is left is asked, in
+one short message. Asking a user what their own earlier sentence already
+answered is a cost the record could have saved.
+
+A derived answer is an ordinary user answer; only `source` says where it came
+from:
+
+```json
+{
+  "delegated": false,
+  "by": "user",
+  "at": "2026-11-08T10:12:00Z",
+  "verbatim": "Only the chest breathes; the hips stay where they are.",
+  "value": [{ "motion": "breath", "note": "chest only, hips still" }],
+  "source": "derived from inputs/intake.md"
+}
+```
+
+- `by`, `at` and `verbatim` are those of the words on record — who said them,
+  when, the exact fragment — not of the derivation. A reviewer's past verdict
+  keeps the reviewer as `by`.
+- `source` starts with `derived from` and names the record: a file under
+  `inputs/`, an answer (`interview.waypoints[motion].guide`) or a verdict
+  (`versions[v1].verdicts[0]`). The `verbatim` fragment is found in that
+  record, so anyone can trace it.
+- Only words are derived. An answer the record merely implies, and anything
+  read off the image, is still a question.
+- The message that asks what is left lists each derived answer in one line, so
+  the user can correct it; a correction replaces it, and the derived answer
+  moves to `history[]`.
+
+No new field is needed: `interview --check` reads a derived answer as the user
+answer it is, and a provenance `quote` taken from it resolves against its
+`verbatim` like any other.
 
 ## Direction is taken in sentences
 

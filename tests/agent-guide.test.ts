@@ -20,12 +20,16 @@ const GUIDE_HEADINGS = [
   '## Start here',
   '## The order, and what you may not do',
   "## The user's three steps",
+  '## Before you ask, plan or show',
   '## Where things go',
   '## What to read, and why',
 ];
 
-/** The guide points at documentation; it does not carry it. Kept well under any one linked document. */
-const GUIDE_MAX_BYTES = 8_000;
+/**
+ * The guide points at documentation; it does not carry it. Kept well under any one linked document.
+ * Raised from 8 000 when it took on its own procedures (rig-c/create#23), which no linked document holds.
+ */
+const GUIDE_MAX_BYTES = 9_000;
 
 function markdownLinks(text: string): string[] {
   return [...text.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1] as string);

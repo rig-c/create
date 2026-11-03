@@ -139,6 +139,7 @@ describe('init --collection', () => {
     const guide = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
     expect(guide).toContain('rig collection');
     expect(guide).toContain('rig-create collection --check');
+    expect(guide).toContain('docs/INTERVIEW.md#derived-answers');
     expect(guide).not.toContain('{{');
   });
 });

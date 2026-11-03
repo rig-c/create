@@ -249,6 +249,7 @@ change of motion is not offered to the user as the way out of a defect.
 | G5 | Background plate residue where the figure was removed: a dark silhouette ghost, pale blurred blocks where a structure behind should continue, a smudged emblem, a colour smear | in a band around the figure mask, 0 figure-coloured pixels on the plate, and the fill continues the structure behind it | none — plates are composed outside the current checks |
 | G6 | Plates or character source edited in code (segmentation, patch synthesis, scripted inpainting) instead of in an image editor | every edited image carries an editor receipt; 0 edits without one | none |
 | G7 | A part carved out of a layer with a hand-drawn polygon instead of taken from the layer split or another real source; such cuts tear at the edge | every part's pixels trace to a layer of the split or to an editor receipt; 0 parts without a source | none |
+| G8 | A paired part split unevenly — one side of a left/right bust, eye, hair end or hem panel missing, much smaller, or cut at a different place — and shown to the user that way | before the split proposal is shown, every pair has both members, comparable area and mirrored edge placement, measured on the parts and compared with the same measure on the painting, so an asymmetry the painting itself has is not flagged | none named |
 
-The source gives no numeric threshold for G2, G3 and G5 beyond what is written
+The source gives no numeric threshold for G2, G3, G5 and G8 beyond what is written
 above; where a limit is needed it is declared per rig, not assumed.

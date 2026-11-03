@@ -32,6 +32,16 @@ become `paused`.
   it: `rig-create collection pin`. Before showing one, run
   `rig-create collection --check`: a member rebuilt since the pins is refused
   by name, and its output is stale.
+- Derive before asking: take every answer the record already gives (earlier
+  answers, an intake note, a reviewer's past verdicts), recorded as
+  {{DERIVED_LINK}}, and ask only what is left, in one short message. This holds
+  for the collection interview and for each member's.
+- A group painting smaller than the members need is upscaled before it goes
+  into `inputs/`.
+- The rest of what to do before asking, planning or showing (the crux bar, no
+  unnamed motion, re-run the split first, overlaps, pairs, looking before the
+  user does) is in each member's `AGENTS.md` and applies to the member's work
+  unchanged.
 
 ## Where things go
 

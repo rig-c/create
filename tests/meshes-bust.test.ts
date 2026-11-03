@@ -52,6 +52,15 @@ describe('the bust at meshes', () => {
     expect(bust(report)).toEqual([`BUST_EXCLUSION_UNREASONED ${PATH}.agent_decision.value.bust`]);
   });
 
+  test('a partial delegation is read from the agent decision beside the user sentence', () => {
+    const report = checkProject(fixture((p) => {
+      obj(waypoint(p, 'meshes').guide).agent_decision = {
+        value: { bust: { excluded: true, reason: '' } }, reasoning: 'armour', at: '2026-11-10T14:11:00Z',
+      };
+    }));
+    expect(bust(report)).toEqual([`BUST_EXCLUSION_UNREASONED ${PATH}.agent_decision.value.bust`]);
+  });
+
   test('an addition that excludes the bust needs its reason too', () => {
     const report = checkProject(fixture((p) => {
       obj(waypoint(p, 'meshes').guide).additions = [

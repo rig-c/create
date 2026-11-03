@@ -26,9 +26,12 @@ function valuesOf(ctx: Ctx): { value: Json | undefined; path: string }[] {
   const s = item.state;
   const out: { value: Json | undefined; path: string }[] = [];
   if (s.state === 'user') out.push({ value: s.answer.value, path: `${item.path}.value` });
-  else if (s.state === 'delegated' && isObject(s.answer.agent_decision)) {
+  else if (s.state !== 'delegated') return [];
+  // A user sentence that left part open carries the agent's choice beside it
+  // (docs/INTERVIEW.md), so the decision is read on both states.
+  if (isObject(s.answer.agent_decision)) {
     out.push({ value: s.answer.agent_decision.value, path: `${item.path}.agent_decision.value` });
-  } else return [];
+  }
   asArray(s.answer.additions).forEach((add, i) => {
     if (isObject(add)) out.push({ value: add.value, path: `${item.path}.additions[${i}].value` });
   });

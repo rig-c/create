@@ -87,8 +87,12 @@ each config section cites the guide sentence or the delegation it rests on.
 - **Which sections the config has.** When `provenance.config.path` names a
   file under the project and its sha256 is `provenance.config.sha256`, the
   file's top-level keys are the sections, and a key provenance does not list
-  is uncited. Otherwise — `derived/` is not kept, so this is the usual case —
-  the sections `provenance.sections` lists are the ones checked, and the report
+  is uncited. In a `rig` config, parts' records (`x-` and at least one more
+  character, any JSON) and annotations (`note` or `<name>_note`, a string) are
+  read by nothing and are not sections, so they need no citation; a
+  provenance entry under one (other than `note`, which the placement table
+  places `none`) is still `SECTION_UNKNOWN`. Otherwise — `derived/` is not
+  kept, so this is the usual case — the sections `provenance.sections` lists are the ones checked, and the report
   says so: `provenance[].config` is `absent` (no file), `changed` (the file's
   hash is not the recorded one; also a `PROVENANCE_CONFIG_CHANGED` warning) or
   `unreadable` (not a JSON object, or a path outside the project), and the text

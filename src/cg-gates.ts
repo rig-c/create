@@ -142,7 +142,7 @@ export function checkCgGates(ctx: Ctx): void {
     }
     const cfg = readObject(ctx.dir, resolve(ctx.dir, configPath), configSha);
     if (!cfg.ok) {
-      ctx.refusals.push({ code: 'CG_GATES_UNREAD', path: at, message: `${at}: ${cfg.why}; a CG version's gates are read from the config it was built from — keep it beside its outputs (outputs/v<N>/) at the recorded path and sha256` });
+      ctx.refusals.push({ code: 'CG_GATES_UNREAD', path: at, message: `${at}: ${cfg.why}; a CG version's gates are read from the config it was built from — keep it in evidence/v<N>/ (in git; outputs/ is ignored) at the recorded path and sha256` });
       return;
     }
     const assemble = isObject(cfg.value.assemble) ? cfg.value.assemble : {};

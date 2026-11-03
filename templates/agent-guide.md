@@ -61,6 +61,11 @@ stage can become `paused`.
   taken from the painting along its painted outlines, with See-through's own
   alpha for any border that has no painted line, feather 0, and a receipt. Never
   a polygon in code or config. See-through stays the source for hidden surface.
+- **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each
+  rig version's config, kept in `outputs/v<N>/`, sets `trace_parts: true` in
+  `assemble.editor_receipts` and names a `requirements` file with
+  `seam_over_motion.required: true` and `boundary_colour.max_step_excess: 12`.
+  Refusals are the art's to fix.
 - **Overlaps.** A piece over a part with its own animation (glasses over
   eyelids) holds none of that part's pixels, or the animation shows its copy.
 - **Pairs.** Left/right bust, eyes, hair ends, hem panels: measure symmetry

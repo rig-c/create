@@ -188,6 +188,17 @@ what a CG build is for, declared in the files the version was built from
   decides whether a version is held here, so a misspelt full-screen scene would
   otherwise pass ungated.
 
+## The bust at meshes
+
+The bust is meshed with its own regions by default ([CRAFT.md M2](CRAFT.md#m2-the-bust-is-meshed-unless-there-is-a-reason)).
+The `meshes` guide's `x_deform` value records it as `"bust": "default"` or
+`"bust": { "excluded": true, "reason": "…" }`; no `bust` field is the default
+(`src/meshes-bust.ts`). The check reads the user's `value`, the agent's decision
+on a delegation, and every `additions[].value`. An exclusion with an empty,
+blank or missing `reason` is refused (`BUST_EXCLUSION_UNREASONED`), and any
+other `bust` value is refused (`BUST_VALUE_UNKNOWN`). A value that is not an
+object is not read.
+
 ## Refusals
 
 Exit `1`. Each names its object in `path`.
@@ -253,6 +264,8 @@ Exit `1`. Each names its object in `path`.
 | `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`evidence/v<N>/`) and record the config's path and sha256 |
 | `CG_GATE_UNDECLARED` | a CG project's `rig` version's config lacks `assemble.editor_receipts.trace_parts: true` or a `requirements` path, or its requirements file lacks `seam_over_motion.required: true` or an integer `boundary_colour.max_step_excess`; `path` names the field | declare it and rebuild; a refusal parts then gives is the art's to fix, not a reason to drop the gate |
 | `CG_BOUNDARY_ALLOWANCE_RAISED` | a CG version's requirements file declares `boundary_colour.max_step_excess` above 12 | declare 12 or less; fix the piece's image or mesh that the step points at |
+| `BUST_EXCLUSION_UNREASONED` | the `meshes` value excludes the bust (`"excluded": true`) with an empty, blank or missing `reason` | write the user's reason (a rigid breastplate, say), or record `"bust": "default"`; the reason goes to parts with the opt-out |
+| `BUST_VALUE_UNKNOWN` | the `meshes` value's `bust` is neither `"default"` nor `{ "excluded": true, "reason": "…" }` | write one of the two ([INTERVIEW.md](INTERVIEW.md)) |
 
 ## The hand-off command
 

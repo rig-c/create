@@ -1,8 +1,7 @@
 # Agent guide
 
 This folder is a rig project: one painting in, one rig and the takes made from it
-out. Read this page before you touch anything. You need no chat history; what a
-person decided is in `project.json`, and nowhere else.
+out. Read this page before you touch anything. You need no chat history.
 
 ## Start here
 
@@ -37,7 +36,7 @@ stage can become `paused`.
 2. **Direction**: camera, depth and timing, asked only after a rig version is
    accepted and judged at `direction-review`.
 3. **Polish**: what the user says after seeing a version, kept word for word in
-   that version's `verdicts[]` and tied to the items it is about.
+   that version's `verdicts[]`, tied to its items.
 
 ## Before you ask, plan or show
 
@@ -66,6 +65,9 @@ stage can become `paused`.
   `assemble.editor_receipts` and names a `requirements` file with
   `seam_over_motion.required: true` and `boundary_colour.max_step_excess: 12`.
   Refusals are the art's to fix.
+- **The bust is meshed**: a `contour` torso with `contour.bust`, unless the
+  `meshes` guide excludes it; then pass the parts opt-out (rig-c/parts#986)
+  and its reason.
 - **Overlaps.** A piece over a part with its own animation (glasses over
   eyelids) holds none of that part's pixels, or the animation shows its copy.
 - **Pairs.** Left/right bust, eyes, hair ends, hem panels: measure symmetry
@@ -75,7 +77,7 @@ stage can become `paused`.
   crux names: a whole-figure |composite − painting| map, every component listed
   by box and part with a status (in the painting / fixed / left, why). Use the
   true stack of part images, not a render flattened on white; crop on white and
-  on a mid-grey or sentinel colour, as white hides light fringes. Eye boxes a
+  on mid-grey, as white hides light fringes. Eye boxes a
   reviewer chose are not the check: a seam outside them got through.
 
 ## Where things go
@@ -90,8 +92,8 @@ stage can become `paused`.
 | `scratch/` | none; deleting it must lose nothing | no |
 
 The user's own references ("make it feel like this") go in `inputs/references/`,
-with their sha256 in `project.json` `inputs[]`. They are inputs to the rig, not
-documentation, and they are never edited.
+with their sha256 in `project.json` `inputs[]`. They are inputs, not
+documentation.
 
 ## What to read, and why
 
@@ -99,11 +101,10 @@ Read in this order, each before the step it names:
 
 {{READ_FIRST}}
 
-The packages' documents are in the project, installed at the versions
-`package.json` pins, so they match the tools you run. Read them here, not from
-memory or from the packages' repositories. A refusal from either tool usually
-ends with a `(see … guide …)` command that prints the matching row of these
-guides; run it before changing anything.
+The packages' documents are installed at the versions `package.json` pins, so
+they match the tools you run; read them here, not from memory. A refusal usually
+ends with a `(see … guide …)` command that prints the matching guide row; run it
+before changing anything.
 
 {{PACKAGE_DOCS}}
 

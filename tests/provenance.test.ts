@@ -140,6 +140,19 @@ describe('a section with no citation', () => {
     expect(report.refusals[0]?.path).toBe('versions[v2].provenance.sections[meshes_note]');
   });
 
+  test('with the config read, a citation under an annotation or record key it holds is still refused', () => {
+    const report = checkProject(withConfig(2, { ...V2_CONFIG, meshes_note: 'torso by hand', 'x-run': { seed: 7 } }, (p) => {
+      citedSections(p, 2).meshes_note = [{ entry: 'torso', guide: 'meshes', delegated: true }];
+      citedSections(p, 2)['x-run'] = [{ entry: 'seed', guide: 'meshes', delegated: true }];
+    }));
+    expect(report.provenance[1]?.config).toBe('verified');
+    expect(withCode(report, 'SECTION_UNKNOWN').map((f) => f.path)).toEqual([
+      'versions[v2].provenance.sections[meshes_note]',
+      'versions[v2].provenance.sections[x-run]',
+    ]);
+    expect(codes(report).every((c) => c === 'SECTION_UNKNOWN')).toBe(true);
+  });
+
   test('a version with no provenance at all is refused', () => {
     const report = checkProject(fixture((p) => { version(p, 1).provenance = null; }));
     expect(codes(report)).toEqual(['PROVENANCE_MISSING']);

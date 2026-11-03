@@ -233,6 +233,14 @@ export function checkProvenance(ctx: Ctx, parts: PartsSections | null): Provenan
       }
       entries.forEach((e, i) => checkEntry(ctx, kind, `${path}[${i}]`, e));
     }
+    // A citation under a key the config listing skipped (a record or annotation) is still no section.
+    if (kind === 'rig') {
+      for (const section of Object.keys(cited)) {
+        if (known.has(section) || sections.includes(section)) continue;
+        const path = `${label}.provenance.sections[${section}]`;
+        ctx.refusals.push({ code: 'SECTION_UNKNOWN', path, message: `${path}: '${section}' is no @rig-c/parts${parts === null ? '' : ` ${parts.version}`} section; a misspelt name leaves the real section uncited` });
+      }
+    }
   });
   return summaries;
 }

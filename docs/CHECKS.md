@@ -30,9 +30,9 @@ a plan step), written to `project.json`.
   dependency), and placed through the table in `src/waypoints.ts` — the same
   table as [INTERVIEW.md § Waypoints](INTERVIEW.md#waypoints-where-the-guide-attaches).
   A section the table does not place is a refusal; a new parts section is a
-  question before it is a line in the table. parts exports no section list, so
-  the reader takes the loader's accept list (`const TOP_KEYS` in its
-  `src/config.ts`), falling back to the `CharacterConfig` interface's fields.
+  question before it is a line in the table. The list is parts' own export,
+  `CONFIG_SECTIONS` in its `src/config.ts` (from 2.3.0; the loader's accept
+  list), loaded from the install the check found, not from this repository's.
 - **The stage order** is `src/stages.ts`, the one place it is written: which
   stages end on a sign-off (`interview`, `plan-approved`, `rig-review`,
   `post-interview`, `direction-review`) and which end when the last step of
@@ -153,7 +153,7 @@ Exit `1`. Each names its object in `path`.
 | `SCHEMA_UNKNOWN` | `schema` is not `rig-create/project@0` (a later shape, or a `project.json` holding a collection record) | point the check at a project record; a collection folder is checked as a collection |
 | `STAGE_UNKNOWN` | `stage` is not one of the stages | set a stage from `stage_values`; nothing else is checked until it is |
 | `PARTS_NOT_INSTALLED` | `@rig-c/parts` is in neither the project's nor this repository's `node_modules/` | `bun install` in the project |
-| `PARTS_SECTIONS_UNREADABLE` | the installed parts source has neither `TOP_KEYS` nor `interface CharacterConfig` | a parts release moved the list: update `src/parts-sections.ts` (or take parts' own export once it has one) |
+| `PARTS_SECTIONS_UNREADABLE` | the installed parts' `src/config.ts` does not load, or has no `CONFIG_SECTIONS` export of section names (parts older than 2.3.0, or a release that moved it) | install the pinned parts in the project; if a parts release moved the export, update `src/parts-sections.ts` |
 | `SECTION_UNPLACED` | parts has a top-level section the placement table does not place | decide what it is — a waypoint, a post item, or not a direction call — in `src/waypoints.ts` and the INTERVIEW.md table, then ask it in the project |
 | `WAYPOINT_MISSING` | a waypoint derived from parts is not in `interview.waypoints[]` | add the waypoint (with its `config[]` and prompts) and ask it |
 | `POST_ITEM_MISSING` | a post item derived from parts (or `post_timing` / `post_composition`) is not in `interview.post.items[]` | add it |

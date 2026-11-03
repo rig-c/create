@@ -8,7 +8,7 @@ read it.
 Each lesson is a *rule*, *why* and *how to check*. Where the rule already lives
 in a craft note ([CRAFT.md](CRAFT.md)), the split know-how ([SOURCE.md](SOURCE.md))
 or a rig-c/parts section, it is linked, not restated. The parts links point at
-the version a new project pins (2.2.0); in a project, read the same files under
+the version a new project pins (2.3.0); in a project, read the same files under
 `node_modules/@rig-c/parts/`.
 
 Every rule carries its source: a craft note, a parts section, an owner ruling
@@ -104,7 +104,7 @@ self-check is fixed before the version is shown, not shown with a question.
   animation's frame count, and the max with its frame.
   [CRAFT.md G1](CRAFT.md#for-the-gates-not-the-interview) is the gate row; parts'
   `SEAM_OVER_MOTION` covers only some pairs as a bar (parts AUTHORING
-  [§7](https://github.com/rig-c/parts/blob/v2.2.0/docs/AUTHORING.md#7-the-bars-check-enforces-and-what-only-an-eye-answers-today)).
+  [§7](https://github.com/rig-c/parts/blob/v2.3.0/docs/AUTHORING.md#7-the-bars-check-enforces-and-what-only-an-eye-answers-today)).
 - *Source*: owner ruling, 2026-11-03.
 
 ### Inspect motion on a sentinel colour

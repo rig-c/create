@@ -134,6 +134,13 @@ describe('the rig review rests on a still frame', () => {
     }
   });
 
+  test('a still at the renderer setup pose is recorded as frame "setup", not as t=0', () => {
+    const r = checkProject(fixture((p) => (obj(arr(version(p, 2).evidence)[0]).frame = 'setup')));
+    expect(codes(r)).toEqual([]);
+    const bad = checkProject(fixture((p) => (obj(arr(version(p, 2).evidence)[0]).frame = 'rest')));
+    expect(withCode(bad, 'STILL_MALFORMED').map((f) => f.path)).toEqual(['versions[v2].evidence[0]']);
+  });
+
   test('a bounced rig version needs no still to be refused for', () => {
     const r = checkProject(fixture((p) => (version(p, 1).evidence = [])));
     expect(codes(r)).toEqual([]);

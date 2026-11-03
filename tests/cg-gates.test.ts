@@ -114,6 +114,11 @@ describe('a full-screen scene (CG) rig version', () => {
     expect(cg(report)).toEqual(['CG_GATES_UNREAD versions[v2].provenance.config']);
   });
 
+  test('a config with no recorded hash is unread: its declarations are not verified', () => {
+    const report = checkProject(scene(GATED_CONFIG, GATED_REQUIREMENTS, (p) => { delete obj(obj(version(p, 2).provenance).config).sha256; }));
+    expect(cg(report)).toEqual(['CG_GATES_UNREAD versions[v2].provenance.config']);
+  });
+
   test('a version built before the gates existed is a warning, not a refusal', () => {
     const report = checkProject(fixture((p) => {
       asScene(p);

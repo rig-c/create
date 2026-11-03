@@ -135,7 +135,12 @@ export function checkCgGates(ctx: Ctx): void {
       ctx.refusals.push({ code: 'CG_GATES_UNREAD', path: at, message: `${at}: no path; a CG version's gates are read from the config it was built from — keep it under the project and record its path and sha256` });
       return;
     }
-    const cfg = readObject(ctx.dir, resolve(ctx.dir, configPath), asString(config.sha256));
+    const configSha = asString(config.sha256);
+    if (configSha === null || configSha === '') {
+      ctx.refusals.push({ code: 'CG_GATES_UNREAD', path: at, message: `${at}: no sha256; a CG version's gates are read from the config it was built from, verified by its recorded hash — record the config's sha256` });
+      return;
+    }
+    const cfg = readObject(ctx.dir, resolve(ctx.dir, configPath), configSha);
     if (!cfg.ok) {
       ctx.refusals.push({ code: 'CG_GATES_UNREAD', path: at, message: `${at}: ${cfg.why}; a CG version's gates are read from the config it was built from — keep it beside its outputs (outputs/v<N>/) at the recorded path and sha256` });
       return;

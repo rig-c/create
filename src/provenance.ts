@@ -8,7 +8,8 @@
  * Which sections a config has:
  * - The config file named in `provenance.config.path` is read when it is under
  *   the project folder and its sha256 matches `provenance.config.sha256`; its
- *   top-level keys are the sections, and each must be cited.
+ *   top-level keys are the sections, and each must be cited. A rig config's
+ *   records (`x-…`) and annotations (`note`, `…_note`) are not sections.
  * - Otherwise (`derived/` is not kept, so this is the usual case) the sections
  *   `provenance.sections` lists are the ones checked, and the report says the
  *   config's own list could not be verified (`provenance[].config`).
@@ -59,8 +60,29 @@ function sha256(file: string): string | null {
   }
 }
 
-/** Reads the config's top-level keys when the file is the one the version was built from. */
-function readConfigSections(dir: string, config: Json | undefined): { read: ConfigRead; path: string | null; sections: string[] | null } {
+/**
+ * A top-level key parts reads nothing from: a record (`x-` and at least one
+ * character more, any JSON) or an annotation (`note` or `<name>_note`, holding
+ * a string). Records are tested first, so `x-seed_note` is a record whatever it
+ * holds. This mirrors `isRecordKey` and `isDoorKey` with the loader's string
+ * test for annotations in @rig-c/parts `src/config.ts` (AUTHORING §3); `xstatus`,
+ * `x_status`, `X-status` and a bare `x-` are not record names.
+ */
+function isAnnotationOrRecord(key: string, value: unknown): boolean {
+  if (key.length > 2 && key.startsWith('x-')) return true;
+  return (key === 'note' || key.endsWith('_note')) && typeof value === 'string';
+}
+
+/**
+ * Reads the config's top-level keys when the file is the one the version was
+ * built from, leaving out the keys `skip` is true for (a rig config's records
+ * and annotations).
+ */
+function readConfigSections(
+  dir: string,
+  config: Json | undefined,
+  skip: (key: string, value: unknown) => boolean = () => false,
+): { read: ConfigRead; path: string | null; sections: string[] | null } {
   const path = isObject(config) ? asString(config.path) : null;
   if (path === null) return { read: 'absent', path: null, sections: null };
   const file = resolve(dir, path);
@@ -78,7 +100,7 @@ function readConfigSections(dir: string, config: Json | undefined): { read: Conf
     return { read: 'unreadable', path, sections: null };
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return { read: 'unreadable', path, sections: null };
-  return { read: 'verified', path, sections: Object.keys(parsed) };
+  return { read: 'verified', path, sections: Object.entries(parsed).filter(([k, v]) => !skip(k, v)).map(([k]) => k) };
 }
 
 /**
@@ -189,7 +211,8 @@ export function checkProvenance(ctx: Ctx, parts: PartsSections | null): Provenan
       return;
     }
     const cited = prov.sections;
-    const read = readConfigSections(ctx.dir, prov.config);
+    // A rig config's records and annotations are not sections and need no citation; a section parts or the table knows is kept.
+    const read = readConfigSections(ctx.dir, prov.config, kind === 'rig' ? (k, val) => !known.has(k) && isAnnotationOrRecord(k, val) : undefined);
     const sections = read.sections ?? Object.keys(cited);
     summaries.push({ version: label, kind, config_path: read.path, config: read.read, sections });
     if (read.read === 'changed') {

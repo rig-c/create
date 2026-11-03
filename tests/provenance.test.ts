@@ -110,6 +110,36 @@ describe('a section with no citation', () => {
     expect(report.refusals[0]?.path).toBe('versions[v2].provenance.sections[constraint]');
   });
 
+  test('a config\'s records and annotations beside the real sections are not sections: it passes, no citation asked', () => {
+    const report = checkProject(withConfig(2, { ...V2_CONFIG, bones_note: 'chest pivots low', 'x-run': { seed: 7, steps: [3, 5] }, 'x-seed_note': 42 }));
+    expect(report.provenance[1]?.config).toBe('verified');
+    expect(report.provenance[1]?.sections).not.toContain('bones_note');
+    expect(report.provenance[1]?.sections).not.toContain('x-run');
+    expect(report.provenance[1]?.sections).not.toContain('x-seed_note');
+    expect(report.refusals).toEqual([]);
+  });
+
+  test('keys that are no record or annotation name are still refused: x_status, a bare x-, a note holding no string', () => {
+    const report = checkProject(withConfig(2, { ...V2_CONFIG, x_status: 'draft', 'x-': 1, xstatus: 1, 'X-status': 1, meshes_note: { by: 'hand' } }));
+    expect(report.provenance[1]?.config).toBe('verified');
+    expect(withCode(report, 'SECTION_UNKNOWN').map((f) => f.path)).toEqual([
+      'versions[v2].provenance.sections[x_status]',
+      'versions[v2].provenance.sections[x-]',
+      'versions[v2].provenance.sections[xstatus]',
+      'versions[v2].provenance.sections[X-status]',
+      'versions[v2].provenance.sections[meshes_note]',
+    ]);
+    expect(codes(report).every((c) => c === 'SECTION_UNKNOWN')).toBe(true);
+  });
+
+  test('a provenance entry citing an annotation key is refused: meshes_note is no section', () => {
+    const report = checkProject(fixture((p) => {
+      citedSections(p, 2).meshes_note = [{ entry: 'torso', guide: 'meshes', delegated: true }];
+    }));
+    expect(codes(report)).toEqual(['SECTION_UNKNOWN']);
+    expect(report.refusals[0]?.path).toBe('versions[v2].provenance.sections[meshes_note]');
+  });
+
   test('a version with no provenance at all is refused', () => {
     const report = checkProject(fixture((p) => { version(p, 1).provenance = null; }));
     expect(codes(report)).toEqual(['PROVENANCE_MISSING']);

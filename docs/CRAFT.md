@@ -15,7 +15,9 @@ nobody was asked about decides nothing.
 reasonable user could answer it either way. A seam, a hole or a smeared plate is
 not a design call — nobody would answer "yes" to it — so it is never asked at the
 interview. Those defects are listed at the end, [for the gates](#for-the-gates-not-the-interview),
-with the bar that would catch each.
+with the bar that would catch each. The checks an agent runs on every version
+before anyone looks, and the review lessons behind them, are in
+[LESSONS.md](LESSONS.md).
 
 Each note has the same shape: the lesson, why it matters, the waypoint, and the
 proposed default.
@@ -49,7 +51,9 @@ proposed default.
 
 ## `seethrough`
 
-No note yet.
+No interview note yet. How to run the split, check it and re-run it is
+execution, not a design call, so it is not asked: it is in [SOURCE.md](SOURCE.md),
+read before `seethrough` and `assemble`, with the cutting rules for `assemble`.
 
 ## `assemble`
 
@@ -250,6 +254,8 @@ change of motion is not offered to the user as the way out of a defect.
 | G6 | Plates or character source edited in code (segmentation, patch synthesis, scripted inpainting) instead of in an image editor | every edited image carries an editor receipt; 0 edits without one | none |
 | G7 | A part carved out of a layer with a hand-drawn polygon instead of taken from the layer split or another real source; such cuts tear at the edge | every part's pixels trace to a layer of the split or to an editor receipt; 0 parts without a source | none |
 | G8 | A paired part split unevenly — one side of a left/right bust, eye, hair end or hem panel missing, much smaller, or cut at a different place — and shown to the user that way | before the split proposal is shown, every pair has both members, comparable area and mirrored edge placement, measured on the parts and compared with the same measure on the painting, so an asymmetry the painting itself has is not flagged | none named |
+| G9 | Specks and holes in the part images straight out of the layer split: loose dots apart from a part, transparent pinholes inside it | on each raw split layer before `assemble`, on a sentinel colour: 0 specks (an 8-connected island of alpha above 8 under 64 px that the painting has no matching content for — outside the silhouette, or not the painting's colour there) and 0 holes (transparent pixels inside the layer's own silhouette), both counts reported per layer; caught at the split, earlier than G4 at rest ([LESSONS.md](LESSONS.md#specks-and-holes-in-the-split-layers)) | none at the split: `assemble` reads only after the merge (`uncovered holes`, and speck counts in its limb-subset `LINT` lines) |
 
 The source gives no numeric threshold for G2, G3, G5 and G8 beyond what is written
-above; where a limit is needed it is declared per rig, not assumed.
+above (G9's 64 px is a pilot measurement, 2026-11-03); where a limit is needed it
+is declared per rig, not assumed.

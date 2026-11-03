@@ -59,6 +59,10 @@ here track what moves in, in order.
   inherited answers, the reference member, composition, pins.
 - [docs/CRAFT.md](docs/CRAFT.md) — craft notes: the default proposed at each
   waypoint, and execution defects handed to rig-c/parts gates.
+- [docs/SOURCE.md](docs/SOURCE.md) — the layer split and the cut: what to do, in
+  what order and why, read before `seethrough` and `assemble`.
+- [docs/LESSONS.md](docs/LESSONS.md) — the self-check every version passes
+  before anyone looks, and the review lessons behind it.
 - [templates/](templates/) — the empty `project.json` and `collection.json`
   skeletons, and a worked example ([example-interview.md](templates/example-interview.md),
   [example-project.json](templates/example-project.json)) on a made-up painting.

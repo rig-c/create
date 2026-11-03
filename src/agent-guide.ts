@@ -131,6 +131,32 @@ export function createDocUrl(path: string, anchor?: string): string {
   return `${CREATE_DOCS_BASE}${path}${anchor === undefined ? '' : `#${anchor}`}`;
 }
 
+function createLink(label: string, path: string, anchor?: string): string {
+  return `[${label}](${createDocUrl(path, anchor)})`;
+}
+
+/**
+ * The one ordered entry point (rig-c/create#24): what to read before each step,
+ * naming the page and the section. create's pages are absolute links (create is
+ * not installed in a project); the parts and core sections are named, not
+ * linked, because the package links below are exactly PACKAGE_DOCS.
+ */
+export const READ_FIRST = [
+  '1. **Before the interview**: INTERVIEW.md, and CRAFT.md for the default at each',
+  '   waypoint (both linked below); parts AUTHORING §3, *`config.json`, field by',
+  `   field*; ${createLink('CHECKS.md', 'docs/CHECKS.md')} before a sign-off.`,
+  '2. **Before `seethrough` and `assemble`**: SOURCE.md, the order of the split and',
+  `   the cut: ${createLink('re-running a bad split', 'docs/SOURCE.md', 're-run-first')},`,
+  `   ${createLink('where a cut is allowed', 'docs/SOURCE.md', 'where-a-cut-is-allowed')};`,
+  '   then parts AUTHORING *See-through head-run source reading*, *Source before',
+  '   scissors* and *Limbs: cut at their joints*.',
+  `3. **Before rigging**: ${createLink('CRAFT.md § For the gates', 'docs/CRAFT.md', 'for-the-gates-not-the-interview')}`,
+  '   (G1–G9); core RIGGING and MOTION; parts AUTHORING §7, the bars `check` enforces.',
+  `4. **Before showing the user**: ${createLink('LESSONS.md § The self-check', 'docs/LESSONS.md', 'the-self-check')},`,
+  `   the ${createLink('per-frame seam count', 'docs/LESSONS.md', 'count-the-seam-bar-over-every-frame')},`,
+  `   ${createLink('what to show first', 'docs/LESSONS.md', 'what-to-show-the-user-first')}.`,
+].join('\n');
+
 /**
  * The check an agent runs before asking for the interview sign-off.
  * After rig-c/create#3 (`rig-create interview --check`) lands, this line names
@@ -163,6 +189,7 @@ export function renderAgentGuide(): string {
     INTERVIEW_CHECK: INTERVIEW_CHECK_LINE,
     DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
     GATES_LINK: `[CRAFT.md G8](${createDocUrl(GATES_LINK.path, GATES_LINK.anchor)})`,
+    READ_FIRST,
     PACKAGE_DOCS: PACKAGE_DOCS.map((doc) =>
       linkLine(`${doc.package} ${doc.path}`, packageDocPath(doc), doc.why),
     ).join('\n'),

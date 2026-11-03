@@ -57,6 +57,11 @@ become `paused`.
 
 ## What to read, and why
 
+Read in this order, for the collection and in each member, each before the step
+it names:
+
+{{READ_FIRST}}
+
 These are installed here at the versions `package.json` pins, once for every
 member:
 

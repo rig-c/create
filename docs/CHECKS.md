@@ -171,9 +171,10 @@ what a CG build is for, declared in the files the version was built from
   12 is the piece's image or mesh to fix.
 - **What is read.** The config at `provenance.config.path`, under the project
   and with its recorded sha256, then the requirements file it names (relative
-  to the config's folder, under the project). A CG version's config is kept
-  beside its outputs in `outputs/v<N>/`, which lives as long as the version
-  (not in `derived/`, which is regenerated): a gate that cannot be read is
+  to the config's folder, under the project). A CG version's config and its
+  requirements file are kept in `evidence/v<N>/`, which is in git and lives
+  forever as what the verdict rested on (not in `outputs/`, which init ignores,
+  nor `derived/`, which is regenerated): a gate that cannot be read is
   refused (`CG_GATES_UNREAD`), never passed.
 - **What is not read.** Whether the gates pass. That is parts' check on the
   build; this check only refuses a CG version that does not ask for them. A
@@ -249,7 +250,7 @@ Exit `1`. Each names its object in `path`.
 | `FEEDBACK_NOT_ADDED` | an item is `not-asked` and its answer has no `additions[]` entry with `source: "polish feedback, v<N>"` quoting the verdict | add the sentence to the guide (`rig-create review` does it when it records the verdict) before the next version is built |
 | `DELEGATION_NOT_GIVEN` | an entry is `delegated: true`, and no answer of the cited item (current or `history[]`) is a delegation or carries an `agent_decision` — or the delegation has no `agent_decision` | cite the sentence instead, or ask the user; a user answer is not a delegation unless it left part open and the agent's decision is written beside it |
 | `RIG_TYPE_UNKNOWN` | the answered `rig_type` (the user's `value`, or the agent's decision on a delegation) is none of `character.idle`, `character.complex`, `character.monster`, `fullscreen.minimal`, `fullscreen.game_logic` | write the value the answer means ([INTERVIEW.md](INTERVIEW.md)); an illustration CG is `fullscreen.minimal` or `fullscreen.game_logic` |
-| `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`outputs/v<N>/`) and record the config's path and sha256 |
+| `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`evidence/v<N>/`) and record the config's path and sha256 |
 | `CG_GATE_UNDECLARED` | a CG project's `rig` version's config lacks `assemble.editor_receipts.trace_parts: true` or a `requirements` path, or its requirements file lacks `seam_over_motion.required: true` or an integer `boundary_colour.max_step_excess`; `path` names the field | declare it and rebuild; a refusal parts then gives is the art's to fix, not a reason to drop the gate |
 | `CG_BOUNDARY_ALLOWANCE_RAISED` | a CG version's requirements file declares `boundary_colour.max_step_excess` above 12 | declare 12 or less; fix the piece's image or mesh that the step points at |
 

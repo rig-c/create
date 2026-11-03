@@ -62,7 +62,7 @@ stage can become `paused`.
   alpha for any border that has no painted line, feather 0, and a receipt. Never
   a polygon in code or config. See-through stays the source for hidden surface.
 - **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each
-  rig version's config, kept in `outputs/v<N>/`, sets `trace_parts: true` in
+  rig version's config, kept in `evidence/v<N>/`, sets `trace_parts: true` in
   `assemble.editor_receipts` and names a `requirements` file with
   `seam_over_motion.required: true` and `boundary_colour.max_step_excess: 12`.
   Refusals are the art's to fix.

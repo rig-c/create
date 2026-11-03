@@ -124,6 +124,8 @@ export const CREATE_DOCS: readonly CreateDoc[] = [
 /** Links into create's docs that carry an anchor; the tests check each anchor is a heading. */
 export const RESUME_LINK = { path: 'docs/PROJECT.md', anchor: 'how-an-agent-resumes-a-project' } as const;
 export const OWNER_LINK = { path: 'docs/INTERVIEW.md', anchor: 'every-item-has-an-owner' } as const;
+export const DERIVED_LINK = { path: 'docs/INTERVIEW.md', anchor: 'derived-answers' } as const;
+export const GATES_LINK = { path: 'docs/CRAFT.md', anchor: 'for-the-gates-not-the-interview' } as const;
 
 export function createDocUrl(path: string, anchor?: string): string {
   return `${CREATE_DOCS_BASE}${path}${anchor === undefined ? '' : `#${anchor}`}`;
@@ -159,6 +161,8 @@ export function renderAgentGuide(): string {
   const fills: Record<string, string> = {
     RESUME_LINK: `[PROJECT.md § How an agent resumes a project](${createDocUrl(RESUME_LINK.path, RESUME_LINK.anchor)})`,
     INTERVIEW_CHECK: INTERVIEW_CHECK_LINE,
+    DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
+    GATES_LINK: `[CRAFT.md G8](${createDocUrl(GATES_LINK.path, GATES_LINK.anchor)})`,
     PACKAGE_DOCS: PACKAGE_DOCS.map((doc) =>
       linkLine(`${doc.package} ${doc.path}`, packageDocPath(doc), doc.why),
     ).join('\n'),

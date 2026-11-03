@@ -39,6 +39,40 @@ stage can become `paused`.
 3. **Polish**: what the user says after seeing a version, kept word for word in
    that version's `verdicts[]` and tied to the items it is about.
 
+## Before you ask, plan or show
+
+- **Derive first.** Take every answer that earlier answers, an intake note or a
+  reviewer's past verdicts already give ({{DERIVED_LINK}}); ask only what is
+  left, in one short message. Nothing is derived from the image.
+- **Upscale first.** A painting smaller than the rig needs is upscaled before it
+  goes into `inputs/`; one already there gets its upscale as a new input.
+- **The crux is a bar.** The user's named risk becomes a measured bar in the
+  plan before rigging: a named band, what is counted (background or doubled
+  pixels), over every frame and at both extremes of every physics and breath
+  motion, reported as the max and its frame. It covers every band where a moving
+  piece sits over something not on its bone (a hand over the hip when only the
+  chest breathes).
+- **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
+  reference ("move like X") is read for what it shows; anything more is a
+  question, not a default.
+- **Re-run first.** An uneven split or poor hidden surface is re-run (other
+  settings, a tighter crop of that region), several runs before any cut. When
+  re-runs cannot fix a visible-pixel defect, the next rung is an editor piece
+  taken from the painting along its painted outlines, with See-through's own
+  alpha for any border that has no painted line, feather 0, and a receipt. Never
+  a polygon in code or config. See-through stays the source for hidden surface.
+- **Overlaps.** A piece over a part with its own animation (glasses over
+  eyelids) holds none of that part's pixels, or the animation shows its copy.
+- **Pairs.** Left/right bust, eyes, hair ends, hem panels: measure symmetry
+  (both present, comparable area, mirrored edges) and compare to the painting
+  before calling a pair uneven ({{GATES_LINK}}).
+- **Look before the user does**, at native resolution and every boundary the
+  crux names: a whole-figure |composite − painting| map, every component listed
+  by box and part with a status (in the painting / fixed / left, why). Use the
+  true stack of part images, not a render flattened on white; crop on white and
+  on a mid-grey or sentinel colour, as white hides light fringes. Eye boxes a
+  reviewer chose are not the check: a seam outside them got through.
+
 ## Where things go
 
 | Path | Lifetime | In git |

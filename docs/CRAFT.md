@@ -137,6 +137,22 @@ read before `seethrough` and `assemble`, with the cutting rules for `assemble`.
 - **Proposed default**: "Usually the torso is one piece that bends with the
   breath. Shall we?"
 
+### M2. The bust is meshed unless there is a reason
+
+- **Lesson**: the bust is meshed with its own regions by default, so the chest
+  can carry volume and motion. It is left out only for a stated reason.
+- **Why**: a chest bent as part of a plain torso mesh moves like the waist, flat;
+  and an exclusion nobody gave a reason for cannot be reviewed later.
+- **Waypoint**: `meshes`
+- **Asked instead of a default**: the default is not proposed; the exclusion is
+  asked: "Is there a reason to leave the bust out, such as a rigid breastplate?"
+  No reason keeps the default. A reason is recorded with the exclusion in the
+  `x_deform` value ([INTERVIEW.md](INTERVIEW.md)), and the agent passes it to
+  parts as the opt-out (rig-c/parts#986).
+- **Body, not cloth**: bust motion is body motion. The rule that fitted cloth
+  gets no physics is about cloth: a fitted top is not a reason to leave the bust
+  out, nor to drop its jiggle (C2).
+
 ## `constraints`
 
 ### C1. Hair and loose cloth on physics, soft enough to trail

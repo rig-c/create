@@ -287,6 +287,10 @@ answer):
   `standard` (limbs and garments at joints), `fine`, or a part list.
 - `split_emphasis`: a list of `{ "part", "want": "detail" | "untouched" | <text> }`,
   or `"none"`.
+- `x_deform`: `{ "meshes": [<part>], "rigid": [<part>], "bust": … }`, where
+  `bust` is `"default"` (meshed with its own regions; also what no `bust` means)
+  or `{ "excluded": true, "reason": "<the user's reason>" }`. A blank reason is
+  refused (`BUST_EXCLUSION_UNREASONED`); [CRAFT.md M2](CRAFT.md#m2-the-bust-is-meshed-unless-there-is-a-reason).
 - `split_effects`: a list of `{ "part", "effect", "extent" }` — effect from
   `physics`, `wind`, `jiggle`, `rigid`, `still`, or free text; extent as said
   ("down to the knee").

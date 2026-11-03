@@ -149,7 +149,7 @@ describe('init --member', () => {
     const dir = initCollection();
     editCollection(dir, (c) => {
       const interview = obj(c.interview);
-      byId(interview.framing, 'rig_type').answer = ANSWER('A character, standing idle.');
+      byId(interview.framing, 'rig_type').answer = { ...ANSWER('A character, standing idle.'), value: 'character.idle' };
       byId(interview.waypoints, 'bones').guide = ANSWER('A chain down every scarf.');
       byId(interview.waypoints, 'motion').guide = { ...ANSWER('per-member'), value: 'per-member' };
     });

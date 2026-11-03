@@ -206,7 +206,7 @@ installed package.
 
 Not every section is a waypoint. A section is one when writing it is a
 **direction call** — something the user could have an opinion about before
-seeing a build. Read from `@rig-c/parts` 2.3.0:
+seeing a build. Read from `@rig-c/parts` 2.4.0:
 
 | Config section | Where it goes | Why |
 | --- | --- | --- |
@@ -277,7 +277,9 @@ Values the agent normalises a guide into, per prompt (the sentence stays the
 answer):
 
 - `rig_type`: `character.idle`, `character.complex`, `character.monster`,
-  `fullscreen.minimal`, `fullscreen.game_logic`.
+  `fullscreen.minimal`, `fullscreen.game_logic`. Any other value is refused
+  (`RIG_TYPE_UNKNOWN`). A `fullscreen.*` project is a CG build: its rig
+  versions declare the three CG gates ([CHECKS.md § CG gates](CHECKS.md#cg-gates)).
 - `reference`: a list of `{ "ref", "take" }`, or `"none"`. A file the user hands
   over goes to `inputs/references/` with its sha256 — it is an input, not
   documentation.

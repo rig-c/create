@@ -146,6 +146,47 @@ Every verdict in `versions[].verdicts[]` is read against
   wrote it checked it against the record as it stood ([§ The review
   command](#the-review-command)).
 
+## CG gates
+
+A project whose `rig_type` is a full-screen scene (`fullscreen.minimal` or
+`fullscreen.game_logic`) is a CG build: a painting brought to life whole. Each
+of its `rig` versions is held to the three `@rig-c/parts` gates that measure
+what a CG build is for, declared in the files the version was built from
+(`src/cg-gates.ts`):
+
+| Gate | Declared in | What parts refuses under it |
+| --- | --- | --- |
+| `assemble.editor_receipts.trace_parts: true` | the version's config | a part carved by a shape the config draws (`ASSEMBLE_PART_SOURCE`), an edited image with no receipt (`ASSEMBLE_EDITOR_RECEIPT_MISSING`) |
+| `seam_over_motion.required: true` | the requirements file the config names as `requirements` | background at a declared seam pair on any frame, or no pair to read (`CHECK_SEAM_OVER_MOTION_REQUIRED`) |
+| `boundary_colour.max_step_excess`, at most 12 | the same requirements file | a part boundary whose colour step exceeds the pieces' own by more than the allowance (`CHECK_BOUNDARY_COLOUR_STEP`), a step that cannot be taken (`CHECK_BOUNDARY_COLOUR_UNMEASURED`) |
+
+- **Why `config.requirements`.** `rig-parts build` reads the file the config
+  names and forwards it to its check, so a build from the config alone runs
+  both requirements-file gates; a file passed only as `--requirements` by hand
+  is a gate someone has to remember.
+- **Why 12.** parts declares no default. Its public examples read 1 to 4 clean
+  and 21 and up on planted stretches and notches, and each declares 12 (parts
+  AUTHORING, *Boundary colour step*). A lower value is stricter and passes this
+  check; a higher one is refused (`CG_BOUNDARY_ALLOWANCE_RAISED`): a step over
+  12 is the piece's image or mesh to fix.
+- **What is read.** The config at `provenance.config.path`, under the project
+  and with its recorded sha256, then the requirements file it names (relative
+  to the config's folder, under the project). A CG version's config is kept
+  beside its outputs in `outputs/v<N>/`, which lives as long as the version
+  (not in `derived/`, which is regenerated): a gate that cannot be read is
+  refused (`CG_GATES_UNREAD`), never passed.
+- **What is not read.** Whether the gates pass. That is parts' check on the
+  build; this check only refuses a CG version that does not ask for them. A
+  refusal under a gate is a finding about the art, not a reason to drop the
+  declaration.
+- **Versions built before the gates.** A version whose `built_with` names a
+  `@rig-c/parts` older than 2.4.0 could not declare them; it is a warning
+  (`CG_GATES_PREDATE`), and the next CG version declares them.
+- **`rig_type` values.** An answered `rig_type` outside the five values
+  [INTERVIEW.md](INTERVIEW.md) lists is refused (`RIG_TYPE_UNKNOWN`): the value
+  decides whether a version is held here, so a misspelt full-screen scene would
+  otherwise pass ungated.
+
 ## Refusals
 
 Exit `1`. Each names its object in `path`.
@@ -207,6 +248,10 @@ Exit `1`. Each names its object in `path`.
 | `FEEDBACK_ITEM_UNKNOWN` | an `on_items[]` id is no framing, waypoint or post item | name the answer the feedback is about; a decision no prompt reaches becomes an `x_` prompt at its waypoint, and the item names that waypoint |
 | `FEEDBACK_NOT_ADDED` | an item is `not-asked` and its answer has no `additions[]` entry with `source: "polish feedback, v<N>"` quoting the verdict | add the sentence to the guide (`rig-create review` does it when it records the verdict) before the next version is built |
 | `DELEGATION_NOT_GIVEN` | an entry is `delegated: true`, and no answer of the cited item (current or `history[]`) is a delegation or carries an `agent_decision` — or the delegation has no `agent_decision` | cite the sentence instead, or ask the user; a user answer is not a delegation unless it left part open and the agent's decision is written beside it |
+| `RIG_TYPE_UNKNOWN` | the answered `rig_type` (the user's `value`, or the agent's decision on a delegation) is none of `character.idle`, `character.complex`, `character.monster`, `fullscreen.minimal`, `fullscreen.game_logic` | write the value the answer means ([INTERVIEW.md](INTERVIEW.md)); an illustration CG is `fullscreen.minimal` or `fullscreen.game_logic` |
+| `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`outputs/v<N>/`) and record the config's path and sha256 |
+| `CG_GATE_UNDECLARED` | a CG project's `rig` version's config lacks `assemble.editor_receipts.trace_parts: true` or a `requirements` path, or its requirements file lacks `seam_over_motion.required: true` or an integer `boundary_colour.max_step_excess`; `path` names the field | declare it and rebuild; a refusal parts then gives is the art's to fix, not a reason to drop the gate |
+| `CG_BOUNDARY_ALLOWANCE_RAISED` | a CG version's requirements file declares `boundary_colour.max_step_excess` above 12 | declare 12 or less; fix the piece's image or mesh that the step points at |
 
 ## The hand-off command
 
@@ -273,6 +318,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
 | `FEEDBACK_OPEN` | the latest version has a human bounced verdict and no version is built after it yet | build the next version and list the verdict in its `answers_feedback` |
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
+| `CG_GATES_PREDATE` | a CG project's `rig` version was built with `@rig-c/parts` older than 2.4.0, before the CG gates existed (§ CG gates) | nothing for that version; the next CG version declares the gates |
 
 ## Collections
 

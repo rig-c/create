@@ -7,7 +7,7 @@
  * on this table is refused by name (`SECTION_UNPLACED`) — a new section is a
  * new question before it is a new line here.
  *
- * `alternates` is not listed: @rig-c/parts 2.3.0 accepts it only inside
+ * `alternates` is not listed: @rig-c/parts 2.4.0 accepts it only inside
  * `assemble` (`assemble.alternates`), so it is part of the `assemble`
  * waypoint's decision, not a section of its own.
  */

@@ -12,12 +12,14 @@
  * provenance per config section (src/provenance.ts, over `versions[].provenance`), the
  * review order and post hand-off (src/review.ts, with src/stages.ts), feedback
  * answered by the next version (#9, over `versions[].verdicts` and
- * `answers_feedback`), collection pins (#7, over `collection.json`).
+ * `answers_feedback`), collection pins (#7, over `collection.json`), and the
+ * CG gates a full-screen scene's rig versions declare (src/cg-gates.ts).
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
+import { checkCgGates } from './cg-gates.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkReviews } from './review.ts';
@@ -606,6 +608,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   checkReviews(ctx);
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);
+  checkCgGates(ctx);
 
   return {
     ok: refusals.length === 0,

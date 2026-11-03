@@ -11,7 +11,7 @@ import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
 import { supersede } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
-/** The section list @rig-c/parts 2.3.0 exports (its `CONFIG_SECTIONS`), used by the fake parts sources planted below. */
+/** The section list @rig-c/parts 2.3.0 and 2.4.0 export (its `CONFIG_SECTIONS`), used by the fake parts sources planted below. */
 const PARTS_SECTIONS = [
   'key', 'generation', 'seethrough', 'assemble', 'limbs', 'bones', 'meshes', 'regions', 'motion', 'constraints',
   'stops', 'turn', 'scene', 'cloth', 'proposed_rig_scale', 'requirements', 'motion_seams', 'depth', 'waist',

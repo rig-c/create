@@ -46,7 +46,8 @@ export interface Still {
   readonly evidence: number;
   readonly path: string;
   readonly sha256: string;
-  readonly frame: number;
+  /** Seconds into the motion, or `setup`: the renderer's setup pose, which an idle may pass through rather than start at. */
+  readonly frame: number | 'setup';
 }
 
 export interface RigVersion {
@@ -90,8 +91,9 @@ function readStill(e: JsonObject): Still | string {
   if (missing.length > 0) return `missing ${missing.join(', ')}`;
   if (!SHA256.test(e.sha256 as string)) return 'sha256 is not 64 lowercase hex digits';
   if (e.camera !== 'fixed') return `camera is ${JSON.stringify(e.camera ?? null)}; the rig review is on a fixed camera ("camera": "fixed")`;
+  if (e.frame === 'setup') return { evidence: -1, path: e.path as string, sha256: e.sha256 as string, frame: 'setup' };
   if (typeof e.frame !== 'number' || !Number.isFinite(e.frame) || e.frame < 0) {
-    return `frame is ${JSON.stringify(e.frame ?? null)}; it is the time in seconds into the motion the still is posed at (0 for the setup pose)`;
+    return `frame is ${JSON.stringify(e.frame ?? null)}; it is "setup" for the renderer's setup pose, or the time in seconds into the motion the still is posed at (0 is the motion's start, not necessarily the setup pose)`;
   }
   return { evidence: -1, path: e.path as string, sha256: e.sha256 as string, frame: e.frame };
 }
@@ -325,7 +327,7 @@ export function handoffCommand(args: string[]): { stdout: string; exit: number }
     stdout: [
       `handoff: post work is on rig v${h.rig_version}`,
       `  accepted at rig-review by ${h.accepted.by} at ${h.accepted.at}: "${h.accepted.verbatim}"`,
-      `  still frame ${h.still.path} (sha256 ${h.still.sha256}, fixed camera, ${h.still.frame} s)`,
+      `  still frame ${h.still.path} (sha256 ${h.still.sha256}, fixed camera, ${h.still.frame === 'setup' ? 'setup pose' : `${h.still.frame} s`})`,
     ].join('\n'),
     exit: 0,
   };

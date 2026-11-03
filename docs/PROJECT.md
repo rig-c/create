@@ -113,7 +113,7 @@ That acceptance rests on a **still-frame record** in the same version's
 | `kind` | `"still"` — what marks this entry as the rig review's frame; other evidence entries may leave `kind` out |
 | `path`, `sha256` | the image under `evidence/v<N>/` and its 64-hex sha256 |
 | `camera` | `"fixed"`: no camera move, no parallax, no post-production; any other value is not a still frame |
-| `frame` | the time in seconds into the motion the rig is posed at; `0` for the setup pose |
+| `frame` | `"setup"` for the renderer's setup pose, or the time in seconds into the motion the rig is posed at. `0` is the motion's start, which is not the setup pose when the idle rests off it (a breath track whose `base` equals its `amp` passes through setup mid-loop) |
 | `what` | what it shows, in words |
 
 This repository does not render the still: rig-c/core and rig-c/review render,

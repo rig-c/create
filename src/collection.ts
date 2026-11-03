@@ -17,7 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 
-import { CREATE_DOCS, DERIVED_LINK, PACKAGE_DOCS, createDocUrl, packageDocPath, writeAgentGuide } from './agent-guide.ts';
+import { CREATE_DOCS, DERIVED_LINK, PACKAGE_DOCS, READ_FIRST, createDocUrl, packageDocPath, writeAgentGuide } from './agent-guide.ts';
 import { COLLECTION_SCHEMA, collectionAnswer, readJsonObject } from './check.ts';
 import {
   checkTarget,
@@ -109,6 +109,7 @@ export function renderCollectionGuide(): string {
   const fills: Record<string, string> = {
     COLLECTIONS_LINK: `[COLLECTIONS.md](${createDocUrl('docs/COLLECTIONS.md')})`,
     DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
+    READ_FIRST,
     PACKAGE_DOCS: PACKAGE_DOCS.map((doc) => `- [${doc.package} ${doc.path}](${packageDocPath(doc)}): ${doc.why}.`).join('\n'),
     CREATE_DOCS: CREATE_DOCS.map((doc) => `- [${doc.path}](${createDocUrl(doc.path)}): ${doc.why}.`).join('\n'),
   };

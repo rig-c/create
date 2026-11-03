@@ -7,9 +7,12 @@ import {
   CREATE_DOCS,
   CREATE_DOCS_BASE,
   PACKAGE_DOCS,
+  READ_FIRST,
   packageDocPath,
   renderAgentGuide,
 } from '../src/agent-guide.ts';
+import { renderCollectionGuide } from '../src/collection.ts';
+import { PINNED_PACKAGES } from '../src/pins.ts';
 import { cli, gitEnv, run, tempDir } from './helpers.ts';
 
 const REPO = join(import.meta.dir, '..');
@@ -27,9 +30,11 @@ const GUIDE_HEADINGS = [
 
 /**
  * The guide points at documentation; it does not carry it. Kept well under any one linked document.
- * Raised from 8 000 when it took on its own procedures (rig-c/create#23), which no linked document holds.
+ * Raised from 8 000 when it took on its own procedures (rig-c/create#23), which no linked document holds,
+ * and from 9 000 for the ordered entry point (rig-c/create#24): its links to create's sections are
+ * absolute, about 75 bytes of URL each, because create is not installed in a project.
  */
-const GUIDE_MAX_BYTES = 9_000;
+const GUIDE_MAX_BYTES = 10_000;
 
 function markdownLinks(text: string): string[] {
   return [...text.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1] as string);
@@ -106,6 +111,50 @@ describe('init --no-install writes the agent guide', () => {
       if (anchor !== undefined) {
         expect(anchorsOf(readFileSync(file, 'utf8')).has(anchor), `${path}#${anchor} is a heading`).toBe(true);
       }
+    }
+  });
+});
+
+describe('the ordered entry point', () => {
+  test('opens "What to read, and why" in the project guide and the collection guide', () => {
+    for (const guide of [renderAgentGuide(), renderCollectionGuide()]) {
+      const section = guide.slice(guide.indexOf('## What to read, and why'));
+      expect(section).toContain(READ_FIRST);
+      expect(section.indexOf(READ_FIRST)).toBeLessThan(section.indexOf('node_modules/'));
+    }
+  });
+
+  test('names the four steps in order', () => {
+    const steps = ['Before the interview', 'Before `seethrough` and `assemble`', 'Before rigging', 'Before showing the user'];
+    const at = steps.map((step) => READ_FIRST.indexOf(`**${step}**`));
+    for (const i of at) expect(i).toBeGreaterThanOrEqual(0);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+});
+
+/** rig-c/parts links in create's docs point at the pinned tag; each anchor is checked against the installed copy. */
+const PARTS_BASE = `https://github.com/rig-c/parts/blob/v${PINNED_PACKAGES['@rig-c/parts']}/`;
+
+describe.each(['docs/SOURCE.md', 'docs/LESSONS.md', 'docs/CRAFT.md'])('links in %s resolve', (doc) => {
+  const text = readFileSync(join(REPO, doc), 'utf8');
+  const links = markdownLinks(text);
+
+  test('relative links point at a file and heading in this repository', () => {
+    for (const href of links.filter((h) => !/^[a-z]+:/.test(h))) {
+      const [path, anchor] = href.split('#') as [string, string | undefined];
+      const file = path === '' ? join(REPO, doc) : join(REPO, 'docs', path);
+      expect(existsSync(file), `${doc}: ${href} exists`).toBe(true);
+      if (anchor !== undefined) expect(anchorsOf(readFileSync(file, 'utf8')).has(anchor), `${doc}: ${href} is a heading`).toBe(true);
+    }
+  });
+
+  test('rig-c/parts links are at the pinned version and point at an installed heading', () => {
+    for (const href of links.filter((h) => h.startsWith('https://github.com/rig-c/parts/blob/'))) {
+      expect(href, `${doc}: ${href}`).toStartWith(PARTS_BASE);
+      const [path, anchor] = href.slice(PARTS_BASE.length).split('#') as [string, string | undefined];
+      const file = join(REPO, 'node_modules', '@rig-c', 'parts', path);
+      expect(existsSync(file), `${doc}: ${path} is in the installed package`).toBe(true);
+      if (anchor !== undefined) expect(anchorsOf(readFileSync(file, 'utf8')).has(anchor), `${doc}: ${href} is a heading`).toBe(true);
     }
   });
 });

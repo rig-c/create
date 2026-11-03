@@ -90,11 +90,15 @@ documentation, and they are never edited.
 
 ## What to read, and why
 
-These are in the project, installed at the versions `package.json` pins, so they
-match the tools you run. Read them here, not from memory or from the packages'
-repositories. A refusal from either tool usually ends with a `(see … guide …)`
-command that prints the matching row of these guides; run it before changing
-anything.
+Read in this order, each before the step it names:
+
+{{READ_FIRST}}
+
+The packages' documents are in the project, installed at the versions
+`package.json` pins, so they match the tools you run. Read them here, not from
+memory or from the packages' repositories. A refusal from either tool usually
+ends with a `(see … guide …)` command that prints the matching row of these
+guides; run it before changing anything.
 
 {{PACKAGE_DOCS}}
 

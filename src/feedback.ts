@@ -164,12 +164,16 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
         push('VERDICT_MALFORMED', path, `${path}: a verdict is { by, at, review, verdict, verbatim, source, on_items[] }`);
         return;
       }
-      const problems: string[] = [];
-      for (const k of ['by', 'at', 'verbatim']) if (asString(d[k]) === null) problems.push(`no ${k}`);
-      if (!(VERDICTS as readonly string[]).includes(d.verdict as string)) problems.push(`verdict is ${JSON.stringify(d.verdict ?? null)} (${VERDICTS.join(', ')})`);
-      if (!(typeof d.review === 'string' && d.review in REVIEW_ACCEPTS)) problems.push(`review is ${JSON.stringify(d.review ?? null)} (${Object.keys(REVIEW_ACCEPTS).join(', ')})`);
-      if (!Array.isArray(d.on_items)) problems.push('on_items is not a list');
-      if (problems.length > 0) push('VERDICT_MALFORMED', path, `${path}: ${problems.join('; ')}`);
+      const preInterview = v.record.pre_interview === true;
+      // Imported verdict shape is checked by checkPreInterview, also at handoff.
+      if (!preInterview) {
+        const problems: string[] = [];
+        for (const k of ['by', 'at', 'verbatim']) if (asString(d[k]) === null) problems.push(`no ${k}`);
+        if (!(VERDICTS as readonly string[]).includes(d.verdict as string)) problems.push(`verdict is ${JSON.stringify(d.verdict ?? null)} (${VERDICTS.join(', ')})`);
+        if (!(typeof d.review === 'string' && d.review in REVIEW_ACCEPTS)) problems.push(`review is ${JSON.stringify(d.review ?? null)} (${Object.keys(REVIEW_ACCEPTS).join(', ')})`);
+        if (!Array.isArray(d.on_items)) problems.push('on_items is not a list');
+        if (problems.length > 0) push('VERDICT_MALFORMED', path, `${path}: ${problems.join('; ')}`);
+      }
 
       const counts = { user: 0, delegated: 0, not_asked: 0 };
       asArray(d.on_items).forEach((raw, j) => {
@@ -188,7 +192,9 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
           push('FEEDBACK_ITEM_UNKNOWN', ipath, `${ipath}: '${id}' is no framing, waypoint or post item of this interview; feedback about a decision no waypoint reaches goes to the waypoint it belongs to (an x_ prompt there, INTERVIEW.md § Questions outside this set)`);
           return;
         }
-        if (was !== 'not-asked') return;
+        // Historical feedback predates the guide. Its record is retained here,
+        // never promoted into a quotation or an invented interview answer.
+        if (was !== 'not-asked' || preInterview) return;
         // The sentence lands in the guide: an addition marked with this version, quoted from this verdict.
         const verbatim = asString(d.verbatim) ?? '';
         const added = answersOf(item, ctx).some((a) =>

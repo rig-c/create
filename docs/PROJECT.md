@@ -336,6 +336,83 @@ both kinds:
 want to see — it holds a place and is replaced, never a basis for moving a
 stage.
 
+### Migrating work done before the interview
+
+Keep `kind: "rig"` or `"post"` and add `pre_interview: true`. The flag records
+when the work was made while preserving which review judges it and which rig
+post work rests on. These versions need no `provenance`. Create-built versions
+continue to cite their interview and retain the user's words in verdicts.
+
+A pre-interview verdict has create's `by`, valid `at`, `review`, `verdict`,
+`source` and `on_items[]`. When the words survive, keep them in `verbatim`.
+When only someone's record of the user survives, set `verbatim: null`, state
+that it is a record in `note`, put the record there and name its `source`.
+The check requires the note and source. A summary never becomes an interview
+quotation. Historical `not-asked` items remain in the verdict without invented
+`additions[]` in today's guide. Current answers and sign-offs are still checked.
+
+Keep the complete original verdict array unchanged in `original_verdicts` on
+the version. Its entries occupy the same indices in `verdicts[]`, each copied
+unchanged into `as_recorded` beside the converted fields. The check compares
+all fields and the array order, including repeated verdicts. Further reviews
+may be appended without `as_recorded`. The original `verdict` string maps by
+this exact table, also exported as `PRE_INTERVIEW_VERDICTS`.
+
+| Original `verdict` | Create `verdict` |
+| --- | --- |
+| `accepted`, `Accepted` | `accepted` |
+| `accepted (sent to owner)`, `Accepted (sent to owner)` | `accepted` |
+| `bounced`, `Bounced` | `bounced` |
+| `provisional`, `Provisional` | `provisional` |
+
+An unlisted string is refused as `PRE_INTERVIEW_VERDICT_UNKNOWN`. Preserve it
+and obtain an explicit mapping before extending the table. A converted value
+that disagrees with the table is `PRE_INTERVIEW_VERDICT_MISMATCH`.
+
+Every historical version lists its frozen `outputs[]` with project-relative
+`path`, `sha256` and `bytes`. The check reads every file and compares its hash
+and size. Missing files must be restored before the migration passes. All
+pre-interview versions precede the first create-built version, with positive,
+strictly increasing `n` across the combined history.
+
+An accepted pre-interview rig still authorizes post work. Its human
+`rig-review` verdict, valid acceptance time, still-frame record and
+`rig-review` sign-off remain required. `handoff` reports `pre_interview` in
+JSON and prints that status and the verdict's source in text. A later rig
+requires its own acceptance and supersedes the older rig in the usual way.
+Other checks, including the CG gates where applicable, continue to run.
+
+For an in-flight consumer project keeping history under `x-pre_create.versions`,
+perform the following migration on its own decision record.
+
+1. Preserve the original array and frozen outputs before editing. For each
+   version, recover its complete original verdict array from the existing
+   `as_recorded` entries or the source record. Keep that array in
+   `original_verdicts` and retain each full entry as `as_recorded` at the same
+   index. Do not replace a missing original with a reconstructed quote.
+2. Move the historical entries into `versions[]`, keeping `kind` and adding
+   `pre_interview: true`. Put them before the create-built entries, preserve
+   their numbers and update references consistently if numbering had collided.
+   Remove the moved `x-pre_create.versions` array. A nonempty array left there
+   produces the `PRE_INTERVIEW_UNMIGRATED` warning while migration is pending.
+   It preserves the existing check exit code. Migrated records are checked
+   with the refusals described above.
+3. Fill create-shaped verdict fields from known records, using the mapping
+   table, stating their source and recording summaries as `verbatim: null`
+   with `note`. Preserve carried `on_items[]` and map them to the interview's
+   item ids. Recover dates from dated evidence without inventing them.
+4. Restore each frozen output and record its actual `path`, `sha256` and
+   `bytes`. Retain acceptance stills and genuine stage sign-offs. The flag
+   supplies no missing review evidence or sign-off.
+5. On the first create-built version, list the earlier feedback it answers in
+   `answers_feedback`, including carried items where relevant. The existing
+   `review --answers-feedback <version>:<verdict-index>` writer can append
+   these references. Keep that version's provenance and interview words.
+6. Run `rig-create interview --check <project dir> --json`, resolve the named
+   refusals and inspect `rig-create handoff <project dir> --json` before post
+   work. The synthetic [migration fixture](../tests/data/pre-interview.json)
+   contains one bounced rig and one accepted rig carrying a timing item.
+
 ## The record, field by field
 
 Top-level fields of `project.json`:
@@ -346,7 +423,7 @@ Top-level fields of `project.json`:
 | `name` | the folder name; a short identifier |
 | `title` | the human title of the painting or rig |
 | `stage`, `stage_values` | the current stage and the list it comes from |
-| `signoffs[]` | every human signature: `stage`, `checkpoint` (step id or `null`), `by`, `at`, `verbatim`; plan signatures add `steps[]` naming covered steps and `step_hashes` binding their approval fields |
+| `signoffs[]` | every human signature: `stage`, `checkpoint` (step id or `null`), `by`, `at`, `verbatim`; plan signatures add `steps[]` naming covered steps and `step_hashes` binding their approval fields. `by` names whose decision is recorded, including their delegated instruction written by an agent, and `by: "agent"` remains refused (`SIGNOFF_NOT_HUMAN`). |
 | `interview` | `question_set` (the prompt set and package version the waypoints were read from), `held`, `date`, `interviewer`, `respondent`, `framing[]` (`id`, `text`, `source`, `required_for`, `answer`, `history[]`), `waypoints[]` (`id`, `config[]`, `prompts[]` of `id`/`text`/`source`/`required_for`, `guide`, `history[]`), `post` (`held`, `date`, `items[]` shaped like waypoints with `guide`) — answer shapes in [INTERVIEW.md](INTERVIEW.md) |
 | `plan` | `drafted_by`, `drafted_at`, `steps[]` — above |
 | `split` | the `assemble` checkpoint's data: `label_values`, `proposal_image`, `proposed_by`, `proposed_at`, `parts[]` (`name`, `label`, `note`) |

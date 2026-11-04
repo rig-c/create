@@ -1,0 +1,117 @@
+{
+  "versions": [
+    {
+      "n": 1,
+      "kind": "rig",
+      "pre_interview": true,
+      "rig_version": null,
+      "at": "2026-11-01T09:00:00Z",
+      "changed": "first build before the interview",
+      "outputs": [
+        {
+          "path": "outputs/v1/rig.json",
+          "sha256": "59e8937fd590eb1fa3c4afb64e78d21707354372f88286931b445279d91058ae",
+          "bytes": 12
+        }
+      ],
+      "evidence": [],
+      "answers_feedback": [],
+      "original_verdicts": [
+        {
+          "by": "owner",
+          "verdict": "bounced",
+          "note": "The motion was too wide.",
+          "ticket": 1
+        }
+      ],
+      "verdicts": [
+        {
+          "by": "owner",
+          "at": "2026-11-01T10:00:00Z",
+          "review": "rig-review",
+          "verdict": "bounced",
+          "verbatim": null,
+          "note": "A producer recorded the owner asking for a narrower motion.",
+          "source": "producer log, entry 1",
+          "on_items": [
+            {
+              "id": "motion",
+              "answer_was": "not-asked"
+            }
+          ],
+          "as_recorded": {
+            "by": "owner",
+            "verdict": "bounced",
+            "note": "The motion was too wide.",
+            "ticket": 1
+          }
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "kind": "rig",
+      "pre_interview": true,
+      "rig_version": null,
+      "at": "2026-11-02T09:00:00Z",
+      "changed": "narrower motion, with a timing item carried forward",
+      "outputs": [
+        {
+          "path": "outputs/v2/rig.json",
+          "sha256": "9fd40538b3389221134373232ba392a6c83b48484c89eb547ffb8084e0f88676",
+          "bytes": 12
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "still",
+          "path": "evidence/v2/still.png",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "camera": "fixed",
+          "frame": "setup"
+        }
+      ],
+      "answers_feedback": [
+        {
+          "version": 1,
+          "verdict": 0
+        }
+      ],
+      "original_verdicts": [
+        {
+          "by": "owner",
+          "verdict": "Accepted (sent to owner)",
+          "note": "Accepted with a timing item carried forward.",
+          "ticket": 2
+        }
+      ],
+      "verdicts": [
+        {
+          "by": "owner",
+          "at": "2026-11-02T10:00:00Z",
+          "review": "rig-review",
+          "verdict": "accepted",
+          "verbatim": null,
+          "note": "A producer recorded the acceptance and a request to revisit timing in post.",
+          "source": "producer log, entry 2",
+          "on_items": [
+            {
+              "id": "post_timing",
+              "answer_was": "user"
+            }
+          ],
+          "as_recorded": {
+            "by": "owner",
+            "verdict": "Accepted (sent to owner)",
+            "note": "Accepted with a timing item carried forward.",
+            "ticket": 2
+          }
+        }
+      ]
+    }
+  ],
+  "files": {
+    "outputs/v1/rig.json": "{\"build\":1}\n",
+    "outputs/v2/rig.json": "{\"build\":2}\n"
+  }
+}

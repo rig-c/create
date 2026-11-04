@@ -7,6 +7,7 @@ import { signoffCommand } from '../src/signoff.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step } from './fixtures.ts';
+import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { CLI, cli, gitEnv } from './helpers.ts';
 
@@ -119,7 +120,7 @@ describe('parts-review evidence and execution checkpoints', () => {
   test('records the approved verdict hash and clears the check without hand edits', () => {
     const dir = fixture((p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'parts-review'); });
     expect(checkProject(dir).refusals.map((r) => r.code)).toContain('PARTS_REVIEW_UNSIGNED');
-    const result = cli(['signoff', 'parts-review', '--by', 'user', '--evidence', join(dir, EXAMPLE_VERDICT), '--verbatim-file', input(dir)], dir, gitEnv());
+    const result = cli(['signoff', 'parts-review', '--by', 'user', '--evidence', join(dir, EXAMPLE_VERDICT), '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic painting', '--component', 'p1000-n3=in-painting:synthetic painting', '--verbatim-file', input(dir)], dir, gitEnv());
     expect(result).toMatchObject({ code: 0, stderr: '' });
     const signed = obj(arr(read(dir).signoffs).at(-1));
     expect(signed.evidence).toEqual({ kind: 'parts-verdict', path: EXAMPLE_VERDICT, sha256: new Bun.CryptoHasher('sha256').update(readFileSync(join(dir, EXAMPLE_VERDICT))).digest('hex') });

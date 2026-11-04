@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
 
 import { sourceSha256 } from '../src/parts-verdict.ts';
+import { exampleDiffFiles } from './diff-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
 import { reviewExampleFiles } from './review-fixture.ts';
 
@@ -46,7 +47,7 @@ export interface PackageOptions {
 
 export interface PartsPackage {
   /** Project-relative path → content, ready for `fixture(…, files)`. */
-  readonly files: Record<string, string>;
+  readonly files: Record<string, string | Uint8Array>;
   /** The verdict file, project-relative, and its sha256: what the sign-off's evidence records. */
   readonly verdictPath: string;
   readonly verdictSha256: string;
@@ -77,7 +78,7 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
   options.edit?.(verdict);
   const text = `${JSON.stringify(verdict, null, 2)}\n`;
   files[verdictPath] = text;
-  return { files, verdictPath, verdictSha256: sha(text) };
+  return { files: { ...files, ...exampleDiffFiles(partsDir) }, verdictPath, verdictSha256: sha(text) };
 }
 
 /** Writes a package's files under a project folder (default: the filled example's approved package). */

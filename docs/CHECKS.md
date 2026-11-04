@@ -337,6 +337,13 @@ Exit `1`. Each names its object in `path`.
 | `SIGNOFF_UNKNOWN_CHECKPOINT` | a sign-off's `checkpoint` names no step that runs in that stage | name the step |
 | `PARTS_BAR_UNMET` | the stage is past `parts` and a step it runs (`seethrough`, `assemble`) is not `done` | finish the step and meet its bar (the parts check passing on the assembled parts), or move the stage back to `parts` |
 | `PARTS_REVIEW_UNSIGNED` | the stage is past `parts-review`, or a `rigging` step is past `pending`, and no person signed `{ "stage": "parts-review", "checkpoint": null }` | the user reviews the assembled parts in rig-review's parts view and signs; until then the stage stays at `parts-review` and no rig step after `assemble` runs ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
+| `DIFF_MAP_MISSING` | the gated latest parts-review sign-off dated from `DIFF_MAP_SINCE`, or without a readable date, has no map | generate the whole-figure report and sign again with `--diff-report` and every `--component` |
+| `DIFF_MAP_REPORT` | the named report is absent, escapes the project, differs from its SHA-256, or has the wrong spec or shape | regenerate a `rig-parts-diff-components/1` report and record its path and exact hash |
+| `DIFF_MAP_STACK_MISMATCH` | neither derived stack exists, both exist ambiguously, or the unique stack differs from `report.stack.sha256` | retain one stack in parts' fixed build or assemble layout and regenerate the report on it |
+| `DIFF_MAP_COMPONENT_UNLISTED` | a report id is absent from `diff_map.components` | list the named id with its status and why |
+| `DIFF_MAP_COMPONENT_UNKNOWN` | a listed id is absent from the report | use the ids from the bound report |
+| `DIFF_MAP_STATUS` | a component is malformed or repeated, has another status, or has an empty why | list each id once with `in-painting`, `fixed` or `left` and a nonempty why |
+| `DIFF_MAP_POLICY` | `definition.floor_px` exceeds 2 or `definition.threshold` exceeds 40 | regenerate with floor at most 2 and threshold at most 40 |
 | `PARTS_VERDICT_MISSING` | rigging has started (the stage is past `parts-review`, or a `rigging` step is past `pending`), no rig version is accepted at rig-review yet or the stage is at most `rigging`, and the latest `parts-review` sign-off has no `evidence` of `kind: "parts-verdict"` with a `path` and a `sha256`; an in-flight project (`PARTS_REVIEW_PREDATES_STAGE`) is not asked | record the verdict the review wrote as the sign-off's `evidence: { kind: "parts-verdict", path, sha256 }`, `path` relative to the project ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
 | `PARTS_VERDICT_UNREAD` | the evidence `path` leaves the project, the file is not there, its bytes do not hash to the evidence `sha256`, or it is not a JSON object; the check reads exactly that file, never a default location | restore the file the sign-off names, or review again and sign with the new verdict |
 | `PARTS_VERDICT_SCHEMA_UNKNOWN` | the verdict's `schema` is not `rig-review-parts-verdict/1` | sign with a verdict written by rig-review's parts view |
@@ -450,6 +457,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
 | `FEEDBACK_OPEN` | the latest version has a human bounced verdict and no version is built after it yet | build the next version and list the verdict in its `answers_feedback` |
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
+| `DIFF_MAP_PREDATES` | a gated parts-review sign-off predates `DIFF_MAP_SINCE` and has no diff_map | preserve the record and include the map when parts are reviewed again |
 | `PARTS_REVIEW_PREDATES_STAGE` | the project passed `plan-approved` (its first sign-off dated before 2026-11-04) before `parts` and `parts-review` existed, is past `parts-review`, and has no `parts-review` sign-off; the message names the project | nothing is assumed: no sign-off is written for it. A person may still review the parts and sign `parts-review`, which clears it ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
 | `CG_GATES_PREDATE` | a CG project's `rig` version was built with `@rig-c/parts` older than 2.4.0, before the CG gates existed (§ CG gates) | nothing for that version; the next CG version declares the gates |
 
@@ -496,14 +504,18 @@ collection's stages.
 
 ## Recording signatures and review inputs
 
-`signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>]`
-records a signature without moving the stage. Exit 0 records it. Exit 1
+```sh
+rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>]
+rig-create signoff parts-review --by <who> --evidence <path> --diff-report <path> [--component '<id>=<status>:<why>'] [--verbatim-file <file>]
+```
+
+The command records a signature without moving the stage. Exit 0 records it. Exit 1
 refuses the record and exit 2 refuses usage. All refusals leave the project
 file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 
 | Code | Fires when |
 | --- | --- |
-| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, missing parts-review `--evidence` or evidence on another stage (exit 2) |
+| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, missing parts-review `--evidence`, evidence or diff options on another stage, duplicate component ids, malformed component flags, or `--component` without `--diff-report` (exit 2) |
 | `SIGNOFF_NOT_HUMAN` | `--by` is `agent`, case-insensitively |
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_STEP_INVALID` | coverage is empty, ids are missing or repeated, or a requested step is outside the stage's phase (malformed `--steps` exits 2) |
@@ -517,7 +529,10 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | `FEEDBACK_REF_DUPLICATE` | the reference already exists or occurs twice in this command |
 
 `signoff parts-review --evidence` also uses the existing `PARTS_VERDICT_*`
-refusals from the parts verdict reader before recording anything. `--checkpoint`
+refusals from the parts verdict reader before recording anything. `--diff-report`
+and repeatable `--component` also run the shared `DIFF_MAP_*` reader before
+writing. Missing maps are refused from `DIFF_MAP_SINCE`; a zero-component
+report needs no component flags. Refusals preserve the project file bytes. `--checkpoint`
 records an enabled execution checkpoint without a plan hash or phase approval.
 
 ## Prepared inputs and agent-found history bounces
@@ -534,7 +549,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE` and `SETUP_PAINTING_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE` and `SETUP_PAINTING_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
 
 `AGENT_BOUNCE_SINCE = 2026-11-05T00:00:00Z` in `src/stages.ts` is
 independent of the parts-review stage boundary. Read the history entry's own

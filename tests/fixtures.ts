@@ -22,7 +22,7 @@ export type Mutate = (project: JsonObject) => void;
  * also gets the assembled parts and the approved verdict its parts-review
  * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
  */
-export function fixture(mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string> = {}): string {
+export function fixture(mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}): string {
   if (template === 'example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
   const dir = join(tempDir(), 'project');
   mkdirSync(dir);

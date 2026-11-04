@@ -28,6 +28,7 @@ import { checkPreparedInputs } from './prepared-inputs.ts';
 import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
+import { checkDiffMap } from './diff-map.ts';
 import { checkPartsVerdict } from './parts-verdict.ts';
 import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
@@ -728,7 +729,11 @@ function checkPartsStages(ctx: Ctx): void {
   // version, which RIG_VERSION_UNACCEPTED refuses (src/review.ts), and derived/ need not survive a clone.
   const gating = cur <= stageIndex('rigging') || latestAccepted(readVersions(ctx.project)) === null;
   const latest = latestSignoff(ctx, PARTS_REVIEW);
-  if (riggingStarted && gating && latest !== undefined) checkPartsVerdict(ctx.dir, latest.record, `signoffs[${latest.index}]`, ctx.refusals);
+  if (riggingStarted && gating && latest !== undefined) {
+    const at = `signoffs[${latest.index}]`;
+    const partsFile = checkPartsVerdict(ctx.dir, latest.record, at, ctx.refusals);
+    checkDiffMap(ctx.dir, latest.record, at, partsFile, ctx.refusals, ctx.warnings);
+  }
 }
 
 /** The latest stage-level sign-off, optionally covering a step, by date then array position. Undated counts as earliest. */

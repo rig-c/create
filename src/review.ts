@@ -22,6 +22,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { PAUSED_STAGE, RIG_REVIEW, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -39,7 +40,9 @@ export interface Acceptance {
   readonly verdict: number;
   readonly by: string;
   readonly at: string;
-  readonly verbatim: string;
+  readonly verbatim: string | null;
+  readonly source?: string;
+  readonly note?: string;
 }
 
 export interface Still {
@@ -51,6 +54,7 @@ export interface Still {
 }
 
 export interface RigVersion {
+  readonly preInterview: boolean;
   readonly n: number;
   readonly path: string;
   /** The last human `accepted` verdict at `rig-review`, or `null`. */
@@ -137,6 +141,9 @@ export function readVersions(project: JsonObject): Versions {
         continue;
       }
       accepted = { verdict, by: d.by as string, at, verbatim: asString(d.verbatim) ?? '' };
+      if (v.pre_interview === true) {
+        accepted = { ...accepted, verbatim: asString(d.verbatim), source: asString(d.source) ?? '', note: asString(d.note) ?? undefined };
+      }
     }
     const stills: Still[] = [];
     const malformedStills: { index: number; why: string }[] = [];
@@ -146,7 +153,7 @@ export function readVersions(project: JsonObject): Versions {
       if (typeof read === 'string') malformedStills.push({ index: i, why: read });
       else stills.push({ ...read, evidence: i });
     });
-    rigs.push({ n: v.n, path, accepted, stills, malformedStills });
+    rigs.push({ n: v.n, path, preInterview: v.pre_interview === true, accepted, stills, malformedStills });
   });
   return { rigs, posts, malformed };
 }
@@ -246,6 +253,7 @@ export interface Handoff {
   readonly ok: true;
   readonly project_dir: string;
   readonly rig_version: number;
+  readonly pre_interview: boolean;
   readonly accepted: Acceptance;
   readonly still: Still;
 }
@@ -266,6 +274,10 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
   }
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
+  const historyRefusals: ReviewCtx['refusals'] = [];
+  checkPreInterview({ dir, project: record, refusals: historyRefusals });
+  const first = historyRefusals[0];
+  if (first !== undefined) refuse(first.code, first.message);
 
   const signed = asArray(record.signoffs).some(
     (s) => isObject(s) && s.stage === RIG_REVIEW && (s.checkpoint ?? null) === null && isHuman(asString(s.by)) && asString(s.verbatim) !== null,
@@ -295,7 +307,7 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
     }
     refuse('POST_ON_UNACCEPTED_RIG', `versions[v${rig}]: ${named === undefined ? 'no rig version has that number' : `rig v${rig} has no accepted rig-review verdict`}; post work runs on rig v${accepted.n}`);
   }
-  return { ok: true, project_dir: dir, rig_version: accepted.n, accepted: accepted.accepted, still };
+  return { ok: true, project_dir: dir, rig_version: accepted.n, pre_interview: accepted.preInterview, accepted: accepted.accepted, still };
 }
 
 export const HANDOFF_HELP = `handoff:
@@ -325,8 +337,9 @@ export function handoffCommand(args: string[]): { stdout: string; exit: number }
   if (json) return { stdout: JSON.stringify(h, null, 2), exit: 0 };
   return {
     stdout: [
-      `handoff: post work is on rig v${h.rig_version}`,
-      `  accepted at rig-review by ${h.accepted.by} at ${h.accepted.at}: "${h.accepted.verbatim}"`,
+      `handoff: post work is on rig v${h.rig_version}${h.pre_interview ? ' (pre-interview)' : ''}`,
+      `  accepted at rig-review by ${h.accepted.by} at ${h.accepted.at}: ${h.accepted.verbatim === null ? `record of the user: ${h.accepted.note}` : `"${h.accepted.verbatim}"`}`,
+      ...(h.pre_interview ? [`  source: ${h.accepted.source}`] : []),
       `  still frame ${h.still.path} (sha256 ${h.still.sha256}, fixed camera, ${h.still.frame === 'setup' ? 'setup pose' : `${h.still.frame} s`})`,
     ].join('\n'),
     exit: 0,

@@ -202,7 +202,7 @@ export function checkProvenance(ctx: Ctx, parts: PartsSections | null): Provenan
   const summaries: ProvenanceSummary[] = [];
   const known = new Set([...Object.keys(SECTION_PLACEMENT), ...(parts?.sections ?? [])]);
   asArray(ctx.project.versions).forEach((v, index) => {
-    if (!isObject(v) || (v.kind !== 'rig' && v.kind !== 'post')) return;
+    if (!isObject(v) || v.pre_interview === true || (v.kind !== 'rig' && v.kind !== 'post')) return;
     const kind = v.kind;
     const label = versionLabel(v, index);
     const prov = v.provenance;

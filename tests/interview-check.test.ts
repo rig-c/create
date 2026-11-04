@@ -8,7 +8,7 @@ import { PINNED_PACKAGES } from '../src/pins.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
-import { supersede } from './fixtures.ts';
+import { rehashSignoffs, supersede } from './fixtures.ts';
 import { writePartsPackage } from './parts-package.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
@@ -87,10 +87,10 @@ const DELEGATED_GUIDE: JsonObject = {
 };
 
 describe('the filled example', () => {
-  test('passes with legacy hash warnings against the installed @rig-c/parts pin', () => {
+  test('passes, with no warnings, against the installed @rig-c/parts pin', () => {
     const report = checkProject(fixture());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING')).toEqual([]);
+    expect(report.warnings).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.parts?.version).toBe(PINNED_PACKAGES['@rig-c/parts']);
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
@@ -102,7 +102,7 @@ describe('the filled example', () => {
     const result = cli(['interview', '--check', fixture()], tempDir(), gitEnv());
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('clean: 9 warnings');
+    expect(result.stdout).toContain('clean: 0 warnings');
     expect(result.stdout).toContain('stage accepted');
   });
 
@@ -309,7 +309,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(found[0]?.message).toStartWith("@rig-c/parts 2.9.0 has section 'foo'");
     expect(report.parts?.version).toBe('2.9.0');
     // The record was read from the pin, not 2.9.0: a warning, not a refusal.
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).toContain('QUESTION_SET_STALE');
+    expect(report.warnings.map((w) => w.code)).toContain('QUESTION_SET_STALE');
   });
 
   test('a section that parts dropped from a waypoint is a warning, and a waypoint parts no longer passes is refused as missing from the record only when added', () => {
@@ -317,7 +317,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     plantParts(dir, PINNED_PACKAGES['@rig-c/parts'], sectionsSource(PARTS_SECTIONS.filter((s) => s !== 'cloth')));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code).sort()).toEqual(['SECTION_RETIRED', 'WAYPOINT_CONFIG_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['SECTION_RETIRED', 'WAYPOINT_CONFIG_STALE']);
   });
 
   test('a record missing a derived waypoint is refused by waypoint id', () => {
@@ -338,7 +338,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(codes(report)).toEqual(['SECTION_UNPLACED']);
     expect(withCode(report, 'SECTION_UNPLACED')[0]?.message).toContain("'sway'");
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING')).toEqual([]);
+    expect(report.warnings).toEqual([]);
   });
 
   test('a parts without the CONFIG_SECTIONS export (older than 2.3.0) is refused, not silently empty', () => {
@@ -560,7 +560,7 @@ describe('partial guide delegation', () => {
 
 describe('appearance calls go to a person, not a step bar', () => {
   test.each(APPEARANCE_IN_MOTION_PHRASES)('warns on %s without changing the refusal verdict', (phrase) => {
-    const report = checkProject(fixture((p) => { step(p, 'motion').bar = phrase; }));
+    const report = checkProject(fixture((p) => { step(p, 'motion').bar = phrase; rehashSignoffs(p); }));
     expect(report.ok).toBe(true);
     expect(report.refusals).toEqual([]);
     expect(report.warnings).toEqual([expect.objectContaining({
@@ -573,7 +573,7 @@ describe('appearance calls go to a person, not a step bar', () => {
     const project = readTemplate('example-project.json');
     const post = arr(obj(project.plan).steps).map(obj).find((s) => s.phase === 'post');
     if (post === undefined) throw new Error('example needs a post step');
-    const dir = fixture((p) => { step(p, post.id as string).bar = 'Looks RIGHT in the loop'; });
+    const dir = fixture((p) => { step(p, post.id as string).bar = 'Looks RIGHT in the loop'; rehashSignoffs(p); });
     const result = cli(['interview', '--check', dir], tempDir(), gitEnv());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('warning STEP_APPEARANCE_REVIEW');

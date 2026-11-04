@@ -125,7 +125,7 @@ describe('a full-screen scene (CG) rig version', () => {
       for (const n of [1, 2]) obj(version(p, n).built_with)['@rig-c/parts'] = '2.3.0';
     }));
     expect(cg(report)).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => `${w.code} ${w.path}`)).toEqual([
+    expect(report.warnings.map((w) => `${w.code} ${w.path}`)).toEqual([
       'CG_GATES_PREDATE versions[v1].built_with',
       'CG_GATES_PREDATE versions[v2].built_with',
     ]);

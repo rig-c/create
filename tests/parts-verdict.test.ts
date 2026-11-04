@@ -14,7 +14,7 @@ import { checkProject, type CheckReport } from '../src/check.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj, step, type Mutate } from './fixtures.ts';
+import { arr, fixture, obj, rehashSignoffs, step, type Mutate } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, partImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
 
@@ -251,13 +251,14 @@ describe('a project that passed plan-approved before the stages existed', () => 
       const shifted = obj(shiftDates(p, 30));
       for (const k of Object.keys(p)) delete p[k];
       Object.assign(p, shifted);
+      rehashSignoffs(p);
       p.stage_values = STAGE_VALUES.filter((s) => s !== 'parts' && s !== 'parts-review');
       p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'parts-review');
       for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'parts') s.stage = 'rigging';
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
   });
 });
 
@@ -267,13 +268,14 @@ describe('an in-flight project that a person did review', () => {
       const shifted = obj(shiftDates(p, 30));
       for (const k of Object.keys(p)) delete p[k];
       Object.assign(p, shifted);
+      rehashSignoffs(p);
       p.stage_values = STAGE_VALUES.filter((s) => s !== 'parts' && s !== 'parts-review');
       for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'parts') s.stage = 'rigging';
       delete partsReviewSignoff(p).evidence;
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
   });
 });
 

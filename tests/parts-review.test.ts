@@ -10,7 +10,7 @@ import { describe, expect, test } from 'bun:test';
 import { checkProject } from '../src/check.ts';
 import { PARTS_REVIEW_SINCE, STAGE_VALUES, STAGES } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, codes, fixture, obj, step, withCode } from './fixtures.ts';
+import { arr, codes, fixture, obj, rehashSignoffs, step, withCode } from './fixtures.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
 const LATER_RIG_STEPS = ['bones', 'meshes', 'constraints', 'motion'];
@@ -51,6 +51,7 @@ function inFlight(p: JsonObject): void {
   const shifted = obj(shiftDates(p, 30));
   for (const k of Object.keys(p)) delete p[k];
   Object.assign(p, shifted);
+  rehashSignoffs(p);
   p.stage_values = STAGE_VALUES.filter((s) => s !== 'parts' && s !== 'parts-review');
   dropSignoffs(p, (s) => s.stage !== 'parts-review');
   for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'parts') s.stage = 'rigging';
@@ -69,7 +70,7 @@ describe('plan-approved → parts → parts-review → rigging', () => {
   test('green: parts done and a person signed parts-review, rigging starts with nothing refused', () => {
     const report = checkProject(fixture(atRiggingStart));
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING')).toEqual([]);
+    expect(report.warnings).toEqual([]);
   });
 
   test('a project at plan-approved advances to parts: the parts steps run there, nothing refused', () => {
@@ -206,7 +207,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     expect(warned).toHaveLength(1);
     expect(warned[0]?.message).toContain("project 'lantern-keeper'");
     expect(warned[0]?.message).toContain(PARTS_REVIEW_SINCE);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
   });
 
   test('one that a person did review is not warned about', () => {
@@ -217,7 +218,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
   });
 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {
@@ -231,7 +232,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
   });
 
   test('a plan-approved sign-off dated on or after the stages arrived is not in flight: rigging without parts-review is refused', () => {
@@ -243,7 +244,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toContain('PARTS_REVIEW_UNSIGNED');
-    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).not.toContain('PARTS_REVIEW_PREDATES_STAGE');
+    expect(report.warnings.map((w) => w.code)).not.toContain('PARTS_REVIEW_PREDATES_STAGE');
   });
 
   test('paused, it resumes where it would have before the stages existed', () => {

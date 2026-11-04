@@ -96,7 +96,9 @@ describe('signed step contents', () => {
   });
 
   test('a legacy filled example warns without assuming matching step contents', () => {
-    const report = checkProject(fixture());
+    const report = checkProject(fixture((p) => {
+      for (const raw of arr(p.signoffs)) delete obj(raw).step_hashes;
+    }));
     expect(report.ok).toBe(true);
     const warnings = report.warnings.filter((w) => w.code === 'STEP_SIGNOFF_HASH_MISSING');
     expect(warnings).toHaveLength(9);

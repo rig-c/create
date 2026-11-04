@@ -219,6 +219,16 @@ seeing a build. Read from `@rig-c/parts` 2.4.0:
 | `turn`, `depth` | post item `camera_depth` | head-turn and 2.5D depth are direction, asked after the rig is accepted |
 | `key`, `generation`, `proposed_rig_scale`, `requirements`, `motion_seams`, `note` | not a waypoint | a name, a record of a run, a value the tool proposes, a path to a checks file, an observation, an annotation — none is a direction call. `requirements` is where translated guide sentences will land, not where they are asked. |
 
+The agent writes the checks file named by the config's `requirements` path.
+Declare `setup_painting.required: true` there. Measure its limits on the build
+the user accepted at the split checkpoint, using parts' own `pixel_count` per
+region on that build. Record them as a "no worse than the accepted split" bar
+with its source, including the accepted build and the measurement. Create
+chooses no limit values. Parts refuses missing limits by name with
+`SETUP_PAINTING_REQUIRED_LIMIT`, and enforces the declared limits through
+`SETUP_MATCHES_PAINTING`. The file also needs an authored `fps`, which has no
+default. Create writes no config or requirements file during init.
+
 A section that cannot be placed on this table when it appears is a question for
 the user before it is written. The table lives as data in `src/waypoints.ts`,
 and the section list is read from the installed package, so

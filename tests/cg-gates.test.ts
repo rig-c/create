@@ -19,6 +19,7 @@ const asScene: Mutate = (p) => { obj(framing(p, 'rig_type').answer).value = 'ful
 const GATED_CONFIG: JsonObject = { key: 'keeper', assemble: { editor_receipts: { trace_parts: true, receipts: [] } }, requirements: 'requirements.json' };
 const GATED_REQUIREMENTS: JsonObject = {
   spec: 'spine-parts-requirements/1', fps: 12, requirements: [],
+  setup_painting: { required: true },
   seam_over_motion: { required: true },
   boundary_colour: { max_step_excess: CG_BOUNDARY_ALLOWANCE },
 };

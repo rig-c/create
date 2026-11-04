@@ -21,6 +21,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkCgGates } from './cg-gates.ts';
+import { checkSetupPainting } from './setup-painting.ts';
 import { checkAskCoverage } from './ask-coverage.ts';
 import { checkAgentBounces } from './agent-bounce.ts';
 import { checkPreparedInputs } from './prepared-inputs.ts';
@@ -822,6 +823,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);
   checkCgGates(ctx);
+  checkSetupPainting(ctx);
   checkMeshesBust(ctx);
 
   return {

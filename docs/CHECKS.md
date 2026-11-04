@@ -505,7 +505,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `APPLIED_REVIEW_SINCE` and `PROJECTION_ASKS_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE` and `SETUP_PAINTING_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
 
 `AGENT_BOUNCE_SINCE = 2026-11-05T00:00:00Z` in `src/stages.ts` is
 independent of the parts-review stage boundary. Read the history entry's own
@@ -622,3 +622,25 @@ chain and its source is the immediately preceding version of the same kind.
 `APPLIED_REVIEW_LEGACY` is a warning for an omitted declaration dated before
 `APPLIED_REVIEW_SINCE = 2026-11-06T00:00:00Z`, or with no readable date.
 Pre-interview versions are exempt. Explicit null declarations remain legal.
+
+### Setup-painting declaration
+
+Every project is held to this declaration when a version names a readable
+`provenance.config.path`. The recorded config hash is verified when present.
+A pre-interview version or a version without a config path is exempt. An
+unread config is reported by provenance, not here. Config-relative
+`requirements` paths use the existing CG reader and project-path boundary.
+
+| Code | Meaning |
+| --- | --- |
+| `SETUP_PAINTING_REQUIREMENTS_MISSING` | A readable config names no requirements file, or its named file cannot be read. Write `requirements` in the config and retain the readable checks file at that config-relative path. |
+| `SETUP_PAINTING_REQUIRED_MISSING` | The named requirements file lacks `setup_painting.required: true`. Write the declaration there. |
+| `SETUP_PAINTING_LEGACY` | WARN only for either missing declaration on a version before `SETUP_PAINTING_SINCE = 2026-11-06T00:00:00Z`, or with no readable date. The message names the missing field and its contemporary refusal code. |
+
+An absent or unread requirements file already refused by `CG_GATE_UNDECLARED`
+or `CG_GATES_UNREAD` keeps that single CG finding. The setup check adds no
+second finding for the same path. Parts owns limit validation and measurement.
+Limits come from parts' own `pixel_count` per region on the accepted split
+build, recorded with their source as a "no worse than the accepted split" bar.
+The filled example retains its historical config references. Synthetic tests
+supply readable configs and requirements files without inventing measured limits.

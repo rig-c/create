@@ -38,7 +38,11 @@ export const SECTION_PLACEMENT: Readonly<Record<string, Placement>> = {
   key: none('a name'),
   generation: none('a record of a run'),
   proposed_rig_scale: none('a value the tool proposes'),
-  requirements: none('a path to a checks file; where translated guide sentences land, not where they are asked'),
+  requirements: none(
+    "a path to a checks file. Declare setup_painting.required: true, with limits from parts' own pixel_count per region "
+    + 'on the build accepted at the split checkpoint, recorded as a "no worse than the accepted split" bar with its source. '
+    + 'Translated guide sentences land here, after they are asked',
+  ),
   motion_seams: none('an observation'),
   note: none('an annotation; parts accepts it beside any object and reads nothing from it'),
 };

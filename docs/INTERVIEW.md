@@ -328,6 +328,81 @@ names ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-t
 | `post_timing` | — | How long, does it loop, and where are the beats? | clip length, loop point, timing of motions against each other | *"Ten seconds, looping; the gust comes once, in the middle."* |
 | `post_composition` | — | What is around the figure — background, framing, other figures, light? | framing, background plate, what else is on screen | *"Frame from the knees up; keep the lighthouse in shot."* |
 
+## Bars have reading commands
+
+Before putting a bar to the user for sign-off, the drafter names the command
+that produces **each** reading in it, the inputs it reads and the output that
+contains the reading. Check each command and flag against the installed CLI's
+`--help`. A missing command, or a command that only produces inputs for a
+missing measurement, is a **STOP before sign-off**. Write the command beside
+its clause in the plan's `bar` text. No new record field is needed.
+
+For example, for a compiled synthetic eight-second `idle` candidate in
+`derived/rig/`, these are two draft clauses, each with its reading command.
+The candidate and its named animation must exist before the draft is signed.
+
+- A warm idle loop has a frame series and bone geometry available for review.
+  Run `node_modules/.bin/rigc render --candidate derived/rig --animation idle --fps 24 --geometry --preroll 3 --out derived/warm`.
+  Read the recorded loop's frames and `geometry.json` in the reported set
+  directory. This provides the review inputs for one warm loop.
+- At 4 seconds the setup's named chain tips are visible for a pose review.
+  Run `node_modules/.bin/rigc inspect --candidate derived/rig --animation idle --at 4 --fps 24 --show art,bones --out derived/idle-at-4.png`.
+  Read the image and its companion legend's bone origins and tips. A pose
+  review is read by eye, with its verdict written beside the image.
+
+### Warm loops and multi-period twins
+
+Today's `rigc render --preroll <n>` walks whole loops of a looping track before
+recording one loop, carrying physics across each wrap. The help says `n` is a
+whole number of 1 or more. It lists refusals for a walk past what a step list
+holds, a skeleton with no animation or no physics constraint, a set of 0
+frames, and `--environment` or `--parallax` beside it. `check` refuses that
+frame set as a reference. It supplies one warm recorded loop, with the preroll
+recorded in its metadata.
+
+To read an environment schedule or each successive boundary, make a
+**measurement twin** with one animation several source periods long, then
+render it once with `--geometry` and, if needed, `--environment schedule.json`.
+The schedule uses the twin's time range. This keeps physics running through
+internal period boundaries without asking `inspect --at` or an environment
+schedule to read beyond a source animation's duration. `inspect --at` still
+uses the animation's `--fps` frame grid.
+
+Keep the source unchanged. Record the source, twin, period, number of periods,
+frame rate, poser, grid and every track difference with the evidence. A blink
+keyed once is **not repeated** in later periods. The twin therefore cannot
+prove those periods have the source's repeated blink. Name any other one-shot
+track and its difference too. A multi-period render is measurement evidence
+only for the behaviour it actually reproduces.
+
+### Post bars on a looping idle
+
+Draft the loop-seam bar with these three clauses before seeking sign-off.
+
+1. Compare the whole-figure changed-pixel count across a boundary with physics
+   on against physics off **at that same boundary**. Breath can have its
+   fastest phase at the wrap, so its in-loop maximum excludes the very step
+   being judged.
+2. Name every background used for that count, for example white `#ffffff` and
+   sentinel magenta `#ff00ff`, with the same pixel grid, frame rate, boundary
+   times and counting definition for the on/off pair.
+3. Keep the physics reading for each named chain tip. Its boundary jump must
+   be no larger than that tip's own largest in-loop frame-to-frame step.
+   Compare distances in the same world units and at the same frame rate.
+
+Today's `rigc render --help` offers neither a physics-off pose command nor a
+whole-figure boundary pixel counter. `--environment` controls wind and gravity;
+its help provides no physics-off setting. The whole-figure comparison therefore
+has no reading command today. A bar that requires it is a **STOP before
+sign-off** until a tool supplies that reading. Rendering frames is only an
+input to counting them. Do not give the user an executable-looking command for
+a measurement tool that does not exist.
+
+The filled example adds only the chain-tip clause that can be read from
+`render --geometry`, with its reduction stated beside the command. It omits
+the unavailable whole-figure comparison. A project requiring all three clauses
+must resolve the missing reading before it can sign its post bar.
+
 ## Provenance: every config section cites its guide
 
 Each section of the config the agent writes cites the guide sentence or the

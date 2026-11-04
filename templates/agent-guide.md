@@ -1,16 +1,13 @@
 # Agent guide
 
-This folder is a rig project: one painting in, one rig and the takes made from it
-out. Read this page before you touch anything. You need no chat history.
+One painting in, one rig and its takes out. Read this first; no chat history needed.
 
 ## Start here
 
-1. Read `project.json` first, and nothing else first. It is the only record of
-   decisions. A decision made in chat is copied into it word for word, with who
-   said it and when, or it was not made.
-2. Resume the way {{RESUME_LINK}} says: `stage`, the last `signoffs[]` entry, the
-   first `plan.steps[]` entry not `done` and the last `versions[]` entry say
-   where the project stands and what the next work is.
+1. Read `project.json` first. Only decisions recorded there count. Copy chat
+   decisions verbatim, with speaker and time.
+2. Resume per {{RESUME_LINK}}. Read `stage`, last `signoffs[]`, first
+   `plan.steps[]` not `done`, and last `versions[]` for status and next work.
 
 ## The order, and what you may not do
 
@@ -21,23 +18,21 @@ out. Read this page before you touch anything. You need no chat history.
 - No rig step runs before the user signs `plan-approved`, and none after
   `assemble` before they sign `parts-review` with the approved parts verdict
   as `evidence`.
-- Never move `stage` forward or pass a plan checkpoint yourself. Only a person's
-  `signoffs[]` entry does that. You may draft, propose, build and measure in any
-  stage.
-- Never fill a user's answer from the image. A `null` answer is the next
-  question for the user; ask it in plain words.
-- "auto" is a delegation the user chose. Record it as delegated, with your
-  decision written on the item. It is never a blank for you to fill later.
+- Only a person's `signoffs[]` advances `stage` or passes a plan checkpoint.
+  You may draft, propose, build and measure in any stage.
+- Never derive answers from the image. Ask the next `null` answer in plain words.
+- Record "auto" as delegated, with your decision on the item. It is never a
+  blank for you to fill later.
 - {{INTERVIEW_CHECK}}
 
 ## The user's three steps
 
-1. **Base motion**: the cut, the bones, what deforms, physics and the motions,
-   answered before any rigging and judged at `rig-review`.
-2. **Direction**: camera, depth and timing, asked only after a rig version is
-   accepted and judged at `direction-review`.
-3. **Polish**: what the user says after seeing a version, kept word for word in
-   that version's `verdicts[]`, tied to its items.
+1. **Base motion**. Cut, bones, deformation, physics and motion. Ask before
+   rigging; judge at `rig-review`.
+2. **Direction**. Camera, depth, timing. Ask after rig acceptance; judge at
+   `direction-review`.
+3. **Polish**. Keep feedback verbatim in the shown version's `verdicts[]`, tied
+   to its items.
 
 ## Before you ask, plan or show
 
@@ -52,6 +47,9 @@ out. Read this page before you touch anything. You need no chat history.
   motion, reported as the max and its frame. It covers every band where a moving
   piece sits over something not on its bone (a hand over the hip when only the
   chest breathes).
+- **Bars before sign-off.** Each reading names its command, checked against
+  installed `--help`. A reading with no command is a STOP before sign-off.
+  Loop bars are in rig-c/create `docs/INTERVIEW.md`, "Bars have reading commands".
 - **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
   reference ("move like X") is read for what it shows; anything more is a
   question, not a default.
@@ -92,23 +90,20 @@ out. Read this page before you touch anything. You need no chat history.
 | `outputs/v<N>/` | until discarded; frozen when shown | no |
 | `scratch/` | none; deleting it must lose nothing | no |
 
-The user's own references ("make it feel like this") go in `inputs/references/`,
-with their sha256 in `project.json` `inputs[]`.
+User references go in `inputs/references/`; record sha256 in `project.json` `inputs[]`.
 
 ## What to read, and why
 
-Read in this order, each before the step it names:
+Read each before its step.
 
 {{READ_FIRST}}
 
-The packages' documents are installed at the versions `package.json` pins, so
-they match the tools you run; read them here, not from memory. A refusal usually
-ends with a `(see … guide …)` command that prints the matching guide row; run it
-before changing anything.
+Read installed package docs at `package.json`'s pins. They match the tools you
+run, so read them here, not from memory. When a refusal gives a
+`(see … guide …)` command, run it before making changes.
 
 {{PACKAGE_DOCS}}
 
-How this project is organised is documented in rig-c/create, which is not
-installed here:
+Project organisation is documented in rig-c/create, which is not installed here.
 
 {{CREATE_DOCS}}

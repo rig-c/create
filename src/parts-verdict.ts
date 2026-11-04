@@ -13,7 +13,7 @@
  * `<path>\t<sha256>\n`, sorted by path bytewise, as rig-review defines it.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
 
 import type { Finding } from './check.ts';
@@ -38,6 +38,24 @@ export function sourceSha256(files: readonly { path: string; sha256: string }[])
 function inside(dir: string, file: string): boolean {
   const rel = relative(dir, file);
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) && !rel.startsWith(sep);
+}
+
+function real(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null; // missing, or a broken link: reported as the missing case it is
+  }
+}
+
+/**
+ * Whether `file`, with every link on its way followed, is under the real
+ * project root: a link inside the project that points out of it leaves the
+ * project as surely as a `../` path does. `null` when `file` does not resolve.
+ */
+function insideReal(realRoot: string, file: string): boolean | null {
+  const resolved = real(file);
+  return resolved === null ? null : inside(realRoot, resolved);
 }
 
 const REVIEW_AGAIN = 'open the parts in rig-review\'s parts view (`rig-review parts`), review them again, save the sign-off, and record a new parts-review sign-off whose evidence names the file it wrote';
@@ -66,13 +84,20 @@ export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, 
     return;
   }
 
-  // The file the sign-off names, exactly; no default lookup.
+  // The file the sign-off names, exactly; no default lookup. Contained both as written and with links followed.
+  const realRoot = real(dir) ?? dir;
   const file = resolve(dir, relPath);
+  const notUnder = `${evPath}: ${relPath} is not under the project; the verdict is kept in the project folder`;
   if (!inside(dir, file)) {
-    push('PARTS_VERDICT_UNREAD', evPath, `${evPath}: ${relPath} is not under the project; the verdict is kept in the project folder`);
+    push('PARTS_VERDICT_UNREAD', evPath, notUnder);
     return;
   }
-  if (!existsSync(file) || !statSync(file).isFile()) {
+  const verdictInside = insideReal(realRoot, file);
+  if (verdictInside === false) {
+    push('PARTS_VERDICT_UNREAD', evPath, `${notUnder} (a link on its way points out of it)`);
+    return;
+  }
+  if (verdictInside === null || !existsSync(file) || !statSync(file).isFile()) {
     push('PARTS_VERDICT_UNREAD', evPath, `${evPath}: ${relPath} is not there; the sign-off rests on that file — restore it, or ${REVIEW_AGAIN}`);
     return;
   }
@@ -150,7 +175,13 @@ export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, 
       malformed = true;
       return;
     }
-    if (!existsSync(abs) || !statSync(abs).isFile()) {
+    const sourceInside = insideReal(realRoot, abs);
+    if (sourceInside === false) {
+      push('PARTS_VERDICT_MALFORMED', ePath, `${relPath} source.files[${k}]: ${p} is not under the project (a link on its way points out of it)`);
+      malformed = true;
+      return;
+    }
+    if (sourceInside === null || !existsSync(abs) || !statSync(abs).isFile()) {
       push('PARTS_VERDICT_SOURCE_CHANGED', ePath, `${relPath} source.files[${k}]: ${p} is not on disk; the parts changed after the sign-off (a part removed or moved) — ${REVIEW_AGAIN}`);
       return;
     }

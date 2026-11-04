@@ -7,14 +7,15 @@
  * writes them (tests/parts-package.ts).
  */
 import { describe, expect, test } from 'bun:test';
-import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { checkProject, type CheckReport } from '../src/check.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step, type Mutate } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, partImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
@@ -282,6 +283,44 @@ describe('the filled example', () => {
     const dir = fixture();
     const example = arr(readTemplate('example-project.json').signoffs).map(obj).find((s) => s.stage === 'parts-review');
     expect(example?.evidence).toEqual(evidenceFor(pkg));
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+});
+
+describe('containment follows links: a symlink out of the project is an escape', () => {
+  /** Moves `rel` (a file or folder under `dir`) to `to` and leaves a real symlink in its place. */
+  function relink(dir: string, rel: string, to: string): void {
+    mkdirSync(dirname(to), { recursive: true });
+    renameSync(join(dir, rel), to);
+    symlinkSync(to, join(dir, rel));
+  }
+
+  test('a symlinked folder holding the verdict, pointing outside the project: refused', () => {
+    const dir = project({ verdict: 'evidence/parts-review.json' });
+    relink(dir, 'evidence', join(tempDir(), 'elsewhere'));
+    const message = only(checkProject(dir), 'PARTS_VERDICT_UNREAD');
+    expect(message).toContain('not under the project');
+  });
+
+  test('a symlinked source file pointing outside the project: refused', () => {
+    const dir = project();
+    relink(dir, `${EXAMPLE_PARTS_DIR}/parts/torso.png`, join(tempDir(), 'torso.png'));
+    const message = only(checkProject(dir), 'PARTS_VERDICT_MALFORMED');
+    expect(message).toContain('parts/torso.png is not under the project');
+  });
+
+  test('a broken source link is a part not on disk', () => {
+    const dir = project();
+    const outside = join(tempDir(), 'torso.png');
+    relink(dir, `${EXAMPLE_PARTS_DIR}/parts/torso.png`, outside);
+    rmSync(outside);
+    only(checkProject(dir), 'PARTS_VERDICT_SOURCE_CHANGED');
+  });
+
+  test('symlinks that stay inside the project: accepted', () => {
+    const dir = project({ verdict: 'evidence/parts-review.json' });
+    relink(dir, `${EXAMPLE_PARTS_DIR}/parts/torso.png`, join(dir, 'scratch', 'torso.png'));
+    relink(dir, 'evidence', join(dir, 'scratch', 'evidence'));
     expect(checkProject(dir).refusals).toEqual([]);
   });
 });

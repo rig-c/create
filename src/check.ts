@@ -470,6 +470,17 @@ function checkAnswers(ctx: Ctx): void {
       }
       continue;
     }
+    if (item.kind !== 'framing' && state.state === 'user' && 'agent_decision' in state.answer) {
+      const decision = state.answer.agent_decision;
+      const covers = isObject(decision) ? asString(decision.covers) : null;
+      if (covers === null || covers.trim() === '') {
+        ctx.refusals.push({ code: 'GUIDE_PARTIAL_UNMARKED', path, message: `${path}: a partial guide's agent_decision needs nonempty covers naming the remainder delegated to the agent` });
+      }
+      const approvedBy = item.kind === 'post' ? PHASE_APPROVED_BY.post : PHASE_APPROVED_BY.rig;
+      if (signed(ctx, approvedBy) && !isDecision(decision)) {
+        ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path, message: `${path}: the partially delegated remainder needs agent_decision.value and nonempty reasoning before ${approvedBy} is signed` });
+      }
+    }
     if (state.state === 'delegated' && !state.decided) {
       const approvedBy = item.kind === 'post' ? PHASE_APPROVED_BY.post : PHASE_APPROVED_BY.rig;
       if (signed(ctx, approvedBy)) {
@@ -507,7 +518,11 @@ function checkPlan(ctx: Ctx): void {
     }
     const approvedBy = PHASE_APPROVED_BY[step.phase];
     const approvals = signoffsFor(ctx, approvedBy);
-    const status = asString(record.status) ?? 'pending';
+    const status = record.status === undefined ? 'pending' : record.status;
+    if (typeof status !== 'string' || !['pending', 'in-progress', 'at-checkpoint', 'done'].includes(status)) {
+      ctx.refusals.push({ code: 'STEP_STATUS_UNKNOWN', path: `${path}.status`, message: `${path}.status: unknown status ${JSON.stringify(status)}; use pending before approval, then in-progress, at-checkpoint or done` });
+      continue;
+    }
     const checkpoint = classify(record.checkpoint, { collection: null });
     if (approvals.length > 0) {
       if (checkpoint.state === 'silent') {
@@ -526,7 +541,7 @@ function checkPlan(ctx: Ctx): void {
     // The step has run (or is running): it needs the approving sign-off, given after every answer it rests on last changed.
     const covering = approvals.filter((s) => s.steps === null || s.steps.includes(step.id));
     if (covering.length === 0) {
-      ctx.refusals.push({ code: 'STEP_RUN_UNAPPROVED', path, message: `${path} is ${status}, but no ${approvedBy} sign-off covers it` });
+      ctx.refusals.push({ code: 'STEP_RUN_UNAPPROVED', path, message: `${path} is ${status}, but no ${approvedBy} sign-off covers it; use pending before approval` });
     } else {
       const latestApproval = Math.max(...covering.map((s) => s.at).filter((t) => !Number.isNaN(t)), Number.NEGATIVE_INFINITY);
       for (const id of restsOn) {
@@ -566,8 +581,13 @@ function checkPlan(ctx: Ctx): void {
 function checkStages(ctx: Ctx): void {
   const cur = effectiveIndex(ctx);
   const paused = ctx.stage === PAUSED_STAGE;
+  const plan = isObject(ctx.project.plan) ? ctx.project.plan : {};
+  const draftedAt = time(plan.drafted_at);
   for (const s of ctx.signoffs) {
     const path = `signoffs[${s.index}]`;
+    if (s.stage === PHASE_APPROVED_BY.rig && s.checkpoint === null && s.at < draftedAt) {
+      ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: plan-approved sign-off at ${String(s.record.at)} predates plan.drafted_at ${String(plan.drafted_at)}; sign the drafted plan before running its steps` });
+    }
     const idx = stageIndex(s.stage);
     if (idx === -1 && s.stage !== PAUSED_STAGE) {
       ctx.refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: stage '${s.stage}' is not a stage (${STAGE_VALUES.join(', ')})` });

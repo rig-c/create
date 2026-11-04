@@ -462,3 +462,81 @@ describe('review fixes: an agent decision is real and dated', () => {
     expect(withCode(report, 'GUIDE_CHANGED_UNSIGNED').length).toBeGreaterThan(0);
   });
 });
+
+describe('pilot sign-off and step status gaps', () => {
+  test('a plan approval before its draft is refused by sign-off path', () => {
+    const report = checkProject(fixture((p) => {
+      signoffs(p).find((s) => s.stage === 'plan-approved')!.at = '2026-11-10T15:00:00Z';
+    }));
+    const found = withCode(report, 'SIGNOFF_BEFORE_PLAN');
+    expect(found.map((f) => f.path)).toEqual(['signoffs[1]']);
+    expect(found[0]?.message).toContain('plan.drafted_at');
+  });
+
+  test('an interview signature may predate the plan draft', () => {
+    expect(withCode(checkProject(fixture()), 'SIGNOFF_BEFORE_PLAN')).toEqual([]);
+  });
+
+  test('a known running status before approval names pending as the remedy', () => {
+    const report = checkProject(fixture((p) => {
+      dropSignoffs(p, (s) => s.stage !== 'plan-approved');
+      step(p, 'bones').status = 'in-progress';
+    }));
+    const found = withCode(report, 'STEP_RUN_UNAPPROVED').find((f) => f.path === 'plan.steps[bones]');
+    expect(found?.message).toContain('pending');
+  });
+
+  test('planned is an unknown status even under a signed plan', () => {
+    const report = checkProject(fixture((p) => { step(p, 'bones').status = 'planned'; }));
+    const found = withCode(report, 'STEP_STATUS_UNKNOWN');
+    expect(found.map((f) => f.path)).toEqual(['plan.steps[bones].status']);
+    expect(found[0]?.message).toContain('"planned"');
+    expect(found[0]?.message).toContain('pending');
+  });
+
+  test('a non-string explicit status is unknown', () => {
+    const report = checkProject(fixture((p) => { step(p, 'bones').status = 1; }));
+    expect(withCode(report, 'STEP_STATUS_UNKNOWN')).toHaveLength(1);
+  });
+});
+
+describe('partial guide delegation', () => {
+  test('a partial decision must name the remainder it covers', () => {
+    const report = checkProject(fixture((p) => {
+      delete obj(obj(waypoint(p, 'assemble').guide).agent_decision).covers;
+    }));
+    const found = withCode(report, 'GUIDE_PARTIAL_UNMARKED');
+    expect(found.map((f) => f.path)).toEqual(['interview.waypoints[assemble].guide']);
+    expect(found[0]?.message).toContain('covers');
+  });
+
+  test('whitespace is no coverage description', () => {
+    const report = checkProject(fixture((p) => {
+      obj(obj(waypoint(p, 'assemble').guide).agent_decision).covers = '  ';
+    }));
+    expect(withCode(report, 'GUIDE_PARTIAL_UNMARKED')).toHaveLength(1);
+  });
+
+  test('a named remainder needs a real decision before approval', () => {
+    const report = checkProject(fixture((p) => {
+      const decision = obj(obj(waypoint(p, 'assemble').guide).agent_decision);
+      delete decision.reasoning;
+    }));
+    expect(withCode(report, 'DELEGATION_UNDECIDED').map((f) => f.path)).toEqual(['interview.waypoints[assemble].guide']);
+  });
+
+  test('a partial decision may wait while the plan is unsigned', () => {
+    const report = checkProject(fixture((p) => {
+      dropSignoffs(p, (s) => s.stage !== 'plan-approved');
+      delete obj(obj(waypoint(p, 'assemble').guide).agent_decision).reasoning;
+    }));
+    expect(withCode(report, 'DELEGATION_UNDECIDED')).toEqual([]);
+  });
+
+  test('a user sentence alone has no machine-readable remainder', () => {
+    const report = checkProject(fixture((p) => {
+      delete obj(waypoint(p, 'assemble').guide).agent_decision;
+    }));
+    expect(withCode(report, 'GUIDE_PARTIAL_UNMARKED')).toEqual([]);
+  });
+});

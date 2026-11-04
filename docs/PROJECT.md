@@ -132,6 +132,46 @@ assembled parts before `rigging` starts.
   continues. The verdict gates rigging only until a rig version is accepted at
   `rig-review`: from then on it is not read, and a part changed after that is a
   new rig version, refused as `RIG_VERSION_UNACCEPTED` until it is reviewed.
+- **The same sign-off carries a whole-figure difference map**, beside `evidence`.
+  Generate its report with the installed `rig-parts diff-components --out` on
+  the assembled stack and the painting in the same native canvas. create reads
+  the report and binds its exact bytes by SHA-256.
+
+  ```json
+  "diff_map": {
+    "report": { "path": "evidence/diff-components.json", "sha256": "<report sha256>" },
+    "components": [ { "id": "<report component id>", "status": "in-painting", "why": "<what was observed>" } ]
+  }
+  ```
+
+  ```sh
+  rig-create signoff parts-review --by user --evidence evidence/parts-review.json --diff-report evidence/diff-components.json --component 'p10-n3=in-painting:the painting contains this edge' --verbatim-file approval.txt
+  ```
+
+  The writer hashes the report and validates the entire map before recording
+  anything. Repeat `--component <id>=<status>:<why>` for every component. The
+  first `=` and first following `:` separate fields, so `why` may contain colons.
+  Every report id must appear exactly once, with no extra ids. Status is
+  `in-painting`, `fixed` or `left`, and every status requires a nonempty `why`.
+  A report with no components needs no component flags. Its spec must be
+  `rig-parts-diff-components/1`, `definition.floor_px` at most 2 and
+  `definition.threshold` at most 40. The stack is derived from the verdict's
+  covered `parts.json`, resolved relative to that verdict. For its directory D,
+  build writes `D/recomposite_rig.png`, while standalone assemble writes
+  `D/../render/recomposite_rig.png` only when D is named `rig`.
+  Exactly one candidate must exist and hash to the report's `stack.sha256`.
+  Neither or both candidates refuse rigging. create never computes the map or
+  runs the producer's `--verify`. This uses the latest sign-off and the same
+  rigging gate and acceptance boundary as the parts verdict above.
+  From `DIFF_MAP_SINCE` (2026-11-06T00:00:00Z), a missing map refuses writing
+  the sign-off and rigging. An earlier sign-off without one gets only
+  `DIFF_MAP_PREDATES`; a map carried by an earlier sign-off is checked fully.
+  Both flags are accepted only on `parts-review`; component flags require a report.
+
+  The filled example's report and stack are synthetic, with two listed
+  components. `bun scripts/generate-example-diff.ts <fresh scratch directory>`
+  regenerates them through the installed parts CLI and the sign-off writer.
+  Add `--check` to reproduce the shipped report, stack and inline record bytes.
 - **A project that passed `plan-approved` before these two stages existed**
   (its first `plan-approved` sign-off is dated before 2026-11-04, the
   `PARTS_REVIEW_SINCE` in `src/stages.ts`) is not given a sign-off nobody made.

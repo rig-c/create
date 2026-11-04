@@ -84,7 +84,7 @@ describe('green', () => {
 
   test('a verdict kept outside the parts directory: its ../ source paths resolve against the verdict file', () => {
     const pkg = partsPackage({ verdict: 'evidence/parts-review.json' });
-    const verdict = JSON.parse(pkg.files['evidence/parts-review.json'] ?? '{}') as { source: { files: { path: string }[] } };
+    const verdict = JSON.parse(String(pkg.files['evidence/parts-review.json'] ?? '{}')) as { source: { files: { path: string }[] } };
     expect(verdict.source.files[0]?.path).toBe(`../${EXAMPLE_PARTS_DIR}/parts.json`);
     expect(checkProject(project({ verdict: 'evidence/parts-review.json' })).refusals).toEqual([]);
   });
@@ -121,7 +121,7 @@ describe('refused, each by name', () => {
 
   test('the latest parts-review sign-off is the one read: a later one without evidence is refused', () => {
     const dir = project({}, (p) => {
-      arr(p.signoffs).push({ stage: 'parts-review', checkpoint: null, by: 'user', at: '2026-11-11T11:00:00Z', verbatim: 'looked again, fine' });
+      arr(p.signoffs).push({ stage: 'parts-review', checkpoint: null, by: 'user', at: '2026-11-11T11:00:00Z', verbatim: 'looked again, fine', diff_map: partsReviewSignoff(p).diff_map });
     });
     expect(checkProject(dir).refusals.map((f) => [f.code, f.path])).toEqual([['PARTS_VERDICT_MISSING', `signoffs[${4}].evidence`]]);
   });
@@ -298,8 +298,8 @@ describe('containment follows links: a symlink out of the project is an escape',
   }
 
   test('a symlinked folder holding the verdict, pointing outside the project: refused', () => {
-    const dir = project({ verdict: 'evidence/parts-review.json' });
-    relink(dir, 'evidence', join(tempDir(), 'elsewhere'));
+    const dir = project({ verdict: 'verdicts/parts-review.json' });
+    relink(dir, 'verdicts', join(tempDir(), 'elsewhere'));
     const message = only(checkProject(dir), 'PARTS_VERDICT_UNREAD');
     expect(message).toContain('not under the project');
   });

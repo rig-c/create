@@ -65,9 +65,11 @@ const RECORD_EVIDENCE = `the parts-review sign-off carries the verdict it rests 
  * Checks the verdict a `parts-review` sign-off rests on. `signoff` is the raw
  * sign-off record, `at` its path in project.json (`signoffs[3]`). Every
  * refusal found is pushed; none is pushed for an approved parts-mode verdict
- * whose source files are on disk as reviewed.
+ * whose source files are on disk as reviewed. Returns the covered parts.json
+ * path only after a successful check, for deriving the difference-map stack.
  */
-export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, refusals: Finding[]): void {
+export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, refusals: Finding[]): string | undefined {
+  const before = refusals.length;
   const push = (code: string, path: string, message: string): void => {
     refusals.push({ code, path, message });
   };
@@ -196,4 +198,5 @@ export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, 
   if (recomputed !== field) {
     push('PARTS_VERDICT_SOURCE_MISMATCH', `${vAt} source.sha256`, `${relPath}: source.sha256 is ${field}, but its files[] hash to ${recomputed}; the verdict's record of what was reviewed does not hold together — ${REVIEW_AGAIN}`);
   }
+  if (refusals.length === before) return resolve(base, ...entries[0].path.split('/'));
 }

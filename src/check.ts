@@ -28,6 +28,7 @@ import { checkPreparedInputs } from './prepared-inputs.ts';
 import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
+import { checkDiffMap } from './diff-map.ts';
 import { checkPartsVerdict } from './parts-verdict.ts';
 import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
@@ -710,6 +711,8 @@ function checkPartsStages(ctx: Ctx): void {
         message: `project '${name}' passed plan-approved at ${ctx.predatesPartsReview}, before the parts and parts-review stages existed (${PARTS_REVIEW_SINCE}); its parts were not reviewed before rigging, and no sign-off is assumed for them`,
       });
     }
+    // A legacy project may omit a map, but a map it does carry is checked in full.
+    if (latestSignoff(ctx, PARTS_REVIEW)?.record.diff_map !== undefined) checkPartsReviewEvidence(ctx);
     return;
   }
   for (const step of ctx.steps) {
@@ -722,13 +725,23 @@ function checkPartsStages(ctx: Ctx): void {
       ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: step.path, message: `${step.path} is ${status}, but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
     }
   }
+  checkPartsReviewEvidence(ctx);
+}
+
+function checkPartsReviewEvidence(ctx: Ctx): void {
+  const cur = effectiveIndex(ctx);
+  const reviewIdx = stageIndex(PARTS_REVIEW);
   const riggingStarted =
     cur > reviewIdx || ctx.steps.some((s) => stageOfStep(s.phase, s.id) === 'rigging' && (asString(s.record.status) ?? 'pending') !== 'pending');
   // The parts gate rigging until a rig version is accepted at rig-review; after that a part change is a new rig
   // version, which RIG_VERSION_UNACCEPTED refuses (src/review.ts), and derived/ need not survive a clone.
   const gating = cur <= stageIndex('rigging') || latestAccepted(readVersions(ctx.project)) === null;
   const latest = latestSignoff(ctx, PARTS_REVIEW);
-  if (riggingStarted && gating && latest !== undefined) checkPartsVerdict(ctx.dir, latest.record, `signoffs[${latest.index}]`, ctx.refusals);
+  if (riggingStarted && gating && latest !== undefined) {
+    const at = `signoffs[${latest.index}]`;
+    const partsFile = checkPartsVerdict(ctx.dir, latest.record, at, ctx.refusals);
+    checkDiffMap(ctx.dir, latest.record, at, partsFile, ctx.refusals, ctx.warnings);
+  }
 }
 
 /** The latest stage-level sign-off, optionally covering a step, by date then array position. Undated counts as earliest. */

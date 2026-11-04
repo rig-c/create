@@ -3,6 +3,7 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, classify, isObject, type Finding } from './check.ts';
+import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
 import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
 import { readVerbatim } from './record-input.ts';
@@ -18,19 +19,30 @@ export const SIGNOFF_HELP = `signoff:
   --steps <id,id,...>      narrow plan-approved rig steps or post-interview post steps
   --checkpoint <id>       sign an enabled checkpoint in this execution stage
   --evidence <path>       required on parts-review, the approved parts verdict file
+  --diff-report <path>    parts-review difference report, required from 2026-11-06
+  --component <id>=<status>:<why>  repeat for every report component (parts-review only)
   --json                  print the signature as JSON
   The clock supplies at. With no --steps, signs all steps of the stage's phase.
   Fills null checkpoints from checkpoint_proposed and hashes covered steps after filling.
-  Existing checkpoints are preserved. Parts-review validates evidence before recording.`;
+  Existing checkpoints are preserved. Parts-review validates evidence and the map before recording.`;
 
 export function signoffCommand(args: string[]): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
+  const components: JsonObject[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') json = true;
-    else if (['--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
+    else if (arg === '--component') {
+      const value = args[++i] ?? '';
+      const eq = value.indexOf('=');
+      const colon = value.indexOf(':', eq + 1);
+      if (eq < 1 || colon < eq + 2) refuse('SIGNOFF_OPTION_INVALID', '--component needs <id>=<status>:<why>', USAGE_EXIT);
+      const id = value.slice(0, eq);
+      if (components.some((c) => c.id === id)) refuse('SIGNOFF_OPTION_INVALID', `duplicate component ${id}`, USAGE_EXIT);
+      components.push({ id, status: value.slice(eq + 1, colon), why: value.slice(colon + 1) });
+    } else if (['--diff-report', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -62,6 +74,20 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   }
   if ((stage === PARTS_REVIEW) !== (opts['--evidence'] !== undefined)) {
     refuse('SIGNOFF_OPTION_INVALID', '--evidence is required on parts-review and only accepted there', USAGE_EXIT);
+  }
+  if ((opts['--diff-report'] !== undefined || components.length > 0) && stage !== PARTS_REVIEW) {
+    refuse('SIGNOFF_OPTION_INVALID', '--diff-report and --component are only accepted on parts-review', USAGE_EXIT);
+  }
+  if (components.length > 0 && opts['--diff-report'] === undefined) refuse('SIGNOFF_OPTION_INVALID', '--component requires --diff-report', USAGE_EXIT);
+  let diffMap: JsonObject | undefined;
+  if (opts['--diff-report'] !== undefined) {
+    const path = opts['--diff-report'];
+    try {
+      const bytes = diffReportBytes(dir, path);
+      diffMap = { report: { path, sha256: createHash('sha256').update(bytes).digest('hex') }, components };
+    } catch (error) {
+      refuse('DIFF_MAP_REPORT', `signoffs[${project.signoffs.length}].diff_map ${path}: ${error instanceof Error ? error.message : String(error)}; generate the report under the project and sign again with --diff-report`);
+    }
   }
   let evidence: JsonObject | undefined;
   if (opts['--evidence'] !== undefined) {
@@ -103,13 +129,15 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     if (typeof value !== 'boolean') refuse('SIGNOFF_CHECKPOINT_INVALID', `${String(step.id)}: checkpoint needs a boolean user answer or a decided boolean delegation`);
   }
   const verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
+  const at = new Date().toISOString();
   if (evidence !== undefined) {
     const refusals: Finding[] = [];
-    checkPartsVerdict(dir, { evidence }, `signoffs[${project.signoffs.length}]`, refusals);
+    const record = { evidence, at, ...(diffMap === undefined ? {} : { diff_map: diffMap }) };
+    const partsFile = checkPartsVerdict(dir, record, `signoffs[${project.signoffs.length}]`, refusals);
+    checkDiffMap(dir, record, `signoffs[${project.signoffs.length}]`, partsFile, refusals, []);
     const first = refusals[0];
     if (first !== undefined) refuse(first.code, first.message);
   }
-  const at = new Date().toISOString();
   const hashes: JsonObject = Object.create(null) as JsonObject;
   for (const step of covered) {
     if (step.checkpoint === null || step.checkpoint === undefined) {
@@ -119,6 +147,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   }
   const signoff: JsonObject = { stage, checkpoint: checkpointId ?? null, by, at, verbatim };
   if (evidence !== undefined) signoff.evidence = evidence;
+  if (diffMap !== undefined) signoff.diff_map = diffMap;
   if (phase !== undefined) {
     signoff.steps = ids;
     signoff.step_hashes = hashes;

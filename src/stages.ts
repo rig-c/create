@@ -78,6 +78,9 @@ export const PARTS_REVIEW = 'parts-review';
  */
 export const PARTS_REVIEW_SINCE = '2026-11-04T00:00:00Z';
 
+/** History entries before this date (or without a readable date) retain free-form bounces with a warning. */
+export const AGENT_BOUNCE_SINCE = '2026-11-05T00:00:00Z';
+
 export function stageIndex(id: string): number {
   return STAGES.findIndex((s) => s.id === id);
 }

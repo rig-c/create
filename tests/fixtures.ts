@@ -10,6 +10,7 @@ import type { CheckReport } from '../src/check.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
+import { preparedExampleFiles } from './prepared-fixture.ts';
 
 export type Mutate = (project: JsonObject) => void;
 
@@ -20,7 +21,7 @@ export type Mutate = (project: JsonObject) => void;
  * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
  */
 export function fixture(mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string> = {}): string {
-  if (template === 'example-project.json') files = { ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
+  if (template === 'example-project.json') files = { ...preparedExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
   const dir = join(tempDir(), 'project');
   mkdirSync(dir);
   const project = readTemplate(template);

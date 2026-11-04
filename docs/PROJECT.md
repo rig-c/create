@@ -375,3 +375,57 @@ Top-level fields of `project.json`:
    longer match is stale — regenerate it with its recorded command.
 6. When a new version is shown to anyone: freeze `outputs/v<N>/`, hash it, add
    the `versions[]` entry and its evidence in the same turn.
+
+## Prepared inputs and agent-found bounces
+
+`rig-create derived add [<project dir>] --source inputs/source.svg --file derived/prepared.svg --operation "external scale and white composite"`
+records work already performed by another tool. It appends one `derived[]`
+entry; it transforms no pixels and changes no sign-off or stage. `derived add`
+is used instead of `prepare` because the operation has already run elsewhere.
+Both files must exist, have distinct project-relative paths, and be readable.
+Neither may be `project.json`: appending the record would change its own hash.
+The command measures both sha256s before writing anything:
+
+```json
+{
+  "kind": "prepared-input",
+  "source": { "path": "inputs/source.svg", "sha256": "<64 hex digits>" },
+  "path": "derived/prepared.svg",
+  "sha256": "<64 hex digits>",
+  "operation": "external scale and white composite"
+}
+```
+
+`interview --check` reads both files and refuses changed or missing bytes by
+name. Only entries tagged `kind: "prepared-input"` use this contract; older
+untagged intermediates and projects with no `derived[]` entries keep passing.
+Derived files are still regenerable: restore them with the recorded operation
+before checking; the recorded hashes describe the bytes that must return.
+The filled example ships synthetic SVG bytes under
+[example-prepared](../templates/example-prepared/); copy `source.svg` to
+`inputs/preparation-source.svg` and `prepared.svg` to `derived/prepared.svg`
+when materializing its prepared-input record. These fixtures demonstrate
+recording, not a claim that the tool performed or verified pixel processing.
+
+An agent rejecting its own route mid-step records it in that guide's
+`history[]`, separately from human `versions[].verdicts[]`:
+
+```json
+{
+  "at": "2026-11-11T08:00:00Z",
+  "bounce": {
+    "cause": "agent",
+    "failed": "The first split merged the eyelids into the face",
+    "bar": "Blink needs the eyelids as their own layers",
+    "replacement": "Run a head pass as well as the full pass"
+  }
+}
+```
+
+`failed`, `bar`, and `replacement` are non-empty text: what failed, against
+which bar, and what replaced it. This record does not grant a new user choice
+or sign-off and does not create a human review verdict. The check reads local
+histories and the collection histories an inherited answer cites. Compatibility
+is per history entry's own `at`, not the project's age: malformed bounces before
+`AGENT_BOUNCE_SINCE` (`2026-11-05T00:00:00Z`), or with no readable date, warn
+with the new shape. Malformed bounces on or after it are refused.

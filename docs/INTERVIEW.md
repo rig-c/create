@@ -561,3 +561,25 @@ add a prompt with an `x_` id (`x_wind_direction`) at the waypoint it belongs to,
 with `"source": "project"`, and record the user's sentence or delegation in that
 waypoint's guide. A step never rests on nothing. An `x_` prompt that comes up on
 a second project is a candidate for the standard set.
+
+## A user check names its size floor or stage
+
+When a user asks for a check such as "specks in layers mean re-run", ask for
+the smallest island area that counts (in pixels, at the named resolution), or
+which stage the check applies at: raw layers, merged layers, or assembled
+parts. Record the answer verbatim beside its normalized bar. A raw-layer
+speck rule without a floor can reject harmless small islands before merging;
+a check intended for assembled parts must say so. Do not invent the floor or
+silently apply the check at another stage. This is an interview question,
+not an automated check.
+
+## Recording an agent-found bounce
+
+A route rejected by the agent before a review belongs in the waypoint guide's
+`history[]`: `{ "at": "<date>", "bounce": { "cause": "agent", "failed":
+"<what failed>", "bar": "<the bar it failed>", "replacement": "<what replaced
+it>" } }`. Keep all three descriptions non-empty. This does not attribute a
+human verdict or alter the user's guide; a replacement requiring a changed
+user choice still goes back to that user. See
+[PROJECT.md](PROJECT.md#prepared-inputs-and-agent-found-bounces) for the
+prepared-input record and the per-entry compatibility date.

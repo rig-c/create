@@ -183,3 +183,13 @@ Reading [example-project.json](example-project.json) cold, without this page:
   something never asked (now a sentence at `bones`). Neither landed on a
   delegated item, so no bounce reads as a cost the user chose.
 - v2 and v4 each say which verdict they answer; v1 and v3 answer none.
+
+## Additional record fixtures
+
+The filled record includes a tagged prepared input: synthetic circle SVGs in
+[example-prepared](example-prepared/), with measured source and result hashes.
+Copy them to the record's named paths before checking. The operation was done
+externally; `derived add` only records it. The `seethrough` guide's `history[]`
+also contains an agent-found bounce: the first split failed the eyelid bar and
+was replaced by the full pass plus a head pass. It is separate from the two
+human review bounces above and grants no new sign-off.

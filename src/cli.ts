@@ -10,6 +10,7 @@ import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
+import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 
 const HELP = `rig-create — create and run a rig project
 
@@ -18,6 +19,8 @@ Usage:
   rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
   rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
   rig-create collection pin|--check [<dir>]         pin member builds for a collection version; refuse stale pins
+  rig-create derived add [<dir>] --source <file> --file <file> --operation <text>
+                                                    record external preparation and both file hashes
   rig-create interview --check [<project dir>] [--json]
                                                     refuse by name every hole the interview and plan still have
   rig-create handoff [<project dir>] [--rig <n>] [--json]
@@ -41,6 +44,8 @@ ${COLLECTION_HELP}
 ${REVIEW_HELP}
 
 ${SIGNOFF_HELP}
+
+${DERIVED_HELP}
 `;
 
 /** A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1). */
@@ -93,6 +98,8 @@ const COMMANDS: Record<string, Command> = {
   collection: collectionCommand,
   review: reviewCommand,
   signoff: signoffCommand,
+
+  derived: derivedCommand,
 };
 
 export function main(argv: string[]): number {

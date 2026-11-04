@@ -205,8 +205,10 @@ describe('the reach: the parts gate rigging until a rig version is accepted at r
     return dir;
   };
 
-  test('an accepted project with the verdict and the parts missing is not refused', () => {
-    expect(checkProject(freshClone(fixture())).refusals).toEqual([]);
+  test('an accepted project with parts missing has no parts refusal; prepared inputs must still be restored', () => {
+    const r = checkProject(freshClone(fixture()));
+    expect(verdictCodes(r)).toEqual([]);
+    expect(r.refusals.map((f) => [f.code, f.path])).toEqual([['DERIVED_FILE_UNREADABLE', 'derived[0].path']]);
   });
 
   test('the filled example at stage rigging on a fresh clone: the verdict is tracked, the parts must be on disk', () => {

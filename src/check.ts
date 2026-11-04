@@ -21,6 +21,8 @@ import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkCgGates } from './cg-gates.ts';
+import { checkAgentBounces } from './agent-bounce.ts';
+import { checkPreparedInputs } from './prepared-inputs.ts';
 import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
@@ -792,6 +794,8 @@ export function checkProject(projectDirArg: string): CheckReport {
     refusals.push({ code: e.code, path: '@rig-c/parts', message: e.message });
   }
   checkAnswers(ctx);
+  checkPreparedInputs(ctx);
+  checkAgentBounces(ctx);
   checkPlan(ctx);
   warnings.push(...appearanceBarWarnings(project));
   checkStages(ctx);

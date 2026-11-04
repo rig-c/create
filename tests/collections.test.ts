@@ -150,7 +150,10 @@ describe('init --member', () => {
     editCollection(dir, (c) => {
       const interview = obj(c.interview);
       byId(interview.framing, 'rig_type').answer = { ...ANSWER('A character, standing idle.'), value: 'character.idle' };
-      byId(interview.waypoints, 'bones').guide = ANSWER('A chain down every scarf.');
+      byId(interview.waypoints, 'bones').guide = {
+        ...ANSWER('A chain down every scarf. Place its bones along the scarf for its full length.'),
+        asks: [{ id: 'chains', state: 'user' }, { id: 'placement', state: 'user' }, { id: 'length', state: 'user' }],
+      };
       byId(interview.waypoints, 'motion').guide = { ...ANSWER('per-member'), value: 'per-member' };
     });
     const made = addMember(dir, 'keeper');

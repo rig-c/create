@@ -170,11 +170,24 @@ describe('rig-create review records a verdict', () => {
   });
 
   test('a user sentence is not a delegation; a sentence that left part open must be named', () => {
-    const dir = fixture();
+    const dir = fixture((p) => {
+      const guide = obj(waypoint(p, 'bones').guide);
+      guide.verbatim = 'A chain down the scarf, one in each coat tail, one in her hair tail. Place the bones along each named part for its full length.';
+      guide.value = { chains: ['scarf', 'coat_tail_l', 'coat_tail_r', 'hair_tail'], placement: 'along each named part', length: 'full part length' };
+      guide.asks = [{ id: 'chains', state: 'user' }, { id: 'placement', state: 'user' }, { id: 'length', state: 'user' }];
+      delete guide.agent_decision;
+    });
     expect(refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'bones', answerWas: 'delegated' }] }))).code).toBe('FEEDBACK_ITEM_CONTRADICTS');
     expect(refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'assemble', answerWas: null }] }))).code).toBe('FEEDBACK_ITEM_AMBIGUOUS');
     const ok = recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'assemble', answerWas: 'delegated' }] }));
     expect(ok.items[0]).toMatchObject({ answer_was: 'delegated', how: 'named' });
+  });
+
+  test('partially delegated bones and meshes accept explicitly named delegated feedback', () => {
+    for (const id of ['bones', 'meshes']) {
+      const result = recordVerdict(fixture(), base({ version: 2, review: 'rig-review', items: [{ id, answerWas: 'delegated' }] }));
+      expect(result.items[0]).toMatchObject({ id, answer_was: 'delegated', how: 'named' });
+    }
   });
 
   test('unknown items, a review of the wrong kind and a quote not in the words are refused', () => {

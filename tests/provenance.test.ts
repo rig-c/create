@@ -187,10 +187,23 @@ describe('a citation that does not resolve', () => {
 
   test('delegated: true on a user answer is refused', () => {
     const report = checkProject(fixture((p) => {
+      const guide = obj(waypoint(p, 'meshes').guide);
+      guide.verbatim = 'The coat is one piece that bends with her breath. Face and lantern stay rigid. Use standard mesh density.';
+      obj(guide.value).density = 'standard';
+      guide.asks = [{ id: 'bend', state: 'user' }, { id: 'rigid', state: 'user' }, { id: 'density', state: 'user' }];
+      delete guide.agent_decision;
       citedSections(p, 1).meshes = [{ entry: 'torso', guide: 'meshes', delegated: true }];
     }));
     expect(codes(report)).toEqual(['DELEGATION_NOT_GIVEN']);
     expect(report.refusals[0]?.path).toBe('versions[v1].provenance.sections[meshes][0]');
+  });
+
+  test('partially delegated bones and meshes keep their written delegation available to citations', () => {
+    const report = checkProject(fixture((p) => {
+      citedSections(p, 1).bones = [{ entry: 'chain placement and length', guide: 'bones', delegated: true }];
+      citedSections(p, 1).meshes = [{ entry: 'mesh density', guide: 'meshes', delegated: true }];
+    }));
+    expect(report.refusals).toEqual([]);
   });
 
   test('delegated: true on a user answer that left part open passes while its agent_decision is there, and is refused without it', () => {
@@ -232,7 +245,15 @@ describe('a citation that does not resolve', () => {
 });
 
 describe('an answer replaced after a version was built', () => {
-  const NEW_MESHES: JsonObject = { delegated: false, by: 'user', at: '2026-11-16T10:00:00Z', verbatim: 'Everything bends.', value: { meshes: ['*'] }, source: 'chat' };
+  const NEW_MESHES: JsonObject = {
+    delegated: false,
+    by: 'user',
+    at: '2026-11-16T10:00:00Z',
+    verbatim: 'Everything bends at standard density; nothing stays rigid.',
+    value: { meshes: ['*'], rigid: [], density: 'standard' },
+    asks: [{ id: 'bend', state: 'user' }, { id: 'rigid', state: 'user' }, { id: 'density', state: 'user' }],
+    source: 'chat',
+  };
 
   test('the old answer in history[] still resolves the earlier versions\' quotes', () => {
     // The step that ran on the old answer is sent back for a re-sign (its own check); provenance adds nothing.
@@ -250,7 +271,20 @@ describe('an answer replaced after a version was built', () => {
   });
 
   test('a delegation the user later answered themselves still covers the versions built on it', () => {
-    const own: JsonObject = { delegated: false, by: 'user', at: '2026-11-16T10:00:00Z', verbatim: 'Full pass only.', value: { passes: ['full'] }, source: 'chat' };
+    const own: JsonObject = {
+      delegated: false,
+      by: 'user',
+      at: '2026-11-16T10:00:00Z',
+      verbatim: 'Full pass only at original resolution, seed zero. Keep the painted groups; no head crop.',
+      value: { passes: ['full'], resolution: 'original', seed: 0, grouping: 'painted groups', head_crop: 'none' },
+      asks: [
+        { id: 'layers', state: 'user' },
+        { id: 'resolution', state: 'user' },
+        { id: 'head_crop', state: 'user' },
+        { id: 'seed', state: 'user' },
+      ],
+      source: 'chat',
+    };
     expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'seethrough'), 'guide', own); })))).toEqual(['GUIDE_CHANGED_UNSIGNED']);
   });
 });

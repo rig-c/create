@@ -43,6 +43,47 @@ import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 export const PROJECT_SCHEMA = 'rig-create/project@0';
 export const COLLECTION_SCHEMA = 'rig-create/collection@0';
 
+/** Heuristic only: these phrases name appearance calls, not measured step readings. */
+export const APPEARANCE_IN_MOTION_PHRASES = [
+  'perceived jiggle',
+  'perceived motion',
+  'looks right in the loop',
+  'looks right in loop',
+  'looks natural in motion',
+  'natural motion',
+  'smooth motion',
+  'visible at 1x',
+  'seen at 1x',
+] as const;
+
+/** Numeric prose only: commands/URLs and viewing scales such as 1x are not readings. */
+function hasNumericReading(bar: string): boolean {
+  const prose = bar.replace(/`[^`]*`/g, ' ').replace(/https?:\/\/\S+/g, ' ');
+  const number = String.raw`[+-]?(?:\d+(?:\.\d+)?|\.\d+)`;
+  const unit = String.raw`(?:px|pixels?|mm|cm|m|deg|degrees?|rad|radians?|ms|s|seconds?|frames?|world units?|units?)\b|[%°]`;
+  return new RegExp(String.raw`(?<![\w.])${number}\s*(?:${unit})`, 'i').test(prose)
+    || new RegExp(String.raw`(?:<=|>=|<|>|=|≤|≥)\s*${number}(?![\w.])|(?<![\w.])${number}\s*(?:<=|>=|<|>|=|≤|≥)`).test(prose);
+}
+
+/** Warning-only wording lint; it cannot watch motion or certify a numeric clause. */
+export function appearanceBarWarnings(project: JsonObject): Finding[] {
+  const plan = isObject(project.plan) ? project.plan : {};
+  const warnings: Finding[] = [];
+  for (const raw of asArray(plan.steps)) {
+    if (!isObject(raw) || typeof raw.id !== 'string' || (raw.phase !== 'rig' && raw.phase !== 'post') || typeof raw.bar !== 'string') continue;
+    const text = raw.bar.toLowerCase().replace(/\s+/g, ' ');
+    const phrase = APPEARANCE_IN_MOTION_PHRASES.find((p) => new RegExp(String.raw`\b${p}\b`).test(text));
+    if (phrase === undefined || hasNumericReading(raw.bar)) continue;
+    const path = `plan.steps[${raw.id}].bar`;
+    const review = raw.phase === 'rig' ? 'rig-review' : 'direction-review';
+    warnings.push({
+      code: 'STEP_APPEARANCE_REVIEW', path,
+      message: `${path}: "${phrase}" has no numeric reading; move the appearance call to a person's ${review}, with the step's measured readings as context (docs/INTERVIEW.md § Appearance belongs to a person's review)`,
+    });
+  }
+  return warnings;
+}
+
 export interface Finding {
   readonly code: string;
   /** The object refused, as a path into project.json: `interview.waypoints[bones].guide`, `plan.steps[assemble]`, `signoffs[2]`, `stage`. */
@@ -752,6 +793,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   }
   checkAnswers(ctx);
   checkPlan(ctx);
+  warnings.push(...appearanceBarWarnings(project));
   checkStages(ctx);
   checkReviews(ctx);
   const provenance = checkProvenance(ctx, parts);

@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { APPEARANCE_IN_MOTION_PHRASES, appearanceBarWarnings, checkProject, type CheckReport } from '../src/check.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
@@ -554,5 +554,77 @@ describe('partial guide delegation', () => {
       delete obj(waypoint(p, 'assemble').guide).agent_decision;
     }));
     expect(withCode(report, 'GUIDE_PARTIAL_UNMARKED')).toEqual([]);
+  });
+});
+
+
+describe('appearance calls go to a person, not a step bar', () => {
+  test.each(APPEARANCE_IN_MOTION_PHRASES)('warns on %s without changing the refusal verdict', (phrase) => {
+    const report = checkProject(fixture((p) => { step(p, 'motion').bar = phrase; }));
+    expect(report.ok).toBe(true);
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings).toEqual([expect.objectContaining({
+      code: 'STEP_APPEARANCE_REVIEW', path: 'plan.steps[motion].bar',
+      message: expect.stringContaining("person's rig-review"),
+    })]);
+  });
+
+  test('post wording names direction-review and remains an exit-0 warning through the CLI', () => {
+    const project = readTemplate('example-project.json');
+    const post = arr(obj(project.plan).steps).map(obj).find((s) => s.phase === 'post');
+    if (post === undefined) throw new Error('example needs a post step');
+    const dir = fixture((p) => { step(p, post.id as string).bar = 'Looks RIGHT in the loop'; });
+    const result = cli(['interview', '--check', dir], tempDir(), gitEnv());
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('warning STEP_APPEARANCE_REVIEW');
+    expect(result.stdout).toContain("person's direction-review");
+  });
+
+  const warnings = (bar: Json | undefined, phase = 'rig', extra: JsonObject = {}) =>
+    appearanceBarWarnings({ plan: { steps: [{ id: 'motion', phase, bar: bar ?? null, status: 'pending', ...extra }] } });
+
+  test.each([
+    'VISIBLE AT 1x', 'seen at 1x in the loop', 'looks right\n  in the loop',
+    'smooth motion; version 2.4.1',
+    'smooth motion; `render --fps 24 --at 4s --out v2.png`',
+    'smooth motion; https://example.com/2px',
+    'smooth motion; take 2',
+  ])('does not mistake scales, commands or identifiers for a reading: %s', (bar) => {
+    expect(warnings(bar)).toHaveLength(1);
+  });
+
+  test.each([
+    'tip jump <= 2', 'tip jump ≤ .5', '0 < tip jump',
+    'tip jump = -0.5', 'peak 2 px', 'peak 2pixels', 'peak 3 mm',
+    'peak 1 cm', 'peak 1 m', 'peak 3 deg', 'peak 2 degrees',
+    'peak 0.2 rad', 'peak 0.2 radians', 'peak 3°', 'area 5%',
+    'duration 40 ms', 'duration 1 s', 'duration 2 seconds',
+    'over 2 frames', 'peak 2 world units', 'peak 2 units',
+  ])('recognizes numeric prose in a mixed bar: %s', (reading) => {
+    expect(warnings(`perceived motion; ${reading}`)).toEqual([]);
+  });
+
+  test('reads only bar, warns before approval, and emits once for multiple phrases', () => {
+    expect(warnings('smooth motion; perceived jiggle')).toHaveLength(1);
+    expect(warnings('tip jump <= 2', 'rig', { note: 'smooth motion' })).toEqual([]);
+    for (const bar of [undefined, null, 7, {}, []]) expect(warnings(bar)).toEqual([]);
+    expect(warnings('smooth motion', 'unknown')).toEqual([]);
+    expect(appearanceBarWarnings({ plan: { steps: [null, {}, 'smooth motion'] } })).toEqual([]);
+  });
+
+  test('measures the heuristic boundary with labeled false positives and negatives', () => {
+    // These are deliberate limits, not a claim to judge appearance or parse all prose.
+    const corpus = [
+      { bar: 'perceived jiggle size', shouldWarn: true },
+      { bar: 'looks right in the loop', shouldWarn: true },
+      { bar: 'tip jump <= 2', shouldWarn: false },
+      { bar: 'The bar is not "smooth motion"; count tip displacement', shouldWarn: false },
+      { bar: 'The bounce feels believable', shouldWarn: true },
+      { bar: 'smooth motion; unrelated duration 2 seconds', shouldWarn: true },
+    ];
+    const fp = corpus.filter((c) => !c.shouldWarn && warnings(c.bar).length > 0);
+    const fn = corpus.filter((c) => c.shouldWarn && warnings(c.bar).length === 0);
+    expect(fp.map((c) => c.bar)).toEqual(['The bar is not "smooth motion"; count tip displacement']);
+    expect(fn.map((c) => c.bar)).toEqual(['The bounce feels believable', 'smooth motion; unrelated duration 2 seconds']);
   });
 });

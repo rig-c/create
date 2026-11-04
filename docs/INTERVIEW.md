@@ -26,7 +26,7 @@ a form.
 
 | User step | In this file | When |
 | --- | --- | --- |
-| 1. **Base motion** | Framing (`rig_type`, `reference`), then a guide at each rig waypoint: `seethrough`, `assemble`, `bones`, `meshes`, `constraints`, `motion` | stage `interview`, before any rig work; judged at the first review, on a still frame |
+| 1. **Base motion** | Framing (`rig_type`, `reference`), then a guide at each rig waypoint: `seethrough`, `assemble`, `bones`, `meshes`, `constraints`, `motion` | stage `interview`, before any rig work; the parts judged at `parts-review` before rigging, the rig at the first review, on a still frame |
 | 2. **Direction** | Post items: `camera_depth`, `post_timing`, `post_composition` | stage `post-interview`, after the rig is accepted; judged at the second review |
 | 3. **Polish feedback** | Verdicts on a shown version, each tied to a waypoint or post item | at either review, as often as it takes |
 
@@ -301,6 +301,12 @@ The full label map — every part outlined on an image with one label — is the
 agent's reading of the `assemble` and `constraints` guides, shown back for the
 user to sign at the `assemble` checkpoint ([PROJECT.md § Split approval](PROJECT.md#split-approval-is-a-plan-checkpoint)).
 It is not asked.
+
+When the `assemble` guide is answered, tell the user, in plain words, that they
+will see the assembled parts before anything is rigged, and why: a part with
+nothing under its occluder, or a seam between two parts, is cheap to fix then
+and expensive after every rig build made on it
+([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)).
 
 ## Post-production: asked after the rig is accepted
 

@@ -243,7 +243,7 @@ describe('a stage moved without a human sign-off', () => {
   });
 
   test('a step done with its checkpoint on and no checkpoint sign-off is refused by step id', () => {
-    const report = checkProject(fixture((p) => { dropSignoffs(p, (s) => !(s.stage === 'rigging' && s.checkpoint === 'assemble')); }));
+    const report = checkProject(fixture((p) => { dropSignoffs(p, (s) => !(s.stage === 'parts' && s.checkpoint === 'assemble')); }));
     expect(withCode(report, 'CHECKPOINT_UNSIGNED').map((f) => f.path)).toEqual(['plan.steps[assemble]']);
   });
 

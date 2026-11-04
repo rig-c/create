@@ -64,9 +64,11 @@ written before the user signed.
 Signed: `{ "stage": "plan-approved", "checkpoint": null, "by": "user", "at": "2026-11-10T16:05:00Z", "verbatim": "go" }`.
 The signature does not make the delegated items the user's.
 
-Rigging runs the steps. At step 2 the labelled split image is shown and signed
-(`{ "stage": "rigging", "checkpoint": "assemble", … "verbatim": "the cut is fine" }`);
-at step 5 a motion sketch is shown for the checkpoint the agent chose. Each
+Steps 1 and 2 run in `parts`. At step 2 the labelled split image is shown and signed
+(`{ "stage": "parts", "checkpoint": "assemble", … "verbatim": "the cut is fine" }`);
+the assembled parts pass the parts check and the user signs them in rig-review's
+parts view (`{ "stage": "parts-review", … "verbatim": "the parts are clean, rig it" }`).
+Rigging runs the rest; at step 5 a motion sketch is shown for the checkpoint the agent chose. Each
 config section cites its guide in `versions[0].provenance`, for example:
 
 ```json

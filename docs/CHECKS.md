@@ -74,6 +74,13 @@ a plan step), written to `project.json`.
   (where it resumes), and needs its own `{ "stage": "paused" }` sign-off.
 - **When every post item is not applicable**, `post` and `direction-review` are
   not required ([PROJECT.md § When post is not passed](PROJECT.md#stages)).
+- **A project that predates `parts-review`** is read from the date of its
+  first `plan-approved` sign-off, not from `stage_values` or a schema mark:
+  `stage_values` is copied at `init`, so a project made before the change and
+  still at `interview` would be exempted by it, and signing `plan-approved` is
+  the dated, human act that moved a project past where the two stages stand.
+  Only a project past `parts-review` is exempt; one at or before it goes
+  through both. An undated sign-off does not exempt.
 - **A step is "run"** when its `status` is anything but `pending`; the
   approval and changed-guide checks apply from then. A checkpoint sign-off is
   required only once the step is `done`.
@@ -232,12 +239,14 @@ Exit `1`. Each names its object in `path`.
 | `STEP_RUN_UNAPPROVED` | a step is past `pending` and no sign-off of its approving stage covers it | sign the plan (a re-sign with `steps[]` covers only the steps it names) |
 | `GUIDE_CHANGED_UNSIGNED` | a step is past `pending` and an answer it rests on changed (its `at`, or an `additions[]` entry) after the last sign-off covering it | re-sign `plan-approved` (or `post-interview` for post steps) naming the steps |
 | `CHECKPOINT_UNANSWERED` | the plan is signed and a step's `checkpoint` is `null` | the user sets it (`true` / `false`) or delegates it |
-| `CHECKPOINT_UNSIGNED` | a step is `done`, its checkpoint is on, and no `{ "stage": <its phase's stage>, "checkpoint": <step id> }` sign-off exists | the user signs the checkpoint |
+| `CHECKPOINT_UNSIGNED` | a step is `done`, its checkpoint is on, and no `{ "stage": <its stage>, "checkpoint": <step id> }` sign-off exists (`parts` for `seethrough` and `assemble`, `rigging` for the other rig steps, `post` for post steps) | the user signs the checkpoint |
 | `SIGNOFF_MALFORMED` | a sign-off lacks `stage`, `by`, `at` or `verbatim` | write it in the answer shape |
 | `SIGNOFF_NOT_HUMAN` | a sign-off's `by` is `agent` | a person signs; the entry does not count |
 | `SIGNOFF_UNKNOWN_STAGE` | a sign-off names a stage that does not exist | fix the stage |
 | `SIGNOFF_AHEAD_OF_STAGE` | a sign-off names a stage later than the project's `stage` | move the stage, or remove the entry that was never given |
-| `SIGNOFF_UNKNOWN_CHECKPOINT` | a sign-off's `checkpoint` names no step of that stage's phase | name the step |
+| `SIGNOFF_UNKNOWN_CHECKPOINT` | a sign-off's `checkpoint` names no step that runs in that stage | name the step |
+| `PARTS_BAR_UNMET` | the stage is past `parts` and a step it runs (`seethrough`, `assemble`) is not `done` | finish the step and meet its bar (the parts check passing on the assembled parts), or move the stage back to `parts` |
+| `PARTS_REVIEW_UNSIGNED` | the stage is past `parts-review`, or a `rigging` step is past `pending`, and no person signed `{ "stage": "parts-review", "checkpoint": null }` | the user reviews the assembled parts in rig-review's parts view and signs; until then the stage stays at `parts-review` and no rig step after `assemble` runs ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
 | `STAGE_UNSIGNED` | the project's `stage` is past a stage that ends on a sign-off, and no `{ "stage": <it>, "checkpoint": null }` entry exists | the person signs it, or the stage goes back to where the signatures reach |
 | `VERSION_MALFORMED` | a `versions[]` entry has no integer `n`, a `kind` other than `rig` / `post`, or a rig version has a non-null `rig_version` | fix the entry ([PROJECT.md § Versions](PROJECT.md#versions)) |
 | `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review rests on a still frame](PROJECT.md#the-rig-review-rests-on-a-still-frame)); it does not count as a still until it is |
@@ -332,6 +341,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
 | `FEEDBACK_OPEN` | the latest version has a human bounced verdict and no version is built after it yet | build the next version and list the verdict in its `answers_feedback` |
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
+| `PARTS_REVIEW_PREDATES_STAGE` | the project passed `plan-approved` (its first sign-off dated before 2026-11-04) before `parts` and `parts-review` existed, is past `parts-review`, and has no `parts-review` sign-off; the message names the project | nothing is assumed: no sign-off is written for it. A person may still review the parts and sign `parts-review`, which clears it ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
 | `CG_GATES_PREDATE` | a CG project's `rig` version was built with `@rig-c/parts` older than 2.4.0, before the CG gates existed (§ CG gates) | nothing for that version; the next CG version declares the gates |
 
 ## Collections

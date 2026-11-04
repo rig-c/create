@@ -8,22 +8,30 @@
  * - `signoff`: the stage ends only on a human `signoffs[]` entry naming it
  *   with `checkpoint: null`. A project whose `stage` is past such a stage
  *   without that entry is refused (`STAGE_UNSIGNED`).
- * - `bar`: the stage ends when the last plan step of its `phase` meets its
- *   bar; no stage-level sign-off, but a step whose checkpoint is on needs a
+ * - `bar`: the stage ends when the last plan step it runs meets its bar; no
+ *   stage-level sign-off, but a step whose checkpoint is on needs a
  *   `{ stage, checkpoint: <step id> }` entry before the next step runs
  *   (`CHECKPOINT_UNSIGNED`).
  * - `none`: terminal.
+ *
+ * The rig phase runs in two `bar` stages: `parts` runs the steps that make the
+ * parts (`steps`), `rigging` runs the rest. A phase's stage without `steps`
+ * runs every step of the phase the other stages do not name.
  */
 export interface StageSpec {
   readonly id: string;
   readonly closed_by: 'signoff' | 'bar' | 'none';
   /** For a `bar` stage: the plan phase whose steps run in it. */
   readonly phase?: 'rig' | 'post';
+  /** For a `bar` stage that runs only some of its phase's steps: their ids. */
+  readonly steps?: readonly string[];
 }
 
 export const STAGES: readonly StageSpec[] = [
   { id: 'interview', closed_by: 'signoff' },
   { id: 'plan-approved', closed_by: 'signoff' },
+  { id: 'parts', closed_by: 'bar', phase: 'rig', steps: ['seethrough', 'assemble'] },
+  { id: 'parts-review', closed_by: 'signoff' },
   { id: 'rigging', closed_by: 'bar', phase: 'rig' },
   { id: 'rig-review', closed_by: 'signoff' },
   { id: 'post-interview', closed_by: 'signoff' },
@@ -51,12 +59,24 @@ export const PHASE_APPROVED_BY: Readonly<Record<'rig' | 'post', string>> = {
   post: 'post-interview',
 };
 
-/** The stage a phase's steps run in (the `bar` stage), i.e. the `stage` a checkpoint sign-off names. */
-export function stageOfPhase(phase: 'rig' | 'post'): string {
-  const found = STAGES.find((s) => s.phase === phase);
-  if (found === undefined) throw new Error(`no stage runs phase ${phase}`);
+/** The stage a step runs in (a `bar` stage of its phase), i.e. the `stage` its checkpoint sign-off names. */
+export function stageOfStep(phase: 'rig' | 'post', id: string): string {
+  const ofPhase = STAGES.filter((s) => s.phase === phase);
+  const found = ofPhase.find((s) => s.steps?.includes(id) === true) ?? ofPhase.find((s) => s.steps === undefined);
+  if (found === undefined) throw new Error(`no stage runs ${phase} step ${id}`);
   return found.id;
 }
+
+/** The sign-off a person gives on the assembled parts before any rig is built (rig-c/create#48). */
+export const PARTS_REVIEW = 'parts-review';
+
+/**
+ * When `parts` and `parts-review` entered the order. A project whose first
+ * `plan-approved` sign-off is dated before this passed that point when the two
+ * stages did not exist: it is reported (`PARTS_REVIEW_PREDATES_STAGE`, a
+ * warning), not refused, and no sign-off is assumed for it.
+ */
+export const PARTS_REVIEW_SINCE = '2026-11-04T00:00:00Z';
 
 export function stageIndex(id: string): number {
   return STAGES.findIndex((s) => s.id === id);

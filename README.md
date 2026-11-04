@@ -47,6 +47,23 @@ decision to the agent, never left blank for the agent to fill.
 Nothing is published yet. The structure is being piloted by hand first; the issues
 here track what moves in, in order.
 
+## Recording approvals
+
+```sh
+rig-create signoff plan-approved --by user --verbatim-file approval.txt <project dir>
+rig-create signoff parts-review --by user --evidence evidence/parts-review.json --verbatim-file approval.txt <project dir>
+rig-create signoff rigging --checkpoint constraints --by user --verbatim-file approval.txt <project dir>
+rig-create signoff post-interview --by user --steps camera,timing --verbatim-file - <project dir>
+rig-create review 2 --verdict accepted --by user --review rig-review --source note --verbatim-file feedback.txt --at 2026-11-04T12:00:00Z --answers-feedback 1:0 <project dir>
+```
+
+`signoff` records without moving the stage. It uses the clock, signs all steps
+of the stage's phase unless `--steps` narrows them, fills null checkpoints from
+the draft and preserves existing answers and delegations. Input is UTF-8 and
+keeps every byte, including spaces and final newlines. Omitting
+`--verbatim-file` reads stdin. Review also supports the existing `--verbatim`
+option. See [the record contract](docs/PROJECT.md#recording-a-sign-off).
+
 ## Docs
 
 - [docs/PROJECT.md](docs/PROJECT.md) — the project folder, data by lifetime,

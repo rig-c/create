@@ -275,7 +275,7 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
   const historyRefusals: ReviewCtx['refusals'] = [];
-  checkPreInterview({ dir, project: record, refusals: historyRefusals });
+  checkPreInterview({ dir, project: record, refusals: historyRefusals, warnings: [] });
   const first = historyRefusals[0];
   if (first !== undefined) refuse(first.code, first.message);
 

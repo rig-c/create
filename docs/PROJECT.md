@@ -394,7 +394,9 @@ perform the following migration on its own decision record.
    `pre_interview: true`. Put them before the create-built entries, preserve
    their numbers and update references consistently if numbering had collided.
    Remove the moved `x-pre_create.versions` array. A nonempty array left there
-   is refused as `PRE_INTERVIEW_UNMIGRATED`.
+   produces the `PRE_INTERVIEW_UNMIGRATED` warning while migration is pending.
+   It preserves the existing check exit code. Migrated records are checked
+   with the refusals described above.
 3. Fill create-shaped verdict fields from known records, using the mapping
    table, stating their source and recording summaries as `verbatim: null`
    with `note`. Preserve carried `on_items[]` and map them to the interview's

@@ -114,10 +114,56 @@ describe('pre-interview migration (#39)', () => {
     expect(report.provenance.map((s) => s.version)).toEqual(['versions[v4]']);
   });
 
-  test('a missing original array and a pilot left under x-pre_create are refused', () => {
+  test('a missing original array on a migrated version is refused', () => {
     expect(codes(checkProject(migrated((p) => { delete version(p, 1).original_verdicts; })))).toContain('PRE_INTERVIEW_HISTORY_MISSING');
-    const report = checkProject(migrated((p) => { p['x-pre_create'] = { versions: historical.versions }; }));
-    expect(withCode(report, 'PRE_INTERVIEW_UNMIGRATED')).toHaveLength(1);
+  });
+
+  test('history only under x-pre_create warns with migration steps and preserves exit 0', () => {
+    const beforeMigration: Mutate = (p) => {
+      p.stage = 'interview';
+      p.signoffs = [];
+      obj(p.plan).steps = [];
+      p.versions = [];
+    };
+    const baseline = fixture(beforeMigration);
+    const dir = fixture((p) => {
+      beforeMigration(p);
+      p['x-pre_create'] = { versions: structuredClone(historical.versions) };
+    });
+    const before = readFileSync(join(dir, 'project.json'));
+    const report = checkProject(dir);
+    expect(report.ok).toBe(true);
+    expect(report.refusals).toEqual(checkProject(baseline).refusals);
+    expect(withCode(report, 'PRE_INTERVIEW_UNMIGRATED')).toEqual([]);
+    const warnings = report.warnings.filter((w) => w.code === 'PRE_INTERVIEW_UNMIGRATED');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].path).toBe('x-pre_create.versions');
+    expect(warnings[0].message).toContain('steps 1–6');
+    expect(warnings[0].message).toContain('docs/PROJECT.md');
+    expect(warnings[0].message).toContain('preserve original verdicts and frozen outputs');
+    const baselineCli = cli(['interview', '--check', '--json', baseline], baseline, env);
+    const result = cli(['interview', '--check', '--json', dir], dir, env);
+    expect(baselineCli.code).toBe(0);
+    expect(result.code).toBe(baselineCli.code);
+    expect(JSON.parse(result.stdout).warnings.some((w: { code: string }) => w.code === 'PRE_INTERVIEW_UNMIGRATED')).toBe(true);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test('unmigrated history preserves a valid current handoff', () => {
+    const dir = fixture((p) => { p['x-pre_create'] = { versions: structuredClone(historical.versions) }; });
+    expect(checkProject(dir).ok).toBe(true);
+    expect(cli(['handoff', '--rig', '2', dir], dir, env).code).toBe(0);
+  });
+
+  test('the pending-migration warning does not clear migrated-record refusals', () => {
+    const dir = migrated((p) => {
+      p['x-pre_create'] = { versions: structuredClone(historical.versions) };
+      delete version(p, 1).original_verdicts;
+    });
+    const report = checkProject(dir);
+    expect(report.warnings.filter((w) => w.code === 'PRE_INTERVIEW_UNMIGRATED')).toHaveLength(1);
+    expect(codes(report)).toContain('PRE_INTERVIEW_HISTORY_MISSING');
+    expect(cli(['interview', '--check', '--json', dir], dir, env).code).toBe(1);
   });
 
   test('null verbatim needs the record in note and its source, and a valid timestamp', () => {

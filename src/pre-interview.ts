@@ -35,6 +35,7 @@ interface HistoryCtx {
   readonly project: JsonObject;
   readonly dir: string;
   readonly refusals: Finding[];
+  readonly warnings: Finding[];
 }
 
 function inside(root: string, file: string): boolean {
@@ -129,7 +130,7 @@ function checkOriginals(ctx: HistoryCtx, version: JsonObject, label: string): vo
 export function checkPreInterview(ctx: HistoryCtx): void {
   const legacy = ctx.project['x-pre_create'];
   if (isObject(legacy) && Object.hasOwn(legacy, 'versions') && (!Array.isArray(legacy.versions) || legacy.versions.length > 0)) {
-    ctx.refusals.push({ code: 'PRE_INTERVIEW_UNMIGRATED', path: 'x-pre_create.versions', message: 'x-pre_create.versions is unchecked history; move it into versions[] with pre_interview: true and preserved original verdicts (docs/PROJECT.md, Migrating work done before the interview)' });
+    ctx.warnings.push({ code: 'PRE_INTERVIEW_UNMIGRATED', path: 'x-pre_create.versions', message: 'x-pre_create.versions awaits migration. Follow docs/PROJECT.md, Migrating work done before the interview, steps 1–6: preserve original verdicts and frozen outputs, move historical versions first into versions[] with pre_interview: true, normalize verdicts with sources, verify outputs, connect answers_feedback, then run interview --check and handoff' });
   }
   const versions = asArray(ctx.project.versions);
   let createSeen = false;

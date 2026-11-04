@@ -179,6 +179,22 @@ each config section cites the guide sentence or the delegation it rests on.
   well as the current answer: a version built before an answer was replaced
   was built from the answer as it was then.
 
+A citation's optional `asks` is a nonempty list of unique canonical ask ids
+recorded by the cited guide. A user ask needs a matching `quote` and cannot
+be marked `delegated: true`. A delegated ask needs `delegated: true` and a
+decided `agent_decision`. Coverage and its supporting words or decision must
+match within one current or historical answer, including inherited history.
+The check validates the declared ask and stored words, without interpreting
+whether the quote semantically answers that ask.
+
+| Code | Finding and remedy |
+| --- | --- |
+| `CITATION_ASKS_MALFORMED` | `asks` is empty, duplicated or has invalid shape. Write unique string ids. |
+| `CITATION_ASK_UNKNOWN` | An id is absent from the guide's canonical waypoint asks. Choose a canonical id. |
+| `CITATION_ASK_UNRECORDED` | The guide has no record of that ask. Record its user answer or delegation. |
+| `CITATION_ASK_STATE` | The citation conflicts with the recorded state or lacks supporting words or a decided delegation in the same answer. Cite the appropriate evidence. |
+| `CITATION_ASKS_MISSING` (WARN) | A covered guide's citation omits `asks`. Name the recorded asks it rests on. |
+
 ## Polish feedback
 
 Every verdict in `versions[].verdicts[]` is read against
@@ -209,6 +225,19 @@ Every verdict in `versions[].verdicts[]` is read against
   verdict (a delegated item the user then answered), and the command that
   wrote it checked it against the record as it stood ([§ The review
   command](#the-review-command)).
+
+A delegated verdict item's optional `ask` names a canonical ask recorded as
+delegated by a current or historical guide. Re-answering a guide preserves
+valid earlier feedback through history. A pre-interview verdict retains its
+historical treatment. Missing fields on guides without per-ask coverage add
+no finding. These new refusals require an explicitly written field.
+
+| Code | Finding and remedy |
+| --- | --- |
+| `FEEDBACK_ASK_UNKNOWN` | `ask` names no canonical ask of the guide. Choose a recorded canonical id. |
+| `FEEDBACK_ASK_UNRECORDED` | The guide does not record that ask. Record its delegation first. |
+| `FEEDBACK_ASK_STATE` | The ask is not recorded as delegated, or `--ask` accompanies feedback with another cause. Name the appropriate cause. |
+| `FEEDBACK_ASK_MISSING` (WARN) | A delegated item omits `ask` on a covered guide. Name the delegated ask. |
 
 ## CG gates
 
@@ -380,7 +409,7 @@ Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
 
 ```
 rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s>
-  [--item <id>[:<answer_was>]]... [--quote <id>=<s>] [--value <id>=<json>] [<project dir>] [--json]
+  [--item <id>[:<answer_was>]]... [--ask <id>=<ask-id>] [--quote <id>=<s>] [--value <id>=<json>] [<project dir>] [--json]
 ```
 
 Records one verdict ([INTERVIEW.md § Recording a verdict](INTERVIEW.md#recording-a-verdict)).

@@ -814,37 +814,37 @@
         "config": { "path": "derived/v1/config.json", "sha256": "d198cadf6e02c011f11be5ba47f8253e7787424320a234018f10ada419a7b14a" },
         "sections": {
           "seethrough": [
-            { "entry": "*", "guide": "seethrough", "delegated": true }
+            { "entry": "*", "guide": "seethrough", "delegated": true, "asks": ["layers", "resolution", "head_crop", "seed"] }
           ],
           "assemble": [
-            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part." },
-            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted." },
-            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true }
+            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part.", "asks": ["emphasis"] },
+            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted.", "asks": ["emphasis"] },
+            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true, "asks": ["draw_order", "authored", "occluders", "outfits"] }
           ],
           "limbs": [
-            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints." }
+            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints.", "asks": ["cut"] }
           ],
           "bones": [
-            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf" },
-            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail" },
-            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail" }
+            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf", "asks": ["chains"] },
+            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail", "asks": ["chains"] },
+            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail", "asks": ["chains"] }
           ],
           "meshes": [
-            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath." }
+            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath.", "asks": ["bend"] }
           ],
           "regions": [
-            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid." },
-            { "entry": "every other part", "guide": "assemble", "delegated": true }
+            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid.", "asks": ["rigid"] },
+            { "entry": "every other part", "guide": "assemble", "delegated": true, "asks": ["draw_order"] }
           ],
           "constraints": [
-            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat" },
-            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea" },
-            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves." }
+            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat", "asks": ["effects", "strength"] },
+            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea", "asks": ["effects"] },
+            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves.", "asks": ["effects", "strength"] }
           ],
           "motion": [
-            { "entry": "breath", "guide": "motion", "quote": "Breath" },
-            { "entry": "blink", "guide": "motion", "quote": "blink" },
-            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." }
+            { "entry": "breath", "guide": "motion", "quote": "Breath", "asks": ["tracks"] },
+            { "entry": "blink", "guide": "motion", "quote": "blink", "asks": ["blink"] },
+            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers.", "asks": ["tracks"] }
           ]
         }
       },
@@ -922,42 +922,42 @@
         "config": { "path": "derived/v2/config.json", "sha256": "16d9ef7330ff8dd3642d2d7fecbe1979aae55e8ea5a35859cd4061b18989592a" },
         "sections": {
           "seethrough": [
-            { "entry": "*", "guide": "seethrough", "delegated": true }
+            { "entry": "*", "guide": "seethrough", "delegated": true, "asks": ["layers", "resolution", "head_crop", "seed"] }
           ],
           "assemble": [
-            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part." },
-            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted." },
-            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true }
+            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part.", "asks": ["emphasis"] },
+            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted.", "asks": ["emphasis"] },
+            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true, "asks": ["draw_order", "authored", "occluders", "outfits"] }
           ],
           "limbs": [
-            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints." }
+            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints.", "asks": ["cut"] }
           ],
           "bones": [
-            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf" },
-            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail" },
-            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail" },
-            { "entry": "lantern_hinge", "guide": "bones", "quote": "It should hang from her hand and swing on its own." }
+            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf", "asks": ["chains"] },
+            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail", "asks": ["chains"] },
+            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail", "asks": ["chains"] },
+            { "entry": "lantern_hinge", "guide": "bones", "quote": "It should hang from her hand and swing on its own.", "asks": ["chains"] }
           ],
           "meshes": [
-            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath." }
+            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath.", "asks": ["bend"] }
           ],
           "regions": [
-            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid." },
-            { "entry": "every other part", "guide": "assemble", "delegated": true }
+            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid.", "asks": ["rigid"] },
+            { "entry": "every other part", "guide": "assemble", "delegated": true, "asks": ["draw_order"] }
           ],
           "constraints": [
-            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat" },
-            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea" },
-            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves." },
-            { "entry": "lantern_hinge_physics", "guide": "bones", "quote": "swing on its own" }
+            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat", "asks": ["effects", "strength"] },
+            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea", "asks": ["effects"] },
+            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves.", "asks": ["effects", "strength"] },
+            { "entry": "lantern_hinge_physics", "guide": "bones", "quote": "swing on its own", "asks": ["chains"] }
           ],
           "stops": [
-            { "entry": "lantern_hinge", "guide": "bones", "quote": "hang from her hand" }
+            { "entry": "lantern_hinge", "guide": "bones", "quote": "hang from her hand", "asks": ["chains"] }
           ],
           "motion": [
-            { "entry": "breath", "guide": "motion", "quote": "Breath" },
-            { "entry": "blink", "guide": "motion", "quote": "blink" },
-            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers." }
+            { "entry": "breath", "guide": "motion", "quote": "Breath", "asks": ["tracks"] },
+            { "entry": "blink", "guide": "motion", "quote": "blink", "asks": ["blink"] },
+            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers.", "asks": ["tracks"] }
           ]
         }
       },

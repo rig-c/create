@@ -3,7 +3,7 @@ import { checkProject } from '../src/check.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { ASK_COVERAGE_SINCE } from '../src/ask-coverage.ts';
 import { WAYPOINT_ASKS } from '../src/waypoints.ts';
-import { arr, fixture, obj, waypoint, framing } from './fixtures.ts';
+import { arr, fixture, obj, waypoint, framing, citedSections } from './fixtures.ts';
 
 test('filled synthetic example covers every applicable ask without warnings', () => {
   const report = checkProject(fixture());
@@ -54,6 +54,7 @@ for (const at of ['2026-11-04T23:59:59Z', 'unreadable']) {
       const guide = obj(waypoint(p, 'motion').guide);
       guide.at = at;
       delete guide.asks;
+      for (const n of [1, 2]) for (const entry of arr(citedSections(p, n).motion)) delete obj(entry).asks;
     });
     const result = interviewCommand(['--check', dir, '--json']);
     expect(result.exit).toBe(0);
@@ -105,6 +106,9 @@ test('a missing finer-grained ask cannot hide behind its answered sibling', () =
   const r = checkProject(fixture((p) => {
     const guide = obj(waypoint(p, 'constraints').guide);
     guide.asks = arr(guide.asks).filter((entry) => obj(entry).id !== 'strength');
+    for (const n of [1, 2]) for (const entry of arr(citedSections(p, n).constraints)) {
+      obj(entry).asks = arr(obj(entry).asks).filter((id) => id !== 'strength');
+    }
   }));
   expect(r.refusals.map((f) => f.path)).toEqual(['interview.waypoints[constraints].guide.asks[strength]']);
 });

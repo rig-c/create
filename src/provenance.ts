@@ -30,7 +30,7 @@ import { relative, resolve, sep } from 'node:path';
 import { answered, asArray, asString, collectionQuestion, isDecision, isObject, itemFor, type Ctx, type Item } from './check.ts';
 import type { PartsSections } from './parts-sections.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { SECTION_PLACEMENT } from './waypoints.ts';
+import { SECTION_PLACEMENT, WAYPOINT_ASKS } from './waypoints.ts';
 
 /** How the version's section list was obtained. */
 export type ConfigRead =
@@ -147,6 +147,46 @@ function delegationOf(item: Item, ctx: Pick<Ctx, 'collection'>): 'ok' | 'not-del
   return undecided ? 'undecided' : 'not-delegated';
 }
 
+/** Answers that explicitly record this canonical ask. Keep each answer intact for evidence checks. */
+export function askAnswers(item: Item, ctx: Pick<Ctx, 'collection'>, id: string): JsonObject[] {
+  return answersOf(item, ctx).filter((answer) => asArray(answer.asks).some((entry) => isObject(entry) && entry.id === id));
+}
+
+function checkCitationAsks(ctx: Ctx, item: Item, raw: JsonObject, path: string): void {
+  const answers = answersOf(item, ctx);
+  if (!('asks' in raw)) {
+    if (answers.some((answer) => Array.isArray(answer.asks))) {
+      ctx.warnings.push({ code: 'CITATION_ASKS_MISSING', path, message: `${path}: guide '${item.id}' has per-ask coverage; add asks naming the recorded ask ids this citation rests on` });
+    }
+    return;
+  }
+  if (!Array.isArray(raw.asks) || raw.asks.length === 0 || raw.asks.some((id) => typeof id !== 'string' || id === '')
+    || new Set(raw.asks).size !== raw.asks.length) {
+    ctx.refusals.push({ code: 'CITATION_ASKS_MALFORMED', path, message: `${path}: guide '${item.id}' needs asks as a nonempty list of unique ask ids; name each recorded ask once` });
+    return;
+  }
+  for (const id of raw.asks as string[]) {
+    if (!WAYPOINT_ASKS[item.id]?.some((ask) => ask.id === id)) {
+      ctx.refusals.push({ code: 'CITATION_ASK_UNKNOWN', path, message: `${path}: guide '${item.id}' has no ask '${id}'; choose an id from its waypoint asks` });
+      continue;
+    }
+    const recorded = askAnswers(item, ctx, id);
+    if (recorded.length === 0) {
+      ctx.refusals.push({ code: 'CITATION_ASK_UNRECORDED', path, message: `${path}: guide '${item.id}' does not record ask '${id}'; record its user answer or delegation before citing it` });
+      continue;
+    }
+    const quote = asString(raw.quote);
+    const valid = recorded.some((answer) => asArray(answer.asks).some((entry) => {
+      if (!isObject(entry) || entry.id !== id) return false;
+      if (entry.state === 'delegated') return raw.delegated === true && isDecision(answer.agent_decision);
+      if (entry.state !== 'user' || raw.delegated === true || quote === null || quote === '') return false;
+      return [answer.verbatim, ...asArray(answer.additions).filter(isObject).map((add) => add.verbatim)]
+        .some((sentence) => typeof sentence === 'string' && sentence.includes(quote));
+    }));
+    if (!valid) ctx.refusals.push({ code: 'CITATION_ASK_STATE', path, message: `${path}: guide '${item.id}' ask '${id}' contradicts this citation; quote the user words for a user ask, or use delegated: true with a decided delegation on the same answer` });
+  }
+}
+
 function needsCitation(kind: 'rig' | 'post', section: string): boolean {
   if (kind === 'post') return true;
   return SECTION_PLACEMENT[section]?.kind !== 'none';
@@ -183,6 +223,7 @@ function checkEntry(ctx: Ctx, kind: 'rig' | 'post', path: string, raw: Json): vo
     ctx.refusals.push({ code: 'CITATION_WRONG_PHASE', path, message: `${named}: a post version cites rig waypoint '${guide}'; a post config section rests on a post item (or a framing answer) — rig feedback makes a new rig version` });
     return;
   }
+  checkCitationAsks(ctx, item, raw, path);
   if (quote !== null && quote !== '') {
     if (!sentences(item, ctx).some((s) => s.includes(quote))) {
       ctx.refusals.push({ code: 'QUOTE_NOT_FOUND', path, message: `${named}: quote ${JSON.stringify(quote)} is in no verbatim or additions[] of ${item.path} (current or history[]); a quote is an exact fragment of a stored sentence` });

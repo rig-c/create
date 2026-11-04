@@ -376,6 +376,23 @@ both kinds:
 | `provenance` | the config this version was built from and, per section, its citations |
 | `verdicts` | what people said: `by`, `at`, `review`, `verdict` (`accepted`, `bounced`, `provisional`), `verbatim`, `source`, `on_items[]` |
 
+A provenance citation may add `asks: ["<ask id>", …]`, naming the
+canonical asks its guide records in `answer.asks`. For example,
+`{ "entry": "torso", "guide": "meshes", "asks": ["bend"], "quote": "The coat is one piece" }`
+cites the user-answered bend ask. A delegated density citation uses
+`{ "entry": "density", "guide": "meshes", "asks": ["density"], "delegated": true }`
+and needs that answer's decided `agent_decision`. Each named ask's coverage
+and supporting quote or decision must come from the same answer, including
+answers preserved in history. A user ask requires a quote and cannot be
+claimed as delegated. Missing ids on a guide with per-ask coverage warn.
+
+A verdict item with `answer_was: "delegated"` may add `ask: "<ask id>"`.
+The ask must be recorded as delegated in a current or historical answer.
+`rig-create review … --item meshes:delegated --ask meshes=density` writes
+that field. `--ask` is optional, accepts one ask per named item, and is for
+delegated feedback. Missing it on a guide with per-ask coverage warns.
+Guides without per-ask coverage gain no finding when these fields are absent.
+
 `provisional` is a verdict given before the person has seen everything they
 want to see — it holds a place and is replaced, never a basis for moving a
 stage.

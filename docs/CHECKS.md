@@ -599,3 +599,27 @@ chain and its source is the immediately preceding version of the same kind.
 `APPLIED_REVIEW_LEGACY` is a warning for an omitted declaration dated before
 `APPLIED_REVIEW_SINCE = 2026-11-06T00:00:00Z`, or with no readable date.
 Pre-interview versions are exempt. Explicit null declarations remain legal.
+
+
+### Projection and ground
+
+New assemble guides cover `projection` and, only for visible, `ground` through
+the waypoint ask checks. Values are `guide.value.project` / `.ground` for
+user asks or `guide.agent_decision.value.project` / `.ground` for delegated
+asks. Projection accepts `core` or `visible`; ground accepts `plain` or `busy`.
+Missing or invalid values are `GUIDE_ASK_UNANSWERED` by name, even if coverage
+claims an answer. Record the answer or a decided delegation before approval.
+
+`ASSEMBLE_GROUND_UNANSWERED` refuses a readable config declaring
+`assemble.project: "visible"` when the guide has no valid ground answer. Ask
+plain or busy, record its ask and value, and write `assemble.ground` into the
+config. The check reads `config.json` if present and retained rig-version
+configs via their provenance paths and hashes. Core and absent projection add
+no ground question or refusal. Unread retained files remain under the existing
+provenance checks. Answer/config mismatch is outside this check.
+
+The resolved guide's own `at` controls `PROJECTION_ASKS_SINCE`,
+2026-11-06T00:00:00Z. Earlier or unreadable dates preserve the legacy contract
+with `GUIDE_ASKS_LEGACY` for missing applicable asks. Parts continues to emit
+`ASSEMBLE_GROUND_PLAIN` as a WARN for a declared/default plain ground with a
+border that is not mostly one colour. Create adds no border measurement.

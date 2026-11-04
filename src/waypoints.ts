@@ -120,6 +120,8 @@ export const WAYPOINT_ASKS: Readonly<Record<string, readonly WaypointAsk[]>> = {
     { id: 'seed', text: 'What seed should be used?' },
   ],
   assemble: [
+    { id: 'projection', text: 'Core keeps the part mask as the boundary. Visible follows the painting rim and can take backdrop pixels. Which projection should assemble use?' },
+    { id: 'ground', text: 'Plain preserves the existing rim projection. Busy limits backdrop pickup around thin parts. Is the ground plain or busy?' },
     { id: 'cut', text: 'Which parts are cut, and how finely?' },
     { id: 'emphasis', text: 'Which parts need detail or must stay exactly as painted?' },
     { id: 'draw_order', text: 'What is the parts draw order?' },

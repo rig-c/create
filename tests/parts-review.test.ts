@@ -207,7 +207,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     expect(warned).toHaveLength(1);
     expect(warned[0]?.message).toContain("project 'lantern-keeper'");
     expect(warned[0]?.message).toContain(PARTS_REVIEW_SINCE);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'REVIEW_PACKAGE_MISSING', 'REVIEW_PACKAGE_MISSING', 'STAGE_VALUES_STALE']);
   });
 
   test('one that a person did review is not warned about', () => {
@@ -218,7 +218,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'REVIEW_PACKAGE_MISSING', 'REVIEW_PACKAGE_MISSING']);
   });
 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {

@@ -17,7 +17,7 @@ describe('prepared inputs recorded after external work', () => {
   test('the filled example verifies both shipped files and its agent bounce', () => {
     const r = checkProject(fixture());
     expect(r.refusals).toEqual([]);
-    expect(r.warnings).toEqual([]);
+    expect(r.warnings.map((w) => w.code)).toEqual(['REVIEW_PACKAGE_MISSING', 'REVIEW_PACKAGE_MISSING']);
   });
 
   test('derived add appends source, result, operation and both measured hashes through the CLI', () => {

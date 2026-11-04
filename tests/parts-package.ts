@@ -12,9 +12,13 @@ import { dirname, join, posix } from 'node:path';
 
 import { sourceSha256 } from '../src/parts-verdict.ts';
 
-/** Where the filled example keeps its assembled parts and their verdict (templates/example-project.json). */
+/**
+ * Where the filled example keeps its assembled parts (derived/, not in git) and
+ * their verdict (written with `--verdict` to a tracked path, so the sign-off's
+ * evidence survives a clone) — templates/example-project.json.
+ */
 export const EXAMPLE_PARTS_DIR = 'derived/parts/rig';
-export const EXAMPLE_VERDICT = `${EXAMPLE_PARTS_DIR}/parts-review.json`;
+export const EXAMPLE_VERDICT = 'evidence/parts-review.json';
 
 export const PART_NAMES = ['background', 'torso', 'lantern'] as const;
 
@@ -75,7 +79,7 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
 }
 
 /** Writes a package's files under a project folder (default: the filled example's approved package). */
-export function writePartsPackage(dir: string, pkg: PartsPackage = partsPackage()): void {
+export function writePartsPackage(dir: string, pkg: PartsPackage = partsPackage({ verdict: EXAMPLE_VERDICT })): void {
   for (const [path, content] of Object.entries(pkg.files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), content);

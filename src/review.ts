@@ -156,7 +156,7 @@ function latestRig(versions: Versions): RigVersion | null {
   return versions.rigs.reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
 }
 /** The accepted rig version with the highest number. */
-function latestAccepted(versions: Versions): RigVersion | null {
+export function latestAccepted(versions: Versions): RigVersion | null {
   return versions.rigs.filter((r) => r.accepted !== null).reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
 }
 

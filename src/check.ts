@@ -25,7 +25,7 @@ import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkPartsVerdict } from './parts-verdict.ts';
-import { checkReviews } from './review.ts';
+import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import {
   PARTS_REVIEW,
   PARTS_REVIEW_SINCE,
@@ -612,8 +612,9 @@ const PARTS_REVIEW_REMEDY =
  * `plan-approved` before the two stages existed is reported, not refused.
  *
  * Once rigging has started (the stage is past `parts-review`, or a rigging
- * step is past `pending`), the latest `parts-review` sign-off is read for the
- * verdict it rests on (rig-c/create#51, src/parts-verdict.ts). An in-flight
+ * step is past `pending`) and until a rig version is accepted at rig-review
+ * (while the stage is at most `rigging`, or no rig version is accepted yet),
+ * the latest `parts-review` sign-off is read for the verdict it rests on (rig-c/create#51, src/parts-verdict.ts). An in-flight
  * project keeps the warning above and is not asked for one.
  */
 function checkPartsStages(ctx: Ctx): void {
@@ -643,8 +644,11 @@ function checkPartsStages(ctx: Ctx): void {
   }
   const riggingStarted =
     cur > reviewIdx || ctx.steps.some((s) => stageOfStep(s.phase, s.id) === 'rigging' && (asString(s.record.status) ?? 'pending') !== 'pending');
+  // The parts gate rigging until a rig version is accepted at rig-review; after that a part change is a new rig
+  // version, which RIG_VERSION_UNACCEPTED refuses (src/review.ts), and derived/ need not survive a clone.
+  const gating = cur <= stageIndex('rigging') || latestAccepted(readVersions(ctx.project)) === null;
   const latest = latestSignoff(ctx, PARTS_REVIEW);
-  if (riggingStarted && latest !== undefined) checkPartsVerdict(ctx.dir, latest.record, `signoffs[${latest.index}]`, ctx.refusals);
+  if (riggingStarted && gating && latest !== undefined) checkPartsVerdict(ctx.dir, latest.record, `signoffs[${latest.index}]`, ctx.refusals);
 }
 
 /** The latest stage-level sign-off of `stage`: by `at`, then by place in `signoffs[]`; an undated one counts as earliest. */

@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { checkProject, type CheckReport } from '../src/check.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
-import type { Json, JsonObject } from '../src/templates.ts';
+import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step, type Mutate } from './fixtures.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, partImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
 
@@ -195,9 +195,42 @@ describe('refused, each by name', () => {
     expect(verdictCodes(checkProject(dir)).sort()).toEqual(['PARTS_VERDICT_NOT_APPROVED', 'PARTS_VERDICT_SOURCE_CHANGED']);
   });
 
-  test('at a later stage the verdict still holds: a part changed after rig-review is refused', () => {
-    const dir = fixture(() => {}, 'example-project.json', { [`${EXAMPLE_PARTS_DIR}/parts/background.png`]: 'changed\n' });
+});
+
+describe('the reach: the parts gate rigging until a rig version is accepted at rig-review', () => {
+  /** A fresh clone: derived/ is ignored by git, so the verdict and the parts are not there. */
+  const freshClone = (dir: string): string => {
+    rmSync(join(dir, 'derived'), { recursive: true, force: true });
+    return dir;
+  };
+
+  test('an accepted project with the verdict and the parts missing is not refused', () => {
+    expect(checkProject(freshClone(fixture())).refusals).toEqual([]);
+  });
+
+  test('the filled example at stage rigging on a fresh clone: the verdict is tracked, the parts must be on disk', () => {
+    const dir = freshClone(fixture((p) => { atRiggingStart(p); }));
+    expect(new Set(verdictCodes(checkProject(dir)))).toEqual(new Set(['PARTS_VERDICT_SOURCE_CHANGED']));
+  });
+
+  test('the same project at stage rigging is refused', () => {
+    expect(verdictCodes(checkProject(freshClone(project())))).toEqual(['PARTS_VERDICT_UNREAD']);
+  });
+
+  test('a part repainted during rigging is still refused', () => {
+    const dir = project({}, (p) => { step(p, 'bones').status = 'done'; }, { [`${EXAMPLE_PARTS_DIR}/parts/background.png`]: 'changed\n' });
     expect(verdictCodes(checkProject(dir))).toEqual(['PARTS_VERDICT_SOURCE_CHANGED']);
+  });
+
+  test('past rigging with no rig version accepted yet, the verdict is still read', () => {
+    const dir = project({}, (p) => { p.stage = 'rig-review'; });
+    rmSync(join(dir, EXAMPLE_PARTS_DIR, 'parts', 'torso.png'));
+    expect(verdictCodes(checkProject(dir))).toEqual(['PARTS_VERDICT_SOURCE_CHANGED']);
+  });
+
+  test('after rig-review acceptance a repainted part is not re-read here', () => {
+    const dir = fixture(() => {}, 'example-project.json', { [`${EXAMPLE_PARTS_DIR}/parts/background.png`]: 'changed\n' });
+    expect(verdictCodes(checkProject(dir))).toEqual([]);
   });
 });
 
@@ -245,9 +278,10 @@ describe('an in-flight project that a person did review', () => {
 
 describe('the filled example', () => {
   test("its parts-review sign-off names the verdict the fixture writes, by path and sha256", () => {
-    const pkg = partsPackage();
+    const pkg = partsPackage({ verdict: EXAMPLE_VERDICT });
     const dir = fixture();
-    expect(pkg.verdictPath).toBe(EXAMPLE_VERDICT);
+    const example = arr(readTemplate('example-project.json').signoffs).map(obj).find((s) => s.stage === 'parts-review');
+    expect(example?.evidence).toEqual(evidenceFor(pkg));
     expect(checkProject(dir).refusals).toEqual([]);
   });
 });

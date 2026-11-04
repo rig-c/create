@@ -117,15 +117,21 @@ assembled parts before `rigging` starts.
   "parts-verdict", "path": "<the file>", "sha256": "<its sha256>" }`, where
   `path` is relative to the project and names the file rig-review's parts view
   wrote (`rig-review parts`; by default `parts-review.json` beside
-  `parts.json`, or wherever `--verdict` put it). The check reads exactly that
-  file, never a default location. Rigging is refused, each case by name
+  `parts.json`, or wherever `--verdict` put it). Write it to a tracked path,
+  `--verdict evidence/parts-review.json`, so the sign-off's evidence survives a
+  clone: `derived/`, where the parts are assembled, is not in git. The check
+  reads exactly that file, never a default location. Rigging is refused, each case by name
   ([CHECKS.md § Refusals](CHECKS.md#refusals)), unless the verdict is the
   `rig-review-parts-verdict/1` schema in `parts` mode (an `atlas` verdict is
   informational and never gates), its `status` is `approved`, and every file
   in its `source.files[]` is on disk with the bytes and sha256 it was reviewed
   with. A part added, removed or repainted after the sign-off is a new review:
   the user reviews again and signs again, with the new verdict as evidence.
-  The latest `parts-review` sign-off is the one read.
+  The latest `parts-review` sign-off is the one read. **The parts themselves
+  must be on disk to rig**: on a fresh clone, re-assemble them before rigging
+  continues. The verdict gates rigging only until a rig version is accepted at
+  `rig-review`: from then on it is not read, and a part changed after that is a
+  new rig version, refused as `RIG_VERSION_UNACCEPTED` until it is reviewed.
 - **A project that passed `plan-approved` before these two stages existed**
   (its first `plan-approved` sign-off is dated before 2026-11-04, the
   `PARTS_REVIEW_SINCE` in `src/stages.ts`) is not given a sign-off nobody made.

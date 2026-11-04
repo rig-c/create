@@ -12,7 +12,7 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
 /** Puts a config file for version `n` under the project and records its path and hash, so the check reads its sections. */
 function withConfig(n: number, config: JsonObject, mutate: (p: JsonObject) => void = () => {}): string {
-  const text = `${JSON.stringify(config, null, 2)}\n`;
+  const text = `${JSON.stringify({ ...config, requirements: 'requirements.json' }, null, 2)}\n`;
   const path = `derived/v${n}/config.json`;
   return fixture(
     (p) => {
@@ -20,7 +20,12 @@ function withConfig(n: number, config: JsonObject, mutate: (p: JsonObject) => vo
       mutate(p);
     },
     'example-project.json',
-    { [path]: text },
+    {
+      [path]: text,
+      [`derived/v${n}/requirements.json`]: JSON.stringify({
+        spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true },
+      }),
+    },
   );
 }
 

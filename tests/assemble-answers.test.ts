@@ -76,12 +76,17 @@ for (const at of ['2026-11-05T23:59:59Z', 'unreadable']) {
 }
 
 test('retained version config is checked for a non-CG project too', () => {
-  const bytes = JSON.stringify({ assemble: { project: 'visible' } });
+  const bytes = JSON.stringify({ assemble: { project: 'visible' }, requirements: 'requirements.json' });
   const dir = fixture((p) => {
     const guide = obj(waypoint(p, 'assemble').guide);
     guide.at = PROJECTION_ASKS_SINCE;
     obj(version(p, 1).provenance).config = { path: 'evidence/visible.json', sha256: createHash('sha256').update(bytes).digest('hex') };
-  }, 'example-project.json', { 'evidence/visible.json': bytes });
+  }, 'example-project.json', {
+    'evidence/visible.json': bytes,
+    'evidence/requirements.json': JSON.stringify({
+      spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true },
+    }),
+  });
   expect(checkProject(dir).refusals.some((f) => f.code === 'ASSEMBLE_GROUND_UNANSWERED' && f.path.startsWith('versions[v1]'))).toBe(true);
 });
 

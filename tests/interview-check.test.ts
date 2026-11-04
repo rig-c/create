@@ -78,6 +78,7 @@ const UNDECIDED_GUIDE: JsonObject = {
 };
 
 const DELEGATED_GUIDE: JsonObject = {
+  asks: [{ id: 'chains', state: 'delegated' }, { id: 'placement', state: 'delegated' }, { id: 'length', state: 'delegated' }],
   delegated: true,
   by: 'user',
   at: '2026-11-10T14:09:00Z',
@@ -383,9 +384,16 @@ describe('collection members', () => {
     return dir;
   }
 
-  test('an inherited answer resolves against the collection and passes', () => {
-    const report = checkProject(member({ delegated: false, by: 'user', at: '2026-11-10T14:00:00Z', verbatim: 'Breath and blink.', value: [{ motion: 'breath' }, { motion: 'blink' }], source: 'interview, chat' }));
+  test('a legacy inherited answer resolves against the collection and passes', () => {
+    const report = checkProject(member({ delegated: false, by: 'user', at: '2026-11-04T14:00:00Z', verbatim: 'Breath and blink.', value: [{ motion: 'breath' }, { motion: 'blink' }], source: 'interview, chat' }));
     expect(codes(report)).toEqual([]);
+  });
+
+  test('current inherited coverage is checked on the resolved collection guide', () => {
+    const guide = obj(waypoint(readTemplate('example-project.json'), 'motion').guide);
+    expect(withCode(checkProject(member(guide)), 'GUIDE_ASK_UNANSWERED')).toEqual([]);
+    guide.asks = arr(guide.asks).filter((entry) => obj(entry).id !== 'speed');
+    expect(withCode(checkProject(member(guide)), 'GUIDE_ASK_UNANSWERED').map((f) => f.path)).toEqual(['interview.waypoints[motion].guide.asks[speed]']);
   });
 
   test('an inherited answer pointing at a null collection answer is silence', () => {
@@ -549,11 +557,11 @@ describe('partial guide delegation', () => {
     expect(withCode(report, 'DELEGATION_UNDECIDED')).toEqual([]);
   });
 
-  test('a user sentence alone has no machine-readable remainder', () => {
+  test('per-ask delegation names the remainder even with no agent_decision', () => {
     const report = checkProject(fixture((p) => {
       delete obj(waypoint(p, 'assemble').guide).agent_decision;
     }));
-    expect(withCode(report, 'GUIDE_PARTIAL_UNMARKED')).toEqual([]);
+    expect(withCode(report, 'GUIDE_PARTIAL_UNMARKED').map((f) => f.path)).toEqual(['interview.waypoints[assemble].guide']);
   });
 });
 

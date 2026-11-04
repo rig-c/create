@@ -571,3 +571,22 @@ Review keeps the project config intact. An automated apply-to-next-version
 check needs a recorded feedback file path and sha256 plus the originating
 version and applied-result reference. The current create record has no such
 feedback binding, so that check awaits a defined record contract.
+
+## Per-ask guide coverage
+
+Rig waypoint guides carry `asks: [{ "id": "tracks", "state": "user" },
+{ "id": "extent", "state": "delegated" }, …]`, naming each applicable ask
+in `src/waypoints.ts`. A user entry points to the guide's existing `verbatim`
+and `value`; it is a recorded interpretation, not automatic proof that prose
+answers a question. A delegated entry records an explicit hand-off in those
+words and uses the guide's `agent_decision`. Its free-text `covers` still names
+the delegated remainder; its `value` and `reasoning` are written before approval.
+Whole-guide delegations list every ask as delegated. Not-applicable waypoints
+need no coverage. `states` and `transitions` apply only to `fullscreen.game_logic`; `tracks`
+and `blink` apply to other rig types. Post items are outside this contract.
+
+The independent `ASK_COVERAGE_SINCE = 2026-11-05T00:00:00Z` boundary reads the
+resolved guide's own `at`, including inherited guides. An older or undated guide
+with no `asks` is warned about, preserving its exit code. An explicitly recorded
+list is checked regardless of age. Missing, unknown, duplicate or invalid entries
+must be fixed; free-text `agent_decision.covers` alone is not per-ask coverage.

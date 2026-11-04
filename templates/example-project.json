@@ -85,11 +85,38 @@
           "verbatim": "auto",
           "source": "interview, chat",
           "agent_decision": {
-            "value": { "passes": ["full", "head"], "head_box": "her face and the hair tail's root, from the painting" },
+            "value": {
+              "passes": [
+                "full",
+                "head"
+              ],
+              "head_box": "her face and the hair tail's root, from the painting",
+              "resolution": "full painting resolution for the full pass; crop resolution for the head pass",
+              "seed": 0,
+              "grouping": "keep painted groups except the independently moving parts named by the guides"
+            },
             "by": "agent",
             "at": "2026-11-10T15:10:00Z",
             "reasoning": "Blink needs the eyelids as their own layers; at full-figure resolution the face is too small for the split to find them. The lantern is far enough from the body that the full pass separates it on its own."
-          }
+          },
+          "asks": [
+            {
+              "id": "layers",
+              "state": "delegated"
+            },
+            {
+              "id": "resolution",
+              "state": "delegated"
+            },
+            {
+              "id": "head_crop",
+              "state": "delegated"
+            },
+            {
+              "id": "seed",
+              "state": "delegated"
+            }
+          ]
         },
         "history": [
           {
@@ -128,22 +155,75 @@
           "value": {
             "split_granularity": "standard",
             "split_emphasis": [
-              { "part": "face", "want": "untouched" },
-              { "part": "lantern", "want": "own part" }
+              {
+                "part": "face",
+                "want": "untouched"
+              },
+              {
+                "part": "lantern",
+                "want": "own part"
+              }
             ]
           },
           "source": "interview, chat",
           "agent_decision": {
-            "covers": "the part list beyond what the sentence names, and the draw order",
-            "value": [
-              "background", "lighthouse", "coat_tail_l", "coat_tail_r", "legs", "torso",
-              "upperarm_l", "forearm_l", "hand_l", "scarf", "head", "hair_tail", "hair_front",
-              "eyelids_l", "eyelids_r", "upperarm_r", "forearm_r", "hand_r", "lantern"
-            ],
+            "covers": "the remaining part list, draw order, new authored parts, occluded content and outfit sets",
+            "value": {
+              "parts_in_draw_order": [
+                "background",
+                "lighthouse",
+                "coat_tail_l",
+                "coat_tail_r",
+                "legs",
+                "torso",
+                "upperarm_l",
+                "forearm_l",
+                "hand_l",
+                "scarf",
+                "head",
+                "hair_tail",
+                "hair_front",
+                "eyelids_l",
+                "eyelids_r",
+                "upperarm_r",
+                "forearm_r",
+                "hand_r",
+                "lantern"
+              ],
+              "authored_new": "none beyond the separated painted parts",
+              "under_occluders": "retain underlying painted surfaces for the stated motion",
+              "outfit_sets": []
+            },
             "by": "agent",
             "at": "2026-11-10T15:25:00Z",
             "reasoning": "Standard cut: limbs at shoulder, elbow and wrist; the coat tails and scarf as their own parts because the constraints guide puts wind on them; the hair tail its own part for the same reason. Nothing is cut below the knee because nothing there moves."
-          }
+          },
+          "asks": [
+            {
+              "id": "cut",
+              "state": "user"
+            },
+            {
+              "id": "emphasis",
+              "state": "user"
+            },
+            {
+              "id": "draw_order",
+              "state": "delegated"
+            },
+            {
+              "id": "authored",
+              "state": "delegated"
+            },
+            {
+              "id": "occluders",
+              "state": "delegated"
+            },
+            {
+              "id": "outfits",
+              "state": "delegated"
+            }
+          ]
         },
         "history": []
       },
@@ -162,12 +242,20 @@
           "delegated": false,
           "by": "user",
           "at": "2026-11-10T14:09:00Z",
-          "verbatim": "A chain down the scarf, one in each coat tail, one in her hair tail.",
+          "verbatim": "A chain down the scarf, one in each coat tail, one in her hair tail. Bone placement and chain lengths are yours.",
           "value": [
-            { "chain": "scarf" },
-            { "chain": "coat_tail_l" },
-            { "chain": "coat_tail_r" },
-            { "chain": "hair_tail" }
+            {
+              "chain": "scarf"
+            },
+            {
+              "chain": "coat_tail_l"
+            },
+            {
+              "chain": "coat_tail_r"
+            },
+            {
+              "chain": "hair_tail"
+            }
           ],
           "source": "interview, chat",
           "additions": [
@@ -175,10 +263,39 @@
               "by": "user",
               "at": "2026-11-12T09:30:00Z",
               "verbatim": "It should hang from her hand and swing on its own.",
-              "value": [{ "hinge": "lantern", "from": "hand_r" }],
+              "value": [
+                {
+                  "hinge": "lantern",
+                  "from": "hand_r"
+                }
+              ],
               "source": "polish feedback, v1"
             }
-          ]
+          ],
+          "asks": [
+          {
+            "id": "chains",
+            "state": "user"
+          },
+          {
+            "id": "placement",
+            "state": "delegated"
+          },
+          {
+            "id": "length",
+            "state": "delegated"
+          }
+        ],
+          "agent_decision": {
+            "covers": "bone placement and chain lengths",
+            "value": {
+              "placement": "along the named parts in the painting",
+              "length": "span each named part"
+            },
+            "by": "agent",
+            "at": "2026-11-10T15:30:00Z",
+            "reasoning": "Fit each chain to its named part; preserve the rigid rest."
+          }
         },
         "history": []
       },
@@ -197,12 +314,40 @@
           "delegated": false,
           "by": "user",
           "at": "2026-11-10T14:11:00Z",
-          "verbatim": "The coat is one piece that bends with her breath. Face and lantern stay rigid.",
+          "verbatim": "The coat is one piece that bends with her breath. Face and lantern stay rigid. The mesh density is yours.",
           "value": {
-            "meshes": ["torso"],
-            "rigid": ["head", "lantern"]
+            "meshes": [
+              "torso"
+            ],
+            "rigid": [
+              "head",
+              "lantern"
+            ]
           },
-          "source": "interview, chat"
+          "source": "interview, chat",
+          "asks": [
+          {
+            "id": "bend",
+            "state": "user"
+          },
+          {
+            "id": "rigid",
+            "state": "user"
+          },
+          {
+            "id": "density",
+            "state": "delegated"
+          }
+        ],
+          "agent_decision": {
+            "covers": "mesh density",
+            "value": {
+              "density": "standard"
+            },
+            "by": "agent",
+            "at": "2026-11-10T15:30:00Z",
+            "reasoning": "Use standard density for the bending coat; keep rigid parts rigid."
+          }
         },
         "history": []
       },
@@ -221,15 +366,67 @@
           "delegated": false,
           "by": "user",
           "at": "2026-11-10T14:14:00Z",
-          "verbatim": "The scarf and the coat tails move in the wind off the sea, the scarf a little more than the coat. Her hair tail barely moves. Nothing else on physics.",
+          "verbatim": "The scarf and the coat tails move in the wind off the sea, the scarf a little more than the coat. Her hair tail barely moves. Nothing else on physics. Gravity and stops are yours.",
           "value": [
-            { "part": "scarf", "effect": "wind", "extent": "a little more than the coat tails" },
-            { "part": "coat_tail_l", "effect": "wind", "extent": "as said" },
-            { "part": "coat_tail_r", "effect": "wind", "extent": "as said" },
-            { "part": "hair_tail", "effect": "wind", "extent": "barely" },
-            { "part": "*", "effect": "still", "extent": "every other part" }
+            {
+              "part": "scarf",
+              "effect": "wind",
+              "extent": "a little more than the coat tails"
+            },
+            {
+              "part": "coat_tail_l",
+              "effect": "wind",
+              "extent": "as said"
+            },
+            {
+              "part": "coat_tail_r",
+              "effect": "wind",
+              "extent": "as said"
+            },
+            {
+              "part": "hair_tail",
+              "effect": "wind",
+              "extent": "barely"
+            },
+            {
+              "part": "*",
+              "effect": "still",
+              "extent": "every other part"
+            }
           ],
-          "source": "interview, chat"
+          "source": "interview, chat",
+          "asks": [
+          {
+            "id": "effects",
+            "state": "user"
+          },
+          {
+            "id": "strength",
+            "state": "user"
+          },
+          {
+            "id": "extent",
+            "state": "user"
+          },
+          {
+            "id": "gravity",
+            "state": "delegated"
+          },
+          {
+            "id": "stops",
+            "state": "delegated"
+          }
+        ],
+          "agent_decision": {
+            "covers": "gravity and chain stops",
+            "value": {
+              "gravity": "downward",
+              "stops": "bound each chain to its stated extent"
+            },
+            "by": "agent",
+            "at": "2026-11-10T15:30:00Z",
+            "reasoning": "Keep each chain within the extent already stated."
+          }
         },
         "history": []
       },
@@ -259,13 +456,53 @@
           "delegated": false,
           "by": "user",
           "at": "2026-11-10T14:17:00Z",
-          "verbatim": "Breath and blink. The lantern flame flickers.",
+          "verbatim": "Breath and blink. The lantern flame flickers. The rest is yours; keep it subtle.",
           "value": [
-            { "motion": "breath" },
-            { "motion": "blink" },
-            { "motion": "flame_flicker", "note": "on the lantern part" }
+            {
+              "motion": "breath"
+            },
+            {
+              "motion": "blink"
+            },
+            {
+              "motion": "flame_flicker",
+              "note": "on the lantern part"
+            }
           ],
-          "source": "interview, chat"
+          "source": "interview, chat",
+          "asks": [
+          {
+            "id": "tracks",
+            "state": "user"
+          },
+          {
+            "id": "extent",
+            "state": "delegated"
+          },
+          {
+            "id": "speed",
+            "state": "delegated"
+          },
+          {
+            "id": "loop",
+            "state": "delegated"
+          },
+          {
+            "id": "blink",
+            "state": "user"
+          }
+        ],
+          "agent_decision": {
+            "covers": "motion extent, speed and loop length",
+            "value": {
+              "extent": "subtle breath and flame variation",
+              "speed": "slow breath, brief blink, irregular flicker",
+              "loop_seconds": 8
+            },
+            "by": "agent",
+            "at": "2026-11-10T15:30:00Z",
+            "reasoning": "Use a subtle eight-second loop for the named tracks; the post clip can use one full cycle."
+          }
         },
         "history": []
       }

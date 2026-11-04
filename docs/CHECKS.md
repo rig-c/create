@@ -558,3 +558,20 @@ The existing `PROJECT_JSON_MISSING`, `PROJECT_JSON_INVALID`, `SCHEMA_UNKNOWN`
 and `UNKNOWN_OPTION` refusals also apply. A rejected copy leaves the prior
 project record and package intact. A successful command exits 0 and prints
 its open command, or the `review_package` object with `--json`.
+
+## Waypoint asks
+
+Each applicable rig waypoint ask in `src/waypoints.ts` needs a guide `asks`
+entry. This checks the recorded coverage, not the semantics of a user's prose.
+Post items and not-applicable waypoints are excluded.
+
+| Refusal | Fires when | Clear it by |
+| --- | --- | --- |
+| `GUIDE_ASK_UNANSWERED` | an applicable ask has no valid user/delegated entry; the message names its waypoint, id and question | ask it, or explicitly record its delegation |
+| `GUIDE_ASKS_MALFORMED` | coverage is not a list, or has unknown/repeated ids, invalid states, or user coverage on a whole delegation | use one `{ id, state: "user" or "delegated" }` per applicable ask |
+| `GUIDE_PARTIAL_UNMARKED` | a user guide delegates asks without free-text `agent_decision.covers` | name the delegated remainder |
+| `DELEGATION_UNDECIDED` | delegated asks have no decision when the plan is approved | write the agent choice and reasoning |
+
+| Warning | Fires when | Clear it by |
+| --- | --- | --- |
+| `GUIDE_ASKS_LEGACY` | no per-ask record and the resolved guide's own `at` predates `ASK_COVERAGE_SINCE` (2026-11-05T00:00:00Z), or is unreadable | preserve the old answer; record coverage when it is next asked |

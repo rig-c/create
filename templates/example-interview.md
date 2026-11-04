@@ -193,3 +193,21 @@ externally; `derived add` only records it. The `seethrough` guide's `history[]`
 also contains an agent-found bounce: the first split failed the eyelid bar and
 was replaced by the full pass plus a head pass. It is separate from the two
 human review bounces above and grants no new sign-off.
+
+### Per-ask coverage in this synthetic record
+
+The filled JSON also records each applicable rig ask as user-answered or
+delegated. Its existing whole `seethrough` delegation covers layer choices.
+The `assemble` sentence delegates the remaining assembly choices. To expose
+rather than hide the other missing asks, the synthetic conversation adds:
+
+- Bones: "Bone placement and chain lengths are yours."
+- Meshes: "The mesh density is yours."
+- Constraints: "Gravity and stops are yours."
+- Motion: "The rest is yours; keep it subtle."
+
+The last line delegates extent, speed and rig loop length. The adjacent agent
+decision chooses a subtle eight-second loop with slow breath, brief blink and
+irregular flicker. These choices are recorded before the original plan approval;
+its step fields and recorded hashes remain unchanged. These additions illustrate
+a new synthetic interview, not a retroactive delegation of a real user's words.

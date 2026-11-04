@@ -138,6 +138,65 @@ describe('plan-approved → parts → parts-review → rigging', () => {
   });
 });
 
+describe('paused, with the parts stage in it', () => {
+  const pause = (p: JsonObject): void => {
+    p.stage = 'paused';
+    arr(p.signoffs).push({ stage: 'paused', checkpoint: null, by: 'user', at: '2026-11-11T09:00:00Z', verbatim: 'hold' });
+  };
+
+  test('paused during parts with its steps unfinished: no refusal, and it resumes at parts', () => {
+    const report = checkProject(
+      fixture((p) => {
+        atRiggingStart(p);
+        dropSignoffs(p, (s) => s.stage === 'interview' || s.stage === 'plan-approved');
+        step(p, 'seethrough').status = 'done';
+        step(p, 'assemble').status = 'running';
+        pause(p);
+      }),
+    );
+    expect(report.effective_stage).toBe('parts');
+    expect(codes(report)).toEqual([]);
+  });
+
+  test('paused with the parts done and parts-review unsigned resumes at parts-review, unrefused', () => {
+    const report = checkProject(
+      fixture((p) => {
+        atRiggingStart(p);
+        dropSignoffs(p, (s) => s.stage !== 'parts-review');
+        pause(p);
+      }),
+    );
+    expect(report.effective_stage).toBe('parts-review');
+    expect(codes(report)).toEqual([]);
+  });
+
+  test('paused during rigging resumes at rig-review, as before the parts stages: rigging steps left unfinished are not a resume point', () => {
+    const report = checkProject(
+      fixture((p) => {
+        atRiggingStart(p);
+        // meshes and motion: steps whose guides did not change after the first plan sign-off (the example re-signs bones and constraints).
+        step(p, 'meshes').status = 'done';
+        step(p, 'motion').status = 'running';
+        pause(p);
+      }),
+    );
+    expect(report.effective_stage).toBe('rig-review');
+    expect(codes(report)).toEqual([]);
+  });
+
+  test('not paused, past parts with a parts step unfinished: still refused', () => {
+    const report = checkProject(
+      fixture((p) => {
+        atRiggingStart(p);
+        p.stage = 'parts-review';
+        dropSignoffs(p, (s) => s.stage !== 'parts-review');
+        step(p, 'assemble').status = 'running';
+      }),
+    );
+    expect(withCode(report, 'PARTS_BAR_UNMET').map((f) => f.path)).toEqual(['plan.steps[assemble]']);
+  });
+});
+
 describe('a project that passed plan-approved before the stages existed', () => {
   test('is warned about by name, never refused, and given no sign-off', () => {
     const dir = fixture(inFlight);

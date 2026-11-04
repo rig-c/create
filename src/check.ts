@@ -338,11 +338,22 @@ function postNotPassed(ctx: Ctx): boolean {
   return post.length > 0 && post.every((i) => i.state.state === 'not_applicable');
 }
 
-/** The first stage closed by a sign-off that has none: where a paused project resumes, and what its checks are applied as. */
-function firstUnsignedStage(signoffs: Signoff[], predatesPartsReview: boolean): string {
+/**
+ * Where a paused project resumes, and what its checks are applied as: the
+ * first stage closed by a sign-off that has none, or, before it, a `bar` stage
+ * that names its steps (`parts`) while one of them in the plan is not `done`.
+ * A `bar` stage that runs the rest of its phase (`rigging`, `post`) is not a
+ * resume point, as before: its bar is not enforced by the check.
+ */
+function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean): string {
   for (const s of STAGES) {
-    // A project that predates parts-review resumes where it would have before the stage existed.
-    if (predatesPartsReview && s.id === PARTS_REVIEW) continue;
+    // A project that predates parts-review resumes where it would have before the two stages existed.
+    if (predatesPartsReview && (s.id === PARTS_REVIEW || s.id === 'parts')) continue;
+    if (s.closed_by === 'bar' && s.steps !== undefined) {
+      const own = s.steps;
+      if (steps.some((x) => own.includes(x.id) && (asString(x.record.status) ?? 'pending') !== 'done')) return s.id;
+      continue;
+    }
     if (s.closed_by === 'signoff' && !signoffs.some((x) => x.stage === s.id && x.checkpoint === null)) return s.id;
   }
   return STAGES[STAGES.length - 1]?.id ?? 'accepted';
@@ -675,7 +686,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   const steps = collectSteps(project, refusals);
   const items = collectItems(project, { collection });
   const planApprovedAt = planApprovedBeforePartsReview(signoffs);
-  const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, planApprovedAt !== null) : stage;
+  const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, steps, planApprovedAt !== null) : stage;
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;
   const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection, predatesPartsReview };

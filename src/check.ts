@@ -24,6 +24,7 @@ import { checkCgGates } from './cg-gates.ts';
 import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
+import { checkPartsVerdict } from './parts-verdict.ts';
 import { checkReviews } from './review.ts';
 import {
   PARTS_REVIEW,
@@ -91,6 +92,8 @@ interface Signoff {
   readonly at: number;
   /** For a plan re-sign: the steps re-approved; `null` means every step. */
   readonly steps: string[] | null;
+  /** The record as written, for the fields one stage reads (`parts-review`'s `evidence`). */
+  readonly record: JsonObject;
 }
 
 interface Step {
@@ -310,7 +313,7 @@ export function collectSignoffs(project: JsonObject, refusals: Finding[]): Signo
     }
     const checkpoint = asString(s.checkpoint);
     const steps = Array.isArray(s.steps) ? s.steps.filter((x): x is string => typeof x === 'string') : null;
-    out.push({ index, stage: stage as string, checkpoint, at: time(s.at), steps });
+    out.push({ index, stage: stage as string, checkpoint, at: time(s.at), steps, record: s });
   });
   return out;
 }
@@ -607,6 +610,11 @@ const PARTS_REVIEW_REMEDY =
  * past `parts`, every step it runs is `done` (its bar met); no step of
  * `rigging` has run before `parts-review` is signed; and a project that passed
  * `plan-approved` before the two stages existed is reported, not refused.
+ *
+ * Once rigging has started (the stage is past `parts-review`, or a rigging
+ * step is past `pending`), the latest `parts-review` sign-off is read for the
+ * verdict it rests on (rig-c/create#51, src/parts-verdict.ts). An in-flight
+ * project keeps the warning above and is not asked for one.
  */
 function checkPartsStages(ctx: Ctx): void {
   const cur = effectiveIndex(ctx);
@@ -633,6 +641,21 @@ function checkPartsStages(ctx: Ctx): void {
       ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: step.path, message: `${step.path} is ${status}, but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
     }
   }
+  const riggingStarted =
+    cur > reviewIdx || ctx.steps.some((s) => stageOfStep(s.phase, s.id) === 'rigging' && (asString(s.record.status) ?? 'pending') !== 'pending');
+  const latest = latestSignoff(ctx, PARTS_REVIEW);
+  if (riggingStarted && latest !== undefined) checkPartsVerdict(ctx.dir, latest.record, `signoffs[${latest.index}]`, ctx.refusals);
+}
+
+/** The latest stage-level sign-off of `stage`: by `at`, then by place in `signoffs[]`; an undated one counts as earliest. */
+function latestSignoff(ctx: Ctx, stage: string): Signoff | undefined {
+  let best: Signoff | undefined;
+  for (const s of signoffsFor(ctx, stage)) {
+    const at = Number.isNaN(s.at) ? -Infinity : s.at;
+    const bestAt = best === undefined || Number.isNaN(best.at) ? -Infinity : best.at;
+    if (best === undefined || at >= bestAt) best = s;
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------- entry

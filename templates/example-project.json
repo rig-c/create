@@ -20,7 +20,7 @@
     { "stage": "interview", "checkpoint": null, "by": "user", "at": "2026-11-10T14:20:00Z", "verbatim": "that's everything" },
     { "stage": "plan-approved", "checkpoint": null, "by": "user", "at": "2026-11-10T16:05:00Z", "verbatim": "go" },
     { "stage": "parts", "checkpoint": "assemble", "by": "user", "at": "2026-11-11T09:40:00Z", "verbatim": "the cut is fine" },
-    { "stage": "parts-review", "checkpoint": null, "by": "user", "at": "2026-11-11T10:20:00Z", "verbatim": "the parts are clean, rig it" },
+    { "stage": "parts-review", "checkpoint": null, "by": "user", "at": "2026-11-11T10:20:00Z", "verbatim": "the parts are clean, rig it", "evidence": { "kind": "parts-verdict", "path": "derived/parts/rig/parts-review.json", "sha256": "aa0bb92f32dba994b241e6fdc9a690258c9237c49151d3be7f94dea7f4f595dd" } },
     { "stage": "rigging", "checkpoint": "constraints", "by": "user", "at": "2026-11-11T13:10:00Z", "verbatim": "ok, the scarf looks right in the sketch" },
     { "stage": "plan-approved", "checkpoint": null, "steps": ["bones", "constraints"], "by": "user", "at": "2026-11-12T10:30:00Z", "verbatim": "yes, re-run those two" },
     { "stage": "rigging", "checkpoint": "constraints", "by": "user", "at": "2026-11-12T15:00:00Z", "verbatim": "better" },

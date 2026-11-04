@@ -77,8 +77,8 @@ which stages end on a sign-off are written once, in `src/stages.ts`;
 | `interview` | 1 | Framing answers and a guide at every rig waypoint the plan passes ([INTERVIEW.md](INTERVIEW.md)): the user's sentences, a delegation ("auto"), or not applicable — never left for the agent to fill. | The user signs `{ "stage": "interview" }`. |
 | `plan-approved` | 1 | The rig steps (`phase: "rig"`) are drafted from the guides, with the agent's decision written on every delegated item. The user sets each step's checkpoint and signs. | `{ "stage": "plan-approved" }`. |
 | `parts` | 1 | The rig steps that make the parts run: `seethrough` and `assemble`. At a step whose checkpoint is on, work stops until `{ "stage": "parts", "checkpoint": "<step id>" }` is signed (the split, [below](#split-approval-is-a-plan-checkpoint)). No bone, mesh or constraint is built. | Every step it runs is `done`, `assemble`'s bar including the parts check passing on the assembled parts. |
-| `parts-review` | 1 | **The parts are reviewed before any rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. A bounce is fixed here, in `parts`. | `{ "stage": "parts-review" }`, signed by a person. |
-| `rigging` | 1 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. It does not start without the `parts-review` sign-off (`PARTS_REVIEW_UNSIGNED`). | The last rig step's bar is met. |
+| `parts-review` | 1 | **The parts are reviewed before any rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. A bounce is fixed here, in `parts`. | `{ "stage": "parts-review" }`, signed by a person, carrying the approved parts verdict as `evidence`. |
+| `rigging` | 1 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. It does not start without the `parts-review` sign-off (`PARTS_REVIEW_UNSIGNED`), nor on a verdict that is missing, not approved or no longer the parts on disk (`PARTS_VERDICT_*`). | The last rig step's bar is met. |
 | `rig-review` | 1 → 3 | **First review, on a still frame**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version: an `accepted` verdict with `review: "rig-review"` on it, resting on its still frame, and `{ "stage": "rig-review" }` signed ([below](#the-rig-review-rests-on-a-still-frame)). |
 | `post-interview` | 2 | The post items (camera and 2.5D, timing, composition) are asked, and the post steps (`phase: "post"`) drafted from them. | The user signs `{ "stage": "post-interview" }` — guides and post steps together. |
 | `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it); post tooling asks `rig-create handoff` first ([below](#the-hand-off-to-post-production)). | The last post step's bar is met. |
@@ -113,6 +113,19 @@ assembled parts before `rigging` starts.
   "checkpoint": null }`, given in rig-review's parts view. Without it the stage
   does not move to `rigging`, and no `rigging` step runs
   (`PARTS_REVIEW_UNSIGNED`). An agent's entry does not count.
+- **The sign-off carries the verdict it rests on**: `"evidence": { "kind":
+  "parts-verdict", "path": "<the file>", "sha256": "<its sha256>" }`, where
+  `path` is relative to the project and names the file rig-review's parts view
+  wrote (`rig-review parts`; by default `parts-review.json` beside
+  `parts.json`, or wherever `--verdict` put it). The check reads exactly that
+  file, never a default location. Rigging is refused, each case by name
+  ([CHECKS.md § Refusals](CHECKS.md#refusals)), unless the verdict is the
+  `rig-review-parts-verdict/1` schema in `parts` mode (an `atlas` verdict is
+  informational and never gates), its `status` is `approved`, and every file
+  in its `source.files[]` is on disk with the bytes and sha256 it was reviewed
+  with. A part added, removed or repainted after the sign-off is a new review:
+  the user reviews again and signs again, with the new verdict as evidence.
+  The latest `parts-review` sign-off is the one read.
 - **A project that passed `plan-approved` before these two stages existed**
   (its first `plan-approved` sign-off is dated before 2026-11-04, the
   `PARTS_REVIEW_SINCE` in `src/stages.ts`) is not given a sign-off nobody made.

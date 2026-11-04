@@ -19,7 +19,8 @@ out. Read this page before you touch anything. You need no chat history.
 `direction-review` → `accepted`. Any stage can become `paused`.
 
 - No rig step runs before the user signs `plan-approved`, and none after
-  `assemble` before they sign `parts-review`.
+  `assemble` before they sign `parts-review` with the approved parts verdict
+  as `evidence`.
 - Never move `stage` forward or pass a plan checkpoint yourself. Only a person's
   `signoffs[]` entry does that. You may draft, propose, build and measure in any
   stage.
@@ -92,8 +93,7 @@ out. Read this page before you touch anything. You need no chat history.
 | `scratch/` | none; deleting it must lose nothing | no |
 
 The user's own references ("make it feel like this") go in `inputs/references/`,
-with their sha256 in `project.json` `inputs[]`. They are inputs, not
-documentation.
+with their sha256 in `project.json` `inputs[]`.
 
 ## What to read, and why
 

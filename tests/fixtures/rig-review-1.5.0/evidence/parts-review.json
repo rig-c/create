@@ -1,0 +1,53 @@
+{
+  "schema": "rig-review-parts-verdict/1",
+  "mode": "parts",
+  "tool": {
+    "name": "@rig-c/review",
+    "version": "1.5.0"
+  },
+  "source": {
+    "sha256": "a191d6d5672fc97ee85540470b532130bb8b4ca524ddeac1a081136ae69ba611",
+    "files": [
+      {
+        "path": "../derived/parts/rig/parts.json",
+        "bytes": 333,
+        "sha256": "324379e6635c687163794d484e0cc66a5d8f7d240f08b1c81e869fd3495236b4"
+      },
+      {
+        "path": "../derived/parts/rig/parts/background.png",
+        "bytes": 75,
+        "sha256": "dc383688cb70e960a6d0e4edd39b6b799bdbbee158e1b6229cfeccb4f479d08d"
+      },
+      {
+        "path": "../derived/parts/rig/parts/torso.png",
+        "bytes": 75,
+        "sha256": "5a8f1afad32ef3d9d989d45a1968a0ac82cd4dce58b05f64191995a13c61546c"
+      },
+      {
+        "path": "../derived/parts/rig/parts/lantern.png",
+        "bytes": 74,
+        "sha256": "901106ae0b8254fed86c85ec0a71ae0fdbea7caf88f93093b0f2f222a01724fa"
+      }
+    ],
+    "flags": []
+  },
+  "status": "approved",
+  "parts": {
+    "background": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "torso": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "lantern": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    }
+  },
+  "updatedAt": "2026-11-04T04:01:27.200Z"
+}

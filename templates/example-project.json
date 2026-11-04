@@ -756,6 +756,7 @@
     {
       "n": 1,
       "kind": "rig",
+      "review_origin": null,
       "rig_version": null,
       "at": "2026-11-11T17:30:00Z",
       "built_by": "agent",
@@ -863,6 +864,7 @@
     {
       "n": 2,
       "kind": "rig",
+      "review_origin": null,
       "rig_version": null,
       "at": "2026-11-12T18:00:00Z",
       "built_by": "agent",
@@ -972,6 +974,7 @@
     {
       "n": 3,
       "kind": "post",
+      "review_origin": null,
       "rig_version": 2,
       "at": "2026-11-14T16:00:00Z",
       "built_by": "agent",
@@ -1017,6 +1020,7 @@
     {
       "n": 4,
       "kind": "post",
+      "review_origin": null,
       "rig_version": 2,
       "at": "2026-11-15T10:00:00Z",
       "built_by": "agent",

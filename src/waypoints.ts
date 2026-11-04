@@ -104,3 +104,53 @@ export function deriveWaypoints(sections: readonly string[]): DerivedSet {
     retired: Object.keys(SECTION_PLACEMENT).filter((s) => !present.has(s) && SECTION_PLACEMENT[s]?.kind !== 'none'),
   };
 }
+
+/** A direction ask, from INTERVIEW.md's waypoint descriptions, not a config field. */
+export interface WaypointAsk {
+  readonly id: string;
+  readonly text: string;
+  readonly required_for?: 'fullscreen.game_logic' | 'other';
+}
+
+export const WAYPOINT_ASKS: Readonly<Record<string, readonly WaypointAsk[]>> = {
+  seethrough: [
+    { id: 'layers', text: 'What must the layer split keep together or apart?' },
+    { id: 'resolution', text: 'What resolution should the layer passes use?' },
+    { id: 'head_crop', text: 'What head crop should be used?' },
+    { id: 'seed', text: 'What seed should be used?' },
+  ],
+  assemble: [
+    { id: 'cut', text: 'Which parts are cut, and how finely?' },
+    { id: 'emphasis', text: 'Which parts need detail or must stay exactly as painted?' },
+    { id: 'draw_order', text: 'What is the parts draw order?' },
+    { id: 'authored', text: 'What is authored new?' },
+    { id: 'occluders', text: 'What is kept under occluders?' },
+    { id: 'outfits', text: 'Which outfit sets exist?' },
+  ],
+  bones: [
+    { id: 'chains', text: 'Which parts get chains or stay rigid?' },
+    { id: 'placement', text: 'Where do bones sit?' },
+    { id: 'length', text: 'How long are the chains?' },
+  ],
+  meshes: [
+    { id: 'bend', text: 'Which parts bend smoothly?' },
+    { id: 'rigid', text: 'Which parts stay rigid?' },
+    { id: 'density', text: 'What mesh density should be used?' },
+  ],
+  constraints: [
+    { id: 'effects', text: 'Which parts move on physics, wind or other effects?' },
+    { id: 'strength', text: 'How strongly do those effects act?' },
+    { id: 'extent', text: 'How far may the affected parts move?' },
+    { id: 'gravity', text: 'What gravity applies?' },
+    { id: 'stops', text: 'Where must chains stop?' },
+  ],
+  motion: [
+    { id: 'tracks', text: 'Which moves? Name each one.', required_for: 'other' },
+    { id: 'states', text: 'Which game states drive the motion?', required_for: 'fullscreen.game_logic' },
+    { id: 'transitions', text: 'What moves it from one state to the next?', required_for: 'fullscreen.game_logic' },
+    { id: 'extent', text: 'How far does each motion move?' },
+    { id: 'speed', text: 'How fast does each motion move?' },
+    { id: 'loop', text: 'How long is the motion loop?' },
+    { id: 'blink', text: 'Should it blink?', required_for: 'other' },
+  ],
+};

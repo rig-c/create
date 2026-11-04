@@ -21,6 +21,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkCgGates } from './cg-gates.ts';
+import { checkAskCoverage } from './ask-coverage.ts';
 import { checkAgentBounces } from './agent-bounce.ts';
 import { checkPreparedInputs } from './prepared-inputs.ts';
 import { checkMeshesBust } from './meshes-bust.ts';
@@ -807,6 +808,7 @@ export function checkProject(projectDirArg: string): CheckReport {
     refusals.push({ code: e.code, path: '@rig-c/parts', message: e.message });
   }
   checkAnswers(ctx);
+  checkAskCoverage(ctx);
   checkPreparedInputs(ctx);
   checkAgentBounces(ctx);
   checkPlan(ctx);

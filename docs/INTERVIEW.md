@@ -264,14 +264,14 @@ other prompts. `source` says whether the prompt is part of the standard set
 | --- | --- | --- | --- |
 | `rig_type` | framing | What is this: a character rig — standing idle, complex motion, or a monster with its own moves — or a full-screen scene — minimal motion (breath, blink) or motion tied to game logic? | all |
 | `reference` | framing | "Make it feel like this": a video, an existing demo, a game you have in mind? | all |
-| `x_layers` | `seethrough` | Is there anything the layer split must keep together or keep apart — a hat with the head, a held object on its own? | all |
-| `split_granularity` | `assemble` | How finely should it be cut? | all |
+| `x_layers` | `seethrough` | What must the layer split keep together or apart, and what resolution, head crop and seed should the passes use? | all |
+| `split_granularity` | `assemble` | Which parts are cut and how finely, in what draw order, with what authored new or kept under occluders, and which outfit sets? | all |
 | `split_emphasis` | `assemble` | Which parts matter most — more detail, or kept exactly as painted? | all |
-| `x_chains` | `bones` | What moves on its own — hair strands, coat tails, sleeves, held things? | all |
-| `x_deform` | `meshes` | What must bend smoothly as one piece, and what must stay rigid? | all |
-| `split_effects` | `constraints` | Which parts have special effects — sway on physics, move in wind, jiggle, glow, flicker — and how far do they move? | all |
-| `motions` | `motion` | Which moves? Name each one. | all except `fullscreen.game_logic` |
-| `game_states` | `motion` | Which states, and what moves it from one to the next? | `fullscreen.game_logic` |
+| `x_chains` | `bones` | Which parts get chains or stay rigid, where do the bones sit, and how long are the chains? | all |
+| `x_deform` | `meshes` | What must bend smoothly as one piece, what must stay rigid, and at what mesh density? | all |
+| `split_effects` | `constraints` | Which parts have special effects, how strongly and how far do they move, what gravity applies, and where must chains stop? | all |
+| `motions` | `motion` | Which moves? Name each one, how far and how fast it moves, the loop length, and whether it blinks. | all except `fullscreen.game_logic` |
+| `game_states` | `motion` | Which states and transitions, how far and how fast does each motion move, and how long is the loop? | `fullscreen.game_logic` |
 
 Values the agent normalises a guide into, per prompt (the sentence stays the
 answer):
@@ -583,3 +583,15 @@ human verdict or alter the user's guide; a replacement requiring a changed
 user choice still goes back to that user. See
 [PROJECT.md](PROJECT.md#prepared-inputs-and-agent-found-bounces) for the
 prepared-input record and the per-entry compatibility date.
+
+## Name every skipped ask
+
+The canonical rig asks are `WAYPOINT_ASKS` in `src/waypoints.ts`, derived from
+W1–W6 above. Before finishing a waypoint, compare its guide with every applicable
+ask. Say each unanswered question in plain words. If the user delegates it,
+name that skipped question back as delegated, record its id in the guide's
+`asks` list with `state: "delegated"`, and write the decision beside the guide.
+Record answered asks with `state: "user"`. Never treat an answer to the crux as
+an answer to the remainder, or silently turn silence into delegation. The user
+still sees plain questions, not internal ids. `agent_decision.covers` remains
+free text; per-ask coverage is a separate list (PROJECT.md § Per-ask guide coverage).

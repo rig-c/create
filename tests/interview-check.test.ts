@@ -87,10 +87,10 @@ const DELEGATED_GUIDE: JsonObject = {
 };
 
 describe('the filled example', () => {
-  test('passes, with no warnings, against the installed @rig-c/parts pin', () => {
+  test('passes with legacy hash warnings against the installed @rig-c/parts pin', () => {
     const report = checkProject(fixture());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING')).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.parts?.version).toBe(PINNED_PACKAGES['@rig-c/parts']);
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
@@ -102,7 +102,7 @@ describe('the filled example', () => {
     const result = cli(['interview', '--check', fixture()], tempDir(), gitEnv());
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('clean: 0 warnings');
+    expect(result.stdout).toContain('clean: 9 warnings');
     expect(result.stdout).toContain('stage accepted');
   });
 
@@ -309,7 +309,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(found[0]?.message).toStartWith("@rig-c/parts 2.9.0 has section 'foo'");
     expect(report.parts?.version).toBe('2.9.0');
     // The record was read from the pin, not 2.9.0: a warning, not a refusal.
-    expect(report.warnings.map((w) => w.code)).toContain('QUESTION_SET_STALE');
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).toContain('QUESTION_SET_STALE');
   });
 
   test('a section that parts dropped from a waypoint is a warning, and a waypoint parts no longer passes is refused as missing from the record only when added', () => {
@@ -317,7 +317,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     plantParts(dir, PINNED_PACKAGES['@rig-c/parts'], sectionsSource(PARTS_SECTIONS.filter((s) => s !== 'cloth')));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['SECTION_RETIRED', 'WAYPOINT_CONFIG_STALE']);
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code).sort()).toEqual(['SECTION_RETIRED', 'WAYPOINT_CONFIG_STALE']);
   });
 
   test('a record missing a derived waypoint is refused by waypoint id', () => {
@@ -338,7 +338,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(codes(report)).toEqual(['SECTION_UNPLACED']);
     expect(withCode(report, 'SECTION_UNPLACED')[0]?.message).toContain("'sway'");
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING')).toEqual([]);
   });
 
   test('a parts without the CONFIG_SECTIONS export (older than 2.3.0) is refused, not silently empty', () => {

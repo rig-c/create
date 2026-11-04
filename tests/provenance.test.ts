@@ -35,9 +35,9 @@ const V2_CONFIG: JsonObject = {
 describe('the filled example', () => {
   const report = checkProject(fixture());
 
-  test('passes: 0 refusals, 0 warnings', () => {
+  test('passes with only legacy hash warnings', () => {
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING')).toEqual([]);
     expect(report.ok).toBe(true);
   });
 
@@ -87,7 +87,7 @@ describe('a section with no citation', () => {
     }));
     expect(report.provenance[1]?.config).toBe('changed');
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['PROVENANCE_CONFIG_CHANGED']);
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).toEqual(['PROVENANCE_CONFIG_CHANGED']);
   });
 
   test('a section placed `none` (not a direction call) passes without provenance', () => {

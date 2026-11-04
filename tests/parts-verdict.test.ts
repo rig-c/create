@@ -257,7 +257,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
   });
 });
 
@@ -273,7 +273,7 @@ describe('an in-flight project that a person did review', () => {
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.filter((w) => w.code !== 'STEP_SIGNOFF_HASH_MISSING').map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
   });
 });
 

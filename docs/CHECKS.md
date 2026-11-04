@@ -133,6 +133,15 @@ free text, so that case needs an explicit interview coverage contract.
   approval and changed-guide checks apply from then. A checkpoint sign-off is
   required only once the step is `done`.
 
+Signed steps are compared using `stepHash` from `src/step-hash.ts`, the
+same hash the `signoff` command writes. Each step reads its latest covering
+stage-level approval by date, breaking ties by array position. Rig steps use
+`plan-approved` and post steps use `post-interview`. A subset re-sign applies
+only to its `steps[]`. The check includes signed steps still `pending`.
+Execution `status` is excluded from the hash. Re-signing clears a content
+mismatch. A historical signature without the field warns per covered step,
+while a present malformed or incomplete map refuses.
+
 ## Provenance
 
 Every `versions[]` entry of kind `rig` or `post` is checked against
@@ -288,6 +297,7 @@ Exit `1`. Each names its object in `path`.
 | `GUIDE_PARTIAL_UNMARKED` | a user guide has `agent_decision` without nonempty `covers` | name the delegated remainder in `agent_decision.covers` and write its value and reasoning before plan approval |
 | `STEP_STATUS_UNKNOWN` | an explicit step status is outside `pending`, `in-progress`, `at-checkpoint`, `done` | use `pending` before approval, then a documented running status |
 | `STEP_RUN_UNAPPROVED` | a step is past `pending` and no sign-off of its approving stage covers it | keep the step `pending` until the plan is signed (a re-sign with `steps[]` covers only the steps it names) |
+| `STEP_EDITED_AFTER_SIGNOFF` | a signed step differs from its latest covering sign-off's `step_hashes`, or that present map has no matching hash | sign again at `plan-approved` for rig steps or `post-interview` for post steps |
 | `GUIDE_CHANGED_UNSIGNED` | a step is past `pending` and an answer it rests on changed (its `at`, or an `additions[]` entry) after the last sign-off covering it | re-sign `plan-approved` (or `post-interview` for post steps) naming the steps |
 | `CHECKPOINT_UNANSWERED` | the plan is signed and a step's `checkpoint` is `null` | the user sets it (`true` / `false`) or delegates it |
 | `CHECKPOINT_UNSIGNED` | a step is `done`, its checkpoint is on, and no `{ "stage": <its stage>, "checkpoint": <step id> }` sign-off exists (`parts` for `seethrough` and `assemble`, `rigging` for the other rig steps, `post` for post steps) | the user signs the checkpoint |
@@ -393,6 +403,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
+| `STEP_SIGNOFF_HASH_MISSING` | a step's latest covering approval has no `step_hashes` field | sign again to record its contents. The historical signature stays readable, with no assumed hash match |
 | `STAGE_VALUES_STALE` | the record's `stage_values` differs from `src/stages.ts` | regenerate the list |
 | `QUESTION_SET_STALE` | `interview.question_set` does not name the installed `@rig-c/parts` version | re-read the waypoints from the installed version and update the string |
 | `SECTION_RETIRED` | the table places a section on a waypoint or post item, but the installed parts no longer has it | drop it from the table and the record's `config[]` |

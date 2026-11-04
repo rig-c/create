@@ -52,6 +52,18 @@ out. Read this page before you touch anything. You need no chat history.
   motion, reported as the max and its frame. It covers every band where a moving
   piece sits over something not on its bone (a hand over the hip when only the
   chest breathes).
+- **A bar has a reading command.** Before asking for sign-off, name the
+  command that produces each reading, its inputs and the output to read. Check
+  the installed command's `--help`. A reading with no working command is a STOP
+  before sign-off. Rendering frames alone does not count their changed pixels.
+- **Read a warm loop.** `rigc render --preroll <n>` carries physics across real
+  wraps before recording one loop. It refuses `--environment` beside it. For
+  an environment schedule or successive boundary readings, render a measurement
+  twin whose one animation spans several periods. Carry physics continuously;
+  keep the source unchanged and record the twin's differences. A blink keyed
+  once stays keyed once, so later periods do not repeat that blink. The full
+  drafting procedure and example are in rig-c/create `docs/INTERVIEW.md`,
+  section "Bars have reading commands".
 - **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
   reference ("move like X") is read for what it shows; anything more is a
   question, not a default.

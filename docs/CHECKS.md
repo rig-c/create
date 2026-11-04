@@ -68,6 +68,13 @@ a plan step), written to `project.json`.
 | `{ "not_applicable": true, "because": "…" }` | not applicable | yes; without `because` it is `ANSWER_MALFORMED` |
 | `{ "basis": "inherited", "from": { "collection", "question" } }` | the collection's answer, read as one of the rows above | as the collection's answer does; `INHERITED_UNRESOLVED` when it cannot be found |
 
+A user guide carrying `agent_decision` marks a partial delegation. Its
+`covers` must name the delegated remainder, and its decision must carry
+`value` and nonempty `reasoning` before the approving plan is signed
+(`DELEGATION_UNDECIDED`). A user sentence without `agent_decision` has no
+machine-readable remainder. The check cannot infer missing coverage from
+free text, so that case needs an explicit interview coverage contract.
+
 ## Decisions the docs left open
 
 - **A `plan-approved` sign-off while the stage is later** is a re-sign, not a
@@ -93,7 +100,7 @@ a plan step), written to `project.json`.
   the dated, human act that moved a project past where the two stages stand.
   Only a project past `parts-review` is exempt; one at or before it goes
   through both. An undated sign-off does not exempt.
-- **A step is "run"** when its `status` is anything but `pending`; the
+- **A step is "run"** when its `status` is `in-progress`, `at-checkpoint` or `done`; the
   approval and changed-guide checks apply from then. A checkpoint sign-off is
   required only once the step is `done`.
 
@@ -248,7 +255,10 @@ Exit `1`. Each names its object in `path`.
 | `STEP_BASIS_SILENT` | `rests_on` names an item that has no answer | answer the item (it is also reported on its own) |
 | `STEP_NOT_A_WAYPOINT` | a `rig` step's `id` is not a waypoint id | one step per waypoint, named after it |
 | `STEP_MISSING_FOR_WAYPOINT` | the plan is signed, a waypoint has a guide or a delegation, and no rig step has its id | add the step, or answer the waypoint not applicable if the plan does not pass it |
-| `STEP_RUN_UNAPPROVED` | a step is past `pending` and no sign-off of its approving stage covers it | sign the plan (a re-sign with `steps[]` covers only the steps it names) |
+| `SIGNOFF_BEFORE_PLAN` | plan-approved is signed, but no stage-level approval is at or after `plan.drafted_at` | sign the drafted plan before running its steps |
+| `GUIDE_PARTIAL_UNMARKED` | a user guide has `agent_decision` without nonempty `covers` | name the delegated remainder in `agent_decision.covers` and write its value and reasoning before plan approval |
+| `STEP_STATUS_UNKNOWN` | an explicit step status is outside `pending`, `in-progress`, `at-checkpoint`, `done` | use `pending` before approval, then a documented running status |
+| `STEP_RUN_UNAPPROVED` | a step is past `pending` and no sign-off of its approving stage covers it | keep the step `pending` until the plan is signed (a re-sign with `steps[]` covers only the steps it names) |
 | `GUIDE_CHANGED_UNSIGNED` | a step is past `pending` and an answer it rests on changed (its `at`, or an `additions[]` entry) after the last sign-off covering it | re-sign `plan-approved` (or `post-interview` for post steps) naming the steps |
 | `CHECKPOINT_UNANSWERED` | the plan is signed and a step's `checkpoint` is `null` | the user sets it (`true` / `false`) or delegates it |
 | `CHECKPOINT_UNSIGNED` | a step is `done`, its checkpoint is on, and no `{ "stage": <its stage>, "checkpoint": <step id> }` sign-off exists (`parts` for `seethrough` and `assemble`, `rigging` for the other rig steps, `post` for post steps) | the user signs the checkpoint |

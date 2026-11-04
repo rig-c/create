@@ -114,7 +114,7 @@ describe('refused, each by name', () => {
       atRiggingStart(p);
       p.stage = 'parts-review';
       delete partsReviewSignoff(p).evidence;
-      step(p, 'bones').status = 'running';
+      step(p, 'bones').status = 'in-progress';
     });
     expect(verdictCodes(checkProject(dir))).toEqual(['PARTS_VERDICT_MISSING']);
   });

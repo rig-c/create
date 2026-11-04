@@ -518,3 +518,43 @@ independent of the parts-review stage boundary. Read the history entry's own
 invalid arguments), `DERIVED_PATH_INVALID` (source and result not distinct
 project-relative files, or either is `project.json`), `DERIVED_FILE_UNREADABLE`, `DERIVED_MALFORMED` (a
 non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
+
+## Review packages
+
+```sh
+rig-create review-package <n> [<project dir>] --config <path> --from <build out dir> [--json]
+```
+
+Copies the recorded rig version's explicitly supplied producer inputs and
+stores `review_package` with the complete sorted package-relative file hashes
+and `open` command. The copy lives in `derived/review/v<n>/`. Source files
+remain available for comparison through their hashes after the original
+build directory is cleaned. `interview --check` calls this package check for
+create-built rig versions. Post and pre-interview versions are exempt.
+
+| Refusal | Fires when | Clear it by |
+| --- | --- | --- |
+| `REVIEW_PACKAGE_MALFORMED` | a present `review_package` record lacks its config path/hash, source directory, file list or canonical open command | restore the recorded snapshot shape |
+| `REVIEW_PACKAGE_CHANGED` | a present package has missing, extra or changed files, a symlink, or an invalid required layout | inspect and restore its recorded frozen bytes |
+
+| Warning | Fires when | Clear it by |
+| --- | --- | --- |
+| `REVIEW_PACKAGE_MISSING` | a create-built rig has no package record, or its recorded package is absent | run the `rig-create review-package` command printed by the warning with the explicit frozen sources |
+
+| Command refusal | Fires when |
+| --- | --- |
+| `REVIEW_PACKAGE_USAGE` | version/options are missing, repeated or invalid (exit 2) |
+| `REVIEW_PACKAGE_VERSION_UNKNOWN` | the requested version is absent |
+| `REVIEW_PACKAGE_VERSION_INVALID` | the version is post or pre-interview |
+| `REVIEW_PACKAGE_PATH_INVALID` | a source is absolute, escapes the project, or the destination traverses a symlink outside it |
+| `REVIEW_PACKAGE_INPUT_MISSING` | a source or a required layout entry is absent |
+| `REVIEW_PACKAGE_INPUT_INVALID` | config is not a JSON object, a layout entry has the wrong kind or a copied tree contains a symlink |
+| `REVIEW_PACKAGE_SOURCE_CHANGED` | source bytes change between hashing and copying |
+| `REVIEW_PACKAGE_EXISTS` | an existing package differs from the declared sources |
+| `REVIEW_PACKAGE_BUSY` | another writer holds the project's package lock |
+| `REVIEW_PACKAGE_RECORD_CHANGED` | project.json changed during copying |
+
+The existing `PROJECT_JSON_MISSING`, `PROJECT_JSON_INVALID`, `SCHEMA_UNKNOWN`
+and `UNKNOWN_OPTION` refusals also apply. A rejected copy leaves the prior
+project record and package intact. A successful command exits 0 and prints
+its open command, or the `review_package` object with `--json`.

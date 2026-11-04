@@ -508,3 +508,66 @@ histories and the collection histories an inherited answer cites. Compatibility
 is per history entry's own `at`, not the project's age: malformed bounces before
 `AGENT_BOUNCE_SINCE` (`2026-11-05T00:00:00Z`), or with no readable date, warn
 with the new shape. Malformed bounces on or after it are refused.
+
+### The package handed to rig review
+
+Before showing a create-built rig version, run from the project directory:
+
+```sh
+rig-create review-package 1 --config evidence/v1/config.json --from outputs/v1/out
+```
+
+The source paths are explicit, project-relative inputs. The command copies the
+config unchanged and the build's `parts.json`, `parts/`, `rig/`, and
+`check/build/` into `derived/review/v1/`, with the config at `config.json` and
+the build files under `out/`. The source build must include `rig/rig.json`,
+`rig/motion.json`, `rig/mesh_report.json` and
+`check/build/skeleton.model.json`. Copies preserve the package when the build
+directory is cleaned. Each copied file is hashed. The command writes no new
+build and moves no stage.
+
+The version's `review_package` field records `config` (`path`, `sha256`),
+`from` (the declared build directory), `files` (sorted package-relative
+`{path, sha256}` entries, including the copied config), and `open`:
+
+```json
+{"open":"rig-review open 'derived/review/v1/out'"}
+```
+
+Run that open command from the project directory. Review recognizes `out/`
+as a build root, opens its `check/` package and discovers the config beside
+the build root. The installed review package documents this discovery under
+*Producer handoff* in `docs/REVIEW_PACKAGE.md`. Its handoff hash identifies
+the exact copied config. The hash check binds the copies to this version's
+recorded input snapshot. The producer baseline in review determines whether
+those inputs reproduce the inspected rig.
+
+`interview --check` warns with the package command when a rig version has no
+recorded package or when a recorded package is absent after a fresh clone.
+A present package must match the complete recorded file list and hashes.
+Regenerate a missing package from its recorded sources. If an existing
+package differs, the writer refuses replacement so the frozen copy can be
+inspected. A new build shown to the user gets a new version and package.
+Post versions go to direction review, outside this package contract.
+Pre-interview versions retain their existing history and output checks and
+are exempt from review-package warnings.
+
+The filled example ships synthetic producer bytes under
+`templates/example-review/`. Its two `review_package` records are generated
+by `bun scripts/generate-example-review.ts <fresh scratch project>`. Add
+`--check` to verify that generation reproduces the shipped record bytes.
+The script runs the public `review-package` command for both rig versions.
+`reviewExampleFiles()` in `tests/review-fixture.ts` maps those bytes to the
+declared sources and package destinations, and both example fixture helpers
+materialize them. The regression test generates two fresh projects and
+compares every record and file byte before checking the filled example with
+zero refusals and zero warnings.
+
+Apply results return in review feedback as `feedback[].context.applied`,
+including the applied producer operation and its bound result. Preserve that
+feedback and use create to record the resulting work as the next version,
+with its outputs, hashes and provenance, then write that version's package.
+Review keeps the project config intact. An automated apply-to-next-version
+check needs a recorded feedback file path and sha256 plus the originating
+version and applied-result reference. The current create record has no such
+feedback binding, so that check awaits a defined record contract.

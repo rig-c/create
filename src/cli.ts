@@ -10,6 +10,7 @@ import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
+import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 
 const HELP = `rig-create — create and run a rig project
@@ -29,6 +30,8 @@ Usage:
                                                     record what a person said about a shown version, word for word
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
+  rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
+                                                    copy producer inputs and record the review open command
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
@@ -46,6 +49,8 @@ ${REVIEW_HELP}
 ${SIGNOFF_HELP}
 
 ${DERIVED_HELP}
+
+${REVIEW_PACKAGE_HELP}
 `;
 
 /** A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1). */
@@ -95,6 +100,7 @@ const COMMANDS: Record<string, Command> = {
   init: initCommand,
   interview: interviewCommand,
   handoff: handoffCommand,
+  'review-package': reviewPackageCommand,
   collection: collectionCommand,
   review: reviewCommand,
   signoff: signoffCommand,

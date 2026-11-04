@@ -375,6 +375,34 @@ prove those periods have the source's repeated blink. Name any other one-shot
 track and its difference too. A multi-period render is measurement evidence
 only for the behaviour it actually reproduces.
 
+### Post bars on a looping idle
+
+Draft the loop-seam bar with these three clauses before seeking sign-off.
+
+1. Compare the whole-figure changed-pixel count across a boundary with physics
+   on against physics off **at that same boundary**. Breath can have its
+   fastest phase at the wrap, so its in-loop maximum excludes the very step
+   being judged.
+2. Name every background used for that count, for example white `#ffffff` and
+   sentinel magenta `#ff00ff`, with the same pixel grid, frame rate, boundary
+   times and counting definition for the on/off pair.
+3. Keep the physics reading for each named chain tip. Its boundary jump must
+   be no larger than that tip's own largest in-loop frame-to-frame step.
+   Compare distances in the same world units and at the same frame rate.
+
+Today's `rigc render --help` offers neither a physics-off pose command nor a
+whole-figure boundary pixel counter. `--environment` controls wind and gravity;
+its help provides no physics-off setting. The whole-figure comparison therefore
+has no reading command today. A bar that requires it is a **STOP before
+sign-off** until a tool supplies that reading. Rendering frames is only an
+input to counting them. Do not give the user an executable-looking command for
+a measurement tool that does not exist.
+
+The filled example adds only the chain-tip clause that can be read from
+`render --geometry`, with its reduction stated beside the command. It omits
+the unavailable whole-figure comparison. A project requiring all three clauses
+must resolve the missing reading before it can sign its post bar.
+
 ## Provenance: every config section cites its guide
 
 Each section of the config the agent writes cites the guide sentence or the

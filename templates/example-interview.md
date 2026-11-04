@@ -130,6 +130,38 @@ drafted from these and signed with them:
 `{ "stage": "post-interview", … "verbatim": "go" }`. No depth is built, because
 the camera does not parallax; nothing in the rig changed for that.
 
+### The timing bar's chain-tip reading
+
+The timing bar in `example-project.json` keeps the eight-second length and the
+single late beam sweep, and adds a command-backed chain-tip clause. For the
+scarf, both coat tails, hair tail and lantern hinge, each boundary jump at
+8 seconds and 16 seconds must be no larger than that tip's own largest in-loop
+step in each adjacent period.
+
+Run `node_modules/.bin/rigc render --candidate derived/loop-twin --animation idle --fps 24 --geometry --out derived/loop-reading`.
+Read `geometry.json` in the reported set directory. Reduce each named terminal
+bone's world transform and length to its world-space endpoint, then compute
+Euclidean distances between consecutive endpoints. Compare steps 191-to-192
+and 383-to-384 with that tip's largest consecutive step inside each adjacent
+192-frame period, excluding boundary steps.
+
+`derived/loop-twin` denotes a compiled three-period measurement twin prepared
+for this reading. Before using this example in a real project, prepare and
+record that twin and check the reading command. The blink remains keyed once;
+the beam sweep also remains once unless the twin's recorded differences say
+otherwise. Those later periods do not certify repeated blink or beam timing.
+The length and beat clauses still need their own reading commands before a
+real project's sign-off.
+
+The complete post loop-seam rule compares whole-figure boundary counts with
+physics on against physics off on named backgrounds, and retains the per-tip
+clause ([INTERVIEW.md](../docs/INTERVIEW.md#post-bars-on-a-looping-idle)).
+White `#ffffff` and sentinel magenta `#ff00ff` are the proposed counting
+backgrounds here. Today's rigc supplies no command for the physics-off
+whole-figure comparison, so the example adds only the chain-tip clause.
+Requiring that whole-figure reading is a STOP before sign-off until its tool
+exists. The fictional sign-off above supplies no missing measurement command.
+
 ### Second review, direction (stage `direction-review`)
 
 v3 (`kind: "post"`, `rig_version: 2`) is shown. Polish feedback:

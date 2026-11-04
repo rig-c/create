@@ -25,7 +25,17 @@ import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkReviews } from './review.ts';
-import { PAUSED_STAGE, PHASE_APPROVED_BY, SKIPPED_WHEN_NO_POST, STAGE_VALUES, STAGES, stageIndex, stageOfPhase } from './stages.ts';
+import {
+  PARTS_REVIEW,
+  PARTS_REVIEW_SINCE,
+  PAUSED_STAGE,
+  PHASE_APPROVED_BY,
+  SKIPPED_WHEN_NO_POST,
+  STAGE_VALUES,
+  STAGES,
+  stageIndex,
+  stageOfStep,
+} from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 
@@ -102,6 +112,14 @@ export interface Ctx {
   readonly stage: string;
   readonly effectiveStage: string;
   readonly collection: JsonObject | null;
+  /**
+   * Set when the project passed `plan-approved` before `parts` and
+   * `parts-review` existed (src/stages.ts `PARTS_REVIEW_SINCE`): the date of
+   * its first `plan-approved` sign-off. Such a project is warned about, not
+   * refused, and its parts steps' checkpoints may name `rigging`, as they were
+   * signed then.
+   */
+  readonly predatesPartsReview: string | null;
 }
 
 // ---------------------------------------------------------------- JSON access
@@ -320,12 +338,47 @@ function postNotPassed(ctx: Ctx): boolean {
   return post.length > 0 && post.every((i) => i.state.state === 'not_applicable');
 }
 
-/** The first stage closed by a sign-off that has none: where a paused project resumes, and what its checks are applied as. */
-function firstUnsignedStage(signoffs: Signoff[]): string {
+/**
+ * Where a paused project resumes, and what its checks are applied as: the
+ * first stage closed by a sign-off that has none, or, before it, a `bar` stage
+ * that names its steps (`parts`) while one of them in the plan is not `done`.
+ * A `bar` stage that runs the rest of its phase (`rigging`, `post`) is not a
+ * resume point, as before: its bar is not enforced by the check.
+ */
+function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean): string {
   for (const s of STAGES) {
+    // A project that predates parts-review resumes where it would have before the two stages existed.
+    if (predatesPartsReview && (s.id === PARTS_REVIEW || s.id === 'parts')) continue;
+    if (s.closed_by === 'bar' && s.steps !== undefined) {
+      const own = s.steps;
+      if (steps.some((x) => own.includes(x.id) && (asString(x.record.status) ?? 'pending') !== 'done')) return s.id;
+      continue;
+    }
     if (s.closed_by === 'signoff' && !signoffs.some((x) => x.stage === s.id && x.checkpoint === null)) return s.id;
   }
   return STAGES[STAGES.length - 1]?.id ?? 'accepted';
+}
+
+/**
+ * The date of the project's first `plan-approved` sign-off when it is before
+ * `PARTS_REVIEW_SINCE`, else `null`. Read from the sign-off, not from
+ * `stage_values` or a schema mark: leaving `plan-approved` is what put a
+ * project past the place the two stages now stand, and that sign-off is the
+ * dated, human act that did it. An undated sign-off does not count.
+ */
+function planApprovedBeforePartsReview(signoffs: Signoff[]): string | null {
+  const since = Date.parse(PARTS_REVIEW_SINCE);
+  const times = signoffs.filter((s) => s.stage === PHASE_APPROVED_BY.rig && s.checkpoint === null && !Number.isNaN(s.at)).map((s) => s.at);
+  if (times.length === 0) return null;
+  const first = Math.min(...times);
+  return first < since ? new Date(first).toISOString() : null;
+}
+
+/** The stages a step's checkpoint sign-off may name: its stage, and for a parts step of a project that predates `parts`, `rigging` as well. */
+function checkpointStages(ctx: Ctx, step: Step): string[] {
+  const stage = stageOfStep(step.phase, step.id);
+  const legacy = stageOfStep(step.phase, '');
+  return ctx.predatesPartsReview !== null && stage !== legacy ? [stage, legacy] : [stage];
 }
 
 // -------------------------------------------------------------------- checks
@@ -490,8 +543,9 @@ function checkPlan(ctx: Ctx): void {
       : checkpoint.state === 'delegated' && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value === true
       : false;
     if (on && status === 'done') {
-      const stage = stageOfPhase(step.phase);
-      if (!ctx.signoffs.some((s) => s.stage === stage && s.checkpoint === step.id)) {
+      const stages = checkpointStages(ctx, step);
+      const stage = stages[0] as string;
+      if (!ctx.signoffs.some((s) => stages.includes(s.stage) && s.checkpoint === step.id)) {
         ctx.refusals.push({ code: 'CHECKPOINT_UNSIGNED', path, message: `${path} is done with its checkpoint on, but no { "stage": "${stage}", "checkpoint": "${step.id}" } sign-off exists` });
       }
     }
@@ -521,8 +575,7 @@ function checkStages(ctx: Ctx): void {
     }
     if (s.checkpoint !== null) {
       const step = stepFor(ctx, s.checkpoint);
-      const expectedStage = step === undefined ? null : stageOfPhase(step.phase);
-      if (step === undefined || expectedStage !== s.stage) {
+      if (step === undefined || !checkpointStages(ctx, step).includes(s.stage)) {
         ctx.refusals.push({ code: 'SIGNOFF_UNKNOWN_CHECKPOINT', path, message: `${path}: checkpoint '${s.checkpoint}' names no plan step of the '${s.stage}' phase` });
       }
     }
@@ -533,12 +586,53 @@ function checkStages(ctx: Ctx): void {
     }
   }
   const skip = postNotPassed(ctx) ? new Set(SKIPPED_WHEN_NO_POST) : new Set<string>();
+  if (ctx.predatesPartsReview !== null) skip.add(PARTS_REVIEW);
   STAGES.forEach((spec, idx) => {
     if (idx >= cur || spec.closed_by !== 'signoff' || skip.has(spec.id)) return;
-    if (!signed(ctx, spec.id)) {
-      ctx.refusals.push({ code: 'STAGE_UNSIGNED', path: 'stage', message: `stage is '${ctx.stage}', past '${spec.id}', but no { "stage": "${spec.id}", "checkpoint": null } sign-off closed it` });
+    if (signed(ctx, spec.id)) return;
+    if (spec.id === PARTS_REVIEW) {
+      ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: 'stage', message: `stage is '${ctx.stage}', past '${PARTS_REVIEW}', but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
+      return;
     }
+    ctx.refusals.push({ code: 'STAGE_UNSIGNED', path: 'stage', message: `stage is '${ctx.stage}', past '${spec.id}', but no { "stage": "${spec.id}", "checkpoint": null } sign-off closed it` });
   });
+  checkPartsStages(ctx);
+}
+
+const PARTS_REVIEW_REMEDY =
+  'rigging does not start until the user has looked at the assembled parts (rig-review\'s parts view) and signed them, or the stage goes back to parts-review';
+
+/**
+ * The parts are made and reviewed before any rig is built (rig-c/create#48):
+ * past `parts`, every step it runs is `done` (its bar met); no step of
+ * `rigging` has run before `parts-review` is signed; and a project that passed
+ * `plan-approved` before the two stages existed is reported, not refused.
+ */
+function checkPartsStages(ctx: Ctx): void {
+  const cur = effectiveIndex(ctx);
+  const partsIdx = stageIndex('parts');
+  const reviewIdx = stageIndex(PARTS_REVIEW);
+  if (ctx.predatesPartsReview !== null) {
+    if (cur > reviewIdx && !signed(ctx, PARTS_REVIEW)) {
+      const name = asString(ctx.project.name) ?? basename(ctx.dir);
+      ctx.warnings.push({
+        code: 'PARTS_REVIEW_PREDATES_STAGE',
+        path: 'signoffs',
+        message: `project '${name}' passed plan-approved at ${ctx.predatesPartsReview}, before the parts and parts-review stages existed (${PARTS_REVIEW_SINCE}); its parts were not reviewed before rigging, and no sign-off is assumed for them`,
+      });
+    }
+    return;
+  }
+  for (const step of ctx.steps) {
+    const stage = stageOfStep(step.phase, step.id);
+    const status = asString(step.record.status) ?? 'pending';
+    if (stage === 'parts' && cur > partsIdx && status !== 'done') {
+      ctx.refusals.push({ code: 'PARTS_BAR_UNMET', path: step.path, message: `${step.path} is ${status}, yet the stage is past 'parts'; the parts stage ends when every step it runs (${STAGES[partsIdx]?.steps?.join(', ') ?? ''}) has met its bar, the parts check passing on the assembled parts` });
+    }
+    if (stage === 'rigging' && cur <= reviewIdx && status !== 'pending' && !signed(ctx, PARTS_REVIEW)) {
+      ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: step.path, message: `${step.path} is ${status}, but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------- entry
@@ -591,8 +685,11 @@ export function checkProject(projectDirArg: string): CheckReport {
   const signoffs = collectSignoffs(project, refusals);
   const steps = collectSteps(project, refusals);
   const items = collectItems(project, { collection });
-  const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs) : stage;
-  const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection };
+  const planApprovedAt = planApprovedBeforePartsReview(signoffs);
+  const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, steps, planApprovedAt !== null) : stage;
+  // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.
+  const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;
+  const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection, predatesPartsReview };
 
   let parts: PartsSections | null = null;
   let derived: DerivedSet | null = null;

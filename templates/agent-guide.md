@@ -14,12 +14,12 @@ out. Read this page before you touch anything. You need no chat history.
 
 ## The order, and what you may not do
 
-`interview` → `plan-approved` → `rigging` → `rig-review` (the rig alone, on a
-still frame) → `post-interview` → `post` → `direction-review` → `accepted`. Any
-stage can become `paused`.
+`interview` → `plan-approved` → `parts` → `parts-review` (the parts, by eye) →
+`rigging` → `rig-review` (the rig, still frame) → `post-interview` → `post` →
+`direction-review` → `accepted`. Any stage can become `paused`.
 
-- Do not rig before the plan is signed: no rig step runs until `signoffs[]`
-  holds the user's `{ "stage": "plan-approved" }` entry.
+- No rig step runs before the user signs `plan-approved`, and none after
+  `assemble` before they sign `parts-review`.
 - Never move `stage` forward or pass a plan checkpoint yourself. Only a person's
   `signoffs[]` entry does that. You may draft, propose, build and measure in any
   stage.

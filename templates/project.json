@@ -6,6 +6,8 @@
   "stage_values": [
     "interview",
     "plan-approved",
+    "parts",
+    "parts-review",
     "rigging",
     "rig-review",
     "post-interview",

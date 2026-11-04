@@ -54,8 +54,9 @@ folder answers.
 
 ## Stages
 
-`interview` → `plan-approved` → `rigging` → `rig-review` → `post-interview` →
-`post` → `direction-review` → `accepted`, plus `paused`.
+`interview` → `plan-approved` → `parts` → `parts-review` → `rigging` →
+`rig-review` → `post-interview` → `post` → `direction-review` → `accepted`,
+plus `paused`.
 
 **A stage moves only on a human `signoffs[]` entry**: the stage it closes, who,
 when, and the words used. A plan checkpoint is signed the same way, with
@@ -75,7 +76,9 @@ which stages end on a sign-off are written once, in `src/stages.ts`;
 | --- | --- | --- | --- |
 | `interview` | 1 | Framing answers and a guide at every rig waypoint the plan passes ([INTERVIEW.md](INTERVIEW.md)): the user's sentences, a delegation ("auto"), or not applicable — never left for the agent to fill. | The user signs `{ "stage": "interview" }`. |
 | `plan-approved` | 1 | The rig steps (`phase: "rig"`) are drafted from the guides, with the agent's decision written on every delegated item. The user sets each step's checkpoint and signs. | `{ "stage": "plan-approved" }`. |
-| `rigging` | 1 | The rig steps run in order; each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. | The last rig step's bar is met. |
+| `parts` | 1 | The rig steps that make the parts run: `seethrough` and `assemble`. At a step whose checkpoint is on, work stops until `{ "stage": "parts", "checkpoint": "<step id>" }` is signed (the split, [below](#split-approval-is-a-plan-checkpoint)). No bone, mesh or constraint is built. | Every step it runs is `done`, `assemble`'s bar including the parts check passing on the assembled parts. |
+| `parts-review` | 1 | **The parts are reviewed before any rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. A bounce is fixed here, in `parts`. | `{ "stage": "parts-review" }`, signed by a person. |
+| `rigging` | 1 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. It does not start without the `parts-review` sign-off (`PARTS_REVIEW_UNSIGNED`). | The last rig step's bar is met. |
 | `rig-review` | 1 → 3 | **First review, on a still frame**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version: an `accepted` verdict with `review: "rig-review"` on it, resting on its still frame, and `{ "stage": "rig-review" }` signed ([below](#the-rig-review-rests-on-a-still-frame)). |
 | `post-interview` | 2 | The post items (camera and 2.5D, timing, composition) are asked, and the post steps (`phase: "post"`) drafted from them. | The user signs `{ "stage": "post-interview" }` — guides and post steps together. |
 | `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it); post tooling asks `rig-create handoff` first ([below](#the-hand-off-to-post-production)). | The last post step's bar is met. |
@@ -90,6 +93,34 @@ depth complaint cannot bounce a correct rig. `post-interview` mirrors
 so they are not asked about a rig that may still change. A rig change after
 `rig-review` means a new rig version and a new first review, and the post
 version built on the old rig is redone on the new one.
+
+### The parts are reviewed before rigging
+
+A defect in the parts — a part with nothing painted under its occluder, a
+boundary between two parts nobody composed — is cheapest to fix before a bone
+is placed on it. Found at `rig-review`, every build in between was spent on
+parts that were already wrong, and the fix goes back through the split and
+every step after it. So the steps that make the parts (`seethrough`,
+`assemble`) run in their own stage, `parts`, and a person looks at the
+assembled parts before `rigging` starts.
+
+- **`parts` ends on its bar**: the parts check's gates pass on the assembled
+  parts, recorded as `assemble`'s bar met (`status: "done"`). Coverage under
+  occluders joins this bar from rig-c/parts#998 once it ships; until then the
+  bar is the parts check as it is. A project past `parts` with one of its steps
+  not `done` is refused (`PARTS_BAR_UNMET`).
+- **`parts-review` ends on a human sign-off**, `{ "stage": "parts-review",
+  "checkpoint": null }`, given in rig-review's parts view. Without it the stage
+  does not move to `rigging`, and no `rigging` step runs
+  (`PARTS_REVIEW_UNSIGNED`). An agent's entry does not count.
+- **A project that passed `plan-approved` before these two stages existed**
+  (its first `plan-approved` sign-off is dated before 2026-11-04, the
+  `PARTS_REVIEW_SINCE` in `src/stages.ts`) is not given a sign-off nobody made.
+  The check reports it as a warning naming the project
+  (`PARTS_REVIEW_PREDATES_STAGE`): its parts were not reviewed before rigging.
+  Its `assemble` checkpoint, signed then as `rigging`, still counts. The date
+  is read from that sign-off because signing `plan-approved` is the dated,
+  human act that moved the project past where the two stages now stand.
 
 ### The rig review rests on a still frame
 
@@ -160,7 +191,7 @@ a stage and a checkpoint are the same act (a human signature before the next
 piece of work runs), so keeping both would record one approval in two places,
 and the plan lets the user stop at any waypoint, not only the split. The split's
 data (proposal image under `evidence/split/`, parts, labels) lives in `split`;
-its approval is the `signoffs[]` entry with `"checkpoint": "assemble"`. This checkpoint has no
+its approval is the `signoffs[]` entry with `"stage": "parts", "checkpoint": "assemble"`. This checkpoint has no
 default: the user turns it on or off, or delegates it, like every other.
 
 ## The plan

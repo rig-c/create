@@ -1,0 +1,357 @@
+{
+  "schema": "rig-create/split-captions@0",
+  "inputs": {
+    "project": {
+      "path": "example-project.json",
+      "sha256": "deb32e0bf1d1d4507684b14aed1c2839b1e3bfe8e9cd8fae7456f90814fe4c7c"
+    },
+    "config": {
+      "path": "example-split/config.json",
+      "sha256": "7d2adeb37097f12b0dbf649270cc9170399561bfe06574a94b31de62ecbdad60"
+    }
+  },
+  "config": [
+    {
+      "path": "config[\"key\"]",
+      "value": "synthetic-filled-example-split",
+      "text": "config[\"key\"] = \"synthetic-filled-example-split\""
+    },
+    {
+      "path": "config[\"seethrough\"]",
+      "value": {
+        "resolution": 1024,
+        "steps": 4,
+        "seed": 1,
+        "offload": true
+      },
+      "text": "config[\"seethrough\"] = {\"resolution\":1024,\"steps\":4,\"seed\":1,\"offload\":true}"
+    },
+    {
+      "path": "config[\"assemble\"]",
+      "value": {
+        "rig_scale": 0.5,
+        "plan": [
+          [
+            "background",
+            "full",
+            "author:background"
+          ],
+          [
+            "lighthouse",
+            "full",
+            "author:lighthouse"
+          ],
+          [
+            "coat_tail_l",
+            "full",
+            "author:coat_tail_l"
+          ],
+          [
+            "coat_tail_r",
+            "full",
+            "author:coat_tail_r"
+          ],
+          [
+            "legs",
+            "full",
+            "author:legs"
+          ],
+          [
+            "torso",
+            "full",
+            "author:torso"
+          ],
+          [
+            "sleeve_l",
+            "full",
+            "handwear-l"
+          ],
+          [
+            "hand_l",
+            "full",
+            "author:hand_l"
+          ],
+          [
+            "scarf",
+            "full",
+            "author:scarf"
+          ],
+          [
+            "head",
+            "head",
+            "author:head"
+          ],
+          [
+            "hair_tail",
+            "full",
+            "author:hair_tail"
+          ],
+          [
+            "hair_front",
+            "head",
+            "author:hair_front"
+          ],
+          [
+            "eyelids_l",
+            "head",
+            "author:eyelids_l"
+          ],
+          [
+            "eyelids_r",
+            "head",
+            "author:eyelids_r"
+          ],
+          [
+            "sleeve_r",
+            "full",
+            "handwear-r"
+          ],
+          [
+            "hand_r",
+            "full",
+            "author:hand_r"
+          ],
+          [
+            "lantern",
+            "full",
+            "author:lantern"
+          ]
+        ]
+      },
+      "text": "config[\"assemble\"] = {\"rig_scale\":0.5,\"plan\":[[\"background\",\"full\",\"author:background\"],[\"lighthouse\",\"full\",\"author:lighthouse\"],[\"coat_tail_l\",\"full\",\"author:coat_tail_l\"],[\"coat_tail_r\",\"full\",\"author:coat_tail_r\"],[\"legs\",\"full\",\"author:legs\"],[\"torso\",\"full\",\"author:torso\"],[\"sleeve_l\",\"full\",\"handwear-l\"],[\"hand_l\",\"full\",\"author:hand_l\"],[\"scarf\",\"full\",\"author:scarf\"],[\"head\",\"head\",\"author:head\"],[\"hair_tail\",\"full\",\"author:hair_tail\"],[\"hair_front\",\"head\",\"author:hair_front\"],[\"eyelids_l\",\"head\",\"author:eyelids_l\"],[\"eyelids_r\",\"head\",\"author:eyelids_r\"],[\"sleeve_r\",\"full\",\"handwear-r\"],[\"hand_r\",\"full\",\"author:hand_r\"],[\"lantern\",\"full\",\"author:lantern\"]]}"
+    },
+    {
+      "path": "config[\"bones\"]",
+      "value": [
+        {
+          "name": "arm_l0",
+          "parent": "root",
+          "at": [
+            20,
+            20
+          ]
+        },
+        {
+          "name": "arm_l1",
+          "parent": "arm_l0",
+          "at": [
+            20,
+            40
+          ]
+        },
+        {
+          "name": "hand_l",
+          "parent": "arm_l1",
+          "at": [
+            20,
+            60
+          ]
+        },
+        {
+          "name": "arm_r0",
+          "parent": "root",
+          "at": [
+            80,
+            20
+          ]
+        },
+        {
+          "name": "arm_r1",
+          "parent": "arm_r0",
+          "at": [
+            80,
+            40
+          ]
+        },
+        {
+          "name": "hand_r",
+          "parent": "arm_r1",
+          "at": [
+            80,
+            60
+          ]
+        }
+      ],
+      "text": "config[\"bones\"] = [{\"name\":\"arm_l0\",\"parent\":\"root\",\"at\":[20,20]},{\"name\":\"arm_l1\",\"parent\":\"arm_l0\",\"at\":[20,40]},{\"name\":\"hand_l\",\"parent\":\"arm_l1\",\"at\":[20,60]},{\"name\":\"arm_r0\",\"parent\":\"root\",\"at\":[80,20]},{\"name\":\"arm_r1\",\"parent\":\"arm_r0\",\"at\":[80,40]},{\"name\":\"hand_r\",\"parent\":\"arm_r1\",\"at\":[80,60]}]"
+    },
+    {
+      "path": "config[\"limbs\"]",
+      "value": {
+        "arm_l": {
+          "segments": [
+            {
+              "part": "upperarm_l",
+              "from": "sleeve_l",
+              "bone": "arm_l0"
+            },
+            {
+              "part": "forearm_l",
+              "from": "sleeve_l",
+              "bone": "arm_l1",
+              "joint": "elbow",
+              "range": [
+                -5,
+                5
+              ]
+            }
+          ]
+        },
+        "arm_r": {
+          "segments": [
+            {
+              "part": "upperarm_r",
+              "from": "sleeve_r",
+              "bone": "arm_r0"
+            },
+            {
+              "part": "forearm_r",
+              "from": "sleeve_r",
+              "bone": "arm_r1",
+              "joint": "elbow",
+              "range": [
+                -5,
+                5
+              ]
+            }
+          ]
+        }
+      },
+      "text": "config[\"limbs\"] = {\"arm_l\":{\"segments\":[{\"part\":\"upperarm_l\",\"from\":\"sleeve_l\",\"bone\":\"arm_l0\"},{\"part\":\"forearm_l\",\"from\":\"sleeve_l\",\"bone\":\"arm_l1\",\"joint\":\"elbow\",\"range\":[-5,5]}]},\"arm_r\":{\"segments\":[{\"part\":\"upperarm_r\",\"from\":\"sleeve_r\",\"bone\":\"arm_r0\"},{\"part\":\"forearm_r\",\"from\":\"sleeve_r\",\"bone\":\"arm_r1\",\"joint\":\"elbow\",\"range\":[-5,5]}]}}"
+    },
+    {
+      "path": "config[\"meshes\"]",
+      "value": {},
+      "text": "config[\"meshes\"] = {}"
+    },
+    {
+      "path": "config[\"regions\"]",
+      "value": {
+        "background": "root",
+        "lighthouse": "root",
+        "coat_tail_l": "root",
+        "coat_tail_r": "root",
+        "legs": "root",
+        "torso": "root",
+        "upperarm_l": "arm_l0",
+        "forearm_l": "arm_l1",
+        "hand_l": "hand_l",
+        "scarf": "root",
+        "head": "root",
+        "hair_tail": "root",
+        "hair_front": "root",
+        "eyelids_l": "root",
+        "eyelids_r": "root",
+        "upperarm_r": "arm_r0",
+        "forearm_r": "arm_r1",
+        "hand_r": "hand_r",
+        "lantern": "hand_r"
+      },
+      "text": "config[\"regions\"] = {\"background\":\"root\",\"lighthouse\":\"root\",\"coat_tail_l\":\"root\",\"coat_tail_r\":\"root\",\"legs\":\"root\",\"torso\":\"root\",\"upperarm_l\":\"arm_l0\",\"forearm_l\":\"arm_l1\",\"hand_l\":\"hand_l\",\"scarf\":\"root\",\"head\":\"root\",\"hair_tail\":\"root\",\"hair_front\":\"root\",\"eyelids_l\":\"root\",\"eyelids_r\":\"root\",\"upperarm_r\":\"arm_r0\",\"forearm_r\":\"arm_r1\",\"hand_r\":\"hand_r\",\"lantern\":\"hand_r\"}"
+    },
+    {
+      "path": "config[\"motion\"]",
+      "value": {
+        "duration": 4,
+        "tracks": []
+      },
+      "text": "config[\"motion\"] = {\"duration\":4,\"tracks\":[]}"
+    }
+  ],
+  "parts": [
+    {
+      "name": "background",
+      "label": "still",
+      "text": "\"background\" = \"still\""
+    },
+    {
+      "name": "lighthouse",
+      "label": "still",
+      "text": "\"lighthouse\" = \"still\""
+    },
+    {
+      "name": "coat_tail_l",
+      "label": "wind",
+      "text": "\"coat_tail_l\" = \"wind\""
+    },
+    {
+      "name": "coat_tail_r",
+      "label": "wind",
+      "text": "\"coat_tail_r\" = \"wind\""
+    },
+    {
+      "name": "legs",
+      "label": "still",
+      "text": "\"legs\" = \"still\""
+    },
+    {
+      "name": "torso",
+      "label": "still",
+      "text": "\"torso\" = \"still\""
+    },
+    {
+      "name": "upperarm_l",
+      "label": "still",
+      "text": "\"upperarm_l\" = \"still\""
+    },
+    {
+      "name": "forearm_l",
+      "label": "still",
+      "text": "\"forearm_l\" = \"still\""
+    },
+    {
+      "name": "hand_l",
+      "label": "still",
+      "text": "\"hand_l\" = \"still\""
+    },
+    {
+      "name": "scarf",
+      "label": "wind",
+      "text": "\"scarf\" = \"wind\""
+    },
+    {
+      "name": "head",
+      "label": "rigid",
+      "text": "\"head\" = \"rigid\""
+    },
+    {
+      "name": "hair_tail",
+      "label": "wind",
+      "text": "\"hair_tail\" = \"wind\""
+    },
+    {
+      "name": "hair_front",
+      "label": "still",
+      "text": "\"hair_front\" = \"still\""
+    },
+    {
+      "name": "eyelids_l",
+      "label": "still",
+      "text": "\"eyelids_l\" = \"still\""
+    },
+    {
+      "name": "eyelids_r",
+      "label": "still",
+      "text": "\"eyelids_r\" = \"still\""
+    },
+    {
+      "name": "upperarm_r",
+      "label": "still",
+      "text": "\"upperarm_r\" = \"still\""
+    },
+    {
+      "name": "forearm_r",
+      "label": "still",
+      "text": "\"forearm_r\" = \"still\""
+    },
+    {
+      "name": "hand_r",
+      "label": "still",
+      "text": "\"hand_r\" = \"still\""
+    },
+    {
+      "name": "lantern",
+      "label": "rigid",
+      "text": "\"lantern\" = \"rigid\""
+    }
+  ]
+}

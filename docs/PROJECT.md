@@ -213,6 +213,49 @@ data (proposal image under `evidence/split/`, parts, labels) lives in `split`;
 its approval is the `signoffs[]` entry with `"stage": "parts", "checkpoint": "assemble"`. This checkpoint has no
 default: the user turns it on or off, or delegates it, like every other.
 
+### Generated split captions
+
+```sh
+rig-create split-captions [<project dir|project.json>] [--config <file>]
+```
+
+The command prints `rig-create/split-captions@0` JSON to stdout. A directory
+uses its `project.json`, and the default is the current directory. Config
+paths are relative to the project record's directory, defaulting to
+`config.json`. Redirect the result into the proposal's evidence directory.
+
+`inputs` records the project and config paths and SHA-256 of their exact bytes.
+`config[]` carries each top-level setting's `path`, structured `value` and
+machine-generated `text` (`path = JSON(value)`), including the assembly scale,
+plan, limb routes and bone bindings. `parts[]` preserves `split.parts` order
+and carries each `name`, `label` and generated `text` (`JSON(name) = JSON(label)`).
+A sheet renderer can use those strings directly. Every caption comes from the
+input data. Config annotations (`note`, `*_note`, `x-*`) are omitted, preserving
+exact-name map keys, including limb names, turn depth part names and depth
+source-layer names. `split.parts.note` is excluded.
+
+The installed parts parser validates complete rig configs through its full
+config door, and incomplete configs through its early `assemble` door, which
+checks the split's settings and reads bones with declared limbs. The output
+records declarations. Pixel assembly, rendered scale and motion acceptance
+require their own evidence. Exit 1 names an unreadable or malformed input,
+unknown project schema, malformed or duplicate split name, invalid label, or
+parts config refusal. Usage errors exit 2. Refusals produce no caption stdout.
+
+The worked list is [example-split/captions.json](../templates/example-split/captions.json),
+generated with the existing filled record and a synthetic config. Regenerate it
+from the repository root with
+
+```sh
+bun src/cli.ts split-captions templates/example-project.json --config example-split/config.json > templates/example-split/captions.json
+```
+
+[example-split/config.json](../templates/example-split/config.json) supplies
+synthetic config bytes because the filled record's historical config paths
+have no corresponding files. Its scale, coordinates, source tags, bindings and
+empty motion tracks are test inputs. The painting, split layers and rig output
+remain unverified by this caption fixture.
+
 ## The plan
 
 The plan lives in `project.json` `plan`, not in a separate file: `project.json`

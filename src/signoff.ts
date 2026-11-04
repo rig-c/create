@@ -1,11 +1,13 @@
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { asArray, classify, isObject } from './check.ts';
+import { asArray, classify, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
+import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { PHASE_APPROVED_BY, STAGE_VALUES } from './stages.ts';
+import { PARTS_REVIEW, PHASE_APPROVED_BY, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -14,10 +16,12 @@ export const SIGNOFF_HELP = `signoff:
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
   --steps <id,id,...>      narrow plan-approved rig steps or post-interview post steps
+  --checkpoint <id>       sign an enabled checkpoint in this execution stage
+  --evidence <path>       required on parts-review, the approved parts verdict file
   --json                  print the signature as JSON
   The clock supplies at. With no --steps, signs all steps of the stage's phase.
   Fills null checkpoints from checkpoint_proposed and hashes covered steps after filling.
-  Existing checkpoints are preserved. Other stages record a signature only.`;
+  Existing checkpoints are preserved. Parts-review validates evidence before recording.`;
 
 export function signoffCommand(args: string[]): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
@@ -26,7 +30,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') json = true;
-    else if (['--by', '--verbatim-file', '--steps'].includes(arg)) {
+    else if (['--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -41,6 +45,42 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
   if (!Array.isArray(project.signoffs)) refuse('SIGNOFF_MALFORMED', 'signoffs must be a list');
+  const checkpointId = opts['--checkpoint'];
+  if (checkpointId !== undefined) {
+    if (opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--checkpoint and --steps cannot be combined', USAGE_EXIT);
+    const spec = STAGES.find((spec) => spec.id === stage);
+    const matches = asArray(isObject(project.plan) ? project.plan.steps : undefined)
+      .filter((step): step is JsonObject => isObject(step) && step.id === checkpointId);
+    const step = matches[0];
+    if (matches.length !== 1 || spec?.phase === undefined || step.phase !== spec.phase || stageOfStep(spec.phase, checkpointId) !== stage) {
+      refuse('SIGNOFF_CHECKPOINT_INVALID', `${checkpointId}: no unique step runs in stage ${stage}`);
+    }
+    const checkpoint = classify(step.checkpoint, { collection: null });
+    const on = checkpoint.state === 'user' ? checkpoint.answer.value
+      : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
+    if (on !== true) refuse('SIGNOFF_CHECKPOINT_INVALID', `${checkpointId}: checkpoint must be enabled before it can be signed`);
+  }
+  if ((stage === PARTS_REVIEW) !== (opts['--evidence'] !== undefined)) {
+    refuse('SIGNOFF_OPTION_INVALID', '--evidence is required on parts-review and only accepted there', USAGE_EXIT);
+  }
+  let evidence: JsonObject | undefined;
+  if (opts['--evidence'] !== undefined) {
+    let verdictFile: string;
+    try {
+      verdictFile = realpathSync(resolve(dir, opts['--evidence']));
+    } catch (error) {
+      refuse('PARTS_VERDICT_UNREAD', `${opts['--evidence']}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const path = relative(realpathSync(dir), verdictFile).split(sep).join('/');
+    if (path === '' || path.startsWith('..') || isAbsolute(path)) refuse('PARTS_VERDICT_UNREAD', 'the verdict must be under the project');
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(verdictFile);
+    } catch (error) {
+      refuse('PARTS_VERDICT_UNREAD', `${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    evidence = { kind: PARTS_VERDICT_KIND, path, sha256: createHash('sha256').update(bytes).digest('hex') };
+  }
   const phase = Object.entries(PHASE_APPROVED_BY).find(([, approvedBy]) => approvedBy === stage)?.[0];
   if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved or post-interview', USAGE_EXIT);
   const requested = opts['--steps']?.split(',');
@@ -63,6 +103,12 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     if (typeof value !== 'boolean') refuse('SIGNOFF_CHECKPOINT_INVALID', `${String(step.id)}: checkpoint needs a boolean user answer or a decided boolean delegation`);
   }
   const verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
+  if (evidence !== undefined) {
+    const refusals: Finding[] = [];
+    checkPartsVerdict(dir, { evidence }, `signoffs[${project.signoffs.length}]`, refusals);
+    const first = refusals[0];
+    if (first !== undefined) refuse(first.code, first.message);
+  }
   const at = new Date().toISOString();
   const hashes: JsonObject = Object.create(null) as JsonObject;
   for (const step of covered) {
@@ -71,7 +117,8 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     }
     hashes[step.id as string] = stepHash(step);
   }
-  const signoff: JsonObject = { stage, checkpoint: null, by, at, verbatim };
+  const signoff: JsonObject = { stage, checkpoint: checkpointId ?? null, by, at, verbatim };
+  if (evidence !== undefined) signoff.evidence = evidence;
   if (phase !== undefined) {
     signoff.steps = ids;
     signoff.step_hashes = hashes;

@@ -7,6 +7,7 @@ import { signoffCommand } from '../src/signoff.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step } from './fixtures.ts';
+import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { CLI, cli, gitEnv } from './helpers.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -111,4 +112,69 @@ test('step hash pinned vector, recursive ordering and status exclusion', () => {
   expect(stepHash({ ...s, status: 'done' })).toBe(stepHash(s));
   expect(stepHash({ ...s, checkpoint: Object.fromEntries(Object.entries(obj(s.checkpoint)).reverse()) })).toBe(stepHash(s));
   expect(stepHash({ ...s, bar: 'changed' })).not.toBe(stepHash(s));
+});
+
+
+describe('parts-review evidence and execution checkpoints', () => {
+  test('records the approved verdict hash and clears the check without hand edits', () => {
+    const dir = fixture((p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'parts-review'); });
+    expect(checkProject(dir).refusals.map((r) => r.code)).toContain('PARTS_REVIEW_UNSIGNED');
+    const result = cli(['signoff', 'parts-review', '--by', 'user', '--evidence', join(dir, EXAMPLE_VERDICT), '--verbatim-file', input(dir)], dir, gitEnv());
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    const signed = obj(arr(read(dir).signoffs).at(-1));
+    expect(signed.evidence).toEqual({ kind: 'parts-verdict', path: EXAMPLE_VERDICT, sha256: new Bun.CryptoHasher('sha256').update(readFileSync(join(dir, EXAMPLE_VERDICT))).digest('hex') });
+    expect(cli(['interview', '--check', '--json'], dir, gitEnv()).code).toBe(0);
+  });
+
+  test.each(['unapproved', 'malformed', 'stale'])('refuses %s evidence before writing', (kind) => {
+    const dir = fixture();
+    const file = join(dir, EXAMPLE_VERDICT);
+    const verdict = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    if (kind === 'malformed') writeFileSync(file, '{');
+    else if (kind === 'unapproved') { verdict.status = 'needs-work'; writeFileSync(file, JSON.stringify(verdict)); }
+    else {
+      const source = obj(arr(obj(verdict.source).files)[0]);
+      writeFileSync(join(dir, EXAMPLE_VERDICT, '..', source.path as string), 'changed');
+    }
+    const before = readFileSync(join(dir, 'project.json'));
+    const r = cli(['signoff', 'parts-review', '--by', 'user', '--evidence', EXAMPLE_VERDICT, '--verbatim-file', input(dir)], dir, gitEnv());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(kind === 'unapproved' ? 'PARTS_VERDICT_NOT_APPROVED' : kind === 'malformed' ? 'PARTS_VERDICT_UNREAD' : 'PARTS_VERDICT_SOURCE_CHANGED');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test('evidence is required only at parts-review', () => {
+    const dir = fixture();
+    const before = readFileSync(join(dir, 'project.json'));
+    expect(cli(['signoff', 'parts-review', '--by', 'user'], dir, gitEnv()).code).toBe(2);
+    expect(cli(['signoff', 'rig-review', '--by', 'user', '--evidence', EXAMPLE_VERDICT], dir, gitEnv()).code).toBe(2);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test.each([['rigging', 'constraints'], ['parts', 'assemble']])('signs %s checkpoint %s and clears the check', (stage, id) => {
+    const dir = fixture((p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).checkpoint !== id); });
+    expect(checkProject(dir).refusals.map((r) => r.code)).toContain('CHECKPOINT_UNSIGNED');
+    expect(cli(['signoff', stage, '--checkpoint', id, '--by', 'user', '--verbatim-file', input(dir)], dir, gitEnv()).code).toBe(0);
+    const signed = obj(arr(read(dir).signoffs).at(-1));
+    expect(signed.checkpoint).toBe(id);
+    expect(signed.step_hashes).toBeUndefined();
+    expect(signed.steps).toBeUndefined();
+    expect(cli(['interview', '--check', '--json'], dir, gitEnv()).code).toBe(0);
+  });
+
+  test.each([['rigging', 'bones'], ['rigging', 'assemble'], ['rigging', 'camera'], ['rigging', 'missing'], ['plan-approved', 'constraints']])('refuses %s checkpoint %s', (stage, id) => {
+    const dir = fixture();
+    const before = readFileSync(join(dir, 'project.json'));
+    const result = cli(['signoff', stage, '--checkpoint', id, '--by', 'user', '--verbatim-file', input(dir)], dir, gitEnv());
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('SIGNOFF_CHECKPOINT_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test('checkpoint cannot be combined with steps', () => {
+    const dir = fixture();
+    const before = readFileSync(join(dir, 'project.json'));
+    expect(cli(['signoff', 'rigging', '--checkpoint', 'constraints', '--steps', 'constraints', '--by', 'user'], dir, gitEnv()).code).toBe(2);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
 });

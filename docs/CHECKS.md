@@ -424,11 +424,11 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 
 | Code | Fires when |
 | --- | --- |
-| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, or `--steps` outside a plan approval stage (exit 2) |
+| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, missing parts-review `--evidence` or evidence on another stage (exit 2) |
 | `SIGNOFF_NOT_HUMAN` | `--by` is `agent`, case-insensitively |
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_STEP_INVALID` | coverage is empty, ids are missing or repeated, or a requested step is outside the stage's phase (malformed `--steps` exits 2) |
-| `SIGNOFF_CHECKPOINT_INVALID` | a covered step has no boolean `checkpoint_proposed`, an undecided delegation or no boolean checkpoint answer |
+| `SIGNOFF_CHECKPOINT_INVALID` | a covered step has no boolean `checkpoint_proposed`, an undecided delegation or no boolean checkpoint answer; `--checkpoint` also refuses a missing, ambiguous, disabled or wrong-stage step |
 | `UNKNOWN_OPTION` | an unsupported option, including `signoff --at` (exit 2) |
 | `VERBATIM_UNREADABLE` | a verbatim file or stdin cannot be read |
 | `VERBATIM_INVALID_UTF8` | the input cannot round-trip as UTF-8 through JSON (exit 2) |
@@ -436,3 +436,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | `REVIEW_OPTION_INVALID` | invalid `--at`, malformed feedback ref, or both `--verbatim` and `--verbatim-file` (exit 2) |
 | `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version |
 | `FEEDBACK_REF_DUPLICATE` | the reference already exists or occurs twice in this command |
+
+`signoff parts-review --evidence` also uses the existing `PARTS_VERDICT_*`
+refusals from the parts verdict reader before recording anything. `--checkpoint`
+records an enabled execution checkpoint without a plan hash or phase approval.

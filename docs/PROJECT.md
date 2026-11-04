@@ -279,9 +279,20 @@ its original bytes.
 
 For `plan-approved`, coverage is every rig step. For `post-interview`, it is
 every post step. `--steps` narrows coverage within that phase and stores the
-covered ids in `steps[]`. Other stages append only a signature and refuse
-`--steps`. Signing a stage leaves its evidence requirements to the check,
-including the parts-review verdict record.
+covered ids in `steps[]`. Execution stages accept `--checkpoint <step id>`
+when that step runs in the
+named stage and its recorded checkpoint is enabled. This records
+`checkpoint: <step id>`, without `steps` or `step_hashes`. It cannot be combined
+with `--steps`.
+
+`parts-review` requires `--evidence <verdict path>`. The command stores
+`{ kind: "parts-verdict", path, sha256 }`, resolving filesystem links,
+normalising the path to project-relative POSIX form and hashing the file. The existing parts-verdict reader validates
+approval, shape and source freshness before anything is written. Other stages
+refuse `--evidence`.
+
+Only `plan-approved` and `post-interview` accept `--steps`. Stage movement
+remains a separate act read by the check.
 
 Each covered step needs a boolean `checkpoint_proposed`. A null checkpoint
 becomes `{ delegated: false, by, at, verbatim, value: checkpoint_proposed }`.

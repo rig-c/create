@@ -78,7 +78,7 @@ function inside(dir: string, file: string): boolean {
   return rel !== '' && !rel.startsWith('..') && !rel.startsWith(sep);
 }
 
-function readObject(dir: string, file: string, sha256: string | null): Read {
+export function readObject(dir: string, file: string, sha256: string | null): Read {
   if (!inside(dir, file)) return { ok: false, why: `${relative(dir, file)} is not under the project` };
   if (!existsSync(file)) return { ok: false, why: `${relative(dir, file)} is not there` };
   let bytes: Buffer;

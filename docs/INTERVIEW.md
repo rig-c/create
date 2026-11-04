@@ -595,3 +595,31 @@ Record answered asks with `state: "user"`. Never treat an answer to the crux as
 an answer to the remainder, or silently turn silence into delegation. The user
 still sees plain questions, not internal ids. `agent_decision.covers` remains
 free text; per-ask coverage is a separate list (PROJECT.md § Per-ask guide coverage).
+
+### Projection and ground at assemble
+
+Ask projection on every new assemble interview. Core keeps the part mask as
+its boundary. Visible follows the painting rim and can take backdrop pixels.
+Record the `projection` ask in the guide's `asks`, with `value.project` set to
+`core` or `visible` for a user answer. A delegated choice goes in
+`agent_decision.value.project`, with the existing reasoning and `covers` rules.
+
+Only visible asks `ground`. Plain preserves the existing rim projection.
+Busy limits backdrop pickup around thin parts. The author answers `plain` or
+`busy`, recorded as `value.ground` for a user answer or
+`agent_decision.value.ground` for a decided delegation. Keep the user's words
+and time with the guide. For example, a user guide can contain
+`"value": {"project": "visible", "ground": "busy"}` and
+`"asks": [{"id": "projection", "state": "user"}, {"id": "ground", "state": "user"}]`
+beside its other asks.
+
+The agent writes these answers as `assemble.project` and, for visible,
+`assemble.ground` in the project config. Create has no config-writing command.
+Parts' `ASSEMBLE_GROUND_PLAIN` WARN reports a plain-declared border that is not
+mostly one colour. A busy ground and a figure crossing the border can both
+cause it, so keep the warning for the author to judge. A measured interview
+proposal awaits parts#1023's public CLI reading.
+
+Guides predating `PROJECTION_ASKS_SINCE` (2026-11-06T00:00:00Z) retain the old
+contract and receive `GUIDE_ASKS_LEGACY` when a new applicable ask is absent.
+Core has no ground ask or ground refusal.

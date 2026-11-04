@@ -4,8 +4,8 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 
 ## Start here
 
-1. Read `project.json` first. Only decisions recorded there count. Copy chat
-   decisions verbatim, with speaker and time.
+1. Read `project.json` first. Only its decisions count. Copy chat decisions
+   verbatim, with speaker and time.
 2. Resume per {{RESUME_LINK}}. Read `stage`, last `signoffs[]`, first
    `plan.steps[]` not `done`, and last `versions[]` for status and next work.
 
@@ -39,6 +39,8 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 - **Derive first.** Take every answer that earlier answers, an intake note or a
   reviewer's past verdicts already give ({{DERIVED_LINK}}); ask only what is
   left, in one short message. Nothing is derived from the image.
+- **Projection.** Ask core/visible, then plain/busy only for visible. Record the
+  assemble guide values and write `assemble.project`/`assemble.ground` in config.
 - **Upscale first.** A painting smaller than the rig needs is upscaled before it
   goes into `inputs/`; one already there gets its upscale as a new input.
 - **The crux is a bar.** The user's named risk becomes a measured bar in the
@@ -101,9 +103,8 @@ Read each before its step.
 
 {{READ_FIRST}}
 
-Read installed package docs at `package.json`'s pins. They match the tools you
-run, so read them here, not from memory. When a refusal gives a
-`(see … guide …)` command, run it before making changes.
+Read installed docs here at `package.json`'s pins to match tools, not memory.
+Run refusal `(see … guide …)` commands before changes.
 
 {{PACKAGE_DOCS}}
 

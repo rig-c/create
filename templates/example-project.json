@@ -29,7 +29,7 @@
     { "stage": "direction-review", "checkpoint": null, "by": "user", "at": "2026-11-15T11:00:00Z", "verbatim": "done, I like it" }
   ],
   "interview": {
-    "question_set": "rig-create/interview@0 (waypoints read from @rig-c/parts 2.4.1)",
+    "question_set": "rig-create/interview@0 (waypoints read from @rig-c/parts 2.8.0)",
     "held": true,
     "date": "2026-11-10",
     "interviewer": "agent",
@@ -151,8 +151,9 @@
           "delegated": false,
           "by": "user",
           "at": "2026-11-10T14:06:00Z",
-          "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you.",
+          "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
           "value": {
+            "project": "core",
             "split_granularity": "standard",
             "split_emphasis": [
               {
@@ -199,6 +200,7 @@
             "reasoning": "Standard cut: limbs at shoulder, elbow and wrist; the coat tails and scarf as their own parts because the constraints guide puts wind on them; the hair tail its own part for the same reason. Nothing is cut below the knee because nothing there moves."
           },
           "asks": [
+            { "id": "projection", "state": "user" },
             {
               "id": "cut",
               "state": "user"

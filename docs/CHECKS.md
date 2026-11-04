@@ -255,7 +255,7 @@ Exit `1`. Each names its object in `path`.
 | `STEP_BASIS_SILENT` | `rests_on` names an item that has no answer | answer the item (it is also reported on its own) |
 | `STEP_NOT_A_WAYPOINT` | a `rig` step's `id` is not a waypoint id | one step per waypoint, named after it |
 | `STEP_MISSING_FOR_WAYPOINT` | the plan is signed, a waypoint has a guide or a delegation, and no rig step has its id | add the step, or answer the waypoint not applicable if the plan does not pass it |
-| `SIGNOFF_BEFORE_PLAN` | a plan-approved sign-off predates `plan.drafted_at` | sign the drafted plan before running its steps |
+| `SIGNOFF_BEFORE_PLAN` | plan-approved is signed, but no stage-level approval is at or after `plan.drafted_at` | sign the drafted plan before running its steps |
 | `GUIDE_PARTIAL_UNMARKED` | a user guide has `agent_decision` without nonempty `covers` | name the delegated remainder in `agent_decision.covers` and write its value and reasoning before plan approval |
 | `STEP_STATUS_UNKNOWN` | an explicit step status is outside `pending`, `in-progress`, `at-checkpoint`, `done` | use `pending` before approval, then a documented running status |
 | `STEP_RUN_UNAPPROVED` | a step is past `pending` and no sign-off of its approving stage covers it | keep the step `pending` until the plan is signed (a re-sign with `steps[]` covers only the steps it names) |

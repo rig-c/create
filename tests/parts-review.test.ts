@@ -78,7 +78,7 @@ describe('plan-approved → parts → parts-review → rigging', () => {
         atRiggingStart(p);
         p.stage = 'parts';
         dropSignoffs(p, (s) => s.stage !== 'parts-review');
-        step(p, 'assemble').status = 'running';
+        step(p, 'assemble').status = 'in-progress';
       }),
     );
     expect(codes(report)).toEqual([]);
@@ -100,7 +100,7 @@ describe('plan-approved → parts → parts-review → rigging', () => {
         atRiggingStart(p);
         dropSignoffs(p, (s) => s.stage !== 'parts-review' && s.stage !== 'parts');
         step(p, 'seethrough').status = 'pending';
-        step(p, 'assemble').status = 'running';
+        step(p, 'assemble').status = 'in-progress';
       }),
     );
     expect(codes(report).sort()).toEqual(['PARTS_BAR_UNMET', 'PARTS_BAR_UNMET', 'PARTS_REVIEW_UNSIGNED']);
@@ -150,7 +150,7 @@ describe('paused, with the parts stage in it', () => {
         atRiggingStart(p);
         dropSignoffs(p, (s) => s.stage === 'interview' || s.stage === 'plan-approved');
         step(p, 'seethrough').status = 'done';
-        step(p, 'assemble').status = 'running';
+        step(p, 'assemble').status = 'in-progress';
         pause(p);
       }),
     );
@@ -176,7 +176,7 @@ describe('paused, with the parts stage in it', () => {
         atRiggingStart(p);
         // meshes and motion: steps whose guides did not change after the first plan sign-off (the example re-signs bones and constraints).
         step(p, 'meshes').status = 'done';
-        step(p, 'motion').status = 'running';
+        step(p, 'motion').status = 'in-progress';
         pause(p);
       }),
     );
@@ -190,7 +190,7 @@ describe('paused, with the parts stage in it', () => {
         atRiggingStart(p);
         p.stage = 'parts-review';
         dropSignoffs(p, (s) => s.stage !== 'parts-review');
-        step(p, 'assemble').status = 'running';
+        step(p, 'assemble').status = 'in-progress';
       }),
     );
     expect(withCode(report, 'PARTS_BAR_UNMET').map((f) => f.path)).toEqual(['plan.steps[assemble]']);

@@ -466,11 +466,27 @@ describe('review fixes: an agent decision is real and dated', () => {
 describe('pilot sign-off and step status gaps', () => {
   test('a plan approval before its draft is refused by sign-off path', () => {
     const report = checkProject(fixture((p) => {
+      dropSignoffs(p, (s) => !(s.stage === 'plan-approved' && Array.isArray(s.steps)));
       signoffs(p).find((s) => s.stage === 'plan-approved')!.at = '2026-11-10T15:00:00Z';
     }));
     const found = withCode(report, 'SIGNOFF_BEFORE_PLAN');
     expect(found.map((f) => f.path)).toEqual(['signoffs[1]']);
     expect(found[0]?.message).toContain('plan.drafted_at');
+  });
+
+  test('a redraft signed again preserves the earlier approval as history', () => {
+    const report = checkProject(fixture((p) => {
+      obj(p.plan).drafted_at = '2026-11-12T10:00:00Z';
+    }));
+    expect(withCode(report, 'SIGNOFF_BEFORE_PLAN')).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  test('an unsigned redraft names the latest historical approval', () => {
+    const report = checkProject(fixture((p) => {
+      obj(p.plan).drafted_at = '2026-11-12T11:00:00Z';
+    }));
+    expect(withCode(report, 'SIGNOFF_BEFORE_PLAN').map((f) => f.path)).toEqual(['signoffs[5]']);
   });
 
   test('an interview signature may predate the plan draft', () => {

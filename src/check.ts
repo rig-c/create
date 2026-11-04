@@ -583,11 +583,13 @@ function checkStages(ctx: Ctx): void {
   const paused = ctx.stage === PAUSED_STAGE;
   const plan = isObject(ctx.project.plan) ? ctx.project.plan : {};
   const draftedAt = time(plan.drafted_at);
+  const approval = latestSignoff(ctx, PHASE_APPROVED_BY.rig);
+  if (approval !== undefined && Number.isFinite(draftedAt) && !(approval.at >= draftedAt)) {
+    const path = `signoffs[${approval.index}]`;
+    ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: no plan-approved sign-off is at or after plan.drafted_at ${String(plan.drafted_at)}; sign the drafted plan before running its steps` });
+  }
   for (const s of ctx.signoffs) {
     const path = `signoffs[${s.index}]`;
-    if (s.stage === PHASE_APPROVED_BY.rig && s.checkpoint === null && s.at < draftedAt) {
-      ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: plan-approved sign-off at ${String(s.record.at)} predates plan.drafted_at ${String(plan.drafted_at)}; sign the drafted plan before running its steps` });
-    }
     const idx = stageIndex(s.stage);
     if (idx === -1 && s.stage !== PAUSED_STAGE) {
       ctx.refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: stage '${s.stage}' is not a stage (${STAGE_VALUES.join(', ')})` });

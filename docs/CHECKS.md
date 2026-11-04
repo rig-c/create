@@ -37,6 +37,18 @@ a plan step), written to `project.json`.
   stages end on a sign-off (`interview`, `plan-approved`, `rig-review`,
   `post-interview`, `direction-review`) and which end when the last step of
   their phase meets its bar (`rigging`, `post`).
+- **The parts verdict** a `parts-review` sign-off rests on is the file its
+  `evidence.path` names, relative to the project, and nothing else. Its
+  `source.files[]` paths are relative to the verdict file's own directory
+  (POSIX), so a verdict kept outside the parts directory lists `../` paths.
+  Every listed file is hashed again, and `source.sha256` is recomputed from the
+  entries the way rig-review defines it; the field is never trusted. It is
+  read from the latest `parts-review` sign-off once rigging has started, and
+  only while the parts gate rigging: the stage is at most `rigging`, or no rig
+  version has an accepted rig-review verdict yet. After acceptance a part
+  change is a new rig version (`RIG_VERSION_UNACCEPTED`), and an accepted
+  project on a fresh clone, whose `derived/` parts are not there, is not
+  refused for them.
 - **A collection member** (`<collection>/members/<name>/project.json`) has its
   `inherited` answers resolved against `<collection>/collection.json`. An
   inherited answer whose collection answer is `null` (or `"per-member"`) is
@@ -247,6 +259,14 @@ Exit `1`. Each names its object in `path`.
 | `SIGNOFF_UNKNOWN_CHECKPOINT` | a sign-off's `checkpoint` names no step that runs in that stage | name the step |
 | `PARTS_BAR_UNMET` | the stage is past `parts` and a step it runs (`seethrough`, `assemble`) is not `done` | finish the step and meet its bar (the parts check passing on the assembled parts), or move the stage back to `parts` |
 | `PARTS_REVIEW_UNSIGNED` | the stage is past `parts-review`, or a `rigging` step is past `pending`, and no person signed `{ "stage": "parts-review", "checkpoint": null }` | the user reviews the assembled parts in rig-review's parts view and signs; until then the stage stays at `parts-review` and no rig step after `assemble` runs ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
+| `PARTS_VERDICT_MISSING` | rigging has started (the stage is past `parts-review`, or a `rigging` step is past `pending`), no rig version is accepted at rig-review yet or the stage is at most `rigging`, and the latest `parts-review` sign-off has no `evidence` of `kind: "parts-verdict"` with a `path` and a `sha256`; an in-flight project (`PARTS_REVIEW_PREDATES_STAGE`) is not asked | record the verdict the review wrote as the sign-off's `evidence: { kind: "parts-verdict", path, sha256 }`, `path` relative to the project ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
+| `PARTS_VERDICT_UNREAD` | the evidence `path` leaves the project, the file is not there, its bytes do not hash to the evidence `sha256`, or it is not a JSON object; the check reads exactly that file, never a default location | restore the file the sign-off names, or review again and sign with the new verdict |
+| `PARTS_VERDICT_SCHEMA_UNKNOWN` | the verdict's `schema` is not `rig-review-parts-verdict/1` | sign with a verdict written by rig-review's parts view |
+| `PARTS_VERDICT_ATLAS` | the verdict's `mode` is `atlas`: a built rig's atlas was reviewed, which is informational and never gates `parts-review` | review the assembled parts (`rig-review parts` on the parts package) and sign with that verdict |
+| `PARTS_VERDICT_MALFORMED` | `mode` is neither `parts` nor `atlas`, `source.files[]` is empty or has an entry without `path`, `bytes` and `sha256`, an entry is not a POSIX path relative to the verdict's directory or leaves the project, or `parts.json` is not the first entry | sign with a verdict written by rig-review's parts view |
+| `PARTS_VERDICT_NOT_APPROVED` | the verdict's `status` is `pending` or `changes-requested` | fix the flagged parts in `parts`, review again until every part is clean, and sign with the approved verdict |
+| `PARTS_VERDICT_SOURCE_CHANGED` | a `source.files[]` entry, resolved against the verdict file's directory, is not on disk, or its byte count or sha256 is not the one reviewed: a part added, removed or repainted after the sign-off | review the parts as they now are and sign again; a parts change after sign-off is a new review |
+| `PARTS_VERDICT_SOURCE_MISMATCH` | `source.sha256` is not the sha256 of the UTF-8 lines `<path>\t<sha256>\n` over `source.files[]`, sorted by path bytewise; the check recomputes it and never trusts the field | sign with a verdict written by rig-review's parts view, unedited |
 | `STAGE_UNSIGNED` | the project's `stage` is past a stage that ends on a sign-off, and no `{ "stage": <it>, "checkpoint": null }` entry exists | the person signs it, or the stage goes back to where the signatures reach |
 | `VERSION_MALFORMED` | a `versions[]` entry has no integer `n`, a `kind` other than `rig` / `post`, or a rig version has a non-null `rig_version` | fix the entry ([PROJECT.md § Versions](PROJECT.md#versions)) |
 | `STILL_MALFORMED` | an `evidence[]` entry of `kind: "still"` lacks `path` or a 64-hex `sha256`, has a `camera` other than `"fixed"`, or no `frame` ≥ 0 | write it in the still-frame shape ([PROJECT.md § The rig review rests on a still frame](PROJECT.md#the-rig-review-rests-on-a-still-frame)); it does not count as a still until it is |

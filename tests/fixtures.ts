@@ -9,11 +9,18 @@ import { dirname, join } from 'node:path';
 import type { CheckReport } from '../src/check.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
+import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 
 export type Mutate = (project: JsonObject) => void;
 
-/** A project folder holding `template` (default: the filled example) after `mutate`; `files` are written under it (path → content). */
+/**
+ * A project folder holding `template` (default: the filled example) after
+ * `mutate`; `files` are written under it (path → content). The filled example
+ * also gets the assembled parts and the approved verdict its parts-review
+ * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
+ */
 export function fixture(mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string> = {}): string {
+  if (template === 'example-project.json') files = { ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
   const dir = join(tempDir(), 'project');
   mkdirSync(dir);
   const project = readTemplate(template);

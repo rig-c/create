@@ -307,6 +307,9 @@ will see the assembled parts before anything is rigged, and why: a part with
 nothing under its occluder, or a seam between two parts, is cheap to fix then
 and expensive after every rig build made on it
 ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)).
+Their sign-off is the verdict they save in rig-review's parts view: it is
+recorded with the `parts-review` sign-off as evidence, and a part changed after
+it means they look again.
 
 ## Post-production: asked after the rig is accepted
 

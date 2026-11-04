@@ -9,6 +9,7 @@ import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
 import { supersede } from './fixtures.ts';
+import { writePartsPackage } from './parts-package.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
 /** The section list @rig-c/parts 2.3.0 and 2.4.0 export (its `CONFIG_SECTIONS`), used by the fake parts sources planted below. */
@@ -38,6 +39,7 @@ function fixture(mutate: Mutate = () => {}, template = 'example-project.json'): 
   const project = readTemplate(template);
   mutate(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  if (template === 'example-project.json') writePartsPackage(dir);
   return dir;
 }
 
@@ -377,6 +379,7 @@ describe('collection members', () => {
     supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
     const dir = join(col, 'members', 'keeper');
     writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2));
+    writePartsPackage(dir);
     return dir;
   }
 

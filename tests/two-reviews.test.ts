@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { checkProject, type CheckReport } from '../src/check.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { writePartsPackage } from './parts-package.ts';
 
 type Mutate = (project: JsonObject) => void;
 
@@ -15,6 +16,7 @@ function fixture(mutate: Mutate = () => {}): string {
   const project = readTemplate('example-project.json');
   mutate(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  writePartsPackage(dir);
   return dir;
 }
 

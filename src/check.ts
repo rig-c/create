@@ -29,6 +29,7 @@ import { checkProvenance, formatProvenance, type ProvenanceSummary } from './pro
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkPartsVerdict } from './parts-verdict.ts';
 import { checkReviews, latestAccepted, readVersions } from './review.ts';
+import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import {
@@ -817,6 +818,7 @@ export function checkProject(projectDirArg: string): CheckReport {
   checkPreInterview(ctx);
   checkReviews(ctx);
   checkReviewPackages(ctx);
+  checkAppliedReview(ctx);
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);
   checkCgGates(ctx);

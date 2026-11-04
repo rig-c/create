@@ -368,6 +368,7 @@ both kinds:
 | `kind` | `rig` or `post` |
 | `rig_version` | for a post version, the `n` of the accepted rig it is built on (accepted before the post version's `at`); `null` for a rig version |
 | `at`, `built_by`, `built_with` | when, which agent or tool, and the package versions used (`{ "@rig-c/parts": "…", "@rig-c/core": "…" }`) |
+| `review_origin` | null for a build made without review feedback, otherwise the applied-round record below |
 | `answers_feedback` | the verdicts this version answers: `[{ "version", "verdict" }]` (version number and index into its `verdicts[]`); empty for a first version |
 | `changed` | what changed from the previous version of the same kind, in a sentence |
 | `outputs` | `outputs/v<N>/` files with sha256 and size, frozen when shown |
@@ -606,14 +607,38 @@ materialize them. The regression test generates two fresh projects and
 compares every record and file byte before checking the filled example with
 zero refusals and zero warnings.
 
-Apply results return in review feedback as `feedback[].context.applied`,
-including the applied producer operation and its bound result. Preserve that
-feedback and use create to record the resulting work as the next version,
-with its outputs, hashes and provenance, then write that version's package.
-Review keeps the project config intact. An automated apply-to-next-version
-check needs a recorded feedback file path and sha256 plus the originating
-version and applied-result reference. The current create record has no such
-feedback binding, so that check awaits a defined record contract.
+Apply results return in review feedback as `feedback[].context.applied`.
+Keep the JSON written by `rig-review feedback` in the project and record one
+applied round on the next version as `review_origin`:
+
+```json
+{
+  "feedback": { "path": "evidence/review-feedback.json", "sha256": "<file SHA-256>" },
+  "source_version": 1,
+  "feedback_id": "<feedback item id>",
+  "applied": { "schema": "rig-review-applied/1", "...": "complete context.applied object" }
+}
+```
+
+The containing version is the next-version link. `source_version` names the
+immediately preceding version of the same kind. Copy the selected item's
+complete non-null `context.applied` into `applied`, preserving every field.
+A build made without feedback records `review_origin: null`, including the
+filled example. This declaration is independent of human `answers_feedback`.
+
+The check binds the feedback's bytes, selected item and applied result to the
+source package's config, handoff files and inspected compiled model. In the
+released folder adapter, `reviewedSource.rig` identifies that compiled model
+and `motion` is null; producer rig and motion hashes live in `handoff.files`.
+The retained feedback is a single-build `rig-review-session/1` export.
+Record the resulting version's outputs, hashes and provenance and write its
+review package as usual. This chain records the applied result and the next
+build's declared origin. Create does not execute the Apply or build.
+
+A missing declaration on a version dated before
+`APPLIED_REVIEW_SINCE = 2026-11-06T00:00:00Z`, or without a readable date,
+warns to preserve in-flight history. From that boundary it is refused.
+Pre-interview versions retain their historical contract.
 
 ## Per-ask guide coverage
 

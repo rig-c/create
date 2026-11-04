@@ -505,6 +505,8 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE` and `APPLIED_REVIEW_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
+
 `AGENT_BOUNCE_SINCE = 2026-11-05T00:00:00Z` in `src/stages.ts` is
 independent of the parts-review stage boundary. Read the history entry's own
 `at`, including in a collection history cited by an inherited guide.
@@ -575,3 +577,25 @@ Post items and not-applicable waypoints are excluded.
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |
 | `GUIDE_ASKS_LEGACY` | no per-ask record and the resolved guide's own `at` predates `ASK_COVERAGE_SINCE` (2026-11-05T00:00:00Z), or is unreadable | preserve the old answer; record coverage when it is next asked |
+
+## Applied review feedback
+
+Each create-built version declares `review_origin` as null for a build made
+without feedback, or as one retained applied-round record described in
+PROJECT.md. `interview --check` compares the feedback file SHA-256, the source
+version's frozen review inputs and compiled model, and the selected feedback
+item's complete non-null `context.applied`. The containing version closes the
+chain and its source is the immediately preceding version of the same kind.
+
+| Finding | Fires when |
+| --- | --- |
+| `APPLIED_REVIEW_MISSING` | a version dated on or after `APPLIED_REVIEW_SINCE` omits the origin declaration |
+| `APPLIED_REVIEW_MALFORMED` | the declaration lacks its file path/hash, source, item id or applied result |
+| `APPLIED_REVIEW_FILE` | the retained file is unavailable, escapes the project or is not a single-build feedback export |
+| `APPLIED_REVIEW_HASH` | the retained feedback bytes differ from their recorded hash |
+| `APPLIED_REVIEW_SOURCE` | the source is missing, ambiguous or skipped, or the feedback inputs differ from its package |
+| `APPLIED_REVIEW_RESULT` | the selected feedback item is missing or repeated, or its applied result differs |
+
+`APPLIED_REVIEW_LEGACY` is a warning for an omitted declaration dated before
+`APPLIED_REVIEW_SINCE = 2026-11-06T00:00:00Z`, or with no readable date.
+Pre-interview versions are exempt. Explicit null declarations remain legal.

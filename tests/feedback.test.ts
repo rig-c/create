@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { checkProject } from '../src/check.ts';
@@ -220,3 +220,39 @@ function byPost(p: JsonObject, id: string): JsonObject {
   if (found === undefined) throw new Error(`no post item ${id}`);
   return obj(found);
 }
+
+describe('review record input options', () => {
+  test('file preserves bytes, --at is verbatim, and answering references are recorded', () => {
+    const dir = fixture();
+    const file = join(dir, 'words.txt');
+    const text = '\uFEFF  좋아\r\n\n';
+    writeFileSync(file, text);
+    const r = cli(['review', '4', '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--source', 'note', '--verbatim-file', file,
+      '--at', '2026-11-16T01:02:03+09:00', '--answers-feedback', '2:0'], dir, gitEnv());
+    expect(r.code).toBe(0);
+    const v = version(read(dir), 4);
+    const verdict = obj(arr(v.verdicts).at(-1));
+    expect(Buffer.from(verdict.verbatim as string)).toEqual(readFileSync(file));
+    expect(verdict.at).toBe('2026-11-16T01:02:03+09:00');
+    expect(arr(v.answers_feedback)).toContainEqual({ version: 2, verdict: 0 });
+  });
+
+  test.each(['4:0', '99:0', '1:99', '1:0'])('invalid or already recorded feedback %s writes nothing', (ref) => {
+    const dir = fixture((p) => { version(p, 4).answers_feedback = [{ version: 1, verdict: 0 }]; });
+    const before = readFileSync(join(dir, 'project.json'));
+    const r = cli(['review', '4', '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--source', 'chat', '--verbatim', 'yes', '--answers-feedback', ref], dir, gitEnv());
+    expect(r.code).toBe(1);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test('duplicates, agent reviewers, invalid time and conflicting input options write nothing', () => {
+    const dir = fixture();
+    const before = readFileSync(join(dir, 'project.json'));
+    const base = ['review', '4', '--verdict', 'accepted', '--review', 'direction-review', '--source', 'chat', '--verbatim', 'yes'];
+    for (const options of [['--by', 'agent'], ['--by', 'user', '--at', 'bad'], ['--by', 'user', '--verbatim-file', 'missing'],
+      ['--by', 'user', '--answers-feedback', '2:0', '--answers-feedback', '2:0']]) {
+      expect(cli([...base, ...options], dir, gitEnv()).code).not.toBe(0);
+      expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    }
+  });
+});

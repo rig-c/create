@@ -265,6 +265,44 @@ agent reads, and a second file is one a resume can skip.
   (`versions[].provenance`, [INTERVIEW.md § Provenance](INTERVIEW.md#provenance-every-config-section-cites-its-guide)).
   An entry with no citation is removed or cited before the version is shown.
 
+## Recording a sign-off
+
+```sh
+rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>] [--json]
+```
+
+The command appends `signoffs[]` and leaves `project.stage` unchanged. `at`
+comes from the clock. There is no `--at` option. The user's UTF-8 words come
+from the file, or stdin when omitted or `-`, preserving BOM, spaces, CRLFs and
+final newlines. Invalid UTF-8 is refused because a JSON string cannot retain
+its original bytes.
+
+For `plan-approved`, coverage is every rig step. For `post-interview`, it is
+every post step. `--steps` narrows coverage within that phase and stores the
+covered ids in `steps[]`. Other stages append only a signature and refuse
+`--steps`. Signing a stage leaves its evidence requirements to the check,
+including the parts-review verdict record.
+
+Each covered step needs a boolean `checkpoint_proposed`. A null checkpoint
+becomes `{ delegated: false, by, at, verbatim, value: checkpoint_proposed }`.
+Existing user answers and decided delegations stay as recorded. An undecided
+delegation, malformed checkpoint or unknown step refuses the whole command
+before the file is written.
+
+Each plan signature also records `step_hashes`, mapping covered step ids to
+SHA-256 of UTF-8 JSON with object keys recursively sorted and array order
+preserved. The fields are `id`, `phase`, `order`, `does`, `produces`,
+`rests_on`, `bar`, `checkpoint_proposed` and `checkpoint`, after filling the
+checkpoint. Absent fields are omitted. `status` and other fields are excluded.
+The shared implementation is `src/step-hash.ts`.
+
+`review` accepts `--verbatim-file <file>` (or `-` for stdin) instead of
+`--verbatim`, and `--at <timestamp>` instead of the clock. Repeatable
+`--answers-feedback <version>:<verdict-index>` appends references to the
+reviewed version's `answers_feedback`. Each reference must identify an
+existing verdict of an earlier version and must not duplicate an existing or
+new reference. Both writers refuse `by: agent` case-insensitively.
+
 ## Versions
 
 Every build shown to anyone is a `versions[]` entry, numbered in order across
@@ -297,7 +335,7 @@ Top-level fields of `project.json`:
 | `name` | the folder name; a short identifier |
 | `title` | the human title of the painting or rig |
 | `stage`, `stage_values` | the current stage and the list it comes from |
-| `signoffs[]` | every human signature: `stage`, `checkpoint` (step id or `null`), `by`, `at`, `verbatim`; a plan re-signed after a guide changed adds `steps[]` naming the steps re-approved |
+| `signoffs[]` | every human signature: `stage`, `checkpoint` (step id or `null`), `by`, `at`, `verbatim`; plan signatures add `steps[]` naming covered steps and `step_hashes` binding their approval fields |
 | `interview` | `question_set` (the prompt set and package version the waypoints were read from), `held`, `date`, `interviewer`, `respondent`, `framing[]` (`id`, `text`, `source`, `required_for`, `answer`, `history[]`), `waypoints[]` (`id`, `config[]`, `prompts[]` of `id`/`text`/`source`/`required_for`, `guide`, `history[]`), `post` (`held`, `date`, `items[]` shaped like waypoints with `guide`) — answer shapes in [INTERVIEW.md](INTERVIEW.md) |
 | `plan` | `drafted_by`, `drafted_at`, `steps[]` — above |
 | `split` | the `assemble` checkpoint's data: `label_values`, `proposal_image`, `proposed_by`, `proposed_at`, `parts[]` (`name`, `label`, `note`) |

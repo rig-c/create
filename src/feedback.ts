@@ -20,6 +20,7 @@ import { join, resolve } from 'node:path';
 
 import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
 import { answersOf } from './provenance.ts';
+import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_ACCEPTS } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -276,6 +277,7 @@ export interface ReviewInput {
   /** Per not-asked item: the normalised `value` of the new sentence (default: null — normalise it before the next version). */
   readonly values: Record<string, Json>;
   readonly at?: string;
+  readonly answersFeedback?: { version: number; verdict: number }[];
 }
 
 export interface RecordedItem {
@@ -295,7 +297,7 @@ export interface Recorded {
   readonly stage: string | null;
 }
 
-function readProject(dir: string): { file: string; project: JsonObject } {
+export function readProject(dir: string): { file: string; project: JsonObject } {
   const file = join(dir, 'project.json');
   if (!existsSync(file)) refuse('PROJECT_JSON_MISSING', `${file} does not exist; run in a project folder or name one`);
   let parsed: unknown;
@@ -310,6 +312,8 @@ function readProject(dir: string): { file: string; project: JsonObject } {
 
 /** Appends one verdict to `versions[v<n>].verdicts[]`, writes not-asked sentences into their guides, and saves project.json. Refuses before writing anything. */
 export function recordVerdict(projectDirArg: string, input: ReviewInput): Recorded {
+  if (!isHuman(input.by)) refuse('REVIEW_NOT_HUMAN', 'review must name a human, not agent');
+  if (input.at !== undefined && !Number.isFinite(Date.parse(input.at))) refuse('REVIEW_OPTION_INVALID', '--at needs a valid timestamp', USAGE_EXIT);
   const dir = resolve(projectDirArg);
   const { file, project } = readProject(dir);
   const version = asArray(project.versions).find((v): v is JsonObject => isObject(v) && v.n === input.version);
@@ -384,6 +388,18 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
     if (!seen.has(id)) refuse('FEEDBACK_QUOTE_NOT_NOT_ASKED', `--quote/--value ${id}: no --item ${id}`, USAGE_EXIT);
   }
 
+  const refs = asArray(version.answers_feedback);
+  const seenRefs = new Set(refs.filter(isObject).map((ref) => `${String(ref.version)}:${String(ref.verdict)}`));
+  for (const ref of input.answersFeedback ?? []) {
+    const key = `${ref.version}:${ref.verdict}`;
+    if (seenRefs.has(key)) refuse('FEEDBACK_REF_DUPLICATE', `answers_feedback already names ${key}`);
+    const target = asArray(project.versions).find((v) => isObject(v) && v.n === ref.version);
+    if (!Number.isInteger(ref.version) || !Number.isInteger(ref.verdict) || ref.verdict < 0 || ref.version >= input.version || !isObject(target) || !isObject(asArray(target.verdicts)[ref.verdict])) {
+      refuse('FEEDBACK_REF_UNKNOWN', `${key}: must name an existing verdict on an earlier version`);
+    }
+    seenRefs.add(key);
+  }
+
   // Everything checked: write.
   const at = input.at ?? new Date().toISOString();
   const verdicts = Array.isArray(version.verdicts) ? version.verdicts : [];
@@ -398,6 +414,7 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
     on_items: recorded.map((r) => ({ id: r.id, answer_was: r.answer_was })),
   };
   verdicts.push(verdict);
+  version.answers_feedback = [...refs, ...(input.answersFeedback ?? [])];
   const verdictPath = `${vpath}.verdicts[${verdicts.length - 1}]`;
   const out: RecordedItem[] = [];
   for (const r of recorded) {
@@ -423,6 +440,9 @@ export const REVIEW_HELP = `review:
   --by <who>       who gave it (the user's name or role)
   --review <r>     rig-review (a rig version) | direction-review (a post version)
   --verbatim <s>   the words, exactly as given; stored byte for byte
+  --verbatim-file <file>  read UTF-8 words unchanged instead of --verbatim (- reads stdin)
+  --at <timestamp>       date the verdict (default: the clock)
+  --answers-feedback <version>:<verdict-index>  earlier feedback this version answers, repeatable
   --source <s>     where the words were given (chat, a call, a note)
   --item <id>[:<answer_was>]
                    an answer the feedback is about (a waypoint, framing or post item id), repeatable;
@@ -450,6 +470,7 @@ function pair(flag: string, s: string | undefined): [string, string] {
 export function reviewCommand(args: string[]): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const items: ItemArg[] = [];
+  const answersFeedback: { version: number; verdict: number }[] = [];
   const quotes: Record<string, string> = {};
   const values: Record<string, Json> = {};
   const positional: string[] = [];
@@ -462,9 +483,14 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
       return v;
     };
     if (arg === '--json') json = true;
-    else if (['--verdict', '--by', '--review', '--verbatim', '--source'].includes(arg)) {
+    else if (['--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
       if (arg in opts) refuse('REVIEW_OPTION_INVALID', `${arg} is given twice`, USAGE_EXIT);
       opts[arg] = value();
+    } else if (arg === '--answers-feedback') {
+      const text = value();
+      if (!/^v?[1-9]\d*:\d+$/.test(text)) refuse('REVIEW_OPTION_INVALID', '--answers-feedback takes <version>:<verdict-index>', USAGE_EXIT);
+      const [version, verdict] = text.replace(/^v/, '').split(':').map(Number);
+      answersFeedback.push({ version, verdict });
     } else if (arg === '--item') {
       const v = value();
       const colon = v.indexOf(':');
@@ -489,6 +515,8 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
   }
   if (positional.length > 2) refuse('REVIEW_TOO_MANY_ARGUMENTS', `review takes a version and one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   const version = parseVersion(positional[0]);
+  if (opts['--verbatim'] !== undefined && opts['--verbatim-file'] !== undefined) refuse('REVIEW_OPTION_INVALID', 'choose --verbatim or --verbatim-file', USAGE_EXIT);
+  if (opts['--verbatim-file'] !== undefined) opts['--verbatim'] = readVerbatim(opts['--verbatim-file']);
   const missing = ['--verdict', '--by', '--review', '--verbatim', '--source'].filter((k) => opts[k] === undefined || opts[k] === '');
   if (missing.length > 0) refuse('REVIEW_OPTION_MISSING', `review needs ${missing.join(', ')}`, USAGE_EXIT);
   const verdict = opts['--verdict'] as string;
@@ -506,6 +534,8 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
     items,
     quotes,
     values,
+    at: opts['--at'],
+    answersFeedback,
   });
   if (json) return { stdout: JSON.stringify(r, null, 2), exit: 0 };
   const lines = [

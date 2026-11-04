@@ -350,6 +350,27 @@ The candidate and its named animation must exist before the draft is signed.
   Read the image and its companion legend's bone origins and tips. A pose
   review is read by eye, with its verdict written beside the image.
 
+### Appearance belongs to a person's review
+
+An appearance item that needs the whole piece before it can be judged is not
+an intermediate step bar: perceived jiggle size, perceived motion and "looks
+right in the loop" belong in the plan as items for a later **person's review**.
+Route a rig step's item to `rig-review`, and a post step's to `direction-review`.
+Attach the step's measured readings as context; keep the step bar about those
+readings, rather than stopping mid-step for an appearance verdict.
+
+No agent can watch a loop: an image reader shows one frame. A call that needs
+a moving image ("seen at 1x in the loop") therefore goes to a person's review
+by design, never to an agent's step. Reading a frame series or measuring bone
+positions does not supply that person's appearance verdict. A numeric reading
+beside an appearance phrase does not turn the appearance call into a step bar.
+
+`interview --check` warns with `STEP_APPEARANCE_REVIEW` when a step bar contains
+one of the [documented phrases](CHECKS.md#appearance-bar-wording) without a
+numeric reading. This wording heuristic is a WARN, never a refusal: it can
+miss a paraphrase or flag a quotation, and cannot decide whether a motion
+looks right. Its absence is no approval of an appearance bar.
+
 ### Warm loops and multi-period twins
 
 Today's `rigc render --preroll <n>` walks whole loops of a looping track before

@@ -58,6 +58,35 @@ a plan step), written to `project.json`.
   the `collection.json` itself) is not a project: `interview --check` runs the
   collection check on it, the same as `collection --check` ([§ Collections](#collections)).
 
+## Appearance bar wording
+
+`STEP_APPEARANCE_REVIEW` is a **warning**, not a refusal, on
+`plan.steps[<id>].bar`, including pending steps. It names the person's review:
+`rig-review` for `phase: "rig"`, `direction-review` for `phase: "post"`. Move
+the appearance item there in the plan and attach measured step readings as
+context ([INTERVIEW.md](INTERVIEW.md#appearance-belongs-to-a-persons-review)).
+
+The single exported phrase list, `APPEARANCE_IN_MOTION_PHRASES` in
+`src/check.ts`, is: `perceived jiggle`, `perceived motion`, `looks right in the
+loop`, `looks right in loop`, `looks natural in motion`, `natural motion`,
+`smooth motion`, `visible at 1x`, `seen at 1x`. Matching ignores case and
+collapses whitespace, with word boundaries; one warning is emitted per bar.
+
+A numeric reading here means an Arabic number (signed/decimal allowed) followed
+by `px`, `pixel(s)`, `mm`, `cm`, `m`, `deg`, `degree(s)`, `rad`, `radian(s)`,
+`ms`, `s`, `second(s)`, `frame(s)`, `world unit(s)`, `unit(s)`, `%` or `°`,
+or beside `<`, `>`, `<=`, `>=`, `=`, `≤` or `≥`. Inline backtick spans and
+HTTP(S) URLs are excluded from this numeric search. `1x`, bare numbers,
+numbered versions and command flags alone are not readings. Missing or
+non-string bars and malformed steps are outside this wording lint.
+
+This is deliberately a heuristic. A quoted or negated phrase can be a false
+positive. A paraphrase, number written in words, unlisted unit or punctuation
+inside a phrase can be missed; an unrelated numeric clause (including a time)
+can suppress a warning. It does not associate each phrase with a reading or
+validate a measurement command. Numeric text never replaces a person's
+appearance verdict, and a clear lint does not authorize an appearance bar.
+
 ## Answer states, as the check reads them
 
 | Written in the record | Read as | Passes |

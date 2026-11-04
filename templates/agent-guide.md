@@ -50,6 +50,9 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 - **Bars before sign-off.** Each reading names its command, checked against
   installed `--help`. A reading with no command is a STOP before sign-off.
   Loop bars are in rig-c/create `docs/INTERVIEW.md`, "Bars have reading commands".
+- **Appearance needs a person.** Whole-piece or moving-image calls go to
+  `rig-review` (rig) or `direction-review` (post), with measured context, not
+  step bars. See rig-c/create `docs/INTERVIEW.md`, "Appearance belongs to a person's review".
 - **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
   reference ("move like X") is read for what it shows; anything more is a
   question, not a default.

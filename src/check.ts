@@ -711,6 +711,8 @@ function checkPartsStages(ctx: Ctx): void {
         message: `project '${name}' passed plan-approved at ${ctx.predatesPartsReview}, before the parts and parts-review stages existed (${PARTS_REVIEW_SINCE}); its parts were not reviewed before rigging, and no sign-off is assumed for them`,
       });
     }
+    // A legacy project may omit a map, but a map it does carry is checked in full.
+    if (latestSignoff(ctx, PARTS_REVIEW)?.record.diff_map !== undefined) checkPartsReviewEvidence(ctx);
     return;
   }
   for (const step of ctx.steps) {
@@ -723,6 +725,12 @@ function checkPartsStages(ctx: Ctx): void {
       ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: step.path, message: `${step.path} is ${status}, but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
     }
   }
+  checkPartsReviewEvidence(ctx);
+}
+
+function checkPartsReviewEvidence(ctx: Ctx): void {
+  const cur = effectiveIndex(ctx);
+  const reviewIdx = stageIndex(PARTS_REVIEW);
   const riggingStarted =
     cur > reviewIdx || ctx.steps.some((s) => stageOfStep(s.phase, s.id) === 'rigging' && (asString(s.record.status) ?? 'pending') !== 'pending');
   // The parts gate rigging until a rig version is accepted at rig-review; after that a part change is a new rig

@@ -10,7 +10,7 @@ import { sourceSha256 } from '../src/parts-verdict.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
-import { arr, fixture, obj } from './fixtures.ts';
+import { arr, fixture, obj, rehashSignoffs } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from './parts-package.ts';
 
@@ -179,6 +179,19 @@ test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
 });
 test('an old sign-off with a map is checked fully', () => {
   only(project((s) => { s.at = '2026-11-05T00:00:00Z'; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
+});
+test('a pre-stage legacy project still validates a map it carries while rigging', () => {
+  const dir = project((s) => { obj(arr(obj(s.diff_map).components)[0]).why = ''; });
+  const file = join(dir, 'project.json');
+  const p = JSON.parse(readFileSync(file, 'utf8'), (_key, value: unknown) => {
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value)) {
+      return new Date(Date.parse(value) - 30 * 86_400_000).toISOString();
+    }
+    return value;
+  }) as JsonObject;
+  rehashSignoffs(p);
+  writeFileSync(file, JSON.stringify(p));
+  only(dir, 'DIFF_MAP_STATUS');
 });
 test('the latest sign-off is read', () => {
   const dir = project();

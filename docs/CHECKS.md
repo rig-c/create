@@ -480,7 +480,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | Refusal | Fires when | Clear it by |
 | --- | --- | --- |
 | `DERIVED_MALFORMED` | a prepared-input lacks operation, source path/hash, result path/hash, or a path escapes the project | use the prepared-input shape in PROJECT.md |
-| `DERIVED_FILE_UNREADABLE` | either prepared-input file cannot be read, including a missing file | restore the named source or regenerate the named derived file |
+| `DERIVED_FILE_UNREADABLE` | the source is absent or unreadable, or a present prepared result cannot be read | restore the named source or make the named result readable |
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
@@ -490,6 +490,7 @@ independent of the parts-review stage boundary. Read the history entry's own
 
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |
+| `DERIVED_RESULT_MISSING` | a regenerable prepared result is absent, including on a fresh clone | the message names the file and its recorded operation for regeneration |
 | `AGENT_BOUNCE_LEGACY` | a free-form bounce has an entry date before the boundary, or no readable date | preserve its history; the warning names the new shape for future entries |
 
 `derived add` refuses before writing on `DERIVED_USAGE` (exit 2: missing or

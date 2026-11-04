@@ -396,11 +396,13 @@ The command measures both sha256s before writing anything:
 }
 ```
 
-`interview --check` reads both files and refuses changed or missing bytes by
-name. Only entries tagged `kind: "prepared-input"` use this contract; older
+`interview --check` requires the source and verifies its hash. A missing source
+or changed bytes in either present file are refused by name. A missing result
+warns with its file name and recorded operation, so a fresh clone passes while
+regenerable intermediates are absent. Only entries tagged `kind: "prepared-input"` use this contract; older
 untagged intermediates and projects with no `derived[]` entries keep passing.
-Derived files are still regenerable: restore them with the recorded operation
-before checking; the recorded hashes describe the bytes that must return.
+Restore derived files with the recorded operation when needed. The recorded
+hashes describe the bytes that must return.
 The filled example ships synthetic SVG bytes under
 [example-prepared](../templates/example-prepared/); copy `source.svg` to
 `inputs/preparation-source.svg` and `prepared.svg` to `derived/prepared.svg`

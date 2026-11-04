@@ -48,14 +48,30 @@ describe('prepared inputs recorded after external work', () => {
       expect(r.ok).toBe(false);
       expect(cli(['interview', '--check', dir, '--json'], dir, gitEnv()).code).toBe(1);
     });
-    test(`missing file is refused by name: ${name}`, () => {
-      const dir = fixture();
-      rmSync(join(dir, name as string));
-      const r = checkProject(dir);
-      expect(withCode(r, 'DERIVED_FILE_UNREADABLE').map((f) => f.path)).toEqual([`${at}.path`]);
-      expect(withCode(r, 'DERIVED_FILE_UNREADABLE')[0]?.message).toContain(name as string);
-    });
   }
+
+  test('a missing tracked source is refused by name', () => {
+    const dir = fixture();
+    rmSync(join(dir, 'inputs/preparation-source.svg'));
+    const r = checkProject(dir);
+    expect(withCode(r, 'DERIVED_FILE_UNREADABLE').map((f) => f.path)).toEqual(['derived[0].source.path']);
+    expect(withCode(r, 'DERIVED_FILE_UNREADABLE')[0]?.message).toContain('inputs/preparation-source.svg');
+    expect(r.ok).toBe(false);
+  });
+
+  test('an absent regenerable result passes with its name and recorded operation in a warning', () => {
+    const dir = fixture();
+    const operation = read(dir).derived[0].operation;
+    rmSync(join(dir, 'derived/prepared.svg'));
+    const r = checkProject(dir);
+    expect(r.refusals).toEqual([]);
+    expect(r.ok).toBe(true);
+    const warnings = r.warnings.filter((finding) => finding.code === 'DERIVED_RESULT_MISSING');
+    expect(warnings.map((finding) => finding.path)).toEqual(['derived[0].path']);
+    expect(warnings[0]?.message).toContain('derived/prepared.svg');
+    expect(warnings[0]?.message).toContain(operation);
+    expect(cli(['interview', '--check', dir, '--json'], dir, gitEnv()).code).toBe(0);
+  });
 
   test('old projects without derived entries, and old untagged intermediates, pass', () => {
     expect(checkProject(fixture((p) => { p.derived = []; })).ok).toBe(true);

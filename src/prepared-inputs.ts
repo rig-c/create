@@ -24,15 +24,19 @@ export function checkPreparedInputs(ctx: Ctx): void {
     if (!isObject(entry) || entry.kind !== 'prepared-input') return;
     const path = `derived[${i}]`;
     const source = isObject(entry.source) ? entry.source : {};
-    const files = [{ record: source, at: `${path}.source` }, { record: entry, at: path }];
+    const files = [{ record: source, at: `${path}.source`, optional: false }, { record: entry, at: path, optional: true }];
     if (!nonempty(entry.operation) || files.some(({ record }) => !nonempty(record.path) || !inside(ctx.dir, record.path) || typeof record.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(record.sha256)) || (typeof source.path === 'string' && typeof entry.path === 'string' && resolve(ctx.dir, source.path) === resolve(ctx.dir, entry.path))) {
       ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: prepared-input needs operation, source { path, sha256 }, and derived path and sha256; paths are distinct project-relative files other than project.json` });
       return;
     }
-    for (const { record, at } of files) {
+    for (const { record, at, optional } of files) {
       const name = record.path as string;
       let actual: string;
-      try { actual = readHash(ctx.dir, name); } catch {
+      try { actual = readHash(ctx.dir, name); } catch (error) {
+        if (optional && error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          ctx.warnings.push({ code: 'DERIVED_RESULT_MISSING', path: `${at}.path`, message: `${at}: '${name}' is absent; regenerate with the recorded operation: ${entry.operation as string}` });
+          continue;
+        }
         ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${name}'; restore the recorded file` });
         continue;
       }

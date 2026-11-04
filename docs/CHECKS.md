@@ -469,3 +469,31 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 `signoff parts-review --evidence` also uses the existing `PARTS_VERDICT_*`
 refusals from the parts verdict reader before recording anything. `--checkpoint`
 records an enabled execution checkpoint without a plan hash or phase approval.
+
+## Prepared inputs and agent-found history bounces
+
+`derived add` records an external operation, not pixel processing. The check
+verifies both files of each `derived[]` entry tagged `prepared-input` against
+its sha256. Untagged existing intermediates and empty or absent `derived[]`
+are unchanged. No prepared files are silently registered or repaired.
+
+| Refusal | Fires when | Clear it by |
+| --- | --- | --- |
+| `DERIVED_MALFORMED` | a prepared-input lacks operation, source path/hash, result path/hash, or a path escapes the project | use the prepared-input shape in PROJECT.md |
+| `DERIVED_FILE_UNREADABLE` | the source is absent or unreadable, or a present prepared result cannot be read | restore the named source or make the named result readable |
+| `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
+| `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
+
+`AGENT_BOUNCE_SINCE = 2026-11-05T00:00:00Z` in `src/stages.ts` is
+independent of the parts-review stage boundary. Read the history entry's own
+`at`, including in a collection history cited by an inherited guide.
+
+| Warning | Fires when | Clear it by |
+| --- | --- | --- |
+| `DERIVED_RESULT_MISSING` | a regenerable prepared result is absent, including on a fresh clone | the message names the file and its recorded operation for regeneration |
+| `AGENT_BOUNCE_LEGACY` | a free-form bounce has an entry date before the boundary, or no readable date | preserve its history; the warning names the new shape for future entries |
+
+`derived add` refuses before writing on `DERIVED_USAGE` (exit 2: missing or
+invalid arguments), `DERIVED_PATH_INVALID` (source and result not distinct
+project-relative files, or either is `project.json`), `DERIVED_FILE_UNREADABLE`, `DERIVED_MALFORMED` (a
+non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).

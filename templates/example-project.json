@@ -91,7 +91,17 @@
             "reasoning": "Blink needs the eyelids as their own layers; at full-figure resolution the face is too small for the split to find them. The lantern is far enough from the body that the full pass separates it on its own."
           }
         },
-        "history": []
+        "history": [
+          {
+            "at": "2026-11-11T08:00:00Z",
+            "bounce": {
+              "cause": "agent",
+              "failed": "The first full-resolution split merged the eyelids into the face",
+              "bar": "Blink needs the eyelids as their own layers",
+              "replacement": "Run the recorded full pass plus a head pass before assembly"
+            }
+          }
+        ]
       },
       {
         "id": "assemble",
@@ -474,6 +484,13 @@
     }
   ],
   "derived": [
+    {
+      "kind": "prepared-input",
+      "source": { "path": "inputs/preparation-source.svg", "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e" },
+      "path": "derived/prepared.svg",
+      "sha256": "3c5bf74326c06a17795179b27a894f20eb64246b5ef6e028761061483a51d654",
+      "operation": "scale the synthetic circle to 32 by 32 and composite on white; performed by an external tool"
+    },
     {
       "path": "derived/layers/",
       "what": "See-through layers, full pass and head pass",

@@ -133,14 +133,15 @@ the camera does not parallax; nothing in the rig changed for that.
 ### The timing bar's chain-tip reading
 
 The timing bar in `example-project.json` keeps the eight-second length and the
-single late beam sweep, and adds a command-backed chain-tip clause. For the
-scarf, both coat tails, hair tail and lantern hinge, each boundary jump at
+single late beam sweep, and adds a command-backed chain-tip clause. For
+`scarf`, `coat_tail_l`, `coat_tail_r`, `hair_tail` and `lantern_hinge`, each boundary jump at
 8 seconds and 16 seconds must be no larger than that tip's own largest in-loop
 step in each adjacent period.
 
 Run `node_modules/.bin/rigc render --candidate derived/loop-twin --animation idle --fps 24 --geometry --out derived/loop-reading`.
-Read `geometry.json` in the reported set directory. Reduce each named terminal
-bone's world transform and length to its world-space endpoint, then compute
+Read each named chain's tip bone in the built rig's `geometry.json` in the
+reported set directory. Reduce its world transform and length to its
+world-space endpoint, then compute
 Euclidean distances between consecutive endpoints. Compare steps 191-to-192
 and 383-to-384 with that tip's largest consecutive step inside each adjacent
 192-frame period, excluding boundary steps.

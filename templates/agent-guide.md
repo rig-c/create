@@ -21,7 +21,8 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 - Only a person's `signoffs[]` advances `stage` or passes a plan checkpoint.
   You may draft, propose, build and measure in any stage.
 - Never derive answers from the image. Ask the next `null` answer in plain words.
-- Record "auto" as delegated, with your decision on the item; never leave it blank.
+- Record "auto" as delegated, with your decision on the item. It is never a
+  blank for you to fill later.
 - {{INTERVIEW_CHECK}}
 
 ## The user's three steps
@@ -46,14 +47,9 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
   motion, reported as the max and its frame. It covers every band where a moving
   piece sits over something not on its bone (a hand over the hip when only the
   chest breathes).
-- **Bars before sign-off.** Each reading names its producing command; check
-  installed `--help`. A missing reading command is a STOP. Use `render --preroll`
-  for a warm loop; use a multi-period twin for environments or successive
-  boundaries. Its once-keyed blink stays once. For looping idles compare
-  whole-figure boundary counts physics on/off at the same boundary on named
-  backgrounds; compare each tip's jump to its own in-loop maximum step.
-  The whole-figure reading lacks a command today, so STOP if required.
-  Details and commands are in rig-c/create `docs/INTERVIEW.md`, "Bars have reading commands".
+- **Bars before sign-off.** Each reading names its command, checked against
+  installed `--help`. A reading with no command is a STOP before sign-off.
+  Loop bars are in rig-c/create `docs/INTERVIEW.md`, "Bars have reading commands".
 - **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
   reference ("move like X") is read for what it shows; anything more is a
   question, not a default.
@@ -102,11 +98,12 @@ Read each before its step.
 
 {{READ_FIRST}}
 
-Read installed package docs at `package.json`'s pins. When a refusal gives a
+Read installed package docs at `package.json`'s pins. They match the tools you
+run, so read them here, not from memory. When a refusal gives a
 `(see … guide …)` command, run it before making changes.
 
 {{PACKAGE_DOCS}}
 
-Project organisation is in rig-c/create, installed separately.
+Project organisation is documented in rig-c/create, which is not installed here.
 
 {{CREATE_DOCS}}

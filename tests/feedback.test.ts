@@ -269,3 +269,91 @@ describe('review record input options', () => {
     }
   });
 });
+
+describe('delegated feedback names its ask', () => {
+  function verdict(ask: unknown, include = true, change: (p: JsonObject) => void = () => {}): string {
+    return fixture((p) => {
+      arr(version(p, 2).verdicts).push({
+        by: 'user', at: '2026-11-13T09:16:00Z', review: 'rig-review', verdict: 'provisional',
+        verbatim: 'The density should change.', source: 'chat',
+        on_items: [{ id: 'meshes', answer_was: 'delegated', ...(include ? { ask } : {}) }],
+      } as JsonObject);
+      change(p);
+    });
+  }
+
+  test('the delegated ask passes and the user-answered ask is refused', () => {
+    expect(checkProject(verdict('density')).refusals).toEqual([]);
+    expect(withCode(checkProject(verdict('bend')), 'FEEDBACK_ASK_STATE')).toHaveLength(1);
+  });
+
+  test('an unknown ask and a missing record are refused by name', () => {
+    expect(withCode(checkProject(verdict('unknown')), 'FEEDBACK_ASK_UNKNOWN')).toHaveLength(1);
+    const r = checkProject(verdict('density', true, (p) => {
+      obj(waypoint(p, 'meshes').guide).asks = [{ id: 'bend', state: 'user' }, { id: 'rigid', state: 'user' }];
+    }));
+    expect(withCode(r, 'FEEDBACK_ASK_UNRECORDED')).toHaveLength(1);
+  });
+
+  test('missing ask warns, while a legacy guide gets no new feedback finding', () => {
+    const r = checkProject(verdict(null, false));
+    expect(r.refusals).toEqual([]);
+    expect(r.warnings.map((f) => f.code)).toEqual(['FEEDBACK_ASK_MISSING']);
+    const legacy = checkProject(verdict(null, false, (p) => {
+      const guide = obj(waypoint(p, 'meshes').guide);
+      delete guide.asks;
+      guide.at = '2026-11-04T00:00:00Z';
+      for (const n of [1, 2]) for (const section of ['meshes', 'regions']) {
+        for (const entry of arr(obj(obj(version(p, n).provenance).sections)[section])) if (obj(entry).guide === 'meshes') delete obj(entry).asks;
+      }
+    }));
+    expect(legacy.refusals).toEqual([]);
+    expect(legacy.warnings.map((f) => f.code)).toEqual(['GUIDE_ASKS_LEGACY']);
+  });
+
+  test('a verdict against the historical delegation survives a user re-answer', () => {
+    const r = checkProject(verdict('density', true, (p) => {
+      const record = waypoint(p, 'meshes');
+      record.history = [record.guide!];
+      record.guide = { ...obj(record.guide), asks: arr(obj(record.guide).asks).map((entry) => ({ ...obj(entry), state: 'user' })) };
+      delete obj(record.guide).agent_decision;
+    }));
+    expect(r.refusals).toEqual([]);
+  });
+
+  test('review records --ask, and refuses a contradictory ask before writing', () => {
+    const dir = fixture();
+    const args = ['review', '2', dir, '--verdict', 'provisional', '--by', 'user', '--review', 'rig-review',
+      '--verbatim', 'Change the density.', '--source', 'chat', '--item', 'meshes:delegated', '--ask', 'meshes=density', '--json'];
+    const result = cli(args, dir, gitEnv());
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout).verdict.on_items).toEqual([{ id: 'meshes', answer_was: 'delegated', ask: 'density' }]);
+    const before = readFileSync(join(dir, 'project.json'), 'utf8');
+    args[args.indexOf('meshes=density')] = 'meshes=bend';
+    const bad = cli(args, dir, gitEnv());
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain('FEEDBACK_ASK_STATE');
+    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
+  });
+});
+
+
+test('review --ask rejects missing items, repeated ids, empty ids and non-delegated causes', () => {
+  const dir = fixture();
+  const args = ['review', '2', dir, '--verdict', 'provisional', '--by', 'user', '--review', 'rig-review',
+    '--verbatim', 'Change the density.', '--source', 'chat', '--json'];
+  const before = readFileSync(join(dir, 'project.json'), 'utf8');
+  for (const extra of [
+    ['--ask', 'meshes=density'],
+    ['--item', 'meshes:delegated', '--ask', 'meshes=density', '--ask', 'meshes=density'],
+    ['--item', 'meshes:delegated', '--ask', 'meshes='],
+  ]) {
+    const result = cli([...args, ...extra], dir, gitEnv());
+    expect(result.code).toBe(2);
+    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
+  }
+  const result = cli([...args, '--item', 'meshes:user', '--ask', 'meshes=bend'], dir, gitEnv());
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain('FEEDBACK_ASK_STATE');
+  expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
+});

@@ -342,5 +342,88 @@ describe('review fixes: hashing errors and inherited history', () => {
     writeFileSync(join(member, 'project.json'), JSON.stringify(example));
     const report = checkProject(member);
     expect(withCode(report, 'QUOTE_NOT_FOUND').filter((f) => f.path.includes('[constraints]'))).toEqual([]);
+    expect(report.refusals.filter((f) => f.code.startsWith('CITATION_ASK'))).toEqual([]);
+  });
+});
+
+describe('citations name the recorded ask', () => {
+  function cited(citation: JsonObject, change: (p: JsonObject) => void = () => {}): string {
+    return fixture((p) => {
+      citedSections(p, 1).meshes = [{ entry: 'torso', guide: 'meshes', ...citation }];
+      change(p);
+    });
+  }
+
+  test('a partly delegated guide quotes its user-answered ask', () => {
+    expect(checkProject(cited({ asks: ['bend'], quote: 'The coat is one piece' })).refusals).toEqual([]);
+  });
+
+  test('a delegated claim on the user-answered ask is refused even with a quote', () => {
+    const r = checkProject(cited({ asks: ['bend'], delegated: true, quote: 'The coat is one piece' }));
+    expect(withCode(r, 'CITATION_ASK_STATE')).toHaveLength(1);
+  });
+
+  test('the delegated density ask needs the decision on that answer', () => {
+    expect(checkProject(cited({ asks: ['density'], delegated: true })).refusals).toEqual([]);
+    const r = checkProject(cited({ asks: ['density'], delegated: true }, (p) => {
+      delete obj(waypoint(p, 'meshes').guide).agent_decision;
+    }));
+    expect(withCode(r, 'CITATION_ASK_STATE')).toHaveLength(1);
+  });
+
+  test('a user ask cannot be cited without its words', () => {
+    expect(withCode(checkProject(cited({ asks: ['bend'], delegated: true })), 'CITATION_ASK_STATE')).toHaveLength(1);
+  });
+
+  test('omitting asks warns on covered guides', () => {
+    const r = checkProject(cited({ quote: 'The coat is one piece' }));
+    expect(r.refusals).toEqual([]);
+    expect(r.warnings.map((f) => f.code)).toEqual(['CITATION_ASKS_MISSING']);
+  });
+
+  test('unknown and unrecorded asks have distinct refusals', () => {
+    expect(withCode(checkProject(cited({ asks: ['missing'], delegated: true })), 'CITATION_ASK_UNKNOWN')).toHaveLength(1);
+    const r = checkProject(cited({ asks: ['density'], delegated: true }, (p) => {
+      obj(waypoint(p, 'meshes').guide).asks = [{ id: 'bend', state: 'user' }, { id: 'rigid', state: 'user' }];
+    }));
+    expect(withCode(r, 'CITATION_ASK_UNRECORDED')).toHaveLength(1);
+  });
+
+  for (const asks of [null, 'bend', [], ['bend', 'bend'], [1]]) {
+    test(`malformed asks are refused: ${JSON.stringify(asks)}`, () => {
+      expect(withCode(checkProject(cited({ asks, quote: 'The coat is one piece' })), 'CITATION_ASKS_MALFORMED')).toHaveLength(1);
+    });
+  }
+
+  test('a legacy guide and legacy citations get no new finding', () => {
+    const r = checkProject(cited({ quote: 'The coat is one piece' }, (p) => {
+      const guide = obj(waypoint(p, 'meshes').guide);
+      delete guide.asks;
+      guide.at = '2026-11-04T00:00:00Z';
+      for (const n of [1, 2]) for (const entry of citedSections(p, n).regions as JsonObject[]) if (entry.guide === 'meshes') delete entry.asks;
+      for (const entry of citedSections(p, 2).meshes as JsonObject[]) if (entry.guide === 'meshes') delete entry.asks;
+    }));
+    expect(r.refusals).toEqual([]);
+    expect(r.warnings.map((f) => f.code)).toEqual(['GUIDE_ASKS_LEGACY']);
+  });
+
+  test('history coverage cannot borrow the current quote', () => {
+    const r = checkProject(cited({ asks: ['bend'], quote: 'New words only' }, (p) => {
+      const record = waypoint(p, 'meshes');
+      supersede(record, 'guide', { ...obj(record.guide), verbatim: 'New words only', asks: [{ id: 'density', state: 'delegated' }] });
+    }));
+    expect(withCode(r, 'QUOTE_NOT_FOUND')).toEqual([]);
+    expect(withCode(r, 'CITATION_ASK_STATE')).toHaveLength(1);
+  });
+
+  test('history coverage cannot borrow the current delegation decision', () => {
+    const r = checkProject(cited({ asks: ['density'], delegated: true }, (p) => {
+      const record = waypoint(p, 'meshes');
+      const old = obj(record.guide);
+      const decision = old.agent_decision;
+      delete old.agent_decision;
+      supersede(record, 'guide', { ...old, agent_decision: decision!, asks: [{ id: 'bend', state: 'user' }, { id: 'rigid', state: 'user' }] });
+    }));
+    expect(withCode(r, 'CITATION_ASK_STATE')).toHaveLength(1);
   });
 });

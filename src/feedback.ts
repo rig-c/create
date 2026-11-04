@@ -19,10 +19,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
-import { answersOf } from './provenance.ts';
+import { answersOf, askAnswers } from './provenance.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_ACCEPTS } from './stages.ts';
+import { WAYPOINT_ASKS } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const VERDICTS = ['accepted', 'bounced', 'provisional'] as const;
@@ -81,6 +82,19 @@ function allowedFor(item: Item): Allowed {
     case 'unresolved':
       return { ok: false, code: 'FEEDBACK_ITEM_SILENT', why: `${item.path} cannot be read (${s.why}); fix the answer first` };
   }
+}
+
+/** Validate an explicit delegated feedback ask against one current or historical answer. */
+function feedbackAsk(item: Item, ctx: Pick<Ctx, 'collection'>, ask: Json | undefined): { code: string; message: string } | null {
+  if (typeof ask !== 'string' || !WAYPOINT_ASKS[item.id]?.some((entry) => entry.id === ask)) {
+    return { code: 'FEEDBACK_ASK_UNKNOWN', message: `guide '${item.id}' has no ask ${JSON.stringify(ask ?? null)}; name a canonical ask recorded by this guide` };
+  }
+  const recorded = askAnswers(item, ctx, ask);
+  if (recorded.length === 0) return { code: 'FEEDBACK_ASK_UNRECORDED', message: `guide '${item.id}' does not record ask '${ask}'; record its delegation before naming it in feedback` };
+  if (!recorded.some((answer) => asArray(answer.asks).some((entry) => isObject(entry) && entry.id === ask && entry.state === 'delegated'))) {
+    return { code: 'FEEDBACK_ASK_STATE', message: `guide '${item.id}' ask '${ask}' is not delegated; use the user's answer as the feedback cause` };
+  }
+  return null;
 }
 
 // -------------------------------------------------------- interview --check
@@ -192,6 +206,14 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
           push('FEEDBACK_ITEM_UNKNOWN', ipath, `${ipath}: '${id}' is no framing, waypoint or post item of this interview; feedback about a decision no waypoint reaches goes to the waypoint it belongs to (an x_ prompt there, INTERVIEW.md § Questions outside this set)`);
           return;
         }
+        if (was === 'delegated' && !preInterview) {
+          if (isObject(raw) && 'ask' in raw) {
+            const problem = feedbackAsk(item, ctx, raw.ask);
+            if (problem !== null) push(problem.code, ipath, `${ipath}: ${problem.message}`);
+          } else if (answersOf(item, ctx).some((answer) => Array.isArray(answer.asks))) {
+            ctx.warnings.push({ code: 'FEEDBACK_ASK_MISSING', path: ipath, message: `${ipath}: guide '${id}' has per-ask coverage; add ask naming the delegated ask this feedback concerns` });
+          }
+        }
         // Historical feedback predates the guide. Its record is retained here,
         // never promoted into a quotation or an invented interview answer.
         if (was !== 'not-asked' || preInterview) return;
@@ -268,6 +290,7 @@ export function formatFeedback(summaries: readonly FeedbackSummary[]): string[] 
 export interface ItemArg {
   readonly id: string;
   readonly answerWas: AnswerWas | null;
+  readonly ask?: string;
 }
 
 export interface ReviewInput {
@@ -289,6 +312,7 @@ export interface ReviewInput {
 export interface RecordedItem {
   readonly id: string;
   readonly answer_was: AnswerWas;
+  readonly ask?: string;
   /** How the value was reached: from the record alone, or named by the reviewer and allowed by the record. */
   readonly how: 'derived' | 'named';
   /** For not-asked: where the sentence was added. */
@@ -372,6 +396,11 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
       was = arg.answerWas;
       how = allowed.derived === arg.answerWas ? 'derived' : 'named';
     }
+    if (arg.ask !== undefined) {
+      if (was !== 'delegated') refuse('FEEDBACK_ASK_STATE', `guide '${arg.id}' ask '${arg.ask}': --ask requires delegated feedback`);
+      const problem = feedbackAsk(item, { collection }, arg.ask);
+      if (problem !== null) refuse(problem.code, problem.message);
+    }
     let addition: string | null = null;
     if (was === 'not-asked') {
       if (isObject(item.raw) && item.raw.basis === 'inherited') {
@@ -388,7 +417,7 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
     } else if (input.quotes[arg.id] !== undefined || input.values[arg.id] !== undefined) {
       refuse('FEEDBACK_QUOTE_NOT_NOT_ASKED', `--quote/--value ${arg.id}: '${arg.id}' is ${was}, not not-asked; only a not-asked item becomes a new guide sentence`, USAGE_EXIT);
     }
-    recorded.push({ id: arg.id, answer_was: was, how, addition });
+    recorded.push({ id: arg.id, answer_was: was, ...(arg.ask === undefined ? {} : { ask: arg.ask }), how, addition });
   }
   for (const id of [...Object.keys(input.quotes), ...Object.keys(input.values)]) {
     if (!seen.has(id)) refuse('FEEDBACK_QUOTE_NOT_NOT_ASKED', `--quote/--value ${id}: no --item ${id}`, USAGE_EXIT);
@@ -417,7 +446,7 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
     verdict: input.verdict,
     verbatim: input.verbatim,
     source: input.source,
-    on_items: recorded.map((r) => ({ id: r.id, answer_was: r.answer_was })),
+    on_items: recorded.map((r) => ({ id: r.id, answer_was: r.answer_was, ...(r.ask === undefined ? {} : { ask: r.ask }) })),
   };
   verdicts.push(verdict);
   version.answers_feedback = [...refs, ...(input.answersFeedback ?? [])];
@@ -454,6 +483,7 @@ export const REVIEW_HELP = `review:
                    an answer the feedback is about (a waypoint, framing or post item id), repeatable;
                    answer_was (user | delegated | not-asked) is derived from the record when it decides it,
                    and a value the record contradicts is refused (FEEDBACK_ITEM_CONTRADICTS)
+  --ask <id>=<ask-id>  the recorded delegated ask for an --item (optional)
   --quote <id>=<s> for a not-asked item: the fragment of the verbatim that becomes the guide sentence (default: all of it)
   --value <id>=<json>
                    for a not-asked item: the sentence's normalised value (default: null)
@@ -477,6 +507,7 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
   const opts: Record<string, string> = {};
   const items: ItemArg[] = [];
   const answersFeedback: { version: number; verdict: number }[] = [];
+  const asks: Record<string, string> = {};
   const quotes: Record<string, string> = {};
   const values: Record<string, Json> = {};
   const positional: string[] = [];
@@ -506,6 +537,10 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
         refuse('REVIEW_OPTION_INVALID', `--item takes <id> or <id>:${ANSWER_WAS.join('|')}, got ${v}`, USAGE_EXIT);
       }
       items.push({ id, answerWas: was as AnswerWas | null });
+    } else if (arg === '--ask') {
+      const [id, ask] = pair(arg, value());
+      if (id in asks || ask === '') refuse('REVIEW_OPTION_INVALID', `--ask ${id} needs one nonempty ask id`, USAGE_EXIT);
+      asks[id] = ask;
     } else if (arg === '--quote') {
       const [id, text] = pair(arg, value());
       quotes[id] = text;
@@ -530,6 +565,10 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
   const review = opts['--review'] as string;
   if (!(review in REVIEW_ACCEPTS)) refuse('REVIEW_OPTION_INVALID', `--review is ${Object.keys(REVIEW_ACCEPTS).join(' or ')}, got ${review}`, USAGE_EXIT);
 
+  for (const [id, ask] of Object.entries(asks)) {
+    const item = items.find((entry) => entry.id === id);
+    if (item === undefined) refuse('REVIEW_OPTION_INVALID', `--ask ${id}=${ask}: no matching --item`, USAGE_EXIT);
+  }
   const r = recordVerdict(positional[1] ?? process.cwd(), {
     version,
     verdict: verdict as ReviewInput['verdict'],
@@ -537,7 +576,7 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
     review: review as Review,
     verbatim: opts['--verbatim'] as string,
     source: opts['--source'] as string,
-    items,
+    items: items.map((item) => ({ ...item, ...(asks[item.id] === undefined ? {} : { ask: asks[item.id] }) })),
     quotes,
     values,
     at: opts['--at'],

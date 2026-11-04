@@ -303,13 +303,13 @@ describe('a stage moved without a human sign-off', () => {
 describe('waypoints come from the installed @rig-c/parts', () => {
   test('a section not on the placement table is refused by name, with the parts version', () => {
     const dir = fixture();
-    plantParts(dir, '2.9.0', sectionsSource([...PARTS_SECTIONS, 'foo']));
+    plantParts(dir, '99.0.0', sectionsSource([...PARTS_SECTIONS, 'foo']));
     const report = checkProject(dir);
     const found = withCode(report, 'SECTION_UNPLACED');
     expect(found).toHaveLength(1);
-    expect(found[0]?.message).toStartWith("@rig-c/parts 2.9.0 has section 'foo'");
-    expect(report.parts?.version).toBe('2.9.0');
-    // The record was read from the pin, not 2.9.0: a warning, not a refusal.
+    expect(found[0]?.message).toStartWith("@rig-c/parts 99.0.0 has section 'foo'");
+    expect(report.parts?.version).toBe('99.0.0');
+    // The record was read from the pin, not 99.0.0: a warning, not a refusal.
     expect(report.warnings.map((w) => w.code)).toContain('QUESTION_SET_STALE');
   });
 

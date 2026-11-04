@@ -40,6 +40,7 @@ import {
   stageOfStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { stepHash } from './step-hash.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 
 export const PROJECT_SCHEMA = 'rig-create/project@0';
@@ -580,13 +581,22 @@ function checkPlan(ctx: Ctx): void {
     if (checkpoint.state === 'malformed') {
       ctx.refusals.push({ code: 'ANSWER_MALFORMED', path: `${path}.checkpoint`, message: `${path}.checkpoint: ${checkpoint.why}` });
     }
+    const approval = latestSignoff(ctx, approvedBy, step.id);
+    if (approval !== undefined) {
+      const hashes = approval.record.step_hashes;
+      const signoffPath = `signoffs[${approval.index}]`;
+      if (hashes === undefined) {
+        ctx.warnings.push({ code: 'STEP_SIGNOFF_HASH_MISSING', path, message: `${path}: covering ${signoffPath} has no step_hashes. Signed contents cannot be verified. Sign again to record the current step` });
+      } else if (!isObject(hashes) || hashes[step.id] !== stepHash(record)) {
+        ctx.refusals.push({ code: 'STEP_EDITED_AFTER_SIGNOFF', path, message: `${path}: current step does not match ${signoffPath}.step_hashes[${step.id}]. Please sign again at ${approvedBy} to approve this step` });
+      }
+    }
     if (status === 'pending') continue;
     // The step has run (or is running): it needs the approving sign-off, given after every answer it rests on last changed.
-    const covering = approvals.filter((s) => s.steps === null || s.steps.includes(step.id));
-    if (covering.length === 0) {
+    if (approval === undefined) {
       ctx.refusals.push({ code: 'STEP_RUN_UNAPPROVED', path, message: `${path} is ${status}, but no ${approvedBy} sign-off covers it; use pending before approval` });
     } else {
-      const latestApproval = Math.max(...covering.map((s) => s.at).filter((t) => !Number.isNaN(t)), Number.NEGATIVE_INFINITY);
+      const latestApproval = Number.isNaN(approval.at) ? Number.NEGATIVE_INFINITY : approval.at;
       for (const id of restsOn) {
         const item = itemFor(ctx, id);
         if (item === undefined) continue;
@@ -716,10 +726,11 @@ function checkPartsStages(ctx: Ctx): void {
   if (riggingStarted && gating && latest !== undefined) checkPartsVerdict(ctx.dir, latest.record, `signoffs[${latest.index}]`, ctx.refusals);
 }
 
-/** The latest stage-level sign-off of `stage`: by `at`, then by place in `signoffs[]`; an undated one counts as earliest. */
-function latestSignoff(ctx: Ctx, stage: string): Signoff | undefined {
+/** The latest stage-level sign-off, optionally covering a step, by date then array position. Undated counts as earliest. */
+function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | undefined {
   let best: Signoff | undefined;
   for (const s of signoffsFor(ctx, stage)) {
+    if (stepId !== undefined && s.steps !== null && !s.steps.includes(stepId)) continue;
     const at = Number.isNaN(s.at) ? -Infinity : s.at;
     const bestAt = best === undefined || Number.isNaN(best.at) ? -Infinity : best.at;
     if (best === undefined || at >= bestAt) best = s;

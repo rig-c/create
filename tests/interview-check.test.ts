@@ -8,7 +8,7 @@ import { PINNED_PACKAGES } from '../src/pins.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
-import { supersede } from './fixtures.ts';
+import { rehashSignoffs, supersede } from './fixtures.ts';
 import { writePartsPackage } from './parts-package.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
@@ -560,7 +560,7 @@ describe('partial guide delegation', () => {
 
 describe('appearance calls go to a person, not a step bar', () => {
   test.each(APPEARANCE_IN_MOTION_PHRASES)('warns on %s without changing the refusal verdict', (phrase) => {
-    const report = checkProject(fixture((p) => { step(p, 'motion').bar = phrase; }));
+    const report = checkProject(fixture((p) => { step(p, 'motion').bar = phrase; rehashSignoffs(p); }));
     expect(report.ok).toBe(true);
     expect(report.refusals).toEqual([]);
     expect(report.warnings).toEqual([expect.objectContaining({
@@ -573,7 +573,7 @@ describe('appearance calls go to a person, not a step bar', () => {
     const project = readTemplate('example-project.json');
     const post = arr(obj(project.plan).steps).map(obj).find((s) => s.phase === 'post');
     if (post === undefined) throw new Error('example needs a post step');
-    const dir = fixture((p) => { step(p, post.id as string).bar = 'Looks RIGHT in the loop'; });
+    const dir = fixture((p) => { step(p, post.id as string).bar = 'Looks RIGHT in the loop'; rehashSignoffs(p); });
     const result = cli(['interview', '--check', dir], tempDir(), gitEnv());
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('warning STEP_APPEARANCE_REVIEW');

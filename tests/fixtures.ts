@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { CheckReport } from '../src/check.ts';
+import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
@@ -68,4 +69,14 @@ export function supersede(record: JsonObject, field: 'guide' | 'answer', next: J
   const old = record[field];
   if (old !== null && old !== undefined) record.history = [...(Array.isArray(record.history) ? record.history : []), old];
   record[field] = next;
+}
+
+/** Rebuild existing synthetic approval hashes after setup edits that precede the tested operation. */
+export function rehashSignoffs(project: JsonObject): void {
+  for (const raw of arr(project.signoffs)) {
+    const signoff = obj(raw);
+    if (signoff.step_hashes === undefined) continue;
+    const hashes = obj(signoff.step_hashes);
+    for (const id of Object.keys(hashes)) hashes[id] = stepHash(step(project, id));
+  }
 }

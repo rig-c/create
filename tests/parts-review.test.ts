@@ -10,7 +10,7 @@ import { describe, expect, test } from 'bun:test';
 import { checkProject } from '../src/check.ts';
 import { PARTS_REVIEW_SINCE, STAGE_VALUES, STAGES } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, codes, fixture, obj, step, withCode } from './fixtures.ts';
+import { arr, codes, fixture, obj, rehashSignoffs, step, withCode } from './fixtures.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
 const LATER_RIG_STEPS = ['bones', 'meshes', 'constraints', 'motion'];
@@ -51,6 +51,7 @@ function inFlight(p: JsonObject): void {
   const shifted = obj(shiftDates(p, 30));
   for (const k of Object.keys(p)) delete p[k];
   Object.assign(p, shifted);
+  rehashSignoffs(p);
   p.stage_values = STAGE_VALUES.filter((s) => s !== 'parts' && s !== 'parts-review');
   dropSignoffs(p, (s) => s.stage !== 'parts-review');
   for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'parts') s.stage = 'rigging';

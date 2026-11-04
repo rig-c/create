@@ -12,6 +12,7 @@ import { dirname, join, posix } from 'node:path';
 
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
+import { reviewExampleFiles } from './review-fixture.ts';
 
 /**
  * Where the filled example keeps its assembled parts (derived/, not in git) and
@@ -81,7 +82,7 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
 
 /** Writes a package's files under a project folder (default: the filled example's approved package). */
 export function writePartsPackage(dir: string, pkg: PartsPackage = partsPackage({ verdict: EXAMPLE_VERDICT })): void {
-  for (const [path, content] of Object.entries({ ...preparedExampleFiles(), ...pkg.files })) {
+  for (const [path, content] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...pkg.files })) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), content);
   }

@@ -552,6 +552,17 @@ Post versions go to direction review, outside this package contract.
 Pre-interview versions retain their existing history and output checks and
 are exempt from review-package warnings.
 
+The filled example ships synthetic producer bytes under
+`templates/example-review/`. Its two `review_package` records are generated
+by `bun scripts/generate-example-review.ts <fresh scratch project>`. Add
+`--check` to verify that generation reproduces the shipped record bytes.
+The script runs the public `review-package` command for both rig versions.
+`reviewExampleFiles()` in `tests/review-fixture.ts` maps those bytes to the
+declared sources and package destinations, and both example fixture helpers
+materialize them. The regression test generates two fresh projects and
+compares every record and file byte before checking the filled example with
+zero refusals and zero warnings.
+
 Apply results return in review feedback as `feedback[].context.applied`,
 including the applied producer operation and its bound result. Preserve that
 feedback and use create to record the resulting work as the next version,

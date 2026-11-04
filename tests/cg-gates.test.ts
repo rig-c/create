@@ -126,8 +126,6 @@ describe('a full-screen scene (CG) rig version', () => {
     }));
     expect(cg(report)).toEqual([]);
     expect(report.warnings.map((w) => `${w.code} ${w.path}`)).toEqual([
-      'REVIEW_PACKAGE_MISSING versions[v1].review_package',
-      'REVIEW_PACKAGE_MISSING versions[v2].review_package',
       'CG_GATES_PREDATE versions[v1].built_with',
       'CG_GATES_PREDATE versions[v2].built_with',
     ]);

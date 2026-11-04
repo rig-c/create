@@ -525,6 +525,44 @@
       "built_with": { "@rig-c/parts": "2.4.1", "@rig-c/core": "3.2.0" },
       "answers_feedback": [],
       "changed": "first rig version",
+      "review_package": {
+        "config": {
+          "path": "evidence/v1/review-config.json",
+          "sha256": "baa3ad05351a82fd81b0b25d33ef2d49fcba57086fb1cb77c22145655bba5a16"
+        },
+        "from": "outputs/v1/out",
+        "files": [
+          {
+            "path": "config.json",
+            "sha256": "baa3ad05351a82fd81b0b25d33ef2d49fcba57086fb1cb77c22145655bba5a16"
+          },
+          {
+            "path": "out/check/build/skeleton.model.json",
+            "sha256": "788d646919113729157770361bd430d0b54d65cdf022c2c030d8d5cf4e3e40d2"
+          },
+          {
+            "path": "out/parts.json",
+            "sha256": "35fc842c19dca7f8013487ce58a65b6befce4c64b167a7c11035b7bc69d1726b"
+          },
+          {
+            "path": "out/parts/piece.svg",
+            "sha256": "6ec2f4a2f9a829090f39d73b174f56dbd90302103725632d1942066ca70f3825"
+          },
+          {
+            "path": "out/rig/mesh_report.json",
+            "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          },
+          {
+            "path": "out/rig/motion.json",
+            "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          },
+          {
+            "path": "out/rig/rig.json",
+            "sha256": "5158500209d18a0f094980cf83e5b49af06a99f14a7bea1cd502dcccabf22514"
+          }
+        ],
+        "open": "rig-review open 'derived/review/v1/out'"
+      },
       "outputs": [
         { "path": "outputs/v1/skeleton.json", "sha256": "078ac07a231f8f2749edf4906c1517dc8df04c1cc59866dfb7507f2aba4ce8f3", "bytes": 212998 },
         { "path": "outputs/v1/atlas.png", "sha256": "347f9f67ca9ba2cb4f09e82a73a7d1d9a8d15fc9b073bd3863f89ecf9e9194be", "bytes": 3902211 }
@@ -594,6 +632,44 @@
       "built_with": { "@rig-c/parts": "2.4.1", "@rig-c/core": "3.2.0" },
       "answers_feedback": [{ "version": 1, "verdict": 0 }],
       "changed": "The lantern hangs from hand_r on its own hinge bone with a stop (new bones guide sentence from v1 feedback); the scarf's wind amplitude reduced to just above the coat tails'",
+      "review_package": {
+        "config": {
+          "path": "evidence/v2/review-config.json",
+          "sha256": "baa3ad05351a82fd81b0b25d33ef2d49fcba57086fb1cb77c22145655bba5a16"
+        },
+        "from": "outputs/v2/out",
+        "files": [
+          {
+            "path": "config.json",
+            "sha256": "baa3ad05351a82fd81b0b25d33ef2d49fcba57086fb1cb77c22145655bba5a16"
+          },
+          {
+            "path": "out/check/build/skeleton.model.json",
+            "sha256": "788d646919113729157770361bd430d0b54d65cdf022c2c030d8d5cf4e3e40d2"
+          },
+          {
+            "path": "out/parts.json",
+            "sha256": "35fc842c19dca7f8013487ce58a65b6befce4c64b167a7c11035b7bc69d1726b"
+          },
+          {
+            "path": "out/parts/piece.svg",
+            "sha256": "6ec2f4a2f9a829090f39d73b174f56dbd90302103725632d1942066ca70f3825"
+          },
+          {
+            "path": "out/rig/mesh_report.json",
+            "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          },
+          {
+            "path": "out/rig/motion.json",
+            "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          },
+          {
+            "path": "out/rig/rig.json",
+            "sha256": "5158500209d18a0f094980cf83e5b49af06a99f14a7bea1cd502dcccabf22514"
+          }
+        ],
+        "open": "rig-review open 'derived/review/v2/out'"
+      },
       "outputs": [
         { "path": "outputs/v2/skeleton.json", "sha256": "bccbb57626e8c212cab40596abc9584148bcb8d4dc2215a1de92e4c2cc3c4dba", "bytes": 214106 },
         { "path": "outputs/v2/atlas.png", "sha256": "0f036ba3966425678ac8d4fd7d9c115effcaeb79159a75c05a07b1a0eb3a9666", "bytes": 3902211 }

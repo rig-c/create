@@ -6,7 +6,10 @@ import { dirname, join } from 'node:path';
 
 import { checkProject } from '../src/check.ts';
 import { checkReviewPackages, reviewPackageCommand } from '../src/review-package.ts';
-import type { JsonObject } from '../src/templates.ts';
+import { readTemplate, type JsonObject } from '../src/templates.ts';
+import { generateExampleReview } from '../scripts/generate-example-review.ts';
+import { fixture as exampleFixture, obj, version } from './fixtures.ts';
+import { reviewExampleFiles } from './review-fixture.ts';
 import { CLI, run } from './helpers.ts';
 
 const roots: string[] = [];
@@ -41,6 +44,44 @@ function checked(dir: string) {
 }
 
 describe('frozen review package', () => {
+  test('the shipped example regenerates identical records and package bytes in two fresh projects', () => {
+    const root = mkdtempSync(join(tmpdir(), 'example-review-'));
+    roots.push(root);
+    const first = join(root, 'first');
+    const second = join(root, 'second');
+    const records = generateExampleReview(first);
+    expect(generateExampleReview(second)).toEqual(records);
+    const example = readTemplate('example-project.json');
+    for (const n of [1, 2]) expect(records[n - 1]).toEqual(obj(version(example, n).review_package));
+    expect(readFileSync(join(first, 'project.json'), 'utf8')).toBe(readFileSync(join(second, 'project.json'), 'utf8'));
+    for (const [path, bytes] of Object.entries(reviewExampleFiles())) {
+      expect(readFileSync(join(first, path), 'utf8')).toBe(bytes);
+      expect(readFileSync(join(second, path), 'utf8')).toBe(bytes);
+    }
+  });
+  test('the filled example checks clean with real package files', () => {
+    const dir = exampleFixture();
+    roots.push(dirname(dir));
+    const report = checkProject(dir);
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings).toEqual([]);
+  });
+  test('stripping an example package record warns and keeps exit zero', () => {
+    const dir = exampleFixture((project) => { delete version(project, 1).review_package; });
+    roots.push(dirname(dir));
+    const report = checkProject(dir);
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['REVIEW_PACKAGE_MISSING']);
+  });
+  test('removing one example package warns with its recorded regeneration command', () => {
+    const dir = exampleFixture();
+    roots.push(dirname(dir));
+    rmSync(join(dir, 'derived/review/v1'), { recursive: true });
+    const report = checkProject(dir);
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['REVIEW_PACKAGE_MISSING']);
+    expect(report.warnings[0]?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
+  });
   test('normal CLI writes a package whose installed feedback resolves the config hash', () => {
     const dir = fixture();
     const made = run([process.execPath, CLI, 'review-package', '1', dir, '--config', 'frozen/config.json', '--from', 'build', '--json'], dir, { ...process.env } as Record<string, string>);

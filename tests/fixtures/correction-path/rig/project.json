@@ -16,7 +16,7 @@
     "paused"
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.15.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.16.0)",
     "held": false,
     "date": null,
     "interviewer": null,
@@ -280,7 +280,7 @@
       "review_origin": {
         "feedback": {
           "path": "evidence/feedback.json",
-          "sha256": "955cbd848ed58080089adc66f6be22d05db624fc2c9ec0b0b2f6679f44f55c9b"
+          "sha256": "cf2cae99f4b876f45f9cde5749ed54a487ce497a8921c81bc660075925a94376"
         },
         "source_version": 1,
         "feedback_id": "synthetic-apply",
@@ -299,18 +299,18 @@
             ],
             "producer": {
               "name": "@rig-c/parts",
-              "version": "2.15.0"
+              "version": "2.16.0"
             },
             "op": {
               "cmd": "rig",
               "args": []
             }
           },
-          "patchSha256": "bd2cea502cae837e8b788503fd3b52da78fb50f8848d1c8369bafb2e0eaaced6",
+          "patchSha256": "8a86ccf248e505dbe650bfe5bcd3bb367d84e58ca148f8f32a34e10cafe02a97",
           "configHash": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
           "producer": {
             "package": "@rig-c/parts",
-            "version": "2.15.0"
+            "version": "2.16.0"
           },
           "compiler": {
             "package": "@rig-c/core",
@@ -394,7 +394,7 @@
         "feedback": {
           "file": {
             "path": "evidence/feedback.json",
-            "sha256": "955cbd848ed58080089adc66f6be22d05db624fc2c9ec0b0b2f6679f44f55c9b"
+            "sha256": "cf2cae99f4b876f45f9cde5749ed54a487ce497a8921c81bc660075925a94376"
           },
           "item_id": "synthetic-apply"
         }

@@ -8,6 +8,7 @@ import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './intervie
 import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
+import { REOPEN_HELP, reopenCommand } from './reopen.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
@@ -31,6 +32,8 @@ Usage:
                                                     record what a person said about a shown version, word for word
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
+  rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
+                                                    record a human backward move without deleting history
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
                                                     copy producer inputs and record the review open command
   rig-create split-captions [<project dir|project.json>] [--config <file>]
@@ -50,6 +53,8 @@ ${COLLECTION_HELP}
 ${REVIEW_HELP}
 
 ${SIGNOFF_HELP}
+
+${REOPEN_HELP}
 
 ${DERIVED_HELP}
 
@@ -109,6 +114,7 @@ const COMMANDS: Record<string, Command> = {
   collection: collectionCommand,
   review: reviewCommand,
   signoff: signoffCommand,
+  reopen: reopenCommand,
 
   derived: derivedCommand,
   'split-captions': splitCaptionsCommand,

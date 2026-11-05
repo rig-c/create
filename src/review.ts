@@ -24,6 +24,7 @@ import { join, resolve } from 'node:path';
 
 import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
 import { PAUSED_STAGE, RIG_REVIEW, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -55,6 +56,7 @@ export interface Still {
 
 export interface RigVersion {
   readonly preInterview: boolean;
+  readonly live: boolean;
   readonly n: number;
   readonly path: string;
   /** The last human `accepted` verdict at `rig-review`, or `null`. */
@@ -68,6 +70,7 @@ export interface PostVersion {
   readonly n: number;
   readonly path: string;
   readonly at: string | null;
+  readonly live: boolean;
   readonly rigVersion: Json | undefined;
 }
 
@@ -104,6 +107,7 @@ function readStill(e: JsonObject): Still | string {
 
 /** Reads `versions[]` into rig and post versions, in record order. Paths name a version by its number: `versions[v2]`. */
 export function readVersions(project: JsonObject): Versions {
+  const reopens = collectReopens(project, []);
   const rigs: RigVersion[] = [];
   const posts: PostVersion[] = [];
   const malformed: { path: string; why: string }[] = [];
@@ -114,7 +118,7 @@ export function readVersions(project: JsonObject): Versions {
     }
     const path = `versions[v${v.n}]`;
     if (v.kind === 'post') {
-      posts.push({ n: v.n, path, at: asString(v.at), rigVersion: v.rig_version });
+      posts.push({ n: v.n, path, at: asString(v.at), rigVersion: v.rig_version, live: liveSignoff(reopens, 'post', Date.parse(asString(v.at) ?? '')) });
       return;
     }
     if (v.kind !== 'rig') {
@@ -153,18 +157,18 @@ export function readVersions(project: JsonObject): Versions {
       if (typeof read === 'string') malformedStills.push({ index: i, why: read });
       else stills.push({ ...read, evidence: i });
     });
-    rigs.push({ n: v.n, path, preInterview: v.pre_interview === true, accepted, stills, malformedStills });
+    rigs.push({ n: v.n, path, live: liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(v.at) ?? '')), preInterview: v.pre_interview === true, accepted, stills, malformedStills });
   });
   return { rigs, posts, malformed };
 }
 
 /** The rig version with the highest number, accepted or not. */
 function latestRig(versions: Versions): RigVersion | null {
-  return versions.rigs.reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
+  return versions.rigs.filter(r => r.live).reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
 }
 /** The accepted rig version with the highest number. */
 export function latestAccepted(versions: Versions): RigVersion | null {
-  return versions.rigs.filter((r) => r.accepted !== null).reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
+  return versions.rigs.filter((r) => r.live && r.accepted !== null).reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
 }
 
 /** Why a post version's `rig_version` is not an accepted rig, or `null` when it is. */
@@ -216,6 +220,11 @@ export function checkReviews(ctx: ReviewCtx): void {
 
   for (const post of versions.posts) {
     const problem = postBasisProblem(post, versions);
+    const since = reopenTime(collectReopens(ctx.project, []), RIG_REVIEW);
+    const basis = versions.rigs.find(r => r.n === post.rigVersion);
+    if (post.live && since !== -Infinity && basis !== undefined && !basis.live) {
+      push('POST_ON_SUPERSEDED_RIG', `${post.path}.rig_version`, `${post.path}: historical rig cannot authorise new post work; build and accept a new rig version`);
+    }
     if (problem !== null) push('POST_ON_UNACCEPTED_RIG', `${post.path}.rig_version`, problem);
   }
 
@@ -237,7 +246,7 @@ export function checkReviews(ctx: ReviewCtx): void {
 
   // The current post version is on the current accepted rig; older post versions are history.
   const accepted = latestAccepted(versions);
-  const currentPost = versions.posts.reduce<PostVersion | null>((a, p) => (a === null || p.n > a.n ? p : a), null);
+  const currentPost = versions.posts.filter(p => p.live).reduce<PostVersion | null>((a, p) => (a === null || p.n > a.n ? p : a), null);
   if (accepted !== null && currentPost !== null && postBasisProblem(currentPost, versions) === null && currentPost.rigVersion !== accepted.n) {
     push(
       'POST_ON_SUPERSEDED_RIG',
@@ -279,8 +288,10 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
   const first = historyRefusals[0];
   if (first !== undefined) refuse(first.code, first.message);
 
+  const reopens = collectReopens(record, historyRefusals);
+  if (historyRefusals[0] !== undefined) refuse(historyRefusals[0].code, historyRefusals[0].message);
   const signed = asArray(record.signoffs).some(
-    (s) => isObject(s) && s.stage === RIG_REVIEW && (s.checkpoint ?? null) === null && isHuman(asString(s.by)) && asString(s.verbatim) !== null,
+    (s) => isObject(s) && liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(s.at) ?? '')) && s.stage === RIG_REVIEW && (s.checkpoint ?? null) === null && isHuman(asString(s.by)) && asString(s.verbatim) !== null,
   );
   if (!signed) refuse('RIG_REVIEW_UNSIGNED', `no human { "stage": "rig-review" } sign-off: no rig version has been handed to post-production`);
 

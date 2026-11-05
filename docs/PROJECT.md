@@ -94,6 +94,48 @@ so they are not asked about a rig that may still change. A rig change after
 `rig-review` means a new rig version and a new first review, and the post
 version built on the old rig is redone on the new one.
 
+### Reopening a passed stage
+
+```sh
+rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>] [--json]
+```
+
+A human may return to a previously reached stage without deleting signatures.
+`reopen` appends `reopens[]` and sets `stage` to its target in the same validated
+write. This backward move is the exception to `signoff`'s record-only writer:
+leaving the old forward stage would require signatures the reopen supersedes.
+The target is in the stage order, excluding `paused` and `accepted`, and no
+later than the furthest stage evidenced by the current stage, historical human
+sign-offs or dated rig/post versions. No producer is run.
+
+Each entry is `{ stage, from_stage, by, at, verbatim, source?, steps_before }`. `at` comes
+from the clock; words come unchanged from UTF-8 file or stdin (omitted or `-`).
+`--source` separately records where the words came from. `from_stage` records
+where the project stood when the reopen was written. Each entry's eligibility
+uses its own `from_stage` and historical evidence dated no later than that entry,
+so later backward moves neither erase nor manufacture its reach. An agent cannot sign.
+`steps_before` snapshots `{ id, status }` for every plan step running in the
+target stage or later, preserving an absent status by omitting it. Those steps
+are reset to `pending`; their other fields stay unchanged. Status is outside
+`step_hashes`, so existing plan hashes still verify. The append, resets and
+stage move happen together, or the file is unchanged on refusal. Before writing,
+the command runs the complete project check against the candidate record and
+the existing project files; any refusal leaves the original bytes unchanged.
+
+For each stage, a sign-off is live only if dated strictly after every reopen
+whose target is that stage or earlier. Checkpoints follow the same rule;
+undated entries cannot outrank a reopen. A second reopen advances that cutoff
+without restoring signatures invalidated by an earlier, wider reopen. All
+signatures remain in place, structurally checked as history. Advancing again
+requires live signatures under the existing stage/checkpoint rules. A newly
+run step without them is still refused; there is no execution exemption.
+
+Accepted historical rig versions remain accepted as history. If the reopen
+covers rig-review, a live hand-off requires a rig version built after it;
+a new verdict on an old build cannot revive that build. Historical post
+versions keep their original basis; new post work requires the live rig.
+Reopening only post work preserves the unaffected rig acceptance.
+
 ### The parts are reviewed before rigging
 
 A defect in the parts — a part with nothing painted under its occluder, a
@@ -354,7 +396,7 @@ agent reads, and a second file is one a resume can skip.
 rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>] [--json]
 ```
 
-The command appends `signoffs[]` and leaves `project.stage` unchanged. `at`
+The `signoff` command appends `signoffs[]` and leaves `project.stage` unchanged. `at`
 comes from the clock. There is no `--at` option. The user's UTF-8 words come
 from the file, or stdin when omitted or `-`, preserving BOM, spaces, CRLFs and
 final newlines. Invalid UTF-8 is refused because a JSON string cannot retain
@@ -398,6 +440,9 @@ existing verdict of an earlier version and must not duplicate an existing or
 new reference. Both writers refuse `by: agent` case-insensitively.
 
 ## Versions
+
+A reopen preserves every version and verdict; a rebuild is a new numbered
+version, never an overwrite of an accepted historical build.
 
 Every build shown to anyone is a `versions[]` entry, numbered in order across
 both kinds:

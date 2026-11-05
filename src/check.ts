@@ -47,6 +47,7 @@ import {
   stageOfStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
 import { stepHash } from './step-hash.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 
@@ -759,7 +760,8 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
 
 // ---------------------------------------------------------------------- entry
 
-export function checkProject(projectDirArg: string): CheckReport {
+/** With a candidate record, validate the would-be write against the same project files without writing it. */
+export function checkProject(projectDirArg: string, candidate?: JsonObject): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
@@ -778,11 +780,11 @@ export function checkProject(projectDirArg: string): CheckReport {
   });
 
   const file = join(dir, 'project.json');
-  if (!existsSync(file)) {
+  if (candidate === undefined && !existsSync(file)) {
     refusals.push({ code: 'PROJECT_JSON_MISSING', path: file, message: `${file} does not exist; run the check in a project folder or name one` });
     return fail();
   }
-  const read = readJsonObject(file);
+  const read = candidate === undefined ? readJsonObject(file) : { ok: true as const, value: candidate };
   if (!read.ok) {
     refusals.push({ code: 'PROJECT_JSON_INVALID', path: file, message: `${file}: ${read.error}` });
     return fail();
@@ -804,10 +806,28 @@ export function checkProject(projectDirArg: string): CheckReport {
   }
 
   const collection = loadCollection(dir);
-  const signoffs = collectSignoffs(project, refusals);
+  const reopens = collectReopens(project, refusals);
+  const historySignoffs = collectSignoffs(project, refusals).filter(s => {
+    if (STAGE_VALUES.includes(s.stage)) return true;
+    const path = `signoffs[${s.index}]`;
+    refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: unknown stage ${s.stage}; use a known stage` });
+    return false;
+  });
+  const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const steps = collectSteps(project, refusals);
   const items = collectItems(project, { collection });
-  const planApprovedAt = planApprovedBeforePartsReview(signoffs);
+  const planApprovedAt = planApprovedBeforePartsReview(historySignoffs);
+  // Superseded signatures grant no authority, but malformed checkpoint history is still reported.
+  for (const s of historySignoffs) {
+    if (liveSignoff(reopens, s.stage, s.at) || s.checkpoint === null) continue;
+    const step = steps.find(step => step.id === s.checkpoint);
+    const ownStage = step === undefined ? null : stageOfStep(step.phase, step.id);
+    const legacyStage = step === undefined ? null : stageOfStep(step.phase, '');
+    if (step === undefined || (s.stage !== ownStage && !(planApprovedAt !== null && s.stage === legacyStage))) {
+      const path = `signoffs[${s.index}]`;
+      refusals.push({ code: 'SIGNOFF_UNKNOWN_CHECKPOINT', path, message: `${path}: historical checkpoint ${s.checkpoint} names no step in ${s.stage}; restore the original signature` });
+    }
+  }
   const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, steps, planApprovedAt !== null) : stage;
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;

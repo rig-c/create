@@ -4,8 +4,12 @@
 is a pure JSON-to-document translation. It reads **current** framing answers,
 waypoint guides, post guides and their `additions[]`. It never reads `history`,
 versions, configs, option files, producer reports or the filesystem. It neither
-measures a rig nor calls core. The document is not wired into project records,
-`interview --check`, builds, signoff, acceptance or handoff yet.
+measures a rig nor calls core. `checkProject` derives the document once from
+its parsed project or supplied candidate and exposes it as `report.invariants`;
+early unreadable or malformed project returns carry `null`. `interview --check`
+prints it in JSON and summarizes entry/gap counts in text as a translation,
+not a rig check. Nothing is stored in project records, and gaps add no warnings.
+This adds no build, signoff, acceptance, handoff or downstream enforcement.
 
 ## Document contract
 
@@ -70,9 +74,11 @@ The former `editorRoundTrip` field is **retired** in installed core 3.2.1
 
 ## State × reader matrix
 
-These columns describe this module's three readers only; there are no new
-project/check or CLI readers. The test matrix in `tests/invariants.test.ts`
-exercises each row, including mixed choices and pending siblings.
+These columns describe the translator's three readers. `checkProject` exposes
+their derived document without adding a gate; `interview --check` displays it.
+The test matrix in `tests/invariants.test.ts` exercises each row, including mixed
+choices and pending siblings; `tests/invariants-check.test.ts` checks derived
+report visibility and recomputation after the actual answer writer runs.
 
 | Current state | Exact source reader | Normalized-value reader | Gap reader |
 | --- | --- | --- | --- |

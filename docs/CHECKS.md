@@ -15,6 +15,9 @@ derived from parts), `provenance[]` (per version checked: `version`, `kind`,
 `sections` checked), `feedback[]` (per human bounced verdict, § Polish
 feedback), `refusals[]` and `warnings[]`, each `{ code, path, message }`
 — for agents and later checks to read.
+The report also includes `invariants`: the current guide-derived
+`rig-create/invariants@1` document (entries and expected gaps, not rig-check
+results), or `null` on an early unreadable or malformed project return.
 
 The contract it checks is [INTERVIEW.md](INTERVIEW.md) and
 [PROJECT.md](PROJECT.md); this file only lists what fires and how to clear it.

@@ -177,5 +177,5 @@ export function main(argv: string[]): number {
 }
 
 if (import.meta.main) {
-  process.exit(main(process.argv.slice(2)));
+  process.exitCode = main(process.argv.slice(2));
 }

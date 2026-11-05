@@ -45,7 +45,9 @@ export function interviewCommand(args: string[]): CommandResult {
   }
   const report = checkProject(target);
   return {
-    stdout: json ? JSON.stringify(report, null, 2) : formatReport(report),
+    stdout: json ? JSON.stringify(report, null, 2) : [formatReport(report),
+      ...(report.invariants === null ? [] : [`invariants: ${report.invariants.entries.length} entries, ${report.invariants.gaps.length} gaps (translated from the guide; not a rig check)`]),
+    ].join('\n'),
     exit: report.ok ? 0 : 1,
   };
 }

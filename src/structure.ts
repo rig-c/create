@@ -4,6 +4,8 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
+import { draftFileUnavailable } from './drafts.ts';
+import { IGNORED_DIRS } from './init.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { hasStageOrder, interviewStageOfGuide, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -24,9 +26,15 @@ export function retainedJson(dir: string, binding: Json | undefined): JsonObject
   return json;
 }
 
-export function latestPartsApproval(project: JsonObject): JsonObject | undefined {
-  const reopens = collectReopens(project, []);
-  return collectSignoffs(project, []).filter(s => s.stage === 'parts-review' && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at))
+export function structurePathIsIgnored(dir: string, path: string): boolean {
+  const ignored: readonly string[] = [...IGNORED_DIRS, 'node_modules', '.git'];
+  return [relative(resolve(dir), resolve(dir, path)), relative(realpathSync(dir), realpathSync(resolve(dir, path)))]
+    .some(rel => ignored.includes(rel.split(sep)[0] as string));
+}
+
+export function latestPartsApproval(project: JsonObject, at = Infinity): JsonObject | undefined {
+  const reopens = collectReopens(project, []).filter(r => r.at <= at);
+  return collectSignoffs(project, []).filter(s => s.stage === 'parts-review' && s.checkpoint === null && s.at <= at && liveSignoff(reopens, s.stage, s.at))
     .sort((a, b) => b.at - a.at || b.index - a.index)[0]?.record;
 }
 
@@ -38,13 +46,15 @@ export function checkStructure(dir: string, project: JsonObject, signoff: JsonOb
     const snapshot = retainedJson(dir, signoff.structure);
     const draft = asArray(project.drafts).find(d => isObject(d) && d.id === signoff.draft_id);
     if (!isObject(draft) || snapshot.schema !== STRUCTURE_SCHEMA || snapshot.draft_id !== draft.id || !isDeepStrictEqual(snapshot.config, draft.config) || !Array.isArray(snapshot.entries)) throw new Error('snapshot must bind the named draft and its config');
-    const config = retainedJson(dir, snapshot.config);
+    if (!isObject(draft.config) || typeof draft.config.path !== 'string') throw new Error('draft config binding is malformed');
+    const config = draftFileUnavailable(dir, draft.config.path, `derived/drafts/${String(draft.id)}`)
+      ? undefined : retainedJson(dir, snapshot.config);
     const seen = new Set<string>();
     for (const raw of snapshot.entries) {
       if (!isObject(raw) || typeof raw.path !== 'string' || !/^\/meshes\/(?:[^~/]|~[01])+$/.test(raw.path) || seen.has(raw.path) || !('value' in raw)) throw new Error('entries require distinct complete /meshes/<part> declarations');
       seen.add(raw.path);
       const part = raw.path.slice('/meshes/'.length).replaceAll('~1', '/').replaceAll('~0', '~');
-      if (!isObject(config.meshes) || !isDeepStrictEqual(config.meshes[part], raw.value)) {
+      if (config !== undefined && (!isObject(config.meshes) || !isDeepStrictEqual(config.meshes[part], raw.value))) {
         add(errors, 'STRUCTURE_DECISIONS_CONFLICT', `${path}.structure`, `${raw.path} differs from the reviewed config`); return null;
       }
     }
@@ -85,11 +95,12 @@ export function checkRiggingContext(dir: string, project: JsonObject, effectiveS
   if (review === undefined) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'review parts before asking rigging questions');
   // Bind production config declarations, not geometry. Historical pre-adoption builds remain history.
   const adoptedAt = isObject(interview.order) ? Date.parse(String(interview.order.adopted_at)) : NaN;
-  if (review === undefined) return;
-  const snapshot = checkStructure(dir, project, review, 'signoffs[parts-review]', []);
-  if (snapshot === null) return;
   for (const version of asArray(project.versions)) {
     if (!isObject(version) || version.kind !== 'rig' || !(Date.parse(String(version.at)) >= adoptedAt)) continue;
+    const historicalReview = latestPartsApproval(project, Date.parse(String(version.at)));
+    if (historicalReview === undefined) { add(errors, 'RIGGING_INTERVIEW_CONTEXT', `versions[v${String(version.n)}]`, 'no parts structure approval was live when this rig was built'); continue; }
+    const snapshot = checkStructure(dir, project, historicalReview, `versions[v${String(version.n)}].structure`, errors);
+    if (snapshot === null) continue;
     const provenance = isObject(version.provenance) ? version.provenance : {};
     if (!isObject(provenance.config)) continue; // Existing provenance reader owns absent configs.
     let config: JsonObject;

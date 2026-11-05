@@ -813,7 +813,10 @@ config: {path,sha256}, parts: {path,files:[{path,sha256}]}, files:[{path,sha256}
 All files must resolve under `derived/drafts/<id>/`. Standalone `rig --out`
 requires explicit `--parts`; only an unambiguous build root containing
 `parts.json`, `parts/` and `rig/` supplies those inputs implicitly. Ambiguous
-layouts, symlinks out of the root and changes to recorded input bytes refuse.
+layouts, symlinks out of the root and changes to present recorded input bytes refuse.
+Absent ignored draft files warn as `DRAFT_RIG_UNAVAILABLE`, including after a
+clone; they do not invalidate an accepted record. Present files still verify
+even when another file is absent.
 These are **create-owned artifact identities**. The config/output association
 is a declaration, not measured reproducibility or producer provenance. There
 is no retained producer handoff file here: review constructs its own live
@@ -841,8 +844,12 @@ the human parts sign-off, not a fabricated review export:
 Each entry is the complete exact `meshes.<part>` declaration, including
 `contour.bust` or `contour.regions` where present. Paths use JSON Pointer
 escaping. Explicit `entries: []` is legal when no declarations are carried.
-The writer hashes the retained file, checks its config/declaration identity,
-and stores `draft_id` and `structure:{path,sha256}` on the parts-review sign-off.
+The snapshot must live outside ignored roots, such as `evidence/`; the writer
+refuses paths or aliases into ignored storage. The writer hashes the retained
+file and checks its config/declaration identity when the draft config is
+available. A clone still checks the snapshot hash/schema and its recorded
+config identity, without requiring absent regenerable draft artifacts. It
+stores `draft_id` and `structure:{path,sha256}` on the parts-review sign-off.
 It does not apply patches or measure geometry. The later interview reads this
 human-approved snapshot instead of re-asking its structure as a guess.
 `signoff rigging-interview` resolves its `accepted_parts:{signoff_at,evidence}`
@@ -850,7 +857,9 @@ and `structure` from the live human parts review and stores a shared
 `interview.rigging_context`, outside the answer union. Fresh rig guides must
 follow that approval and precede their rigging signature. Contradictory retained
 production config declarations require renewed approval rather than a silent
-override. Both new-order writers validate the full candidate before writing.
+override. Each production version uses the latest structure approval live at
+its build date, with reopen supersession evaluated at that same date; a later
+approval does not impose its declarations on old versions. Both new-order writers validate the full candidate before writing.
 
 Mesh sign-off UI evidence from review#365 is optional in this contract, not a
 shipped-capability claim or mandatory gate. Review/producer owners validate the

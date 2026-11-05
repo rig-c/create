@@ -6,7 +6,7 @@ import { asArray, checkProject, classify, isObject, type Finding } from './check
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
 import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
-import { checkStructure, riggingContext } from './structure.ts';
+import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, STAGE_ORDER_SPEC, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
@@ -162,6 +162,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     const path = opts['--structure-file'];
     if (path !== undefined) {
       try {
+        if (structurePathIsIgnored(dir, path)) throw new Error('structure snapshots must survive a clone; retain the file outside ignored roots, for example evidence/');
         const canonical = realpathSync(resolve(dir, path));
         const rel = relative(realpathSync(dir), canonical).split(sep).join('/');
         if (isAbsolute(path) || rel === '' || rel === '..' || rel.startsWith('../')) throw new Error('structure file must stay under the project');

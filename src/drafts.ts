@@ -46,7 +46,26 @@ function binding(v: Json | undefined): v is JsonObject {
   return isObject(v) && typeof v.path === 'string' && hex(v.sha256);
 }
 
-export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[]): void {
+/** Absence may be regenerable; symlinks, escaped paths and present wrong kinds are never absence. */
+export function draftFileUnavailable(dir: string, path: string, root: string): boolean {
+  if (isAbsolute(path) || path.split('/').some(p => p === '..' || p === '.' || p === '')) throw new Error(`${path}: expected a literal project-relative draft path`);
+  const target = resolve(dir, path);
+  if (target !== resolve(dir, root) && !inside(resolve(dir, root), target)) throw new Error(`${path}: outside ${root}`);
+  const names = path.split('/');
+  let current = realpathSync(dir);
+  for (const [i, name] of names.entries()) {
+    current = join(current, name);
+    let info;
+    try { info = lstatSync(current); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+      throw error;
+    }
+    if (info.isSymbolicLink() || (i < names.length - 1 && !info.isDirectory())) throw new Error(`${path}: draft path traverses a symlink or non-directory`);
+  }
+  return false;
+}
+
+export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[], warnings: Finding[] = []): void {
   const add = (code: string, path: string, why: string): void => { refusals.push({ code, path, message: `${path}: ${why}; retain a labelled draft with its original config, parts and files` }); };
   if (project.drafts !== undefined && !Array.isArray(project.drafts)) { add('DRAFT_RIG_MALFORMED', 'drafts', 'expected a list'); return; }
   const ids = new Set<string>();
@@ -65,16 +84,25 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
       || !asArray(parts.files).some(f => binding(f) && f.path === `${String(parts.path)}/parts.json`)) { add('DRAFT_RIG_MALFORMED', path, 'file inventories must bind config, parts.json and output'); continue; }
     const rigs = asArray(raw.files).filter(f => binding(f) && String(f.path).endsWith('/rig.json'));
     if (rigs.length !== 1 || !['motion.json', 'mesh_report.json'].every(name => asArray(raw.files).some(f => binding(f) && f.path === String((rigs[0] as JsonObject).path).replace(/rig\.json$/, name)))) { add('DRAFT_RIG_MALFORMED', path, 'expected one complete rig output layout'); continue; }
+    const unavailable = new Set<string>();
+    for (const entry of all) {
+      if (!binding(entry)) continue;
+      const file = String(entry.path);
+      try {
+        if (draftFileUnavailable(dir, file, root)) { unavailable.add(file); continue; }
+        const bytes = readFileSync(fileAt(dir, file, root));
+        if (sha(bytes) !== entry.sha256) throw new Error(`${file} changed`);
+      } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
+    }
     try {
-      for (const entry of all) {
-        if (!binding(entry)) continue;
-        const bytes = readFileSync(fileAt(dir, String(entry.path), root));
-        if (sha(bytes) !== entry.sha256) throw new Error(`${String(entry.path)} changed`);
+      if (!draftFileUnavailable(dir, String(parts.path), root)) {
+        const expected = new Map(asArray(parts.files).filter(binding).map(f => [String(f.path), f.sha256]));
+        for (const actual of partsInventory(dir, String(parts.path), root)) {
+          if (expected.get(String(actual.path)) !== actual.sha256) throw new Error(`parts inventory changed at ${String(actual.path)}`);
+        }
       }
-      // Inventory has an exact declared parts subtree, including extra or removed inputs.
-      const actual = partsInventory(dir, String(parts.path), root);
-      if (JSON.stringify(actual) !== JSON.stringify(parts.files)) throw new Error('parts inventory changed');
     } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
+    if (unavailable.size > 0) warnings.push({ code: 'DRAFT_RIG_UNAVAILABLE', path, message: `${path}: regenerable draft artifacts are unavailable (${[...unavailable].join(', ')}); restore the recorded bytes before inspecting or rebuilding this draft` });
   }
 }
 

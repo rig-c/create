@@ -42,6 +42,7 @@ import {
   PARTS_REVIEW_SINCE,
   PAUSED_STAGE,
   approvalStageOfStep,
+  approvalStageOfGuide,
   hasStageOrder,
   interviewStageOfGuide,
   LEGACY_STAGES,
@@ -539,13 +540,13 @@ function checkAnswers(ctx: Ctx): void {
       if (covers === null || covers.trim() === '') {
         ctx.refusals.push({ code: 'GUIDE_PARTIAL_UNMARKED', path, message: `${path}: a partial guide's agent_decision needs nonempty covers naming the remainder delegated to the agent` });
       }
-      const approvedBy = approvalStageOfStep(item.kind === 'post' ? 'post' : 'rig', item.id, hasStageOrder(ctx.project));
+      const approvedBy = approvalStageOfGuide(item.id, item.kind === 'post', hasStageOrder(ctx.project));
       if (signed(ctx, approvedBy) && !isDecision(decision)) {
         ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path, message: `${path}: the partially delegated remainder needs agent_decision.value and nonempty reasoning before ${approvedBy} is signed` });
       }
     }
     if (state.state === 'delegated' && !state.decided) {
-      const approvedBy = approvalStageOfStep(item.kind === 'post' ? 'post' : 'rig', item.id, hasStageOrder(ctx.project));
+      const approvedBy = approvalStageOfGuide(item.id, item.kind === 'post', hasStageOrder(ctx.project));
       if (signed(ctx, approvedBy)) {
         ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path, message: `${path}: delegated, but agent_decision is missing and ${approvedBy} is signed; the agent's decision is written before the plan is signed` });
       }
@@ -872,7 +873,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     if (!(e instanceof PartsUnreadable)) throw e;
     refusals.push({ code: e.code, path: '@rig-c/parts', message: e.message });
   }
-  checkDrafts(dir, project, refusals);
+  checkDrafts(dir, project, refusals, warnings);
   refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);
   checkAnswers(ctx);

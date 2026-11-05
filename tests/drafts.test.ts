@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { checkDrafts, draftRigCommand, draftVersionFindings } from '../src/drafts.ts';
@@ -64,4 +64,14 @@ test('draft role, reserved declared path and symlink identity cannot become a ha
   writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   rejected(() => handoff(dir, null), 'DRAFT_RIG_AS_VERSION');
   expect(draftVersionFindings(dir, { ...p, versions: [{ n: 11, kind: 'rig', outputs: [{ path: 'outputs/independent.json', sha256: 'a'.repeat(64) }] }] })).toEqual([]);
+});
+
+
+test('an unavailable config does not mask a present changed draft output', () => {
+  const { dir, args } = draft(); draftRigCommand(args);
+  rmSync(join(dir, 'derived/drafts/sample/config.json'));
+  write(dir, 'derived/drafts/sample/out/rig.json', '{"changed":true}');
+  const report = checkProject(dir);
+  expect(report.refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
+  expect(report.warnings.map(f => f.code)).toContain('DRAFT_RIG_UNAVAILABLE');
 });

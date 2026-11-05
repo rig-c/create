@@ -748,7 +748,8 @@ is create-owned artifact identity, not producer provenance or reproducibility.
 | `RIGGING_INTERVIEW_CONTEXT` | adoption/context lacks its date or current accepted parts and structure binding | retain the reviewed structure and sign the rigging interview |
 | `RIG_GUIDE_BEFORE_PARTS` | claimed new rigging answers are undated, earlier than the accepted parts, or later than approval | preserve old answers in history and ask fresh against approved parts |
 | `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout or missing standalone parts inputs | retain one labelled output with explicit parts inputs |
-| `DRAFT_RIG_FILE` | a declared draft file or its parts inventory is unreadable, changed or escapes its root | restore its frozen config, parts and output files |
+| `DRAFT_RIG_FILE` | a present draft artifact is unreadable, changed, unexpected or escapes its root | restore its frozen config, parts and output files |
+| `DRAFT_RIG_UNAVAILABLE` | WARN: declared regenerable draft artifacts are absent under the ignored draft root | restore the named recorded bytes before inspecting or rebuilding the draft; retained structure snapshots still verify |
 | `DRAFT_RIG_AS_VERSION` | draft role/identity/reserved paths are offered as a numbered version, review, package or handoff | build an independently authorised production rig |
 | `STRUCTURE_DECISIONS_MISSING` | new-order parts approval lacks its draft or explicit structure snapshot | supply --draft and --structure-file, including entries:[] when unchanged |
 | `STRUCTURE_DECISIONS_INVALID` | snapshot schema/declarations/config binding are malformed or changed | retain the exact human-approved structure file |
@@ -757,3 +758,15 @@ is create-owned artifact identity, not producer provenance or reproducibility.
 
 Each refusal names the record path and writes nothing in the corresponding writer.
 The existing plan, checkpoint, parts-verdict and diff-map codes remain active.
+
+
+Missing ignored draft files are unavailable, not altered files. Existing files
+still verify even when another artifact is missing. A parts-review structure
+snapshot must be retained outside ignored roots (`evidence/`, for example);
+the writer refuses ignored paths and aliases into them. On a clone its retained
+snapshot is still hash/schema checked without requiring the regenerable config.
+Production declarations are compared to the latest structure approval live at
+their own build date, applying only reopens at or before that date. A later
+reopen/approval never rewrites an earlier version's obligations. Delegated
+framing uses the same central interview membership as source guides, so it
+must be decided before the first plan approval or parts execution.

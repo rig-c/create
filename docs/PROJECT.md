@@ -869,3 +869,137 @@ binding and refusals, not the physical correctness of a chest rebuild.
 The synthetic new-order record and draft declaration files reproduce with
 `bun scripts/generate-example-order.ts <fresh scratch dir> --check`. The frozen
 legacy record is byte-preserved; generated evidence is never hand-written.
+
+## Correction paths: described and made
+
+A correction lives in project-level `corrections[]`, including at `parts-review`
+before a production version exists. Adopt explicitly with `correction --adopt`;
+this writes `corrections_contract: {schema: "rig-create/corrections@1", adopted_at}`.
+No stage or interview-order schema changes. New projects and the filled example
+adopt it with an empty list. Older records get `CORRECTION_PATH_LEGACY` without
+inventing corrections, rewriting dates, or changing their existing origins.
+
+Every record has `schema: "rig-create/correction@1"`, `id`, `path`, `by`, `at`,
+`verbatim`, optional text `source`, `stage`, `on`, `artifact`, `outcome` and
+`resolves`. `path` is `described` or `made`. The stage is `parts-review`,
+`rig-review` or `direction-review`. `on` is the source identity; `outcome:null`
+means open. A closure sets outcome once and adds `closure:{by:"agent",at,reasoning}`
+with create's clock. That note is an agent declaration, never a human quote or
+acceptance. `resolves:null` or an earlier correction id records an append-only
+replacement; the predecessor remains history and is discharged only by a
+completed valid replacement.
+
+- `described` uses `artifact:{kind:"description"}` and unchanged human words.
+- A made preview uses `artifact:{kind:"config-patch",patch:{path,sha256},
+  state:"preview/pending",feedback:null}`. Its raw file hash is its own identity;
+  it makes no claim about review's `patchSha256`.
+- A made session uses `artifact:{kind:"config-patch",state:"preview/pending",
+  feedback:{file:{path,sha256},item_id}}`. The patch is the selected session
+  item's `context.applied.patch`. With a bound result and passing producer
+  summary, closure changes state to `applied-and-checked`. An optional retained
+  preview `patch` must be parsed-deep-equal to the embedded patch. Create retains
+  `applied.patchSha256` as review's claim and never recomputes it.
+- Other made operations use `{kind:"unsupported",operation,reason,files,
+  producer_schema}`. `operation` is `mesh-delta`, `retarget`, `keyed-animation`
+  or `other`. For example, `rig-review-applied/3` is a mesh delta, not a config
+  patch. Its opaque producer evidence is retained; completion stays pending.
+
+The pinned patch is exactly `rig-review-config-patch/1` with the five keys
+`schema`, `config_sha256`, `ops`, `producer:{name,version}`, `op:{cmd,args}`.
+`ops` contains 1–256 add/replace `{op,path,value,name?}` or remove `{op,path,name?}`
+operations, with nonempty RFC 6901 pointers and the published non-path flag
+allowlist. The session is `rig-review-session/1`, the checked patch Apply is
+`rig-review-applied/2` and its summary is `rig-review-check-summary/1`. Source
+config, inspected model and handoff input hashes bind to the source. Summary
+`pass:true`, `exitCode:0`, `gate:true` and passing bars are required, and the
+outcome's retained compiled-model SHA must equal `applied.modelHash`. A built
+preview or unknown/failed check cannot claim checked completion. Optional
+published route/files/environment context is retained. No patch application,
+producer measurement, build or diff is recomputed by create.
+
+Identities are `{kind:"rig"|"post",n,config:{path,sha256},model:{path,sha256}}`,
+`{kind:"parts",manifest:{path,sha256},files:[{path,sha256}]}`, or
+`{kind:"draft",id,config,parts,model}` (parts is `{manifest,files}`).
+A rig binds to its version's provenance config and frozen review package model.
+A post binds config to `provenance.config`, and model to one declared retained
+output explicitly selected by `--model-file`; it is output identity only,
+without a parts, rig or CG claim. `config-patch/1` is rig/draft-only: a direct
+post edit is unsupported. A described post closure requires changed output bytes.
+Parts identities retain a complete sorted parts.json + parts/ file inventory.
+Draft identities match the labelled draft inventory, including a retained
+compiled model when that reviewed identity is selected. Missing regenerable
+files never count as correction completion: retain source and result bytes.
+Paths must be literal project-relative regular files without symlink traversal;
+patch/session evidence belongs in tracked evidence. Outputs and draft files
+must survive handoff/clone when used to close a correction.
+
+An ordinary correction may name the historical version actually inspected.
+An explicit `resolves` replacement must name the latest source at its capture
+time; a future source timestamp always refuses.
+
+A result must be distinct, later and changed. Version and draft times bind the
+ordering; for raw parts, create's later closure records the declared response
+and changed inventory without inventing a producer timestamp. A rig-version
+made result retains the existing matching `review_origin` chain, including its
+immediate-predecessor constraint. A first rig may still have `review_origin:null`;
+no fake preceding rig is made for stage-1 corrections. `on_items` still names
+interview answers and `answers_feedback` still links verdicts; neither is an
+operation inventory. A correction does not supply a missing guide citation.
+
+```sh
+rig-create correction --adopt <dir>
+rig-create correction record <dir> --id refine --path described --stage rig-review \
+  --version 1 --by reviewer --verbatim-file words.txt
+rig-create correction record <dir> --id tune --path made --stage rig-review \
+  --version 1 --by user --patch-file evidence/patch.json --verbatim-file words.txt
+rig-create correction record <dir> --id applied --path made --stage rig-review \
+  --version 1 --by user --feedback-file evidence/session.json --item change-1
+rig-create correction resolve tune <dir> --version 2 --by agent --reasoning-file reasoning.txt \
+  --applied-feedback evidence/session.json --feedback-id change-1
+```
+
+Use `--draft <id>` or `--parts-file <retained parts identity JSON>` instead of
+`--version`; post versions require `--model-file`. `--resolves <id>` appends a
+replacement. A made record requires `--by user`; its clock is create's ingest
+time. A session item supplies its exact summary as verbatim, otherwise use
+`--verbatim-file`. Review does not invoke create or write project.json. There
+is no new review correction-export schema and no `--correction-file`.
+Record, resolve and check share validation; writes use a same-directory temporary
+file and atomic rename. Refusals leave project.json byte-identical. Unrelated
+pre-existing interview holes do not prevent capture, but a writer cannot add a
+new refusal or bypass correction validation.
+
+Stage-1 corrections use parts/drafts outside versions. The parts-review signoff
+must approve the corrected draft and structure snapshot (or a draft using the
+corrected parts inventory). Production versions still compare mesh declarations
+to that snapshot. Structure changes after approval require the existing reopen
+and fresh snapshot, never a correction override.
+
+A valid reopen supersedes the same stage suffix as signoffs: entries at or
+before its epoch remain history. A narrower later reopen cannot resurrect an
+earlier suffix. Recording under a live scoped approval requires reopening first;
+corrections do not move stages or sign plan steps themselves.
+
+| State | check | approval / handoff | reopen | provenance | structure | CG |
+| --- | --- | --- | --- | --- | --- | --- |
+| described-open | pending/WARN | pending; attempted approval refuses | pass history | pending response, no citation authority | pass existing checks | pass existing checks |
+| described-linked | pass declared linkage | pass correction gate only | pass history | pass linkage, citations still required | pass if snapshot matches, else refuse | pass if ordinary gates pass, else refuse |
+| made preview/pending | pending/WARN | pending; attempted approval refuses | pass history | pending | pass current snapshot only | pass current config only |
+| made applied-and-checked | pass exact result binding | pass correction gate only | pass history | pass linkage, not a replacement citation | pass if snapshot matches | pass if ordinary gates pass |
+| invalid checked claim | refuse | refuse | no authority | refuse claimed linkage | mismatch refuses | no fabricated gate pass |
+| unsupported | pending/WARN | pending; attempted approval refuses | pass history | pending opaque evidence | pass existing checks | pass existing checks |
+| stage-1 parts/draft overlay | pass retained identity; absent closure bytes refuse | pending until corrected draft/parts is approved | parts-review suffix | identity only | pass approved corrected snapshot | pass / not applicable to parts |
+| rig-version overlay | pass source/result hashes | pending until correction and normal review complete | rig-review suffix | existing citations required | existing snapshot comparison | normal gates required |
+| direction-review post overlay | pass retained declared output | pending until changed output and normal review complete | direction-review suffix | post citations still required | no new rig claim | no new CG claim |
+| validly superseded overlay | pass history validation | pass exclusion from current obligations | pass only for valid human reopen | historical only | historical context | existing historical gates remain |
+
+The overlays combine with path state; refuse overrides pending, which overrides
+pass. A pass never waives existing gates or manufactures acceptance.
+
+The small consumer fixture is `tests/fixtures/correction-path/`, generated through
+writers by `scripts/generate-correction-fixture.ts <fresh dir> [--check]` before
+full-example integration. Its checked positive is explicitly **synthetic
+shape-only**, not a measured producer-gate result; see its README. Every retained
+file uses its real byte hash. The frozen legacy example's exact warning set is
+`QUESTION_SET_STALE`, `STAGE_ORDER_LEGACY`, `CHOICE_ANSWERS_LEGACY`,
+`CORRECTION_PATH_LEGACY`; the current filled example stays at 0/0.

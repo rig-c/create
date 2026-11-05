@@ -20,6 +20,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
+import { checkRiggingContext } from './structure.ts';
+import { checkDrafts, draftVersionFindings } from './drafts.ts';
 import { checkCgGates } from './cg-gates.ts';
 import { checkFigureMask } from './figure-mask.ts';
 import { checkSetupPainting } from './setup-painting.ts';
@@ -41,6 +43,9 @@ import {
   PAUSED_STAGE,
   approvalStageOfStep,
   hasStageOrder,
+  interviewStageOfGuide,
+  LEGACY_STAGES,
+  LEGACY_STAGE_VALUES,
   SKIPPED_WHEN_NO_POST,
   STAGE_VALUES,
   STAGES,
@@ -401,8 +406,8 @@ function postNotPassed(ctx: Ctx): boolean {
  * A `bar` stage that runs the rest of its phase (`rigging`, `post`) is not a
  * resume point, as before: its bar is not enforced by the check.
  */
-function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean): string {
-  for (const s of STAGES) {
+function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean, newOrder = false): string {
+  for (const s of newOrder ? STAGES : LEGACY_STAGES) {
     // A project that predates parts-review resumes where it would have before the two stages existed.
     if (predatesPartsReview && (s.id === PARTS_REVIEW || s.id === 'parts')) continue;
     if (s.closed_by === 'bar' && s.steps !== undefined) {
@@ -496,6 +501,8 @@ function checkAnswers(ctx: Ctx): void {
   const postInterviewIdx = stageIndex('post-interview');
   for (const item of ctx.items) {
     const { state, path } = item;
+    const interviewStage = interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(ctx.project));
+    const ownInterview = stageIndex(interviewStage);
     if (state.state === 'malformed') {
       ctx.refusals.push({ code: 'ANSWER_MALFORMED', path, message: `${path}: ${state.why}` });
       continue;
@@ -505,6 +512,7 @@ function checkAnswers(ctx: Ctx): void {
       continue;
     }
     if (state.state === 'silent') {
+      if (hasStageOrder(ctx.project) && cur < ownInterview) continue;
       const via = state.via === undefined ? '' : ` (${state.via})`;
       if (item.kind === 'post') {
         if (cur < postInterviewIdx) continue;
@@ -515,7 +523,7 @@ function checkAnswers(ctx: Ctx): void {
         }
         continue;
       }
-      if (cur <= interviewIdx) {
+      if (cur <= (hasStageOrder(ctx.project) ? ownInterview : interviewIdx)) {
         ctx.refusals.push({ code: 'INTERVIEW_INCOMPLETE', path, message: `${path}: not answered yet${via}; the interview is incomplete` });
       } else {
         const code = item.kind === 'framing' ? 'FRAMING_SILENT' : 'WAYPOINT_SILENT';
@@ -543,6 +551,8 @@ function checkAnswers(ctx: Ctx): void {
   }
 }
 
+const curStageIndex = (ctx: Ctx): number => stageIndex(ctx.effectiveStage);
+
 function checkPlan(ctx: Ctx): void {
   const planSigned = signed(ctx, 'plan-approved') || signed(ctx, 'rigging-interview');
   if (planSigned && ctx.steps.length === 0) {
@@ -557,6 +567,8 @@ function checkPlan(ctx: Ctx): void {
     if (step.phase === 'rig' && !recordWaypointIds.has(step.id)) {
       ctx.refusals.push({ code: 'STEP_NOT_A_WAYPOINT', path, message: `${path}: a rig step's id is the waypoint's; '${step.id}' is no waypoint of this interview` });
     }
+    const laterDraft = hasStageOrder(ctx.project) && stageIndex(stageOfStep(step.phase, step.id)) > curStageIndex(ctx)
+      && (record.status === undefined || record.status === 'pending');
     const restsOn = asArray(record.rests_on).filter((x): x is string => typeof x === 'string');
     if (restsOn.length === 0) {
       ctx.refusals.push({ code: 'STEP_NO_BASIS', path, message: `${path}: rests_on is empty; a step never rests on nothing` });
@@ -565,7 +577,7 @@ function checkPlan(ctx: Ctx): void {
       const item = itemFor(ctx, id);
       if (item === undefined) {
         ctx.refusals.push({ code: 'STEP_BASIS_UNKNOWN', path, message: `${path}: rests on '${id}', which is no framing, waypoint or post item of this interview` });
-      } else if (!answered(item.state)) {
+      } else if (!answered(item.state) && !laterDraft) {
         ctx.refusals.push({ code: 'STEP_BASIS_SILENT', path, message: `${path}: rests on '${id}', which has no answer (${item.path} is ${item.state.state})` });
       }
     }
@@ -601,6 +613,9 @@ function checkPlan(ctx: Ctx): void {
       }
     }
     if (status === 'pending') continue;
+    if (hasStageOrder(ctx.project) && step.phase === 'rig' && stageOfStep(step.phase, step.id) === 'rigging' && !signed(ctx, 'rigging-interview')) {
+      ctx.refusals.push({ code: 'RIGGING_INTERVIEW_UNSIGNED', path, message: `${path}: production rigging requires rigging-interview approval; leave this step pending until the person signs` });
+    }
     // The step has run (or is running): it needs the approving sign-off, given after every answer it rests on last changed.
     if (approval === undefined) {
       ctx.refusals.push({ code: 'STEP_RUN_UNAPPROVED', path, message: `${path} is ${status}, but no ${approvedBy} sign-off covers it; use pending before approval` });
@@ -645,6 +660,11 @@ function checkStages(ctx: Ctx): void {
   const paused = ctx.stage === PAUSED_STAGE;
   const plan = isObject(ctx.project.plan) ? ctx.project.plan : {};
   const draftedAt = time(plan.drafted_at);
+  const riggingApproval = latestSignoff(ctx, 'rigging-interview');
+  if (hasStageOrder(ctx.project) && riggingApproval !== undefined && Number.isFinite(time(plan.rigging_drafted_at)) && riggingApproval.at < time(plan.rigging_drafted_at)) {
+    const path = `signoffs[${riggingApproval.index}]`;
+    ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: sign the rigging plan at or after plan.rigging_drafted_at` });
+  }
   const approval = latestSignoff(ctx, 'plan-approved');
   if (approval !== undefined && Number.isFinite(draftedAt) && !(approval.at >= draftedAt)) {
     const path = `signoffs[${approval.index}]`;
@@ -675,8 +695,13 @@ function checkStages(ctx: Ctx): void {
   const skip = postNotPassed(ctx) ? new Set(SKIPPED_WHEN_NO_POST) : new Set<string>();
   if (ctx.predatesPartsReview !== null) skip.add(PARTS_REVIEW);
   STAGES.forEach((spec, idx) => {
+    if (!hasStageOrder(ctx.project) && spec.id === 'rigging-interview') return;
     if (idx >= cur || spec.closed_by !== 'signoff' || skip.has(spec.id)) return;
     if (signed(ctx, spec.id)) return;
+    if (spec.id === 'rigging-interview') {
+      ctx.refusals.push({ code: 'RIGGING_INTERVIEW_UNSIGNED', path: 'stage', message: `stage: rigging requires the person's rigging-interview sign-off; ask the rig guides after parts review and sign their plan` });
+      return;
+    }
     if (spec.id === PARTS_REVIEW) {
       ctx.refusals.push({ code: 'PARTS_REVIEW_UNSIGNED', path: 'stage', message: `stage is '${ctx.stage}', past '${PARTS_REVIEW}', but no person signed { "stage": "${PARTS_REVIEW}", "checkpoint": null }; ${PARTS_REVIEW_REMEDY}` });
       return;
@@ -801,9 +826,10 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     refusals.push({ code: 'STAGE_UNKNOWN', path: 'stage', message: `stage is ${JSON.stringify(project.stage ?? null)}; the stages are ${STAGE_VALUES.join(', ')}` });
     return fail();
   }
+  const expectedValues = hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES;
   const recordValues = asArray(project.stage_values).filter((x): x is string => typeof x === 'string');
-  if (recordValues.join(',') !== STAGE_VALUES.join(',')) {
-    warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the order in src/stages.ts is [${STAGE_VALUES.join(', ')}]` });
+  if (recordValues.join(',') !== expectedValues.join(',')) {
+    warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the order in src/stages.ts is [${expectedValues.join(', ')}]` });
   }
 
   const collection = loadCollection(dir);
@@ -829,7 +855,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
       refusals.push({ code: 'SIGNOFF_UNKNOWN_CHECKPOINT', path, message: `${path}: historical checkpoint ${s.checkpoint} names no step in ${s.stage}; restore the original signature` });
     }
   }
-  const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, steps, planApprovedAt !== null) : stage;
+  const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project)) : stage;
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;
   const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection, predatesPartsReview };
@@ -844,6 +870,9 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     if (!(e instanceof PartsUnreadable)) throw e;
     refusals.push({ code: e.code, path: '@rig-c/parts', message: e.message });
   }
+  checkDrafts(dir, project, refusals);
+  refusals.push(...draftVersionFindings(dir, project));
+  checkRiggingContext(dir, project, effectiveStage, refusals);
   checkAnswers(ctx);
   checkAskCoverage(ctx);
   checkPreparedInputs(ctx);

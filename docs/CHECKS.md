@@ -732,3 +732,28 @@ create binds bytes and source hashes. parts owns PNG decoding, grid and support 
 | `FIGURE_MASK_CHANGED` | declared PNG is unreadable or its bytes differ from its declared sha256 | restore the PNG relative to requirements or update the declaration and derived record |
 | `FIGURE_MASK_UNRECORDED` | no prepared-input record binds that mask and hash with at least one source and operation | record with `derived add`, naming matte, threshold and foreground subtraction in the operation |
 | `FIGURE_MASK_LEGACY` | WARN for these findings on a record before `FIGURE_MASK_SINCE` or without a readable date | preserve the earlier record and declare and record the mask for its next build |
+
+
+## Split rigging interview and labelled drafts
+
+The explicit `interview.order.spec: "rig-create/stage-order@1"` switch enables
+parts-only plan approval followed by a post-parts rigging interview. It is not
+a date inference. Existing signatures keep their original scope. Draft inventory
+is create-owned artifact identity, not producer provenance or reproducibility.
+
+| Code | Fires when | Remedy |
+| --- | --- | --- |
+| `STAGE_ORDER_LEGACY` | WARN: order metadata is absent or the old contract is used | preserve historical answers; adopt explicitly with fresh rigging answers after parts review |
+| `RIGGING_INTERVIEW_UNSIGNED` | a new-order project reaches or runs production rigging without its human rigging-interview sign-off | leave rig steps pending and sign the later interview plan |
+| `RIGGING_INTERVIEW_CONTEXT` | adoption/context lacks its date or current accepted parts and structure binding | retain the reviewed structure and sign the rigging interview |
+| `RIG_GUIDE_BEFORE_PARTS` | claimed new rigging answers are undated, earlier than the accepted parts, or later than approval | preserve old answers in history and ask fresh against approved parts |
+| `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout or missing standalone parts inputs | retain one labelled output with explicit parts inputs |
+| `DRAFT_RIG_FILE` | a declared draft file or its parts inventory is unreadable, changed or escapes its root | restore its frozen config, parts and output files |
+| `DRAFT_RIG_AS_VERSION` | draft role/identity/reserved paths are offered as a numbered version, review, package or handoff | build an independently authorised production rig |
+| `STRUCTURE_DECISIONS_MISSING` | new-order parts approval lacks its draft or explicit structure snapshot | supply --draft and --structure-file, including entries:[] when unchanged |
+| `STRUCTURE_DECISIONS_INVALID` | snapshot schema/declarations/config binding are malformed or changed | retain the exact human-approved structure file |
+| `STRUCTURE_DECISIONS_CONFLICT` | a snapshot or retained production config contradicts the approved mesh/chest declaration | obtain renewed human approval instead of overriding the structure |
+| `DRAFT_RIG_USAGE` | missing, repeated or unsupported recorder arguments (exit 2) | use draft-rig <id> [dir] --config <path> --from <dir> [--parts <dir>] |
+
+Each refusal names the record path and writes nothing in the corresponding writer.
+The existing plan, checkpoint, parts-verdict and diff-map codes remain active.

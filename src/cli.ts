@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
+import { CORRECTION_HELP, correctionCommand } from './correction-writers.ts';
 import { DRAFT_RIG_HELP, draftRigCommand } from './drafts.ts';
 import { collectionInitCommand } from './collection.ts';
 import { describeInit, initProject } from './init.ts';
@@ -63,6 +64,8 @@ ${SIGNOFF_HELP}
 ${REOPEN_HELP}
 
 ${DRAFT_RIG_HELP}
+
+${CORRECTION_HELP}
 
 ${DERIVED_HELP}
 
@@ -127,6 +130,7 @@ const COMMANDS: Record<string, Command> = {
   signoff: signoffCommand,
   reopen: reopenCommand,
   'draft-rig': draftRigCommand,
+  correction: correctionCommand,
 
   derived: derivedCommand,
   'split-captions': splitCaptionsCommand,

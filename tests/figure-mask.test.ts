@@ -1,3 +1,4 @@
+import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -25,7 +26,7 @@ function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256
     obj(v.provenance).config = { path: 'evidence/mask/config.json', sha256: sha(config) };
     p.derived = [{ kind: 'prepared-input', path: 'evidence/mask/figure.png', sha256: sha(mask), source: { path: 'painting.txt', sha256: sha('original') }, operation: 'Synthetic matte alpha >= 128 minus no foreground plane' }];
     mutate(p);
-  }, 'example-project.json', {
+  }, 'legacy-example-project.json', {
     'evidence/mask/config.json': config,
     'evidence/mask/requirements.json': json({ setup_painting: { required: true, ...setup } }),
     'evidence/mask/figure.png': mask,
@@ -38,7 +39,7 @@ describe('figure mask declaration and provenance', () => {
   test('declared and recorded busy mask has no mask findings', () => {
     const report = checkProject(project());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
   });
   test('missing declaration refuses at the retained version', () => {
     expect(findings(checkProject(project({}))).map((f) => f.code)).toEqual(['FIGURE_MASK_MISSING']);

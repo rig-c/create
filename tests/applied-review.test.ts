@@ -1,3 +1,4 @@
+import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,10 +20,10 @@ function checked(dir: string, project: JsonObject) {
   return ctx;
 }
 
-async function chain(): Promise<{ dir: string; project: JsonObject }> {
+async function chain(template = 'legacy-example-project.json'): Promise<{ dir: string; project: JsonObject }> {
   const root = mkdtempSync(join(tmpdir(), 'applied-'));
   roots.push(root);
-  const dir = fixture();
+  const dir = fixture(() => {}, template);
   // The shared example fixture owns its own temporary project root.
   roots.push(join(dir, '..'));
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -61,7 +62,7 @@ test('installed rig-review writes feedback that resolves to the recorded next ve
   expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   expect(checkProject(dir).refusals).toEqual([]);
-  expect(checkProject(dir).warnings).toEqual([]);
+  expect(checkProject(dir).warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
 });
 
 for (const [name, code, mutate] of [
@@ -121,3 +122,13 @@ for (const [name, code, mutate] of [
     expect(checked(dir, project).refusals.map((f) => f.code)).toContain(code);
   });
 }
+
+
+test('the new-order rig-review hand pass uses the existing applied-review chain', async () => {
+  const { dir, project } = await chain('example-project.json');
+  expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings).toEqual([]);
+});

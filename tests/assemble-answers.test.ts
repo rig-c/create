@@ -1,3 +1,4 @@
+import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ function project(projectRule: string | undefined, ground?: Json, delegated = fal
       obj(obj(guide.agent_decision).value).ground = ground ?? null;
     } else if (ground !== undefined) obj(guide.value).ground = ground;
     if (ground !== undefined) arr(guide.asks).push({ id: 'ground', state: delegated ? 'delegated' : 'user' });
-  }, 'example-project.json', { 'config.json': JSON.stringify({ assemble: { ...(projectRule === undefined ? {} : { project: projectRule }) } }) });
+  }, 'legacy-example-project.json', { 'config.json': JSON.stringify({ assemble: { ...(projectRule === undefined ? {} : { project: projectRule }) } }) });
 }
 
 for (const ground of ['plain', 'busy']) {
@@ -27,7 +28,7 @@ for (const ground of ['plain', 'busy']) {
     test(`visible records ${ground}, delegated=${delegated}`, () => {
       const report = checkProject(project('visible', ground, delegated));
       expect(report.refusals).toEqual([]);
-      expect(report.warnings).toEqual([]);
+      expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
     });
   }
 }
@@ -45,7 +46,7 @@ for (const rule of ['core', undefined]) {
   test(`config projection ${rule} adds no ground ask or refusal`, () => {
     const report = checkProject(project(rule));
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
   });
 }
 
@@ -81,7 +82,7 @@ test('retained version config is checked for a non-CG project too', () => {
     const guide = obj(waypoint(p, 'assemble').guide);
     guide.at = PROJECTION_ASKS_SINCE;
     obj(version(p, 1).provenance).config = { path: 'evidence/visible.json', sha256: createHash('sha256').update(bytes).digest('hex') };
-  }, 'example-project.json', {
+  }, 'legacy-example-project.json', {
     'evidence/visible.json': bytes,
     'evidence/requirements.json': JSON.stringify({
       spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true },
@@ -105,8 +106,8 @@ test('answered guide visible activates ground before a config is written', () =>
 test('filled example remains clean and every recorded step hash matches stepHash', () => {
   const report = checkProject(fixture());
   expect(report.refusals).toEqual([]);
-  expect(report.warnings).toEqual([]);
-  const p = readTemplate('example-project.json');
+  expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
+  const p = readTemplate('legacy-example-project.json');
   for (const raw of arr(p.signoffs)) {
     const signoff = obj(raw);
     if (!signoff.step_hashes) continue;

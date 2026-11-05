@@ -22,7 +22,7 @@ function migrated(mutate: Mutate = () => {}): string {
     // The first create build answers both the earlier bounce and the carried timing item.
     version(p, 3).answers_feedback = [{ version: 1, verdict: 0 }, { version: 2, verdict: 0 }];
     mutate(p);
-  }, 'example-project.json', historical.files);
+  }, 'legacy-example-project.json', historical.files);
 }
 
 const verdict = (p: JsonObject, n = 2, index = 0): JsonObject => obj(arr(version(p, n).verdicts)[index]);

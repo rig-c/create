@@ -36,7 +36,7 @@ function scene(config: JsonObject = GATED_CONFIG, requirements: JsonObject | nul
     asScene(p);
     for (const n of [1, 2]) obj(version(p, n).provenance).config = { path: `outputs/v${n}/config.json`, sha256: sha(configText) };
     mutate(p);
-  }, 'example-project.json', files);
+  }, 'legacy-example-project.json', files);
 }
 
 describe('which projects are held', () => {
@@ -129,6 +129,7 @@ describe('a full-screen scene (CG) rig version', () => {
     expect(report.warnings.map((w) => `${w.code} ${w.path}`)).toEqual([
       'CG_GATES_PREDATE versions[v1].built_with',
       'CG_GATES_PREDATE versions[v2].built_with',
+      'STAGE_ORDER_LEGACY interview.order',
     ]);
   });
 

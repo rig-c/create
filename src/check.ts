@@ -58,6 +58,8 @@ import { stepHash } from './step-hash.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 
 export const PROJECT_SCHEMA = 'rig-create/project@0';
+export const STAGE_ORDER_LEGACY_FINDING: Finding = { code: 'STAGE_ORDER_LEGACY', path: 'interview.order', message: 'interview.order: legacy interview order; preserve old rig guides as history, not as answers asked after parts; adopt explicitly with a fresh rigging-interview sign-off' };
+
 export const COLLECTION_SCHEMA = 'rig-create/collection@0';
 
 /** Heuristic only: these phrases name appearance calls, not measured step readings. */
@@ -890,6 +892,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkSetupPainting(ctx);
   checkFigureMask(ctx);
   checkMeshesBust(ctx);
+  if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
 
   return {
     ok: refusals.length === 0,

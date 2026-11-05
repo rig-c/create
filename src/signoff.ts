@@ -17,7 +17,7 @@ export const SIGNOFF_HELP = `signoff:
   <stage> [<project dir>]  record a human signature without moving project.stage
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
-  --steps <id,id,...>      narrow plan-approved rig steps or post-interview post steps
+  --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
   --checkpoint <id>       sign an enabled checkpoint in this execution stage
   --evidence <path>       required on parts-review, the approved parts verdict file
   --draft <id>            labelled draft approved at parts-review
@@ -113,7 +113,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
   if ((opts['--draft'] === undefined) !== (opts['--structure-file'] === undefined)) refuse('SIGNOFF_OPTION_INVALID', 'parts-review requires --draft and --structure-file together', USAGE_EXIT);
   const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
-  if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved or post-interview', USAGE_EXIT);
+  if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved, rigging-interview or post-interview', USAGE_EXIT);
   const requested = opts['--steps']?.split(',');
   if (requested !== undefined && (requested.some((id) => id === '') || new Set(requested).size !== requested.length)) refuse('SIGNOFF_STEP_INVALID', '--steps needs distinct non-empty step ids', USAGE_EXIT);
   const steps = phase === undefined ? [] : asArray(isObject(project.plan) ? project.plan.steps : undefined)
@@ -183,7 +183,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     project.stage_values = [...STAGE_VALUES];
   }
   project.signoffs.push(signoff);
-  if (hasStageOrder(project)) {
+  if (hasStageOrder(project) || signoff.structure !== undefined) {
     const first = checkProject(dir, project).refusals[0];
     if (first !== undefined) refuse(first.code, first.message);
   }

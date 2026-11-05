@@ -183,8 +183,11 @@ describe('init --member', () => {
     const incomplete = report.refusals.filter((f) => f.code === 'INTERVIEW_INCOMPLETE').map((f) => f.path);
     expect(incomplete).not.toContain('interview.framing[rig_type].answer');
     expect(incomplete).not.toContain('interview.waypoints[bones].guide');
-    expect(incomplete).toContain('interview.waypoints[motion].guide');
-    expect(incomplete).toContain('interview.waypoints[meshes].guide');
+    expect(incomplete).not.toContain('interview.waypoints[motion].guide');
+    const later = checkProject(member, { ...project, stage: 'rigging-interview' }).refusals.filter(f => f.code === 'INTERVIEW_INCOMPLETE').map(f => f.path);
+    expect(later).toContain('interview.waypoints[motion].guide');
+    expect(later).toContain('interview.waypoints[meshes].guide');
+    expect(incomplete).not.toContain('interview.waypoints[meshes].guide');
     expect(incomplete).toContain('interview.framing[reference].answer');
     expect(new Set(report.refusals.map((f) => f.code))).toEqual(new Set(['INTERVIEW_INCOMPLETE']));
     expect(report.parts).not.toBeNull();
@@ -193,7 +196,7 @@ describe('init --member', () => {
     editCollection(dir, (c) => {
       byId(obj(c.interview).waypoints, 'bones').guide = null;
     });
-    const after = checkProject(member).refusals.filter((f) => f.path === 'interview.waypoints[bones].guide');
+    const after = checkProject(member, { ...readJson(join(member, 'project.json')), stage: 'rigging-interview' }).refusals.filter((f) => f.path === 'interview.waypoints[bones].guide');
     expect(after.map((f) => f.code)).toEqual(['INTERVIEW_INCOMPLETE']);
     expect(after[0]?.message).toContain("collection 'harbour' answer 'bones' is null");
   });

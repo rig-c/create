@@ -76,3 +76,15 @@ test('missing snapshot, changed bytes, early guide and contradictory declaration
   write(dir, 'evidence/structure.json', '{}');
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DECISIONS_INVALID');
 });
+
+
+test('a snapshot contradicting its exact reviewed mesh declaration is refused before writing', () => {
+  const dir = setup();
+  const file = join(dir, 'evidence/structure.json');
+  const snapshot = JSON.parse(readFileSync(file, 'utf8'));
+  snapshot.entries[0].value.contour.bust.alpha = 0.8;
+  writeFileSync(file, JSON.stringify(snapshot));
+  const before = readFileSync(join(dir, 'project.json'));
+  try { partsSign(dir); throw Error('expected refusal'); } catch (error) { expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_CONFLICT'); }
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});

@@ -1,3 +1,4 @@
+import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { expect, test } from 'bun:test';
 import { checkProject } from '../src/check.ts';
 import { interviewCommand } from '../src/interview.ts';
@@ -8,7 +9,7 @@ import { arr, fixture, obj, waypoint, framing, citedSections } from './fixtures.
 test('filled synthetic example covers every applicable ask without warnings', () => {
   const report = checkProject(fixture());
   expect(report.refusals).toEqual([]);
-  expect(report.warnings).toEqual([]);
+  expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
   expect(Object.keys(WAYPOINT_ASKS)).toHaveLength(6);
 });
 
@@ -58,7 +59,7 @@ for (const at of ['2026-11-04T23:59:59Z', 'unreadable']) {
     });
     const result = interviewCommand(['--check', dir, '--json']);
     expect(result.exit).toBe(0);
-    expect(JSON.parse(result.stdout).warnings.map((f: {code: string}) => f.code)).toEqual(['GUIDE_ASKS_LEGACY']);
+    expect(JSON.parse(result.stdout).warnings.map((f: {code: string}) => f.code)).toEqual(['GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY']);
   });
 }
 

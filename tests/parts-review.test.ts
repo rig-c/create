@@ -1,3 +1,4 @@
+import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 /**
  * The parts are made and reviewed before any rig is built (rig-c/create#48):
  * `plan-approved` → `parts` (closed by its bar) → `parts-review` (closed by a
@@ -70,7 +71,7 @@ describe('plan-approved → parts → parts-review → rigging', () => {
   test('green: parts done and a person signed parts-review, rigging starts with nothing refused', () => {
     const report = checkProject(fixture(atRiggingStart));
     expect(codes(report)).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
   });
 
   test('a project at plan-approved advances to parts: the parts steps run there, nothing refused', () => {
@@ -207,7 +208,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     expect(warned).toHaveLength(1);
     expect(warned[0]?.message).toContain("project 'lantern-keeper'");
     expect(warned[0]?.message).toContain(PARTS_REVIEW_SINCE);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
   });
 
   test('one that a person did review is not warned about', () => {
@@ -218,7 +219,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'STAGE_ORDER_LEGACY']);
   });
 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {
@@ -232,7 +233,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'STAGE_ORDER_LEGACY']);
   });
 
   test('a plan-approved sign-off dated on or after the stages arrived is not in flight: rigging without parts-review is refused', () => {

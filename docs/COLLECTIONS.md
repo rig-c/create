@@ -144,8 +144,15 @@ member match what the agent already built.
 
 ### Recording a member override
 
-`interview-answer` replaces an inherited answer locally and records
-`basis: "overridden"`. Supply `--why-file <file>` with either the ordinary
+`interview-answer` replaces an inherited answer locally. If `classify()`
+resolves the shared answer as silent (withdrawn to `null`, or a user answer
+of `"per-member"`), it records `basis: "own"` with no `overrides` and no
+required `--why-file`. A shared delegation remains shared, as classified,
+even when its agent decision says `"per-member"`. These cases are exercised
+through the writer and member check in `tests/choices.test.ts`.
+
+When a shared answer still applies, the writer records `basis: "overridden"`.
+Supply `--why-file <file>` with either the ordinary
 pick flags or `--picks-file`; the picks payload schema stays unchanged. The
 file must contain nonblank UTF-8. Its exact text, including spaces and
 newlines, becomes `why_verbatim`; a note, an option label or agent reasoning
@@ -155,8 +162,11 @@ writing, leaving `project.json` byte-identical.
 
 The writer fills `overrides` from the inherited collection reference and the
 resolved answer's `at`. When replacing an override it preserves that original
-reference. It retains earlier local answers in history and never changes the
-parent collection. These writer paths are covered by `tests/choices.test.ts`.
+reference. A legacy overridden answer without `overrides` recovers its
+reference from the most recent inherited record in the item's `history[]`,
+using the same collection-answer lookup as a fresh override. It retains
+earlier local answers in history and never changes the parent collection.
+These writer paths are covered by `tests/choices.test.ts`.
 
 The member check validates overrides in current answers and `history[]`:
 `overrides.collection` names the parent collection, `overrides.question`
@@ -167,7 +177,7 @@ nonblank `why_verbatim`. These checks also run before an override write.
 `OVERRIDDEN_ANSWERS_SINCE = 2026-11-06T00:00:00Z` dates the contract by the
 member answer's own `at`: earlier invalid records WARN; records on or after
 that date, or without a readable date, refuse. The checks and date boundary
-are covered by `tests/overrides.test.ts`; codes are in [CHECKS.md](CHECKS.md#collections).
+are covered by `tests/overrides.test.ts`; codes are in [CHECKS.md](CHECKS.md#refusals).
 
 ## Collection stages
 

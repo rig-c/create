@@ -264,3 +264,39 @@ test('a member override can delegate and complete a decision without losing its 
   interviewDecisionCommand(['reference',w.dir,'--by','agent','--reasoning-file',join(w.dir,'reasoning.txt'),'--fragment',`reference=${join(w.dir,'fragment.json')}`]);
   const current=obj(framing(load(w.dir),'reference').answer);expect(current.overrides).toEqual(selected.overrides);expect(current.why_verbatim).toBe(w.why);expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);expect(checkProject(w.dir).warnings).toEqual([]);
 });
+
+test('legacy override without metadata recovers its inherited history through the writer',()=>{
+  const w=inheritedWorking();const p=load(w.dir);const record=framing(p,'reference');const inherited=structuredClone(obj(record.answer));
+  const parentQuestion=obj(arr(obj(w.parent.interview).framing)[0]);const source=obj(parentQuestion.answer);source.at='2026-11-04T12:00:00Z';inherited.at='2026-11-04T13:00:00Z';writeFileSync(w.parentFile,JSON.stringify(w.parent));
+  const legacy:JsonObject={basis:'overridden',delegated:false,by:'user',at:'2026-11-05T00:00:00Z',verbatim:'Use this member reference.',value:'none',source:'interview'};
+  record.history=[inherited,structuredClone(source)];record.answer=legacy;save(w.dir,p);const parent=readFileSync(w.parentFile);
+  let selected:JsonObject={};expect(code(()=>{selected=JSON.parse(overrideAnswer(w,['--why-file',w.reason]));})).toBe('NO_REFUSAL');
+  expect(selected.basis).toBe('overridden');expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:source.at});expect(selected.why_verbatim).toBe(w.why);
+  expect(arr(framing(load(w.dir),'reference').history)).toContainEqual(legacy);expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);
+});
+
+for(const state of ['withdrawn','per-member'] as const)for(const input of ['flags','picks-file'] as const){
+  test(`inherited ${state} shared answer becomes own via ${input} without a reason`,()=>{
+    const w=inheritedWorking();const q=obj(arr(obj(w.parent.interview).framing)[0]);const original=q.answer as Json;
+    q.history=[original];q.answer=state==='withdrawn'?null:{...obj(original),value:'per-member'};writeFileSync(w.parentFile,JSON.stringify(w.parent));const parent=readFileSync(w.parentFile);
+    expect(collectItems(load(w.dir),{collection:w.parent}).find(i=>i.id==='reference')!.state.state).toBe('silent');
+    let selected:JsonObject={};
+    if(input==='flags')expect(code(()=>{selected=JSON.parse(overrideAnswer(w));})).toBe('NO_REFUSAL');
+    else{
+      const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date().toISOString()};
+      writeFileSync(join(w.dir,'evidence/picks.json'),JSON.stringify(payload));expect(code(()=>{selected=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--picks-file','evidence/picks.json']));})).toBe('NO_REFUSAL');
+    }
+    expect(selected.basis).toBe('own');expect(selected).not.toHaveProperty('overrides');expect(selected).not.toHaveProperty('why_verbatim');expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);
+  });
+}
+for(const decided of [false,true]){
+  test(`inherited shared delegation stays overridden when decided=${decided}`,()=>{
+    const w=inheritedWorking();const q=obj(arr(obj(w.parent.interview).framing)[0]);
+    const shared:JsonObject={delegated:true,by:'user',at:'2026-11-09T00:00:00Z',verbatim:'Choose the collection reference.',source:'collection interview'};
+    if(decided)shared.agent_decision={by:'agent',at:'2026-11-09T01:00:00Z',reasoning:'Retain the collection choice.',value:'per-member'};
+    q.answer=shared;writeFileSync(w.parentFile,JSON.stringify(w.parent));const parent=readFileSync(w.parentFile);const before=readFileSync(join(w.dir,'project.json'));
+    expect(collectItems(load(w.dir),{collection:w.parent}).find(i=>i.id==='reference')!.state.state).toBe('delegated');
+    expect(code(()=>overrideAnswer(w))).toBe('OVERRIDE_REASON_MISSING');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+    const selected=JSON.parse(overrideAnswer(w,['--why-file',w.reason]));expect(selected.basis).toBe('overridden');expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:shared.at});expect(selected.why_verbatim).toBe(w.why);expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);
+  });
+}

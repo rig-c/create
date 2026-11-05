@@ -162,12 +162,13 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
   const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date().toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
   if (result.value !== undefined) answer.value = result.value;
   if (result.autos.length) answer.agent_decision = {covers:result.autos.join(',')};
-  if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? 'overridden' : item.raw.basis;
+  if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? (item.state.state === 'silent' ? 'own' : 'overridden') : item.raw.basis;
   if (answer.basis === 'overridden') {
     const collection = loadCollection(dir);
     const prior = item.raw as JsonObject;
-    if (prior.basis === 'inherited') {
-      const from = isObject(prior.from) ? prior.from : {};
+    const inherited = prior.basis === 'inherited' ? prior : prior.overrides === undefined ? asArray(item.record.history).filter(isObject).reverse().find(a => a.basis === 'inherited') : undefined;
+    if (inherited !== undefined) {
+      const from = isObject(inherited.from) ? inherited.from : {};
       const source = collection !== null && typeof from.question === 'string' ? collectionAnswer(collection, from.question) : undefined;
       answer.overrides = { collection: from.collection ?? null, question: from.question ?? null, collection_answer_at: isObject(source) ? source.at ?? null : null };
     } else if (prior.overrides !== undefined) answer.overrides = structuredClone(prior.overrides);

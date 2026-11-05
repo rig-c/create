@@ -314,6 +314,10 @@ Exit `1`. Each names its object in `path`.
 | `POST_ITEM_SILENT` | a post item guide is `null` and the stage is past `post-interview` | the same |
 | `ANSWER_MALFORMED` | an answer is none of the four states (no `delegated` flag, a user answer without `verbatim`/`value`, not applicable without `because`, an `inherited` without `from`) | write it in the answer shape of INTERVIEW.md |
 | `INHERITED_UNRESOLVED` | an `inherited` answer names a collection or question that cannot be found from this folder | put the member under `<collection>/members/<name>/`, or fix `from` |
+| `OVERRIDE_COLLECTION_INVALID` | an overridden answer's `overrides.collection` does not name its parent collection, or the collection cannot be read | restore the parent collection and reference its name |
+| `OVERRIDE_QUESTION_INVALID` | `overrides.question` names no collection question with an answered current/history record | reference an answered collection question and retain its original answer in history |
+| `OVERRIDE_ANSWER_STALE` | `collection_answer_at` is not the exact readable `at` of a current or historical answer to that question | restore the referenced collection answer and timestamp, or ask and record a fresh override |
+| `OVERRIDE_REASON_MISSING` | an overridden member answer has missing, non-string or blank `why_verbatim` | ask why this member differs and record the exact user text with `interview-answer --why-file` |
 | `DELEGATION_UNDECIDED` | a delegated item (framing, waypoint, step checkpoint) has no `agent_decision`, and the sign-off approving the plan it belongs to exists (`plan-approved` for rig items, `post-interview` for post items) | the agent writes its decision and reasoning, and the plan is signed again seeing it |
 | `PLAN_EMPTY` | `plan-approved` is signed and `plan.steps` is empty | draft the steps, then sign |
 | `STEP_MALFORMED` | a step has no string `id`, a `phase` other than `rig` / `post`, or an id used twice | fix the step |
@@ -389,6 +393,12 @@ Exit `1`. Each names its object in `path`.
 | `CG_BOUNDARY_ALLOWANCE_RAISED` | a CG version's requirements file declares `boundary_colour.max_step_excess` above 12 | declare 12 or less; fix the piece's image or mesh that the step points at |
 | `BUST_EXCLUSION_UNREASONED` | the `meshes` value excludes the bust (`"excluded": true`) with an empty, blank or missing `reason` | write the user's reason (a rigid breastplate, say), or record `"bust": "default"`; the reason goes to parts with the opt-out |
 | `BUST_VALUE_UNKNOWN` | the `meshes` value's `bust` is neither `"default"` nor `{ "excluded": true, "reason": "…" }` | write one of the two ([INTERVIEW.md](INTERVIEW.md)) |
+
+The four `OVERRIDE_*` findings above are member `interview --check` findings,
+not collection-wide interview checks. They inspect current member answers and
+history. An invalid answer before `OVERRIDDEN_ANSWERS_SINCE =
+2026-11-06T00:00:00Z` WARNs; on/after that date or without a readable date it
+refuses. The writer uses the same validator before saving a fresh override.
 
 ## The hand-off command
 
@@ -488,26 +498,13 @@ collection's stages.
 | `PIN_MISSING` | a member has no pin in that version | the same: a new collection version pins it |
 | `PIN_UNKNOWN_MEMBER` | that version pins a name not in `members[]` | register the member again, or make a new collection version without it |
 | `PIN_MALFORMED` | a pin is not `{ member, version (number or null), rigs[] }` | fix the pin |
-| `PIN_SELECTION_INVALID` | a selector is malformed, duplicated, names an unregistered member or an absent/non-rig version; or a pin carries a selection other than `"explicit"` with a positive integer version | use each registered member once as `--member name=version`, selecting an existing rig version; restore malformed pin metadata or record a new pin |
-| `OVERRIDE_COLLECTION_INVALID` | an overridden answer's `overrides.collection` does not name its parent collection, or the collection cannot be read | restore the parent collection and reference its name |
-| `OVERRIDE_QUESTION_INVALID` | `overrides.question` names no collection question with an answered current/history record | reference an answered collection question and retain its original answer in history |
-| `OVERRIDE_ANSWER_STALE` | `collection_answer_at` is not the exact readable `at` of a current or historical answer to that question | restore the referenced collection answer and timestamp, or ask and record a fresh override |
-| `OVERRIDE_REASON_MISSING` | `why_verbatim` is missing, non-string or blank; a writer lacks a readable nonblank UTF-8 `--why-file` | ask why this member differs and supply the exact user text with `interview-answer --why-file` for every fresh override |
-
-The four `OVERRIDE_*` findings check current member answers and their history.
-They WARN when the member answer predates `OVERRIDDEN_ANSWERS_SINCE =
-2026-11-06T00:00:00Z`; on/after that date or with no readable date they refuse.
-The writer always validates the fresh override before writing and needs a new
-reason even when replacing an existing override. It derives the collection
-reference when replacing an inherited answer, preserves an existing override's
-reference, and never changes the parent. `--why-file` works with pick flags or
-`--picks-file` without changing the picks payload schema.
-
+| `PIN_SELECTION_INVALID` | a persisted pin carries a selection other than `"explicit"` with a positive integer rig version | restore the pin metadata or record a new collection pin |
 
 `collection pin` refuses, writing nothing:
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
+| `PIN_SELECTION_INVALID` | `--member` is malformed, duplicated, names an unregistered member or selects an absent/non-rig version | use each registered member once as `--member name=version`, selecting an existing rig version |
 | `PIN_NO_MEMBERS` | `members[]` is empty | add members |
 | `PIN_NO_BUILD` | a member has no rig version, its version lists no model or atlas, or a rig file has no sha256 and is not on disk | build and record the member version |
 | `PIN_SOURCE_DRIFT` | a rig file on disk does not hash to the member version that lists it (rebuilt in place) | record the rebuild as a new member version, then pin |
@@ -802,6 +799,24 @@ answers remain unchanged. See INTERVIEW.md for the frozen shapes and writers.
 | `INTERVIEW_CHOICE_INVALID` | malformed picks payload, shown/value/coverage/verbatim drift, clock/identity/decision mismatch or changed still-approved answer | retain the shown snapshot and record exact human picks; reopen before changing approval |
 | `INTERVIEW_CHOICE_CONSTRAINT` | disallowed tuple or constrained Other/auto fragment has zero or multiple value-option matches | choose an allowed combination or redraft the set to offer that option |
 | `CHOICE_ANSWERS_LEGACY` | WARN: no explicit choice adoption, or grandfathered current sentence/inherited answer | preserve source words/date; adopt explicitly and show a tailored option when asked again |
+
+### Member overrides in `interview-answer`
+
+`interview-answer` validates an override before writing. Supply a readable,
+nonblank UTF-8 `--why-file` with either pick flags or `--picks-file`; the
+payload schema is unchanged. Every fresh override replacement needs a fresh
+reason. A legacy answer missing `overrides` derives its reference from the
+most recent inherited record in `history[]`; an existing reference is
+preserved. If the inherited answer now classifies as silent (`null` or a
+user's `"per-member"`), the writer records `basis: "own"` without an override
+or required reason. Shared delegations remain classified as delegated.
+
+| Code | Trigger | Remedy |
+| --- | --- | --- |
+| `OVERRIDE_COLLECTION_INVALID` | an overridden answer's `overrides.collection` does not name its parent collection, or the collection cannot be read | restore the parent collection and reference its name |
+| `OVERRIDE_QUESTION_INVALID` | `overrides.question` names no collection question with an answered current/history record | reference an answered collection question and retain its original answer in history |
+| `OVERRIDE_ANSWER_STALE` | `collection_answer_at` is not the exact readable `at` of a current or historical answer to that question | restore the referenced collection answer and timestamp, or ask and record a fresh override |
+| `OVERRIDE_REASON_MISSING` | `why_verbatim` is missing, non-string or blank; a writer lacks a readable nonblank UTF-8 `--why-file` | ask why this member differs and supply the exact user text with `interview-answer --why-file` for every fresh override |
 
 ## Correction paths
 

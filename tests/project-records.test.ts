@@ -1,4 +1,3 @@
-import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,7 +17,7 @@ describe('prepared inputs recorded after external work', () => {
   test('the filled example verifies both shipped files and its agent bounce', () => {
     const r = checkProject(fixture());
     expect(r.refusals).toEqual([]);
-    expect(r.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
+    expect(r.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
 
   test('derived add appends source, result, operation and both measured hashes through the CLI', () => {

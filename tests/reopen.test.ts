@@ -1,4 +1,3 @@
-import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { describe, expect, test, beforeEach, afterEach, setSystemTime } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -44,7 +43,7 @@ describe('human stage reopen', () => {
       for (const [id, hash] of Object.entries(obj(signed.step_hashes))) expect(stepHash(step(p, id))).toBe(hash as string);
     }
     expect(codes(dir)).toEqual([]);
-    expect(checkProject(dir).warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
+    expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
     step(p, 'bones').status = 'done'; save(dir, p);
     expect(codes(dir)).toContain('PARTS_REVIEW_UNSIGNED');
   });

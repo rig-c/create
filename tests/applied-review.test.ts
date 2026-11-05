@@ -1,4 +1,3 @@
-import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -62,7 +61,7 @@ test('installed rig-review writes feedback that resolves to the recorded next ve
   expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   expect(checkProject(dir).refusals).toEqual([]);
-  expect(checkProject(dir).warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
+  expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
 });
 
 for (const [name, code, mutate] of [

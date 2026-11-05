@@ -1,4 +1,3 @@
-import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -39,7 +38,7 @@ describe('figure mask declaration and provenance', () => {
   test('declared and recorded busy mask has no mask findings', () => {
     const report = checkProject(project());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
   test('missing declaration refuses at the retained version', () => {
     expect(findings(checkProject(project({}))).map((f) => f.code)).toEqual(['FIGURE_MASK_MISSING']);

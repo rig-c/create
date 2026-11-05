@@ -90,10 +90,10 @@ const DELEGATED_GUIDE: JsonObject = {
 };
 
 describe('the filled example', () => {
-  test('passes, with no warnings, against the installed @rig-c/parts pin', () => {
+  test('legacy example passes with explicit pin-drift and order warnings', () => {
     const report = checkProject(fixture());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
     expect(report.ok).toBe(true);
     expect(report.parts?.version).toBe(PINNED_PACKAGES['@rig-c/parts']);
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
@@ -105,7 +105,7 @@ describe('the filled example', () => {
     const result = cli(['interview', '--check', fixture()], tempDir(), gitEnv());
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('clean: 1 warning');
+    expect(result.stdout).toContain('clean: 2 warnings');
     expect(result.stdout).toContain('stage accepted');
   });
 
@@ -316,7 +316,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     plantParts(dir, PINNED_PACKAGES['@rig-c/parts'], sectionsSource(PARTS_SECTIONS.filter((s) => s !== 'cloth')));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['SECTION_RETIRED', 'STAGE_ORDER_LEGACY', 'WAYPOINT_CONFIG_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['QUESTION_SET_STALE', 'SECTION_RETIRED', 'STAGE_ORDER_LEGACY', 'WAYPOINT_CONFIG_STALE']);
   });
 
   test('a record missing a derived waypoint is refused by waypoint id', () => {
@@ -337,7 +337,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(codes(report)).toEqual(['SECTION_UNPLACED']);
     expect(withCode(report, 'SECTION_UNPLACED')[0]?.message).toContain("'sway'");
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
-    expect(report.warnings).toEqual([STAGE_ORDER_LEGACY_FINDING]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
 
   test('a parts without the CONFIG_SECTIONS export (older than 2.3.0) is refused, not silently empty', () => {
@@ -569,7 +569,7 @@ describe('appearance calls go to a person, not a step bar', () => {
     const report = checkProject(fixture((p) => { step(p, 'motion').bar = phrase; rehashSignoffs(p); }));
     expect(report.ok).toBe(true);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([expect.objectContaining({
+    expect(report.warnings).toEqual([expect.objectContaining({ code: 'QUESTION_SET_STALE', path: 'interview.question_set' }), expect.objectContaining({
       code: 'STEP_APPEARANCE_REVIEW', path: 'plan.steps[motion].bar',
       message: expect.stringContaining("person's rig-review"),
     }), STAGE_ORDER_LEGACY_FINDING]);

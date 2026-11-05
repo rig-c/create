@@ -8,6 +8,7 @@
     "plan-approved",
     "parts",
     "parts-review",
+    "rigging-interview",
     "rigging",
     "rig-review",
     "post-interview",
@@ -18,7 +19,7 @@
   ],
   "signoffs": [],
   "interview": {
-    "question_set": "rig-create/interview@0 (waypoints read from @rig-c/parts 2.14.2)",
+    "question_set": "rig-create/interview@1 (waypoints read from @rig-c/parts 2.14.2)",
     "held": false,
     "date": null,
     "interviewer": null,

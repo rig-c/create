@@ -60,7 +60,7 @@ function inFlight(p: JsonObject): void {
 describe('the order', () => {
   test('parts (a bar) and parts-review (a sign-off) stand between plan-approved and rigging', () => {
     const ids = STAGES.map((s) => s.id);
-    expect(ids.slice(ids.indexOf('plan-approved'), ids.indexOf('rigging') + 1)).toEqual(['plan-approved', 'parts', 'parts-review', 'rigging']);
+    expect(ids.slice(ids.indexOf('plan-approved'), ids.indexOf('rigging') + 1)).toEqual(['plan-approved', 'parts', 'parts-review', 'rigging-interview', 'rigging']);
     expect(STAGES.find((s) => s.id === 'parts')).toMatchObject({ closed_by: 'bar', phase: 'rig', steps: ['seethrough', 'assemble'] });
     expect(STAGES.find((s) => s.id === 'parts-review')).toMatchObject({ closed_by: 'signoff' });
   });

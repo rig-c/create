@@ -34,6 +34,7 @@ export const STAGES: readonly StageSpec[] = [
   { id: 'plan-approved', closed_by: 'signoff' },
   { id: 'parts', closed_by: 'bar', phase: 'rig', steps: ['seethrough', 'assemble'] },
   { id: 'parts-review', closed_by: 'signoff' },
+  { id: 'rigging-interview', closed_by: 'signoff' },
   { id: 'rigging', closed_by: 'bar', phase: 'rig' },
   { id: 'rig-review', closed_by: 'signoff' },
   { id: 'post-interview', closed_by: 'signoff' },
@@ -128,3 +129,7 @@ export function interviewStageOfGuide(id: string, post = false, newOrder = false
   if (post) return 'post-interview';
   return newOrder ? GUIDE_INTERVIEW[id] ?? 'rigging-interview' : 'interview';
 }
+
+/** Frozen order used by projects that have not adopted the split interview. */
+export const LEGACY_STAGES = STAGES.filter(s => s.id !== 'rigging-interview');
+export const LEGACY_STAGE_VALUES: readonly string[] = [...LEGACY_STAGES.map(s => s.id), PAUSED_STAGE];

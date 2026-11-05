@@ -179,7 +179,10 @@ test('member-local choices preserve the inherited words and never write the pare
   const prior={delegated:false,by:'user',at:'2026-11-09T00:00:00Z',verbatim:'A previous reference decision.',value:'none',source:'collection interview'};
   const parent={schema:'rig-create/collection@0',name:'synthetic',interview:{framing:[{id:'reference',answer:prior,history:[]}]}};const parentFile=join(root,'collection.json');writeFileSync(parentFile,JSON.stringify(parent));const before=readFileSync(parentFile);
   const p=load(member);framing(p,'reference').answer={basis:'inherited',from:{collection:'synthetic',question:'reference'},by:'rig-create',at:'2026-11-10T14:00:00Z'};save(member,p);
-  const selected=JSON.parse(answer(w));expect(selected.basis).toBe('overridden');expect(arr(framing(load(member),'reference').history)).toContainEqual(prior);expect(readFileSync(parentFile)).toEqual(before);expect(checkProject(member).refusals).toEqual([]);
+  const why='This member needs a separate reference.  \ne\u0301\n';const reason=join(member,'why.txt');writeFileSync(reason,why);
+  const selected=JSON.parse(interviewAnswerCommand(['reference',member,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=keep','--why-file',reason]));
+  expect(selected.basis).toBe('overridden');expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:prior.at});expect(selected.why_verbatim).toBe(why);
+  expect(arr(framing(load(member),'reference').history)).toContainEqual(prior);expect(readFileSync(parentFile)).toEqual(before);expect(checkProject(member).refusals).toEqual([]);
 });
 
 test('pending Other is legal for rig_type and a projection-bearing guide until question approval',()=>{
@@ -218,4 +221,46 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   expect(code(decide)).toBe('ASSEMBLE_GROUND_UNANSWERED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);
   writeFileSync(fragment,JSON.stringify({ground}));expect(JSON.parse(decide()).value).toEqual({ground});expect(checkProject(w.dir).refusals).toEqual([]);
   signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);expect(checkProject(w.dir).refusals).toEqual([]);
+});
+
+function inheritedWorking(): ReturnType<typeof working> & {parentFile:string; parent:JsonObject; why:string; reason:string} {
+  const w=working('reference'); const root=tempDir(); mkdirSync(join(root,'members')); const member=join(root,'members/example');renameSync(w.dir,member);w.dir=member;
+  const source={delegated:false,by:'user',at:'2026-11-09T00:00:00Z',verbatim:'A collection reference.',value:'none',source:'collection interview'};
+  const parent:JsonObject={schema:'rig-create/collection@0',name:'synthetic',interview:{framing:[{id:'reference',answer:source,history:[]}]}};
+  const parentFile=join(root,'collection.json');writeFileSync(parentFile,JSON.stringify(parent));
+  const p=load(member);framing(p,'reference').answer={basis:'inherited',from:{collection:'synthetic',question:'reference'},by:'interviewer',at:'2026-11-10T14:00:00Z'};save(member,p);
+  const why='A separate reference for this member.  \ne\u0301\n';const reason=join(member,'why.txt');writeFileSync(reason,why);
+  return {...w,parentFile,parent,why,reason};
+}
+function overrideAnswer(w:ReturnType<typeof inheritedWorking>, extra:string[]=[]):string {
+  return interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=keep',...extra]);
+}
+test('OVERRIDE_REASON_MISSING writer guard refuses missing/blank reasons byte-identically, never inferring a note',()=>{
+  const w=inheritedWorking();const before=readFileSync(join(w.dir,'project.json'));const parent=readFileSync(w.parentFile);
+  expect(code(()=>overrideAnswer(w))).toBe('OVERRIDE_REASON_MISSING');
+  expect(code(()=>overrideAnswer(w,['--note-file',w.reason]))).toBe('OVERRIDE_REASON_MISSING');
+  writeFileSync(w.reason,' \n\t');expect(code(()=>overrideAnswer(w,['--why-file',w.reason]))).toBe('OVERRIDE_REASON_MISSING');
+  writeFileSync(w.reason,Buffer.from([0xff,0xfe]));expect(code(()=>overrideAnswer(w,['--why-file',w.reason]))).toBe('OVERRIDE_REASON_MISSING');
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);expect(readFileSync(w.parentFile)).toEqual(parent);
+});
+test('override picks-file and fresh replacement require exact reasons, preserve the old collection reference and check at 0/0',()=>{
+  const w=inheritedWorking();const parent=readFileSync(w.parentFile);
+  const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date().toISOString()};
+  writeFileSync(join(w.dir,'evidence/picks.json'),JSON.stringify(payload));
+  const selected=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--picks-file','evidence/picks.json','--why-file',w.reason]));
+  expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:'2026-11-09T00:00:00Z'});expect(selected.why_verbatim).toBe(w.why);
+  expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);expect(checkProject(w.dir).warnings).toEqual([]);
+  const q=obj(arr(obj(w.parent.interview).framing)[0]);q.history=[q.answer as Json];q.answer={...obj(q.answer),at:'2026-11-10T14:12:00Z'};writeFileSync(w.parentFile,JSON.stringify(w.parent));const changedParent=readFileSync(w.parentFile);
+  setSystemTime(new Date('2026-11-10T14:13:00Z'));interviewOptionsCommand(['reference',w.dir,'--file',w.path]);
+  const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>overrideAnswer(w))).toBe('OVERRIDE_REASON_MISSING');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+  writeFileSync(w.reason,'A newly stated reason.\n');const replacement=JSON.parse(overrideAnswer(w,['--why-file',w.reason]));
+  expect(replacement.overrides).toEqual(selected.overrides);expect(replacement.why_verbatim).toBe('A newly stated reason.\n');expect(arr(framing(load(w.dir),'reference').history)).toContainEqual(selected);
+  expect(readFileSync(w.parentFile)).toEqual(changedParent);expect(checkProject(w.dir).ok).toBe(true);expect(checkProject(w.dir).refusals).toEqual([]);expect(checkProject(w.dir).warnings).toEqual([]);
+});
+test('a member override can delegate and complete a decision without losing its reference or reason',()=>{
+  const w=inheritedWorking();const parent=readFileSync(w.parentFile);
+  const selected=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=auto','--why-file',w.reason]));
+  writeFileSync(join(w.dir,'reasoning.txt'),'Use the approved reference.');writeFileSync(join(w.dir,'fragment.json'),JSON.stringify('none'));
+  interviewDecisionCommand(['reference',w.dir,'--by','agent','--reasoning-file',join(w.dir,'reasoning.txt'),'--fragment',`reference=${join(w.dir,'fragment.json')}`]);
+  const current=obj(framing(load(w.dir),'reference').answer);expect(current.overrides).toEqual(selected.overrides);expect(current.why_verbatim).toBe(w.why);expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);expect(checkProject(w.dir).warnings).toEqual([]);
 });

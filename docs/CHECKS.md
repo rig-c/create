@@ -465,7 +465,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 
 ```
 rig-create collection --check [<collection dir>] [--json]
-rig-create collection pin [<collection dir>] [--changed <sentence>]
+rig-create collection pin [<collection dir>] [--changed <sentence>] [--member <name>=<version>]...
 ```
 
 What is checked, and why, is [COLLECTIONS.md § The pin check](COLLECTIONS.md#the-pin-check).
@@ -484,10 +484,25 @@ collection's stages.
 | `COLLECTION_ITEM_SILENT` | a collection question, framing answer or waypoint guide is `null` and the stage is past `interview` (a post item guide: past `post-interview`) | answer it, delegate it, or answer `"per-member"` to leave it to each member |
 | `MEMBER_MALFORMED` | a `members[]` entry is not an object with a string `name` | fix the entry |
 | `MEMBER_PROJECT_MISSING` | a member's `project.json` (its `project` path, default `members/<name>/project.json`) is missing or not JSON | restore it, or remove the member |
-| `PIN_STALE` | the member's current build differs from its pin in the latest collection version with outputs: another rig version, a file hash, a file listed or no longer listed | make the collection output again from the current builds and `collection pin`; or rebuild the member to the pinned build |
+| `PIN_STALE` | the default pin differs from the member's latest build, or an explicit pin's recorded rig version is absent or differs in its file list, variants or recorded/on-disk hashes | make the collection output again from the current builds and `collection pin`; or rebuild the member to the pinned build |
 | `PIN_MISSING` | a member has no pin in that version | the same: a new collection version pins it |
 | `PIN_UNKNOWN_MEMBER` | that version pins a name not in `members[]` | register the member again, or make a new collection version without it |
 | `PIN_MALFORMED` | a pin is not `{ member, version (number or null), rigs[] }` | fix the pin |
+| `PIN_SELECTION_INVALID` | a selector is malformed, duplicated, names an unregistered member or an absent/non-rig version; or a pin carries a selection other than `"explicit"` with a positive integer version | use each registered member once as `--member name=version`, selecting an existing rig version; restore malformed pin metadata or record a new pin |
+| `OVERRIDE_COLLECTION_INVALID` | an overridden answer's `overrides.collection` does not name its parent collection, or the collection cannot be read | restore the parent collection and reference its name |
+| `OVERRIDE_QUESTION_INVALID` | `overrides.question` names no collection question with an answered current/history record | reference an answered collection question and retain its original answer in history |
+| `OVERRIDE_ANSWER_STALE` | `collection_answer_at` is not the exact readable `at` of a current or historical answer to that question | restore the referenced collection answer and timestamp, or ask and record a fresh override |
+| `OVERRIDE_REASON_MISSING` | `why_verbatim` is missing, non-string or blank; a writer lacks a readable nonblank UTF-8 `--why-file` | ask why this member differs and supply the exact user text with `interview-answer --why-file` for every fresh override |
+
+The four `OVERRIDE_*` findings check current member answers and their history.
+They WARN when the member answer predates `OVERRIDDEN_ANSWERS_SINCE =
+2026-11-06T00:00:00Z`; on/after that date or with no readable date they refuse.
+The writer always validates the fresh override before writing and needs a new
+reason even when replacing an existing override. It derives the collection
+reference when replacing an inherited answer, preserves an existing override's
+reference, and never changes the parent. `--why-file` works with pick flags or
+`--picks-file` without changing the picks payload schema.
+
 
 `collection pin` refuses, writing nothing:
 
@@ -577,7 +592,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE` `FIGURE_MASK_SINCE` and `CHOICE_ANSWERS_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
 
 `AGENT_BOUNCE_SINCE = 2026-11-05T00:00:00Z` in `src/stages.ts` is
 independent of the parts-review stage boundary. Read the history entry's own

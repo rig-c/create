@@ -1,3 +1,4 @@
+import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
 import { checkCorrections } from './corrections.ts';
@@ -881,6 +882,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);
   checkAnswers(ctx);
+  checkOverrides(project, collection, refusals, warnings);
   checkAskCoverage(ctx);
   checkPreparedInputs(ctx);
   checkAgentBounces(ctx);

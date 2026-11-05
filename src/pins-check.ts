@@ -1,14 +1,14 @@
 /**
  * Collection pins (docs/COLLECTIONS.md § Pins) and `collection --check`.
  *
- * `collection pin` records a collection version: every member's latest rig
+ * `collection pin` records a collection version: every member's selected or latest rig
  * version and the sha256 of every rig file that version lists (model, atlas,
  * config, per variant), hashed on disk where the file is present, plus the
  * collection's own `outputs/v<N>/` files. It is run when a collection output
  * is made.
  *
  * `collection --check` (also what `interview --check` runs on a collection)
- * refuses, by member name, a member whose current build no longer hashes to
+ * refuses, by member name, a member whose selected/default build no longer hashes to
  * the pins of the latest collection version that has outputs — the output a
  * person would be shown. It also checks the collection record itself: schema,
  * stage, sign-offs, the collection's own answers, and that every member in
@@ -39,6 +39,7 @@ export interface Pin {
   version: number | null;
   rigs: PinRig[];
   note?: string;
+  selection?: 'explicit';
 }
 
 /** A rig file of a member build, as the member records it and as it is on disk now. */
@@ -189,15 +190,26 @@ function listFiles(root: string): string[] {
 }
 
 /**
- * Builds the pins for a new collection version from every member's latest rig
- * version. Refuses by member name — all of them, not the first — a member with
+ * Builds pins from an explicitly selected rig version or the member's latest.
+ * Refuses by member name — all of them, not the first — a member with
  * no project record, no rig version, no rig file, or a file on disk that no
  * longer hashes to the version that lists it (rebuilt in place: record a new
  * member version first, so the pin names a build that exists).
  */
-export function buildPins(dir: string, collection: JsonObject): { pins: Pin[]; refusals: Finding[] } {
+export function buildPins(dir: string, collection: JsonObject, selectors: string[] = []): { pins: Pin[]; refusals: Finding[] } {
   const refusals: Finding[] = [];
   const members = readMembers(dir, collection, refusals);
+  const selected = new Map<string, number>();
+  for (const selector of selectors) {
+    const match = /^([^=]+)=([1-9][0-9]*)$/.exec(selector);
+    const name = match?.[1];
+    const n = Number(match?.[2]);
+    if (name === undefined || !Number.isSafeInteger(n) || selected.has(name) || !members.some(m => m.name === name)) {
+      refusals.push({ code: 'PIN_SELECTION_INVALID', path: 'members', message: `members: invalid or duplicate --member ${selector}; supply each registered name once as name=positive-integer-version` });
+      continue;
+    }
+    selected.set(name, n);
+  }
   if (members.length === 0 && refusals.length === 0) {
     refusals.push({ code: 'PIN_NO_MEMBERS', path: 'members', message: 'collection.json members[] is empty; there is nothing to pin' });
   }
@@ -207,7 +219,12 @@ export function buildPins(dir: string, collection: JsonObject): { pins: Pin[]; r
       refusals.push({ code: 'MEMBER_PROJECT_MISSING', path: m.path, message: `${m.path}: ${m.why}` });
       continue;
     }
-    const version = latestRigVersion(m.project);
+    const wanted = selected.get(m.name);
+    const version = wanted === undefined ? latestRigVersion(m.project) : asArray(m.project.versions).filter(isObject).find(v => v.n === wanted && (v.kind === undefined || v.kind === 'rig')) ?? null;
+    if (wanted !== undefined && version === null) {
+      refusals.push({ code: 'PIN_SELECTION_INVALID', path: m.path, message: `${m.path}: selected rig version ${wanted} is absent from versions[]; select an existing rig version` });
+      continue;
+    }
     if (version === null) {
       refusals.push({ code: 'PIN_NO_BUILD', path: m.path, message: `${m.path}: has no rig version in versions[]; build and record one before pinning` });
       continue;
@@ -242,13 +259,13 @@ export function buildPins(dir: string, collection: JsonObject): { pins: Pin[]; r
       }
       rig.files.push({ role: f.role, path: f.path, sha256: current(f) as string });
     }
-    pins.push({ member: m.name, version: n, rigs });
+    pins.push({ member: m.name, version: n, rigs, ...(wanted === undefined ? {} : { selection: 'explicit' as const }) });
   }
   return { pins, refusals };
 }
 
 /** Writes a new `versions[]` entry with pins and the hashed `outputs/v<N>/` files. */
-export function pinCollection(dirArg: string, changed: string | null, now = new Date()): { result: PinResult | null; refusals: Finding[]; dir: string } {
+export function pinCollection(dirArg: string, changed: string | null, now = new Date(), selectors: string[] = []): { result: PinResult | null; refusals: Finding[]; dir: string } {
   const dir = resolve(dirArg);
   const file = join(dir, 'collection.json');
   if (!existsSync(file)) refuse('COLLECTION_JSON_MISSING', `${file} does not exist; run in a collection folder or name one`);
@@ -256,7 +273,7 @@ export function pinCollection(dirArg: string, changed: string | null, now = new 
   if (!read.ok) refuse('COLLECTION_JSON_INVALID', `${file}: ${read.error}`);
   const collection = read.value;
   if (collection.schema !== COLLECTION_SCHEMA) refuse('SCHEMA_UNKNOWN', `${file}: schema is ${JSON.stringify(collection.schema ?? null)}; this reads ${COLLECTION_SCHEMA}`);
-  const { pins, refusals } = buildPins(dir, collection);
+  const { pins, refusals } = buildPins(dir, collection, selectors);
   if (refusals.length > 0) return { result: null, refusals, dir };
   const versions = asArray(collection.versions);
   const n = versions.reduce<number>((max, v) => (isObject(v) && typeof v.n === 'number' && v.n > max ? v.n : max), 0) + 1;
@@ -287,6 +304,10 @@ function readPins(raw: Json | undefined, version: number, refusals: Finding[]): 
       refusals.push({ code: 'PIN_MALFORMED', path: `versions[${version}].pins[${index}]`, message: `versions[n=${version}].pins[${index}]: a pin is { member, version (number or null), rigs[] }` });
       return;
     }
+    if (p.selection !== undefined && (p.selection !== 'explicit' || typeof p.version !== 'number' || !Number.isSafeInteger(p.version) || p.version < 1)) {
+      refusals.push({ code: 'PIN_SELECTION_INVALID', path: `versions[${version}].pins[${index}]`, message: `versions[n=${version}].pins[${index}]: selection must be explicit with a positive integer rig version; restore the pin or record a new collection pin --member name=version` });
+      return;
+    }
     // A pin that cannot be compared is malformed, never a silent pass: every rig
     // carries a non-empty files[] and every file a role, path and sha256.
     const rigs: PinRig[] = [];
@@ -314,7 +335,7 @@ function readPins(raw: Json | undefined, version: number, refusals: Finding[]): 
       refusals.push({ code: 'PIN_MALFORMED', path: `versions[${version}].pins[${index}]`, message: `versions[n=${version}].pins[${index}] (${member}): ${unreadable}; a pin that cannot be compared verifies nothing` });
       return;
     }
-    pins.push({ member, version: p.version as number | null, rigs });
+    pins.push({ member, version: p.version as number | null, rigs, ...(p.selection === 'explicit' ? { selection: 'explicit' as const } : {}) });
   });
   return pins;
 }
@@ -324,7 +345,7 @@ function comparePin(m: Member, project: JsonObject, pin: Pin, cv: number, refusa
   const stale = (message: string): void => {
     refusals.push({ code: 'PIN_STALE', path: m.path, message: `${m.path}: ${message}; collection v${cv}'s output is stale until a new collection version pins it` });
   };
-  const version = latestRigVersion(project);
+  const version = pin.selection === 'explicit' ? asArray(project.versions).filter(isObject).find(v => v.n === pin.version && (v.kind === undefined || v.kind === 'rig')) ?? null : latestRigVersion(project);
   if (pin.version === null) {
     if (version !== null) {
       stale(`has rig version ${version.n as number}, which is not pinned (pin v${cv} predates the member's versions[])`);
@@ -339,7 +360,7 @@ function comparePin(m: Member, project: JsonObject, pin: Pin, cv: number, refusa
     return;
   }
   if (version === null) {
-    stale(`has no rig version; pin v${cv} names version ${pin.version}`);
+    stale(pin.selection === 'explicit' ? `recorded rig version ${pin.version} no longer exists for explicit pin v${cv}` : `has no rig version; pin v${cv} names version ${pin.version}`);
     return;
   }
   const n = version.n as number;
@@ -357,7 +378,7 @@ function comparePin(m: Member, project: JsonObject, pin: Pin, cv: number, refusa
       const build = now.get(key);
       if (build === undefined) {
         stale(`${f.role} ${f.path} (variant ${rig.variant}) is pinned in v${cv} but version ${n} no longer lists it`);
-      } else if (current(build) !== f.sha256) {
+      } else if (current(build) !== f.sha256 || (pin.selection === 'explicit' && build.recorded !== null && build.recorded !== f.sha256)) {
         stale(`${f.role} sha256 differs from pin v${cv} (${f.path}, variant ${rig.variant}${build.on_disk !== null ? ', hashed on disk' : ''})`);
       }
     }
@@ -510,8 +531,8 @@ export function formatCollectionReport(report: CollectionReport): string {
 }
 
 export const COLLECTION_HELP = `collection:
-  pin [<dir>] [--changed <sentence>]
-                   record a collection version: pin every member's latest rig version and the sha256 of each rig
+  pin [<dir>] [--changed <sentence>] [--member <name>=<version>]...
+                   record a collection version: --member selects a rig version (repeatable); others use latest; hash each rig
                    file it lists (model, atlas, config per variant), and hash the collection's outputs/v<N>/
   --check [<dir>] [--json]
                    refuse by member name a member rebuilt since the pins of the latest collection version with
@@ -521,6 +542,7 @@ export function collectionCommand(args: string[]): CommandResult {
   const [first, ...rest] = args;
   if (first === 'pin') {
     let changed: string | null = null;
+    const selectors: string[] = [];
     const positional: string[] = [];
     for (let i = 0; i < rest.length; i++) {
       const arg = rest[i] as string;
@@ -528,11 +550,15 @@ export function collectionCommand(args: string[]): CommandResult {
         const value = rest[++i];
         if (value === undefined) refuse('COLLECTION_USAGE', '--changed takes a sentence', USAGE_EXIT);
         changed = value;
+      } else if (arg === '--member') {
+        const value = rest[++i];
+        if (value === undefined || value.startsWith('--')) refuse('PIN_SELECTION_INVALID', 'members: --member needs name=version; supply a registered member and existing rig version', USAGE_EXIT);
+        selectors.push(value);
       } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `collection pin does not take ${arg}`, USAGE_EXIT);
       else positional.push(arg);
     }
     if (positional.length > 1) refuse('COLLECTION_USAGE', `collection pin takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
-    const { result, refusals, dir } = pinCollection(positional[0] ?? process.cwd(), changed);
+    const { result, refusals, dir } = pinCollection(positional[0] ?? process.cwd(), changed, new Date(), selectors);
     if (result === null) {
       const lines = [`collection pin: ${dir}`, ...refusals.map((r) => `  REFUSED ${r.code}: ${r.message}`), `not pinned: ${refusals.length} refusal${refusals.length === 1 ? '' : 's'}`];
       return { stdout: lines.join('\n'), exit: 1 };

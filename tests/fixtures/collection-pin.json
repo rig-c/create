@@ -1,0 +1,719 @@
+{
+  "schema": "rig-create/collection-pin-fixture@1",
+  "members": {
+    "first": {
+      "versions": [
+        {
+          "n": 1,
+          "kind": "rig",
+          "outputs": [
+            {
+              "role": "model",
+              "path": "outputs/v1/default/model.json",
+              "variant": "default",
+              "sha256": "4362de8bc824692cb02c58ee1475b917612276f74b228272407eb4c0794fc6cf"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/default/sheet.atlas",
+              "variant": "default",
+              "sha256": "337a12f146679640e6b99e8d4fbfa30a5de6590b04e9868e5588f2e5c3d36afb"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/default/sheet.png",
+              "variant": "default",
+              "sha256": "bfed33e161fcd95c4c76ec4db9699f6d0311a7bd1ed3b74c378352fbbec72d9d"
+            },
+            {
+              "role": "model",
+              "path": "outputs/v1/alternate/model.json",
+              "variant": "alternate",
+              "sha256": "b17fb4b9730716c9750608425b053a85a30f1a1f12f7bd38ac8b61765869994b"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/alternate/sheet.atlas",
+              "variant": "alternate",
+              "sha256": "dd911b3f2d647ac9ba0c45965a89174a4379d300c5a760322fa5773b015c0719"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/alternate/sheet.png",
+              "variant": "alternate",
+              "sha256": "e26ac6b91220eccb17fa2e68d7f62da2794638935c36c99e2d835c6a8c2c69d4"
+            }
+          ],
+          "provenance": {
+            "config": {
+              "path": "derived/v1/config.json",
+              "sha256": "55716404c70699304ace513e0ed3b974b585bbb359331dc3048894372b0d877c"
+            }
+          }
+        },
+        {
+          "n": 2,
+          "kind": "rig",
+          "outputs": [
+            {
+              "role": "model",
+              "path": "outputs/v2/default/model.json",
+              "variant": "default",
+              "sha256": "c05eb3b4397b4af6a0a1fd3ced8b24753a26b15b5665284e178fb95643b758cb"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/default/sheet.atlas",
+              "variant": "default",
+              "sha256": "a1160357a97553ef38f2d39a4adfab6632c0751c675444f5d1fdce7646360f83"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/default/sheet.png",
+              "variant": "default",
+              "sha256": "fc38e4c582f197800130e657a652cb1986e720136578a9167fc0584484490b01"
+            },
+            {
+              "role": "model",
+              "path": "outputs/v2/alternate/model.json",
+              "variant": "alternate",
+              "sha256": "9d2cf0b4dae2a4c0fdf0e9e5c1b7e39662cd662f9a667d939f8fa2b1434001f3"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/alternate/sheet.atlas",
+              "variant": "alternate",
+              "sha256": "6f4de12241c1106f2eb45a0605641954274fa30affd9e59791c7f4ccce4edabf"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/alternate/sheet.png",
+              "variant": "alternate",
+              "sha256": "9ae480eac46503ba23b2c27e2995e7c430b1edc76d2c312984815ebeb9fa57a9"
+            }
+          ],
+          "provenance": {
+            "config": {
+              "path": "derived/v2/config.json",
+              "sha256": "93192fe799101096eec29bf33d23f78d33184ab60c46121a110c8545fe068a51"
+            }
+          }
+        }
+      ]
+    },
+    "second": {
+      "versions": [
+        {
+          "n": 1,
+          "kind": "rig",
+          "outputs": [
+            {
+              "role": "model",
+              "path": "outputs/v1/default/model.json",
+              "variant": "default",
+              "sha256": "a8dd0de3a2d2669ef99beea60743ef05981deb0cec2339553ddbd04f154d0afb"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/default/sheet.atlas",
+              "variant": "default",
+              "sha256": "f2b89fe00b8e44362cdf96794190e55e136b904a52759bda0d786ed287294188"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/default/sheet.png",
+              "variant": "default",
+              "sha256": "0e0e5357b273c79c19549f8d67639a31d910582aef43ea008e41f3bdcb351e32"
+            },
+            {
+              "role": "model",
+              "path": "outputs/v1/alternate/model.json",
+              "variant": "alternate",
+              "sha256": "b6f4fa9b88270b3f26b5c6b973ae9acf1e913a29ed5fc16474597fda1d4d4fa4"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/alternate/sheet.atlas",
+              "variant": "alternate",
+              "sha256": "939b979e49035ead412b6d7eda1a7bb75e20a577cd8a0e477ed9c28d6310f79e"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v1/alternate/sheet.png",
+              "variant": "alternate",
+              "sha256": "5f607c0e048bc66968eafbdb11716a0f340cf1d4e1ff002ce5cfe0d0e0544222"
+            }
+          ],
+          "provenance": {
+            "config": {
+              "path": "derived/v1/config.json",
+              "sha256": "995984bf35753b6d139a9d78a0ccfd0e04ae6b3d93bc456e79d1f316eb9a3c47"
+            }
+          }
+        },
+        {
+          "n": 2,
+          "kind": "rig",
+          "outputs": [
+            {
+              "role": "model",
+              "path": "outputs/v2/default/model.json",
+              "variant": "default",
+              "sha256": "a5d0c927b9e3a22b3f492a8a95678298abe462b78083c0bb8b3b0a8a97884a76"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/default/sheet.atlas",
+              "variant": "default",
+              "sha256": "ada65caaa9af9c3e4f37a769dbbe36eb73d0a66357ce2827ae02e039ff86754a"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/default/sheet.png",
+              "variant": "default",
+              "sha256": "ed55a9fe71b8032011b5e653417bb4ab7d0600cc8e9cefb8b0a93fa55de28e2a"
+            },
+            {
+              "role": "model",
+              "path": "outputs/v2/alternate/model.json",
+              "variant": "alternate",
+              "sha256": "02ac96a74502df73ad301908a3b32ffcafccba2ba4ffad4f576c647eb6b5bc04"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/alternate/sheet.atlas",
+              "variant": "alternate",
+              "sha256": "a8f976f15e908026d3139a690f8d893b00c8edae8cb75b651a756948fb5a881f"
+            },
+            {
+              "role": "atlas",
+              "path": "outputs/v2/alternate/sheet.png",
+              "variant": "alternate",
+              "sha256": "9ae8b056b78d578f0fd98cece28e4f563c173b4dda19d0d4912f04ee13aa8e59"
+            }
+          ],
+          "provenance": {
+            "config": {
+              "path": "derived/v2/config.json",
+              "sha256": "9d7a7710005dd58d867a1a7ed94fe62a8a0fcf5cfb1eac58679331a7303c35c5"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "collection": {
+    "schema": "rig-create/collection@0",
+    "name": "synthetic",
+    "title": null,
+    "stage": "interview",
+    "stage_values": [
+      "interview",
+      "plan-approved",
+      "reference",
+      "members",
+      "post-interview",
+      "post",
+      "direction-review",
+      "accepted",
+      "paused"
+    ],
+    "signoffs": [],
+    "interview": {
+      "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.16.0)",
+      "held": false,
+      "date": null,
+      "interviewer": null,
+      "respondent": null,
+      "questions": [
+        {
+          "id": "members",
+          "scope": "collection",
+          "text": "Who is in it, and where does each member come from (its own painting, or a crop of a shared one)?",
+          "source": "rig-create",
+          "answer": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "reference_member",
+          "scope": "collection",
+          "text": "Which member goes first and sets the direction for the rest?",
+          "source": "rig-create",
+          "answer": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "style",
+          "scope": "collection",
+          "text": "What must look and move the same on every member (rig style, physics character, line and colour handling)?",
+          "source": "rig-create",
+          "answer": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "outfits",
+          "scope": "collection",
+          "text": "Which outfits (or other variants) does every member wear; what changes with the outfit and what stays the same?",
+          "source": "rig-create",
+          "answer": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "composition",
+          "scope": "collection",
+          "text": "How are the members put together: lineup, who overlaps whom, and which collection outputs (lineup take, outfit-switch take)?",
+          "source": "rig-create",
+          "answer": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        }
+      ],
+      "framing": [
+        {
+          "id": "rig_type",
+          "text": "What is this: a character rig (standing idle / complex motion / a monster with its own moves) or a full-screen scene (minimal motion: breath, blink / motion tied to game logic)?",
+          "source": "rig-create",
+          "required_for": [
+            "all"
+          ],
+          "answer": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "reference",
+          "text": "'Make it feel like this': a video, an existing demo, a game you have in mind?",
+          "source": "rig-create",
+          "required_for": [
+            "all"
+          ],
+          "answer": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        }
+      ],
+      "waypoints": [
+        {
+          "id": "seethrough",
+          "config": [
+            "seethrough"
+          ],
+          "prompts": [
+            {
+              "id": "x_layers",
+              "text": "Is there anything the layer split must keep together or keep apart: a hat with the head, a held object on its own?",
+              "source": "rig-create",
+              "required_for": [
+                "all"
+              ]
+            }
+          ],
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "assemble",
+          "config": [
+            "assemble",
+            "limbs",
+            "scene",
+            "waist"
+          ],
+          "prompts": [
+            {
+              "id": "split_granularity",
+              "text": "How finely should it be cut?",
+              "source": "rig-create",
+              "required_for": [
+                "all"
+              ]
+            },
+            {
+              "id": "split_emphasis",
+              "text": "Which parts matter most: more detail, or kept exactly as painted?",
+              "source": "rig-create",
+              "required_for": [
+                "all"
+              ]
+            }
+          ],
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "bones",
+          "config": [
+            "bones"
+          ],
+          "prompts": [
+            {
+              "id": "x_chains",
+              "text": "What moves on its own: hair strands, coat tails, sleeves, held things?",
+              "source": "rig-create",
+              "required_for": [
+                "all"
+              ]
+            }
+          ],
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "meshes",
+          "config": [
+            "meshes",
+            "regions"
+          ],
+          "prompts": [
+            {
+              "id": "x_deform",
+              "text": "What must bend smoothly as one piece, and what must stay rigid?",
+              "source": "rig-create",
+              "required_for": [
+                "all"
+              ]
+            }
+          ],
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "constraints",
+          "config": [
+            "constraints",
+            "stops",
+            "cloth"
+          ],
+          "prompts": [
+            {
+              "id": "split_effects",
+              "text": "Which parts have special effects (sway on physics, move in wind, jiggle, glow, flicker), and how far do they move?",
+              "source": "rig-create",
+              "required_for": [
+                "all"
+              ]
+            }
+          ],
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        },
+        {
+          "id": "motion",
+          "config": [
+            "motion"
+          ],
+          "prompts": [
+            {
+              "id": "motions",
+              "text": "Which moves? Name each one.",
+              "source": "rig-create",
+              "required_for": [
+                "character.idle",
+                "character.complex",
+                "character.monster",
+                "fullscreen.minimal"
+              ]
+            },
+            {
+              "id": "game_states",
+              "text": "Which states, and what moves it from one to the next?",
+              "source": "rig-create",
+              "required_for": [
+                "fullscreen.game_logic"
+              ]
+            }
+          ],
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-07T00:00:00Z",
+            "verbatim": "Synthetic direction.",
+            "value": "Synthetic direction."
+          },
+          "history": []
+        }
+      ],
+      "post": {
+        "held": false,
+        "date": null,
+        "items": [
+          {
+            "id": "camera_depth",
+            "config": [
+              "turn",
+              "depth"
+            ],
+            "text": "Does the view move (a 2.5D head-turn with parallax, a push-in) or is it fixed?",
+            "source": "rig-create",
+            "guide": null,
+            "history": []
+          },
+          {
+            "id": "post_timing",
+            "config": [],
+            "text": "How long, does it loop, and where are the beats?",
+            "source": "rig-create",
+            "guide": null,
+            "history": []
+          },
+          {
+            "id": "post_composition",
+            "config": [],
+            "text": "What is around the figures: background, framing, light?",
+            "source": "rig-create",
+            "guide": null,
+            "history": []
+          }
+        ]
+      }
+    },
+    "plan": {
+      "drafted_by": null,
+      "drafted_at": null,
+      "order": [
+        {
+          "phase": 1,
+          "members": [],
+          "runs": "alone",
+          "rests_on": [
+            "reference_member"
+          ],
+          "ends_with": "the reference member's rig is accepted at its rig-review and the user signs { \"stage\": \"reference\" }"
+        },
+        {
+          "phase": 2,
+          "members": [],
+          "runs": "parallel",
+          "rests_on": [
+            "members"
+          ],
+          "ends_with": "every member's rig accepted at rig-review and every cross bar met"
+        }
+      ],
+      "cross_bars": [],
+      "steps": []
+    },
+    "members": [
+      {
+        "name": "first",
+        "project": "members/first/project.json"
+      },
+      {
+        "name": "second",
+        "project": "members/second/project.json"
+      }
+    ],
+    "shared": "shared/conventions.json",
+    "composition": {
+      "lineup": null,
+      "layers": [],
+      "outputs_wanted": []
+    },
+    "inputs": [],
+    "derived": [],
+    "versions": [
+      {
+        "n": 1,
+        "at": "2026-11-07T01:00:00.000Z",
+        "pins": [
+          {
+            "member": "first",
+            "version": 1,
+            "rigs": [
+              {
+                "variant": "default",
+                "files": [
+                  {
+                    "role": "model",
+                    "path": "outputs/v1/default/model.json",
+                    "sha256": "4362de8bc824692cb02c58ee1475b917612276f74b228272407eb4c0794fc6cf"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v1/default/sheet.atlas",
+                    "sha256": "337a12f146679640e6b99e8d4fbfa30a5de6590b04e9868e5588f2e5c3d36afb"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v1/default/sheet.png",
+                    "sha256": "bfed33e161fcd95c4c76ec4db9699f6d0311a7bd1ed3b74c378352fbbec72d9d"
+                  },
+                  {
+                    "role": "config",
+                    "path": "derived/v1/config.json",
+                    "sha256": "55716404c70699304ace513e0ed3b974b585bbb359331dc3048894372b0d877c"
+                  }
+                ]
+              },
+              {
+                "variant": "alternate",
+                "files": [
+                  {
+                    "role": "model",
+                    "path": "outputs/v1/alternate/model.json",
+                    "sha256": "b17fb4b9730716c9750608425b053a85a30f1a1f12f7bd38ac8b61765869994b"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v1/alternate/sheet.atlas",
+                    "sha256": "dd911b3f2d647ac9ba0c45965a89174a4379d300c5a760322fa5773b015c0719"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v1/alternate/sheet.png",
+                    "sha256": "e26ac6b91220eccb17fa2e68d7f62da2794638935c36c99e2d835c6a8c2c69d4"
+                  },
+                  {
+                    "role": "config",
+                    "path": "derived/v1/config.json",
+                    "sha256": "55716404c70699304ace513e0ed3b974b585bbb359331dc3048894372b0d877c"
+                  }
+                ]
+              }
+            ],
+            "selection": "explicit"
+          },
+          {
+            "member": "second",
+            "version": 2,
+            "rigs": [
+              {
+                "variant": "default",
+                "files": [
+                  {
+                    "role": "model",
+                    "path": "outputs/v2/default/model.json",
+                    "sha256": "a5d0c927b9e3a22b3f492a8a95678298abe462b78083c0bb8b3b0a8a97884a76"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v2/default/sheet.atlas",
+                    "sha256": "ada65caaa9af9c3e4f37a769dbbe36eb73d0a66357ce2827ae02e039ff86754a"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v2/default/sheet.png",
+                    "sha256": "ed55a9fe71b8032011b5e653417bb4ab7d0600cc8e9cefb8b0a93fa55de28e2a"
+                  },
+                  {
+                    "role": "config",
+                    "path": "derived/v2/config.json",
+                    "sha256": "9d7a7710005dd58d867a1a7ed94fe62a8a0fcf5cfb1eac58679331a7303c35c5"
+                  }
+                ]
+              },
+              {
+                "variant": "alternate",
+                "files": [
+                  {
+                    "role": "model",
+                    "path": "outputs/v2/alternate/model.json",
+                    "sha256": "02ac96a74502df73ad301908a3b32ffcafccba2ba4ffad4f576c647eb6b5bc04"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v2/alternate/sheet.atlas",
+                    "sha256": "a8f976f15e908026d3139a690f8d893b00c8edae8cb75b651a756948fb5a881f"
+                  },
+                  {
+                    "role": "atlas",
+                    "path": "outputs/v2/alternate/sheet.png",
+                    "sha256": "9ae8b056b78d578f0fd98cece28e4f563c173b4dda19d0d4912f04ee13aa8e59"
+                  },
+                  {
+                    "role": "config",
+                    "path": "derived/v2/config.json",
+                    "sha256": "9d7a7710005dd58d867a1a7ed94fe62a8a0fcf5cfb1eac58679331a7303c35c5"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "composition_inputs": [],
+        "outputs": [
+          {
+            "path": "outputs/v1/lineup.png",
+            "sha256": "1ae63bd5cd59e88732914ea365e2bbda21ec6ddc1448b375a2452c23e86cca03",
+            "bytes": 28
+          }
+        ],
+        "evidence": [],
+        "verdicts": [],
+        "changed": "One earlier build and one latest build.",
+        "answers_feedback": []
+      }
+    ],
+    "archive": null,
+    "notes": []
+  }
+}

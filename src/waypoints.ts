@@ -41,6 +41,7 @@ export const SECTION_PLACEMENT: Readonly<Record<string, Placement>> = {
   requirements: none(
     "a path to a checks file. Declare setup_painting.required: true, with limits from parts' own pixel_count per region "
     + 'on the build accepted at the split checkpoint, recorded as a "no worse than the accepted split" bar with its source. '
+    + 'A busy project declares setup_painting.figure_mask from a named matte of the original painting at alpha ≥ 128 (parts coverage convention) minus any foreground plane, recorded with derived add. '
     + 'Translated guide sentences land here, after they are asked',
   ),
   motion_seams: none('an observation'),
@@ -125,7 +126,7 @@ export const WAYPOINT_ASKS: Readonly<Record<string, readonly WaypointAsk[]>> = {
   ],
   assemble: [
     { id: 'projection', text: 'Core keeps the part mask as the boundary. Visible follows the painting rim and can take backdrop pixels. Which projection should assemble use?' },
-    { id: 'ground', text: 'Plain preserves the existing rim projection. Busy limits backdrop pickup around thin parts. Is the ground plain or busy?' },
+    { id: 'ground', text: 'Plain preserves the existing rim projection. Busy limits backdrop pickup around thin parts. Is the ground plain or busy? A busy project declares setup_painting.figure_mask from a named matte of the original painting at alpha ≥ 128 (parts coverage convention) minus any foreground plane, recorded with derived add.' },
     { id: 'cut', text: 'Which parts are cut, and how finely?' },
     { id: 'emphasis', text: 'Which parts need detail or must stay exactly as painted?' },
     { id: 'draw_order', text: 'What is the parts draw order?' },

@@ -104,7 +104,7 @@ self-check is fixed before the version is shown, not shown with a question.
   animation's frame count, and the max with its frame.
   [CRAFT.md G1](CRAFT.md#for-the-gates-not-the-interview) is the gate row; parts'
   `SEAM_OVER_MOTION` covers only some pairs as a bar (parts AUTHORING
-  [§7](https://github.com/rig-c/parts/blob/v2.14.0/docs/AUTHORING.md#7-the-bars-check-enforces-and-what-only-an-eye-answers-today)).
+  [§7](https://github.com/rig-c/parts/blob/v2.14.1/docs/AUTHORING.md#7-the-bars-check-enforces-and-what-only-an-eye-answers-today)).
 - *Source*: owner ruling, 2026-11-03.
 
 ### Inspect motion on a sentinel colour

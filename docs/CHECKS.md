@@ -549,7 +549,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE` and `SETUP_PAINTING_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE` and `FIGURE_MASK_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
 
 `AGENT_BOUNCE_SINCE = 2026-11-05T00:00:00Z` in `src/stages.ts` is
 independent of the parts-review stage boundary. Read the history entry's own
@@ -688,3 +688,19 @@ Limits come from parts' own `pixel_count` per region on the accepted split
 build, recorded with their source as a "no worse than the accepted split" bar.
 The filled example retains its historical config references. Synthetic tests
 supply readable configs and requirements files without inventing measured limits.
+
+## Busy-ground figure masks
+
+`FIGURE_MASK_SINCE = 2026-11-06T00:00:00Z` applies to retained visible,
+busy configs. Masks come from an external named matte of the original painting
+at alpha ≥ 128, minus any foreground plane. Record the model, threshold and
+subtraction in `derived add --operation`, repeating `--source` for each input.
+Multiple inputs use `sources: [{path, sha256}, …]`; one keeps `source` unchanged.
+create binds bytes and source hashes. parts owns PNG decoding, grid and support checks.
+
+| Code | Condition | Remedy |
+|---|---|---|
+| `FIGURE_MASK_MISSING` | busy visible retained config lacks a valid requirements figure-mask path and lowercase sha256 | declare `setup_painting.figure_mask` in the config-relative requirements file |
+| `FIGURE_MASK_CHANGED` | declared PNG is unreadable or its bytes differ from its declared sha256 | restore the PNG relative to requirements or update the declaration and derived record |
+| `FIGURE_MASK_UNRECORDED` | no prepared-input record binds that mask and hash with at least one source and operation | record with `derived add`, naming matte, threshold and foreground subtraction in the operation |
+| `FIGURE_MASK_LEGACY` | WARN for these findings on a record before `FIGURE_MASK_SINCE` or without a readable date | preserve the earlier record and declare and record the mask for its next build |

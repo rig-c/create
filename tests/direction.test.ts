@@ -113,3 +113,28 @@ test('authored document integrates into filled project at 0/0 and packaging cann
 
 test('direct authoring and approval readers refuse an answer decided after its approval',()=>{const f=setup();const p=f.load();const item=objects(((p.interview as JsonObject).post as JsonObject).items)[0]!;(item.guide as JsonObject).at='2026-11-04T09:10:00Z';f.save(p);refuses('DIRECTION_CITATION',()=>write(f.dir));});
 test('direction check on a current stale take refuses instead of blessing it as historical',()=>{const f=setup();write(f.dir);const p=f.load();const rig=structuredClone(objects(p.versions)[0]!);rig.n=3;p.versions=[...objects(p.versions),rig];f.save(p);refuses('DIRECTION_RIG_STALE',()=>directionCommand(['check','2',f.dir]));});
+
+test('N/A fixed camera publishes through direction write and checkProject; two keys refuse the writer',async()=>{
+  const {fixture}=await import('./fixtures.ts');const {collectItems}=await import('../src/check.ts');
+  const dir=fixture(p=>{
+    p.stage='post';p.signoffs=objects(p.signoffs).filter(s=>s.stage!=='direction-review');
+    for(const v of objects(p.versions))if(v.kind==='post')v.verdicts=objects(v.verdicts).filter(d=>d.verdict!=='accepted');
+    const camera=objects(((p.interview as JsonObject).post as JsonObject).items).find(i=>i.id==='camera_depth')!;
+    camera.history=[...objects(camera.history),camera.guide as JsonObject];
+    camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:'2026-11-13T10:03:00Z'};
+  },'example-project.json');
+  setSystemTime(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
+  const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
+  const f=setup();setSystemTime(new Date('2026-11-21T09:10:00Z'));const doc=f.doc;
+  doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
+  (doc.camera as JsonObject).keys=[objects((doc.camera as JsonObject).keys)[0]!];
+  const items=collectItems(p,{collection:null});for(const[section,id]of [['camera','camera_depth'],['timing','post_timing']]){const item=items.find(i=>i.id===id)!;(doc.citations as JsonObject)[section!]={guide:id!,asks:[id!],quote:(item.raw as JsonObject).verbatim as string};}
+  const input=join(dir,'evidence/input-direction.json');writeFileSync(input,JSON.stringify(doc));
+  expect(directionCommand(['write','5',dir,'--file','evidence/input-direction.json','--rig','2']).exit).toBe(0);
+  expect(existsSync(join(dir,'evidence/direction/v5.json'))).toBe(true);
+  const report=checkProject(dir);expect(report.refusals).toEqual([]);expect(report.ok).toBe(true);expect(report.warnings).toEqual([]);
+  const original=readFileSync(join(dir,'project.json'));
+  ((doc.camera as JsonObject).keys as JsonObject[]).push({time:4,box:{x:0,y:0,width:10,height:10},easing:'hold'});writeFileSync(input,JSON.stringify(doc));
+  refuses('DIRECTION_CITATION',()=>directionCommand(['write','6',dir,'--file','evidence/input-direction.json','--rig','2']));
+  expect(readFileSync(join(dir,'project.json'))).toEqual(original);expect(existsSync(join(dir,'evidence/direction/v6.json'))).toBe(false);
+});

@@ -1,3 +1,4 @@
+import { fixedNotApplicableCamera } from './direction-citation.ts';
 /**
  * Provenance per config section (docs/INTERVIEW.md § Provenance): every
  * section of the config a version was built from cites the guide sentence or
@@ -82,7 +83,7 @@ function readConfigSections(
   dir: string,
   config: Json | undefined,
   skip: (key: string, value: unknown) => boolean = () => false,
-): { read: ConfigRead; path: string | null; sections: string[] | null } {
+): { read: ConfigRead; path: string | null; sections: string[] | null; document?: JsonObject } {
   const path = isObject(config) ? asString(config.path) : null;
   if (path === null) return { read: 'absent', path: null, sections: null };
   const file = resolve(dir, path);
@@ -100,7 +101,7 @@ function readConfigSections(
     return { read: 'unreadable', path, sections: null };
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return { read: 'unreadable', path, sections: null };
-  return { read: 'verified', path, sections: Object.entries(parsed).filter(([k, v]) => !skip(k, v)).map(([k]) => k) };
+  return { read: 'verified', path, document: parsed as JsonObject, sections: Object.entries(parsed).filter(([k, v]) => !skip(k, v)).map(([k]) => k) };
 }
 
 /**
@@ -272,7 +273,11 @@ export function checkProvenance(ctx: Ctx, parts: PartsSections | null): Provenan
         }
         continue;
       }
-      entries.forEach((e, i) => checkEntry(ctx, kind, `${path}[${i}]`, e));
+      entries.forEach((e, i) => {
+        const item = isObject(e) && typeof e.guide === 'string' ? itemFor(ctx, e.guide) : undefined;
+        if (kind === 'post' && isObject(prov.direction) && fixedNotApplicableCamera(section, item, e, read.document)) return;
+        checkEntry(ctx, kind, `${path}[${i}]`, e);
+      });
     }
     // A citation under a key the config listing skipped (a record or annotation) is still no section.
     if (kind === 'rig') {

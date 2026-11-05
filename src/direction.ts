@@ -1,3 +1,4 @@
+import { fixedNotApplicableCamera } from './direction-citation.ts';
 /** Create owns these authored camera/timing bytes. No renderer or external producer runs here. */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
@@ -104,7 +105,7 @@ export function validateDirectionCitations(dir: string, project: JsonObject, doc
   for (const section of ['camera','timing']) {
     const citation = (doc.citations as JsonObject)[section] as JsonObject;
     const item = items.find(i => i.id === citation.guide);
-    const fixedNotApplicable = section === 'camera' && item?.state.state === 'not_applicable' && objects((doc.camera as JsonObject).keys).length === 1 && typeof citation.quote === 'string' && typeof item.state.answer.verbatim === 'string' && item.state.answer.verbatim.includes(citation.quote);
+    const fixedNotApplicable = fixedNotApplicableCamera(section, item, citation, doc);
     if (!fixedNotApplicable) checkEntry(ctx,'post',`direction.citations.${section}`,citation);
     const currentAnswer=item && (item.state.state==='user'||item.state.state==='delegated')?item.state.answer:null;
     if(current && currentAnswer && objects(currentAnswer.asks).some(a=>a.state==='other-pending' || a.state==='delegated' && !isDecision(currentAnswer.agent_decision))) directionFail('DIRECTION_CITATION',`direction.citations.${section}`,'current per-ask selection is pending');

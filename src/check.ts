@@ -1,3 +1,4 @@
+import { checkCorrections } from './corrections.ts';
 /**
  * `interview --check`: reads a project's `project.json` and reports, by name,
  * every place the record breaks the contract in docs/INTERVIEW.md and
@@ -896,6 +897,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkMeshesBust(ctx);
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkChoices(ctx);
+  checkCorrections(ctx);
 
   return {
     ok: refusals.length === 0,

@@ -787,3 +787,36 @@ answers remain unchanged. See INTERVIEW.md for the frozen shapes and writers.
 | `INTERVIEW_CHOICE_INVALID` | malformed picks payload, shown/value/coverage/verbatim drift, clock/identity/decision mismatch or changed still-approved answer | retain the shown snapshot and record exact human picks; reopen before changing approval |
 | `INTERVIEW_CHOICE_CONSTRAINT` | disallowed tuple or constrained Other/auto fragment has zero or multiple value-option matches | choose an allowed combination or redraft the set to offer that option |
 | `CHOICE_ANSWERS_LEGACY` | WARN: no explicit choice adoption, or grandfathered current sentence/inherited answer | preserve source words/date; adopt explicitly and show a tailored option when asked again |
+
+## Correction paths
+
+`corrections_contract.schema = "rig-create/corrections@1"` is explicitly adopted
+with `correction --adopt`; it is independent of `interview.order` and dates do
+not activate it. Existing records are preserved. Missing adoption warns once,
+including on the frozen legacy example. All present records are validated.
+Create hashes retained bytes and reads producer reports; it never replays a
+patch, computes a producer check/diff, or launches an Apply.
+
+| Finding | Frozen bar list |
+| --- | --- |
+| `CORRECTION_USAGE` | invalid command arity, unknown/duplicate/conflicting flags or missing values |
+| `CORRECTION_CONTRACT_INVALID` | malformed/unknown explicit adoption, or mutation before adoption |
+| `CORRECTION_MALFORMED` | invalid closed record/union/human time fields, duplicate id or invalid replacement reference |
+| `CORRECTION_FILE` | unavailable/nonregular/symlink/escaping required retained file, or invalid retained JSON |
+| `CORRECTION_HASH` | raw retained bytes differ from their recorded SHA-256 |
+| `CORRECTION_SOURCE` | unknown/ambiguous/stale source, stage/kind/config/handoff mismatch, or mutation under a live approval |
+| `CORRECTION_PATCH_INVALID` | config-patch/1 grammar, keys, flags or pointer syntax invalid; no operation is replayed |
+| `CORRECTION_APPLIED_INVALID` | session/item/applied identity or embedded patch differs, or a claimed checked result lacks its passing retained summary |
+| `CORRECTION_OUTCOME` | outcome is invalid/nonlater/unchanged, closure bytes are missing, model differs from Apply, origin differs, or closure is repeated |
+| `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
+| `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |
+| `CORRECTION_PATH_LEGACY` | WARN once when explicit corrections adoption is absent |
+| `CORRECTION_OPEN` | WARN per active described-open or made preview/pending record |
+| `CORRECTION_UNSUPPORTED` | WARN per active unsupported made operation; not duplicated as OPEN |
+
+The remedy is to retain the original evidence, select its exact source/outcome,
+resolve the correction, or reopen its review before changing approved work.
+Unsupported operations remain pending until a separately contracted adapter
+exists. Historical superseded corrections remain validated but do not impose
+current approval obligations. Existing structure, provenance, feedback and CG
+findings retain their existing ownership and meaning.

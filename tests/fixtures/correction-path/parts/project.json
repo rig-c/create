@@ -1,0 +1,281 @@
+{
+  "schema": "rig-create/project@0",
+  "name": "synthetic-correction",
+  "stage_values": [
+    "interview",
+    "plan-approved",
+    "parts",
+    "parts-review",
+    "rigging-interview",
+    "rigging",
+    "rig-review",
+    "post-interview",
+    "post",
+    "direction-review",
+    "accepted",
+    "paused"
+  ],
+  "interview": {
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.15.0)",
+    "held": false,
+    "date": null,
+    "interviewer": null,
+    "respondent": null,
+    "framing": [
+      {
+        "id": "rig_type",
+        "text": "What is this: a character rig (standing idle / complex motion / a monster with its own moves) or a full-screen scene (minimal motion: breath, blink / motion tied to game logic)?",
+        "source": "rig-create",
+        "required_for": [
+          "all"
+        ],
+        "answer": null,
+        "history": []
+      },
+      {
+        "id": "reference",
+        "text": "'Make it feel like this': a video, an existing demo, a game you have in mind?",
+        "source": "rig-create",
+        "required_for": [
+          "all"
+        ],
+        "answer": null,
+        "history": []
+      }
+    ],
+    "waypoints": [
+      {
+        "id": "seethrough",
+        "config": [
+          "seethrough"
+        ],
+        "prompts": [
+          {
+            "id": "x_layers",
+            "text": "Is there anything the layer split must keep together or keep apart: a hat with the head, a held object on its own?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "assemble",
+        "config": [
+          "assemble",
+          "limbs",
+          "scene",
+          "waist"
+        ],
+        "prompts": [
+          {
+            "id": "split_granularity",
+            "text": "How finely should it be cut?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          },
+          {
+            "id": "split_emphasis",
+            "text": "Which parts matter most: more detail, or kept exactly as painted?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "bones",
+        "config": [
+          "bones"
+        ],
+        "prompts": [
+          {
+            "id": "x_chains",
+            "text": "What moves on its own: hair strands, coat tails, sleeves, held things?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "meshes",
+        "config": [
+          "meshes",
+          "regions"
+        ],
+        "prompts": [
+          {
+            "id": "x_deform",
+            "text": "What must bend smoothly as one piece, and what must stay rigid?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "constraints",
+        "config": [
+          "constraints",
+          "stops",
+          "cloth"
+        ],
+        "prompts": [
+          {
+            "id": "split_effects",
+            "text": "Which parts have special effects (sway on physics, move in wind, jiggle, glow, flicker), and how far do they move?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "motion",
+        "config": [
+          "motion"
+        ],
+        "prompts": [
+          {
+            "id": "motions",
+            "text": "Which moves? Name each one.",
+            "source": "rig-create",
+            "required_for": [
+              "character.idle",
+              "character.complex",
+              "character.monster",
+              "fullscreen.minimal"
+            ]
+          },
+          {
+            "id": "game_states",
+            "text": "Which states, and what moves it from one to the next?",
+            "source": "rig-create",
+            "required_for": [
+              "fullscreen.game_logic"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      }
+    ],
+    "post": {
+      "held": false,
+      "date": null,
+      "items": [
+        {
+          "id": "camera_depth",
+          "config": [
+            "turn",
+            "depth"
+          ],
+          "text": "Does the view move (a 2.5D head-turn with parallax, a push-in) or is it fixed?",
+          "source": "rig-create",
+          "guide": null,
+          "history": []
+        },
+        {
+          "id": "post_timing",
+          "config": [],
+          "text": "How long, does it loop, and where are the beats?",
+          "source": "rig-create",
+          "guide": null,
+          "history": []
+        },
+        {
+          "id": "post_composition",
+          "config": [],
+          "text": "What is around the figure: background, framing, other figures, light?",
+          "source": "rig-create",
+          "guide": null,
+          "history": []
+        }
+      ]
+    }
+  },
+  "plan": {
+    "steps": []
+  },
+  "inputs": {},
+  "signoffs": [],
+  "versions": [],
+  "stage": "parts-review",
+  "reopens": [],
+  "corrections_contract": {
+    "schema": "rig-create/corrections@1",
+    "adopted_at": "2026-11-04T09:00:00.000Z"
+  },
+  "corrections": [
+    {
+      "schema": "rig-create/correction@1",
+      "id": "response",
+      "path": "described",
+      "by": "reviewer",
+      "at": "2026-11-04T09:10:00.000Z",
+      "verbatim": "Keep the precise words.  \r\n",
+      "stage": "parts-review",
+      "on": {
+        "kind": "parts",
+        "manifest": {
+          "path": "evidence/source/parts.json",
+          "sha256": "1284880e901ee5a7edd965ce847e9054c303577c078ebcc5cd2771a66d806733"
+        },
+        "files": [
+          {
+            "path": "evidence/source/parts.json",
+            "sha256": "1284880e901ee5a7edd965ce847e9054c303577c078ebcc5cd2771a66d806733"
+          },
+          {
+            "path": "evidence/source/parts/piece.png",
+            "sha256": "4e53525df46aafed8e01b5d70fd68c30862a32aae093f0a73d94a1ada74dea7a"
+          }
+        ]
+      },
+      "artifact": {
+        "kind": "description"
+      },
+      "outcome": {
+        "kind": "parts",
+        "manifest": {
+          "path": "evidence/outcome/parts.json",
+          "sha256": "ebf5a86dbb1dfb6206b266554a71420384e960fee9354f460b5ace944a18fbe7"
+        },
+        "files": [
+          {
+            "path": "evidence/outcome/parts.json",
+            "sha256": "ebf5a86dbb1dfb6206b266554a71420384e960fee9354f460b5ace944a18fbe7"
+          },
+          {
+            "path": "evidence/outcome/parts/piece.png",
+            "sha256": "4e53525df46aafed8e01b5d70fd68c30862a32aae093f0a73d94a1ada74dea7a"
+          }
+        ]
+      },
+      "resolves": null,
+      "closure": {
+        "by": "agent",
+        "at": "2026-11-04T10:00:00.000Z",
+        "reasoning": "Agent declaration of the recorded response.\n"
+      }
+    }
+  ]
+}

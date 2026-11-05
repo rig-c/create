@@ -1,0 +1,82 @@
+{
+  "schema": "rig-review-session/1",
+  "reviewedSource": {
+    "rig": {
+      "path": "build/skeleton.model.json",
+      "sha256": "42cded4ea628d476256696c70e20f467e06cf57f0054b249bc81bb29b526df10"
+    },
+    "motion": null,
+    "handoff": {
+      "config": {
+        "path": "evidence/source-config.json",
+        "sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069"
+      },
+      "files": [
+        {
+          "path": "../../config.json",
+          "sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069"
+        }
+      ],
+      "missing": []
+    }
+  },
+  "feedback": [
+    {
+      "id": "synthetic-apply",
+      "summary": "Keep the precise words.  \r\n",
+      "context": {
+        "applied": {
+          "schema": "rig-review-applied/2",
+          "buildId": "28d8c65766bec6168973b27d049568c03588090139f45467ffe983036a0fab65",
+          "patch": {
+            "schema": "rig-review-config-patch/1",
+            "config_sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
+            "ops": [
+              {
+                "op": "replace",
+                "path": "/note",
+                "value": "synthetic outcome"
+              }
+            ],
+            "producer": {
+              "name": "@rig-c/parts",
+              "version": "2.15.0"
+            },
+            "op": {
+              "cmd": "rig",
+              "args": []
+            }
+          },
+          "patchSha256": "bd2cea502cae837e8b788503fd3b52da78fb50f8848d1c8369bafb2e0eaaced6",
+          "configHash": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
+          "producer": {
+            "package": "@rig-c/parts",
+            "version": "2.15.0"
+          },
+          "compiler": {
+            "package": "@rig-c/core",
+            "version": "0.0.0-synthetic"
+          },
+          "line": "synthetic shape-only, not measured",
+          "check": {
+            "schema": "rig-review-check-summary/1",
+            "pass": true,
+            "exitCode": 0,
+            "line": "check: synthetic shape-only",
+            "bars": {
+              "SYNTHETIC": "PASS"
+            },
+            "gate": true
+          },
+          "diff": {
+            "count": 1,
+            "paths": [
+              "/synthetic"
+            ]
+          },
+          "modelHash": "274c94fdb6be5e2ef5cfc9cf766dd5c0a2b05e11add798c05ef884097d60cd4c"
+        }
+      }
+    }
+  ]
+}

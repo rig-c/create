@@ -1,3 +1,4 @@
+import { correctionCommand } from '../src/correction-writers.ts';
 /** Reproduce the new-order example's declarations through public writers on synthetic dated input. */
 import { writeExampleChoices } from './example-choices.ts';
 import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
@@ -50,6 +51,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   };
   try {
     p.stage = 'plan-approved'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
+    save(); setSystemTime(new Date('2026-11-05T00:00:00Z')); correctionCommand(['--adopt', dir]); reload();
     const interview = obj(p.interview);
     interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: '2026-11-10T14:00:00Z', choices_adopted_at: '2026-11-10T14:00:00Z' };
     const source = readFileSync(join(dir,'inputs/preparation-source.svg'));
@@ -122,6 +124,7 @@ if (import.meta.main) {
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
   for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'versions']) text = replaceValue(text, key, generated.project[key] as Json);
+  text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
   const outputs: Record<string, string> = { 'example-project.json': text };
   for (const [path, bytes] of Object.entries(generated.files)) {
     const rel = path.startsWith('evidence/interview/') ? `example-interview-options/${path.slice('evidence/interview/'.length)}` : path.startsWith(EXAMPLE_DRAFT) ? `example-draft/${path.slice(EXAMPLE_DRAFT.length + 1)}` : `example-draft/${path}`;

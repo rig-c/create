@@ -1,3 +1,4 @@
+import { assertCorrectionApproval } from './correction-writers.ts';
 /**
  * Polish feedback (rig-c/create#9, docs/INTERVIEW.md § Polish feedback):
  * what the user says after seeing a version is kept word for word in that
@@ -467,6 +468,7 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
     additions.push({ by: input.by, at, verbatim: r.addition, value: input.values[r.id] ?? null, source: feedbackSource(input.version) });
     out.push({ ...r, addition: `${item.path}.additions[${additions.length - 1}]` });
   }
+  if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review));
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
 }

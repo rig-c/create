@@ -1,0 +1,103 @@
+import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { CorrectionError, checkCorrections, correctionApprovalFindings, validateCorrectionPatch } from '../src/corrections.ts';
+import { assertCorrectionApproval, correctionCommand } from '../src/correction-writers.ts';
+import { draftRigCommand } from '../src/drafts.ts';
+import { reopenCommand } from '../src/reopen.ts';
+import { fixture as projectFixture } from './fixtures.ts';
+import { Refusal } from '../src/refusal.ts';
+import type { JsonObject } from '../src/templates.ts';
+import { correctionFixture } from './correction-fixture.ts';
+const roots:string[]=[];
+afterEach(()=>{setSystemTime();for(const d of roots.splice(0))rmSync(d,{recursive:true,force:true});});
+function fixture(kind:'post'|'rig'|'parts'='post'){const dir=mkdtempSync(join(tmpdir(),'correction-'));roots.push(dir);return{dir,...correctionFixture(dir,kind)};}
+const load=(d:string):JsonObject=>JSON.parse(readFileSync(join(d,'project.json'),'utf8'));
+function check(d:string,p=load(d)){const ctx={dir:d,project:p,refusals:[] as {code:string}[],warnings:[] as {code:string}[]};checkCorrections(ctx as Parameters<typeof checkCorrections>[0]);return ctx;}
+function rejected(d:string,code:string,run:()=>unknown){const before=readFileSync(join(d,'project.json'));let caught='';try{run();}catch(e){if(!(e instanceof Refusal))throw e;caught=e.code;}expect(caught).toBe(code);expect(readFileSync(join(d,'project.json'))).toEqual(before);}
+function record(d:string,args:string[],path='described',extra:string[]=[]){setSystemTime(new Date('2026-11-04T09:10:00Z'));return correctionCommand(['record',d,'--id','fix','--path',path,'--stage',args.includes('--parts-file')?'parts-review':args.includes('--model-file')?'direction-review':'rig-review','--by',path==='made'?'user':'reviewer',...args,...(extra.includes('--feedback-file')?[]:['--verbatim-file',join(d,'words.txt')]),...extra]);}
+function close(d:string,args:string[],extra:string[]=[]){setSystemTime(new Date('2026-11-04T10:00:00Z'));return correctionCommand(['resolve','fix',d,'--by','agent','--reasoning-file',join(d,'reasoning.txt'),...args,...extra]);}
+
+test('described post correction preserves exact words, requires explicit output and closes once',()=>{
+ const f=fixture();record(f.dir,f.args);let p=load(f.dir);let r=(p.corrections as JsonObject[])[0]!;expect(r.verbatim).toBe('Keep the precise words.  \r\n');expect(check(f.dir).warnings.map(w=>w.code)).toEqual(['CORRECTION_OPEN']);expect(correctionApprovalFindings(p,'direction-review').map(x=>x.code)).toEqual(['CORRECTION_PENDING']);close(f.dir,f.outcome);expect(check(f.dir).refusals).toEqual([]);expect(check(f.dir).warnings).toEqual([]);r=(load(f.dir).corrections as JsonObject[])[0]!;expect((r.closure as JsonObject).by).toBe('agent');rejected(f.dir,'CORRECTION_OUTCOME',()=>close(f.dir,f.outcome));
+});
+test('explicit adoption is idempotent and malformed contracts cannot become legacy',()=>{const f=fixture();const bytes=readFileSync(join(f.dir,'project.json'));correctionCommand(['--adopt',f.dir]);expect(readFileSync(join(f.dir,'project.json'))).toEqual(bytes);const p=load(f.dir);p.corrections_contract={schema:'unknown',adopted_at:'bad'};expect(check(f.dir,p).refusals.map(f=>f.code)).toContain('CORRECTION_CONTRACT_INVALID');delete p.corrections_contract;expect(check(f.dir,p).warnings.map(f=>f.code)).toEqual(['CORRECTION_PATH_LEGACY']);});
+test('stage-1 parts corrections exist before a version and approved parts must match outcome',()=>{const f=fixture('parts');record(f.dir,f.args);close(f.dir,f.outcome);expect(load(f.dir).versions).toEqual([]);expect(check(f.dir).refusals).toEqual([]);expect(correctionApprovalFindings(load(f.dir),'parts-review',{draft_id:'wrong'}).map(x=>x.code)).toEqual(['CORRECTION_OUTCOME']);});
+test('synthetic shape-only applied-and-checked binds retained session and outcome; no producer gate proof',()=>{const f=fixture('rig');record(f.dir,f.args,'made',['--feedback-file','evidence/feedback.json','--item','synthetic-apply']);close(f.dir,f.outcome);expect(check(f.dir)).toMatchObject({refusals:[],warnings:[]});});
+test('preview raw hash need not equal retained review patchSha256 claim',()=>{const f=fixture('rig');record(f.dir,f.args,'made',['--patch-file','evidence/preview.json']);close(f.dir,f.outcome,['--applied-feedback','evidence/feedback.json','--feedback-id','synthetic-apply']);expect(check(f.dir).refusals).toEqual([]);});
+test('mismatched embedded patch refuses preview closure byte-identically',()=>{const f=fixture('rig');record(f.dir,f.args,'made',['--patch-file','evidence/preview.json']);const s=JSON.parse(readFileSync(join(f.dir,'evidence/feedback.json'),'utf8'));s.feedback[0].context.applied.patch.ops[0].value='different';writeFileSync(join(f.dir,'evidence/feedback.json'),JSON.stringify(s));rejected(f.dir,'CORRECTION_APPLIED_INVALID',()=>close(f.dir,f.outcome,['--applied-feedback','evidence/feedback.json','--feedback-id','synthetic-apply']));});
+for(const field of ['pass','gate','exitCode'])test(`failed ${field} cannot claim checked completion`,()=>{const f=fixture('rig');const s=JSON.parse(readFileSync(join(f.dir,'evidence/feedback.json'),'utf8'));s.feedback[0].context.applied.check[field]=field==='exitCode'?1:false;writeFileSync(join(f.dir,'evidence/feedback.json'),JSON.stringify(s));const p=load(f.dir);((p.versions as JsonObject[])[1]!.review_origin as JsonObject).feedback={path:'evidence/feedback.json',sha256:'0'.repeat(64)};writeFileSync(join(f.dir,'project.json'),JSON.stringify(p));record(f.dir,f.args,'made',['--feedback-file','evidence/feedback.json','--item','synthetic-apply']);rejected(f.dir,'CORRECTION_APPLIED_INVALID',()=>close(f.dir,f.outcome));});
+test('mesh delta records as unsupported and cannot be closed',()=>{const f=fixture('rig');const s=JSON.parse(readFileSync(join(f.dir,'evidence/feedback.json'),'utf8'));s.feedback[0].context.applied.schema='rig-review-applied/3';writeFileSync(join(f.dir,'evidence/feedback.json'),JSON.stringify(s));record(f.dir,f.args,'made',['--feedback-file','evidence/feedback.json','--item','synthetic-apply']);expect(check(f.dir).warnings.map(x=>x.code)).toEqual(['CORRECTION_UNSUPPORTED']);rejected(f.dir,'CORRECTION_UNSUPPORTED_OUTCOME',()=>close(f.dir,f.outcome));});
+test('changed retained bytes refuse and do not alter the project',()=>{const f=fixture();record(f.dir,f.args);writeFileSync(join(f.dir,'evidence/source.model.json'),'changed');rejected(f.dir,'CORRECTION_HASH',()=>close(f.dir,f.outcome));});
+test('unchanged output is not a response',()=>{const f=fixture();record(f.dir,f.args);const p=load(f.dir);const v=p.versions as JsonObject[];v[1]!.outputs=v[0]!.outputs;writeFileSync(join(f.dir,'project.json'),JSON.stringify(p));rejected(f.dir,'CORRECTION_OUTCOME',()=>close(f.dir,['--version','2','--model-file','evidence/source.model.json']));});
+test('patch grammar is closed and refuses path flags, unknown keys and malformed pointers',()=>{const f=fixture('rig');const p=JSON.parse(readFileSync(join(f.dir,'evidence/preview.json'),'utf8'));for(const change of [(x:JsonObject)=>{x.extra=true},(x:JsonObject)=>{(x.op as JsonObject).args=['--out','secret']},(x:JsonObject)=>{(x.ops as JsonObject[])[0]!.path='/bad~2'}]){const v=structuredClone(p);change(v);let code='';try{validateCorrectionPatch(v);}catch(e){if(!(e instanceof CorrectionError))throw e;code=e.code;}expect(code).toBe('CORRECTION_PATCH_INVALID');}});
+
+test('valid reopen supersedes pending corrections; a narrower later reopen never resurrects them',()=>{
+ const f=fixture();record(f.dir,f.args);const p=load(f.dir);p.reopens=[{stage:'rig-review',from_stage:'direction-review',by:'reviewer',at:'2026-11-04T09:20:00Z',verbatim:'Review again',steps_before:[]},{stage:'direction-review',from_stage:'direction-review',by:'reviewer',at:'2026-11-04T09:21:00Z',verbatim:'Review the post too',steps_before:[]}];expect(check(f.dir,p).warnings).toEqual([]);expect(correctionApprovalFindings(p,'direction-review')).toEqual([]);writeFileSync(join(f.dir,'project.json'),JSON.stringify(p));rejected(f.dir,'CORRECTION_SOURCE',()=>close(f.dir,f.outcome));
+});
+test('malformed reopen supersedes nothing and does not clear a pending correction',()=>{const f=fixture();record(f.dir,f.args);const p=load(f.dir);p.reopens=[{stage:'direction-review',from_stage:'direction-review',by:'agent',at:'2026-11-04T09:20:00Z',verbatim:'bad',steps_before:[]}];expect(correctionApprovalFindings(p,'direction-review').map(f=>f.code)).toEqual(['CORRECTION_PENDING']);});
+test('a live approval blocks new capture until the human reopens it',()=>{const f=fixture();const p=load(f.dir);p.signoffs=[{stage:'direction-review',checkpoint:null,by:'reviewer',at:'2026-11-04T09:05:00Z',verbatim:'approved'}];writeFileSync(join(f.dir,'project.json'),JSON.stringify(p));rejected(f.dir,'CORRECTION_SOURCE',()=>record(f.dir,f.args));});
+test('pending corrections gate direct signoff/acceptance checks, and preclosure approval stays invalid',()=>{const f=fixture();record(f.dir,f.args);const p=load(f.dir);p.signoffs=[{stage:'direction-review',checkpoint:null,by:'reviewer',at:'2026-11-04T09:15:00Z',verbatim:'approved too early'}];expect(check(f.dir,p).refusals.map(f=>f.code)).toContain('CORRECTION_PENDING');close(f.dir,f.outcome);const closed=load(f.dir);closed.signoffs=p.signoffs;expect(check(f.dir,closed).refusals.map(f=>f.code)).toContain('CORRECTION_PENDING');});
+test('replacement appends history and cannot erase an obligation while itself pending',()=>{const f=fixture();record(f.dir,f.args);setSystemTime(new Date('2026-11-04T09:11:00Z'));correctionCommand(['record',f.dir,'--id','replacement','--resolves','fix','--path','described','--stage','direction-review','--by','reviewer','--verbatim-file',join(f.dir,'words.txt'),...f.args]);expect((load(f.dir).corrections as JsonObject[]).map(r=>r.id)).toEqual(['fix','replacement']);expect(correctionApprovalFindings(load(f.dir),'direction-review').map(f=>f.code)).toEqual(['CORRECTION_PENDING','CORRECTION_PENDING']);setSystemTime(new Date('2026-11-04T10:00:00Z'));correctionCommand(['resolve','replacement',f.dir,...f.outcome,'--by','agent','--reasoning-file',join(f.dir,'reasoning.txt')]);expect(correctionApprovalFindings(load(f.dir),'direction-review')).toEqual([]);});
+test('capture cannot predate the version the person names',()=>{const f=fixture();rejected(f.dir,'CORRECTION_SOURCE',()=>record(f.dir,f.outcome));});
+test('missing source, duplicate ids, wrong stage and unknown flags are named byte-preserving refusals',()=>{const f=fixture();rejected(f.dir,'CORRECTION_SOURCE',()=>record(f.dir,['--version','9','--model-file','evidence/source.model.json']));rejected(f.dir,'CORRECTION_USAGE',()=>record(f.dir,f.args,'described',['--correction-file','evidence/feedback.json']));record(f.dir,f.args);rejected(f.dir,'CORRECTION_MALFORMED',()=>record(f.dir,f.args));});
+test('source feedback hashes and selected item are validated; no fake checked output identity',()=>{const f=fixture('rig');record(f.dir,f.args,'made',['--feedback-file','evidence/feedback.json','--item','synthetic-apply']);const p=load(f.dir);const r=(p.corrections as JsonObject[])[0]!;const a=r.artifact as JsonObject;((a.feedback as JsonObject).file as JsonObject).sha256='0'.repeat(64);expect(check(f.dir,p).refusals.map(f=>f.code)).toContain('CORRECTION_HASH');const p2=load(f.dir);(((p2.corrections as JsonObject[])[0]!.artifact as JsonObject).feedback as JsonObject).item_id='missing';expect(check(f.dir,p2).refusals.map(f=>f.code)).toContain('CORRECTION_APPLIED_INVALID');close(f.dir,f.outcome);const p3=load(f.dir);((p3.corrections as JsonObject[])[0]!.outcome as JsonObject).model={path:'evidence/source.model.json',sha256:((p3.versions as JsonObject[])[0]!.outputs as JsonObject[])[0]!.sha256 as string};expect(check(f.dir,p3).refusals.map(f=>f.code)).toContain('CORRECTION_OUTCOME');});
+test('a parts manifest inventory cannot omit a retained part',()=>{const f=fixture('parts');const path=join(f.dir,'evidence/source/inventory.json');const inv=JSON.parse(readFileSync(path,'utf8'));inv.files.pop();writeFileSync(path,JSON.stringify(inv));rejected(f.dir,'CORRECTION_SOURCE',()=>record(f.dir,f.args));});
+
+test('contained symlinks and traversal are refused before capture',()=>{const f=fixture();symlinkSync(join(f.dir,'evidence/source.model.json'),join(f.dir,'evidence/link.json'));rejected(f.dir,'CORRECTION_FILE',()=>record(f.dir,['--version','1','--model-file','evidence/link.json']));rejected(f.dir,'CORRECTION_FILE',()=>record(f.dir,['--version','1','--model-file','evidence/../evidence/source.model.json']));});
+
+test('stage-1 described drafts use public draft inventory and bind the corrected approval draft',()=>{
+ const dir=projectFixture();roots.push(join(dir,'..'));setSystemTime(new Date('2026-12-01T07:00:00Z'));writeFileSync(join(dir,'words.txt'),'Refine the draft mesh.');writeFileSync(join(dir,'reasoning.txt'),'Declared corrected draft, not a measured build.');reopenCommand(['parts-review',dir,'--by','reviewer','--verbatim-file',join(dir,'words.txt')]);correctionCommand(['--adopt',dir]);
+ const draft=(id:string,hour:string)=>{const root=`derived/drafts/${id}`;mkdirSync(join(dir,root,'input/parts'),{recursive:true});mkdirSync(join(dir,root,'out'),{recursive:true});for(const[path,bytes]of Object.entries({'config.json':'{}','input/parts.json':'{}','input/parts/piece.png':'synthetic bytes','out/rig.json':'{}','out/motion.json':'{}','out/mesh_report.json':'{}','out/skeleton.model.json':JSON.stringify({synthetic:id})}))writeFileSync(join(dir,root,path),bytes);setSystemTime(new Date(`2026-12-01T${hour}:00:00Z`));draftRigCommand([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`]);};
+ draft('before','08');setSystemTime(new Date('2026-12-01T09:00:00Z'));correctionCommand(['record',dir,'--id','draft-fix','--path','described','--stage','parts-review','--draft','before','--by','reviewer','--verbatim-file',join(dir,'words.txt')]);draft('after','10');setSystemTime(new Date('2026-12-01T11:00:00Z'));correctionCommand(['resolve','draft-fix',dir,'--draft','after','--by','agent','--reasoning-file',join(dir,'reasoning.txt')]);const p=load(dir);expect(check(dir).refusals).toEqual([]);expect(correctionApprovalFindings(p,'parts-review',{draft_id:'before',at:'2026-12-01T12:00:00Z'}).map(f=>f.code)).toEqual(['CORRECTION_OUTCOME']);expect(correctionApprovalFindings(p,'parts-review',{draft_id:'after',at:'2026-12-01T12:00:00Z'})).toEqual([]);
+});
+
+test('ordinary correction may name the historical version actually inspected',()=>{const f=fixture();setSystemTime(new Date('2026-11-04T10:00:00Z'));correctionCommand(['record',f.dir,'--id','historical','--path','described','--stage','direction-review','--by','reviewer','--verbatim-file',join(f.dir,'words.txt'),...f.args]);expect(check(f.dir).refusals).toEqual([]);});
+test('replacement must name the latest source at capture while ordinary history remains valid',()=>{const f=fixture();record(f.dir,f.args);setSystemTime(new Date('2026-11-04T10:00:00Z'));const base=['record',f.dir,'--id','new','--resolves','fix','--path','described','--stage','direction-review','--by','reviewer','--verbatim-file',join(f.dir,'words.txt')];rejected(f.dir,'CORRECTION_SOURCE',()=>correctionCommand([...base,...f.args]));correctionCommand([...base,...f.outcome]);expect(check(f.dir).refusals).toEqual([]);});
+
+
+/** Synthetic retained draft/parts bytes, recorded through the public writers; no producer is run. */
+function mixedStageOne(source:'parts'|'draft', target:'parts'|'draft', partsChanged:boolean, modelChanged:boolean) {
+  const dir=projectFixture();roots.push(join(dir,'..'));
+  setSystemTime(new Date('2026-12-01T07:00:00Z'));
+  writeFileSync(join(dir,'words.txt'),'Correct the reviewed parts or mesh.');
+  writeFileSync(join(dir,'reasoning.txt'),'Declare the corrected output.');
+  reopenCommand(['parts-review',dir,'--by','reviewer','--verbatim-file',join(dir,'words.txt')]);
+  correctionCommand(['--adopt',dir]);
+  const draft=(id:string,hour:string,part:string,model:string)=>{
+    const root=`derived/drafts/${id}`;
+    mkdirSync(join(dir,root,'input/parts'),{recursive:true});mkdirSync(join(dir,root,'out'),{recursive:true});
+    const files={'config.json':'{}','input/parts.json':'{}','input/parts/piece.png':part,'out/rig.json':'{}','out/motion.json':'{}','out/mesh_report.json':'{}','out/skeleton.model.json':model};
+    for(const[path,bytes]of Object.entries(files))writeFileSync(join(dir,root,path),bytes);
+    setSystemTime(new Date(`2026-12-01T${hour}:00:00Z`));
+    draftRigCommand([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`]);
+    const entry=(load(dir).drafts as JsonObject[]).find(d=>d.id===id)!;
+    const parts=entry.parts as JsonObject;
+    const inventory=(parts.files as JsonObject[]).slice();
+    const manifest=inventory.find(f=>String(f.path).endsWith('/parts.json'))!;
+    // Writer validation requires codepoint order, independent of locale.
+    inventory.sort((a,b)=>String(a.path)<String(b.path)?-1:1);
+    const path=`evidence/${id}-inventory.json`;
+    writeFileSync(join(dir,path),JSON.stringify({kind:'parts',manifest,files:inventory}));
+    return path;
+  };
+  const before=draft('before','08','synthetic original part','{"synthetic":"original model"}');
+  setSystemTime(new Date('2026-12-01T09:00:00Z'));
+  correctionCommand(['record',dir,'--id','mixed-fix','--path','described','--stage','parts-review','--by','reviewer','--verbatim-file',join(dir,'words.txt'),...(source==='parts'?['--parts-file',before]:['--draft','before'])]);
+  const after=draft('after','10',partsChanged?'synthetic changed part':'synthetic original part',modelChanged?'{}':'{"synthetic":"original model"}');
+  const resolve=()=>{setSystemTime(new Date('2026-12-01T11:00:00Z'));return correctionCommand(['resolve','mixed-fix',dir,'--by','agent','--reasoning-file',join(dir,'reasoning.txt'),...(target==='parts'?['--parts-file',after]:['--draft','after'])]);};
+  return{dir,resolve};
+}
+
+test.each([['parts','draft'],['draft','parts']] as const)('%s → %s with identical inventories refuses closure and leaves approval pending',(source,target)=>{
+  const f=mixedStageOne(source,target,false,true);
+  rejected(f.dir,'CORRECTION_OUTCOME',f.resolve);
+  rejected(f.dir,'CORRECTION_PENDING',()=>assertCorrectionApproval(f.dir,load(f.dir),'parts-review',{draft_id:'after',at:'2026-12-01T12:00:00Z'}));
+});
+test.each([['parts','draft'],['draft','parts']] as const)('%s → %s with a changed part closes',(source,target)=>{
+  const f=mixedStageOne(source,target,true,false);f.resolve();expect(check(f.dir).refusals).toEqual([]);
+});
+test('draft → draft with identical model and parts refuses closure',()=>{const f=mixedStageOne('draft','draft',false,false);rejected(f.dir,'CORRECTION_OUTCOME',f.resolve);});
+test('draft → draft with a different model closes',()=>{const f=mixedStageOne('draft','draft',false,true);f.resolve();expect(check(f.dir).refusals).toEqual([]);});
+test('draft → draft with unchanged model but changed parts closes',()=>{const f=mixedStageOne('draft','draft',true,false);f.resolve();expect(check(f.dir).refusals).toEqual([]);});

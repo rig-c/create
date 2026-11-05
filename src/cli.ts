@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
 import { DRAFT_RIG_HELP, draftRigCommand } from './drafts.ts';
 import { collectionInitCommand } from './collection.ts';
 import { describeInit, initProject } from './init.ts';
@@ -49,6 +50,8 @@ init:
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
 
 ${INTERVIEW_HELP}
+
+${CHOICE_HELP}
 
 ${HANDOFF_HELP}
 ${COLLECTION_HELP}
@@ -114,6 +117,9 @@ function initCommand(args: string[]): string {
 const COMMANDS: Record<string, Command> = {
   init: initCommand,
   interview: interviewCommand,
+  'interview-options': interviewOptionsCommand,
+  'interview-answer': interviewAnswerCommand,
+  'interview-decision': interviewDecisionCommand,
   handoff: handoffCommand,
   'review-package': reviewPackageCommand,
   collection: collectionCommand,

@@ -4,7 +4,7 @@ import { basename, join, resolve } from 'node:path';
 import { writeAgentGuide } from './agent-guide.ts';
 import { PINNED_PACKAGES } from './pins.ts';
 import { refuse } from './refusal.ts';
-import { STAGE_ORDER_SPEC } from './stages.ts';
+import { CHOICE_ORDER_SPEC } from './choices.ts';
 import { readTemplate } from './templates.ts';
 
 export const INTERVIEW_DOC_URL = 'https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md';
@@ -66,7 +66,7 @@ function writeProjectJson(dir: string, name: string): void {
   const record = readTemplate('project.json');
   record.name = name;
   const interview = record.interview as import('./templates.ts').JsonObject;
-  interview.order = { spec: STAGE_ORDER_SPEC, adopted_at: new Date().toISOString() };
+  interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: new Date().toISOString(), choices_adopted_at: new Date().toISOString() };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
 }
 

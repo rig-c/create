@@ -104,6 +104,7 @@ export const RIG_REVIEW = 'rig-review' satisfies keyof typeof REVIEW_ACCEPTS;
 
 
 export const STAGE_ORDER_SPEC = 'rig-create/stage-order@1';
+export const CHOICE_ORDER_SPEC = 'rig-create/stage-order@2';
 export const PARTS_STEPS: readonly string[] = ['seethrough', 'assemble'];
 export const GUIDE_INTERVIEW: Readonly<Record<string, string>> = {
   rig_type: 'interview', reference: 'interview', seethrough: 'interview', assemble: 'interview',
@@ -115,7 +116,7 @@ export function hasStageOrder(project: JsonObject): boolean {
   const interview = project.interview;
   if (interview === null || typeof interview !== 'object' || Array.isArray(interview)) return false;
   const order = interview.order;
-  return order !== null && typeof order === 'object' && !Array.isArray(order) && order.spec === STAGE_ORDER_SPEC;
+  return order !== null && typeof order === 'object' && !Array.isArray(order) && (order.spec === STAGE_ORDER_SPEC || order.spec === CHOICE_ORDER_SPEC);
 }
 
 /** Legacy phase=rig approvals retain their original all-step meaning. */

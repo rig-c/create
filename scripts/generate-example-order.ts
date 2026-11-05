@@ -1,11 +1,13 @@
 /** Reproduce the new-order example's declarations through public writers on synthetic dated input. */
+import { writeExampleChoices } from './example-choices.ts';
+import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
 import { setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { signoffCommand } from '../src/signoff.ts';
-import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
+import { STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { exampleDraftFiles, EXAMPLE_DRAFT } from '../tests/draft-fixture.ts';
@@ -26,6 +28,21 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const write = (path: string, bytes: string | Uint8Array): void => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); };
   const files = exampleDraftFiles();
   for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files })) write(path, bytes);
+  for (const raw of arr(original.versions)) {
+    const version = obj(raw);
+    if (version.kind === 'rig') {
+      const path = `evidence/v${String(version.n)}/interview-config.json`;
+      const config = JSON.parse(readFileSync(join(dir,`evidence/v${String(version.n)}/review-config.json`),'utf8')) as JsonObject;
+      config.requirements = 'interview-requirements.json';
+      const requirements = `evidence/v${String(version.n)}/interview-requirements.json`;
+      files[path] = `${JSON.stringify(config,null,2)}\n`;
+      files[requirements] = `${JSON.stringify({spec:'spine-parts-requirements/1',fps:12,requirements:[],setup_painting:{required:true}},null,2)}\n`;
+      write(path,files[path] as string); write(requirements,files[requirements] as string);
+      obj(version.provenance).config = {path,sha256:sha256(Buffer.from(files[path] as string))};
+    } else {
+      for (const entries of Object.values(obj(obj(version.provenance).sections))) for (const entry of arr(entries).map(obj)) entry.asks = [entry.guide as Json];
+    }
+  }
   const words = join(dir, 'words.txt');
   const sign = (stage: string, at: string, flags: string[] = []): void => {
     setSystemTime(new Date(at)); writeFileSync(words, `Approve the synthetic ${stage} record.\n`);
@@ -34,12 +51,15 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   try {
     p.stage = 'plan-approved'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
     const interview = obj(p.interview);
-    interview.order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-10T14:20:00Z' };
+    interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: '2026-11-10T14:00:00Z', choices_adopted_at: '2026-11-10T14:00:00Z' };
+    const source = readFileSync(join(dir,'inputs/preparation-source.svg'));
+    p.inputs = [{path:'inputs/preparation-source.svg',sha256:sha256(source),bytes:source.length,origin:'synthetic source painting'}];
     interview.question_set = String(obj(readTemplate('project.json').interview).question_set);
+    for (const item of arr(obj(interview.post).items).map(obj)) item.guide = null;
     p.signoffs = arr(original.signoffs).filter(s => obj(s).stage === 'interview');
     for (const w of arr(interview.waypoints).map(obj)) if (['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) w.guide = null;
     for (const s of arr(obj(p.plan).steps).map(obj)) { s.status = 'pending'; if (s.id === 'assemble') s.rests_on = ['assemble']; }
-    save(); sign('plan-approved', '2026-11-10T16:05:00Z');
+    save(); Object.assign(files,writeExampleChoices(dir,'interview')); reload(); sign('plan-approved', '2026-11-10T16:05:00Z');
     p.stage = 'parts';
     for (const s of arr(obj(p.plan).steps).map(obj)) if (['seethrough', 'assemble'].includes(String(s.id))) s.status = 'done';
     arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'parts'));
@@ -60,10 +80,15 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
       w.history = [...arr(w.history ?? []), structuredClone(guide)];
       guide.at = '2026-11-11T11:00:00Z'; guide.verbatim = `Synthetic ${String(w.id)} answer after viewing the approved parts and structure.`; w.guide = guide;
     }
-    save(); sign('rigging-interview', '2026-11-11T11:10:00Z');
+    save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview')); reload(); sign('rigging-interview', '2026-11-11T11:10:00Z');
     sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
     // Retain the already writer-shaped synthetic execution/review history; new approvals are all writer-generated.
-    arr(p.signoffs).push(...arr(original.signoffs).filter(s => !['interview', 'plan-approved', 'parts', 'parts-review'].includes(String(obj(s).stage))));
+    arr(p.signoffs).push(...arr(original.signoffs).filter(s => ['rigging','rig-review'].includes(String(obj(s).stage))));
+    p.versions = original.versions as Json; p.stage = 'post-interview';
+    obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
+    for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
+    save(); Object.assign(files,writeExampleChoices(dir,'post-interview')); reload();
+    arr(p.signoffs).push(...arr(original.signoffs).filter(s => ['post-interview','direction-review'].includes(String(obj(s).stage))));
     p.stage = original.stage as Json; p.versions = original.versions as Json;
     for (const s of arr(obj(p.plan).steps).map(obj)) s.status = 'done';
     save();
@@ -74,7 +99,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
 }
 
 /** Replace selected top-level values in place; never reserialize unrelated template blocks. */
-function replaceValue(text: string, key: string, value: Json): string {
+export function replaceValue(text: string, key: string, value: Json): string {
   const marker = `  "${key}": `; const start = text.indexOf(marker);
   const formatted = key === 'signoffs' && Array.isArray(value) ? `[\n    ${value.map(v => JSON.stringify(v)).join(',\n    ')}\n  ]` : JSON.stringify(value, null, 2).replaceAll('\n', '\n  ');
   if (start < 0) return text.replace(/\n}\n$/, `,\n${marker}${formatted}\n}\n`);
@@ -96,10 +121,10 @@ if (import.meta.main) {
   const generated = generateExampleOrder(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
-  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts']) text = replaceValue(text, key, generated.project[key] as Json);
+  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'versions']) text = replaceValue(text, key, generated.project[key] as Json);
   const outputs: Record<string, string> = { 'example-project.json': text };
   for (const [path, bytes] of Object.entries(generated.files)) {
-    const rel = path.startsWith(EXAMPLE_DRAFT) ? `example-draft/${path.slice(EXAMPLE_DRAFT.length + 1)}` : `example-draft/${path}`;
+    const rel = path.startsWith('evidence/interview/') ? `example-interview-options/${path.slice('evidence/interview/'.length)}` : path.startsWith(EXAMPLE_DRAFT) ? `example-draft/${path.slice(EXAMPLE_DRAFT.length + 1)}` : `example-draft/${path}`;
     outputs[rel] = bytes;
   }
   for (const [path, bytes] of Object.entries(outputs)) {

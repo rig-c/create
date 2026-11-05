@@ -1,0 +1,59 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-reference",
+  "question": "reference",
+  "stage": "interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-10T14:01:00Z",
+  "context": {
+    "kind": "inputs",
+    "files": [
+      {
+        "path": "inputs/preparation-source.svg",
+        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
+      }
+    ]
+  },
+  "asks": [
+    {
+      "id": "reference",
+      "prompt": "'Make it feel like this': a video, an existing demo, a game you have in mind?",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "None.",
+          "effect": "As answered on 2026-11-10T14:02:00Z in interview, chat",
+          "fragment": "none",
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative reference",
+          "effect": "Choose a different reference.",
+          "fragment": "none",
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "single"
+  }
+}

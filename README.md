@@ -87,3 +87,13 @@ option. See [the record contract](docs/PROJECT.md#recording-a-sign-off).
 ## Licence
 
 [MIT](LICENSE).
+
+New projects ask a separate multiple-choice question for each applicable ask,
+with a reasoned agent recommendation, Other and explicit delegation. The shown
+option file is retained by raw sha256. Record it with `interview-options`, then
+use `interview-answer --pick` or ingest review's `--picks-file`;
+`interview-decision` records only the explicitly delegated asks. See
+[the choice contract](docs/INTERVIEW.md#per-ask-choices-interview2) and the
+[generated consumer fixture](templates/example-interview-choice.json).
+Existing @1 projects keep their sentence history; adopt choices explicitly
+with `interview-options --adopt`, without re-dating old answers.

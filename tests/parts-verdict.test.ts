@@ -258,7 +258,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
   });
 });
 
@@ -275,7 +275,7 @@ describe('an in-flight project that a person did review', () => {
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY']);
   });
 });
 

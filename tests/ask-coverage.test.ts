@@ -8,7 +8,7 @@ import { arr, fixture, obj, waypoint, framing, citedSections } from './fixtures.
 test('filled synthetic example covers every applicable ask without warnings', () => {
   const report = checkProject(fixture());
   expect(report.refusals).toEqual([]);
-  expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
+  expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY']);
   expect(Object.keys(WAYPOINT_ASKS)).toHaveLength(6);
 });
 
@@ -58,7 +58,7 @@ for (const at of ['2026-11-04T23:59:59Z', 'unreadable']) {
     });
     const result = interviewCommand(['--check', dir, '--json']);
     expect(result.exit).toBe(0);
-    expect(JSON.parse(result.stdout).warnings.map((f: {code: string}) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY']);
+    expect(JSON.parse(result.stdout).warnings.map((f: {code: string}) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY']);
   });
 }
 

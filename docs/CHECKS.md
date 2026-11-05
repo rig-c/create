@@ -577,7 +577,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE` and `FIGURE_MASK_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE` `FIGURE_MASK_SINCE` and `CHOICE_ANSWERS_SINCE`) are the day after the change lands, so an earlier record could only have been made under the old contract.
 
 `AGENT_BOUNCE_SINCE = 2026-11-05T00:00:00Z` in `src/stages.ts` is
 independent of the parts-review stage boundary. Read the history entry's own
@@ -770,3 +770,20 @@ their own build date, applying only reopens at or before that date. A later
 reopen/approval never rewrites an earlier version's obligations. Delegated
 framing uses the same central interview membership as source guides, so it
 must be decided before the first plan approval or parts execution.
+
+## Per-ask questionnaire choices
+
+`CHOICE_ANSWERS_SINCE = 2026-11-06T00:00:00Z` labels legacy warnings; only
+explicit stage-order@2 adoption activates the new-answer contract. Earlier
+answers remain unchanged. See INTERVIEW.md for the frozen shapes and writers.
+
+| Code | Trigger | Remedy |
+| --- | --- | --- |
+| `INTERVIEW_OPTIONS_USAGE` | malformed writer flags or unreadable CLI argument files (exit 2) | supply documented question, file and per-ask arguments |
+| `INTERVIEW_OPTIONS_INVALID` | malformed set, recommendation/cardinality/ask/fragment/assembly/constraint schema | draft a complete set using the closed schema and applicable asks |
+| `INTERVIEW_OPTIONS_FILE` | missing, changed, nonretained, escaping, symlinked or nonregular option file, reused id/path | restore original bytes and retain a new id/path for redrafts |
+| `INTERVIEW_OPTIONS_STALE` | changed displayed sha, source/parts/structure/rig context, relevant reopen, unavailable fresh viewed bytes | refresh and redraft against the live accepted context |
+| `INTERVIEW_CHOICE_REQUIRED` | newly answered adopted question lacks a choice, or Other is still pending at approval | explicitly pick each ask; resolve Other through a new tailored option and pick |
+| `INTERVIEW_CHOICE_INVALID` | malformed picks payload, shown/value/coverage/verbatim drift, clock/identity/decision mismatch or changed still-approved answer | retain the shown snapshot and record exact human picks; reopen before changing approval |
+| `INTERVIEW_CHOICE_CONSTRAINT` | disallowed tuple or constrained Other/auto fragment has zero or multiple value-option matches | choose an allowed combination or redraft the set to offer that option |
+| `CHOICE_ANSWERS_LEGACY` | WARN: no explicit choice adoption, or grandfathered current sentence/inherited answer | preserve source words/date; adopt explicitly and show a tailored option when asked again |

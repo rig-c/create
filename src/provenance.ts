@@ -166,7 +166,7 @@ function checkCitationAsks(ctx: Ctx, item: Item, raw: JsonObject, path: string):
     return;
   }
   for (const id of raw.asks as string[]) {
-    if (!WAYPOINT_ASKS[item.id]?.some((ask) => ask.id === id)) {
+    if (!(item.kind !== 'waypoint' && id === item.id) && !WAYPOINT_ASKS[item.id]?.some((ask) => ask.id === id)) {
       ctx.refusals.push({ code: 'CITATION_ASK_UNKNOWN', path, message: `${path}: guide '${item.id}' has no ask '${id}'; choose an id from its waypoint asks` });
       continue;
     }

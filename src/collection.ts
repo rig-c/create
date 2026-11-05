@@ -32,7 +32,7 @@ import {
 } from './init.ts';
 import { PINNED_PACKAGES } from './pins.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { STAGE_ORDER_SPEC } from './stages.ts';
+import { CHOICE_ORDER_SPEC } from './choices.ts';
 import { readTemplate, TEMPLATES_DIR, type Json, type JsonObject } from './templates.ts';
 
 /** The collection's stages, in order (COLLECTIONS.md § Collection stages); `closed_by` as in src/stages.ts. */
@@ -233,7 +233,7 @@ export function initMember(collectionArg: string, name: string, now = new Date()
   const inherited: string[] = [];
   const own: string[] = [];
   const interview = isObject(project.interview) ? project.interview : {};
-  interview.order = { spec: STAGE_ORDER_SPEC, adopted_at: at };
+  interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: at, choices_adopted_at: at };
   const post = isObject(interview.post) ? interview.post : {};
   const lists: [Json | undefined, 'answer' | 'guide'][] = [
     [interview.framing, 'answer'],

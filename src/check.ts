@@ -25,6 +25,7 @@ import { checkDrafts, draftVersionFindings } from './drafts.ts';
 import { checkCgGates } from './cg-gates.ts';
 import { checkFigureMask } from './figure-mask.ts';
 import { checkSetupPainting } from './setup-painting.ts';
+import { checkChoices } from './choices.ts';
 import { checkAskCoverage } from './ask-coverage.ts';
 import { checkAgentBounces } from './agent-bounce.ts';
 import { checkPreparedInputs } from './prepared-inputs.ts';
@@ -894,6 +895,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkFigureMask(ctx);
   checkMeshesBust(ctx);
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
+  checkChoices(ctx);
 
   return {
     ok: refusals.length === 0,

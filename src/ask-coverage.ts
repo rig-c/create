@@ -31,8 +31,8 @@ export function checkAskCoverage(ctx: Ctx): void {
     const seen = new Set<string>();
     let malformed = !Array.isArray(answer.asks) && 'asks' in answer;
     for (const entry of entries) {
-      if (!isObject(entry) || typeof entry.id !== 'string' || !ids.has(entry.id) || seen.has(entry.id)
-        || (entry.state !== 'user' && entry.state !== 'delegated')
+      if (!isObject(entry) || typeof entry.id !== 'string' || (!ids.has(entry.id) && !(isObject(answer.choice) && item.id === 'assemble' && entry.id === 'ground')) || seen.has(entry.id)
+        || (entry.state !== 'user' && entry.state !== 'delegated' && !(isObject(answer.choice) && entry.state === 'other-pending'))
         || (entry.state === 'user' && item.state.state !== 'user')) {
         malformed = true;
         continue;
@@ -48,7 +48,8 @@ export function checkAskCoverage(ctx: Ctx): void {
       }
       const value = projectionAsk ? assembleAnswer(answer, ask.id === 'projection' ? 'project' : 'ground') : undefined;
       const valid = !projectionAsk || (ask.id === 'projection' ? value === 'core' || value === 'visible' : value === 'plain' || value === 'busy');
-      if (!seen.has(ask.id) || !valid) ctx.refusals.push({ code: 'GUIDE_ASK_UNANSWERED', path: `${path}[${ask.id}]`, message: `${item.id}: unanswered ask '${ask.id}': ${ask.text} Record its user answer or explicit delegation.` });
+      const pending = isObject(answer.choice) && entries.some(e => isObject(e) && (e.state === 'other-pending' || (e.id === ask.id && e.state === 'delegated' && !isDecision(answer.agent_decision))));
+      if (!seen.has(ask.id) || (!valid && !pending)) ctx.refusals.push({ code: 'GUIDE_ASK_UNANSWERED', path: `${path}[${ask.id}]`, message: `${item.id}: unanswered ask '${ask.id}': ${ask.text} Record its user answer or explicit delegation.` });
     }
     const partialDelegation = item.state.state === 'user' && entries.some((entry) => isObject(entry) && entry.state === 'delegated');
     if (partialDelegation) {

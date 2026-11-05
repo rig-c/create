@@ -1,0 +1,1033 @@
+{
+  "schema": "rig-create/interview-choice-fixture@1",
+  "project": "example-project.json",
+  "examples": [
+    {
+      "question": "rig_type",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:03:00.000Z",
+        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-10T14:01:00Z in interview, chat",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-rig-type.json",
+            "sha256": "7e38378e128add58383754df448d3e87c067d752569122a1b5bea071ff894b35"
+          },
+          "picks": [
+            {
+              "ask": "rig_type",
+              "option_id": "keep",
+              "shown": {
+                "label": "A standing character, idle. She holds a lantern.",
+                "effect": "As answered on 2026-11-10T14:01:00Z in interview, chat"
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "rig_type",
+            "state": "user"
+          }
+        ],
+        "value": "character.idle"
+      },
+      "options": {
+        "path": "evidence/interview/example-rig-type.json",
+        "sha256": "7e38378e128add58383754df448d3e87c067d752569122a1b5bea071ff894b35"
+      }
+    },
+    {
+      "question": "reference",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:03:00.000Z",
+        "verbatim": "None.\nAs answered on 2026-11-10T14:02:00Z in interview, chat",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-reference.json",
+            "sha256": "56bf15f5de02c71e1070ff70d1f4d65fd9d4bd7b0593baa408108a5e2ea28ecd"
+          },
+          "picks": [
+            {
+              "ask": "reference",
+              "option_id": "keep",
+              "shown": {
+                "label": "None.",
+                "effect": "As answered on 2026-11-10T14:02:00Z in interview, chat"
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "reference",
+            "state": "user"
+          }
+        ],
+        "value": "none"
+      },
+      "options": {
+        "path": "evidence/interview/example-reference.json",
+        "sha256": "56bf15f5de02c71e1070ff70d1f4d65fd9d4bd7b0593baa408108a5e2ea28ecd"
+      }
+    },
+    {
+      "question": "seethrough",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:03:00.000Z",
+        "verbatim": "auto\nAs answered on 2026-11-10T14:03:00Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-seethrough.json",
+            "sha256": "49bc84f1caedb900c4a8307580683d9a181484899e0d92bcc0209206f2985cf9"
+          },
+          "picks": [
+            {
+              "ask": "layers",
+              "option_id": "keep",
+              "shown": {
+                "label": "auto",
+                "effect": "As answered on 2026-11-10T14:03:00Z in interview, chat"
+              }
+            },
+            {
+              "ask": "resolution",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed resolution",
+                "effect": "Use the proposed resolution on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "head_crop",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed head_crop",
+                "effect": "Use the proposed head_crop on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "seed",
+              "option_id": "auto",
+              "shown": {
+                "label": "Let the agent decide",
+                "effect": "The agent must record this decision before approval."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "layers",
+            "state": "user"
+          },
+          {
+            "id": "resolution",
+            "state": "user"
+          },
+          {
+            "id": "head_crop",
+            "state": "user"
+          },
+          {
+            "id": "seed",
+            "state": "delegated"
+          }
+        ],
+        "value": {
+          "layers": "synthetic layers on the approved parts",
+          "resolution": "synthetic resolution on the approved parts",
+          "head_crop": "synthetic head_crop on the approved parts"
+        },
+        "agent_decision": {
+          "by": "agent",
+          "at": "2026-11-10T14:04:00.000Z",
+          "reasoning": "Retain the declared synthetic seed direction.",
+          "covers": "seed",
+          "fragments": [
+            {
+              "ask": "seed",
+              "fragment": {
+                "seed": "synthetic seed on the approved parts"
+              }
+            }
+          ],
+          "value": {
+            "seed": "synthetic seed on the approved parts"
+          }
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-seethrough.json",
+        "sha256": "49bc84f1caedb900c4a8307580683d9a181484899e0d92bcc0209206f2985cf9"
+      }
+    },
+    {
+      "question": "assemble",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:03:00.000Z",
+        "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-10T14:06:00Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-assemble.json",
+            "sha256": "a0b5196e187b9c7ac00658457e4df40a03403d7c0161730d33fac6f1a5cf0815"
+          },
+          "picks": [
+            {
+              "ask": "projection",
+              "option_id": "keep",
+              "shown": {
+                "label": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
+                "effect": "As answered on 2026-11-10T14:06:00Z in interview, chat"
+              }
+            },
+            {
+              "ask": "ground",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed ground",
+                "effect": "Use the proposed ground on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "cut",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed cut",
+                "effect": "Use the proposed cut on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "emphasis",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed emphasis",
+                "effect": "Use the proposed emphasis on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "draw_order",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed draw_order",
+                "effect": "Use the proposed draw_order on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "authored",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed authored",
+                "effect": "Use the proposed authored on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "occluders",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed occluders",
+                "effect": "Use the proposed occluders on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "outfits",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed outfits",
+                "effect": "Use the proposed outfits on the named synthetic parts."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "projection",
+            "state": "user"
+          },
+          {
+            "id": "ground",
+            "state": "user"
+          },
+          {
+            "id": "cut",
+            "state": "user"
+          },
+          {
+            "id": "emphasis",
+            "state": "user"
+          },
+          {
+            "id": "draw_order",
+            "state": "user"
+          },
+          {
+            "id": "authored",
+            "state": "user"
+          },
+          {
+            "id": "occluders",
+            "state": "user"
+          },
+          {
+            "id": "outfits",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "project": "core",
+          "ground": "plain",
+          "cut": "synthetic cut on the approved parts",
+          "emphasis": "synthetic emphasis on the approved parts",
+          "draw_order": "synthetic draw_order on the approved parts",
+          "authored": "synthetic authored on the approved parts",
+          "occluders": "synthetic occluders on the approved parts",
+          "outfits": "synthetic outfits on the approved parts"
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-assemble.json",
+        "sha256": "a0b5196e187b9c7ac00658457e4df40a03403d7c0161730d33fac6f1a5cf0815"
+      }
+    },
+    {
+      "question": "bones",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-11T11:03:00.000Z",
+        "verbatim": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-bones.json",
+            "sha256": "312142fb4e6b6681914edbc01006dd607ea060540da3a662bc7ad996dd804848"
+          },
+          "picks": [
+            {
+              "ask": "chains",
+              "option_id": "keep",
+              "shown": {
+                "label": "Synthetic bones answer after viewing the approved parts and structure.",
+                "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
+              }
+            },
+            {
+              "ask": "placement",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed placement",
+                "effect": "Use the proposed placement on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "length",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed length",
+                "effect": "Use the proposed length on the named synthetic parts."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "chains",
+            "state": "user"
+          },
+          {
+            "id": "placement",
+            "state": "user"
+          },
+          {
+            "id": "length",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "chains": "synthetic chains on the approved parts",
+          "placement": "synthetic placement on the approved parts",
+          "length": "synthetic length on the approved parts"
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-bones.json",
+        "sha256": "312142fb4e6b6681914edbc01006dd607ea060540da3a662bc7ad996dd804848"
+      }
+    },
+    {
+      "question": "meshes",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-11T11:03:00.000Z",
+        "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-meshes.json",
+            "sha256": "c7c98631cddd1039d86a22b5506104469d1390c4e7c0081d72a251a1665eb7b1"
+          },
+          "picks": [
+            {
+              "ask": "bend",
+              "option_id": "keep",
+              "shown": {
+                "label": "Synthetic meshes answer after viewing the approved parts and structure.",
+                "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
+              }
+            },
+            {
+              "ask": "rigid",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed rigid",
+                "effect": "Use the proposed rigid on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "density",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed density",
+                "effect": "Use the proposed density on the named synthetic parts."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "bend",
+            "state": "user"
+          },
+          {
+            "id": "rigid",
+            "state": "user"
+          },
+          {
+            "id": "density",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "bend": "synthetic bend on the approved parts",
+          "rigid": "synthetic rigid on the approved parts",
+          "density": "synthetic density on the approved parts"
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-meshes.json",
+        "sha256": "c7c98631cddd1039d86a22b5506104469d1390c4e7c0081d72a251a1665eb7b1"
+      }
+    },
+    {
+      "question": "constraints",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-11T11:03:00.000Z",
+        "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-constraints.json",
+            "sha256": "3362e4d33dc2cfa19d47ac67263e4ae0a0f221534f474d683bcda778a3a581dd"
+          },
+          "picks": [
+            {
+              "ask": "effects",
+              "option_id": "keep",
+              "shown": {
+                "label": "Synthetic constraints answer after viewing the approved parts and structure.",
+                "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
+              }
+            },
+            {
+              "ask": "strength",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed strength",
+                "effect": "Use the proposed strength on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "extent",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed extent",
+                "effect": "Use the proposed extent on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "gravity",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed gravity",
+                "effect": "Use the proposed gravity on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "stops",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed stops",
+                "effect": "Use the proposed stops on the named synthetic parts."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "effects",
+            "state": "user"
+          },
+          {
+            "id": "strength",
+            "state": "user"
+          },
+          {
+            "id": "extent",
+            "state": "user"
+          },
+          {
+            "id": "gravity",
+            "state": "user"
+          },
+          {
+            "id": "stops",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "effects": "synthetic effects on the approved parts",
+          "strength": "synthetic strength on the approved parts",
+          "extent": "synthetic extent on the approved parts",
+          "gravity": "synthetic gravity on the approved parts",
+          "stops": "synthetic stops on the approved parts"
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-constraints.json",
+        "sha256": "3362e4d33dc2cfa19d47ac67263e4ae0a0f221534f474d683bcda778a3a581dd"
+      }
+    },
+    {
+      "question": "motion",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-11T11:03:00.000Z",
+        "verbatim": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-motion.json",
+            "sha256": "e0ca7579199322a218662a4ff486b4ed9aebc7f513b6ca0b2e7dd2681cce44c8"
+          },
+          "picks": [
+            {
+              "ask": "tracks",
+              "option_id": "keep",
+              "shown": {
+                "label": "Synthetic motion answer after viewing the approved parts and structure.",
+                "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
+              }
+            },
+            {
+              "ask": "extent",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed extent",
+                "effect": "Use the proposed extent on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "speed",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed speed",
+                "effect": "Use the proposed speed on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "loop",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed loop",
+                "effect": "Use the proposed loop on the named synthetic parts."
+              }
+            },
+            {
+              "ask": "blink",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the proposed blink",
+                "effect": "Use the proposed blink on the named synthetic parts."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "tracks",
+            "state": "user"
+          },
+          {
+            "id": "extent",
+            "state": "user"
+          },
+          {
+            "id": "speed",
+            "state": "user"
+          },
+          {
+            "id": "loop",
+            "state": "user"
+          },
+          {
+            "id": "blink",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "tracks": "synthetic tracks on the approved parts",
+          "extent": "synthetic extent on the approved parts",
+          "speed": "synthetic speed on the approved parts",
+          "loop": "synthetic loop on the approved parts",
+          "blink": "synthetic blink on the approved parts"
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-motion.json",
+        "sha256": "e0ca7579199322a218662a4ff486b4ed9aebc7f513b6ca0b2e7dd2681cce44c8"
+      }
+    },
+    {
+      "question": "camera_depth",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-13T10:03:00.000Z",
+        "verbatim": "A slow push-in, no parallax.\nAs answered on 2026-11-13T10:02:00Z in post-interview, chat",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-camera-depth.json",
+            "sha256": "c63f83a8789161aba24e9eb02753d5770a2471b8f6c0ae1887eaf901822eb01d"
+          },
+          "picks": [
+            {
+              "ask": "camera_depth",
+              "option_id": "keep",
+              "shown": {
+                "label": "A slow push-in, no parallax.",
+                "effect": "As answered on 2026-11-13T10:02:00Z in post-interview, chat"
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "camera_depth",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "camera": "push_in",
+          "depth": false
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-camera-depth.json",
+        "sha256": "c63f83a8789161aba24e9eb02753d5770a2471b8f6c0ae1887eaf901822eb01d"
+      }
+    },
+    {
+      "question": "post_timing",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-13T10:03:00.000Z",
+        "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-13T10:04:00Z in post-interview, chat",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-post-timing.json",
+            "sha256": "6e873b8a54c95159184318ba2779eab8fa319a12f6d6efe041b43e5d4ea14708"
+          },
+          "picks": [
+            {
+              "ask": "post_timing",
+              "option_id": "keep",
+              "shown": {
+                "label": "Eight seconds, looping. The beam sweeps past once, near the end.",
+                "effect": "As answered on 2026-11-13T10:04:00Z in post-interview, chat"
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "post_timing",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "seconds": 8,
+          "loop": true,
+          "beats": [
+            {
+              "what": "beam sweep",
+              "when": "near the end"
+            }
+          ]
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-post-timing.json",
+        "sha256": "6e873b8a54c95159184318ba2779eab8fa319a12f6d6efe041b43e5d4ea14708"
+      }
+    },
+    {
+      "question": "post_composition",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-13T10:03:00.000Z",
+        "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-13T10:06:00Z in post-interview, chat",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-post-composition.json",
+            "sha256": "bf0747e55ae0c7664029bb2e64f4dd8e12a3adeccf01ed123b12e782defbc636"
+          },
+          "picks": [
+            {
+              "ask": "post_composition",
+              "option_id": "keep",
+              "shown": {
+                "label": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
+                "effect": "As answered on 2026-11-13T10:06:00Z in post-interview, chat"
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "post_composition",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "framing": "lighthouse fully in frame",
+          "light": "as painted"
+        }
+      },
+      "options": {
+        "path": "evidence/interview/example-post-composition.json",
+        "sha256": "bf0747e55ae0c7664029bb2e64f4dd8e12a3adeccf01ed123b12e782defbc636"
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "other-pending-picks-file",
+      "picks_file": "example-interview-options/other-picks.json",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:11:00.000Z",
+        "verbatim": "Other\nDescribe this decision.\n다른 방향\nKeep the final spaces.  \né",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/other-pending.json",
+            "sha256": "e348aaac8c76267a1e7079713b4b273a9fb43a94cadd91c6ac3e27c2cb963fa7"
+          },
+          "picks": [
+            {
+              "ask": "reference",
+              "option_id": "other",
+              "shown": {
+                "label": "Other",
+                "effect": "Describe this decision."
+              },
+              "other_text": "다른 방향\nKeep the final spaces.  \né"
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "reference",
+            "state": "other-pending"
+          }
+        ],
+        "value": null
+      },
+      "approval_refusal": "INTERVIEW_CHOICE_REQUIRED"
+    },
+    {
+      "name": "other-explicit-multiline",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:12:30.000Z",
+        "verbatim": "Other\nDescribe this decision.\n다른 방향\nKeep the final spaces.  \né",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/other-explicit.json",
+            "sha256": "0cd5afd13306e773b0e7f1a18dbaace9f5e2f0bf2731081a187ae15ea02aa996"
+          },
+          "picks": [
+            {
+              "ask": "reference",
+              "option_id": "other",
+              "shown": {
+                "label": "Other",
+                "effect": "Describe this decision."
+              },
+              "other_text": "다른 방향\nKeep the final spaces.  \né",
+              "other_fragment": "custom reference"
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "reference",
+            "state": "user"
+          }
+        ],
+        "value": "custom reference"
+      }
+    },
+    {
+      "name": "constraint",
+      "refused": "INTERVIEW_CHOICE_CONSTRAINT",
+      "allowed": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:13:30.000Z",
+        "verbatim": "Alternative projection\nChoose a different projection.\n\nAlternative ground\nChoose a different ground.\n\nAlternative cut\nChoose a different cut.\n\nAlternative emphasis\nChoose a different emphasis.\n\nAlternative draw_order\nChoose a different draw_order.\n\nAlternative authored\nChoose a different authored.\n\nAlternative occluders\nChoose a different occluders.\n\nAlternative outfits\nChoose a different outfits.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/constraint.json",
+            "sha256": "0843785b946403bdadb52addd42b2909a87b3cb53dddbbd1a44485feb07e5da3"
+          },
+          "picks": [
+            {
+              "ask": "projection",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative projection",
+                "effect": "Choose a different projection."
+              }
+            },
+            {
+              "ask": "ground",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative ground",
+                "effect": "Choose a different ground."
+              }
+            },
+            {
+              "ask": "cut",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative cut",
+                "effect": "Choose a different cut."
+              }
+            },
+            {
+              "ask": "emphasis",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative emphasis",
+                "effect": "Choose a different emphasis."
+              }
+            },
+            {
+              "ask": "draw_order",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative draw_order",
+                "effect": "Choose a different draw_order."
+              }
+            },
+            {
+              "ask": "authored",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative authored",
+                "effect": "Choose a different authored."
+              }
+            },
+            {
+              "ask": "occluders",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative occluders",
+                "effect": "Choose a different occluders."
+              }
+            },
+            {
+              "ask": "outfits",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative outfits",
+                "effect": "Choose a different outfits."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "projection",
+            "state": "user"
+          },
+          {
+            "id": "ground",
+            "state": "user"
+          },
+          {
+            "id": "cut",
+            "state": "user"
+          },
+          {
+            "id": "emphasis",
+            "state": "user"
+          },
+          {
+            "id": "draw_order",
+            "state": "user"
+          },
+          {
+            "id": "authored",
+            "state": "user"
+          },
+          {
+            "id": "occluders",
+            "state": "user"
+          },
+          {
+            "id": "outfits",
+            "state": "user"
+          }
+        ],
+        "value": {
+          "project": "visible",
+          "ground": "busy",
+          "cut": "alternative cut",
+          "emphasis": "alternative emphasis",
+          "draw_order": "alternative draw_order",
+          "authored": "alternative authored",
+          "occluders": "alternative occluders",
+          "outfits": "alternative outfits"
+        }
+      }
+    },
+    {
+      "name": "fullscreen-gates",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:14:30.000Z",
+        "verbatim": "Alternative rig_type\nChoose a different rig_type.",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/fullscreen.json",
+            "sha256": "71e2c54004eb01426122a6da401b0226c1846ae3dc8c7e24554117abb5846bb9"
+          },
+          "picks": [
+            {
+              "ask": "rig_type",
+              "option_id": "alternative",
+              "shown": {
+                "label": "Alternative rig_type",
+                "effect": "Choose a different rig_type."
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "rig_type",
+            "state": "user"
+          }
+        ],
+        "value": "fullscreen.minimal"
+      },
+      "refusals": [
+        "CG_GATE_UNDECLARED",
+        "CG_GATE_UNDECLARED",
+        "CG_GATE_UNDECLARED",
+        "CG_GATE_UNDECLARED",
+        "CG_GATE_UNDECLARED",
+        "CG_GATE_UNDECLARED"
+      ]
+    },
+    {
+      "name": "character-gates",
+      "answer": {
+        "delegated": false,
+        "by": "user",
+        "at": "2026-11-10T14:03:00.000Z",
+        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-10T14:01:00Z in interview, chat",
+        "source": "review questionnaire",
+        "choice": {
+          "spec": "rig-create/interview-choice@1",
+          "set": {
+            "path": "evidence/interview/example-rig-type.json",
+            "sha256": "7e38378e128add58383754df448d3e87c067d752569122a1b5bea071ff894b35"
+          },
+          "picks": [
+            {
+              "ask": "rig_type",
+              "option_id": "keep",
+              "shown": {
+                "label": "A standing character, idle. She holds a lantern.",
+                "effect": "As answered on 2026-11-10T14:01:00Z in interview, chat"
+              }
+            }
+          ]
+        },
+        "asks": [
+          {
+            "id": "rig_type",
+            "state": "user"
+          }
+        ],
+        "value": "character.idle"
+      },
+      "cg_refusals": []
+    }
+  ]
+}

@@ -1,0 +1,186 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-seethrough",
+  "question": "seethrough",
+  "stage": "interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-10T14:01:00Z",
+  "context": {
+    "kind": "inputs",
+    "files": [
+      {
+        "path": "inputs/preparation-source.svg",
+        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
+      }
+    ]
+  },
+  "asks": [
+    {
+      "id": "layers",
+      "prompt": "Choose layers for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "auto",
+          "effect": "As answered on 2026-11-10T14:03:00Z in interview, chat",
+          "fragment": {
+            "layers": "synthetic layers on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative layers",
+          "effect": "Choose a different layers.",
+          "fragment": {
+            "layers": "alternative layers"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "resolution",
+      "prompt": "Choose resolution for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed resolution",
+          "effect": "Use the proposed resolution on the named synthetic parts.",
+          "fragment": {
+            "resolution": "synthetic resolution on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative resolution",
+          "effect": "Choose a different resolution.",
+          "fragment": {
+            "resolution": "alternative resolution"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "head_crop",
+      "prompt": "Choose head_crop for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed head_crop",
+          "effect": "Use the proposed head_crop on the named synthetic parts.",
+          "fragment": {
+            "head_crop": "synthetic head_crop on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative head_crop",
+          "effect": "Choose a different head_crop.",
+          "fragment": {
+            "head_crop": "alternative head_crop"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "seed",
+      "prompt": "Choose seed for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed seed",
+          "effect": "Use the proposed seed on the named synthetic parts.",
+          "fragment": {
+            "seed": "synthetic seed on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative seed",
+          "effect": "Choose a different seed.",
+          "fragment": {
+            "seed": "alternative seed"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "merge"
+  }
+}

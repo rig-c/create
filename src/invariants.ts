@@ -47,7 +47,7 @@ function structural(key: string, value: Json): RigInvariants | null {
     case 'detached': valid = rows(value, r => keys(r, ['bone', 'notUnder', 'why']) && text(r.bone) && text(r.notUnder) && (r.why === undefined || text(r.why))); break;
     case 'deformMayFold': valid = rows(value, r => keys(r, ['slot', 'why']) && text(r.slot) && text(r.why))
       && unique((value as JsonObject[]).map(r => r.slot as Json)); break;
-    case 'consumerDrivenMix': valid = rows(value, r => keys(r, ['constraint', 'type', 'why']) && text(r.constraint) && ['ik', 'transform'].includes(String(r.type)) && text(r.why))
+    case 'consumerDrivenMix': valid = rows(value, r => keys(r, ['constraint', 'type', 'why']) && text(r.constraint) && (r.type === 'ik' || r.type === 'transform') && text(r.why))
       && unique((value as JsonObject[]).map(r => `${String(r.type)}:${String(r.constraint)}`)); break;
     case 'idleDrivesMeshes': valid = object(value) && keys(value, ['why']) && text(value.why); break;
   }
@@ -106,11 +106,12 @@ export function translateInvariants(project: JsonObject): InvariantsDocument {
         if (!landed) gap('pending_delegation', `${path}.asks[${String(ask.id)}]`, ask);
       }
       for (const ask of asks.filter(a => a.state === 'other-pending')) gap('pending_other', `${path}.asks[${String(ask.id)}]`, ask);
-      // No option-file reads or reassembly. In particular Other fragments survive when a sibling is pending.
+      // Completed Other fragments are already in value. Only read picks while a pending
+      // Other suppresses that aggregate; no option-file reads or reassembly.
       if (object(answer.choice)) list(answer.choice.picks).forEach((pick, i) => {
         if (!object(pick)) return;
         if (pick.other_text !== undefined) gap('sentence_semantics', `${path}.choice.picks[${i}].other_text`, pick.other_text);
-        if (pick.other_fragment !== undefined) reading(pick.other_fragment, `${path}.choice.picks[${i}].other_fragment`);
+        if (asks.some(a => a.state === 'other-pending') && pick.other_fragment !== undefined) reading(pick.other_fragment, `${path}.choice.picks[${i}].other_fragment`);
       });
       if (answer.delegated === false && answer.value === undefined) gap('malformed_answer', `${path}.value`, null);
     }

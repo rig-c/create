@@ -30,6 +30,7 @@ import { checkCgGates } from './cg-gates.ts';
 import { checkFigureMask } from './figure-mask.ts';
 import { checkSetupPainting } from './setup-painting.ts';
 import { checkChoices } from './choices.ts';
+import { translateInvariants, type InvariantsDocument } from './invariants.ts';
 import { checkAskCoverage } from './ask-coverage.ts';
 import { checkAgentBounces } from './agent-bounce.ts';
 import { checkPreparedInputs } from './prepared-inputs.ts';
@@ -124,6 +125,8 @@ export interface CheckReport {
   readonly effective_stage: string | null;
   readonly parts: { version: string; read_from: string; dir: string } | null;
   readonly derived: { waypoints: string[]; post_items: string[] } | null;
+  /** Current guide translation, not a rig check or a stored project field. */
+  readonly invariants: InvariantsDocument | null;
   /** Per version built from a config: whether the config file was read to list its sections (docs/CHECKS.md § Provenance). */
   readonly provenance: ProvenanceSummary[];
   /** Per human bounced verdict: its items counted by cause, and the versions that answer it (docs/CHECKS.md § Polish feedback). */
@@ -806,6 +809,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     effective_stage: null,
     parts: null,
     derived: null,
+    invariants: null,
     provenance: [],
     feedback: [],
     refusals,
@@ -834,6 +838,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     refusals.push({ code: 'STAGE_UNKNOWN', path: 'stage', message: `stage is ${JSON.stringify(project.stage ?? null)}; the stages are ${STAGE_VALUES.join(', ')}` });
     return fail();
   }
+  const invariants = translateInvariants(project);
   const expectedValues = hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES;
   const recordValues = asArray(project.stage_values).filter((x): x is string => typeof x === 'string');
   if (recordValues.join(',') !== expectedValues.join(',')) {
@@ -912,6 +917,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     effective_stage: effectiveStage,
     parts: parts === null ? null : { version: parts.version, read_from: parts.read_from, dir: parts.dir },
     derived: derived === null ? null : { waypoints: derived.waypoints.map((w) => w.id), post_items: derived.post_items.map((p) => p.id) },
+    invariants,
     provenance,
     feedback,
     refusals,

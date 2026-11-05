@@ -12,6 +12,7 @@ import { arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './
 import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { PINNED_PACKAGES } from '../src/pins.ts';
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
@@ -113,7 +114,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
     write(dir, path, text);
     write(dir, `evidence/production-v${n}/requirements.json`, JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }));
     return { n, kind: 'rig', at, rig_version: null, review_origin: null, verdicts: [], outputs: [], evidence: [], answers_feedback: [],
-      built_with: { '@rig-c/parts': '2.14.2' }, provenance: { config: { path, sha256: sha(text) }, sections: {
+      built_with: { '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'] }, provenance: { config: { path, sha256: sha(text) }, sections: {
         meshes: [{ entry: 'torso', guide: 'meshes', quote: 'Fresh synthetic answer after viewing parts.', asks: ['bend'] }],
       } } };
   }

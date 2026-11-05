@@ -1,9 +1,10 @@
+import { overrideFindings } from './overrides.ts';
 import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
-import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, type Item } from './check.ts';
+import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
 import { approvalStageOfGuide } from './stages.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
@@ -15,7 +16,7 @@ export const CHOICE_HELP = `interview-options <question> [<dir>] --file <retaine
 interview-options --adopt [<dir>]
 interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <human>
   [--picks-file <project-relative review JSON> | --pick <ask>=<option>...] [--other <ask>=<file> --other-fragment <ask>=<JSON file>]...
-  [--note-file <file>] [--source <location>]
+  [--note-file <file>] [--source <location>] [--why-file <file> for a member override]
 interview-decision <question> [<dir>] --by <agent> --reasoning-file <file>
   --fragment <ask>=<JSON file>...
 Retain the shown set first. Each ask is picked explicitly; no recommended option is preselected.`;
@@ -111,7 +112,7 @@ export function interviewOptionsCommand(args: string[]): string { return run(() 
 }); }
 
 export function interviewAnswerCommand(args: string[]): string { return run(() => {
-  const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--picks-file'],['--pick','--other','--other-fragment']);
+  const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--picks-file','--why-file'],['--pick','--other','--other-fragment']);
   if (opts.positional.length > 2 || (!opts.one['--picks-file'] && (!opts.one['--set'] || !opts.one['--sha256'] || !opts.one['--by']))) usage('question and --picks-file, or --set/--sha256/--by required');
   const dir = resolve(opts.positional[1] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
   const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);
@@ -161,7 +162,24 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
   const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date().toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
   if (result.value !== undefined) answer.value = result.value;
   if (result.autos.length) answer.agent_decision = {covers:result.autos.join(',')};
-  if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? 'overridden' : item.raw.basis;
+  if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? (item.state.state === 'silent' ? 'own' : 'overridden') : item.raw.basis;
+  if (answer.basis === 'overridden') {
+    const collection = loadCollection(dir);
+    const prior = item.raw as JsonObject;
+    const inherited = prior.basis === 'inherited' ? prior : prior.overrides === undefined ? asArray(item.record.history).filter(isObject).reverse().find(a => a.basis === 'inherited') : undefined;
+    if (inherited !== undefined) {
+      const from = isObject(inherited.from) ? inherited.from : {};
+      const source = collection !== null && typeof from.question === 'string' ? collectionAnswer(collection, from.question) : undefined;
+      answer.overrides = { collection: from.collection ?? null, question: from.question ?? null, collection_answer_at: isObject(source) ? source.at ?? null : null };
+    } else if (prior.overrides !== undefined) answer.overrides = structuredClone(prior.overrides);
+    answer.why_verbatim = null;
+    if (opts.one['--why-file']) {
+      try { answer.why_verbatim = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readFileSync(opts.one['--why-file'])); }
+      catch { refuse('OVERRIDE_REASON_MISSING', `${item.path}: --why-file must be readable UTF-8; ask for and retain the user's exact nonblank reason`); }
+    }
+    const findings = overrideFindings(answer, collection, item.path);
+    if (findings.length) refuse(findings[0]!.code, findings[0]!.message);
+  } else if (opts.one['--why-file']) usage('--why-file applies only to a member override');
   validateChoice(dir,next,item,answer);
   if (item.raw !== null && item.raw !== undefined) {
     const prior = [item.raw];

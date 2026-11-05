@@ -142,6 +142,43 @@ and a bounce on it is attributed to the collection's answer as delegated. An
 override is the record of why one member differs; it is never written to make a
 member match what the agent already built.
 
+### Recording a member override
+
+`interview-answer` replaces an inherited answer locally. If `classify()`
+resolves the shared answer as silent (withdrawn to `null`, or a user answer
+of `"per-member"`), it records `basis: "own"` with no `overrides` and no
+required `--why-file`. A shared delegation remains shared, as classified,
+even when its agent decision says `"per-member"`. These cases are exercised
+through the writer and member check in `tests/choices.test.ts`.
+
+When a shared answer still applies, the writer records `basis: "overridden"`.
+Supply `--why-file <file>` with either the ordinary
+pick flags or `--picks-file`; the picks payload schema stays unchanged. The
+file must contain nonblank UTF-8. Its exact text, including spaces and
+newlines, becomes `why_verbatim`; a note, an option label or agent reasoning
+is not a substitute. A fresh replacement of an overridden answer requires a
+fresh reason file too. Missing, blank or unreadable reasons refuse before
+writing, leaving `project.json` byte-identical.
+
+The writer fills `overrides` from the inherited collection reference and the
+resolved answer's `at`. When replacing an override it preserves that original
+reference. A legacy overridden answer without `overrides` recovers its
+reference from the most recent inherited record in the item's `history[]`,
+using the same collection-answer lookup as a fresh override. It retains
+earlier local answers in history and never changes the parent collection.
+These writer paths are covered by `tests/choices.test.ts`.
+
+The member check validates overrides in current answers and `history[]`:
+`overrides.collection` names the parent collection, `overrides.question`
+names a question it answered, and `collection_answer_at` exactly matches a
+current or historical answer's `at`. A later collection answer does not
+invalidate a reference whose source remains in history. Every override needs
+nonblank `why_verbatim`. These checks also run before an override write.
+`OVERRIDDEN_ANSWERS_SINCE = 2026-11-06T00:00:00Z` dates the contract by the
+member answer's own `at`: earlier invalid records WARN; records on or after
+that date, or without a readable date, refuse. The checks and date boundary
+are covered by `tests/overrides.test.ts`; codes are in [CHECKS.md](CHECKS.md#refusals).
+
 ## Collection stages
 
 `interview` → `plan-approved` → `reference` → `members` → `post-interview` →
@@ -184,10 +221,10 @@ A rig is a list of files, not one hash per role: an atlas is its `.atlas` text
 and one or more page images, and one `atlas_sha256` cannot pin them. Paths are
 relative to the member's folder.
 
-The hashes are what is checked; the version number is the readable name. A new
-member version changes nothing in the collection until a new collection version
-pins it. A collection output whose recorded sources do not hash to its pins is
-stale and is not shown.
+The hashes bind the build named by a pin. An explicitly selected member
+version remains locked when newer member builds are recorded. A default pin
+keeps the latest-build check described below. A collection output whose
+recorded sources do not hash to its pins is stale and is not shown.
 
 Where a member has no `versions[]` yet (work that predates this structure), the
 pin carries `"version": null` and the hashes alone, and says so in `note`.
@@ -195,7 +232,7 @@ pin carries `"version": null` and the hashes alone, and says so in `note`.
 ### Recording a collection version
 
 ```
-rig-create collection pin [<dir>] [--changed <sentence>]
+rig-create collection pin [<dir>] [--changed <sentence>] [--member <name>=<version>]...
 ```
 
 Run when a collection output is made: put it in `outputs/v<N>/` (`N` the next
@@ -204,8 +241,18 @@ collection version), then pin. It appends `versions[]` entry `N` to
 `outputs/v<N>/`, `changed`, and empty `composition_inputs`, `evidence`,
 `verdicts` and `answers_feedback` to fill. It writes, it does not commit.
 
-Each member is pinned at its **latest rig version** (`kind: "rig"`, highest
-`n`). The rig files are read from that version: each `outputs[]` entry that is
+Repeat `--member <name>=<version>` to select an existing rig version by its
+positive integer `n`, for example `--member first=1 --member second=2`.
+A name may appear only once and must be in `members[]`; malformed selectors,
+unknown members and absent or non-rig versions refuse with
+`PIN_SELECTION_INVALID`, before any write. Unspecified members use their
+**latest rig version** (`kind: "rig"` or no kind, highest `n`). Only explicitly
+selected pins carry `"selection": "explicit"`. The writer-generated
+`tests/fixtures/collection-pin.json` locks one earlier build and leaves one
+member at latest; `bun scripts/generate-collection-pin-fixture.ts <fresh dir> --check` reproduces it. `tests/collection-pin-select.test.ts` covers selection,
+byte-identical refusals and every pinned hash across variants.
+
+The rig files are read from the selected/default version: each `outputs[]` entry that is
 a model (`.json`, `.skel`) or an atlas (`.atlas`, page images), or that names
 its own `role`; and `provenance.config`, for every variant. An output names its
 variant with `variant` (default `default`); a take or a contact sheet is not a
@@ -226,10 +273,21 @@ rig-create interview --check <collection dir | collection.json>
 Both run the same check. The pins checked are those of the **latest collection
 version that has outputs** — the one a person would be shown; a version pinned
 before its output exists is not checked yet. Every member in `members[]` is
-compared with its pin, and each difference is a refusal naming the member:
+compared with its pin according to its selection mode:
 
-- `PIN_STALE members[<name>]`: the member's latest rig version is not the
-  pinned one; a pinned file's sha256 (on disk where present, else as recorded)
+| Pin mode | Version compared | A newer member version alone |
+| --- | --- | --- |
+| Default, no `selection` | Latest rig version, which must match the recorded pin version | `PIN_STALE`; make and pin a new collection output |
+| Explicit lockfile, `"selection": "explicit"` | The recorded rig version `n` | No change; the lock remains valid |
+| Legacy, `"version": null`, no `selection` | Hashes alone while the member has no rig versions | `PIN_STALE` when a rig version appears |
+
+Existing default and legacy behavior is retained (`tests/collections.test.ts`).
+Explicit locks refuse when the recorded version disappears, its file list or
+variant changes, or its recorded/present-on-disk hashes differ from the pin
+(`tests/collection-pin-select.test.ts`). Each difference names the member:
+
+- `PIN_STALE members[<name>]`: a default pin's latest rig version is not the
+  pinned one, or an explicit pin's recorded rig version is absent; a pinned file's sha256 (on disk where present, else as recorded)
   differs from the pin; a pinned file is no longer listed; a rig file of the
   version is not pinned. For a `"version": null` pin, a member that now has
   versions, or a pinned file on disk that no longer hashes to it.

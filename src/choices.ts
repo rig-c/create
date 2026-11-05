@@ -1,3 +1,4 @@
+import { intakeContext } from './intake.ts';
 /** Per-ask proposals and human selections. No producer is run or measurement derived here. */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
@@ -101,7 +102,7 @@ export function assembleFragments(rule: string, fragments: Json[]): Json {
 }
 
 export function validateSet(project: JsonObject, item: Item, set: JsonObject, collection: JsonObject | null = null): void {
-  if (set.schema !== OPTIONS_SPEC || !id(set.id) || set.question !== item.id || set.stage !== interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project))
+  if (set.schema !== OPTIONS_SPEC || !id(set.id) || set.question !== item.id || set.stage !== (item.path === 'intake.choice.answer' ? 'parts' : interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)))
     || !text(set.drafted_by) || !Number.isFinite(date(set.drafted_at)) || !isObject(set.context) || !Array.isArray(set.asks)
     || !isObject(set.assembly) || !['single', 'concat', 'merge'].includes(String(set.assembly.rule))) invalid('set identity, author, clock, question, stage, context, asks and assembly are required');
   const asks = objects(set.asks);
@@ -135,6 +136,9 @@ export function validateSet(project: JsonObject, item: Item, set: JsonObject, co
 
 /** A context is a projection of existing identities, never a producer report reconstructed by create. */
 export function optionContext(project: JsonObject, stage: string, at: number): JsonObject {
+  if (stage === 'parts') {
+    try { return intakeContext(project, at); } catch (e) { fail('INTERVIEW_OPTIONS_STALE', `${String(e)}; record the preflight before showing options`); }
+  }
   const reopens = collectReopens(project, []).filter(r => r.at <= at);
   if (stage === 'interview') {
     const files = objects(project.inputs).filter(f => f.at === undefined || date(f.at) <= at).map(f => ({ path: f.path as Json, sha256: f.sha256 as Json }));
@@ -185,6 +189,7 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
   const files: Json[] = [...(context.kind === 'inputs' ? asArray(context.files) : isObject(context.parts) ? asArray(context.parts.files) : [])];
   if (context.kind === 'parts') files.push(context.structure as Json, (context.accepted_parts as JsonObject).evidence as Json);
   if (context.kind === 'rig') files.push(context.config as Json);
+  if (context.kind === 'intake') files.push(context.report as Json);
   for (const file of files) verifyBinding(dir, file, fresh);
 }
 
@@ -261,7 +266,7 @@ export function validateChoice(dir: string, project: JsonObject, item: Item, ans
   const projected = selection(set, choice);
   if (answer.delegated !== projected.delegated || !equal(answer.asks, projected.asks) || answer.verbatim !== choiceVerbatim(objects(choice.picks), choice.note)
     || (projected.value === undefined ? 'value' in answer : !equal(answer.value, projected.value))) badChoice('answer state, asks, value or verbatim differs from selected contributions');
-  if (projected.pending.length) {
+  if (projected.pending.length && item.path !== 'intake.choice.answer') {
     const stage = approvalStageOfGuide(item.id,item.kind === 'post',true);
     const reopens = collectReopens(project,[]).filter(r => r.at <= date(answer.at));
     // History does not become invalid merely because a later resolved answer was signed.

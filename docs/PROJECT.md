@@ -1156,3 +1156,47 @@ pilot words or assets. Reproduce with
 `bun scripts/generate-direction-fixture.ts <fresh-dir> --check`. It demonstrates
 writer/contract behavior, not a rendered take or upstream producer gate; the
 main filled project remains the separate zero-refusal/zero-warning example.
+
+## Advisory intake reports
+
+`project.intake` is optional (`spec: "rig-create/intake@1"`). In `parts`, after
+a full run exists, retain the parts `head-crop-preflight` JSON and record it:
+
+```sh
+rig-create intake-report . --id crop-1 --report evidence/preflight.json --sha256 <raw-sha256> --parts-version 2.16.0 --by agent
+rig-create intake .
+```
+
+This reads producer bytes and never runs a producer or verifies its pixels.
+`reports[]` is append-only. Each entry keeps its id, by/at, a report binding
+(path, raw sha256, spec, head_box, source_canvas, run_canvas), `measurement`
+(the report's own fields copied exactly), `prediction` (`hit` or `no-hit`),
+and the declared `parts_version`. Version is outside the authenticated v1
+report, which does not emit a version. Correct a report with a new retained
+path/id and `--supersedes <earlier-id>`; do not replace its bytes or history.
+The writer validates before writing and leaves project bytes unchanged on
+invalid input. Copied fields are checked against the bound report, never
+against a fresh computation.
+
+A HIT is any reported `layers[].sides.top_px`, `left_px` or `right_px` > 0.
+Keep the per-tag counts, including zero rows and separate `bottom_px`.
+Corners count on two sides; summed edges are incidences, not unique pixels.
+Preflight counts native full-run alpha > 8 **before ghost cleanup** and
+retains registration and canvas identity. `ASSEMBLE_CROP_CLIPPED` counts
+alpha ≥ 128 **after ghost cleanup**; it is a separate instrument. Never
+compare or substitute their numbers. Intake only stores the preflight
+instrument; downstream outcome labels stay in evidence receipts, not an
+in-project label ledger. Missing labels remain unknown, never negative.
+
+Everything about persisted intake is advisory: HIT, absent choice, malformed
+record or unavailable report bytes cannot refuse signoff, acceptance or
+handoff. A retrospective over three pilots fired on all three; only one had
+a labelled positive and none a labelled negative. This shows firing, not
+ability to discriminate. The threshold stays > 0; it is not an approval gate.
+The filled example does not adopt intake and keeps zero warnings.
+
+Colour-adjacent ground and ground enclosed between strands are
+**known-not-predicted** notes in the guide/intake output only (two rounds of
+a model sweep on a pilot did not separate them), with no threshold or warning.
+Silhouette stepping, source-vs-final alpha classes, patchwork runs and
+versioned dark retention need post-assemble outputs and are excluded.

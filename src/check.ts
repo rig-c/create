@@ -1,3 +1,4 @@
+import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
 import { checkCorrections } from './corrections.ts';
 /**
@@ -900,6 +901,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkChoices(ctx);
   checkCorrections(ctx);
   checkDirections(ctx);
+  warnings.push(...intakeWarnings(dir, project));
 
   return {
     ok: refusals.length === 0,

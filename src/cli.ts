@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -54,6 +55,8 @@ init:
 ${INTERVIEW_HELP}
 
 ${CHOICE_HELP}
+
+${INTAKE_HELP}
 
 ${HANDOFF_HELP}
 ${COLLECTION_HELP}
@@ -122,6 +125,8 @@ function initCommand(args: string[]): string {
 /** Subcommands by name. */
 const COMMANDS: Record<string, Command> = {
   init: initCommand,
+  intake: intakeCommand,
+  'intake-report': intakeReportCommand,
   interview: interviewCommand,
   'interview-options': interviewOptionsCommand,
   'interview-answer': interviewAnswerCommand,

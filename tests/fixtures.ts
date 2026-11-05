@@ -11,6 +11,7 @@ import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
+import { newOrderExampleFiles } from './draft-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
 import { reviewExampleFiles } from './review-fixture.ts';
 
@@ -22,8 +23,9 @@ export type Mutate = (project: JsonObject) => void;
  * also gets the assembled parts and the approved verdict its parts-review
  * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
  */
-export function fixture(mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}): string {
-  if (template === 'example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
+export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}): string {
+  if (template === 'legacy-example-project.json' || template === 'example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
+  if (template === 'example-project.json') files = { ...newOrderExampleFiles(), ...files };
   const dir = join(tempDir(), 'project');
   mkdirSync(dir);
   const project = readTemplate(template);

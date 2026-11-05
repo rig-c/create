@@ -17,7 +17,7 @@ export function generateExampleDiff(dir: string): { report: string; stack: Buffe
   writePartsPackage(dir);
   writeFileSync(join(dir, EXAMPLE_DIFF_REPORT), report);
   writeFileSync(join(dir, EXAMPLE_PARTS_DIR, 'recomposite_rig.png'), stack);
-  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(readTemplate('example-project.json'), null, 2)}\n`);
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(readTemplate('legacy-example-project.json'), null, 2)}\n`);
   writeFileSync(join(dir, 'words.txt'), 'the parts are clean, rig it');
   const flags = parsed.components.flatMap((c) => ['--component', `${c.id}=in-painting:the synthetic painting deliberately differs here`]);
   const signed = signoffCommand(['parts-review', dir, '--by', 'user', '--evidence', EXAMPLE_VERDICT,
@@ -34,8 +34,10 @@ if (import.meta.main) {
   const file = join(root, 'example-project.json');
   const before = readFileSync(file, 'utf8');
   const after = before.split('\n').map((line) => {
-    if (!line.startsWith('    { "stage": "parts-review", "checkpoint": null,')) return line;
-    return line.replace(/(?:, "diff_map": .*?)? \},$/, `, "diff_map": ${JSON.stringify(generated.record)} },`);
+    if (!/^    \{\s*"stage"\s*:\s*"parts-review"/.test(line)) return line;
+    const entry = JSON.parse(line.trim().replace(/,$/, '')) as JsonObject;
+    entry.diff_map = generated.record;
+    return `    ${JSON.stringify(entry)}${line.endsWith(',') ? ',' : ''}`;
   }).join('\n');
   if (flag === '--check') {
     if (after !== before || generated.report !== readFileSync(join(root, 'example-diff/diff-components.json'), 'utf8')

@@ -1,0 +1,9 @@
+{
+  "schema": "rig-create/structure-decisions@0",
+  "draft_id": "example",
+  "config": {
+    "path": "derived/drafts/example/config.json",
+    "sha256": "baa3ad05351a82fd81b0b25d33ef2d49fcba57086fb1cb77c22145655bba5a16"
+  },
+  "entries": []
+}

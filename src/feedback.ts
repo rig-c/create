@@ -19,6 +19,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
+import { draftVersionFindings } from './drafts.ts';
 import { answersOf, askAnswers } from './provenance.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -348,6 +349,8 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
   const { file, project } = readProject(dir);
   const version = asArray(project.versions).find((v): v is JsonObject => isObject(v) && v.n === input.version);
   if (version === undefined) refuse('REVIEW_VERSION_UNKNOWN', `versions[] has no version ${input.version}; a verdict is on a version that was shown`);
+  const draftProblem = draftVersionFindings(dir, { ...project, versions: [version] })[0];
+  if (draftProblem !== undefined) refuse(draftProblem.code, draftProblem.message);
   const vpath = `versions[v${input.version}]`;
   const accepts = REVIEW_ACCEPTS[input.review];
   if (version.kind !== accepts) {

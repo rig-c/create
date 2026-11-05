@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
+import { draftVersionFindings } from './drafts.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -156,6 +157,8 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'review-package reads rig-create/project@0');
     const version = asArray(project.versions).find((v) => isObject(v) && v.n === n);
     if (!isObject(version)) refuse('REVIEW_PACKAGE_VERSION_UNKNOWN', `no version ${n}`);
+    const draftProblem = draftVersionFindings(dir, { ...project, versions: [version] })[0];
+    if (draftProblem !== undefined) refuse(draftProblem.code, draftProblem.message);
     if (version.kind !== 'rig' || version.pre_interview === true) refuse('REVIEW_PACKAGE_VERSION_INVALID', 'review packages are for create-built rig versions');
     const source = (value: string): string => {
       const file = resolve(dir, value);
@@ -165,6 +168,8 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
       if (!inside(dir, canonical)) refuse('REVIEW_PACKAGE_PATH_INVALID', `${value}: source resolves outside the project`);
       return canonical;
     };
+    const declaredDraft = draftVersionFindings(dir, { ...project, versions: [{ kind: 'rig', source_dir: options['--from'], config: { path: options['--config'] } }] })[0];
+    if (declaredDraft !== undefined) refuse(declaredDraft.code, declaredDraft.message);
     const config = source(options['--config']);
     const from = source(options['--from']);
     if (!lstatSync(config).isFile() || !lstatSync(from).isDirectory()) refuse('REVIEW_PACKAGE_INPUT_INVALID', 'config must be a file and --from a directory');

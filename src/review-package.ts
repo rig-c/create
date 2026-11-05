@@ -1,3 +1,4 @@
+import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, openSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -176,6 +177,15 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     requireLayout(from);
     const configBytes = readFileSync(config);
     try { if (!isObject(JSON.parse(configBytes.toString()))) throw new Error(); } catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', 'config must be a JSON object'); }
+    // A compiled model already cited by an authored take cannot be rebound by packaging.
+    for (const post of directionObjects(project.versions)) {
+      if (post.kind !== 'post' || post.rig_version !== n || !isObject(post.provenance) || post.provenance.direction === undefined) continue;
+      try {
+        const document = readDirection(dir, project, post.n, false);
+        const expected = ((document.rig as JsonObject).model as JsonObject).sha256;
+        if (hash(readFileSync(join(from, 'check/build/skeleton.model.json'))) !== expected) refuse('DIRECTION_RIG_STALE', `versions[v${n}].review_package: this model is bound by a direction document; preserve it and author a new rig version`);
+      } catch (error) { if (error instanceof DirectionError) refuse(error.code, error.message); throw error; }
+    }
     const inputs = sourceFiles(from);
     const pkg = join(dir, packagePath(n));
     makePackageParent(dir);

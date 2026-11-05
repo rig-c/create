@@ -11,6 +11,9 @@ export function checkSetupPainting(ctx: Ctx): void {
   asArray(ctx.project.versions).forEach((version, index) => {
     if (!isObject(version) || version.pre_interview === true) return;
     const provenance = isObject(version.provenance) ? version.provenance : {};
+    // Authored direction is consumer camera/timing, not a parts build config.
+    // Its closed schema and hash are checked by checkDirections. Legacy post configs keep their contract.
+    if (version.kind === 'post' && isObject(provenance.direction)) return;
     const config = isObject(provenance.config) ? provenance.config : {};
     const configPath = asString(config.path);
     if (configPath === null || configPath === '') return;

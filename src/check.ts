@@ -1,3 +1,4 @@
+import { checkDirections } from './direction.ts';
 import { checkCorrections } from './corrections.ts';
 /**
  * `interview --check`: reads a project's `project.json` and reports, by name,
@@ -898,6 +899,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkChoices(ctx);
   checkCorrections(ctx);
+  checkDirections(ctx);
 
   return {
     ok: refusals.length === 0,

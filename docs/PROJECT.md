@@ -1003,3 +1003,156 @@ shape-only**, not a measured producer-gate result; see its README. Every retaine
 file uses its real byte hash. The frozen legacy example's exact warning set is
 `QUESTION_SET_STALE`, `STAGE_ORDER_LEGACY`, `CHOICE_ANSWERS_LEGACY`,
 `CORRECTION_PATH_LEGACY`; the current filled example stays at 0/0.
+
+### Authored camera direction (create#92)
+
+Create owns the authored camera and timing document, not depth or `config.turn`.
+Review previews through the published `@rig-c/play` runtime (review README,
+*delivery flow*); create renders nothing. A document is authored data, not proof
+of a rendered take, seamless looping, source-animation extent, or a parts gate.
+
+Adopt with `rig-create direction --adopt <dir>`. It writes
+`direction_contract:{schema:"rig-create/direction-contract@1",adopted_at,
+grandfathered_posts}`. The sorted, unique post numbers are existing posts at
+adoption. They remain exempt from a missing direction document; explicit
+bindings are always checked. There is no date switch and no new legacy warning.
+Do not change that list to exempt new work. Existing correction@1 records are
+not migrated or rewritten.
+
+```sh
+rig-create direction write 5 <dir> --file evidence/authored-direction.json --rig 2
+rig-create direction check 5 <dir> --json
+```
+
+The writer registers a new post version and never overwrites a previous one.
+The exact input bytes become `evidence/direction/v5.json`, schema
+`rig-create/direction@1`. `provenance.config`, `provenance.direction`, and one
+`outputs[]` entry all bind that same `{path,sha256}`. It is a direction output,
+not a compiled model or movie. `provenance.sections.camera` and `.timing` carry
+the same citations as the document. Metadata, rig bindings and citations are
+not additional executable config sections. Setup-painting requirements apply
+to existing build configs as before, not to this camera document.
+
+The closed document has precisely:
+
+| Field | Closed contents |
+| --- | --- |
+| `schema` | `rig-create/direction@1` |
+| `rig` | `{version,model:{path,sha256}}`; accepted rig's review-package compiled model, never config-only identity |
+| `take` | `{duration,loop}`; positive finite seconds and boolean |
+| `camera` | `{space:"rig-world-y-up",keys:[{time,box:{x,y,width,height},easing}]}` |
+| `timing` | `{keys:[{time,source_time,easing}]}` |
+| `citations` | `{camera,timing}`; each `{guide,asks,quote}` or `{guide,asks,delegated:true}` |
+
+The model path is
+`derived/review/v<R>/out/check/build/skeleton.model.json`; its exact bytes must
+match the corresponding review-package inventory SHA. A new write needs the
+latest live accepted rig and existing handoff still/signature gates. Missing
+model bytes refuse; create never regenerates them. A post's `rig_version` must
+match `rig.version`. Historical documents may retain their historical rig;
+current authoring and direction approval cannot use a superseded rig.
+
+Boxes describe the visible rectangle in rig world coordinates, Y up. Coordinates
+are finite and sizes positive. A preview contains the box at its aspect ratio
+(letterbox; do not silently crop). Camera keys number 1–256, start at zero,
+strictly increase and stay in `[0,duration]`; the final box holds through the
+end. Timing keys number 2–256, start at zero and end at `duration`; their take
+times strictly increase, while finite nonnegative `source_time` is nondecreasing
+and permits holds. It maps take seconds to source-animation seconds, without
+FPS inference or a source-clip-duration claim. `loop` repeats the take clock.
+
+Easing is exactly `linear`, `hold`, or `smoothstep`, attached to the segment
+starting at the key. `smoothstep(u)=u*u*(3-2*u)` with normalized segment time;
+interpolate box components/source time with that factor. The final key's easing
+has no effect. No arbitrary easing, pan/zoom alternative, audio, depth, tilt,
+turn, frame-index inference or extension fields exist in @1.
+
+Citations name the actual questions `camera_depth` and `post_timing`, each with
+`asks:[guide]`. `camera` and `timing` are executable plan step ids, not question
+ids. Quotes are exact stored verbatim/additions fragments, including historical
+or inherited answers; delegation uses the existing decided-delegation rules.
+A new write additionally requires a live post-interview approval covering both
+steps with matching `step_hashes`, and resolved current per-ask selections.
+Pending auto/Other responses cannot produce a document. A camera marked not
+applicable can supply a single fixed-box key only when its retained verbatim
+is cited and the approved post plan still supplies camera/timing; timing must
+be applicable. All-post-not-applicable skips post entirely. Prose is never
+parsed into authored key values.
+
+Writers validate the prospective record and every owned finding before writing,
+retain unrelated pre-existing holes by code/path multiset, and reject concurrent
+source changes. Documents are immutable; `project.json` is the commit point.
+A lock, staged files, snapshot rechecks and rollback protect a failed publish.
+This is not an atomic multi-file filesystem transaction. A refused write leaves
+the record and previously published artifacts byte-identical. Source documents
+and patches are literal retained POSIX paths below the selected project, without
+symlinks, traversal or ignored roots. Only the explicitly bound compiled-model
+path above is allowed in regenerable `derived/`. Clone it when using this gate.
+
+### Review reads; create ingests direction patches
+
+Review receives a user-designated project root and post number `N`. It reads
+that version's `provenance.direction`, then exactly
+`evidence/direction/v<N>.json` as `rig-create/direction@1`, validating raw SHA,
+version/path binding and rig model SHA. `readDirection(dir,project,N)` is the
+create reader; `direction check N --json` exposes a checked read. Review never
+writes `project.json` or invokes create. Review 1.6.0 has no authored camera
+consumer; review#373 consumes this contract after it lands. No camera Apply
+capability is claimed for that installation.
+
+Review's output is a closed `rig-review-direction-patch/1` file with exactly
+`{schema,source_post,rig_model_sha256,direction_sha256,replace}`. `replace` holds
+one or more of `camera`, `timing`, `take`, replacing whole typed sections only.
+The source is the current post, and both base hashes must match. Unknown keys,
+arbitrary pointers and a semantic no-op refuse. Binding/citation changes need
+new answer/authoring work, not a patch. The patch's own identity is the raw hash
+of its retained bytes, not a review canonicalization claim.
+
+```sh
+rig-create correction record <dir> --id framing --path made --stage direction-review \
+  --version 5 --direction-patch-file evidence/direction-patch.json \
+  --by user --verbatim-file correction-words.txt
+rig-create direction patch 6 <dir> --patch-file evidence/direction-patch.json
+rig-create correction resolve framing <dir> --version 6 --by agent \
+  --reasoning-file resolution.txt
+```
+
+The patch writer creates a later immutable document/post and records
+`direction_origin:{source_post,patch:{path,sha256},result:{path,sha256}}` on the
+version. Capture retains the human words separately; no words are invented from
+the patch. Review may label export plus create ingestion “Apply”, but cannot
+claim ingestion or checked completion itself. `rig-review-applied/2` is never
+used as a direction result or proof.
+
+Only `direction-patch` uses `rig-create/correction@2`. All other correction
+records remain `rig-create/correction@1`, with the existing description,
+config-patch and unsupported grammar/behavior. The new exact artifact is
+`{kind:"direction-patch",patch:{path,sha256},state:"preview/pending"|
+"applied-and-checked",result:null|{path,sha256}}`. Its exact post source/outcome
+identity is `{kind:"post",n,config,model,direction:{path,sha256}}`; config binds
+the direction file, model binds the source rig's compiled model, and direction
+matches `provenance.direction`. This identity is not accepted by @1.
+
+A pending record has no outcome/result and cannot approve. On agent resolution,
+create checks its own patch/base/result and `direction_origin`, not an external
+producer report. The outcome is a later post on exactly the same rig model,
+with changed direction bytes and the typed replacements actually present. Only
+this post→post direction-patch variant accepts changed direction with unchanged
+rig model. Same-document, cross-kind, changed-rig or unrelated authored output
+pairs refuse. Existing @1 described corrections still require changed declared
+output; a direction file can be explicitly selected as that output without
+claiming it is a compiled model. Unsupported operations remain pending.
+
+`checkProject`, direction signoff and the acceptance writer all check the
+relevant document. Handoff stays rig-only to bootstrap authoring. Review-package
+stays rig-only and cannot rebind a model already cited by a direction document.
+Reopen rules, historical evidence, human signoff and agent closure remain
+separate gates.
+
+The generated synthetic example is `templates/example-direction/`, including a
+small staged project, exact input/result documents, a review-format patch and
+@2 correction. It uses invented sentences shaped like a pilot interview, not
+pilot words or assets. Reproduce with
+`bun scripts/generate-direction-fixture.ts <fresh-dir> --check`. It demonstrates
+writer/contract behavior, not a rendered take or upstream producer gate; the
+main filled project remains the separate zero-refusal/zero-warning example.

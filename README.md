@@ -24,7 +24,9 @@ work starts:
 1. **Base motion** — the cut, the bones, what deforms, physics, the motions.
    Reviewed on a still frame, the rig alone.
 2. **Direction** — camera, depth and timing, applied after the rig is accepted.
-   Reviewed as a take.
+   Reviewed as a take. Camera keys and timing are authored with
+   [`rig-create direction`](docs/PROJECT.md#authored-camera-direction-create92)
+   in a hash-bound direction document; depth and turn remain in parts.
 3. **Polish** — what the user says after seeing a result, kept word for word and
    tied to the place it is about.
 

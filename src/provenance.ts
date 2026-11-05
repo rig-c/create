@@ -192,7 +192,7 @@ function needsCitation(kind: 'rig' | 'post', section: string): boolean {
   return SECTION_PLACEMENT[section]?.kind !== 'none';
 }
 
-function checkEntry(ctx: Ctx, kind: 'rig' | 'post', path: string, raw: Json): void {
+export function checkEntry(ctx: Ctx, kind: 'rig' | 'post', path: string, raw: Json): void {
   if (!isObject(raw)) {
     ctx.refusals.push({ code: 'ENTRY_UNCITED', path, message: `${path}: an entry is an object { entry, guide, quote | delegated: true }` });
     return;
@@ -254,7 +254,7 @@ export function checkProvenance(ctx: Ctx, parts: PartsSections | null): Provenan
     const cited = prov.sections;
     // A rig config's records and annotations are not sections and need no citation; a section parts or the table knows is kept.
     const read = readConfigSections(ctx.dir, prov.config, kind === 'rig' ? (k, val) => !known.has(k) && isAnnotationOrRecord(k, val) : undefined);
-    const sections = read.sections ?? Object.keys(cited);
+    const sections = kind === 'post' && isObject(prov.direction) ? ['camera', 'timing'] : read.sections ?? Object.keys(cited);
     summaries.push({ version: label, kind, config_path: read.path, config: read.read, sections });
     if (read.read === 'changed') {
       ctx.warnings.push({ code: 'PROVENANCE_CONFIG_CHANGED', path: `${label}.provenance.config`, message: `${label}.provenance.config: ${read.path} is present but its sha256 is not the recorded one; the sections listed were checked, not the file's` });

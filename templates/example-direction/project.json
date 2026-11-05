@@ -1,0 +1,364 @@
+{
+  "schema": "rig-create/project@0",
+  "name": "synthetic-direction",
+  "stage": "post",
+  "stage_values": [
+    "interview",
+    "plan-approved",
+    "parts",
+    "parts-review",
+    "rigging-interview",
+    "rigging",
+    "rig-review",
+    "post-interview",
+    "post",
+    "direction-review",
+    "accepted",
+    "paused"
+  ],
+  "inputs": {},
+  "interview": {
+    "held": true,
+    "post": {
+      "held": true,
+      "items": [
+        {
+          "id": "camera_depth",
+          "config": [],
+          "text": "Synthetic question",
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-04T08:00:00Z",
+            "verbatim": "Hold the centered rectangle, then tighten the view slightly.",
+            "value": {
+              "camera": "push_in",
+              "depth": false
+            },
+            "asks": [
+              {
+                "id": "camera_depth",
+                "state": "user"
+              }
+            ]
+          }
+        },
+        {
+          "id": "post_timing",
+          "config": [],
+          "text": "Synthetic question",
+          "guide": {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-04T08:00:00Z",
+            "verbatim": "Use a four-second take without repeating it.",
+            "value": {
+              "duration": 4,
+              "loop": false
+            },
+            "asks": [
+              {
+                "id": "post_timing",
+                "state": "user"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "plan": {
+    "steps": [
+      {
+        "id": "camera",
+        "phase": "post",
+        "order": 1,
+        "does": "Author direction",
+        "produces": "direction document",
+        "rests_on": "camera_depth",
+        "bar": "typed direction keys validate",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-04T08:00:00Z",
+          "verbatim": "No checkpoint",
+          "value": false
+        }
+      },
+      {
+        "id": "timing",
+        "phase": "post",
+        "order": 2,
+        "does": "Author direction",
+        "produces": "direction document",
+        "rests_on": "post_timing",
+        "bar": "typed direction keys validate",
+        "checkpoint_proposed": false,
+        "checkpoint": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-04T08:00:00Z",
+          "verbatim": "No checkpoint",
+          "value": false
+        }
+      }
+    ]
+  },
+  "signoffs": [
+    {
+      "stage": "rig-review",
+      "checkpoint": null,
+      "by": "user",
+      "at": "2026-11-04T08:30:00Z",
+      "verbatim": "Accept the synthetic rig"
+    },
+    {
+      "stage": "post-interview",
+      "checkpoint": null,
+      "by": "user",
+      "at": "2026-11-04T09:00:00.000Z",
+      "verbatim": "Approve the camera and timing steps.\n",
+      "steps": [
+        "camera",
+        "timing"
+      ],
+      "step_hashes": {
+        "camera": "3ac66dfb93b78421362878f2f962eee92953d91e0e13ea30c7026cd78e8c5b5c",
+        "timing": "715702397d990029c981dcf8c805efbf75c1df4775c4e8966f1ffee71b31f476"
+      }
+    }
+  ],
+  "versions": [
+    {
+      "n": 1,
+      "kind": "rig",
+      "rig_version": null,
+      "at": "2026-11-04T08:00:00Z",
+      "provenance": {
+        "config": {
+          "path": "evidence/rig-config.json",
+          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        },
+        "sections": {}
+      },
+      "review_package": {
+        "config": {
+          "path": "evidence/rig-config.json",
+          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+        },
+        "files": [
+          {
+            "path": "out/check/build/skeleton.model.json",
+            "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "kind": "still",
+          "path": "evidence/still.png",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "camera": "fixed",
+          "frame": "setup"
+        }
+      ],
+      "verdicts": [
+        {
+          "review": "rig-review",
+          "verdict": "accepted",
+          "by": "user",
+          "at": "2026-11-04T08:30:00Z",
+          "verbatim": "Accept the synthetic rig"
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "kind": "post",
+      "rig_version": 1,
+      "at": "2026-11-04T09:10:00.000Z",
+      "built_by": "agent",
+      "built_with": {
+        "create": "direction@1"
+      },
+      "changed": "Authored camera and timing direction",
+      "outputs": [
+        {
+          "path": "evidence/direction/v2.json",
+          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+        }
+      ],
+      "evidence": [],
+      "verdicts": [],
+      "answers_feedback": [],
+      "review_origin": null,
+      "provenance": {
+        "config": {
+          "path": "evidence/direction/v2.json",
+          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+        },
+        "direction": {
+          "path": "evidence/direction/v2.json",
+          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+        },
+        "sections": {
+          "camera": [
+            {
+              "entry": "camera",
+              "guide": "camera_depth",
+              "asks": [
+                "camera_depth"
+              ],
+              "quote": "Hold the centered rectangle, then tighten the view slightly."
+            }
+          ],
+          "timing": [
+            {
+              "entry": "timing",
+              "guide": "post_timing",
+              "asks": [
+                "post_timing"
+              ],
+              "quote": "Use a four-second take without repeating it."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "n": 3,
+      "kind": "post",
+      "rig_version": 1,
+      "at": "2026-11-04T09:30:00.000Z",
+      "built_by": "agent",
+      "built_with": {
+        "create": "direction@1"
+      },
+      "changed": "Authored camera and timing direction",
+      "outputs": [
+        {
+          "path": "evidence/direction/v3.json",
+          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+        }
+      ],
+      "evidence": [],
+      "verdicts": [],
+      "answers_feedback": [],
+      "review_origin": null,
+      "provenance": {
+        "config": {
+          "path": "evidence/direction/v3.json",
+          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+        },
+        "direction": {
+          "path": "evidence/direction/v3.json",
+          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+        },
+        "sections": {
+          "camera": [
+            {
+              "entry": "camera",
+              "guide": "camera_depth",
+              "asks": [
+                "camera_depth"
+              ],
+              "quote": "Hold the centered rectangle, then tighten the view slightly."
+            }
+          ],
+          "timing": [
+            {
+              "entry": "timing",
+              "guide": "post_timing",
+              "asks": [
+                "post_timing"
+              ],
+              "quote": "Use a four-second take without repeating it."
+            }
+          ]
+        }
+      },
+      "direction_origin": {
+        "source_post": 2,
+        "patch": {
+          "path": "evidence/patch.json",
+          "sha256": "3828b041932cd930821b3b1ac32d5185e883f8384f182b2e753518cc83989855"
+        },
+        "result": {
+          "path": "evidence/direction/v3.json",
+          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+        }
+      }
+    }
+  ],
+  "direction_contract": {
+    "schema": "rig-create/direction-contract@1",
+    "adopted_at": "2026-11-04T09:00:00.000Z",
+    "grandfathered_posts": []
+  },
+  "corrections_contract": {
+    "schema": "rig-create/corrections@1",
+    "adopted_at": "2026-11-04T09:00:00.000Z"
+  },
+  "corrections": [
+    {
+      "schema": "rig-create/correction@2",
+      "id": "frame",
+      "path": "made",
+      "by": "user",
+      "at": "2026-11-04T09:20:00.000Z",
+      "verbatim": "Tighten the final framing.\n",
+      "stage": "direction-review",
+      "on": {
+        "kind": "post",
+        "n": 2,
+        "config": {
+          "path": "evidence/direction/v2.json",
+          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+        },
+        "model": {
+          "path": "derived/review/v1/out/check/build/skeleton.model.json",
+          "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+        },
+        "direction": {
+          "path": "evidence/direction/v2.json",
+          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+        }
+      },
+      "artifact": {
+        "kind": "direction-patch",
+        "patch": {
+          "path": "evidence/patch.json",
+          "sha256": "3828b041932cd930821b3b1ac32d5185e883f8384f182b2e753518cc83989855"
+        },
+        "state": "applied-and-checked",
+        "result": {
+          "path": "evidence/direction/v3.json",
+          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+        }
+      },
+      "outcome": {
+        "kind": "post",
+        "n": 3,
+        "config": {
+          "path": "evidence/direction/v3.json",
+          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+        },
+        "model": {
+          "path": "derived/review/v1/out/check/build/skeleton.model.json",
+          "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+        },
+        "direction": {
+          "path": "evidence/direction/v3.json",
+          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+        }
+      },
+      "resolves": null,
+      "closure": {
+        "by": "agent",
+        "at": "2026-11-04T09:40:00.000Z",
+        "reasoning": "Validated the authored direction patch against its exact base.\n"
+      }
+    }
+  ]
+}

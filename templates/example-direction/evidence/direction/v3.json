@@ -1,0 +1,59 @@
+{
+  "schema": "rig-create/direction@1",
+  "rig": {
+    "version": 1,
+    "model": {
+      "path": "derived/review/v1/out/check/build/skeleton.model.json",
+      "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+    }
+  },
+  "take": {
+    "duration": 4,
+    "loop": false
+  },
+  "camera": {
+    "space": "rig-world-y-up",
+    "keys": [
+      {
+        "time": 0,
+        "box": {
+          "x": -16,
+          "y": 8,
+          "width": 32,
+          "height": 64
+        },
+        "easing": "hold"
+      }
+    ]
+  },
+  "timing": {
+    "keys": [
+      {
+        "time": 0,
+        "source_time": 0,
+        "easing": "linear"
+      },
+      {
+        "time": 4,
+        "source_time": 4,
+        "easing": "hold"
+      }
+    ]
+  },
+  "citations": {
+    "camera": {
+      "guide": "camera_depth",
+      "asks": [
+        "camera_depth"
+      ],
+      "quote": "Hold the centered rectangle, then tighten the view slightly."
+    },
+    "timing": {
+      "guide": "post_timing",
+      "asks": [
+        "post_timing"
+      ],
+      "quote": "Use a four-second take without repeating it."
+    }
+  }
+}

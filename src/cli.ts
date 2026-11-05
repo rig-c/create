@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -67,6 +68,8 @@ ${DRAFT_RIG_HELP}
 
 ${CORRECTION_HELP}
 
+${DIRECTION_HELP}
+
 ${DERIVED_HELP}
 
 ${REVIEW_PACKAGE_HELP}
@@ -131,6 +134,7 @@ const COMMANDS: Record<string, Command> = {
   reopen: reopenCommand,
   'draft-rig': draftRigCommand,
   correction: correctionCommand,
+  direction: directionCommand,
 
   derived: derivedCommand,
   'split-captions': splitCaptionsCommand,

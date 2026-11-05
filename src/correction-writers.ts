@@ -1,3 +1,4 @@
+import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPostIdentity, validateDirectionOutcome } from './direction.ts';
 /** Human capture and declared outcome writers. No producer or review process is launched. */
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -13,7 +14,7 @@ export const CORRECTION_HELP = `correction --adopt [<dir>]
 correction record [<dir>] --id <id> --path described|made --stage <review-stage>
   (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
   --by <human> [--verbatim-file <UTF-8 file>] [--source <text>] [--resolves <id>]
-  made: --patch-file <retained patch> | --feedback-file <retained session> --item <id>
+  made: --direction-patch-file <retained direction patch> (post@2) | --patch-file <retained patch> | --feedback-file <retained session> --item <id>
 correction resolve <id> [<dir>]
   (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
   --by agent --reasoning-file <file> [--applied-feedback <session> --feedback-id <id>]
@@ -22,7 +23,11 @@ correction resolve <id> [<dir>]
 const common = ['--version', '--draft', '--parts-file', '--model-file', '--by'];
 function usage(why: string): never { refuse('CORRECTION_USAGE', `corrections: ${why}; ${CORRECTION_HELP}`, USAGE_EXIT); }
 function objects(v: JsonObject[string]): JsonObject[] { return asArray(v).filter(isObject); }
-function identity(dir: string, project: JsonObject, opts: Record<string, string>, stage: string): JsonObject {
+function identity(dir: string, project: JsonObject, opts: Record<string, string>, stage: string, direction = false): JsonObject {
+  if (direction) {
+    if (!opts["--version"] || opts["--model-file"] || opts["--draft"] || opts["--parts-file"] || stage !== "direction-review") usage("direction-patch requires direction-review and only --version");
+    return directionPostIdentity(dir,project,Number(opts["--version"]?.replace(/^v/,"")));
+  }
   if (['--version', '--draft', '--parts-file'].filter(f => opts[f] !== undefined).length !== 1) usage('select exactly one version/draft/parts identity');
   let value: JsonObject;
   if (opts['--parts-file']) {
@@ -72,11 +77,11 @@ function openStage(project: JsonObject, stage: string): void {
   if (collectSignoffs(project,[]).some(s=>s.stage===stage&&s.checkpoint===null&&liveSignoff(reopens,stage,s.at)) || objects(project.versions).some(v=>objects(v.verdicts).some(d=>d.review===stage&&d.verdict==='accepted'&&liveSignoff(reopens,stage,Date.parse(String(d.at)))))) throw new CorrectionError('CORRECTION_SOURCE',`approval for ${stage} is still live; reopen before changing its corrections`);
 }
 export function correctionCommand(args: string[]): {stdout:string;exit:number} {
-  try { return command(args); } catch(e) { if(e instanceof CorrectionError) { const f=correctionFinding(e.code,'corrections',e.message);refuse(f.code,f.message); } throw e; }
+  try { return command(args); } catch(e) { if(e instanceof DirectionError) refuse(e.code,e.message); if(e instanceof CorrectionError) { const f=correctionFinding(e.code,'corrections',e.message);refuse(f.code,f.message); } throw e; }
 }
 function command(args:string[]): {stdout:string;exit:number} {
   const action=args[0];const opts:Record<string,string>={};const positional:string[]=[];let json=false;
-  const allowed=action==='record'?[...common,'--id','--path','--stage','--verbatim-file','--source','--resolves','--patch-file','--feedback-file','--item']:action==='resolve'?[...common,'--reasoning-file','--applied-feedback','--feedback-id']:[];
+  const allowed=action==='record'?[...common,'--id','--path','--stage','--verbatim-file','--source','--resolves','--patch-file','--direction-patch-file','--feedback-file','--item']:action==='resolve'?[...common,'--reasoning-file','--applied-feedback','--feedback-id']:[];
   for(let i=1;i<args.length;i++) {const arg=args[i] as string;if(arg==='--json'){if(json)usage('duplicate --json');json=true;}else if(allowed.includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`${arg} requires one value`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
   if(!['--adopt','record','resolve'].includes(action??'')||positional.length>(action==='resolve'?2:1))usage('invalid action or directory count');
   if(action==='resolve'&&!positional[0])usage('resolve requires correction id');
@@ -96,14 +101,19 @@ function command(args:string[]): {stdout:string;exit:number} {
     const stage=opts['--stage'];const path=opts['--path'];
     if(!opts['--id']||!stage||!CORRECTION_STAGES.includes(stage)||!['described','made'].includes(path??'')||!opts['--by'])usage('record requires id/path/stage/by');
     openStage(next,stage);
-    const on=identity(dir,next,opts,stage);let artifact:JsonObject;let verbatim:string;
+    const direction=Boolean(opts['--direction-patch-file']);
+    if(direction && path!=='made')usage('direction-patch-file is made-only');
+    const on=identity(dir,next,opts,stage,direction);let artifact:JsonObject;let verbatim:string;
     if(path==='described') {
       if(opts['--patch-file']||opts['--feedback-file']||opts['--item']||!opts['--verbatim-file'])usage('described requires only verbatim text, not producer artifact flags');
       artifact={kind:'description'};verbatim=readVerbatim(opts['--verbatim-file']);
     }else {
       if(opts['--by']!=='user')throw new CorrectionError('CORRECTION_MALFORMED','made requires --by user');
-      if(Number(Boolean(opts['--patch-file']))+Number(Boolean(opts['--feedback-file']))!==1)usage('made requires exactly one patch-file or feedback-file');
-      if(opts['--patch-file']) {
+      if(Number(Boolean(opts['--patch-file']))+Number(Boolean(opts['--feedback-file']))+Number(direction)!==1)usage('made requires exactly one patch-file or feedback-file');
+      if(direction) {
+        if(opts['--item'] || !opts['--verbatim-file'])usage('direction capture needs verbatim-file and no item');
+        artifact={kind:'direction-patch',patch:correctionBinding(dir,opts['--direction-patch-file'] as string),state:'preview/pending',result:null};verbatim=readVerbatim(opts['--verbatim-file']);
+      }else if(opts['--patch-file']) {
         if(opts['--item']||!opts['--verbatim-file'])usage('patch-only capture needs verbatim-file and no item');
         artifact={kind:'config-patch',patch:correctionBinding(dir,opts['--patch-file']),state:'preview/pending',feedback:null};verbatim=readVerbatim(opts['--verbatim-file']);
       }else {
@@ -116,7 +126,7 @@ function command(args:string[]): {stdout:string;exit:number} {
         else artifact={kind:'unsupported',operation:applied.schema==='rig-review-applied/3'?'mesh-delta':String(applied.op).includes('retarget')?'retarget':String(applied.op).includes('key')?'keyed-animation':'other',reason:'No checked create adapter for this producer-owned operation',files:[binding],producer_schema:String(applied.schema)};
       }
     }
-    record={schema:CORRECTION_SPEC,id:opts['--id'],path:path as string,by:opts['--by'],at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
+    record={schema:direction?DIRECTION_CORRECTION_SPEC:CORRECTION_SPEC,id:opts['--id'],path:path as string,by:opts['--by'],at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
     if(opts['--source']!==undefined)record.source=opts['--source'];
     next.corrections=[...asArray(next.corrections),record];
   } else {
@@ -138,7 +148,12 @@ function command(args:string[]): {stdout:string;exit:number} {
       if(record.verbatim!==item.summary)throw new CorrectionError('CORRECTION_APPLIED_INVALID','selected feedback summary differs from retained human correction');
       artifact.state='applied-and-checked';
     }
-    record.outcome=identity(dir,next,opts,String(record.stage));record.closure={by:'agent',at,reasoning:readVerbatim(opts['--reasoning-file'])};
+    const direction=artifact.kind==='direction-patch';
+    record.outcome=identity(dir,next,opts,String(record.stage),direction);
+    if(direction){
+      if(opts['--applied-feedback']||opts['--feedback-id'])usage('direction closure does not ingest review applied reports');
+      artifact.result=(record.outcome as JsonObject).direction as JsonObject;artifact.state='applied-and-checked';validateDirectionOutcome(dir,next,record,artifact);
+    }record.closure={by:'agent',at,reasoning:readVerbatim(opts['--reasoning-file'])};
   }
   save(dir,file,originalBytes,project,next);
   return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged`,exit:0};

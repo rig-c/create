@@ -1,3 +1,4 @@
+import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
@@ -108,7 +109,12 @@ function partsIdentity(dir: string, value: JsonObject): void {
   if (!equal(actual.sort(), files.map(f => f.path))) fail('CORRECTION_SOURCE', 'parts manifest/tree inventory is incomplete');
   if (!files.some(f => equal(f, value.manifest))) fail('CORRECTION_SOURCE', 'manifest missing from inventory');
 }
-export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string): JsonObject {
+export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string, direction = false): JsonObject {
+  if (direction) {
+    if (stage !== "direction-review" || !isObject(value)) fail("DIRECTION_CORRECTION_OUTCOME", "direction identity requires post at direction-review");
+    try { validateDirectionIdentity(dir, project, value); } catch (e) { if (e instanceof DirectionError) fail(e.code,e.message); throw e; }
+    return value;
+  }
   if (!isObject(value)) return fail('CORRECTION_SOURCE', 'missing source/outcome identity');
   if (value.kind === 'parts') {
     if (stage !== 'parts-review') fail('CORRECTION_SOURCE', 'parts identity belongs to parts-review');
@@ -247,14 +253,16 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
   for (const [index, raw] of project.corrections.entries()) {
     const path = `corrections[${index}]`;
     try {
-      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || raw.schema !== CORRECTION_SPEC || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || !text(raw.by) || raw.by.toLowerCase() === 'agent' || !Number.isFinite(date(raw.at)) || date(raw.at) > Date.now() || !text(raw.verbatim) || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
+      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || !text(raw.by) || raw.by.toLowerCase() === 'agent' || !Number.isFinite(date(raw.at)) || date(raw.at) > Date.now() || !text(raw.verbatim) || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
       const record = raw as JsonObject;
       if (record.resolves !== null) {
         const prior = seen.get(String(record.resolves));
         if (!prior || prior.stage !== record.stage || date(prior.at) >= date(record.at)) fail('CORRECTION_MALFORMED', 'replacement must name an earlier same-stage record');
       }
       seen.set(String(record.id), record);
-      const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage));
+      const direction = record.schema === DIRECTION_CORRECTION_SPEC;
+      if (direction !== (isObject(record.artifact) && record.artifact.kind === 'direction-patch')) fail('CORRECTION_MALFORMED', 'correction@2 is only for direction-patch');
+      const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage), direction);
       if (identityTime(project, on) > date(record.at)) fail('CORRECTION_SOURCE', 'correction predates its source');
       if (record.resolves !== null && (on.kind === 'rig' || on.kind === 'post') && bindings(project.versions).some(v => v.kind === on.kind && Number(v.n) > Number(on.n) && date(v.at) <= date(record.at))) fail('CORRECTION_SOURCE', 'correction must name the latest reviewed version at capture');
       const artifact = record.artifact;
@@ -262,6 +270,9 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       const art = artifact as JsonObject;
       if (record.path === 'described') {
         if (!closed(art, ['kind']) || art.kind !== 'description') fail('CORRECTION_MALFORMED', 'described artifact is description');
+      } else if (direction) {
+        if (record.by !== 'user') fail('CORRECTION_MALFORMED','made requires by:user');
+        try { validateDirectionOutcome(dir,project,record,art); } catch(e) { if(e instanceof DirectionError) fail(e.code,e.message); throw e; }
       } else {
         if (record.by !== 'user') fail('CORRECTION_MALFORMED', 'made requires by:user');
         if (art.kind === 'unsupported') {
@@ -281,9 +292,9 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       }
       if (record.outcome !== null) {
         let outcome: JsonObject;
-        try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage)); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
+        try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
         const closure = record.closure;
-        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > Date.now() || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !changed(on, outcome) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
+        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > Date.now() || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? sameHash(on.model,outcome.model) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
         if (record.path === 'made' && on.kind === 'rig' && outcome.kind === 'rig') {
           const target = versionRecord(project, outcome.n); const { applied } = correctionApplied(dir, art);
           const origin = target.review_origin;

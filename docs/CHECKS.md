@@ -820,3 +820,45 @@ Unsupported operations remain pending until a separately contracted adapter
 exists. Historical superseded corrections remain validated but do not impose
 current approval obligations. Existing structure, provenance, feedback and CG
 findings retain their existing ownership and meaning.
+
+## Authored camera direction
+
+Explicit `direction_contract` adoption and `rig-create/direction@1` documents
+add no legacy warnings and no date switch. Grandfathered post numbers are
+captured at adoption, not inferred from dates. All explicit document bindings
+are checked, including historical ones. The producer never renders a take or
+recomputes another producer's measurement. PROJECT.md, *Authored camera
+direction*, defines the closed schema, immutable paths and read contract.
+
+| Code | Frozen refusal bar | Remedy |
+| --- | --- | --- |
+| `DIRECTION_USAGE` | invalid action, argument count, duplicate/conflicting flags or nonpositive post number | use direction's action-specific flags |
+| `DIRECTION_CONTRACT_INVALID` | missing adoption on authoring, malformed schema/clock/grandfather list, or invalid grandfathered identity | adopt explicitly and preserve the captured inventory |
+| `DIRECTION_DOCUMENT_REQUIRED` | an adopted, non-grandfathered post lacks `provenance.direction` | produce the retained direction document |
+| `DIRECTION_SCHEMA` | malformed JSON, missing/unknown fields, invalid types/counts/easing/box/duration or nonfinite numbers | use the closed direction@1 shape |
+| `DIRECTION_FILE` | retained file is missing, ignored, nonregular, a symlink, escaping or not a literal POSIX relative path | retain the exact regular file in the project |
+| `DIRECTION_HASH` | document/model raw bytes differ from the declared SHA256 | restore the bound bytes or author a new version |
+| `DIRECTION_RIG_UNKNOWN` | rig number/model hash/path does not resolve to the accepted version's compiled review-package model, or --rig disagrees | bind the exact retained accepted model |
+| `DIRECTION_RIG_STALE` | document and post rig differ, current rig is superseded/unaccepted, or packaging would rebind a cited model | accept a new rig and author new direction on it |
+| `DIRECTION_KEY_OUTSIDE_TAKE` | a key is outside `[0,duration]`, the first time is not zero, or timing does not end at duration | bound keys and supply endpoints |
+| `DIRECTION_TIME_NON_MONOTONIC` | duplicate/decreasing take times or decreasing source time | strictly order take times and use nondecreasing source seconds |
+| `DIRECTION_CITATION` | camera/timing citations, resolved selections or live approved step hashes do not match the retained request | preserve words and complete/reapprove the named answers/steps |
+| `DIRECTION_VERSION` | post identity/number/path/config/output binding conflicts or is not uniquely later for authoring/current for acceptance | create a later uniquely numbered post and bind its document |
+| `DIRECTION_REVIEW_CLOSED` | authoring attempts to change still-live approved direction review | explicitly reopen before writing |
+| `DIRECTION_SOURCE_CHANGED` | lock held, immutable destination exists, or any captured source differs before project commit | preserve published bytes and retry against frozen inputs |
+| `DIRECTION_PATCH` | wrong patch schema/base/allowed replacement fields, absent replacements or semantic no-op | export whole changed camera/timing/take sections on the exact current base |
+| `DIRECTION_CORRECTION_OUTCOME` | made direction closure lacks matching exact patch/base/result, same rig and later changed post | ingest the patch through create and resolve to that result |
+
+Each message names the record path and a remedy. Code assertions accompany
+negative controls; failed writer/transaction tests also assert unchanged record
+bytes. Existing handoff, correction and provenance codes keep their meaning.
+
+`rig-create/correction@2` is exclusively the `direction-patch` artifact:
+`{kind,patch:{path,sha256},state,result:null|{path,sha256}}`. State is
+`preview/pending` or `applied-and-checked`. Its post identities add
+`direction:{path,sha256}` to `{kind:"post",n,config,model}`. Only this variant's
+post→post pair accepts changed direction bytes with the same compiled rig model.
+The exact create-owned `direction_origin` and typed patch result are checked;
+a preview, same-document result, cross-kind result, changed rig or
+`rig-review-applied/2` report cannot close it. @1 records, their fixture bytes,
+unsupported operations and described/config-patch behavior remain unchanged.

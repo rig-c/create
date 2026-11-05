@@ -1,5 +1,7 @@
 {
   "schema": "rig-create/project@0",
+  "corrections_contract": {"schema":"rig-create/corrections@1","adopted_at":"2026-11-05T00:00:00.000Z"},
+  "corrections": [],
   "name": "lantern-keeper",
   "title": "The lantern keeper (a made-up painting, for the shape only)",
   "stage": "accepted",

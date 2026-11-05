@@ -65,6 +65,8 @@ export function checkTarget(dir: string): void {
 function writeProjectJson(dir: string, name: string): void {
   const record = readTemplate('project.json');
   record.name = name;
+  record.corrections_contract = { schema: 'rig-create/corrections@1', adopted_at: new Date().toISOString() };
+  record.corrections = [];
   const interview = record.interview as import('./templates.ts').JsonObject;
   interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: new Date().toISOString(), choices_adopted_at: new Date().toISOString() };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);

@@ -65,6 +65,9 @@ describe('init --no-install into an empty folder', () => {
     expect(Number.isFinite(Date.parse(order.choices_adopted_at as string))).toBe(true);
     expect(Number.isFinite(Date.parse(order.adopted_at as string))).toBe(true);
     (template.interview as Record<string, unknown>).order = order;
+    expect(written.corrections_contract.schema).toBe('rig-create/corrections@1');
+    expect(Number.isFinite(Date.parse(written.corrections_contract.adopted_at))).toBe(true);
+    template.corrections_contract = written.corrections_contract;
     expect({ ...written, name: null }).toEqual({ ...template, name: null });
     expect(template.name).toBeNull();
   });

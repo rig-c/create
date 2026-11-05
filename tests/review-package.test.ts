@@ -64,14 +64,14 @@ describe('frozen review package', () => {
     roots.push(dirname(dir));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
   test('stripping an example package record warns and keeps exit zero', () => {
     const dir = exampleFixture((project) => { delete version(project, 1).review_package; });
     roots.push(dirname(dir));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY']);
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
   test('removing one example package warns with its recorded regeneration command', () => {
     const dir = exampleFixture();
@@ -79,7 +79,7 @@ describe('frozen review package', () => {
     rmSync(join(dir, 'derived/review/v1'), { recursive: true });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY']);
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
     expect(report.warnings[1]?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
   });
   test('normal CLI writes a package whose installed feedback resolves the config hash', () => {

@@ -124,7 +124,7 @@ describe('setup painting on readable retained configs', () => {
   test('the filled example remains at zero refusals and warnings', () => {
     const report = checkProject(fixture());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('the normal interview CLI reports the named refusal', () => {

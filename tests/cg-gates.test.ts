@@ -132,6 +132,7 @@ describe('a full-screen scene (CG) rig version', () => {
       'CG_GATES_PREDATE versions[v2].built_with',
       'STAGE_ORDER_LEGACY interview.order',
       'CHOICE_ANSWERS_LEGACY interview.order',
+      'CORRECTION_PATH_LEGACY corrections_contract',
     ]);
   });
 

@@ -333,7 +333,7 @@ Exit `1`. Each names its object in `path`.
 | `SIGNOFF_MALFORMED` | a sign-off lacks `stage`, `by`, `at` or `verbatim` | write it in the answer shape |
 | `SIGNOFF_NOT_HUMAN` | a sign-off's `by` is `agent` | a person signs; the entry does not count |
 | `SIGNOFF_UNKNOWN_STAGE` | a sign-off names a stage that does not exist | fix the stage |
-| `SIGNOFF_AHEAD_OF_STAGE` | a sign-off names a stage later than the project's `stage` | move the stage, or remove the entry that was never given |
+| `SIGNOFF_AHEAD_OF_STAGE` | a sign-off names a stage later than the project's `stage` | move the stage, reopen a previously reached stage to preserve its history, or remove an entry that was never given |
 | `SIGNOFF_UNKNOWN_CHECKPOINT` | a sign-off's `checkpoint` names no step that runs in that stage | name the step |
 | `PARTS_BAR_UNMET` | the stage is past `parts` and a step it runs (`seethrough`, `assemble`) is not `done` | finish the step and meet its bar (the parts check passing on the assembled parts), or move the stage back to `parts` |
 | `PARTS_REVIEW_UNSIGNED` | the stage is past `parts-review`, or a `rigging` step is past `pending`, and no person signed `{ "stage": "parts-review", "checkpoint": null }` | the user reviews the assembled parts in rig-review's parts view and signs; until then the stage stays at `parts-review` and no rig step after `assemble` runs ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
@@ -501,6 +501,32 @@ collection's stages.
 | --- | --- | --- |
 | `MEMBER_UNREGISTERED` | a folder under `members/` is not in `members[]` | register it, or remove it |
 | `OUTPUT_CHANGED` | a collection output on disk does not hash to the version that recorded it | outputs are frozen when pinned: restore it, or make and pin a new version |
+
+## Reopening stages
+
+`rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>]`
+records a human backward move, snapshots affected step statuses into
+`steps_before`, resets those statuses to `pending`, and sets `stage` in one
+write. Existing signatures and versions remain unchanged. The check and writer
+share the reopen validator. No reopen list means the existing contract applies.
+This new record has no retroactive requirement on earlier project records.
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `REOPEN_STAGE_UNKNOWN` | a target is unknown, `paused` or `accepted` | choose a stage in the order that can be reopened |
+| `REOPEN_NOT_PASSED` | the target is later than the record's reached stage, historical signatures and dated versions | reopen a previously reached stage |
+| `REOPEN_MALFORMED` | reopens is not a list, an entry lacks its human signature, valid date or status snapshot, source is not text, or the writer cannot identify a plan step | restore the named record to the PROJECT.md reopen shape |
+| `REOPEN_OPTION_INVALID` | missing/repeated option values or invalid argument count (exit 2) | supply a stage, --by, optional source and one optional folder |
+| `SIGNOFF_NOT_HUMAN` | a reopen is signed by agent, case-insensitively | obtain a person's signature |
+
+The existing `UNKNOWN_OPTION`, `VERBATIM_*`, `PROJECT_JSON_*` and
+`SCHEMA_UNKNOWN` command refusals apply. A refused command writes nothing.
+Sign-offs and checkpoints at or before their applicable reopen are historical,
+not live; they cannot satisfy `STAGE_UNSIGNED`, `PARTS_REVIEW_UNSIGNED`,
+`PAUSED_UNSIGNED`, `CHECKPOINT_UNSIGNED` or authorise execution. Fresh work on
+a historical rig is `POST_ON_SUPERSEDED_RIG`; the hand-off requires a newly
+built and accepted rig, using its existing named refusals. Historical rig
+acceptances remain recorded, and an unaffected rig survives a post-only reopen.
 
 ## Recording signatures and review inputs
 

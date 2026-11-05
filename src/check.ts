@@ -47,6 +47,7 @@ import {
   stageOfStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
 import { stepHash } from './step-hash.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 
@@ -360,6 +361,10 @@ export function collectSignoffs(project: JsonObject, refusals: Finding[]): Signo
     }
     if ((s.by as string).toLowerCase() === 'agent') {
       refusals.push({ code: 'SIGNOFF_NOT_HUMAN', path, message: `${path} (stage ${stage}): signed by 'agent'; a stage moves only on a human sign-off` });
+      return;
+    }
+    if (!STAGE_VALUES.includes(stage as string)) {
+      refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: unknown stage ${stage}; use a known stage` });
       return;
     }
     const checkpoint = asString(s.checkpoint);
@@ -804,10 +809,23 @@ export function checkProject(projectDirArg: string): CheckReport {
   }
 
   const collection = loadCollection(dir);
-  const signoffs = collectSignoffs(project, refusals);
+  const reopens = collectReopens(project, refusals);
+  const historySignoffs = collectSignoffs(project, refusals);
+  const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const steps = collectSteps(project, refusals);
   const items = collectItems(project, { collection });
-  const planApprovedAt = planApprovedBeforePartsReview(signoffs);
+  const planApprovedAt = planApprovedBeforePartsReview(historySignoffs);
+  // Superseded signatures grant no authority, but malformed checkpoint history is still reported.
+  for (const s of historySignoffs) {
+    if (liveSignoff(reopens, s.stage, s.at) || s.checkpoint === null) continue;
+    const step = steps.find(step => step.id === s.checkpoint);
+    const ownStage = step === undefined ? null : stageOfStep(step.phase, step.id);
+    const legacyStage = step === undefined ? null : stageOfStep(step.phase, '');
+    if (step === undefined || (s.stage !== ownStage && !(planApprovedAt !== null && s.stage === legacyStage))) {
+      const path = `signoffs[${s.index}]`;
+      refusals.push({ code: 'SIGNOFF_UNKNOWN_CHECKPOINT', path, message: `${path}: historical checkpoint ${s.checkpoint} names no step in ${s.stage}; restore the original signature` });
+    }
+  }
   const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, steps, planApprovedAt !== null) : stage;
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;

@@ -41,7 +41,7 @@ function project(edit: (s: JsonObject) => void = () => {}, name = 'normal'): str
     s.diff_map = { report: { path: EXAMPLE_DIFF_REPORT, sha256: sha(report) },
       components: (JSON.parse(report) as { components: { id: string }[] }).components.map((c) => ({ id: c.id, status: 'left', why: 'the synthetic difference is accepted' })) };
     edit(s);
-  }, 'example-project.json', { [EXAMPLE_DIFF_REPORT]: report });
+  }, 'legacy-example-project.json', { [EXAMPLE_DIFF_REPORT]: report });
 }
 function componentFlags(dir: string): string[] {
   const report = JSON.parse(readFileSync(join(dir, EXAMPLE_DIFF_REPORT), 'utf8')) as { components: { id: string }[] };
@@ -80,7 +80,7 @@ describe('B0 normal writer and both producer layouts', () => {
     expect(obj(arr(obj(signed.diff_map).components)[0]).why).toBe('observed: synthetic difference');
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
   test('a zero-component producer report needs no component flags', () => {
     const dir = project(() => {}, 'empty');
@@ -175,7 +175,7 @@ test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
   const dir = project((s) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; });
   const report = checkProject(dir);
   expect(report.refusals).toEqual([]);
-  expect(report.warnings.map((f) => f.code)).toEqual(['DIFF_MAP_PREDATES']);
+  expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DIFF_MAP_PREDATES', 'STAGE_ORDER_LEGACY']);
 });
 test('an old sign-off with a map is checked fully', () => {
   only(project((s) => { s.at = '2026-11-05T00:00:00Z'; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
@@ -209,7 +209,7 @@ test('report symlinks cannot leave the project', () => {
 });
 test('B5 example has no findings and generation reproduces all shipped bytes', () => {
   const report = checkProject(fixture());
-  expect(report.refusals).toEqual([]); expect(report.warnings).toEqual([]);
+  expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   const generated = generateExampleDiff(join(tempDir(), 'generated'));
   expect(generated.report).toBe(reports.normal);
   const p = JSON.parse(readFileSync(join(fixture(), 'project.json'), 'utf8')) as JsonObject;

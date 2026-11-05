@@ -13,7 +13,7 @@ type Mutate = (project: JsonObject) => void;
 function fixture(mutate: Mutate = () => {}): string {
   const dir = join(tempDir(), 'project');
   mkdirSync(dir);
-  const project = readTemplate('example-project.json');
+  const project = readTemplate('legacy-example-project.json');
   mutate(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   writePartsPackage(dir);

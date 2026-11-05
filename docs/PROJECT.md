@@ -54,7 +54,7 @@ folder answers.
 
 ## Stages
 
-`interview` → `plan-approved` → `parts` → `parts-review` → `rigging` →
+`interview` → `plan-approved` → `parts` → `parts-review` → `rigging-interview` → `rigging` →
 `rig-review` → `post-interview` → `post` → `direction-review` → `accepted`,
 plus `paused`.
 
@@ -74,11 +74,12 @@ which stages end on a sign-off are written once, in `src/stages.ts`;
 
 | Stage | User step | What happens | Ends with |
 | --- | --- | --- | --- |
-| `interview` | 1 | Framing answers and a guide at every rig waypoint the plan passes ([INTERVIEW.md](INTERVIEW.md)): the user's sentences, a delegation ("auto"), or not applicable — never left for the agent to fill. | The user signs `{ "stage": "interview" }`. |
-| `plan-approved` | 1 | The rig steps (`phase: "rig"`) are drafted from the guides, with the agent's decision written on every delegated item. The user sets each step's checkpoint and signs. | `{ "stage": "plan-approved" }`. |
-| `parts` | 1 | The rig steps that make the parts run: `seethrough` and `assemble`. At a step whose checkpoint is on, work stops until `{ "stage": "parts", "checkpoint": "<step id>" }` is signed (the split, [below](#split-approval-is-a-plan-checkpoint)). No bone, mesh or constraint is built. | Every step it runs is `done`, `assemble`'s bar including the parts check passing on the assembled parts. |
-| `parts-review` | 1 | **The parts are reviewed before any rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. A bounce is fixed here, in `parts`. | `{ "stage": "parts-review" }`, signed by a person, carrying the approved parts verdict as `evidence`. |
-| `rigging` | 1 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. It does not start without the `parts-review` sign-off (`PARTS_REVIEW_UNSIGNED`), nor on a verdict that is missing, not approved or no longer the parts on disk (`PARTS_VERDICT_*`). | The last rig step's bar is met. |
+| `interview` | 1 | Framing and source/parts guides (the later rig guides wait for rigging-interview) ([INTERVIEW.md](INTERVIEW.md)): the user's sentences, a delegation ("auto"), or not applicable — never left for the agent to fill. | The user signs `{ "stage": "interview" }`. |
+| `plan-approved` | 1 | The parts steps (`phase: "rig"`) are drafted from the guides, with the agent's decision written on every delegated item. The user sets each step's checkpoint and signs. | `{ "stage": "plan-approved" }`. |
+| `parts` | 1 | The rig steps that make the parts run: `seethrough` and `assemble`. At a step whose checkpoint is on, work stops until `{ "stage": "parts", "checkpoint": "<step id>" }` is signed (the split, [below](#split-approval-is-a-plan-checkpoint)). Only a labelled draft may contain proposed bones/weights for mesh/chest inspection; production rigging remains forbidden. | Every step it runs is `done`, `assemble`'s bar including the parts check passing on the assembled parts. |
+| `parts-review` | 1 | **The parts are reviewed before any production rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. A bounce is fixed here, in `parts`. | `{ "stage": "parts-review" }`, signed by a person, carrying the approved parts verdict as `evidence`. |
+| `rigging-interview` | 2 | Ask bones, meshes, constraints and motion while viewing the approved parts and structure; draft their rigging plan. | The human signs `rigging-interview`, binding accepted parts and structure. |
+| `rigging` | 3 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. It does not start without the `parts-review` sign-off (`PARTS_REVIEW_UNSIGNED`), nor on a verdict that is missing, not approved or no longer the parts on disk (`PARTS_VERDICT_*`). | The last rig step's bar is met. |
 | `rig-review` | 1 → 3 | **First review, on a still frame**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version: an `accepted` verdict with `review: "rig-review"` on it, resting on its still frame, and `{ "stage": "rig-review" }` signed ([below](#the-rig-review-rests-on-a-still-frame)). |
 | `post-interview` | 2 | The post items (camera and 2.5D, timing, composition) are asked, and the post steps (`phase: "post"`) drafted from them. | The user signs `{ "stage": "post-interview" }` — guides and post steps together. |
 | `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it); post tooling asks `rig-create handoff` first ([below](#the-hand-off-to-post-production)). | The last post step's bar is met. |
@@ -384,7 +385,7 @@ agent reads, and a second file is one a resume can skip.
 - **`status`**: `pending` → `in-progress` → `at-checkpoint` (waiting for a
   sign-off) → `done`.
 - A changed guide — including one added from polish feedback — sends every step
-  that rests on it back for a new `plan-approved` sign-off before it runs.
+  that rests on it back for a new sign-off by its step-specific approval stage before it runs.
 - **Provenance**: each version built from a config records, per config
   section, the guide sentence or delegation each entry follows
   (`versions[].provenance`, [INTERVIEW.md § Provenance](INTERVIEW.md#provenance-every-config-section-cites-its-guide)).
@@ -402,7 +403,7 @@ from the file, or stdin when omitted or `-`, preserving BOM, spaces, CRLFs and
 final newlines. Invalid UTF-8 is refused because a JSON string cannot retain
 its original bytes.
 
-For `plan-approved`, coverage is every rig step. For `post-interview`, it is
+For new-order `plan-approved`, coverage is the parts steps; `rigging-interview` covers the remaining rig steps. Legacy `plan-approved` covers every rig step. For `post-interview`, it is
 every post step. `--steps` narrows coverage within that phase and stores the
 covered ids in `steps[]`. Execution stages accept `--checkpoint <step id>`
 when that step runs in the
@@ -416,7 +417,7 @@ normalising the path to project-relative POSIX form and hashing the file. The ex
 approval, shape and source freshness before anything is written. Other stages
 refuse `--evidence`.
 
-Only `plan-approved` and `post-interview` accept `--steps`. Stage movement
+Only `plan-approved`, `rigging-interview` and `post-interview` accept `--steps`. Stage movement
 remains a separate act read by the check.
 
 Each covered step needs a boolean `checkpoint_proposed`. A null checkpoint
@@ -760,3 +761,111 @@ resolved guide's own `at`, including inherited guides. An older or undated guide
 with no `asks` is warned about, preserving its exit code. An explicitly recorded
 list is checked regardless of age. Missing, unknown, duplicate or invalid entries
 must be fixed; free-text `agent_decision.covers` alone is not per-ask coverage.
+
+
+## Explicit adoption of the split interview
+
+`interview.order: { "spec": "rig-create/stage-order@1", "adopted_at": "<clock ISO date>" }`
+is the only order switch. A date does not establish which contract was used.
+`init` writes this metadata. An old record keeps its old checks and gets one
+`STAGE_ORDER_LEGACY` warning: its old rig guides are historical answers, never
+certification that they were asked after parts. No signature, checkpoint hash
+or old version is rewritten. To adopt, preserve the old rig guides whole in
+that question's `history[]`, ask fresh answers against accepted parts, and
+record the first human `signoff rigging-interview`. That writer records adoption
+and the live parts/structure context. Stage movement remains a separate human
+act, as for existing forward sign-offs. The filled legacy example is frozen in
+`templates/legacy-example-project.json`; it passes with that order warning plus `QUESTION_SET_STALE` when read under
+the current 2.14.2 pin, because its frozen question set remains at 2.14.1.
+The new `example-project.json` is a synthetic new-order narrative at 0/0.
+
+Framing and source (`seethrough`, `assemble`) are the first interview. A
+`plan-approved` signature covers only those parts steps in new-order records.
+The later `rigging-interview` covers `bones`, `meshes`, `constraints`, `motion`.
+Keep `phase: "rig"`; approval is resolved by step, not phase alone. Legacy
+`plan-approved` retains its old all-rig-step coverage. Post approval is unchanged.
+`plan.drafted_at` dates the parts plan; `plan.rigging_drafted_at` dates the later
+rigging plan, so drafting it does not invalidate the earlier parts signature.
+Each plan signature hashes only its covered steps. `--steps` cannot cross
+approval ownership. Pending later steps/answers may remain unfilled before their
+interview; production execution still requires its proper human approval.
+
+The hand pass is the correction loop of `rig-review`, including rig and
+animation inspection, described corrections and direct edits. It adds no stage
+or acceptance authority. Existing `review_origin`/applied-review chains retain
+producer feedback; `review_origin: null` remains legal for a first rig. A
+separate choice-answer schema and correction-path union are subsequent cards.
+
+## Labelled draft rigs and structure decisions
+
+After assemble, `parts`/`parts-review` may use a proposed draft to inspect meshes
+and refine chest structure before asking the production rigging plan. The
+draft's proposed bones and weights are not the person's rigging answers.
+
+```sh
+rig-create draft-rig <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--json]
+rig-create signoff parts-review --by <who> --evidence <path> --diff-report <path> --component '<id>=<status>:<why>' --draft <id> --structure-file <path> --verbatim-file <file>
+```
+
+The recorder reads existing output; it runs no producer or review command.
+It appends `drafts[]` with `{ id, kind: "draft-rig", at, producer: {name,version},
+config: {path,sha256}, parts: {path,files:[{path,sha256}]}, files:[{path,sha256}] }`.
+All files must resolve under `derived/drafts/<id>/`. Standalone `rig --out`
+requires explicit `--parts`; only an unambiguous build root containing
+`parts.json`, `parts/` and `rig/` supplies those inputs implicitly. Ambiguous
+layouts, symlinks out of the root and changes to present recorded input bytes refuse.
+Absent ignored draft files warn as `DRAFT_RIG_UNAVAILABLE`, including after a
+clone; they do not invalidate an accepted record. Present files still verify
+even when another file is absent.
+These are **create-owned artifact identities**. The config/output association
+is a declaration, not measured reproducibility or producer provenance. There
+is no retained producer handoff file here: review constructs its own live
+handoff when it opens the draft.
+
+Drafts allocate no production version number. A declared draft, reserved draft
+path or registered draft artifact cannot be reviewed, packaged or handed off
+as a `versions[]` rig. A separately authorised production build gets its own
+output root and numbered version. This checks declared artifact identity;
+it does not claim to recognise untracked byte copies after their identity is
+stripped. Identical model hashes alone are not blacklisted.
+
+`--structure-file` retains an agent-prepared declaration snapshot approved by
+the human parts sign-off, not a fabricated review export:
+
+```json
+{
+  "schema": "rig-create/structure-decisions@0",
+  "draft_id": "sample",
+  "config": { "path": "derived/drafts/sample/config.json", "sha256": "<config hash>" },
+  "entries": [ { "path": "/meshes/torso", "value": { "contour": { "regions": [] } } } ]
+}
+```
+
+Each entry is the complete exact `meshes.<part>` declaration, including
+`contour.bust` or `contour.regions` where present. Paths use JSON Pointer
+escaping. Explicit `entries: []` is legal when no declarations are carried.
+The snapshot must live outside ignored roots, such as `evidence/`; the writer
+refuses paths or aliases into ignored storage. The writer hashes the retained
+file and checks its config/declaration identity when the draft config is
+available. A clone still checks the snapshot hash/schema and its recorded
+config identity, without requiring absent regenerable draft artifacts. It
+stores `draft_id` and `structure:{path,sha256}` on the parts-review sign-off.
+It does not apply patches or measure geometry. The later interview reads this
+human-approved snapshot instead of re-asking its structure as a guess.
+`signoff rigging-interview` resolves its `accepted_parts:{signoff_at,evidence}`
+and `structure` from the live human parts review and stores a shared
+`interview.rigging_context`, outside the answer union. Fresh rig guides must
+follow that approval and precede their rigging signature. Contradictory retained
+production config declarations require renewed approval rather than a silent
+override. Each production version uses the latest structure approval live at
+its build date, with reopen supersession evaluated at that same date; a later
+approval does not impose its declarations on old versions. Both new-order writers validate the full candidate before writing.
+
+Mesh sign-off UI evidence from review#365 is optional in this contract, not a
+shipped-capability claim or mandatory gate. Review/producer owners validate the
+actual editors and mesh rendering. Create's synthetic tests prove record
+binding and refusals, not the physical correctness of a chest rebuild.
+
+The synthetic new-order record and draft declaration files reproduce with
+`bun scripts/generate-example-order.ts <fresh scratch dir> --check`. The frozen
+legacy record is byte-preserved; generated evidence is never hand-written.

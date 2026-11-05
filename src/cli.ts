@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { DRAFT_RIG_HELP, draftRigCommand } from './drafts.ts';
 import { collectionInitCommand } from './collection.ts';
 import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
@@ -34,6 +35,8 @@ Usage:
                                                     record a signature without moving the stage
   rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
                                                     record a human backward move without deleting history
+  rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
+                                                    record labelled draft artifacts without building or promoting
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
                                                     copy producer inputs and record the review open command
   rig-create split-captions [<project dir|project.json>] [--config <file>]
@@ -55,6 +58,8 @@ ${REVIEW_HELP}
 ${SIGNOFF_HELP}
 
 ${REOPEN_HELP}
+
+${DRAFT_RIG_HELP}
 
 ${DERIVED_HELP}
 
@@ -115,6 +120,7 @@ const COMMANDS: Record<string, Command> = {
   review: reviewCommand,
   signoff: signoffCommand,
   reopen: reopenCommand,
+  'draft-rig': draftRigCommand,
 
   derived: derivedCommand,
   'split-captions': splitCaptionsCommand,

@@ -2,13 +2,14 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { asArray, classify, isObject, type Finding } from './check.ts';
+import { asArray, checkProject, classify, isObject, type Finding } from './check.ts';
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
 import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
+import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { PARTS_REVIEW, PHASE_APPROVED_BY, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, STAGE_ORDER_SPEC, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -16,9 +17,11 @@ export const SIGNOFF_HELP = `signoff:
   <stage> [<project dir>]  record a human signature without moving project.stage
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
-  --steps <id,id,...>      narrow plan-approved rig steps or post-interview post steps
+  --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
   --checkpoint <id>       sign an enabled checkpoint in this execution stage
   --evidence <path>       required on parts-review, the approved parts verdict file
+  --draft <id>            labelled draft approved at parts-review
+  --structure-file <path> retained structure decisions snapshot
   --diff-report <path>    parts-review difference report, required from 2026-11-06
   --component <id>=<status>:<why>  repeat for every report component (parts-review only)
   --json                  print the signature as JSON
@@ -42,7 +45,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
       const id = value.slice(0, eq);
       if (components.some((c) => c.id === id)) refuse('SIGNOFF_OPTION_INVALID', `duplicate component ${id}`, USAGE_EXIT);
       components.push({ id, status: value.slice(eq + 1, colon), why: value.slice(colon + 1) });
-    } else if (['--diff-report', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
+    } else if (['--draft', '--structure-file', '--diff-report', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -107,12 +110,14 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     }
     evidence = { kind: PARTS_VERDICT_KIND, path, sha256: createHash('sha256').update(bytes).digest('hex') };
   }
-  const phase = Object.entries(PHASE_APPROVED_BY).find(([, approvedBy]) => approvedBy === stage)?.[0];
-  if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved or post-interview', USAGE_EXIT);
+  if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
+  if ((opts['--draft'] === undefined) !== (opts['--structure-file'] === undefined)) refuse('SIGNOFF_OPTION_INVALID', 'parts-review requires --draft and --structure-file together', USAGE_EXIT);
+  const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
+  if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved, rigging-interview or post-interview', USAGE_EXIT);
   const requested = opts['--steps']?.split(',');
   if (requested !== undefined && (requested.some((id) => id === '') || new Set(requested).size !== requested.length)) refuse('SIGNOFF_STEP_INVALID', '--steps needs distinct non-empty step ids', USAGE_EXIT);
   const steps = phase === undefined ? [] : asArray(isObject(project.plan) ? project.plan.steps : undefined)
-    .filter((step): step is JsonObject => isObject(step) && step.phase === phase);
+    .filter((step): step is JsonObject => isObject(step) && step.phase === phase && approvalStageOfStep(phase as 'rig' | 'post', String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage);
   for (const id of requested ?? []) {
     if (!steps.some((step) => step.id === id)) refuse('SIGNOFF_STEP_INVALID', `${id}: no step in phase ${phase}`);
   }
@@ -152,7 +157,37 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     signoff.steps = ids;
     signoff.step_hashes = hashes;
   }
+  if (stage === PARTS_REVIEW && (hasStageOrder(project) || opts['--structure-file'] !== undefined)) {
+    signoff.draft_id = opts['--draft'] ?? null;
+    const path = opts['--structure-file'];
+    if (path !== undefined) {
+      try {
+        if (structurePathIsIgnored(dir, path)) throw new Error('structure snapshots must survive a clone; retain the file outside ignored roots, for example evidence/');
+        const canonical = realpathSync(resolve(dir, path));
+        const rel = relative(realpathSync(dir), canonical).split(sep).join('/');
+        if (isAbsolute(path) || rel === '' || rel === '..' || rel.startsWith('../')) throw new Error('structure file must stay under the project');
+        signoff.structure = { path: rel, sha256: createHash('sha256').update(readFileSync(canonical)).digest('hex') };
+      } catch (error) { refuse('STRUCTURE_DECISIONS_INVALID', `signoffs.structure: ${error instanceof Error ? error.message : String(error)}; retain the structure snapshot under the project`); }
+    }
+    const errors: Finding[] = [];
+    checkStructure(dir, project, signoff, `signoffs[${project.signoffs.length}]`, errors);
+    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
+  }
+  if (stage === 'rigging-interview') {
+    const errors: Finding[] = [];
+    const context = riggingContext(dir, project, at, errors);
+    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
+    if (context !== null) { signoff.accepted_parts = context.accepted_parts as JsonObject; signoff.structure = context.structure as JsonObject; }
+    if (!isObject(project.interview)) refuse('RIGGING_INTERVIEW_CONTEXT', 'interview: restore the interview record before adoption');
+    project.interview.rigging_context = context;
+    if (!hasStageOrder(project)) project.interview.order = { spec: STAGE_ORDER_SPEC, adopted_at: at };
+    project.stage_values = [...STAGE_VALUES];
+  }
   project.signoffs.push(signoff);
+  if (hasStageOrder(project) || signoff.structure !== undefined) {
+    const first = checkProject(dir, project).refusals[0];
+    if (first !== undefined) refuse(first.code, first.message);
+  }
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(signoff, null, 2) : `signoff: recorded ${stage} by ${by} at ${at}; stage unchanged`, exit: 0 };
 }

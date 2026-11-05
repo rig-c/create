@@ -51,7 +51,7 @@ describe('frozen review package', () => {
     const second = join(root, 'second');
     const records = generateExampleReview(first);
     expect(generateExampleReview(second)).toEqual(records);
-    const example = readTemplate('example-project.json');
+    const example = readTemplate('legacy-example-project.json');
     for (const n of [1, 2]) expect(records[n - 1]).toEqual(obj(version(example, n).review_package));
     expect(readFileSync(join(first, 'project.json'), 'utf8')).toBe(readFileSync(join(second, 'project.json'), 'utf8'));
     for (const [path, bytes] of Object.entries(reviewExampleFiles())) {
@@ -64,14 +64,14 @@ describe('frozen review package', () => {
     roots.push(dirname(dir));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
   test('stripping an example package record warns and keeps exit zero', () => {
     const dir = exampleFixture((project) => { delete version(project, 1).review_package; });
     roots.push(dirname(dir));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((finding) => finding.code)).toEqual(['REVIEW_PACKAGE_MISSING']);
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY']);
   });
   test('removing one example package warns with its recorded regeneration command', () => {
     const dir = exampleFixture();
@@ -79,8 +79,8 @@ describe('frozen review package', () => {
     rmSync(join(dir, 'derived/review/v1'), { recursive: true });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((finding) => finding.code)).toEqual(['REVIEW_PACKAGE_MISSING']);
-    expect(report.warnings[0]?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
+    expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY']);
+    expect(report.warnings[1]?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
   });
   test('normal CLI writes a package whose installed feedback resolves the config hash', () => {
     const dir = fixture();

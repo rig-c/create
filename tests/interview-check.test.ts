@@ -1,3 +1,4 @@
+import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -33,13 +34,14 @@ function plantParts(projectDir: string, version: string, source: string): void {
 type Mutate = (project: JsonObject) => void;
 
 /** A project folder in the OS temp dir holding the filled example, mutated in place. Nothing is copied into the repo. */
-function fixture(mutate: Mutate = () => {}, template = 'example-project.json'): string {
+function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json'): string {
   const dir = join(tempDir(), 'project');
   mkdirSync(dir);
   const project = readTemplate(template);
+  if (template === 'project.json') obj(project.interview).order = { spec: 'rig-create/stage-order@1', adopted_at: '2026-11-05T00:00:00Z' };
   mutate(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
-  if (template === 'example-project.json') writePartsPackage(dir);
+  if (template === 'legacy-example-project.json') writePartsPackage(dir);
   return dir;
 }
 
@@ -88,10 +90,10 @@ const DELEGATED_GUIDE: JsonObject = {
 };
 
 describe('the filled example', () => {
-  test('passes, with no warnings, against the installed @rig-c/parts pin', () => {
+  test('legacy example passes with explicit pin-drift and order warnings', () => {
     const report = checkProject(fixture());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
     expect(report.ok).toBe(true);
     expect(report.parts?.version).toBe(PINNED_PACKAGES['@rig-c/parts']);
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
@@ -103,12 +105,12 @@ describe('the filled example', () => {
     const result = cli(['interview', '--check', fixture()], tempDir(), gitEnv());
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('clean: 0 warnings');
+    expect(result.stdout).toContain('clean: 2 warnings');
     expect(result.stdout).toContain('stage accepted');
   });
 
   test('a plan-approved re-sign while the stage stays later is not a refusal (the example carries one)', () => {
-    const resigns = signoffs(readTemplate('example-project.json')).filter((s) => s.stage === 'plan-approved');
+    const resigns = signoffs(readTemplate('legacy-example-project.json')).filter((s) => s.stage === 'plan-approved');
     expect(resigns).toHaveLength(2);
     expect(resigns[1]?.steps).toEqual(['bones', 'constraints']);
   });
@@ -124,10 +126,6 @@ describe('the empty template at stage interview', () => {
       'interview.framing[reference].answer',
       'interview.waypoints[seethrough].guide',
       'interview.waypoints[assemble].guide',
-      'interview.waypoints[bones].guide',
-      'interview.waypoints[meshes].guide',
-      'interview.waypoints[constraints].guide',
-      'interview.waypoints[motion].guide',
     ]);
     expect(report.warnings).toEqual([]);
   });
@@ -136,7 +134,7 @@ describe('the empty template at stage interview', () => {
     const result = cli(['interview', '--check', fixture(() => {}, 'project.json')], tempDir(), gitEnv());
     expect(result.code).toBe(1);
     expect(result.stdout).toContain('the interview is incomplete');
-    expect(result.stdout).toContain('not clear: 8 refusals');
+    expect(result.stdout).toContain('not clear: 4 refusals');
   });
 
   test("the template's stage_values are the order in src/stages.ts", () => {
@@ -318,7 +316,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     plantParts(dir, PINNED_PACKAGES['@rig-c/parts'], sectionsSource(PARTS_SECTIONS.filter((s) => s !== 'cloth')));
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['SECTION_RETIRED', 'WAYPOINT_CONFIG_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['QUESTION_SET_STALE', 'SECTION_RETIRED', 'STAGE_ORDER_LEGACY', 'WAYPOINT_CONFIG_STALE']);
   });
 
   test('a record missing a derived waypoint is refused by waypoint id', () => {
@@ -339,7 +337,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(codes(report)).toEqual(['SECTION_UNPLACED']);
     expect(withCode(report, 'SECTION_UNPLACED')[0]?.message).toContain("'sway'");
     expect(report.parts?.read_from).toBe('CONFIG_SECTIONS');
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
 
   test('a parts without the CONFIG_SECTIONS export (older than 2.3.0) is refused, not silently empty', () => {
@@ -376,7 +374,7 @@ describe('collection members', () => {
     collection.name = 'harbour';
     byId(arr(obj(collection.interview).waypoints), 'motion').guide = collectionMotion;
     writeFileSync(join(col, 'collection.json'), JSON.stringify(collection, null, 2));
-    const project = readTemplate('example-project.json');
+    const project = readTemplate('legacy-example-project.json');
     supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
     const dir = join(col, 'members', 'keeper');
     writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2));
@@ -390,7 +388,7 @@ describe('collection members', () => {
   });
 
   test('current inherited coverage is checked on the resolved collection guide', () => {
-    const guide = obj(waypoint(readTemplate('example-project.json'), 'motion').guide);
+    const guide = obj(waypoint(readTemplate('legacy-example-project.json'), 'motion').guide);
     expect(withCode(checkProject(member(guide)), 'GUIDE_ASK_UNANSWERED')).toEqual([]);
     guide.asks = arr(guide.asks).filter((entry) => obj(entry).id !== 'speed');
     expect(withCode(checkProject(member(guide)), 'GUIDE_ASK_UNANSWERED').map((f) => f.path)).toEqual(['interview.waypoints[motion].guide.asks[speed]']);
@@ -571,14 +569,14 @@ describe('appearance calls go to a person, not a step bar', () => {
     const report = checkProject(fixture((p) => { step(p, 'motion').bar = phrase; rehashSignoffs(p); }));
     expect(report.ok).toBe(true);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([expect.objectContaining({
+    expect(report.warnings).toEqual([expect.objectContaining({ code: 'QUESTION_SET_STALE', path: 'interview.question_set' }), expect.objectContaining({
       code: 'STEP_APPEARANCE_REVIEW', path: 'plan.steps[motion].bar',
       message: expect.stringContaining("person's rig-review"),
-    })]);
+    }), STAGE_ORDER_LEGACY_FINDING]);
   });
 
   test('post wording names direction-review and remains an exit-0 warning through the CLI', () => {
-    const project = readTemplate('example-project.json');
+    const project = readTemplate('legacy-example-project.json');
     const post = arr(obj(project.plan).steps).map(obj).find((s) => s.phase === 'post');
     if (post === undefined) throw new Error('example needs a post step');
     const dir = fixture((p) => { step(p, post.id as string).bar = 'Looks RIGHT in the loop'; rehashSignoffs(p); });

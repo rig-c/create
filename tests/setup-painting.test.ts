@@ -21,7 +21,7 @@ function project(config: JsonObject = { requirements: 'requirements.json' }, req
     v.at = SETUP_PAINTING_SINCE;
     obj(v.provenance).config = { path: 'evidence/setup/config.json', sha256: sha(text) };
     mutate(p);
-  }, 'example-project.json', {
+  }, 'legacy-example-project.json', {
     'evidence/setup/config.json': text,
     ...(requirements === null ? {} : { 'evidence/setup/requirements.json': json(requirements) }),
   });
@@ -124,7 +124,7 @@ describe('setup painting on readable retained configs', () => {
   test('the filled example remains at zero refusals and warnings', () => {
     const report = checkProject(fixture());
     expect(report.refusals).toEqual([]);
-    expect(report.warnings).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
 
   test('the normal interview CLI reports the named refusal', () => {

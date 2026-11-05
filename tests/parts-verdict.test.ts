@@ -48,7 +48,7 @@ function project(options: PackageOptions = {}, mutate: Mutate = () => {}, files:
       partsReviewSignoff(p).evidence = evidenceFor(pkg);
       mutate(p);
     },
-    'example-project.json',
+    'legacy-example-project.json',
     { ...pkg.files, ...files },
   );
 }
@@ -230,7 +230,7 @@ describe('the reach: the parts gate rigging until a rig version is accepted at r
   });
 
   test('after rig-review acceptance a repainted part is not re-read here', () => {
-    const dir = fixture(() => {}, 'example-project.json', { [`${EXAMPLE_PARTS_DIR}/parts/background.png`]: 'changed\n' });
+    const dir = fixture(() => {}, 'legacy-example-project.json', { [`${EXAMPLE_PARTS_DIR}/parts/background.png`]: 'changed\n' });
     expect(verdictCodes(checkProject(dir))).toEqual([]);
   });
 });
@@ -258,7 +258,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
   });
 });
 
@@ -275,7 +275,7 @@ describe('an in-flight project that a person did review', () => {
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY']);
   });
 });
 
@@ -283,7 +283,7 @@ describe('the filled example', () => {
   test("its parts-review sign-off names the verdict the fixture writes, by path and sha256", () => {
     const pkg = partsPackage({ verdict: EXAMPLE_VERDICT });
     const dir = fixture();
-    const example = arr(readTemplate('example-project.json').signoffs).map(obj).find((s) => s.stage === 'parts-review');
+    const example = arr(readTemplate('legacy-example-project.json').signoffs).map(obj).find((s) => s.stage === 'parts-review');
     expect(example?.evidence).toEqual(evidenceFor(pkg));
     expect(checkProject(dir).refusals).toEqual([]);
   });

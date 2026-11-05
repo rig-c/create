@@ -1,5 +1,6 @@
 import { asArray, isDecision, isObject, type Ctx } from './check.ts';
 import { assembleAnswer, checkAssembleAnswers, PROJECTION_ASKS_SINCE } from './assemble-answers.ts';
+import { approvalStageOfGuide, hasStageOrder } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
 
 /** Independent of other contract dates; read the resolved guide's own at. */
@@ -57,7 +58,7 @@ export function checkAskCoverage(ctx: Ctx): void {
           ctx.refusals.push({ code: 'GUIDE_PARTIAL_UNMARKED', path: item.path, message: `${item.path}: delegated asks need agent_decision.covers naming the remainder` });
         }
       }
-      const approved = ctx.signoffs.some((signoff) => signoff.stage === 'plan-approved' && signoff.checkpoint === null);
+      const approved = ctx.signoffs.some((signoff) => signoff.stage === approvalStageOfGuide(item.id, false, hasStageOrder(ctx.project)) && signoff.checkpoint === null);
       if (approved && !isDecision(decision)
         && !ctx.refusals.some((finding) => finding.code === 'DELEGATION_UNDECIDED' && finding.path === item.path)) {
         ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path: item.path, message: `${item.path}: delegated asks need agent_decision.value and reasoning before plan approval` });

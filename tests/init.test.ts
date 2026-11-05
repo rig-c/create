@@ -56,10 +56,14 @@ describe('init --no-install into an empty folder', () => {
     for (const sub of TRACKED_EMPTY_DIRS) expect(readdirSync(join(dir, sub))).toContain('.gitkeep');
   });
 
-  test('project.json is the template with only the name filled', () => {
+  test('project.json fills the name and explicit order adoption time', () => {
     const written = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
     const template = readTemplate('project.json');
     expect(written.name).toBe('demo-project');
+    const order = (written.interview as Record<string, unknown>).order as Record<string, unknown>;
+    expect(order.spec).toBe('rig-create/stage-order@1');
+    expect(Number.isFinite(Date.parse(order.adopted_at as string))).toBe(true);
+    (template.interview as Record<string, unknown>).order = order;
     expect({ ...written, name: null }).toEqual({ ...template, name: null });
     expect(template.name).toBeNull();
   });

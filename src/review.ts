@@ -22,6 +22,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { draftVersionFindings } from './drafts.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
@@ -283,7 +284,7 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
   }
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
-  const historyRefusals: ReviewCtx['refusals'] = [];
+  const historyRefusals: ReviewCtx['refusals'] = draftVersionFindings(dir, record);
   checkPreInterview({ dir, project: record, refusals: historyRefusals, warnings: [] });
   const first = historyRefusals[0];
   if (first !== undefined) refuse(first.code, first.message);

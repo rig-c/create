@@ -6,8 +6,8 @@ before `seethrough` and before `assemble`.
 
 It is the working order, not the machine contract. The contract — which fields,
 which lines `assemble` prints, which refusals fire — is in rig-c/parts
-[AUTHORING.md](https://github.com/rig-c/parts/blob/v2.14.1/docs/AUTHORING.md)
-and its [README](https://github.com/rig-c/parts/blob/v2.14.1/README.md), linked
+[AUTHORING.md](https://github.com/rig-c/parts/blob/v2.14.2/docs/AUTHORING.md)
+and its [README](https://github.com/rig-c/parts/blob/v2.14.2/README.md), linked
 here at the version a new project pins (2.4.0) and not copied. In a project, read
 the same files under `node_modules/@rig-c/parts/`.
 
@@ -58,9 +58,9 @@ on its own (`st_input_head.png`, cut by `rig-parts inputs` from
   face back at the full run's pixel density. The separate head run is what gives
   the eyes their pixels.
 - *Source*: parts AUTHORING
-  [*See-through head-run source reading*](https://github.com/rig-c/parts/blob/v2.14.1/docs/AUTHORING.md#see-through-head-run-source-reading);
+  [*See-through head-run source reading*](https://github.com/rig-c/parts/blob/v2.14.2/docs/AUTHORING.md#see-through-head-run-source-reading);
   the routes in the parts README,
-  [*Getting See-through layers*](https://github.com/rig-c/parts/blob/v2.14.1/README.md#getting-see-through-layers).
+  [*Getting See-through layers*](https://github.com/rig-c/parts/blob/v2.14.2/README.md#getting-see-through-layers).
 
 ### Resolution: check the memory first
 
@@ -109,7 +109,7 @@ visible-pixel defect does the [editor rung](#the-editor-rung) come next.
 - **Why**: a defect in the split is a source problem, and a source problem
   patched downstream comes back at every motion extreme.
 - *Source*: parts AUTHORING
-  [*Source before scissors*](https://github.com/rig-c/parts/blob/v2.14.1/docs/AUTHORING.md#source-before-scissors)
+  [*Source before scissors*](https://github.com/rig-c/parts/blob/v2.14.2/docs/AUTHORING.md#source-before-scissors)
   (the repair ladder: another layer or run, a re-run, then config); owner ruling,
   2026-10-29/31 (re-run first, several runs before a cut).
 
@@ -136,7 +136,7 @@ name the gap.
   so it tears at the edge in motion; a cut over a defect hides it at rest and
   shows it moving.
 - *Source*: parts AUTHORING
-  [*Source before scissors*](https://github.com/rig-c/parts/blob/v2.14.1/docs/AUTHORING.md#source-before-scissors)
+  [*Source before scissors*](https://github.com/rig-c/parts/blob/v2.14.2/docs/AUTHORING.md#source-before-scissors)
   (scissors for structure, the cases a cut fits, no material past the joint) and
   its paragraph *A layer the author made*; owner ruling, 2026-10-29/31; pilot
   measurement, 2026-11-03 (the draw-order split).
@@ -150,7 +150,7 @@ it is never one mesh bent across the joint (`LIMB_ONE_BONE`).
 - **Why**: a limb cut anywhere else, or bent as one mesh, shows a straight edge
   or a grotesque bend.
 - *Source*: parts AUTHORING
-  [*Limbs: cut at their joints*](https://github.com/rig-c/parts/blob/v2.14.1/docs/AUTHORING.md#limbs-cut-at-their-joints-limbs-issue-349);
+  [*Limbs: cut at their joints*](https://github.com/rig-c/parts/blob/v2.14.2/docs/AUTHORING.md#limbs-cut-at-their-joints-limbs-issue-349);
   [CRAFT.md A2](CRAFT.md#a2-limbs-that-bend-are-cut-at-the-joint-and-rounded);
   owner ruling, 2026-10-29/31.
 
@@ -192,7 +192,7 @@ When the split's canvas is coarser than the rig, every split layer is upscaled
 into the rig and reads softer than the painting. Measure the edge rise width
 (10–90 % of the step, across an outline) on the parts and on the painting at the
 same place. A rig scale near the guide value (parts AUTHORING, `assemble.rig_scale`
-in [*`config.json`, field by field*](https://github.com/rig-c/parts/blob/v2.14.1/docs/AUTHORING.md#3-configjson-field-by-field):
+in [*`config.json`, field by field*](https://github.com/rig-c/parts/blob/v2.14.2/docs/AUTHORING.md#3-configjson-field-by-field):
 the figure about 1,100 to 1,200 rig px tall) can close it. When the guide value
 is at least as good on every figure measured, the guide value wins.
 

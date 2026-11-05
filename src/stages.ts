@@ -56,7 +56,7 @@ export const STAGE_VALUES: readonly string[] = [...STAGES.map((s) => s.id), PAUS
  */
 export const SKIPPED_WHEN_NO_POST: readonly string[] = ['post', 'direction-review'];
 
-/** The stage whose sign-off approves the steps of a phase: rig steps by `plan-approved`, post steps by `post-interview`. */
+/** Default new-order phase approvals; parts steps and legacy records use approvalStageOfStep. */
 export const PHASE_APPROVED_BY: Readonly<Record<'rig' | 'post', string>> = {
   rig: 'rigging-interview',
   post: 'post-interview',

@@ -162,7 +162,7 @@ export const READ_FIRST = [
  * After rig-c/create#3 (`rig-create interview --check`) lands, this line names
  * that command, in the form a project runs it, instead of the doc reference.
  */
-export const INTERVIEW_CHECK_LINE = `Before asking the user to sign the interview, check that no framing answer and no guide of a waypoint the plan passes is \`null\` ([INTERVIEW.md § Every item has an owner](${createDocUrl(OWNER_LINK.path, OWNER_LINK.anchor)})).`;
+export const INTERVIEW_CHECK_LINE = `Before asking the user to sign the interview, check that no answer belonging to that interview is \`null\` ([INTERVIEW.md § Every item has an owner](${createDocUrl(OWNER_LINK.path, OWNER_LINK.anchor)})).`;
 
 export const GUIDE_TEMPLATE = 'agent-guide.md';
 

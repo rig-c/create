@@ -22,7 +22,7 @@ const GUIDE_HEADINGS = [
   '# Agent guide',
   '## Start here',
   '## The order, and what you may not do',
-  "## The user's three steps",
+  "## The user's four steps",
   '## Before you ask, plan or show',
   '## Where things go',
   '## What to read, and why',

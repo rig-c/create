@@ -12,12 +12,12 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 ## The order, and what you may not do
 
 `interview` → `plan-approved` → `parts` → `parts-review` (the parts, by eye) →
-`rigging` → `rig-review` (the rig, still frame) → `post-interview` → `post` →
+`rigging-interview` → `rigging` → `rig-review` (the rig, still frame) → `post-interview` → `post` →
 `direction-review` → `accepted`. Any stage can become `paused`.
 
-- No rig step runs before the user signs `plan-approved`, and none after
-  `assemble` before they sign `parts-review` with the approved parts verdict
-  as `evidence`.
+- `plan-approved` approves source/parts steps. Production rigging waits for
+  `parts-review` and the later `rigging-interview` sign-off. Only a labelled
+  draft may have proposed bones/weights for earlier mesh/chest inspection.
 - Only a person's `signoffs[]` advances `stage` or passes a plan checkpoint.
   You may draft, propose, build and measure in any stage.
 - Never derive answers from the image. Ask the next `null` answer in plain words.
@@ -25,14 +25,17 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
   blank for you to fill later.
 - {{INTERVIEW_CHECK}}
 
-## The user's three steps
+## The user's four steps
 
-1. **Base motion**. Cut, bones, deformation, physics and motion. Ask before
-   rigging; judge at `rig-review`.
-2. **Direction**. Camera, depth, timing. Ask after rig acceptance; judge at
-   `direction-review`.
-3. **Polish**. Keep feedback verbatim in the shown version's `verdicts[]`, tied
-   to its items.
+1. **Parts and meshes**. Ask framing/source; review parts and a labelled draft's
+   mesh/chest structure. `parts-review --draft --structure-file` binds decisions.
+2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
+   against the approved parts/structure; sign their plan separately.
+3. **Rig and animation**. Hand pass is rig-review's correction loop; keep feedback.
+4. **Direction**. Ask after rig acceptance; judge at direction-review.
+
+Drafts stay under `derived/drafts/<id>/`, never versions/handoff. Old-order
+records warn: preserve history, adopt explicitly, never re-date old answers.
 
 ## Before you ask, plan or show
 
@@ -43,12 +46,9 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
   assemble guide values and write `assemble.project`/`assemble.ground` in config.
 - **Upscale first.** A painting smaller than the rig needs is upscaled before it
   goes into `inputs/`; one already there gets its upscale as a new input.
-- **The crux is a bar.** The user's named risk becomes a measured bar in the
-  plan before rigging: a named band, what is counted (background or doubled
-  pixels), over every frame and at both extremes of every physics and breath
-  motion, reported as the max and its frame. It covers every band where a moving
-  piece sits over something not on its bone (a hand over the hip when only the
-  chest breathes).
+- **The crux is a bar.** Before rigging, name every risk band, count background
+  or doubled pixels over every frame and both physics/breath extremes, and
+  report the maximum and its frame. Cover every band crossing another bone.
 - **Bars before sign-off.** Each reading names its command, checked against
   installed `--help`. A reading with no command is a STOP before sign-off.
   Loop bars are in rig-c/create `docs/INTERVIEW.md`, "Bars have reading commands".
@@ -58,12 +58,10 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 - **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
   reference ("move like X") is read for what it shows; anything more is a
   question, not a default.
-- **Re-run first.** An uneven split or poor hidden surface is re-run (other
-  settings, a tighter crop of that region), several runs before any cut. When
-  re-runs cannot fix a visible-pixel defect, the next rung is an editor piece
-  taken from the painting along its painted outlines, with See-through's own
-  alpha for any border that has no painted line, feather 0, and a receipt. Never
-  a polygon in code or config. See-through stays the source for hidden surface.
+- **Re-run first.** Retry bad splits/hidden surfaces with other settings/crops
+  several times before cutting. Only then take visible fixes from the painting
+  along painted outlines, See-through alpha where no line exists, feather 0,
+  with a receipt. Never cut polygons in code/config. Hidden surfaces stay See-through.
 - **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each
   rig version's config, kept in `evidence/v<N>/`, sets `trace_parts: true` in
   `assemble.editor_receipts` and names a `requirements` file with
@@ -95,7 +93,7 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 | `outputs/v<N>/` | until discarded; frozen when shown | no |
 | `scratch/` | none; deleting it must lose nothing | no |
 
-User references go in `inputs/references/`; record sha256 in `project.json` `inputs[]`.
+References: `inputs/references/`, with sha256 in `inputs[]`.
 
 ## What to read, and why
 
@@ -108,6 +106,6 @@ Run refusal `(see … guide …)` commands before changes.
 
 {{PACKAGE_DOCS}}
 
-Project organisation is documented in rig-c/create, which is not installed here.
+Project organisation: rig-c/create docs (not installed).
 
 {{CREATE_DOCS}}

@@ -19,7 +19,7 @@ says so.
 
 ## The user's three steps
 
-The user sees three steps. Everything else in this file — waypoints, states,
+The user sees parts/mesh review, the rigging questionnaire, rig/animation correction, and direction. The historical three-step grouping below applies to legacy records; new projects use the split order in PROJECT.md. Everything else in this file — waypoints, states,
 provenance — is the machinery under them and is not something the user has to
 learn; the interviewer asks in plain questions and never shows a waypoint id or
 a form.
@@ -633,3 +633,23 @@ proposal awaits parts#1023's public CLI reading.
 Guides predating `PROJECTION_ASKS_SINCE` (2026-11-06T00:00:00Z) retain the old
 contract and receive `GUIDE_ASKS_LEGACY` when a new applicable ask is absent.
 Core has no ground ask or ground refusal.
+
+
+## Rigging questions follow the approved parts
+
+In the explicit split order, the initial interview asks framing plus source
+and parts preparation only (`seethrough`, `assemble`). Bones, deformation,
+constraints and motion guides wait for `rigging-interview`, after the person
+has accepted the parts and mesh/chest structure. Null later guides are not
+missing early answers. The rigging plan is signed separately, against the
+hash-bound parts approval and structure snapshot. The person's earlier mesh
+and chest declarations are carried into that interview as approved context.
+
+The context is outside the answer union. This card keeps the existing
+user/delegated/not-applicable/inherited states without prescribing the later
+multiple-choice option set or correction-path schema. Existing sentence answers
+remain history; adoption does not re-date them or copy them as new answers.
+The source and rigging approval resolver is `approvalStageOfStep`; all delegation
+and plan checks read it. Source planning cannot require an unanswered later
+rigging guide. Hand pass means the correction loop of rig-review, not another
+signature whose meaning nobody defined.

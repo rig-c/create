@@ -14,7 +14,8 @@ export interface CommandResult {
 }
 
 export const INTERVIEW_HELP = `interview:
-  --check          check project.json: every waypoint has a guide or a delegation, every plan step rests on an answer,
+  --check          check project.json: each current interview has its guides, later rigging guides wait for approved parts,
+                   every plan step rests on an answer,
                    every stage moved has its sign-off, every @rig-c/parts section has a place,
                    every config section of a version cites its guide, every bounce is answered by a later version (docs/CHECKS.md)
   <project dir>    the project folder (default: the current directory); a collection folder (or its collection.json)

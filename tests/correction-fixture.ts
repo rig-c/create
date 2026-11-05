@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { correctionCommand } from '../src/correction-writers.ts';
 import { correctionHash } from '../src/corrections.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
+import { PINNED_PACKAGES } from '../src/pins.ts';
 
 export function correctionFixture(dir:string,kind:'post'|'rig'|'parts'='post'): {project:JsonObject;files:Record<string,string>;args:string[];outcome:string[]} {
   const files:Record<string,string>={
@@ -40,10 +41,10 @@ export function correctionFixture(dir:string,kind:'post'|'rig'|'parts'='post'): 
   }
   if(kind==='rig'){
     const source=(p.versions as JsonObject[])[0] as JsonObject;const target=(p.versions as JsonObject[])[1] as JsonObject;const config=(source.provenance as JsonObject).config as JsonObject;
-    const patch={schema:'rig-review-config-patch/1',config_sha256:config.sha256,ops:[{op:'replace',path:'/note',value:'synthetic outcome'}],producer:{name:'@rig-c/parts',version:'2.15.0'},op:{cmd:'rig',args:[]}};
+    const patch={schema:'rig-review-config-patch/1',config_sha256:config.sha256,ops:[{op:'replace',path:'/note',value:'synthetic outcome'}],producer:{name:'@rig-c/parts',version:PINNED_PACKAGES['@rig-c/parts']},op:{cmd:'rig',args:[]}};
     files['evidence/preview.json']=JSON.stringify(patch,null,2)+'\n';
     // patchSha256 is a retained review claim over synthetic review-format bytes. Create never recomputes it.
-    const applied={schema:'rig-review-applied/2',buildId:correctionHash(Buffer.from('synthetic-build-id')),patch,patchSha256:correctionHash(Buffer.from(JSON.stringify(patch))),configHash:config.sha256,producer:{package:'@rig-c/parts',version:'2.15.0'},compiler:{package:'@rig-c/core',version:'0.0.0-synthetic'},line:'synthetic shape-only, not measured',check:{schema:'rig-review-check-summary/1',pass:true,exitCode:0,line:'check: synthetic shape-only',bars:{SYNTHETIC:'PASS'},gate:true},diff:{count:1,paths:['/synthetic']},modelHash:binding('evidence/outcome.model.json').sha256};
+    const applied={schema:'rig-review-applied/2',buildId:correctionHash(Buffer.from('synthetic-build-id')),patch,patchSha256:correctionHash(Buffer.from(JSON.stringify(patch))),configHash:config.sha256,producer:{package:'@rig-c/parts',version:PINNED_PACKAGES['@rig-c/parts']},compiler:{package:'@rig-c/core',version:'0.0.0-synthetic'},line:'synthetic shape-only, not measured',check:{schema:'rig-review-check-summary/1',pass:true,exitCode:0,line:'check: synthetic shape-only',bars:{SYNTHETIC:'PASS'},gate:true},diff:{count:1,paths:['/synthetic']},modelHash:binding('evidence/outcome.model.json').sha256};
     const session={schema:'rig-review-session/1',reviewedSource:{rig:{path:'build/skeleton.model.json',sha256:binding('evidence/source.model.json').sha256},motion:null,handoff:{config,files:[{path:'../../config.json',sha256:config.sha256}],missing:[]}},feedback:[{id:'synthetic-apply',summary:files['words.txt'],context:{applied}}]};
     files['evidence/feedback.json']=JSON.stringify(session,null,2)+'\n';
     target.review_origin={feedback:binding('evidence/feedback.json'),source_version:1,feedback_id:'synthetic-apply',applied};

@@ -776,7 +776,7 @@ record the first human `signoff rigging-interview`. That writer records adoption
 and the live parts/structure context. Stage movement remains a separate human
 act, as for existing forward sign-offs. The filled legacy example is frozen in
 `templates/legacy-example-project.json`; it passes with that order warning plus `QUESTION_SET_STALE` when read under
-the current 2.15.0 pin, because its frozen question set remains at 2.14.1.
+the current 2.16.0 pin, because its frozen question set remains at 2.14.1.
 The new `example-project.json` is a synthetic new-order narrative at 0/0.
 
 Framing and source (`seethrough`, `assemble`) are the first interview. A

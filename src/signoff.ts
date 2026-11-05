@@ -1,3 +1,4 @@
+import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
@@ -183,6 +184,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     if (!hasStageOrder(project)) project.interview.order = { spec: STAGE_ORDER_SPEC, adopted_at: at };
     project.stage_values = [...STAGE_VALUES];
   }
+  assertCorrectionApproval(dir, project, stage, signoff);
   project.signoffs.push(signoff);
   if (hasStageOrder(project) || signoff.structure !== undefined) {
     const first = checkProject(dir, project).refusals[0];

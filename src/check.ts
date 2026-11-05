@@ -39,7 +39,8 @@ import {
   PARTS_REVIEW,
   PARTS_REVIEW_SINCE,
   PAUSED_STAGE,
-  PHASE_APPROVED_BY,
+  approvalStageOfStep,
+  hasStageOrder,
   SKIPPED_WHEN_NO_POST,
   STAGE_VALUES,
   STAGES,
@@ -423,7 +424,7 @@ function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsRev
  */
 function planApprovedBeforePartsReview(signoffs: Signoff[]): string | null {
   const since = Date.parse(PARTS_REVIEW_SINCE);
-  const times = signoffs.filter((s) => s.stage === PHASE_APPROVED_BY.rig && s.checkpoint === null && !Number.isNaN(s.at)).map((s) => s.at);
+  const times = signoffs.filter((s) => s.stage === 'plan-approved' && s.checkpoint === null && !Number.isNaN(s.at)).map((s) => s.at);
   if (times.length === 0) return null;
   const first = Math.min(...times);
   return first < since ? new Date(first).toISOString() : null;
@@ -528,13 +529,13 @@ function checkAnswers(ctx: Ctx): void {
       if (covers === null || covers.trim() === '') {
         ctx.refusals.push({ code: 'GUIDE_PARTIAL_UNMARKED', path, message: `${path}: a partial guide's agent_decision needs nonempty covers naming the remainder delegated to the agent` });
       }
-      const approvedBy = item.kind === 'post' ? PHASE_APPROVED_BY.post : PHASE_APPROVED_BY.rig;
+      const approvedBy = approvalStageOfStep(item.kind === 'post' ? 'post' : 'rig', item.id, hasStageOrder(ctx.project));
       if (signed(ctx, approvedBy) && !isDecision(decision)) {
         ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path, message: `${path}: the partially delegated remainder needs agent_decision.value and nonempty reasoning before ${approvedBy} is signed` });
       }
     }
     if (state.state === 'delegated' && !state.decided) {
-      const approvedBy = item.kind === 'post' ? PHASE_APPROVED_BY.post : PHASE_APPROVED_BY.rig;
+      const approvedBy = approvalStageOfStep(item.kind === 'post' ? 'post' : 'rig', item.id, hasStageOrder(ctx.project));
       if (signed(ctx, approvedBy)) {
         ctx.refusals.push({ code: 'DELEGATION_UNDECIDED', path, message: `${path}: delegated, but agent_decision is missing and ${approvedBy} is signed; the agent's decision is written before the plan is signed` });
       }
@@ -543,7 +544,7 @@ function checkAnswers(ctx: Ctx): void {
 }
 
 function checkPlan(ctx: Ctx): void {
-  const planSigned = signed(ctx, PHASE_APPROVED_BY.rig);
+  const planSigned = signed(ctx, 'plan-approved') || signed(ctx, 'rigging-interview');
   if (planSigned && ctx.steps.length === 0) {
     ctx.refusals.push({ code: 'PLAN_EMPTY', path: 'plan.steps', message: 'plan-approved is signed, but plan.steps is empty' });
   }
@@ -568,7 +569,7 @@ function checkPlan(ctx: Ctx): void {
         ctx.refusals.push({ code: 'STEP_BASIS_SILENT', path, message: `${path}: rests on '${id}', which has no answer (${item.path} is ${item.state.state})` });
       }
     }
-    const approvedBy = PHASE_APPROVED_BY[step.phase];
+    const approvedBy = approvalStageOfStep(step.phase, step.id, hasStageOrder(ctx.project));
     const approvals = signoffsFor(ctx, approvedBy);
     const status = record.status === undefined ? 'pending' : record.status;
     if (typeof status !== 'string' || !['pending', 'in-progress', 'at-checkpoint', 'done'].includes(status)) {
@@ -631,7 +632,7 @@ function checkPlan(ctx: Ctx): void {
   }
   if (planSigned) {
     for (const item of ctx.items) {
-      if (item.kind !== 'waypoint') continue;
+      if (item.kind !== 'waypoint' || !signed(ctx, approvalStageOfStep('rig', item.id, hasStageOrder(ctx.project)))) continue;
       if ((item.state.state === 'user' || item.state.state === 'delegated') && !ctx.steps.some((s) => s.phase === 'rig' && s.id === item.id)) {
         ctx.refusals.push({ code: 'STEP_MISSING_FOR_WAYPOINT', path: `plan.steps[${item.id}]`, message: `waypoint '${item.id}' has a guide but the signed plan has no rig step '${item.id}'; one step per waypoint the plan passes` });
       }
@@ -644,7 +645,7 @@ function checkStages(ctx: Ctx): void {
   const paused = ctx.stage === PAUSED_STAGE;
   const plan = isObject(ctx.project.plan) ? ctx.project.plan : {};
   const draftedAt = time(plan.drafted_at);
-  const approval = latestSignoff(ctx, PHASE_APPROVED_BY.rig);
+  const approval = latestSignoff(ctx, 'plan-approved');
   if (approval !== undefined && Number.isFinite(draftedAt) && !(approval.at >= draftedAt)) {
     const path = `signoffs[${approval.index}]`;
     ctx.refusals.push({ code: 'SIGNOFF_BEFORE_PLAN', path, message: `${path}: no plan-approved sign-off is at or after plan.drafted_at ${String(plan.drafted_at)}; sign the drafted plan before running its steps` });

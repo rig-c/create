@@ -1,3 +1,5 @@
+import type { JsonObject } from './templates.ts';
+
 /**
  * The project's stages, in order, and how each one is left — the one place the
  * order is written (docs/PROJECT.md § Stages). `interview --check` reads it;
@@ -55,7 +57,7 @@ export const SKIPPED_WHEN_NO_POST: readonly string[] = ['post', 'direction-revie
 
 /** The stage whose sign-off approves the steps of a phase: rig steps by `plan-approved`, post steps by `post-interview`. */
 export const PHASE_APPROVED_BY: Readonly<Record<'rig' | 'post', string>> = {
-  rig: 'plan-approved',
+  rig: 'rigging-interview',
   post: 'post-interview',
 };
 
@@ -98,3 +100,31 @@ export const REVIEW_ACCEPTS: Readonly<Record<'rig-review' | 'direction-review', 
 
 /** The review that accepts the rig version post work runs on. */
 export const RIG_REVIEW = 'rig-review' satisfies keyof typeof REVIEW_ACCEPTS;
+
+
+export const STAGE_ORDER_SPEC = 'rig-create/stage-order@1';
+export const PARTS_STEPS: readonly string[] = ['seethrough', 'assemble'];
+export const GUIDE_INTERVIEW: Readonly<Record<string, string>> = {
+  rig_type: 'interview', reference: 'interview', seethrough: 'interview', assemble: 'interview',
+  bones: 'rigging-interview', meshes: 'rigging-interview', constraints: 'rigging-interview', motion: 'rigging-interview',
+};
+
+/** Adoption is explicit, independent of dates and answer representation. */
+export function hasStageOrder(project: JsonObject): boolean {
+  const interview = project.interview;
+  if (interview === null || typeof interview !== 'object' || Array.isArray(interview)) return false;
+  const order = interview.order;
+  return order !== null && typeof order === 'object' && !Array.isArray(order) && order.spec === STAGE_ORDER_SPEC;
+}
+
+/** Legacy phase=rig approvals retain their original all-step meaning. */
+export function approvalStageOfStep(phase: 'rig' | 'post', id: string, newOrder = false): string {
+  if (phase === 'post') return PHASE_APPROVED_BY.post;
+  if (!newOrder || PARTS_STEPS.includes(id)) return 'plan-approved';
+  return PHASE_APPROVED_BY.rig;
+}
+
+export function interviewStageOfGuide(id: string, post = false, newOrder = false): string {
+  if (post) return 'post-interview';
+  return newOrder ? GUIDE_INTERVIEW[id] ?? 'rigging-interview' : 'interview';
+}

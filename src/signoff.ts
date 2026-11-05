@@ -8,7 +8,7 @@ import { readProject } from './feedback.ts';
 import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { PARTS_REVIEW, PHASE_APPROVED_BY, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -107,12 +107,12 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     }
     evidence = { kind: PARTS_VERDICT_KIND, path, sha256: createHash('sha256').update(bytes).digest('hex') };
   }
-  const phase = Object.entries(PHASE_APPROVED_BY).find(([, approvedBy]) => approvedBy === stage)?.[0];
+  const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
   if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved or post-interview', USAGE_EXIT);
   const requested = opts['--steps']?.split(',');
   if (requested !== undefined && (requested.some((id) => id === '') || new Set(requested).size !== requested.length)) refuse('SIGNOFF_STEP_INVALID', '--steps needs distinct non-empty step ids', USAGE_EXIT);
   const steps = phase === undefined ? [] : asArray(isObject(project.plan) ? project.plan.steps : undefined)
-    .filter((step): step is JsonObject => isObject(step) && step.phase === phase);
+    .filter((step): step is JsonObject => isObject(step) && step.phase === phase && approvalStageOfStep(phase as 'rig' | 'post', String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage);
   for (const id of requested ?? []) {
     if (!steps.some((step) => step.id === id)) refuse('SIGNOFF_STEP_INVALID', `${id}: no step in phase ${phase}`);
   }

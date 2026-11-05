@@ -1,0 +1,83 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-camera-depth",
+  "question": "camera_depth",
+  "stage": "post-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-13T10:01:00Z",
+  "context": {
+    "kind": "rig",
+    "rig_version": 2,
+    "signoff_at": "2026-11-13T09:15:00Z",
+    "config": {
+      "path": "evidence/v2/interview-config.json",
+      "sha256": "2d620e7df7891b900b3032cf6473ba1d071552c4317667975b65e158d8390df4"
+    },
+    "parts": {
+      "path": "derived/drafts/example/input",
+      "files": [
+        {
+          "path": "derived/drafts/example/input/parts/background.png",
+          "sha256": "dea775d6f20491472a8246c20d82305bbb8550ea96d111305cb78288b4cb0f4e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/lantern.png",
+          "sha256": "ff17256626ecb97c8c7af085aeb61d0c462b32dc2fba6f117884cd8af41a58ae"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/torso.png",
+          "sha256": "8aff9a4c8543de951f08c0297dc0871d1f706aa33515e830fe567c84f1027346"
+        },
+        {
+          "path": "derived/drafts/example/input/parts.json",
+          "sha256": "4922589bf3f6dc457ff2413e70281f6ec804fb20561d28825e2b03b8d9159203"
+        }
+      ]
+    }
+  },
+  "asks": [
+    {
+      "id": "camera_depth",
+      "prompt": "Does the view move (a 2.5D head-turn with parallax, a push-in) or is it fixed?",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "A slow push-in, no parallax.",
+          "effect": "As answered on 2026-11-13T10:02:00Z in post-interview, chat",
+          "fragment": {
+            "camera": "push_in",
+            "depth": false
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative camera_depth",
+          "effect": "Choose a different camera_depth.",
+          "fragment": "none",
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "single"
+  }
+}

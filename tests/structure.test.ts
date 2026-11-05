@@ -46,7 +46,7 @@ function partsSign(dir: string, draft = 'shape', snapshot = 'evidence/structure.
 }
 function freshRigInterview(dir: string, answerAt = '2026-11-21T00:00:00Z', approvalAt = '2026-11-22T00:00:00Z'): void {
   const p = read(dir); p.stage = 'rigging-interview'; obj(p.plan).rigging_drafted_at = answerAt;
-  const old = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-project.json'), 'utf8')) as JsonObject;
+  const old = JSON.parse(readFileSync(join(import.meta.dir, '../templates/legacy-example-project.json'), 'utf8')) as JsonObject;
   for (const id of ['bones', 'meshes', 'constraints', 'motion']) {
     const guide = structuredClone(obj(waypoint(old, id).guide)); guide.at = answerAt; guide.verbatim = 'Fresh synthetic answer after viewing parts.';
     supersede(waypoint(p, id), 'guide', guide);

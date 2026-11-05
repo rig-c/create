@@ -61,7 +61,8 @@ describe('init --no-install into an empty folder', () => {
     const template = readTemplate('project.json');
     expect(written.name).toBe('demo-project');
     const order = (written.interview as Record<string, unknown>).order as Record<string, unknown>;
-    expect(order.spec).toBe('rig-create/stage-order@1');
+    expect(order.spec).toBe('rig-create/stage-order@2');
+    expect(Number.isFinite(Date.parse(order.choices_adopted_at as string))).toBe(true);
     expect(Number.isFinite(Date.parse(order.adopted_at as string))).toBe(true);
     (template.interview as Record<string, unknown>).order = order;
     expect({ ...written, name: null }).toEqual({ ...template, name: null });

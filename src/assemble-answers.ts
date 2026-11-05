@@ -41,7 +41,12 @@ export function checkAssembleAnswers(ctx: Ctx): { visible: boolean; legacy: bool
     if (assemble.project !== 'visible') continue;
     visible = true;
     const ground = assembleAnswer(answer, 'ground');
-    if (legacy || ground === 'plain' || ground === 'busy') continue;
+    const pendingChoice = isObject(answer.choice) && asArray(answer.asks).some(a => isObject(a) && a.state === 'other-pending');
+    const decision = isObject(answer.agent_decision) ? answer.agent_decision : {};
+    const pendingGround = isObject(answer.choice)
+      && asArray(answer.asks).some(a => isObject(a) && a.id === 'ground' && a.state === 'delegated')
+      && !asArray(decision.fragments).some(f => isObject(f) && f.ask === 'ground');
+    if (legacy || pendingChoice || pendingGround || ground === 'plain' || ground === 'busy') continue;
     ctx.refusals.push({ code: 'ASSEMBLE_GROUND_UNANSWERED', path: `${config.at} assemble.ground`, message: `${config.path}: assemble.project is visible with no ground answer; ask plain or busy, record the assemble guide's ground ask and value (or explicit decided delegation), then write assemble.ground in the config.` });
   }
   return { visible, legacy };

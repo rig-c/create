@@ -3,7 +3,7 @@
 The direction a user gives before any rig work starts, and the shape every
 answer takes in `project.json`. The interview is organised by the **waypoints**
 the rig work always passes through — the sections of a `@rig-c/parts` config —
-and the user's sentences attach at each one. Camera, 2.5D depth and timing are
+and the user's decisions attach at each one. New adopted records use [per-ask choices](#per-ask-choices-interview2); the sentence format below remains historical. Camera, 2.5D depth and timing are
 **post-production**, asked separately after the rig is accepted. The plan the
 work follows is drafted from these answers ([PROJECT.md § The plan](PROJECT.md#the-plan));
 a worked example is in [../templates/example-interview.md](../templates/example-interview.md),
@@ -66,6 +66,9 @@ contract it checks and [CHECKS.md](CHECKS.md) lists its codes. Delegation is a
 pass for that check, never a hole: the refusal fires only on silence.
 
 ## Answer shape
+
+New adopted projects use [per-ask choices](#per-ask-choices-interview2). The
+examples in this section describe the preserved legacy sentence format.
 
 Every record in `project.json` that a person made — an answer, a sign-off, a
 verdict — carries the same three fields: `by` (who), `at` (when, ISO 8601) and
@@ -169,13 +172,13 @@ from:
   the user can correct it; a correction replaces it, and the derived answer
   moves to `history[]`.
 
-No new field is needed: `interview --check` reads a derived answer as the user
+For unadopted records no new field is needed: `interview --check` reads a derived answer as the user
 answer it is, and a provenance `quote` taken from it resolves against its
 `verbatim` like any other.
 
-## Direction is taken in sentences
+## Direction and exact words
 
-The split and the direction alike are received in the user's own sentences —
+In unadopted records, the split and direction are received in the user's own sentences —
 "cut the bust, not the waist, and give it jiggle physics", "the hem moves in the
 wind down to the knee" — not as a drawing or a form. The prompts below draw
 those sentences out; they are not fields to fill.
@@ -653,3 +656,175 @@ The source and rigging approval resolver is `approvalStageOfStep`; all delegatio
 and plan checks read it. Source planning cannot require an unanswered later
 rigging guide. Hand pass means the correction loop of rig-review, not another
 signature whose meaning nobody defined.
+
+## Per-ask choices (interview@2)
+
+New projects explicitly adopt `interview.order.spec: "rig-create/stage-order@2"`,
+with `adopted_at` for the split order and `choices_adopted_at` for choices.
+`stage-order@1` keeps the split order and sentence answers; no date opts a
+project in. `interview-options --adopt [dir]` upgrades an existing @1 project,
+preserving its original adoption date and all answers. Earlier current answers
+warn `CHOICE_ANSWERS_LEGACY` until actually revised. `CHOICE_ANSWERS_SINCE`
+labels legacy warnings only. New answers from the explicit adoption require
+choices. Signoffs, verdicts, checkpoints and mechanical n/a remain unchanged.
+
+Every newly asked framing question, waypoint and post item uses a retained
+option set. **Each applicable ask gets its own pick.** A waypoint is never a
+single bundle hiding several decisions. A framing/post item is a one-ask set
+whose ask id is its question id. A waypoint uses exactly its applicable
+`WAYPOINT_ASKS` in table order. Motion's game-state asks depend on rig_type;
+assemble includes ground if any offered projection is visible. Sets offering
+both core and visible must make the ground combinations explicit. Other and
+auto are always available, never preselected. Each ask has at least two value
+options and exactly one recommended value option with a nonempty reason.
+
+The agent writes a retained file, for example `evidence/interview/motion-001.json`:
+
+```json
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "motion-001",
+  "question": "motion",
+  "stage": "rigging-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-11T11:01:00Z",
+  "context": { "kind": "parts", "accepted_parts": {}, "structure": {}, "draft_id": "example", "parts": {} },
+  "asks": [
+    { "id": "tracks", "prompt": "Which moves?", "options": [
+      { "id": "breath", "kind": "value", "label": "Breath", "effect": "Only the torso breathes.", "fragment": [{"motion":"breath"}], "recommended": true, "reason": "Keeps the approved rigid accessories still." },
+      { "id": "still", "kind": "value", "label": "Still", "effect": "No track is added.", "fragment": [], "recommended": false },
+      { "id": "other", "kind": "other", "label": "Other", "effect": "Describe this decision.", "recommended": false },
+      { "id": "auto", "kind": "auto", "label": "Let the agent decide", "effect": "The agent records its decision before approval.", "recommended": false }
+    ] }
+  ],
+  "assembly": { "rule": "concat" },
+  "constraints": [{"asks":["tracks","blink"],"allowed":[["breath","yes"],["still","no"]]}]
+}
+```
+
+The sketch omits the remaining motion asks and context bindings; it is not a
+valid filled record. Use the complete writer-generated
+[consumer fixture](../templates/example-interview-choice.json) and raw
+[option snapshots](../templates/example-interview-options/) for executable data.
+The full file is the snapshot as shown. Identity is `(raw file sha, ask id,
+option id)`; ids are unique within each ask. A redraft uses a new set id and
+file; never overwrite an already bound file. Hash raw UTF-8 bytes, not a
+canonical reserialization. Label/effect/note/Other strings retain all newlines,
+Unicode and trailing whitespace without normalizing or translating them.
+
+Context is a projection of existing recorded identities, never a new producer
+measurement:
+
+- `inputs`: `{kind:"inputs", files:[{path,sha256}]}` binds the declared source
+  inputs available before parts. It never claims future parts were shown.
+- `parts`: `{kind:"parts", accepted_parts:{signoff_at,evidence}, structure,
+  draft_id, parts:{path,files:[{path,sha256}]}}` binds the live parts-review,
+  retained structure snapshot and full recorded draft input inventory,
+  including parts.json and every image. Inventory file paths are project-relative.
+- `rig`: `{kind:"rig", rig_version, signoff_at, config:{path,sha256}, parts}`
+  binds the accepted rig, its rig-review signoff, retained provenance config
+  and the parts inventory from its build-time approval. Post asks wait for it.
+
+Draft time and selection time must both see that context live. New selection
+or decision after changed files/approval/structure or a relevant reopen refuses
+`INTERVIEW_OPTIONS_STALE`; redraft first. An old answer is checked against the
+context live when it was given, so later approvals do not rewrite history.
+Later appended source inputs do not change which immutable inputs an earlier
+person saw; a fresh writer checks the current complete source identity.
+Ignored draft bytes may be unavailable on a historical clone, retaining the
+existing `DRAFT_RIG_UNAVAILABLE` warning. Fresh registration/selection/decision
+requires the actual viewed bytes present. Retained option, structure, source
+and config bytes remain mandatory. Paths stay within the project, with literal
+segments, no symlink traversal, regular files and no ignored option storage.
+
+`assembly.rule` is a closed enum:
+
+- `single` is allowed only for a one-ask set; its contribution is the value as
+  is, including scalar `rig_type` and reference strings.
+- `concat` concatenates array fragments in asks order.
+- `merge` shallow-merges object fragments in asks order, refusing a key collision.
+
+No semantic inference, coercion or silent adjustment occurs. Optional
+`constraints` name distinct asks and allowed tuples of their value-option ids.
+An Other or auto fragment on a constrained ask resolves to the **unique** value
+option with a deep-equal fragment. Zero or several matches, or a tuple not in
+allowed, refuses `INTERVIEW_CHOICE_CONSTRAINT`: redraft the set to offer that
+option. Thus a novel Other value on a constrained ask requires a redraft.
+Unresolved auto/Other constraints wait until their contributions land.
+
+The writer extends the existing answer union with:
+
+```json
+{
+  "choice": {
+    "spec": "rig-create/interview-choice@1",
+    "set": {"path":"evidence/interview/motion-001.json","sha256":"<raw sha>"},
+    "picks": [{"ask":"tracks","option_id":"breath","shown":{"label":"Breath","effect":"Only the torso breathes."}}],
+    "note": "Keep it subtle."
+  }
+}
+```
+
+Picks are exactly one per ask, in set order. `shown` is copied exactly from the
+retained option. Other adds `other_text` and optionally `other_fragment`.
+`verbatim` is deterministic: each pick contributes label LF effect (LF
+other_text for Other); join picks with a blank line, then LF note if present,
+even for an explicitly empty note. Existing provenance quotes can match those
+exact words. Selecting a recommendation is a human answer, not delegation.
+`value` is the assembly of user contributions; `asks[].state` is `user`,
+`delegated`, or `other-pending`. If any Other lacks a fragment, **value is null**,
+not an inferred value. Approval of that question refuses
+`INTERVIEW_CHOICE_REQUIRED` until a new set offers a tailored value option
+quoting the pending words with source/date and the person explicitly picks it.
+The old answer moves intact to history. The CLI can accept a person's explicit
+Other fragment directly.
+
+All-auto is `delegated:true` with no user value; mixed picks are
+`delegated:false` and retain their user value. Before a decision exists,
+`agent_decision:{covers:"<auto ids joined with comma>"}` names the pending
+remainder. The agent then writes `by`, `at`, `reasoning`, exact `covers`,
+`fragments:[{ask,fragment}]` for exactly the auto asks in order, and `value`
+as the assembly of those fragments. User fragments and agent fragments are
+also checked together for merge collisions and constraints. Existing approval
+and execution deadlines for undecided delegation remain in force.
+
+In adopted projects prior words become a **tailored value option**, whose label
+quotes the earlier answer verbatim and whose effect names its original source
+and date. The human still explicitly picks. It is recommended only with an
+agent reason. Never turn old words into a fabricated click or silently select
+a recommendation. Unadopted projects keep the earlier derived-answer rules.
+
+### Public writers and review ingestion
+
+```
+rig-create interview-options <question> [dir] --file evidence/interview/<id>.json
+rig-create interview-answer <question> [dir] --set <path> --sha256 <shown sha> --by <human> --pick <ask>=<option>...
+rig-create interview-answer <question> [dir] --picks-file <project-relative file>
+rig-create interview-decision <question> [dir] --by <agent> --reasoning-file <file> --fragment <ask>=<JSON file>...
+```
+
+Registration reads an already retained authored file and records its binding
+as `pending_options`; it never rewrites the option file. Answer flags include
+repeatable `--other <ask>=<text file>` and optional
+`--other-fragment <ask>=<JSON file>`, plus `--note-file` and `--source`.
+The decision writer supplies exactly the auto fragments. Changing an approved
+answer first requires the relevant stage to be reopened. Collection members
+write local overrides; inherited source answers remain historical evidence,
+never fabricated member selections.
+
+Review writes **only** `rig-review/interview-picks@1`:
+`{schema,set:{path,sha256},picks:[{ask,option_id,other_text?}],note?,by:"user",at}`.
+Unknown keys are refused. Review supplies no shown text, fragments, value,
+verbatim or project edits. `--picks-file` is exclusive with pick/Other/fragment
+and note flags; optional set/hash flags must match the file. The writer retains
+the human event's by/at, fills shown, assembly, coverage and verbatim, and checks
+constraints. Stale displayed sha refuses `INTERVIEW_OPTIONS_STALE`; malformed
+payload refuses `INTERVIEW_CHOICE_INVALID`. Flags use the writer's clock. Both
+paths produce the same answer bytes for the same human event.
+
+Writers use the check's choice validators before writing. A partial interview
+may keep unrelated existing refusals, but a writer cannot introduce a new
+one. A refused project write leaves its bytes identical; retained authored
+files are never rewritten. Regenerate all consumer examples with
+`scripts/generate-example-choices.ts <fresh scratch> [--check]`; the active full
+example also reproduces through `generate-example-order.ts` and stays 0/0.

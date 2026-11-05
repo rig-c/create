@@ -66,6 +66,8 @@ function rigTypeValue(ctx: Ctx): { value: Json | undefined; path: string } | nul
   const item = itemFor(ctx, 'rig_type');
   if (item === undefined) return null;
   const s = item.state;
+  // A pending Other has no type yet; the choice gate refuses its interview/plan approval.
+  if (s.state === 'user' && s.answer.value === null && isObject(s.answer.choice) && asArray(s.answer.asks).some(a => isObject(a) && a.state === 'other-pending')) return null;
   if (s.state === 'user') return { value: s.answer.value, path: item.path };
   if (s.state === 'delegated' && s.decided && isObject(s.answer.agent_decision)) return { value: s.answer.agent_decision.value, path: item.path };
   return null;

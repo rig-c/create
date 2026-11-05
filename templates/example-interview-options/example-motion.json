@@ -1,0 +1,255 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-motion",
+  "question": "motion",
+  "stage": "rigging-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-11T11:01:00Z",
+  "context": {
+    "kind": "parts",
+    "accepted_parts": {
+      "signoff_at": "2026-11-11T10:20:00.000Z",
+      "evidence": {
+        "kind": "parts-verdict",
+        "path": "evidence/parts-review.json",
+        "sha256": "b5e29c7060c7d912baee40b2e920ed9f11e4db2adba8da710d3ee3cb156d78bf"
+      }
+    },
+    "structure": {
+      "path": "evidence/structure-decisions.json",
+      "sha256": "f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"
+    },
+    "draft_id": "example",
+    "parts": {
+      "path": "derived/drafts/example/input",
+      "files": [
+        {
+          "path": "derived/drafts/example/input/parts/background.png",
+          "sha256": "dea775d6f20491472a8246c20d82305bbb8550ea96d111305cb78288b4cb0f4e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/lantern.png",
+          "sha256": "ff17256626ecb97c8c7af085aeb61d0c462b32dc2fba6f117884cd8af41a58ae"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/torso.png",
+          "sha256": "8aff9a4c8543de951f08c0297dc0871d1f706aa33515e830fe567c84f1027346"
+        },
+        {
+          "path": "derived/drafts/example/input/parts.json",
+          "sha256": "4922589bf3f6dc457ff2413e70281f6ec804fb20561d28825e2b03b8d9159203"
+        }
+      ]
+    }
+  },
+  "asks": [
+    {
+      "id": "tracks",
+      "prompt": "Choose tracks for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Synthetic motion answer after viewing the approved parts and structure.",
+          "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat",
+          "fragment": {
+            "tracks": "synthetic tracks on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative tracks",
+          "effect": "Choose a different tracks.",
+          "fragment": {
+            "tracks": "alternative tracks"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "extent",
+      "prompt": "Choose extent for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed extent",
+          "effect": "Use the proposed extent on the named synthetic parts.",
+          "fragment": {
+            "extent": "synthetic extent on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative extent",
+          "effect": "Choose a different extent.",
+          "fragment": {
+            "extent": "alternative extent"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "speed",
+      "prompt": "Choose speed for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed speed",
+          "effect": "Use the proposed speed on the named synthetic parts.",
+          "fragment": {
+            "speed": "synthetic speed on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative speed",
+          "effect": "Choose a different speed.",
+          "fragment": {
+            "speed": "alternative speed"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "loop",
+      "prompt": "Choose loop for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed loop",
+          "effect": "Use the proposed loop on the named synthetic parts.",
+          "fragment": {
+            "loop": "synthetic loop on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative loop",
+          "effect": "Choose a different loop.",
+          "fragment": {
+            "loop": "alternative loop"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "blink",
+      "prompt": "Choose blink for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed blink",
+          "effect": "Use the proposed blink on the named synthetic parts.",
+          "fragment": {
+            "blink": "synthetic blink on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative blink",
+          "effect": "Choose a different blink.",
+          "fragment": {
+            "blink": "alternative blink"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "merge"
+  }
+}

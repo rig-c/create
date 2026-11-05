@@ -1,0 +1,372 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-assemble",
+  "question": "assemble",
+  "stage": "interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-10T14:01:00Z",
+  "context": {
+    "kind": "inputs",
+    "files": [
+      {
+        "path": "inputs/preparation-source.svg",
+        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
+      }
+    ]
+  },
+  "asks": [
+    {
+      "id": "projection",
+      "prompt": "Choose projection for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
+          "effect": "As answered on 2026-11-10T14:06:00Z in interview, chat",
+          "fragment": {
+            "project": "core"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative projection",
+          "effect": "Choose a different projection.",
+          "fragment": {
+            "project": "visible"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "ground",
+      "prompt": "Choose ground for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed ground",
+          "effect": "Use the proposed ground on the named synthetic parts.",
+          "fragment": {
+            "ground": "plain"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative ground",
+          "effect": "Choose a different ground.",
+          "fragment": {
+            "ground": "busy"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "cut",
+      "prompt": "Choose cut for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed cut",
+          "effect": "Use the proposed cut on the named synthetic parts.",
+          "fragment": {
+            "cut": "synthetic cut on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative cut",
+          "effect": "Choose a different cut.",
+          "fragment": {
+            "cut": "alternative cut"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "emphasis",
+      "prompt": "Choose emphasis for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed emphasis",
+          "effect": "Use the proposed emphasis on the named synthetic parts.",
+          "fragment": {
+            "emphasis": "synthetic emphasis on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative emphasis",
+          "effect": "Choose a different emphasis.",
+          "fragment": {
+            "emphasis": "alternative emphasis"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "draw_order",
+      "prompt": "Choose draw_order for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed draw_order",
+          "effect": "Use the proposed draw_order on the named synthetic parts.",
+          "fragment": {
+            "draw_order": "synthetic draw_order on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative draw_order",
+          "effect": "Choose a different draw_order.",
+          "fragment": {
+            "draw_order": "alternative draw_order"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "authored",
+      "prompt": "Choose authored for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed authored",
+          "effect": "Use the proposed authored on the named synthetic parts.",
+          "fragment": {
+            "authored": "synthetic authored on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative authored",
+          "effect": "Choose a different authored.",
+          "fragment": {
+            "authored": "alternative authored"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "occluders",
+      "prompt": "Choose occluders for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed occluders",
+          "effect": "Use the proposed occluders on the named synthetic parts.",
+          "fragment": {
+            "occluders": "synthetic occluders on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative occluders",
+          "effect": "Choose a different occluders.",
+          "fragment": {
+            "occluders": "alternative occluders"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "outfits",
+      "prompt": "Choose outfits for the synthetic parts.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Keep the proposed outfits",
+          "effect": "Use the proposed outfits on the named synthetic parts.",
+          "fragment": {
+            "outfits": "synthetic outfits on the approved parts"
+          },
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative outfits",
+          "effect": "Choose a different outfits.",
+          "fragment": {
+            "outfits": "alternative outfits"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "merge"
+  },
+  "constraints": [
+    {
+      "asks": [
+        "projection",
+        "ground"
+      ],
+      "allowed": [
+        [
+          "keep",
+          "keep"
+        ],
+        [
+          "alternative",
+          "keep"
+        ],
+        [
+          "alternative",
+          "alternative"
+        ]
+      ]
+    }
+  ]
+}

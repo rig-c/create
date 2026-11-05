@@ -1,0 +1,59 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "fullscreen",
+  "question": "rig_type",
+  "stage": "interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-10T14:14:00Z",
+  "context": {
+    "kind": "inputs",
+    "files": [
+      {
+        "path": "inputs/preparation-source.svg",
+        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
+      }
+    ]
+  },
+  "asks": [
+    {
+      "id": "rig_type",
+      "prompt": "What is this: a character rig (standing idle / complex motion / a monster with its own moves) or a full-screen scene (minimal motion: breath, blink / motion tied to game logic)?",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "A standing character, idle. She holds a lantern.",
+          "effect": "As answered on 2026-11-10T14:01:00Z in interview, chat",
+          "fragment": "character.idle",
+          "recommended": true,
+          "reason": "Preserves the stated synthetic direction and the accepted structure."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Alternative rig_type",
+          "effect": "Choose a different rig_type.",
+          "fragment": "fullscreen.minimal",
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe this decision.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent must record this decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "single"
+  }
+}

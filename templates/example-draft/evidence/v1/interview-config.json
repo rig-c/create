@@ -1,0 +1,9 @@
+{
+  "key": "synthetic",
+  "bones": [
+    {
+      "name": "root"
+    }
+  ],
+  "requirements": "interview-requirements.json"
+}

@@ -20,7 +20,8 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
   draft may have proposed bones/weights for earlier mesh/chest inspection.
 - Only a person's `signoffs[]` advances `stage` or passes a plan checkpoint.
   You may draft, propose, build and measure in any stage.
-- Never derive answers from the image. Ask the next `null` answer in plain words.
+- Never derive answers from the image. Offer a pick per ask, with one reasoned
+  recommendation, Other and auto. Retain the shown set; never preselect.
 - Record "auto" as delegated, with your decision on the item. It is never a
   blank for you to fill later.
 - {{INTERVIEW_CHECK}}
@@ -30,18 +31,17 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 1. **Parts and meshes**. Ask framing/source; review parts and a labelled draft's
    mesh/chest structure. `parts-review --draft --structure-file` binds decisions.
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
-   against the approved parts/structure; sign their plan separately.
+   against approved parts/structure; use interview-options/answer/decision.
 3. **Rig and animation**. Hand pass is rig-review's correction loop; keep feedback.
 4. **Direction**. Ask after rig acceptance; judge at direction-review.
 
-Drafts stay under `derived/drafts/<id>/`, never versions/handoff. Old-order
-records warn: preserve history, adopt explicitly, never re-date old answers.
+Drafts stay under `derived/drafts/<id>/`, never versions/handoff. Old records
+warn: preserve history and dates; adopt choices explicitly.
 
 ## Before you ask, plan or show
 
-- **Derive first.** Take every answer that earlier answers, an intake note or a
-  reviewer's past verdicts already give ({{DERIVED_LINK}}); ask only what is
-  left, in one short message. Nothing is derived from the image.
+- **Prior words.** In adopted projects, show them verbatim as a tailored option
+  with source/date; require a pick. Legacy derivation: {{DERIVED_LINK}}.
 - **Projection.** Ask core/visible, then plain/busy only for visible. Record the
   assemble guide values and write `assemble.project`/`assemble.ground` in config.
 - **Upscale first.** A painting smaller than the rig needs is upscaled before it

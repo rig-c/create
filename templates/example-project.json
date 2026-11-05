@@ -31,7 +31,7 @@
     {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-15T11:00:00Z","verbatim":"done, I like it"}
   ],
   "interview": {
-    "question_set": "rig-create/interview@1 (waypoints read from @rig-c/parts 2.15.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.15.0)",
     "held": true,
     "date": "2026-11-10",
     "interviewer": "agent",
@@ -47,12 +47,44 @@
         "answer": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-10T14:01:00Z",
-          "verbatim": "A standing character, idle. She holds a lantern.",
-          "value": "character.idle",
-          "source": "interview, chat"
+          "at": "2026-11-10T14:03:00.000Z",
+          "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-10T14:01:00Z in interview, chat",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-rig-type.json",
+              "sha256": "7e38378e128add58383754df448d3e87c067d752569122a1b5bea071ff894b35"
+            },
+            "picks": [
+              {
+                "ask": "rig_type",
+                "option_id": "keep",
+                "shown": {
+                  "label": "A standing character, idle. She holds a lantern.",
+                  "effect": "As answered on 2026-11-10T14:01:00Z in interview, chat"
+                }
+              }
+            ]
+          },
+          "asks": [
+            {
+              "id": "rig_type",
+              "state": "user"
+            }
+          ],
+          "value": "character.idle"
         },
-        "history": []
+        "history": [
+          {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-10T14:01:00Z",
+            "verbatim": "A standing character, idle. She holds a lantern.",
+            "value": "character.idle",
+            "source": "interview, chat"
+          }
+        ]
       },
       {
         "id": "reference",
@@ -64,12 +96,44 @@
         "answer": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-10T14:02:00Z",
-          "verbatim": "None.",
-          "value": "none",
-          "source": "interview, chat"
+          "at": "2026-11-10T14:03:00.000Z",
+          "verbatim": "None.\nAs answered on 2026-11-10T14:02:00Z in interview, chat",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-reference.json",
+              "sha256": "56bf15f5de02c71e1070ff70d1f4d65fd9d4bd7b0593baa408108a5e2ea28ecd"
+            },
+            "picks": [
+              {
+                "ask": "reference",
+                "option_id": "keep",
+                "shown": {
+                  "label": "None.",
+                  "effect": "As answered on 2026-11-10T14:02:00Z in interview, chat"
+                }
+              }
+            ]
+          },
+          "asks": [
+            {
+              "id": "reference",
+              "state": "user"
+            }
+          ],
+          "value": "none"
         },
-        "history": []
+        "history": [
+          {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-10T14:02:00Z",
+            "verbatim": "None.",
+            "value": "none",
+            "source": "interview, chat"
+          }
+        ]
       }
     ],
     "waypoints": [
@@ -89,44 +153,92 @@
           }
         ],
         "guide": {
-          "delegated": true,
+          "delegated": false,
           "by": "user",
-          "at": "2026-11-10T14:03:00Z",
-          "verbatim": "auto",
-          "source": "interview, chat",
-          "agent_decision": {
-            "value": {
-              "passes": [
-                "full",
-                "head"
-              ],
-              "head_box": "her face and the hair tail's root, from the painting",
-              "resolution": "full painting resolution for the full pass; crop resolution for the head pass",
-              "seed": 0,
-              "grouping": "keep painted groups except the independently moving parts named by the guides"
+          "at": "2026-11-10T14:03:00.000Z",
+          "verbatim": "auto\nAs answered on 2026-11-10T14:03:00Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-seethrough.json",
+              "sha256": "49bc84f1caedb900c4a8307580683d9a181484899e0d92bcc0209206f2985cf9"
             },
-            "by": "agent",
-            "at": "2026-11-10T15:10:00Z",
-            "reasoning": "Blink needs the eyelids as their own layers; at full-figure resolution the face is too small for the split to find them. The lantern is far enough from the body that the full pass separates it on its own."
+            "picks": [
+              {
+                "ask": "layers",
+                "option_id": "keep",
+                "shown": {
+                  "label": "auto",
+                  "effect": "As answered on 2026-11-10T14:03:00Z in interview, chat"
+                }
+              },
+              {
+                "ask": "resolution",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed resolution",
+                  "effect": "Use the proposed resolution on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "head_crop",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed head_crop",
+                  "effect": "Use the proposed head_crop on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "seed",
+                "option_id": "auto",
+                "shown": {
+                  "label": "Let the agent decide",
+                  "effect": "The agent must record this decision before approval."
+                }
+              }
+            ]
           },
           "asks": [
             {
               "id": "layers",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "resolution",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "head_crop",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "seed",
               "state": "delegated"
             }
-          ]
+          ],
+          "value": {
+            "layers": "synthetic layers on the approved parts",
+            "resolution": "synthetic resolution on the approved parts",
+            "head_crop": "synthetic head_crop on the approved parts"
+          },
+          "agent_decision": {
+            "by": "agent",
+            "at": "2026-11-10T14:04:00.000Z",
+            "reasoning": "Retain the declared synthetic seed direction.",
+            "covers": "seed",
+            "fragments": [
+              {
+                "ask": "seed",
+                "fragment": {
+                  "seed": "synthetic seed on the approved parts"
+                }
+              }
+            ],
+            "value": {
+              "seed": "synthetic seed on the approved parts"
+            }
+          }
         },
         "history": [
           {
@@ -137,6 +249,46 @@
               "bar": "Blink needs the eyelids as their own layers",
               "replacement": "Run the recorded full pass plus a head pass before assembly"
             }
+          },
+          {
+            "delegated": true,
+            "by": "user",
+            "at": "2026-11-10T14:03:00Z",
+            "verbatim": "auto",
+            "source": "interview, chat",
+            "agent_decision": {
+              "value": {
+                "passes": [
+                  "full",
+                  "head"
+                ],
+                "head_box": "her face and the hair tail's root, from the painting",
+                "resolution": "full painting resolution for the full pass; crop resolution for the head pass",
+                "seed": 0,
+                "grouping": "keep painted groups except the independently moving parts named by the guides"
+              },
+              "by": "agent",
+              "at": "2026-11-10T15:10:00Z",
+              "reasoning": "Blink needs the eyelids as their own layers; at full-figure resolution the face is too small for the split to find them. The lantern is far enough from the body that the full pass separates it on its own."
+            },
+            "asks": [
+              {
+                "id": "layers",
+                "state": "delegated"
+              },
+              {
+                "id": "resolution",
+                "state": "delegated"
+              },
+              {
+                "id": "head_crop",
+                "state": "delegated"
+              },
+              {
+                "id": "seed",
+                "state": "delegated"
+              }
+            ]
           }
         ]
       },
@@ -169,58 +321,89 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-10T14:06:00Z",
-          "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
-          "value": {
-            "project": "core",
-            "split_granularity": "standard",
-            "split_emphasis": [
+          "at": "2026-11-10T14:03:00.000Z",
+          "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-10T14:06:00Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-assemble.json",
+              "sha256": "a0b5196e187b9c7ac00658457e4df40a03403d7c0161730d33fac6f1a5cf0815"
+            },
+            "picks": [
               {
-                "part": "face",
-                "want": "untouched"
+                "ask": "projection",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
+                  "effect": "As answered on 2026-11-10T14:06:00Z in interview, chat"
+                }
               },
               {
-                "part": "lantern",
-                "want": "own part"
+                "ask": "ground",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed ground",
+                  "effect": "Use the proposed ground on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "cut",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed cut",
+                  "effect": "Use the proposed cut on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "emphasis",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed emphasis",
+                  "effect": "Use the proposed emphasis on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "draw_order",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed draw_order",
+                  "effect": "Use the proposed draw_order on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "authored",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed authored",
+                  "effect": "Use the proposed authored on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "occluders",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed occluders",
+                  "effect": "Use the proposed occluders on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "outfits",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed outfits",
+                  "effect": "Use the proposed outfits on the named synthetic parts."
+                }
               }
             ]
-          },
-          "source": "interview, chat",
-          "agent_decision": {
-            "covers": "the remaining part list, draw order, new authored parts, occluded content and outfit sets",
-            "value": {
-              "parts_in_draw_order": [
-                "background",
-                "lighthouse",
-                "coat_tail_l",
-                "coat_tail_r",
-                "legs",
-                "torso",
-                "upperarm_l",
-                "forearm_l",
-                "hand_l",
-                "scarf",
-                "head",
-                "hair_tail",
-                "hair_front",
-                "eyelids_l",
-                "eyelids_r",
-                "upperarm_r",
-                "forearm_r",
-                "hand_r",
-                "lantern"
-              ],
-              "authored_new": "none beyond the separated painted parts",
-              "under_occluders": "retain underlying painted surfaces for the stated motion",
-              "outfit_sets": []
-            },
-            "by": "agent",
-            "at": "2026-11-10T15:25:00Z",
-            "reasoning": "Standard cut: limbs at shoulder, elbow and wrist; the coat tails and scarf as their own parts because the constraints guide puts wind on them; the hair tail its own part for the same reason. Nothing is cut below the knee because nothing there moves."
           },
           "asks": [
             {
               "id": "projection",
+              "state": "user"
+            },
+            {
+              "id": "ground",
               "state": "user"
             },
             {
@@ -233,23 +416,117 @@
             },
             {
               "id": "draw_order",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "authored",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "occluders",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "outfits",
-              "state": "delegated"
+              "state": "user"
             }
-          ]
+          ],
+          "value": {
+            "project": "core",
+            "ground": "plain",
+            "cut": "synthetic cut on the approved parts",
+            "emphasis": "synthetic emphasis on the approved parts",
+            "draw_order": "synthetic draw_order on the approved parts",
+            "authored": "synthetic authored on the approved parts",
+            "occluders": "synthetic occluders on the approved parts",
+            "outfits": "synthetic outfits on the approved parts"
+          }
         },
-        "history": []
+        "history": [
+          {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-10T14:06:00Z",
+            "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
+            "value": {
+              "project": "core",
+              "split_granularity": "standard",
+              "split_emphasis": [
+                {
+                  "part": "face",
+                  "want": "untouched"
+                },
+                {
+                  "part": "lantern",
+                  "want": "own part"
+                }
+              ]
+            },
+            "source": "interview, chat",
+            "agent_decision": {
+              "covers": "the remaining part list, draw order, new authored parts, occluded content and outfit sets",
+              "value": {
+                "parts_in_draw_order": [
+                  "background",
+                  "lighthouse",
+                  "coat_tail_l",
+                  "coat_tail_r",
+                  "legs",
+                  "torso",
+                  "upperarm_l",
+                  "forearm_l",
+                  "hand_l",
+                  "scarf",
+                  "head",
+                  "hair_tail",
+                  "hair_front",
+                  "eyelids_l",
+                  "eyelids_r",
+                  "upperarm_r",
+                  "forearm_r",
+                  "hand_r",
+                  "lantern"
+                ],
+                "authored_new": "none beyond the separated painted parts",
+                "under_occluders": "retain underlying painted surfaces for the stated motion",
+                "outfit_sets": []
+              },
+              "by": "agent",
+              "at": "2026-11-10T15:25:00Z",
+              "reasoning": "Standard cut: limbs at shoulder, elbow and wrist; the coat tails and scarf as their own parts because the constraints guide puts wind on them; the hair tail its own part for the same reason. Nothing is cut below the knee because nothing there moves."
+            },
+            "asks": [
+              {
+                "id": "projection",
+                "state": "user"
+              },
+              {
+                "id": "cut",
+                "state": "user"
+              },
+              {
+                "id": "emphasis",
+                "state": "user"
+              },
+              {
+                "id": "draw_order",
+                "state": "delegated"
+              },
+              {
+                "id": "authored",
+                "state": "delegated"
+              },
+              {
+                "id": "occluders",
+                "state": "delegated"
+              },
+              {
+                "id": "outfits",
+                "state": "delegated"
+              }
+            ]
+          }
+        ]
       },
       {
         "id": "bones",
@@ -269,37 +546,42 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-11T11:00:00Z",
-          "verbatim": "Synthetic bones answer after viewing the approved parts and structure.",
-          "value": [
-            {
-              "chain": "scarf"
+          "at": "2026-11-11T11:03:00.000Z",
+          "verbatim": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-bones.json",
+              "sha256": "312142fb4e6b6681914edbc01006dd607ea060540da3a662bc7ad996dd804848"
             },
-            {
-              "chain": "coat_tail_l"
-            },
-            {
-              "chain": "coat_tail_r"
-            },
-            {
-              "chain": "hair_tail"
-            }
-          ],
-          "source": "interview, chat",
-          "additions": [
-            {
-              "by": "user",
-              "at": "2026-11-12T09:30:00Z",
-              "verbatim": "It should hang from her hand and swing on its own.",
-              "value": [
-                {
-                  "hinge": "lantern",
-                  "from": "hand_r"
+            "picks": [
+              {
+                "ask": "chains",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Synthetic bones answer after viewing the approved parts and structure.",
+                  "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
                 }
-              ],
-              "source": "polish feedback, v1"
-            }
-          ],
+              },
+              {
+                "ask": "placement",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed placement",
+                  "effect": "Use the proposed placement on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "length",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed length",
+                  "effect": "Use the proposed length on the named synthetic parts."
+                }
+              }
+            ]
+          },
           "asks": [
             {
               "id": "chains",
@@ -307,22 +589,17 @@
             },
             {
               "id": "placement",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "length",
-              "state": "delegated"
+              "state": "user"
             }
           ],
-          "agent_decision": {
-            "covers": "bone placement and chain lengths",
-            "value": {
-              "placement": "along the named parts in the painting",
-              "length": "span each named part"
-            },
-            "by": "agent",
-            "at": "2026-11-10T15:30:00Z",
-            "reasoning": "Fit each chain to its named part; preserve the rigid rest."
+          "value": {
+            "chains": "synthetic chains on the approved parts",
+            "placement": "synthetic placement on the approved parts",
+            "length": "synthetic length on the approved parts"
           }
         },
         "history": [
@@ -331,6 +608,65 @@
             "by": "user",
             "at": "2026-11-10T14:09:00Z",
             "verbatim": "A chain down the scarf, one in each coat tail, one in her hair tail. Bone placement and chain lengths are yours.",
+            "value": [
+              {
+                "chain": "scarf"
+              },
+              {
+                "chain": "coat_tail_l"
+              },
+              {
+                "chain": "coat_tail_r"
+              },
+              {
+                "chain": "hair_tail"
+              }
+            ],
+            "source": "interview, chat",
+            "additions": [
+              {
+                "by": "user",
+                "at": "2026-11-12T09:30:00Z",
+                "verbatim": "It should hang from her hand and swing on its own.",
+                "value": [
+                  {
+                    "hinge": "lantern",
+                    "from": "hand_r"
+                  }
+                ],
+                "source": "polish feedback, v1"
+              }
+            ],
+            "asks": [
+              {
+                "id": "chains",
+                "state": "user"
+              },
+              {
+                "id": "placement",
+                "state": "delegated"
+              },
+              {
+                "id": "length",
+                "state": "delegated"
+              }
+            ],
+            "agent_decision": {
+              "covers": "bone placement and chain lengths",
+              "value": {
+                "placement": "along the named parts in the painting",
+                "length": "span each named part"
+              },
+              "by": "agent",
+              "at": "2026-11-10T15:30:00Z",
+              "reasoning": "Fit each chain to its named part; preserve the rigid rest."
+            }
+          },
+          {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-11T11:00:00Z",
+            "verbatim": "Synthetic bones answer after viewing the approved parts and structure.",
             "value": [
               {
                 "chain": "scarf"
@@ -406,18 +742,42 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-11T11:00:00Z",
-          "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.",
-          "value": {
-            "meshes": [
-              "torso"
-            ],
-            "rigid": [
-              "head",
-              "lantern"
+          "at": "2026-11-11T11:03:00.000Z",
+          "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-meshes.json",
+              "sha256": "c7c98631cddd1039d86a22b5506104469d1390c4e7c0081d72a251a1665eb7b1"
+            },
+            "picks": [
+              {
+                "ask": "bend",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Synthetic meshes answer after viewing the approved parts and structure.",
+                  "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
+                }
+              },
+              {
+                "ask": "rigid",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed rigid",
+                  "effect": "Use the proposed rigid on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "density",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed density",
+                  "effect": "Use the proposed density on the named synthetic parts."
+                }
+              }
             ]
           },
-          "source": "interview, chat",
           "asks": [
             {
               "id": "bend",
@@ -429,17 +789,13 @@
             },
             {
               "id": "density",
-              "state": "delegated"
+              "state": "user"
             }
           ],
-          "agent_decision": {
-            "covers": "mesh density",
-            "value": {
-              "density": "standard"
-            },
-            "by": "agent",
-            "at": "2026-11-10T15:30:00Z",
-            "reasoning": "Use standard density for the bending coat; keep rigid parts rigid."
+          "value": {
+            "bend": "synthetic bend on the approved parts",
+            "rigid": "synthetic rigid on the approved parts",
+            "density": "synthetic density on the approved parts"
           }
         },
         "history": [
@@ -448,6 +804,45 @@
             "by": "user",
             "at": "2026-11-10T14:11:00Z",
             "verbatim": "The coat is one piece that bends with her breath. Face and lantern stay rigid. The mesh density is yours.",
+            "value": {
+              "meshes": [
+                "torso"
+              ],
+              "rigid": [
+                "head",
+                "lantern"
+              ]
+            },
+            "source": "interview, chat",
+            "asks": [
+              {
+                "id": "bend",
+                "state": "user"
+              },
+              {
+                "id": "rigid",
+                "state": "user"
+              },
+              {
+                "id": "density",
+                "state": "delegated"
+              }
+            ],
+            "agent_decision": {
+              "covers": "mesh density",
+              "value": {
+                "density": "standard"
+              },
+              "by": "agent",
+              "at": "2026-11-10T15:30:00Z",
+              "reasoning": "Use standard density for the bending coat; keep rigid parts rigid."
+            }
+          },
+          {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-11T11:00:00Z",
+            "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.",
             "value": {
               "meshes": [
                 "torso"
@@ -504,36 +899,58 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-11T11:00:00Z",
-          "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.",
-          "value": [
-            {
-              "part": "scarf",
-              "effect": "wind",
-              "extent": "a little more than the coat tails"
+          "at": "2026-11-11T11:03:00.000Z",
+          "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-constraints.json",
+              "sha256": "3362e4d33dc2cfa19d47ac67263e4ae0a0f221534f474d683bcda778a3a581dd"
             },
-            {
-              "part": "coat_tail_l",
-              "effect": "wind",
-              "extent": "as said"
-            },
-            {
-              "part": "coat_tail_r",
-              "effect": "wind",
-              "extent": "as said"
-            },
-            {
-              "part": "hair_tail",
-              "effect": "wind",
-              "extent": "barely"
-            },
-            {
-              "part": "*",
-              "effect": "still",
-              "extent": "every other part"
-            }
-          ],
-          "source": "interview, chat",
+            "picks": [
+              {
+                "ask": "effects",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Synthetic constraints answer after viewing the approved parts and structure.",
+                  "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
+                }
+              },
+              {
+                "ask": "strength",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed strength",
+                  "effect": "Use the proposed strength on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "extent",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed extent",
+                  "effect": "Use the proposed extent on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "gravity",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed gravity",
+                  "effect": "Use the proposed gravity on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "stops",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed stops",
+                  "effect": "Use the proposed stops on the named synthetic parts."
+                }
+              }
+            ]
+          },
           "asks": [
             {
               "id": "effects",
@@ -549,22 +966,19 @@
             },
             {
               "id": "gravity",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "stops",
-              "state": "delegated"
+              "state": "user"
             }
           ],
-          "agent_decision": {
-            "covers": "gravity and chain stops",
-            "value": {
-              "gravity": "downward",
-              "stops": "bound each chain to its stated extent"
-            },
-            "by": "agent",
-            "at": "2026-11-10T15:30:00Z",
-            "reasoning": "Keep each chain within the extent already stated."
+          "value": {
+            "effects": "synthetic effects on the approved parts",
+            "strength": "synthetic strength on the approved parts",
+            "extent": "synthetic extent on the approved parts",
+            "gravity": "synthetic gravity on the approved parts",
+            "stops": "synthetic stops on the approved parts"
           }
         },
         "history": [
@@ -573,6 +987,72 @@
             "by": "user",
             "at": "2026-11-10T14:14:00Z",
             "verbatim": "The scarf and the coat tails move in the wind off the sea, the scarf a little more than the coat. Her hair tail barely moves. Nothing else on physics. Gravity and stops are yours.",
+            "value": [
+              {
+                "part": "scarf",
+                "effect": "wind",
+                "extent": "a little more than the coat tails"
+              },
+              {
+                "part": "coat_tail_l",
+                "effect": "wind",
+                "extent": "as said"
+              },
+              {
+                "part": "coat_tail_r",
+                "effect": "wind",
+                "extent": "as said"
+              },
+              {
+                "part": "hair_tail",
+                "effect": "wind",
+                "extent": "barely"
+              },
+              {
+                "part": "*",
+                "effect": "still",
+                "extent": "every other part"
+              }
+            ],
+            "source": "interview, chat",
+            "asks": [
+              {
+                "id": "effects",
+                "state": "user"
+              },
+              {
+                "id": "strength",
+                "state": "user"
+              },
+              {
+                "id": "extent",
+                "state": "user"
+              },
+              {
+                "id": "gravity",
+                "state": "delegated"
+              },
+              {
+                "id": "stops",
+                "state": "delegated"
+              }
+            ],
+            "agent_decision": {
+              "covers": "gravity and chain stops",
+              "value": {
+                "gravity": "downward",
+                "stops": "bound each chain to its stated extent"
+              },
+              "by": "agent",
+              "at": "2026-11-10T15:30:00Z",
+              "reasoning": "Keep each chain within the extent already stated."
+            }
+          },
+          {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-11T11:00:00Z",
+            "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.",
             "value": [
               {
                 "part": "scarf",
@@ -665,21 +1145,58 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-11T11:00:00Z",
-          "verbatim": "Synthetic motion answer after viewing the approved parts and structure.",
-          "value": [
-            {
-              "motion": "breath"
+          "at": "2026-11-11T11:03:00.000Z",
+          "verbatim": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-11T11:00:00Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/example-motion.json",
+              "sha256": "e0ca7579199322a218662a4ff486b4ed9aebc7f513b6ca0b2e7dd2681cce44c8"
             },
-            {
-              "motion": "blink"
-            },
-            {
-              "motion": "flame_flicker",
-              "note": "on the lantern part"
-            }
-          ],
-          "source": "interview, chat",
+            "picks": [
+              {
+                "ask": "tracks",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Synthetic motion answer after viewing the approved parts and structure.",
+                  "effect": "As answered on 2026-11-11T11:00:00Z in interview, chat"
+                }
+              },
+              {
+                "ask": "extent",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed extent",
+                  "effect": "Use the proposed extent on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "speed",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed speed",
+                  "effect": "Use the proposed speed on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "loop",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed loop",
+                  "effect": "Use the proposed loop on the named synthetic parts."
+                }
+              },
+              {
+                "ask": "blink",
+                "option_id": "keep",
+                "shown": {
+                  "label": "Keep the proposed blink",
+                  "effect": "Use the proposed blink on the named synthetic parts."
+                }
+              }
+            ]
+          },
           "asks": [
             {
               "id": "tracks",
@@ -687,31 +1204,27 @@
             },
             {
               "id": "extent",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "speed",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "loop",
-              "state": "delegated"
+              "state": "user"
             },
             {
               "id": "blink",
               "state": "user"
             }
           ],
-          "agent_decision": {
-            "covers": "motion extent, speed and loop length",
-            "value": {
-              "extent": "subtle breath and flame variation",
-              "speed": "slow breath, brief blink, irregular flicker",
-              "loop_seconds": 8
-            },
-            "by": "agent",
-            "at": "2026-11-10T15:30:00Z",
-            "reasoning": "Use a subtle eight-second loop for the named tracks; the post clip can use one full cycle."
+          "value": {
+            "tracks": "synthetic tracks on the approved parts",
+            "extent": "synthetic extent on the approved parts",
+            "speed": "synthetic speed on the approved parts",
+            "loop": "synthetic loop on the approved parts",
+            "blink": "synthetic blink on the approved parts"
           }
         },
         "history": [
@@ -720,6 +1233,58 @@
             "by": "user",
             "at": "2026-11-10T14:17:00Z",
             "verbatim": "Breath and blink. The lantern flame flickers. The rest is yours; keep it subtle.",
+            "value": [
+              {
+                "motion": "breath"
+              },
+              {
+                "motion": "blink"
+              },
+              {
+                "motion": "flame_flicker",
+                "note": "on the lantern part"
+              }
+            ],
+            "source": "interview, chat",
+            "asks": [
+              {
+                "id": "tracks",
+                "state": "user"
+              },
+              {
+                "id": "extent",
+                "state": "delegated"
+              },
+              {
+                "id": "speed",
+                "state": "delegated"
+              },
+              {
+                "id": "loop",
+                "state": "delegated"
+              },
+              {
+                "id": "blink",
+                "state": "user"
+              }
+            ],
+            "agent_decision": {
+              "covers": "motion extent, speed and loop length",
+              "value": {
+                "extent": "subtle breath and flame variation",
+                "speed": "slow breath, brief blink, irregular flicker",
+                "loop_seconds": 8
+              },
+              "by": "agent",
+              "at": "2026-11-10T15:30:00Z",
+              "reasoning": "Use a subtle eight-second loop for the named tracks; the post clip can use one full cycle."
+            }
+          },
+          {
+            "delegated": false,
+            "by": "user",
+            "at": "2026-11-11T11:00:00Z",
+            "verbatim": "Synthetic motion answer after viewing the approved parts and structure.",
             "value": [
               {
                 "motion": "breath"
@@ -785,15 +1350,50 @@
           "guide": {
             "delegated": false,
             "by": "user",
-            "at": "2026-11-13T10:02:00Z",
-            "verbatim": "A slow push-in, no parallax.",
+            "at": "2026-11-13T10:03:00.000Z",
+            "verbatim": "A slow push-in, no parallax.\nAs answered on 2026-11-13T10:02:00Z in post-interview, chat",
+            "source": "review questionnaire",
+            "choice": {
+              "spec": "rig-create/interview-choice@1",
+              "set": {
+                "path": "evidence/interview/example-camera-depth.json",
+                "sha256": "c63f83a8789161aba24e9eb02753d5770a2471b8f6c0ae1887eaf901822eb01d"
+              },
+              "picks": [
+                {
+                  "ask": "camera_depth",
+                  "option_id": "keep",
+                  "shown": {
+                    "label": "A slow push-in, no parallax.",
+                    "effect": "As answered on 2026-11-13T10:02:00Z in post-interview, chat"
+                  }
+                }
+              ]
+            },
+            "asks": [
+              {
+                "id": "camera_depth",
+                "state": "user"
+              }
+            ],
             "value": {
               "camera": "push_in",
               "depth": false
-            },
-            "source": "post-interview, chat"
+            }
           },
-          "history": []
+          "history": [
+            {
+              "delegated": false,
+              "by": "user",
+              "at": "2026-11-13T10:02:00Z",
+              "verbatim": "A slow push-in, no parallax.",
+              "value": {
+                "camera": "push_in",
+                "depth": false
+              },
+              "source": "post-interview, chat"
+            }
+          ]
         },
         {
           "id": "post_timing",
@@ -803,8 +1403,32 @@
           "guide": {
             "delegated": false,
             "by": "user",
-            "at": "2026-11-13T10:04:00Z",
-            "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.",
+            "at": "2026-11-13T10:03:00.000Z",
+            "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-13T10:04:00Z in post-interview, chat",
+            "source": "review questionnaire",
+            "choice": {
+              "spec": "rig-create/interview-choice@1",
+              "set": {
+                "path": "evidence/interview/example-post-timing.json",
+                "sha256": "6e873b8a54c95159184318ba2779eab8fa319a12f6d6efe041b43e5d4ea14708"
+              },
+              "picks": [
+                {
+                  "ask": "post_timing",
+                  "option_id": "keep",
+                  "shown": {
+                    "label": "Eight seconds, looping. The beam sweeps past once, near the end.",
+                    "effect": "As answered on 2026-11-13T10:04:00Z in post-interview, chat"
+                  }
+                }
+              ]
+            },
+            "asks": [
+              {
+                "id": "post_timing",
+                "state": "user"
+              }
+            ],
             "value": {
               "seconds": 8,
               "loop": true,
@@ -814,10 +1438,27 @@
                   "when": "near the end"
                 }
               ]
-            },
-            "source": "post-interview, chat"
+            }
           },
-          "history": []
+          "history": [
+            {
+              "delegated": false,
+              "by": "user",
+              "at": "2026-11-13T10:04:00Z",
+              "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.",
+              "value": {
+                "seconds": 8,
+                "loop": true,
+                "beats": [
+                  {
+                    "what": "beam sweep",
+                    "when": "near the end"
+                  }
+                ]
+              },
+              "source": "post-interview, chat"
+            }
+          ]
         },
         {
           "id": "post_composition",
@@ -827,21 +1468,57 @@
           "guide": {
             "delegated": false,
             "by": "user",
-            "at": "2026-11-13T10:06:00Z",
-            "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
+            "at": "2026-11-13T10:03:00.000Z",
+            "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-13T10:06:00Z in post-interview, chat",
+            "source": "review questionnaire",
+            "choice": {
+              "spec": "rig-create/interview-choice@1",
+              "set": {
+                "path": "evidence/interview/example-post-composition.json",
+                "sha256": "bf0747e55ae0c7664029bb2e64f4dd8e12a3adeccf01ed123b12e782defbc636"
+              },
+              "picks": [
+                {
+                  "ask": "post_composition",
+                  "option_id": "keep",
+                  "shown": {
+                    "label": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
+                    "effect": "As answered on 2026-11-13T10:06:00Z in post-interview, chat"
+                  }
+                }
+              ]
+            },
+            "asks": [
+              {
+                "id": "post_composition",
+                "state": "user"
+              }
+            ],
             "value": {
               "framing": "lighthouse fully in frame",
               "light": "as painted"
-            },
-            "source": "post-interview, chat"
+            }
           },
-          "history": []
+          "history": [
+            {
+              "delegated": false,
+              "by": "user",
+              "at": "2026-11-13T10:06:00Z",
+              "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
+              "value": {
+                "framing": "lighthouse fully in frame",
+                "light": "as painted"
+              },
+              "source": "post-interview, chat"
+            }
+          ]
         }
       ]
     },
     "order": {
-      "spec": "rig-create/stage-order@1",
-      "adopted_at": "2026-11-10T14:20:00Z"
+      "spec": "rig-create/stage-order@2",
+      "adopted_at": "2026-11-10T14:00:00Z",
+      "choices_adopted_at": "2026-11-10T14:00:00Z"
     },
     "rigging_context": {
       "accepted_parts": {
@@ -1084,10 +1761,10 @@
   },
   "inputs": [
     {
-      "path": "inputs/painting.png",
-      "sha256": "dfe043fffb97edc92701b1239e15f026c2b4859cf0065f957f5299303416766b",
-      "bytes": 4183290,
-      "origin": "the user's painting, handed over at the start of the interview"
+      "path": "inputs/preparation-source.svg",
+      "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e",
+      "bytes": 112,
+      "origin": "synthetic source painting"
     }
   ],
   "derived": [
@@ -1130,7 +1807,10 @@
       "rig_version": null,
       "at": "2026-11-11T17:30:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.4.1", "@rig-c/core": "3.2.0" },
+      "built_with": {
+        "@rig-c/parts": "2.4.1",
+        "@rig-c/core": "3.2.0"
+      },
       "answers_feedback": [],
       "changed": "first rig version",
       "review_package": {
@@ -1172,47 +1852,192 @@
         "open": "rig-review open 'derived/review/v1/out'"
       },
       "outputs": [
-        { "path": "outputs/v1/skeleton.json", "sha256": "078ac07a231f8f2749edf4906c1517dc8df04c1cc59866dfb7507f2aba4ce8f3", "bytes": 212998 },
-        { "path": "outputs/v1/atlas.png", "sha256": "347f9f67ca9ba2cb4f09e82a73a7d1d9a8d15fc9b073bd3863f89ecf9e9194be", "bytes": 3902211 }
+        {
+          "path": "outputs/v1/skeleton.json",
+          "sha256": "078ac07a231f8f2749edf4906c1517dc8df04c1cc59866dfb7507f2aba4ce8f3",
+          "bytes": 212998
+        },
+        {
+          "path": "outputs/v1/atlas.png",
+          "sha256": "347f9f67ca9ba2cb4f09e82a73a7d1d9a8d15fc9b073bd3863f89ecf9e9194be",
+          "bytes": 3902211
+        }
       ],
       "evidence": [
-        { "kind": "still", "path": "evidence/v1/still-frame.png", "sha256": "c15f4c3fefb52f482778c20836a4dab5dce16947e089db0f0b595d9f5eb5b4e3", "camera": "fixed", "frame": 2, "what": "the rig at the fixed camera, posed 2 s into the loop, used at rig-review" }
+        {
+          "kind": "still",
+          "path": "evidence/v1/still-frame.png",
+          "sha256": "c15f4c3fefb52f482778c20836a4dab5dce16947e089db0f0b595d9f5eb5b4e3",
+          "camera": "fixed",
+          "frame": 2,
+          "what": "the rig at the fixed camera, posed 2 s into the loop, used at rig-review"
+        }
       ],
       "provenance": {
-        "config": { "path": "derived/v1/config.json", "sha256": "d198cadf6e02c011f11be5ba47f8253e7787424320a234018f10ada419a7b14a" },
+        "config": {
+          "path": "evidence/v1/interview-config.json",
+          "sha256": "2d620e7df7891b900b3032cf6473ba1d071552c4317667975b65e158d8390df4"
+        },
         "sections": {
           "seethrough": [
-            { "entry": "*", "guide": "seethrough", "delegated": true, "asks": ["layers", "resolution", "head_crop", "seed"] }
+            {
+              "entry": "*",
+              "guide": "seethrough",
+              "delegated": true,
+              "asks": [
+                "layers",
+                "resolution",
+                "head_crop",
+                "seed"
+              ]
+            }
           ],
           "assemble": [
-            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part.", "asks": ["emphasis"] },
-            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted.", "asks": ["emphasis"] },
-            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true, "asks": ["draw_order", "authored", "occluders", "outfits"] }
+            {
+              "entry": "plan[lantern]",
+              "guide": "assemble",
+              "quote": "The lantern is its own part.",
+              "asks": [
+                "emphasis"
+              ]
+            },
+            {
+              "entry": "plan[head] untouched face",
+              "guide": "assemble",
+              "quote": "Keep her face exactly as painted.",
+              "asks": [
+                "emphasis"
+              ]
+            },
+            {
+              "entry": "plan[*] order and the remaining parts",
+              "guide": "assemble",
+              "delegated": true,
+              "asks": [
+                "draw_order",
+                "authored",
+                "occluders",
+                "outfits"
+              ]
+            }
           ],
           "limbs": [
-            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints.", "asks": ["cut"] }
+            {
+              "entry": "arm_l, arm_r",
+              "guide": "assemble",
+              "quote": "Standard cut, at the joints.",
+              "asks": [
+                "cut"
+              ]
+            }
           ],
           "bones": [
-            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf", "asks": ["chains"] },
-            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail", "asks": ["chains"] },
-            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail", "asks": ["chains"] }
+            {
+              "entry": "chain scarf",
+              "guide": "bones",
+              "quote": "A chain down the scarf",
+              "asks": [
+                "chains"
+              ]
+            },
+            {
+              "entry": "chain coat_tail_l, coat_tail_r",
+              "guide": "bones",
+              "quote": "one in each coat tail",
+              "asks": [
+                "chains"
+              ]
+            },
+            {
+              "entry": "chain hair_tail",
+              "guide": "bones",
+              "quote": "one in her hair tail",
+              "asks": [
+                "chains"
+              ]
+            }
           ],
           "meshes": [
-            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath.", "asks": ["bend"] }
+            {
+              "entry": "torso",
+              "guide": "meshes",
+              "quote": "The coat is one piece that bends with her breath.",
+              "asks": [
+                "bend"
+              ]
+            }
           ],
           "regions": [
-            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid.", "asks": ["rigid"] },
-            { "entry": "every other part", "guide": "assemble", "delegated": true, "asks": ["draw_order"] }
+            {
+              "entry": "head, lantern",
+              "guide": "meshes",
+              "quote": "Face and lantern stay rigid.",
+              "asks": [
+                "rigid"
+              ]
+            },
+            {
+              "entry": "every other part",
+              "guide": "assemble",
+              "delegated": true,
+              "asks": [
+                "draw_order"
+              ]
+            }
           ],
           "constraints": [
-            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat", "asks": ["effects", "strength"] },
-            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea", "asks": ["effects"] },
-            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves.", "asks": ["effects", "strength"] }
+            {
+              "entry": "scarf_wind",
+              "guide": "constraints",
+              "quote": "the scarf a little more than the coat",
+              "asks": [
+                "effects",
+                "strength"
+              ]
+            },
+            {
+              "entry": "coat_tail_l_wind, coat_tail_r_wind",
+              "guide": "constraints",
+              "quote": "The scarf and the coat tails move in the wind off the sea",
+              "asks": [
+                "effects"
+              ]
+            },
+            {
+              "entry": "hair_tail_wind",
+              "guide": "constraints",
+              "quote": "Her hair tail barely moves.",
+              "asks": [
+                "effects",
+                "strength"
+              ]
+            }
           ],
           "motion": [
-            { "entry": "breath", "guide": "motion", "quote": "Breath", "asks": ["tracks"] },
-            { "entry": "blink", "guide": "motion", "quote": "blink", "asks": ["blink"] },
-            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers.", "asks": ["tracks"] }
+            {
+              "entry": "breath",
+              "guide": "motion",
+              "quote": "Breath",
+              "asks": [
+                "tracks"
+              ]
+            },
+            {
+              "entry": "blink",
+              "guide": "motion",
+              "quote": "blink",
+              "asks": [
+                "blink"
+              ]
+            },
+            {
+              "entry": "flame_flicker",
+              "guide": "motion",
+              "quote": "The lantern flame flickers.",
+              "asks": [
+                "tracks"
+              ]
+            }
           ]
         }
       },
@@ -1225,8 +2050,14 @@
           "verbatim": "The lantern swings with the whole arm, like it's glued to her hand. It should hang from her hand and swing on its own. And the scarf whips around too hard; I said a little more than the coat, not a flag.",
           "source": "chat",
           "on_items": [
-            { "id": "bones", "answer_was": "not-asked" },
-            { "id": "constraints", "answer_was": "user" }
+            {
+              "id": "bones",
+              "answer_was": "not-asked"
+            },
+            {
+              "id": "constraints",
+              "answer_was": "user"
+            }
           ]
         }
       ]
@@ -1238,8 +2069,16 @@
       "rig_version": null,
       "at": "2026-11-12T18:00:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.4.1", "@rig-c/core": "3.2.0" },
-      "answers_feedback": [{ "version": 1, "verdict": 0 }],
+      "built_with": {
+        "@rig-c/parts": "2.4.1",
+        "@rig-c/core": "3.2.0"
+      },
+      "answers_feedback": [
+        {
+          "version": 1,
+          "verdict": 0
+        }
+      ],
       "changed": "The lantern hangs from hand_r on its own hinge bone with a stop (new bones guide sentence from v1 feedback); the scarf's wind amplitude reduced to just above the coat tails'",
       "review_package": {
         "config": {
@@ -1280,52 +2119,218 @@
         "open": "rig-review open 'derived/review/v2/out'"
       },
       "outputs": [
-        { "path": "outputs/v2/skeleton.json", "sha256": "bccbb57626e8c212cab40596abc9584148bcb8d4dc2215a1de92e4c2cc3c4dba", "bytes": 214106 },
-        { "path": "outputs/v2/atlas.png", "sha256": "0f036ba3966425678ac8d4fd7d9c115effcaeb79159a75c05a07b1a0eb3a9666", "bytes": 3902211 }
+        {
+          "path": "outputs/v2/skeleton.json",
+          "sha256": "bccbb57626e8c212cab40596abc9584148bcb8d4dc2215a1de92e4c2cc3c4dba",
+          "bytes": 214106
+        },
+        {
+          "path": "outputs/v2/atlas.png",
+          "sha256": "0f036ba3966425678ac8d4fd7d9c115effcaeb79159a75c05a07b1a0eb3a9666",
+          "bytes": 3902211
+        }
       ],
       "evidence": [
-        { "kind": "still", "path": "evidence/v2/still-frame.png", "sha256": "dc859658e5c8b4cbd66d10d85a5780649e9679be4c4717e3878487925913a55f", "camera": "fixed", "frame": 2, "what": "the rig at the fixed camera, posed 2 s into the loop, used at rig-review" }
+        {
+          "kind": "still",
+          "path": "evidence/v2/still-frame.png",
+          "sha256": "dc859658e5c8b4cbd66d10d85a5780649e9679be4c4717e3878487925913a55f",
+          "camera": "fixed",
+          "frame": 2,
+          "what": "the rig at the fixed camera, posed 2 s into the loop, used at rig-review"
+        }
       ],
       "provenance": {
-        "config": { "path": "derived/v2/config.json", "sha256": "16d9ef7330ff8dd3642d2d7fecbe1979aae55e8ea5a35859cd4061b18989592a" },
+        "config": {
+          "path": "evidence/v2/interview-config.json",
+          "sha256": "2d620e7df7891b900b3032cf6473ba1d071552c4317667975b65e158d8390df4"
+        },
         "sections": {
           "seethrough": [
-            { "entry": "*", "guide": "seethrough", "delegated": true, "asks": ["layers", "resolution", "head_crop", "seed"] }
+            {
+              "entry": "*",
+              "guide": "seethrough",
+              "delegated": true,
+              "asks": [
+                "layers",
+                "resolution",
+                "head_crop",
+                "seed"
+              ]
+            }
           ],
           "assemble": [
-            { "entry": "plan[lantern]", "guide": "assemble", "quote": "The lantern is its own part.", "asks": ["emphasis"] },
-            { "entry": "plan[head] untouched face", "guide": "assemble", "quote": "Keep her face exactly as painted.", "asks": ["emphasis"] },
-            { "entry": "plan[*] order and the remaining parts", "guide": "assemble", "delegated": true, "asks": ["draw_order", "authored", "occluders", "outfits"] }
+            {
+              "entry": "plan[lantern]",
+              "guide": "assemble",
+              "quote": "The lantern is its own part.",
+              "asks": [
+                "emphasis"
+              ]
+            },
+            {
+              "entry": "plan[head] untouched face",
+              "guide": "assemble",
+              "quote": "Keep her face exactly as painted.",
+              "asks": [
+                "emphasis"
+              ]
+            },
+            {
+              "entry": "plan[*] order and the remaining parts",
+              "guide": "assemble",
+              "delegated": true,
+              "asks": [
+                "draw_order",
+                "authored",
+                "occluders",
+                "outfits"
+              ]
+            }
           ],
           "limbs": [
-            { "entry": "arm_l, arm_r", "guide": "assemble", "quote": "Standard cut, at the joints.", "asks": ["cut"] }
+            {
+              "entry": "arm_l, arm_r",
+              "guide": "assemble",
+              "quote": "Standard cut, at the joints.",
+              "asks": [
+                "cut"
+              ]
+            }
           ],
           "bones": [
-            { "entry": "chain scarf", "guide": "bones", "quote": "A chain down the scarf", "asks": ["chains"] },
-            { "entry": "chain coat_tail_l, coat_tail_r", "guide": "bones", "quote": "one in each coat tail", "asks": ["chains"] },
-            { "entry": "chain hair_tail", "guide": "bones", "quote": "one in her hair tail", "asks": ["chains"] },
-            { "entry": "lantern_hinge", "guide": "bones", "quote": "It should hang from her hand and swing on its own.", "asks": ["chains"] }
+            {
+              "entry": "chain scarf",
+              "guide": "bones",
+              "quote": "A chain down the scarf",
+              "asks": [
+                "chains"
+              ]
+            },
+            {
+              "entry": "chain coat_tail_l, coat_tail_r",
+              "guide": "bones",
+              "quote": "one in each coat tail",
+              "asks": [
+                "chains"
+              ]
+            },
+            {
+              "entry": "chain hair_tail",
+              "guide": "bones",
+              "quote": "one in her hair tail",
+              "asks": [
+                "chains"
+              ]
+            },
+            {
+              "entry": "lantern_hinge",
+              "guide": "bones",
+              "quote": "It should hang from her hand and swing on its own.",
+              "asks": [
+                "chains"
+              ]
+            }
           ],
           "meshes": [
-            { "entry": "torso", "guide": "meshes", "quote": "The coat is one piece that bends with her breath.", "asks": ["bend"] }
+            {
+              "entry": "torso",
+              "guide": "meshes",
+              "quote": "The coat is one piece that bends with her breath.",
+              "asks": [
+                "bend"
+              ]
+            }
           ],
           "regions": [
-            { "entry": "head, lantern", "guide": "meshes", "quote": "Face and lantern stay rigid.", "asks": ["rigid"] },
-            { "entry": "every other part", "guide": "assemble", "delegated": true, "asks": ["draw_order"] }
+            {
+              "entry": "head, lantern",
+              "guide": "meshes",
+              "quote": "Face and lantern stay rigid.",
+              "asks": [
+                "rigid"
+              ]
+            },
+            {
+              "entry": "every other part",
+              "guide": "assemble",
+              "delegated": true,
+              "asks": [
+                "draw_order"
+              ]
+            }
           ],
           "constraints": [
-            { "entry": "scarf_wind", "guide": "constraints", "quote": "the scarf a little more than the coat", "asks": ["effects", "strength"] },
-            { "entry": "coat_tail_l_wind, coat_tail_r_wind", "guide": "constraints", "quote": "The scarf and the coat tails move in the wind off the sea", "asks": ["effects"] },
-            { "entry": "hair_tail_wind", "guide": "constraints", "quote": "Her hair tail barely moves.", "asks": ["effects", "strength"] },
-            { "entry": "lantern_hinge_physics", "guide": "bones", "quote": "swing on its own", "asks": ["chains"] }
+            {
+              "entry": "scarf_wind",
+              "guide": "constraints",
+              "quote": "the scarf a little more than the coat",
+              "asks": [
+                "effects",
+                "strength"
+              ]
+            },
+            {
+              "entry": "coat_tail_l_wind, coat_tail_r_wind",
+              "guide": "constraints",
+              "quote": "The scarf and the coat tails move in the wind off the sea",
+              "asks": [
+                "effects"
+              ]
+            },
+            {
+              "entry": "hair_tail_wind",
+              "guide": "constraints",
+              "quote": "Her hair tail barely moves.",
+              "asks": [
+                "effects",
+                "strength"
+              ]
+            },
+            {
+              "entry": "lantern_hinge_physics",
+              "guide": "bones",
+              "quote": "swing on its own",
+              "asks": [
+                "chains"
+              ]
+            }
           ],
           "stops": [
-            { "entry": "lantern_hinge", "guide": "bones", "quote": "hang from her hand", "asks": ["chains"] }
+            {
+              "entry": "lantern_hinge",
+              "guide": "bones",
+              "quote": "hang from her hand",
+              "asks": [
+                "chains"
+              ]
+            }
           ],
           "motion": [
-            { "entry": "breath", "guide": "motion", "quote": "Breath", "asks": ["tracks"] },
-            { "entry": "blink", "guide": "motion", "quote": "blink", "asks": ["blink"] },
-            { "entry": "flame_flicker", "guide": "motion", "quote": "The lantern flame flickers.", "asks": ["tracks"] }
+            {
+              "entry": "breath",
+              "guide": "motion",
+              "quote": "Breath",
+              "asks": [
+                "tracks"
+              ]
+            },
+            {
+              "entry": "blink",
+              "guide": "motion",
+              "quote": "blink",
+              "asks": [
+                "blink"
+              ]
+            },
+            {
+              "entry": "flame_flicker",
+              "guide": "motion",
+              "quote": "The lantern flame flickers.",
+              "asks": [
+                "tracks"
+              ]
+            }
           ]
         }
       },
@@ -1348,28 +2353,77 @@
       "rig_version": 2,
       "at": "2026-11-14T16:00:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.4.1", "@rig-c/core": "3.2.0" },
+      "built_with": {
+        "@rig-c/parts": "2.4.1",
+        "@rig-c/core": "3.2.0"
+      },
       "answers_feedback": [],
       "changed": "first post version on rig v2",
       "outputs": [
-        { "path": "outputs/v3/take.mp4", "sha256": "5215feb4d65bf48cbf0bf38e069ac35a0b73b579c8b2b2ea09a333c60a612865", "bytes": 22841103 }
+        {
+          "path": "outputs/v3/take.mp4",
+          "sha256": "5215feb4d65bf48cbf0bf38e069ac35a0b73b579c8b2b2ea09a333c60a612865",
+          "bytes": 22841103
+        }
       ],
       "evidence": [
-        { "path": "evidence/v3/beat-sheet.png", "sha256": "9379cc453a56cf8370a5ca9939d661f2383edd9089d510a978cb09532db4945d", "what": "frames at 0, 2, 4, 6 and 8 s with the beam sweep marked" }
+        {
+          "path": "evidence/v3/beat-sheet.png",
+          "sha256": "9379cc453a56cf8370a5ca9939d661f2383edd9089d510a978cb09532db4945d",
+          "what": "frames at 0, 2, 4, 6 and 8 s with the beam sweep marked"
+        }
       ],
       "provenance": {
-        "config": { "path": "derived/v3/take.json", "sha256": "4cd0f57549e7c463383ea7fd68f736558706cc4aa77a6d013fa423c5a8ae47c7" },
+        "config": {
+          "path": "derived/v3/take.json",
+          "sha256": "4cd0f57549e7c463383ea7fd68f736558706cc4aa77a6d013fa423c5a8ae47c7"
+        },
         "sections": {
           "camera": [
-            { "entry": "push_in", "guide": "camera_depth", "quote": "A slow push-in, no parallax." }
+            {
+              "entry": "push_in",
+              "guide": "camera_depth",
+              "quote": "A slow push-in, no parallax.",
+              "asks": [
+                "camera_depth"
+              ]
+            }
           ],
           "timing": [
-            { "entry": "duration 8 s, loop", "guide": "post_timing", "quote": "Eight seconds, looping." },
-            { "entry": "beam_sweep", "guide": "post_timing", "quote": "The beam sweeps past once, near the end." }
+            {
+              "entry": "duration 8 s, loop",
+              "guide": "post_timing",
+              "quote": "Eight seconds, looping.",
+              "asks": [
+                "post_timing"
+              ]
+            },
+            {
+              "entry": "beam_sweep",
+              "guide": "post_timing",
+              "quote": "The beam sweeps past once, near the end.",
+              "asks": [
+                "post_timing"
+              ]
+            }
           ],
           "framing": [
-            { "entry": "crop", "guide": "post_composition", "quote": "Keep the whole lighthouse in frame." },
-            { "entry": "exposure", "guide": "post_composition", "quote": "don't brighten it" }
+            {
+              "entry": "crop",
+              "guide": "post_composition",
+              "quote": "Keep the whole lighthouse in frame.",
+              "asks": [
+                "post_composition"
+              ]
+            },
+            {
+              "entry": "exposure",
+              "guide": "post_composition",
+              "quote": "don't brighten it",
+              "asks": [
+                "post_composition"
+              ]
+            }
           ]
         }
       },
@@ -1382,7 +2436,10 @@
           "verbatim": "The beam sweeps right at the start. I said near the end.",
           "source": "chat",
           "on_items": [
-            { "id": "post_timing", "answer_was": "user" }
+            {
+              "id": "post_timing",
+              "answer_was": "user"
+            }
           ]
         }
       ]
@@ -1394,28 +2451,82 @@
       "rig_version": 2,
       "at": "2026-11-15T10:00:00Z",
       "built_by": "agent",
-      "built_with": { "@rig-c/parts": "2.4.1", "@rig-c/core": "3.2.0" },
-      "answers_feedback": [{ "version": 3, "verdict": 0 }],
+      "built_with": {
+        "@rig-c/parts": "2.4.1",
+        "@rig-c/core": "3.2.0"
+      },
+      "answers_feedback": [
+        {
+          "version": 3,
+          "verdict": 0
+        }
+      ],
       "changed": "beam sweep moved to start at 6.2 s",
       "outputs": [
-        { "path": "outputs/v4/take.mp4", "sha256": "7a23b6f0df77a5b4e82f85eca806f10ec70475b71800f6741ca7d61e312dba93", "bytes": 22839877 }
+        {
+          "path": "outputs/v4/take.mp4",
+          "sha256": "7a23b6f0df77a5b4e82f85eca806f10ec70475b71800f6741ca7d61e312dba93",
+          "bytes": 22839877
+        }
       ],
       "evidence": [
-        { "path": "evidence/v4/beat-sheet.png", "sha256": "51731f17808dece75bb165c8e5d695bf791ad5b2621aa91849deb38e168de318", "what": "frames at 0, 2, 4, 6 and 8 s with the beam sweep marked" }
+        {
+          "path": "evidence/v4/beat-sheet.png",
+          "sha256": "51731f17808dece75bb165c8e5d695bf791ad5b2621aa91849deb38e168de318",
+          "what": "frames at 0, 2, 4, 6 and 8 s with the beam sweep marked"
+        }
       ],
       "provenance": {
-        "config": { "path": "derived/v4/take.json", "sha256": "a254add3c9b992eda452000bc8fa8828d33506fd70fcbf871893e448efe2f5dc" },
+        "config": {
+          "path": "derived/v4/take.json",
+          "sha256": "a254add3c9b992eda452000bc8fa8828d33506fd70fcbf871893e448efe2f5dc"
+        },
         "sections": {
           "camera": [
-            { "entry": "push_in", "guide": "camera_depth", "quote": "A slow push-in, no parallax." }
+            {
+              "entry": "push_in",
+              "guide": "camera_depth",
+              "quote": "A slow push-in, no parallax.",
+              "asks": [
+                "camera_depth"
+              ]
+            }
           ],
           "timing": [
-            { "entry": "duration 8 s, loop", "guide": "post_timing", "quote": "Eight seconds, looping." },
-            { "entry": "beam_sweep at 6.2 s", "guide": "post_timing", "quote": "near the end" }
+            {
+              "entry": "duration 8 s, loop",
+              "guide": "post_timing",
+              "quote": "Eight seconds, looping.",
+              "asks": [
+                "post_timing"
+              ]
+            },
+            {
+              "entry": "beam_sweep at 6.2 s",
+              "guide": "post_timing",
+              "quote": "near the end",
+              "asks": [
+                "post_timing"
+              ]
+            }
           ],
           "framing": [
-            { "entry": "crop", "guide": "post_composition", "quote": "Keep the whole lighthouse in frame." },
-            { "entry": "exposure", "guide": "post_composition", "quote": "don't brighten it" }
+            {
+              "entry": "crop",
+              "guide": "post_composition",
+              "quote": "Keep the whole lighthouse in frame.",
+              "asks": [
+                "post_composition"
+              ]
+            },
+            {
+              "entry": "exposure",
+              "guide": "post_composition",
+              "quote": "don't brighten it",
+              "asks": [
+                "post_composition"
+              ]
+            }
           ]
         }
       },

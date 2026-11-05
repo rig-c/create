@@ -1,0 +1,16 @@
+{
+  "schema": "rig-review/interview-picks@1",
+  "set": {
+    "path": "evidence/interview/other-pending.json",
+    "sha256": "e348aaac8c76267a1e7079713b4b273a9fb43a94cadd91c6ac3e27c2cb963fa7"
+  },
+  "picks": [
+    {
+      "ask": "reference",
+      "option_id": "other",
+      "other_text": "다른 방향\nKeep the final spaces.  \né"
+    }
+  ],
+  "by": "user",
+  "at": "2026-11-10T14:11:00.000Z"
+}

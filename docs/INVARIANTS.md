@@ -81,8 +81,8 @@ exercises each row, including mixed choices and pending siblings.
 | Full delegation decided | Retain delegation + reasoning | Read `agent_decision.value` only with nonblank reasoning | Sentence + unsupported leaves |
 | Legacy partial user/delegation | Retain both | User value plus decided agent value | Unfinished decision remains pending |
 | Choices, including mixed user/auto | Retain picks/asks | User value plus decided agent value; per-auto fragment marks each ask landed | Pending delegated asks stay explicit |
-| Other with explicit fragment | Retain exact multiline Other text | Read fragment as well as recorded value | Text remains a semantic gap |
-| Other pending, including a sibling with explicit fragment | Retain every pick | Retain available recorded value and explicit fragments; no option-file reconstruction | `pending_other`; sibling contribution survives |
+| Other with explicit fragment, no pending Other | Retain exact multiline Other text and fragment | Read the assembled `value` once; do not also read the pick fragment | Text remains a semantic gap |
+| Other pending, including a sibling with explicit fragment | Retain every pick | Read explicit Other fragments while aggregate `value` is null; no option-file reconstruction | `pending_other`; only explicit Other sibling fragments survive as readings |
 | Addition | Separate source and hash | Read its recorded value | Sentence + unsupported leaves |
 | Null / not applicable / inherited / malformed | Retain record | No inheritance lookup or fabricated reading | Explicit pending, N/A, inherited or malformed gap |
 | Historical replaced answer | Not selected | Not read | Never resurrected as a current requirement |
@@ -90,7 +90,10 @@ exercises each row, including mixed choices and pending siblings.
 For adopted choices the aggregate `value` is already assembled by the existing
 writer. The translator does not fetch option bytes or recompute that assembly.
 In particular a pending Other may leave aggregate `value:null`; explicit sibling
-Other fragments and all original pick text remain available. Source retention
+Other fragments and all original pick text remain available. Normal-option
+sibling fragments live in option files and are not read while the aggregate is
+null; retaining their picks is not retaining their normalized contributions.
+Once no Other is pending, their aggregate value supplies the reading. Source retention
 is lossless; semantic understanding and agreement are explicitly unproven.
 
 ## Current worked example and gaps
@@ -108,8 +111,9 @@ scratch, compares byte for byte and never rewrites the committed artifact.
 All artifact bytes come from this script.
 
 The current example adopted choices and replaced its detailed rigging prose
-with synthetic answers. The independent census in the test enumerates its
-current readings and the named concepts still present in its words:
+with synthetic answers. The retention census in the test enumerates its current normalized leaves and
+checks whole sentences for the listed substrings. It does not prove a separate
+semantic mapping for each named concept:
 
 | Question | Current concepts / normalized content retained as gaps |
 | --- | --- |
@@ -129,8 +133,9 @@ The expected result therefore has **zero entries**, not guessed physics or
 mesh opt-outs. The current source never regains scarf wind, coat-tail strength,
 hair motion or flame flicker from history. A separate synthetic/legacy control
 covers motion, part/effect/extent, partial decisions and added hinge direction.
-Dropping just the `post_timing` sentence mapping makes the same completeness
-assertion fail, even while its normalized leaves remain.
+Dropping just the `post_timing` sentence gap or its normalized duration leaf
+makes the same retention census fail. Per-concept semantic coverage remains
+unproven even when every substring is retained.
 
 Concrete vocabulary gaps visible in current words, for repo HQ to route as
 core issue drafts (no issues are filed by the translator):

@@ -1,0 +1,324 @@
+{
+  "schema": "rig-create/project@0",
+  "name": "synthetic-correction",
+  "stage_values": [
+    "interview",
+    "plan-approved",
+    "parts",
+    "parts-review",
+    "rigging-interview",
+    "rigging",
+    "rig-review",
+    "post-interview",
+    "post",
+    "direction-review",
+    "accepted",
+    "paused"
+  ],
+  "interview": {
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.15.0)",
+    "held": false,
+    "date": null,
+    "interviewer": null,
+    "respondent": null,
+    "framing": [
+      {
+        "id": "rig_type",
+        "text": "What is this: a character rig (standing idle / complex motion / a monster with its own moves) or a full-screen scene (minimal motion: breath, blink / motion tied to game logic)?",
+        "source": "rig-create",
+        "required_for": [
+          "all"
+        ],
+        "answer": null,
+        "history": []
+      },
+      {
+        "id": "reference",
+        "text": "'Make it feel like this': a video, an existing demo, a game you have in mind?",
+        "source": "rig-create",
+        "required_for": [
+          "all"
+        ],
+        "answer": null,
+        "history": []
+      }
+    ],
+    "waypoints": [
+      {
+        "id": "seethrough",
+        "config": [
+          "seethrough"
+        ],
+        "prompts": [
+          {
+            "id": "x_layers",
+            "text": "Is there anything the layer split must keep together or keep apart: a hat with the head, a held object on its own?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "assemble",
+        "config": [
+          "assemble",
+          "limbs",
+          "scene",
+          "waist"
+        ],
+        "prompts": [
+          {
+            "id": "split_granularity",
+            "text": "How finely should it be cut?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          },
+          {
+            "id": "split_emphasis",
+            "text": "Which parts matter most: more detail, or kept exactly as painted?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "bones",
+        "config": [
+          "bones"
+        ],
+        "prompts": [
+          {
+            "id": "x_chains",
+            "text": "What moves on its own: hair strands, coat tails, sleeves, held things?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "meshes",
+        "config": [
+          "meshes",
+          "regions"
+        ],
+        "prompts": [
+          {
+            "id": "x_deform",
+            "text": "What must bend smoothly as one piece, and what must stay rigid?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "constraints",
+        "config": [
+          "constraints",
+          "stops",
+          "cloth"
+        ],
+        "prompts": [
+          {
+            "id": "split_effects",
+            "text": "Which parts have special effects (sway on physics, move in wind, jiggle, glow, flicker), and how far do they move?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
+        "id": "motion",
+        "config": [
+          "motion"
+        ],
+        "prompts": [
+          {
+            "id": "motions",
+            "text": "Which moves? Name each one.",
+            "source": "rig-create",
+            "required_for": [
+              "character.idle",
+              "character.complex",
+              "character.monster",
+              "fullscreen.minimal"
+            ]
+          },
+          {
+            "id": "game_states",
+            "text": "Which states, and what moves it from one to the next?",
+            "source": "rig-create",
+            "required_for": [
+              "fullscreen.game_logic"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      }
+    ],
+    "post": {
+      "held": false,
+      "date": null,
+      "items": [
+        {
+          "id": "camera_depth",
+          "config": [
+            "turn",
+            "depth"
+          ],
+          "text": "Does the view move (a 2.5D head-turn with parallax, a push-in) or is it fixed?",
+          "source": "rig-create",
+          "guide": null,
+          "history": []
+        },
+        {
+          "id": "post_timing",
+          "config": [],
+          "text": "How long, does it loop, and where are the beats?",
+          "source": "rig-create",
+          "guide": null,
+          "history": []
+        },
+        {
+          "id": "post_composition",
+          "config": [],
+          "text": "What is around the figure: background, framing, other figures, light?",
+          "source": "rig-create",
+          "guide": null,
+          "history": []
+        }
+      ]
+    }
+  },
+  "plan": {
+    "steps": []
+  },
+  "inputs": {},
+  "signoffs": [],
+  "versions": [
+    {
+      "n": 1,
+      "kind": "post",
+      "at": "2026-11-04T08:30:00.000Z",
+      "built_by": "agent",
+      "built_with": {},
+      "rig_version": null,
+      "changed": "synthetic bytes",
+      "outputs": [
+        {
+          "path": "evidence/source.model.json",
+          "sha256": "42cded4ea628d476256696c70e20f467e06cf57f0054b249bc81bb29b526df10"
+        }
+      ],
+      "evidence": [],
+      "verdicts": [],
+      "answers_feedback": [],
+      "review_origin": null,
+      "provenance": {
+        "config": {
+          "path": "evidence/source-config.json",
+          "sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069"
+        },
+        "sections": {}
+      }
+    },
+    {
+      "n": 2,
+      "kind": "post",
+      "at": "2026-11-04T09:30:00.000Z",
+      "built_by": "agent",
+      "built_with": {},
+      "rig_version": null,
+      "changed": "synthetic bytes",
+      "outputs": [
+        {
+          "path": "evidence/outcome.model.json",
+          "sha256": "274c94fdb6be5e2ef5cfc9cf766dd5c0a2b05e11add798c05ef884097d60cd4c"
+        }
+      ],
+      "evidence": [],
+      "verdicts": [],
+      "answers_feedback": [],
+      "review_origin": null,
+      "provenance": {
+        "config": {
+          "path": "evidence/outcome-config.json",
+          "sha256": "5eba1fe9f87822ea0d30b5e570a3ab3dc80cc1b65a4c2a5ee25945ded0e8fc4a"
+        },
+        "sections": {}
+      }
+    }
+  ],
+  "stage": "direction-review",
+  "reopens": [],
+  "corrections_contract": {
+    "schema": "rig-create/corrections@1",
+    "adopted_at": "2026-11-04T09:00:00.000Z"
+  },
+  "corrections": [
+    {
+      "schema": "rig-create/correction@1",
+      "id": "response",
+      "path": "described",
+      "by": "reviewer",
+      "at": "2026-11-04T09:10:00.000Z",
+      "verbatim": "Keep the precise words.  \r\n",
+      "stage": "direction-review",
+      "on": {
+        "kind": "post",
+        "n": 1,
+        "config": {
+          "path": "evidence/source-config.json",
+          "sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069"
+        },
+        "model": {
+          "path": "evidence/source.model.json",
+          "sha256": "42cded4ea628d476256696c70e20f467e06cf57f0054b249bc81bb29b526df10"
+        }
+      },
+      "artifact": {
+        "kind": "description"
+      },
+      "outcome": {
+        "kind": "post",
+        "n": 2,
+        "config": {
+          "path": "evidence/outcome-config.json",
+          "sha256": "5eba1fe9f87822ea0d30b5e570a3ab3dc80cc1b65a4c2a5ee25945ded0e8fc4a"
+        },
+        "model": {
+          "path": "evidence/outcome.model.json",
+          "sha256": "274c94fdb6be5e2ef5cfc9cf766dd5c0a2b05e11add798c05ef884097d60cd4c"
+        }
+      },
+      "resolves": null,
+      "closure": {
+        "by": "agent",
+        "at": "2026-11-04T10:00:00.000Z",
+        "reasoning": "Agent declaration of the recorded response.\n"
+      }
+    }
+  ]
+}

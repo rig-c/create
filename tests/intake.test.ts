@@ -1,5 +1,5 @@
 import { afterEach, expect, setSystemTime, test } from 'bun:test';
-import { readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, symlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkProject, collectItems } from '../src/check.ts';
 import { interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from '../src/choice-writers.ts';
@@ -50,6 +50,27 @@ test('HIT-only pending warning: HIT asks explicitly, zero sides with bottom has 
   const entry=obj(arr(obj(load(h.dir).intake).reports)[0]);expect(entry.prediction).toBe('hit');expect(entry.measurement).toEqual(JSON.parse(raw.toString()));expect(obj(entry.report).sha256).toBe(sha256(raw));expect(entry.parts_version).toBe('2.16.0');
   expect(obj(entry.measurement).parts_version).toBeUndefined();
 });
+
+test('ignored report paths refuse before writing with project bytes identical',()=>{
+  const {dir,args}=setup(); const before=readFileSync(join(dir,'project.json'));
+  for(const root of ['derived','outputs','scratch','node_modules']){
+    mkdirSync(join(dir,root),{recursive:true});writeFileSync(join(dir,root,'preflight.json'),raw);
+    const attempt=[...args];attempt[attempt.indexOf('--id')+1]='ignored';attempt[attempt.indexOf('--report')+1]=`${root}/preflight.json`;
+    expect(outcome(()=>intakeReportCommand(attempt))).toBe('INTAKE_REPORT_INVALID');
+    expect(readFileSync(join(dir,'project.json'))).toEqual(before);
+  }
+});
+test('pending warning ends after parts while the HIT risk remains',()=>{
+  const {dir}=setup();expect(codes(dir)).toContain('INTAKE_CHOICE_PENDING');
+  const p=load(dir);p.stage='rigging-interview';save(dir,p);
+  expect(codes(dir)).not.toContain('INTAKE_CHOICE_PENDING');expect(codes(dir)).toContain('INTAKE_HEAD_CROP_RISK');
+});
+test('pending remedy names choice adoption for a project without choices',()=>{
+  const {dir}=setup();const p=load(dir);obj(obj(p.interview).order).spec='rig-create/stage-order@1';save(dir,p);
+  const pending=intakeWarnings(dir,p).find(w=>w.code==='INTAKE_CHOICE_PENDING');expect(pending?.code).toBe('INTAKE_CHOICE_PENDING');
+  expect(pending?.message).toContain('interview-options --adopt');
+});
+
 test('each #90 choice state stays advisory; exact words and explicit delegation survive',()=>{
   for(const state of ['proceed','another','other-fragment','other-pending','auto-pending','auto-decided']){
     const {dir}=setup();choose(dir,state);

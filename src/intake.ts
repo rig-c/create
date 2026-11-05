@@ -3,7 +3,8 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, classify, isObject, type Finding, type Item } from './check.ts';
-import { literalFile, optionFile, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
+import { choiceAdoption, literalFile, optionFile, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
+import { structurePathIsIgnored } from './structure.ts';
 import { readProject } from './feedback.ts';
 import { refuse } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -36,7 +37,9 @@ export function intakeContext(project: JsonObject, at: number): JsonObject {
 /** Validate the producer's report shape; do not rederive registration or count measurements. */
 export function readIntakeReport(dir: string, binding: JsonObject): JsonObject {
   if (!text(binding.path) || typeof binding.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(binding.sha256)) invalid('report needs a retained path and raw sha256');
-  const bytes = readFileSync(literalFile(dir, binding.path));
+  const file = literalFile(dir, binding.path);
+  if (structurePathIsIgnored(dir, binding.path)) invalid('report must survive a clone; retain it outside ignored roots');
+  const bytes = readFileSync(file);
   if (sha256(bytes) !== binding.sha256) invalid('report sha256 differs from retained bytes');
   const raw: Json = JSON.parse(bytes.toString('utf8'));
   if (!isObject(raw) || raw.spec !== PREFLIGHT_SPEC || raw.drawn_alpha_above !== 8 || raw.pixel_grid !== 'full-run') invalid('expected rig-parts/head-crop-preflight/1, native alpha > 8 on the full-run grid');
@@ -64,7 +67,7 @@ function warning(code: string, path: string, why: string, remedy: string): Findi
 export function intakeWarnings(dir: string, project: JsonObject): Finding[] {
   if (project.intake === undefined) return [];
   const warnings: Finding[] = [];
-  const addInvalid = (path: string, e: unknown) => warnings.push(warning('INTAKE_REPORT_INVALID',path,String(e),'retain the original producer report bytes and record a corrected entry with intake-report'));
+  const addInvalid = (path: string, e: unknown) => warnings.push(warning('INTAKE_REPORT_INVALID',path,String(e),'restore the original producer report bytes first, then append a corrected entry with intake-report'));
   const intake = project.intake;
   if (!isObject(intake) || intake.spec !== INTAKE_SPEC || !Array.isArray(intake.reports) || !intake.reports.length) {
     addInvalid('intake','expected rig-create/intake@1 with nonempty reports'); return warnings;
@@ -110,7 +113,7 @@ export function intakeWarnings(dir: string, project: JsonObject): Finding[] {
       }
     } catch (e) { pending = true; warnings.push(warning('INTAKE_CHOICE_INVALID','intake.choice',String(e),'retain and re-show report-bound options with the interview choice writers')); }
   } else if (intake.choice !== undefined) warnings.push(warning('INTAKE_CHOICE_INVALID','intake.choice','invalid optional choice record','record a new report before showing options'));
-  if (active?.prediction === 'hit' && pending) warnings.push(warning('INTAKE_CHOICE_PENDING','intake.choice','HIT report has no resolved choice bound to it','show intake_suitability in parts and record the person’s explicit pick, Other or delegation; advisory only'));
+  if (project.stage === 'parts' && active?.prediction === 'hit' && pending) warnings.push(warning('INTAKE_CHOICE_PENDING','intake.choice','HIT report has no resolved choice bound to it',`${choiceAdoption(project) === null ? 'adopt choices with interview-options --adopt first, then ' : ''}show intake_suitability in parts and record the person’s explicit pick, Other or delegation; advisory only`));
   return warnings;
 }
 

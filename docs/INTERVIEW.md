@@ -191,8 +191,12 @@ those sentences out; they are not fields to fill.
   be on a part (wind, physics, jiggle) must be on that part and on no part the
   sentence excludes; an extent ("down to the knee") bounds what moves. A
   sentence that says "must" is a bar, not a preference. Turning these lines into
-  `@rig-c/core` `invariants` that the build is gated on is a later card; until then
-  they are read at review against the version's provenance.
+  `@rig-c/core` `invariants` starts with the pure translator in
+  [`src/invariants.ts`](../src/invariants.ts), documented in [INVARIANTS.md](INVARIANTS.md).
+  Its sourced entries and explicit gaps are reproduced in
+  [`example-invariants/invariants.json`](../templates/example-invariants/invariants.json).
+  Project/check/build wiring remains a follow-up; until then these lines are
+  read at review against the version's provenance.
 - Anything the agent shows back — the labelled split image, a motion sketch — is
   its reading of the sentences for the user to sign, not the user's input.
 

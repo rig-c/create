@@ -2,7 +2,7 @@
  * The `parts-review` sign-off carries the verdict it rests on (rig-c/create#51):
  * `evidence: { kind: "parts-verdict", path, sha256 }`, where `path` is relative
  * to the project folder and names the file rig-review's parts view wrote
- * (`rig-review-parts-verdict/1`, rig-c/review docs/PARTS_VIEW.md). This module
+ * (`rig-review-parts-verdict/1` or `/2`, rig-c/review docs/PARTS_VIEW.md). This module
  * reads exactly that file — no default lookup — and refuses `rigging`, each
  * case by name, when the verdict is not an approved parts-mode review of the
  * files now on disk.
@@ -20,6 +20,7 @@ import type { Finding } from './check.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const PARTS_VERDICT_SCHEMA = 'rig-review-parts-verdict/1';
+export const PARTS_VERDICT_SCHEMA_V2 = 'rig-review-parts-verdict/2';
 export const PARTS_VERDICT_KIND = 'parts-verdict';
 
 const SHA256 = /^[0-9a-f]{64}$/;
@@ -123,10 +124,13 @@ export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, 
   const v = parsed as JsonObject;
   const vAt = `${evPath} ${relPath}`;
 
-  if (v.schema !== PARTS_VERDICT_SCHEMA) {
-    push('PARTS_VERDICT_SCHEMA_UNKNOWN', `${vAt} schema`, `${relPath}: schema is ${JSON.stringify(v.schema ?? null)}; this check reads ${PARTS_VERDICT_SCHEMA}, as rig-review's parts view writes it`);
+  if (v.schema !== PARTS_VERDICT_SCHEMA && v.schema !== PARTS_VERDICT_SCHEMA_V2) {
+    push('PARTS_VERDICT_SCHEMA_UNKNOWN', `${vAt} schema`, `${relPath}: schema is ${JSON.stringify(v.schema ?? null)}; this check reads ${PARTS_VERDICT_SCHEMA} or ${PARTS_VERDICT_SCHEMA_V2}; save a verdict with a supported rig-review parts view, as rig-review's parts view writes it`);
     return;
   }
+  // /2 comments remain in the hash-bound verdict; create does not interpret
+  // regions, cameras or crops (the field census is in docs/PROJECT.md). Both
+  // supported schemas use every mode, approval and source check below.
   if (v.mode === 'atlas') {
     push('PARTS_VERDICT_ATLAS', `${vAt} mode`, `${relPath}: an atlas-mode verdict reviews a built rig's atlas; it is informational and never gates parts-review — ${REVIEW_AGAIN} (parts mode: \`rig-review parts\` on the assembled parts)`);
     return;

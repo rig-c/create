@@ -741,6 +741,13 @@ subtraction in `derived add --operation`, repeating `--source` for each input.
 Multiple inputs use `sources: [{path, sha256}, …]`; one keeps `source` unchanged.
 create binds bytes and source hashes. parts owns PNG decoding, grid and support checks.
 
+Known gap: subtracting the foreground plane also excludes character pixels
+covered by that plane in the painting. `SETUP_MATCHES_PAINTING` does not count
+pixels outside the mask, so parts that leave those character pixels uncovered
+can still pass. A character-plate matte can instead include inpaint fill as
+figure. [#113](https://github.com/rig-c/create/issues/113) tracks the upstream
+plate-making fix; the default recipe above stays unchanged.
+
 | Code | Condition | Remedy |
 |---|---|---|
 | `FIGURE_MASK_MISSING` | busy visible retained config lacks a valid requirements figure-mask path and lowercase sha256 | declare `setup_painting.figure_mask` in the config-relative requirements file |

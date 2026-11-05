@@ -669,6 +669,13 @@ The filled example ships synthetic SVG bytes under
 when materializing its prepared-input record. These fixtures demonstrate
 recording, not a claim that the tool performed or verified pixel processing.
 
+Busy-ground figure masks have a coverage gap: foreground subtraction excludes
+character pixels under that plane, so `SETUP_MATCHES_PAINTING` can pass with
+parts missing there. Keep the [default recipe](CHECKS.md#busy-ground-figure-masks).
+A character-plate matte can include inpaint fill as figure;
+[#113](https://github.com/rig-c/create/issues/113) tracks that upstream plate-making
+problem.
+
 An agent rejecting its own route mid-step records it in that guide's
 `history[]`, separately from human `versions[].verdicts[]`:
 

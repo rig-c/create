@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CorrectionError, checkCorrections, correctionApprovalFindings, validateCorrectionPatch } from '../src/corrections.ts';
-import { correctionCommand } from '../src/correction-writers.ts';
+import { assertCorrectionApproval, correctionCommand } from '../src/correction-writers.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { reopenCommand } from '../src/reopen.ts';
 import { fixture as projectFixture } from './fixtures.ts';
@@ -55,3 +55,49 @@ test('stage-1 described drafts use public draft inventory and bind the corrected
 
 test('ordinary correction may name the historical version actually inspected',()=>{const f=fixture();setSystemTime(new Date('2026-11-04T10:00:00Z'));correctionCommand(['record',f.dir,'--id','historical','--path','described','--stage','direction-review','--by','reviewer','--verbatim-file',join(f.dir,'words.txt'),...f.args]);expect(check(f.dir).refusals).toEqual([]);});
 test('replacement must name the latest source at capture while ordinary history remains valid',()=>{const f=fixture();record(f.dir,f.args);setSystemTime(new Date('2026-11-04T10:00:00Z'));const base=['record',f.dir,'--id','new','--resolves','fix','--path','described','--stage','direction-review','--by','reviewer','--verbatim-file',join(f.dir,'words.txt')];rejected(f.dir,'CORRECTION_SOURCE',()=>correctionCommand([...base,...f.args]));correctionCommand([...base,...f.outcome]);expect(check(f.dir).refusals).toEqual([]);});
+
+
+/** Synthetic retained draft/parts bytes, recorded through the public writers; no producer is run. */
+function mixedStageOne(source:'parts'|'draft', target:'parts'|'draft', partsChanged:boolean, modelChanged:boolean) {
+  const dir=projectFixture();roots.push(join(dir,'..'));
+  setSystemTime(new Date('2026-12-01T07:00:00Z'));
+  writeFileSync(join(dir,'words.txt'),'Correct the reviewed parts or mesh.');
+  writeFileSync(join(dir,'reasoning.txt'),'Declare the corrected output.');
+  reopenCommand(['parts-review',dir,'--by','reviewer','--verbatim-file',join(dir,'words.txt')]);
+  correctionCommand(['--adopt',dir]);
+  const draft=(id:string,hour:string,part:string,model:string)=>{
+    const root=`derived/drafts/${id}`;
+    mkdirSync(join(dir,root,'input/parts'),{recursive:true});mkdirSync(join(dir,root,'out'),{recursive:true});
+    const files={'config.json':'{}','input/parts.json':'{}','input/parts/piece.png':part,'out/rig.json':'{}','out/motion.json':'{}','out/mesh_report.json':'{}','out/skeleton.model.json':model};
+    for(const[path,bytes]of Object.entries(files))writeFileSync(join(dir,root,path),bytes);
+    setSystemTime(new Date(`2026-12-01T${hour}:00:00Z`));
+    draftRigCommand([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`]);
+    const entry=(load(dir).drafts as JsonObject[]).find(d=>d.id===id)!;
+    const parts=entry.parts as JsonObject;
+    const inventory=(parts.files as JsonObject[]).slice();
+    const manifest=inventory.find(f=>String(f.path).endsWith('/parts.json'))!;
+    // Writer validation requires codepoint order, independent of locale.
+    inventory.sort((a,b)=>String(a.path)<String(b.path)?-1:1);
+    const path=`evidence/${id}-inventory.json`;
+    writeFileSync(join(dir,path),JSON.stringify({kind:'parts',manifest,files:inventory}));
+    return path;
+  };
+  const before=draft('before','08','synthetic original part','{"synthetic":"original model"}');
+  setSystemTime(new Date('2026-12-01T09:00:00Z'));
+  correctionCommand(['record',dir,'--id','mixed-fix','--path','described','--stage','parts-review','--by','reviewer','--verbatim-file',join(dir,'words.txt'),...(source==='parts'?['--parts-file',before]:['--draft','before'])]);
+  const after=draft('after','10',partsChanged?'synthetic changed part':'synthetic original part',modelChanged?'{}':'{"synthetic":"original model"}');
+  const resolve=()=>{setSystemTime(new Date('2026-12-01T11:00:00Z'));return correctionCommand(['resolve','mixed-fix',dir,'--by','agent','--reasoning-file',join(dir,'reasoning.txt'),...(target==='parts'?['--parts-file',after]:['--draft','after'])]);};
+  return{dir,resolve};
+}
+
+test.each([['parts','draft'],['draft','parts']] as const)('%s → %s with identical inventories refuses closure and leaves approval pending',(source,target)=>{
+  const f=mixedStageOne(source,target,false,true);
+  rejected(f.dir,'CORRECTION_OUTCOME',f.resolve);
+  rejected(f.dir,'CORRECTION_PENDING',()=>assertCorrectionApproval(f.dir,load(f.dir),'parts-review',{draft_id:'after',at:'2026-12-01T12:00:00Z'}));
+});
+test.each([['parts','draft'],['draft','parts']] as const)('%s → %s with a changed part closes',(source,target)=>{
+  const f=mixedStageOne(source,target,true,false);f.resolve();expect(check(f.dir).refusals).toEqual([]);
+});
+test('draft → draft with identical model and parts refuses closure',()=>{const f=mixedStageOne('draft','draft',false,false);rejected(f.dir,'CORRECTION_OUTCOME',f.resolve);});
+test('draft → draft with a different model closes',()=>{const f=mixedStageOne('draft','draft',false,true);f.resolve();expect(check(f.dir).refusals).toEqual([]);});
+test('draft → draft with unchanged model but changed parts closes',()=>{const f=mixedStageOne('draft','draft',true,false);f.resolve();expect(check(f.dir).refusals).toEqual([]);});

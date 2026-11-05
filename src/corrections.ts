@@ -141,7 +141,9 @@ function identityTime(project: JsonObject, v: JsonObject): number {
   return v.kind === 'rig' || v.kind === 'post' ? date(versionRecord(project, v.n).at) : v.kind === 'draft' ? date(draftRecord(project, v.id).at) : -Infinity;
 }
 function changed(a: JsonObject, b: JsonObject): boolean {
-  if (a.kind === 'parts' && b.kind === 'parts') return !equal(bindings(a.files).map(f => f.sha256).sort(), bindings(b.files).map(f => f.sha256).sort());
+  const inventory = (v: JsonObject): Json[] => bindings(v.kind === 'draft' && isObject(v.parts) ? v.parts.files : v.files).map(f => f.sha256).sort();
+  if (a.kind === 'parts' || b.kind === 'parts') return !equal(inventory(a), inventory(b));
+  if (a.kind === 'draft' && b.kind === 'draft') return !sameHash(a.model, b.model) || !equal(inventory(a), inventory(b));
   return !sameHash(a.model, b.model);
 }
 export function correctionApplied(dir: string, artifact: JsonObject): { feedback: JsonObject; item: JsonObject; applied: JsonObject } {

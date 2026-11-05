@@ -1,0 +1,117 @@
+{
+  "schema": "rig-review-parts-verdict/2",
+  "mode": "parts",
+  "tool": {
+    "name": "@rig-c/review",
+    "version": "1.6.0"
+  },
+  "source": {
+    "sha256": "a191d6d5672fc97ee85540470b532130bb8b4ca524ddeac1a081136ae69ba611",
+    "files": [
+      {
+        "path": "../derived/parts/rig/parts.json",
+        "bytes": 333,
+        "sha256": "324379e6635c687163794d484e0cc66a5d8f7d240f08b1c81e869fd3495236b4"
+      },
+      {
+        "path": "../derived/parts/rig/parts/background.png",
+        "bytes": 75,
+        "sha256": "dc383688cb70e960a6d0e4edd39b6b799bdbbee158e1b6229cfeccb4f479d08d"
+      },
+      {
+        "path": "../derived/parts/rig/parts/torso.png",
+        "bytes": 75,
+        "sha256": "5a8f1afad32ef3d9d989d45a1968a0ac82cd4dce58b05f64191995a13c61546c"
+      },
+      {
+        "path": "../derived/parts/rig/parts/lantern.png",
+        "bytes": 74,
+        "sha256": "901106ae0b8254fed86c85ec0a71ae0fdbea7caf88f93093b0f2f222a01724fa"
+      }
+    ],
+    "flags": []
+  },
+  "status": "approved",
+  "parts": {
+    "background": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "torso": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "lantern": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    }
+  },
+  "comments": [
+    {
+      "schema": "rig-review-parts-comment/1",
+      "id": "edge-one",
+      "summary": "Retain this clean edge.",
+      "part": "torso",
+      "imageHash": "5a8f1afad32ef3d9d989d45a1968a0ac82cd4dce58b05f64191995a13c61546c",
+      "sourceHash": "a191d6d5672fc97ee85540470b532130bb8b4ca524ddeac1a081136ae69ba611",
+      "imageRegion": {
+        "x": 1,
+        "y": 1,
+        "width": 2,
+        "height": 2
+      },
+      "rigRegion": {
+        "x": 3,
+        "y": 3,
+        "width": 2,
+        "height": 2
+      },
+      "view": {
+        "camera": {
+          "zoom": 2,
+          "center": {
+            "x": 2,
+            "y": 2
+          },
+          "viewport": {
+            "width": 40,
+            "height": 40
+          }
+        },
+        "cameraSync": true,
+        "referenceCamera": {
+          "zoom": 2,
+          "center": {
+            "x": 2,
+            "y": 2
+          },
+          "viewport": {
+            "width": 40,
+            "height": 40
+          }
+        },
+        "background": "checker",
+        "alpha": true,
+        "footprints": true,
+        "mesh": false
+      },
+      "crop": {
+        "path": "comment-crops/5a8f1afad32ef3d9d989d45a1968a0ac82cd4dce58b05f64191995a13c61546c.png",
+        "sha256": "5a8f1afad32ef3d9d989d45a1968a0ac82cd4dce58b05f64191995a13c61546c",
+        "width": 4,
+        "height": 4,
+        "png": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAEklEQVR42mM4URHwHxkzkC4AAGyHKPEW/lxUAAAAAElFTkSuQmCC"
+      },
+      "nativeCrop": {
+        "path": "comment-crops/171c17a7fcede65925659c71eb2d06992b34ab79ba85719ae8abb8ecc1ae8d21.png",
+        "sha256": "171c17a7fcede65925659c71eb2d06992b34ab79ba85719ae8abb8ecc1ae8d21",
+        "width": 2,
+        "height": 2
+      }
+    }
+  ],
+  "updatedAt": "2026-11-05T12:00:00.000Z"
+}

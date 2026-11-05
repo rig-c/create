@@ -165,7 +165,7 @@ assembled parts before `rigging` starts.
   clone: `derived/`, where the parts are assembled, is not in git. The check
   reads exactly that file, never a default location. Rigging is refused, each case by name
   ([CHECKS.md § Refusals](CHECKS.md#refusals)), unless the verdict is the
-  `rig-review-parts-verdict/1` schema in `parts` mode (an `atlas` verdict is
+  `rig-review-parts-verdict/1` or `rig-review-parts-verdict/2` schema in `parts` mode (an `atlas` verdict is
   informational and never gates), its `status` is `approved`, and every file
   in its `source.files[]` is on disk with the bytes and sha256 it was reviewed
   with. A part added, removed or repainted after the sign-off is a new review:
@@ -175,6 +175,42 @@ assembled parts before `rigging` starts.
   continues. The verdict gates rigging only until a rig version is accepted at
   `rig-review`: from then on it is not read, and a part changed after that is a
   new rig version, refused as `RIG_VERSION_UNACCEPTED` until it is reviewed.
+
+  Both schemas take the same approval, mode, evidence SHA-256, source path,
+  byte-count and source SHA-256 checks. The schema allowlist is closed: `/3`
+  and any other value refuse `PARTS_VERDICT_SCHEMA_UNKNOWN`. The signoff writer
+  calls this reader before writing; the difference-map reader receives only
+  its successfully checked `parts.json` path. These readers do not need new
+  fields (`tests/parts-verdict-v2.test.ts`).
+
+  **Fields added by `/2`.** The schema-final review writer at
+  [`07c07d254725c97cfc63aa7b028cb8ef8ccf9045`](https://github.com/rig-c/review/blob/07c07d254725c97cfc63aa7b028cb8ef8ccf9045/src/parts-view.ts)
+  adds `comments[]`; its complete nested shape comes from
+  [`PartsComment`](https://github.com/rig-c/review/blob/07c07d254725c97cfc63aa7b028cb8ef8ccf9045/src/parts-comment.ts).
+  All fields below are explicitly ignored **for create's gate**, retained
+  unchanged in the verdict file and covered by `evidence.sha256`. create
+  neither copies nor rewrites them into `project.json`, and does not open crop
+  paths or require the review machine's crop state. Review owns comment
+  validation and crop generation; an approved verdict may include comments.
+
+  | New field paths | Why create does not interpret them |
+  | --- | --- |
+  | `comments` (including an empty list), `comments[].schema`, `.id`, `.summary` | Reviewer annotations, not a second approval status. The gate reads the producer's top-level `status`. |
+  | `comments[].part`, `.imageHash`, `.sourceHash` | Comment-specific identities owned by review. The gate binds all original source bytes through `source.files[]` and `source.sha256`, regardless of comments. |
+  | `comments[].imageRegion.{x,y,width,height}`, `.rigRegion.{x,y,width,height}` | Native and placed annotation coordinates; create consumes no region measurement and must not rederive it. |
+  | `comments[].view.camera.zoom`, `.camera.center.{x,y}`, `.camera.viewport.{width,height}` | Primary viewport camera, used to replay the review view, not to approve parts. All camera paths in this row are under `comments[].view`. |
+  | `comments[].view.cameraSync`, `.referenceCamera` (nullable), `.referenceCamera.zoom`, `.referenceCamera.center.{x,y}`, `.referenceCamera.viewport.{width,height}` | Reference viewport replay and synchronization; no camera consumer in this gate. |
+  | `comments[].view.{background,alpha,footprints,mesh}` | Display toggles, not part outcomes or producer measurements. |
+  | `comments[].crop.{path,sha256,width,height,png}` | Viewport crop metadata and inline PNG, owned by review; not the assembly source inventory. |
+  | `comments[].nativeCrop` (nullable in the type), `.nativeCrop.{path,sha256,width,height}` | Review-generated native crop evidence, not a replacement for the original part image. create binds the original bytes without regenerating a crop. |
+
+  `tests/fixtures/rig-review-parts-verdict-2/README.md` records the exact producer
+  head and reproducible command. Its empty-comment and pointed-comment verdicts
+  are unedited writer output. `tests/parts-verdict-v2.test.ts` exercises both
+  through `signoffCommand` then `checkProject`, tests comment-byte binding and
+  operation without external crop state, and applies source/mode refusal
+  controls to both schema versions. Existing `/1` fixture bytes are unchanged.
+
 - **The same sign-off carries a whole-figure difference map**, beside `evidence`.
   Generate its report with the installed `rig-parts diff-components --out` on
   the assembled stack and the painting in the same native canvas. create reads

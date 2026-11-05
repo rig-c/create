@@ -143,8 +143,8 @@ describe('refused, each by name', () => {
     only(checkProject(project({}, (p) => { obj(partsReviewSignoff(p).evidence).path = '../parts-review.json'; })), 'PARTS_VERDICT_UNREAD');
   });
 
-  test('PARTS_VERDICT_SCHEMA_UNKNOWN: a schema other than rig-review-parts-verdict/1', () => {
-    only(checkProject(project({ edit: (v) => { v.schema = 'rig-review-parts-verdict/2'; } })), 'PARTS_VERDICT_SCHEMA_UNKNOWN');
+  test('PARTS_VERDICT_SCHEMA_UNKNOWN: unknown /3 stays refused', () => {
+    only(checkProject(project({ edit: (v) => { v.schema = 'rig-review-parts-verdict/3'; } })), 'PARTS_VERDICT_SCHEMA_UNKNOWN');
   });
 
   test('PARTS_VERDICT_ATLAS: an atlas-mode verdict is informational and never gates parts-review', () => {

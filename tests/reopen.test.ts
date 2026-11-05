@@ -84,7 +84,10 @@ describe('human stage reopen', () => {
     const dir = fixture(); reopen(dir);
     const p = read(dir);
     arr(p.signoffs).push({ stage: 'parts-review', by: 'owner', at: '2026-11-21T00:00:00Z', verbatim: 'yes', checkpoint: null });
-    p.stage = 'rigging'; save(dir, p);
+    p.stage = 'rigging';
+    for (const id of ['seethrough', 'assemble']) step(p, id).status = 'done';
+    arr(p.signoffs).push({ stage: 'parts', checkpoint: 'assemble', by: 'owner', at: '2026-11-21T00:00:00Z', verbatim: 'yes' });
+    save(dir, p);
     setSystemTime(new Date('2026-11-22T00:00:00Z')); reopen(dir, 'parts-review');
     const r = read(dir); const reopens = collectReopens(r, []);
     const live = collectSignoffs(r, []).filter(s => liveSignoff(reopens, s.stage, s.at));
@@ -94,7 +97,7 @@ describe('human stage reopen', () => {
   });
 
   test.each(['agent', 'AGENT'])('planted %s reopen is refused and grants no supersession', by => {
-    const dir = fixture(p => { p.stage = 'parts'; p.reopens = [{ stage: 'parts', by, at: '2026-11-20T00:00:00Z', verbatim: 'no', steps_before: [] }]; });
+    const dir = fixture(p => { p.stage = 'parts'; p.reopens = [{ stage: 'parts', from_stage: 'post', by, at: '2026-11-20T00:00:00Z', verbatim: 'no', steps_before: [] }]; });
     expect(codes(dir)).toContain('SIGNOFF_NOT_HUMAN');
     expect(codes(dir)).toContain('SIGNOFF_AHEAD_OF_STAGE');
     refusal(() => handoff(dir, null), 'SIGNOFF_NOT_HUMAN');
@@ -147,15 +150,47 @@ describe('human stage reopen', () => {
 
   test('planted unreachable and malformed reopens are refused by the shared validator', () => {
     const dir = fixture(p => { p.stage = 'interview'; p.signoffs = []; p.versions = [];
-      p.reopens = [{ stage: 'post', by: 'owner', at: '2026-11-20T00:00:00Z', verbatim: 'yes', steps_before: [] }]; });
+      p.reopens = [{ stage: 'post', from_stage: 'interview', by: 'owner', at: '2026-11-20T00:00:00Z', verbatim: 'yes', steps_before: [] }]; });
     expect(codes(dir)).toContain('REOPEN_NOT_PASSED');
     const p = read(dir); obj(arr(p.reopens)[0]).at = 'invalid'; save(dir, p);
     expect(codes(dir)).toContain('REOPEN_MALFORMED');
   });
 
+  test('reopening rigging then parts preserves the first reopen reach without a rig version', () => {
+    const dir = fixture(p => {
+      p.stage = 'rigging'; p.versions = [];
+      p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts', 'parts-review'].includes(String(obj(s).stage)));
+      for (const s of arr(obj(p.plan).steps)) if (obj(s).phase === 'post') obj(s).status = 'pending';
+    });
+    reopen(dir, 'rigging');
+    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    reopen(dir, 'parts');
+    const p = read(dir);
+    expect(arr(p.reopens).map(r => obj(r).from_stage)).toEqual(['rigging', 'rigging']);
+    expect(collectReopens(p, [])).toHaveLength(2);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test('a planted from_stage cannot borrow reach from the later current stage', () => {
+    const dir = fixture(p => {
+      p.stage = 'post'; p.versions = []; p.signoffs = [];
+      p.reopens = [{ stage: 'rigging', from_stage: 'parts', by: 'owner', at: '2026-11-20T00:00:00Z', verbatim: 'yes', steps_before: [] }];
+    });
+    expect(codes(dir)).toContain('REOPEN_NOT_PASSED');
+  });
+
+  test('full candidate refusals prevent every write, including resets and append', () => {
+    const dir = fixture(p => { step(p, 'assemble').rests_on = []; });
+    const before = readFileSync(join(dir, 'project.json'));
+    refusal(() => reopen(dir), 'STEP_NO_BASIS');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
   test('CLI stdin and help; user clock and repeated arguments are refused', () => {
     const dir = fixture(); const bytes = Buffer.from('\uFEFFSynthetic words\r\n');
-    const result = Bun.spawnSync([process.execPath, CLI, 'reopen', 'parts', dir, '--by', 'owner', '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([process.execPath, '-e',
+      'import {setSystemTime} from "bun:test"; setSystemTime(new Date("2026-11-20T00:00:00Z")); const {main} = await import(process.argv[1]); process.exit(main(process.argv.slice(2)));',
+      CLI, 'reopen', 'parts', dir, '--by', 'owner', '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
     expect(result.exitCode).toBe(0);
     expect(Buffer.from(obj(arr(read(dir).reopens)[0]).verbatim as string)).toEqual(bytes);
     expect(cli(['--help'], dir, gitEnv()).stdout).toContain('rig-create reopen');

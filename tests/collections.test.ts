@@ -393,3 +393,21 @@ describe('collection --check on the record', () => {
     expect(checkCollection(dir).refusals.map((f) => f.code)).toEqual(['STAGE_UNKNOWN']);
   });
 });
+
+
+test('a human reference signoff remains valid when a collection reaches members', () => {
+  const dir = tempDir();
+  const collection = readTemplate('collection.json');
+  collection.stage = 'members';
+  collection.signoffs = ['interview', 'plan-approved', 'reference'].map(stage => ({
+    stage, checkpoint: null, by: 'owner', at: '2026-11-11T00:00:00Z', verbatim: 'yes',
+  }));
+  const interview = obj(collection.interview);
+  for (const [group, field] of [[interview.questions, 'answer'], [interview.framing, 'answer'], [interview.waypoints, 'guide']] as const) {
+    for (const raw of arr(group)) obj(raw)[field] = ANSWER('synthetic collection direction');
+  }
+  writeJson(join(dir, 'collection.json'), collection);
+  const report = checkCollection(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings).toEqual([]);
+});

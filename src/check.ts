@@ -363,10 +363,6 @@ export function collectSignoffs(project: JsonObject, refusals: Finding[]): Signo
       refusals.push({ code: 'SIGNOFF_NOT_HUMAN', path, message: `${path} (stage ${stage}): signed by 'agent'; a stage moves only on a human sign-off` });
       return;
     }
-    if (!STAGE_VALUES.includes(stage as string)) {
-      refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: unknown stage ${stage}; use a known stage` });
-      return;
-    }
     const checkpoint = asString(s.checkpoint);
     const steps = Array.isArray(s.steps) ? s.steps.filter((x): x is string => typeof x === 'string') : null;
     out.push({ index, stage: stage as string, checkpoint, at: time(s.at), steps, record: s });
@@ -764,7 +760,8 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
 
 // ---------------------------------------------------------------------- entry
 
-export function checkProject(projectDirArg: string): CheckReport {
+/** With a candidate record, validate the would-be write against the same project files without writing it. */
+export function checkProject(projectDirArg: string, candidate?: JsonObject): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
@@ -783,11 +780,11 @@ export function checkProject(projectDirArg: string): CheckReport {
   });
 
   const file = join(dir, 'project.json');
-  if (!existsSync(file)) {
+  if (candidate === undefined && !existsSync(file)) {
     refusals.push({ code: 'PROJECT_JSON_MISSING', path: file, message: `${file} does not exist; run the check in a project folder or name one` });
     return fail();
   }
-  const read = readJsonObject(file);
+  const read = candidate === undefined ? readJsonObject(file) : { ok: true as const, value: candidate };
   if (!read.ok) {
     refusals.push({ code: 'PROJECT_JSON_INVALID', path: file, message: `${file}: ${read.error}` });
     return fail();
@@ -810,7 +807,12 @@ export function checkProject(projectDirArg: string): CheckReport {
 
   const collection = loadCollection(dir);
   const reopens = collectReopens(project, refusals);
-  const historySignoffs = collectSignoffs(project, refusals);
+  const historySignoffs = collectSignoffs(project, refusals).filter(s => {
+    if (STAGE_VALUES.includes(s.stage)) return true;
+    const path = `signoffs[${s.index}]`;
+    refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: unknown stage ${s.stage}; use a known stage` });
+    return false;
+  });
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const steps = collectSteps(project, refusals);
   const items = collectItems(project, { collection });

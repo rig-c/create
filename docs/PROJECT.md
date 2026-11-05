@@ -108,14 +108,19 @@ The target is in the stage order, excluding `paused` and `accepted`, and no
 later than the furthest stage evidenced by the current stage, historical human
 sign-offs or dated rig/post versions. No producer is run.
 
-Each entry is `{ stage, by, at, verbatim, source?, steps_before }`. `at` comes
+Each entry is `{ stage, from_stage, by, at, verbatim, source?, steps_before }`. `at` comes
 from the clock; words come unchanged from UTF-8 file or stdin (omitted or `-`).
-`--source` separately records where the words came from. An agent cannot sign.
+`--source` separately records where the words came from. `from_stage` records
+where the project stood when the reopen was written. Each entry's eligibility
+uses its own `from_stage` and historical evidence dated no later than that entry,
+so later backward moves neither erase nor manufacture its reach. An agent cannot sign.
 `steps_before` snapshots `{ id, status }` for every plan step running in the
 target stage or later, preserving an absent status by omitting it. Those steps
 are reset to `pending`; their other fields stay unchanged. Status is outside
 `step_hashes`, so existing plan hashes still verify. The append, resets and
-stage move happen together, or the file is unchanged on refusal.
+stage move happen together, or the file is unchanged on refusal. Before writing,
+the command runs the complete project check against the candidate record and
+the existing project files; any refusal leaves the original bytes unchanged.
 
 For each stage, a sign-off is live only if dated strictly after every reopen
 whose target is that stage or earlier. Checkpoints follow the same rule;

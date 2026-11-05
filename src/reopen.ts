@@ -1,11 +1,11 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { asArray, asString, isObject, type Finding } from './check.ts';
+import { asArray, asString, checkProject, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { stageIndex, stageOfStep } from './stages.ts';
+import { stageIndex, stageOfStep, STAGE_VALUES } from './stages.ts';
 import type { JsonObject } from './templates.ts';
 
 export interface Reopen {
@@ -25,9 +25,9 @@ export function collectReopens(project: JsonObject, refusals: Finding[]): Reopen
   }
   for (const [index, raw] of asArray(project.reopens).entries()) {
     const path = `reopens[${index}]`;
-    if (!isObject(raw) || ['stage', 'by', 'at', 'verbatim'].some(k => asString(raw[k]) === null)
+    if (!isObject(raw) || ['stage', 'from_stage', 'by', 'at', 'verbatim'].some(k => asString(raw[k]) === null)
       || !Number.isFinite(Date.parse(raw.at as string)) || (raw.source !== undefined && typeof raw.source !== 'string')) {
-      push('REOPEN_MALFORMED', path, 'needs stage, by, a valid at, verbatim and optional text source');
+      push('REOPEN_MALFORMED', path, 'needs stage, from_stage, by, a valid at, verbatim and optional text source');
       continue;
     }
     if ((raw.by as string).toLowerCase() === 'agent') {
@@ -44,8 +44,13 @@ export function collectReopens(project: JsonObject, refusals: Finding[]): Reopen
       push('REOPEN_STAGE_UNKNOWN', path, `target ${stage} is not a reopenable stage`);
       continue;
     }
+    const fromStage = raw.from_stage as string;
+    if (!STAGE_VALUES.includes(fromStage)) {
+      push('REOPEN_MALFORMED', `${path}.from_stage`, 'must be a known project stage');
+      continue;
+    }
     const at = Date.parse(raw.at as string);
-    if (stageIndex(stage) > reachedIndex(project, at)) {
+    if (stageIndex(stage) > reachedIndex(project, at, fromStage)) {
       push('REOPEN_NOT_PASSED', path, `target ${stage} was not reached at ${String(raw.at)}`);
       continue;
     }
@@ -55,8 +60,8 @@ export function collectReopens(project: JsonObject, refusals: Finding[]): Reopen
 }
 
 /** Historical stages and dated builds witness reach even after stage has moved back. */
-function reachedIndex(project: JsonObject, at: number): number {
-  let reached = stageIndex(asString(project.stage) ?? '');
+function reachedIndex(project: JsonObject, at: number, fromStage: string): number {
+  let reached = stageIndex(fromStage);
   for (const raw of asArray(project.signoffs)) {
     if (!isObject(raw) || typeof raw.by !== 'string' || raw.by.toLowerCase() === 'agent'
       || typeof raw.verbatim !== 'string' || typeof raw.at !== 'string' || !(Date.parse(raw.at) <= at)) continue;
@@ -110,7 +115,7 @@ export function reopenCommand(args: string[]): { stdout: string; exit: number } 
   }
   const affected = steps.filter((s): s is JsonObject => isObject(s)
     && stageIndex(stageOfStep(s.phase as 'rig' | 'post', s.id as string)) >= stageIndex(positional[0] as string));
-  const entry: JsonObject = { steps_before: affected.map(s => ({ id: s.id as string, ...(s.status === undefined ? {} : { status: s.status }) })), stage: positional[0] as string, by: opts['--by'], at: new Date().toISOString(), verbatim: '' };
+  const entry: JsonObject = { from_stage: project.stage ?? null, steps_before: affected.map(s => ({ id: s.id as string, ...(s.status === undefined ? {} : { status: s.status }) })), stage: positional[0] as string, by: opts['--by'], at: new Date().toISOString(), verbatim: '' };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   const refusals: Finding[] = [];
   // Validate against the original reached stage before moving it backwards.
@@ -123,6 +128,9 @@ export function reopenCommand(args: string[]): { stdout: string; exit: number } 
   for (const step of affected) step.status = 'pending';
   project.reopens = candidate.reopens;
   project.stage = entry.stage;
+  const checked = checkProject(resolve(positional[1] ?? process.cwd()), project);
+  const rejected = checked.refusals[0];
+  if (rejected !== undefined) refuse(rejected.code, rejected.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `reopen: ${String(entry.stage)} by ${String(entry.by)} at ${String(entry.at)}`, exit: 0 };
 }

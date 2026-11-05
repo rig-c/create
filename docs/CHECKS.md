@@ -508,14 +508,16 @@ collection's stages.
 records a human backward move, snapshots affected step statuses into
 `steps_before`, resets those statuses to `pending`, and sets `stage` in one
 write. Existing signatures and versions remain unchanged. The check and writer
-share the reopen validator. No reopen list means the existing contract applies.
+share the reopen validator. Each entry retains `from_stage` as its own reach
+evidence, and the writer runs the complete project check on the final candidate
+before writing. No reopen list means the existing contract applies.
 This new record has no retroactive requirement on earlier project records.
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
 | `REOPEN_STAGE_UNKNOWN` | a target is unknown, `paused` or `accepted` | choose a stage in the order that can be reopened |
-| `REOPEN_NOT_PASSED` | the target is later than the record's reached stage, historical signatures and dated versions | reopen a previously reached stage |
-| `REOPEN_MALFORMED` | reopens is not a list, an entry lacks its human signature, valid date or status snapshot, source is not text, or the writer cannot identify a plan step | restore the named record to the PROJECT.md reopen shape |
+| `REOPEN_NOT_PASSED` | the target is later than its own from_stage and historical signatures/versions dated by the reopen | reopen a previously reached stage |
+| `REOPEN_MALFORMED` | reopens is not a list, an entry lacks its human signature, from_stage, valid date or status snapshot, source is not text, or the writer cannot identify a plan step | restore the named record to the PROJECT.md reopen shape |
 | `REOPEN_OPTION_INVALID` | missing/repeated option values or invalid argument count (exit 2) | supply a stage, --by, optional source and one optional folder |
 | `SIGNOFF_NOT_HUMAN` | a reopen is signed by agent, case-insensitively | obtain a person's signature |
 

@@ -199,3 +199,23 @@ test('an inherited game-logic rig_type chooses state asks instead of character t
   const asks=arr(w.set.asks).map(obj);const tracks=asks[0]!;tracks.id='states';const transitions=structuredClone(tracks);transitions.id='transitions';w.set.asks=[tracks,transitions,...asks.filter(a=>!['states','blink'].includes(String(a.id)))];
   expect(code(()=>validateSet(p,item,w.set,collection))).toBe('NO_REFUSAL');
 });
+
+test.each(['plain','busy'])('visible config accepts pending auto ground, blocks approval, and validates landed %s or missing ground',ground=>{
+  const w=working('assemble');rewriteSet(w,s=>{delete s.constraints;});
+  writeFileSync(join(w.dir,'config.json'),JSON.stringify({assemble:{project:'visible'}}));
+  expect(checkProject(w.dir).refusals).toEqual([]);
+  const picks=arr(w.set.asks).map(a=>`${String(obj(a).id)}=${obj(a).id==='projection'?'alternative':obj(a).id==='ground'?'auto':'keep'}`);
+  const selected=JSON.parse(answer(w,picks));expect(selected.asks).toContainEqual({id:'ground',state:'delegated'});expect(checkProject(w.dir).refusals).toEqual([]);
+  writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');setSystemTime(new Date('2026-11-10T16:10:00Z'));
+  signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
+  const planned=load(w.dir);planned.stage='plan-approved';save(w.dir,planned);
+  const beforeApproval=readFileSync(join(w.dir,'project.json'));
+  expect(code(()=>signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('DELEGATION_UNDECIDED');
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);
+  writeFileSync(join(w.dir,'reason.txt'),'Use the explicitly selected ground decision.');
+  const fragment=join(w.dir,'ground-fragment.json');writeFileSync(fragment,JSON.stringify({unrelated:'no ground value'}));
+  const decide=()=>interviewDecisionCommand(['assemble',w.dir,'--by','agent','--reasoning-file',join(w.dir,'reason.txt'),'--fragment',`ground=${fragment}`]);
+  expect(code(decide)).toBe('ASSEMBLE_GROUND_UNANSWERED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);
+  writeFileSync(fragment,JSON.stringify({ground}));expect(JSON.parse(decide()).value).toEqual({ground});expect(checkProject(w.dir).refusals).toEqual([]);
+  signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);expect(checkProject(w.dir).refusals).toEqual([]);
+});

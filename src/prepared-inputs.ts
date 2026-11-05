@@ -81,7 +81,6 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
   const project = read.value;
   if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'derived add reads rig-create/project@0');
   if (project.derived !== undefined && !Array.isArray(project.derived)) refuse('DERIVED_MALFORMED', 'derived must be an array');
-  const source = opts['--source'] as string;
   const output = opts['--file'] as string;
   if (![...sources, output].every((p) => inside(dir, p)) || sources.some((p) => resolve(dir, p) === resolve(dir, output))) refuse('DERIVED_PATH_INVALID', 'source and derived file must be distinct project-relative files other than project.json');
   const hashes = [...sources, output].map((p) => {
@@ -101,5 +100,5 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
   const finding = ctx.refusals[0];
   if (finding) refuse(finding.code, finding.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${source}' → '${output}' (${entry.operation as string}); stage unchanged`, exit: 0 };
+  return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${entry.operation as string}); stage unchanged`, exit: 0 };
 }

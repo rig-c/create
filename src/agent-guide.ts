@@ -37,12 +37,12 @@ export const PACKAGE_DOCS: readonly PackageDoc[] = [
   {
     package: '@rig-c/parts',
     path: 'README.md',
-    why: 'the pipeline from painting to parts to rig, and the command order an agent follows',
+    why: 'painting-to-rig pipeline and command order',
   },
   {
     package: '@rig-c/parts',
     path: 'docs/AUTHORING.md',
-    why: 'the guide you author from: `config.json` field by field (its sections are the interview waypoints), and which field or input each refusal rule points at',
+    why: 'config fields, interview waypoints and refusal remedies',
   },
   {
     package: '@rig-c/parts',
@@ -57,7 +57,7 @@ export const PACKAGE_DOCS: readonly PackageDoc[] = [
   {
     package: '@rig-c/parts',
     path: 'docs/STABILITY.md',
-    why: 'which commands, config fields and written files you can rely on across versions',
+    why: 'stable commands, fields and outputs',
   },
   {
     package: '@rig-c/parts',
@@ -67,27 +67,27 @@ export const PACKAGE_DOCS: readonly PackageDoc[] = [
   {
     package: '@rig-c/core',
     path: 'README.md',
-    why: 'what rigc does and does not do, its commands, and its documentation table',
+    why: 'rigc scope, commands and documentation',
   },
   {
     package: '@rig-c/core',
     path: 'docs/AUTHORING.md',
-    why: 'before writing a rig or motion spec by hand: the two formats, the build loop, and the map from each named failure to the file that has to change',
+    why: 'rig/motion formats, build loop and failure remedies',
   },
   {
     package: '@rig-c/core',
     path: 'docs/RIGGING.md',
-    why: 'at the bones waypoint: placing bones and pivots, and how a misplaced pivot shows up',
+    why: 'bones and pivots at the bones waypoint',
   },
   {
     package: '@rig-c/core',
     path: 'docs/MOTION.md',
-    why: 'at the motion waypoint: motions from key poses',
+    why: 'key-pose motions at the motion waypoint',
   },
   {
     package: '@rig-c/core',
     path: 'docs/FACE.md',
-    why: 'when the plan has a blink, a gaze or a head turn',
+    why: 'blink, gaze and head-turn plans',
   },
   {
     package: '@rig-c/core',
@@ -200,7 +200,7 @@ export function renderAgentGuide(): string {
     const fill = fills[key];
     if (fill === undefined) throw new Error(`${GUIDE_TEMPLATE}: unknown marker ${marker}`);
     return fill;
-  });
+  }) + '\nIn parts, record a head-crop preflight with intake-report, then offer the optional report-bound intake_suitability choice. Counts are advisory and never block approval; this cannot save the first full run. Colour-adjacent ground and enclosed ground are known-not-predicted (two failed model-sweep rounds on a pilot), without thresholds.\n';
 }
 
 /**

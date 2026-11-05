@@ -1,0 +1,1 @@
+{"spec":"rig-parts/head-crop-preflight/1","head_box":[5,0,15,5],"source_canvas":{"w":20,"h":10},"run_canvas":{"w":10,"h":10},"drawn_alpha_above":8,"pixel_grid":"full-run","registration":{"scale_source_per_run":2,"pad_left":0,"pad_top":5},"layers":[{"tag":"front hair","drawn_px":3,"sides":{"top_px":0,"left_px":1,"right_px":0},"bottom_px":1}]}

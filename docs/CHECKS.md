@@ -862,3 +862,16 @@ The exact create-owned `direction_origin` and typed patch result are checked;
 a preview, same-document result, cross-kind result, changed rig or
 `rig-review-applied/2` report cannot close it. @1 records, their fixture bytes,
 unsupported operations and described/config-patch behavior remain unchanged.
+
+### Advisory intake
+
+None of these warnings refuses an approval; absent intake adds no warning.
+Writer rejection with the same code means invalid recording input, before
+any write, not a screening decision about the painting.
+
+| Code | Record path and remedy |
+| --- | --- |
+| `INTAKE_HEAD_CROP_RISK` | `intake.reports`: reported native alpha > 8 before ghost cleanup crosses a non-bottom head-box edge; shows raw per-tag/side counts, with bottom separate. Show the optional report-bound parts choice; do not refuse approval. |
+| `INTAKE_REPORT_INVALID` | `intake.reports`: missing/changed raw bytes, unsupported spec, invalid binding/shape, copied fields or prediction; restore the retained report first, then append a corrected `intake-report` entry if needed. Also names invalid `intake`/`intake-report` CLI input; rejected writes leave project bytes identical. |
+| `INTAKE_CHOICE_PENDING` | `intake.choice`: only in `parts`, a HIT with no resolved choice bound to that report; adopt choices with `interview-options --adopt` first when not adopted, then record the person's explicit choice or finish their explicit delegation through the interview writers. Advisory, including Other pending. |
+| `INTAKE_CHOICE_INVALID` | `intake.choice`: malformed/stale local choice or shown set; retain and re-show report-bound options through the interview writers. Never an approval refusal. |

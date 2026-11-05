@@ -828,3 +828,33 @@ one. A refused project write leaves its bytes identical; retained authored
 files are never rewritten. Regenerate all consumer examples with
 `scripts/generate-example-choices.ts <fresh scratch> [--check]`; the active full
 example also reproduces through `generate-example-order.ts` and stays 0/0.
+
+## Optional intake choice in parts
+
+Recording a preflight with `intake-report` offers a new optional ask,
+`intake_suitability`, in **parts**, bound to the recorded report's raw sha256.
+It is not asked in the source interview: it needs a full run and cannot save
+the first full run. The record lives at `intake.choice`, outside required
+framing/waypoints and every completeness or approval deadline. A HIT with
+no resolved choice for that report raises `INTAKE_CHOICE_PENDING`; a no-risk
+report raises no choice warning. Neither is an approval refusal.
+
+Use `interview-options intake_suitability <dir> --file <retained-set>` to
+retain a `rig-create/interview-options@1` set with `stage: "parts"`,
+`question: "intake_suitability"`, one ask of that id and `assembly.rule:
+"single"`. Its context is `{ kind: "intake", report_id: <id>, report:
+<the entry's complete report binding> }`. The ordinary per-ask rules apply:
+two value options (for example scalar `proceed` and `choose-another`), one
+explicitly explained recommendation that is never preselected, Other and
+auto. Choose with `interview-answer`; only explicit auto may be completed
+with `interview-decision`. Other text and note are retained verbatim through
+the existing writer, together with the exact labels/effects shown. Do not
+substitute an agent summary for the person's words.
+
+Pending auto, decided auto, Other with a fragment and Other pending stay
+explicit and optional. A delegated decision is not a person's proceed pick.
+Choosing another records intent; it never changes inputs automatically or
+screens a corpus reproduction away. A new report needs a fresh shown set
+and explicit choice; the old choice and set remain history. Choices are
+local, never inherited from a collection. They may be recorded only in
+parts, but later signatures do not make a pending optional choice invalid.

@@ -1,3 +1,4 @@
+import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -40,6 +41,11 @@ function parse(args: string[], allowed: string[], repeat: string[] = []): Args {
 }
 function itemAt(project: JsonObject, dir: string, question: string | undefined): Item {
   if (!question) usage('question required');
+  if (question === INTAKE_QUESTION) {
+    if (project.stage !== 'parts') usage('intake_suitability is offered only in parts after recording a preflight');
+    if (intakeWarnings(dir,project).some(w => w.code === 'INTAKE_REPORT_INVALID')) refuse('INTAKE_REPORT_INVALID','intake.reports: restore bound producer bytes before drafting choices');
+    const intake = intakeItem(project); if (!intake) usage('record a preflight with intake-report first'); return intake;
+  }
   const found = collectItems(project, { collection: loadCollection(dir) }).find(i => i.id === question);
   if (!found) usage(`unknown question ${question}`);
   return found;
@@ -60,6 +66,10 @@ function save(file: string, dir: string, original: JsonObject, candidate: JsonOb
   writeFileSync(tmp,`${JSON.stringify(candidate,null,2)}\n`, { flag: 'wx' }); renameSync(tmp,file);
 }
 function checkNewAnswer(dir: string, project: JsonObject, item: Item): void {
+  if (item.path === 'intake.choice.answer') {
+    if (choiceAdoption(project) === null) refuse('INTERVIEW_CHOICE_REQUIRED', 'intake.choice: adopt choices before recording a new choice');
+    return;
+  }
   const stage = approvalStageOfGuide(item.id,item.kind === 'post',true);
   const reopens = collectReopens(project,[]);
   if (collectSignoffs(project,[]).some(s => s.stage === stage && s.checkpoint === null && liveSignoff(reopens,s.stage,s.at))) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: approval is still live; reopen ${stage === 'plan-approved' ? 'interview' : stage} before changing this answer`);
@@ -89,7 +99,7 @@ export function interviewOptionsCommand(args: string[]): string { return run(() 
   const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,Date.now(),true);
   if (choiceAdoption(next) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
   // A retained path/id may never be reused with a different hash, even after answer replacement.
-  for (const other of collectItems(next,{collection:loadCollection(dir)})) {
+  for (const other of [...collectItems(next,{collection:loadCollection(dir)}), ...(item.path === 'intake.choice.answer' ? [item] : [])]) {
     const bindings = [other.record.pending_options, ...[other.raw,...asArray(other.record.history)].filter(isObject).map(a => isObject(a.choice) ? a.choice.set : undefined)];
     for (const old of bindings) if (isObject(old)) {
       if (old.path === path && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option path is already bound to other bytes; retain the original and use a new set id/path`);

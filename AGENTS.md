@@ -30,8 +30,11 @@ request gets one review. A fix pushed after it is not re-reviewed.
    Tests assert on codes, never on message text alone, and never filter a
    new code out of an existing assertion.
 3. **Contract dates.** A rule that would refuse records made before it
-   existed is dated by a `*_SINCE` constant. The date is the day after the
-   change lands. The constant is named in the one CHECKS.md sentence that
+   existed is dated by a `*_SINCE` constant. The date is the landing day at
+   00:00Z, so it is never in the future (the signed example is anchored at
+   the latest one). Before a PR that adds or moves a SINCE lands, run `check`
+   on every live pilot project; a new refusal on a record dated that day is a
+   STOP, not a merge. The constant is named in the one CHECKS.md sentence that
    lists all of them, and earlier records get a WARN, not a refusal.
 4. **Pin bumps go through the checklist:**
    - `src/pins.ts`;

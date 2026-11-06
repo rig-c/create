@@ -8,7 +8,7 @@ export function generatorArgs(
   let badArgument = extra[0];
   if (!destination) {
     badArgument = '(missing destination)';
-  } else if (destination.startsWith('--')) {
+  } else if (destination.startsWith('-')) {
     badArgument = destination;
   } else if (flag !== undefined && flag !== '--check') {
     badArgument = flag;

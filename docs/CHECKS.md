@@ -938,4 +938,4 @@ any write, not a screening decision about the painting.
 
 | Code | Meaning and remedy |
 | --- | --- |
-| `GENERATOR_ARGS_INVALID` | The named generator refuses the displayed argument before writing its destination. Supply the destination shown in its unchanged usage line and only the optional `--check` flag. |
+| `GENERATOR_ARGS_INVALID` | The named generator refuses the displayed argument (a destination starting with `-`, a missing destination, or any flag but `--check`) before writing its destination. Supply the destination shown in its unchanged usage line and only the optional `--check` flag. |

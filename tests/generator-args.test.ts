@@ -11,6 +11,7 @@ describe.each(scripts)('%s argument refusals', script => {
   test.each([
     { args: ['--check'], bad: '--check' },
     { args: ['--x'], bad: '--x' },
+    { args: ['-check'], bad: '-check' },
     { args: ['output', '--unknown'], bad: '--unknown' },
     { args: ['output', '--check', 'extra'], bad: 'extra' },
     { args: [], bad: '(missing destination)' },

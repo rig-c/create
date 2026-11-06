@@ -26,7 +26,7 @@ Usage:
   rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
   rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
   rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
-  rig-create collection pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
+  rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
   rig-create derived add [<dir>] --source <file> --file <file> --operation <text>
                                                     record external preparation and both file hashes
   rig-create interview --check [<project dir>] [--json]

@@ -311,11 +311,11 @@ Exit `1`. Each names its object in `path`.
 | `WAYPOINT_MISSING` | a waypoint derived from parts is not in `interview.waypoints[]` | add the waypoint (with its `config[]` and prompts) and ask it |
 | `POST_ITEM_MISSING` | a post item derived from parts (or `post_timing` / `post_composition`) is not in `interview.post.items[]` | add it |
 | `FRAMING_MISSING` | `rig_type` or `reference` is not in `interview.framing[]` | add it |
-| `INTERVIEW_INCOMPLETE` | a framing answer or waypoint guide is `null` while the stage is `interview`; a post item guide is `null` while the stage is `post-interview` | hold the interview: the user answers, delegates, or the interviewer writes not applicable with a reason |
+| `INTERVIEW_INCOMPLETE` | a collection question deferral reaches `until_stage` (resolve with `collection answer --value-file`); a framing answer or waypoint guide is `null` while the stage is `interview`; a post item guide is `null` while the stage is `post-interview` | hold the interview: the user answers, delegates, or the interviewer writes not applicable with a reason |
 | `FRAMING_SILENT` | a framing answer is `null` and the stage is past `interview` | the same; the stage moved on an incomplete interview |
 | `WAYPOINT_SILENT` | a waypoint guide is `null` (or inherits a `null` or `per-member` collection answer) and the stage is past `interview` | the same |
 | `POST_ITEM_SILENT` | a post item guide is `null` and the stage is past `post-interview` | the same |
-| `ANSWER_MALFORMED` | an answer is none of the four states (no `delegated` flag, a user answer without `verbatim`/`value`, not applicable without `because`, an `inherited` without `from`) | write it in the answer shape of INTERVIEW.md |
+| `ANSWER_MALFORMED` | an answer is none of the four states (no `delegated` flag, a user answer without `verbatim`/`value`, not applicable without `because`, an `inherited` without `from`), a member-local deferral, or a collection deferral outside collection-scope questions or without nonblank `by`/`reason`, valid `at` and an ordered lifecycle `until_stage` other than `paused` | write it in the answer shape of INTERVIEW.md |
 | `INHERITED_UNRESOLVED` | an `inherited` answer names a collection or question that cannot be found from this folder | put the member under `<collection>/members/<name>/`, or fix `from` |
 | `OVERRIDE_COLLECTION_INVALID` | an overridden answer's `overrides.collection` does not name its parent collection, or the collection cannot be read | restore the parent collection and reference its name |
 | `OVERRIDE_QUESTION_INVALID` | `overrides.question` names no collection question with an answered current/history record | reference an answered collection question and retain its original answer in history |
@@ -501,7 +501,8 @@ collection's stages.
 | --- | --- | --- |
 | `COLLECTION_JSON_MISSING` | no `collection.json` in the folder | run in a collection folder, or name one |
 | `COLLECTION_JSON_INVALID` | the file is not a JSON object | fix the JSON |
-| `COLLECTION_ITEM_SILENT` | a collection question, framing answer or waypoint guide is `null` and the stage is past `interview` (a post item guide: past `post-interview`) | answer it, delegate it, or answer `"per-member"` to leave it to each member |
+| `COLLECTION_ITEM_SILENT` | a collection question, framing answer or waypoint guide is `null` and the stage is past `interview` (a post item guide: past `post-interview`), or a collection question deferral is past `until_stage` | record an ordinary collection question answer with `collection answer --value-file`; for shared guides, answer, delegate or use `"per-member"` |
+| `COLLECTION_ANSWER_DEFERRED` (WARN) | a collection-scope question has a valid `{ deferred: { by, at, reason, until_stage } }` answer before its deadline | record an ordinary answer with `collection answer --value-file` before `until_stage`; the deferral is never inherited as a value |
 | `MEMBER_MALFORMED` | a `members[]` entry is not an object with a string `name` | fix the entry |
 | `MEMBER_PROJECT_MISSING` | a member's `project.json` (its `project` path, default `members/<name>/project.json`) is missing or not JSON | restore it, or remove the member |
 | `PIN_STALE` | the default pin differs from the member's latest build, or an explicit pin's recorded rig version is absent or differs in its file list, variants or recorded/on-disk hashes | make the collection output again from the current builds and `collection pin`; or rebuild the member to the pinned build |

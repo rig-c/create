@@ -937,7 +937,7 @@ act, as for existing forward sign-offs. The filled legacy example is frozen in
 `templates/legacy-example-project.json`. Read under the current 2.16.0 pin it warns with that order warning plus
 `QUESTION_SET_STALE`, because its frozen question set remains at 2.14.1, and it is refused by the build-identity gate
 (`REVIEW_PACKAGE_CONFIG_MISMATCH` and `REVIEW_PACKAGE_PARTS_MISMATCH` on v1 and v2): its versions, dated after
-`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its bytes stay frozen.
+`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its bytes stay frozen.
 The new `example-project.json` is a synthetic new-order narrative at 0/0.
 
 Framing and source (`seethrough`, `assemble`) are the first interview. A
@@ -1171,8 +1171,8 @@ full-example integration. Its checked positive is explicitly **synthetic
 shape-only**, not a measured producer-gate result; see its README. Every retained
 file uses its real byte hash. The frozen legacy example's exact warning set is
 `QUESTION_SET_STALE`, `STAGE_ORDER_LEGACY`, `CHOICE_ANSWERS_LEGACY`,
-`CORRECTION_PATH_LEGACY`, and it is refused by the build-identity gate as described
-above; the current filled example stays at 0/0.
+`CORRECTION_PATH_LEGACY`, and it is refused by the build-identity gate and by
+`SIGNOFF_TARGET_MISSING` twice as described above; the current filled example stays at 0/0.
 
 ### Authored camera direction (create#92)
 
@@ -1370,3 +1370,38 @@ Colour-adjacent ground and ground enclosed between strands are
 a model sweep on a pilot did not separate them), with no threshold or warning.
 Silhouette stepping, source-vs-final alpha classes, patchwork runs and
 versioned dark retention need post-assemble outputs and are excluded.
+
+### Targets of review signatures
+
+`signoff rig-review` and `signoff direction-review` accept `--version <n>`.
+Without it, exactly one candidate must exist. Candidates are versions of the
+review's kind with an accepted verdict and no live same-stage signature
+already targeting them. A refusal lists candidates without a recency preference.
+An explicit version must exist with the right kind and an accepted verdict.
+
+Each signature records `target.version` and `target.verdict`, the literal
+`versions[i].verdicts[j]` path of the accepted verdict. A rig review adds
+`target.review_package = {path: "versions[i].review_package", sha256}`. Its hash
+is SHA-256 of UTF-8 `JSON.stringify(sorted({config, files}))` from the inline
+package record. Keys sort recursively, arrays retain order, and `from` and
+`open` are excluded. Package checks still resolve the retained files on disk.
+
+An adopted authored direction adds `target.direction = {path, sha256}` from
+the version's `provenance.direction` and the retained document bytes. A post
+without an adopted document instead adds `target.post_config`, copied from
+`provenance.config`. Exactly one is present. The latter is compared with the
+version's current binding, while existing provenance checks own file reads.
+Writers validate targets before writing. Refusals leave project.json identical.
+
+From `SIGNOFF_TARGET_SINCE = 2026-11-06T00:00:00Z`, missing and stale targets
+refuse as `SIGNOFF_TARGET_MISSING` and `SIGNOFF_TARGET_STALE`. Earlier signatures
+receive one corresponding `_LEGACY` warning each. Amendment lapse rules continue
+to apply to these approvals.
+
+Pre-interview rig versions bind `target.outputs = {path: "versions[i].outputs",
+sha256}` using SHA-256 of UTF-8 `JSON.stringify(sorted(outputs))`. A declared
+`outputs_lost` refuses signing because nothing survives to bind. Any target has
+exactly one of `review_package`, `outputs`, `direction` or `post_config`.
+The operative verdict is the last human, non-provisional verdict for that
+review stage. It must be accepted, and the target must name that exact verdict.
+A later human bounce makes the earlier bound acceptance stale.

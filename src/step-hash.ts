@@ -4,7 +4,7 @@ import type { Json, JsonObject } from './templates.ts';
 
 const FIELDS = ['id', 'phase', 'order', 'does', 'produces', 'rests_on', 'bar', 'checkpoint_proposed', 'checkpoint'] as const;
 
-function sorted(value: Json): Json {
+export function sorted(value: Json): Json {
   if (Array.isArray(value)) return value.map(sorted);
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])]));

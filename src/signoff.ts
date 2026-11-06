@@ -1,3 +1,4 @@
+import { selectSignoffTarget } from './signoff-target.ts';
 import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
@@ -17,6 +18,7 @@ import type { JsonObject } from './templates.ts';
 
 export const SIGNOFF_HELP = `signoff:
   <stage> [<project dir>]  record a human signature without moving project.stage
+  --version <n>           reviewed rig or post version (single candidate defaults)
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
   --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
@@ -47,7 +49,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
       const id = value.slice(0, eq);
       if (components.some((c) => c.id === id)) refuse('SIGNOFF_OPTION_INVALID', `duplicate component ${id}`, USAGE_EXIT);
       components.push({ id, status: value.slice(eq + 1, colon), why: value.slice(colon + 1) });
-    } else if (['--draft', '--structure-file', '--diff-report', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
+    } else if (['--version', '--draft', '--structure-file', '--diff-report', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -187,6 +189,8 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   }
   assertDirectionApproval(dir, project, stage);
   assertCorrectionApproval(dir, project, stage, signoff);
+  const target = selectSignoffTarget(dir, project, stage, opts['--version']);
+  if (target !== undefined) signoff.target = target;
   project.signoffs.push(signoff);
   if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
     const first = checkProject(dir, project).refusals[0];

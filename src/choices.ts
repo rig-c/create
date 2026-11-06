@@ -1,3 +1,4 @@
+import { humanReviewVerdicts } from './review.ts';
 import { intakeContext } from './intake.ts';
 /** Per-ask proposals and human selections. No producer is run or measurement derived here. */
 import { createHash } from 'node:crypto';
@@ -153,7 +154,7 @@ export function optionContext(project: JsonObject, stage: string, at: number): J
   }
   const signoff = collectSignoffs(project, []).filter(s => s.stage === 'rig-review' && s.checkpoint === null && s.at <= at && liveSignoff(reopens, s.stage, s.at)).sort((a,b) => b.at - a.at)[0];
   const rigs = objects(project.versions).filter(v => v.kind === 'rig' && date(v.at) <= at && liveSignoff(reopens, 'rig-review', date(v.at)))
-    .filter(v => { const verdicts = objects(v.verdicts).filter(d => d.review === 'rig-review' && d.by !== 'agent' && date(d.at) <= at && d.verdict !== 'provisional'); return verdicts.at(-1)?.verdict === 'accepted'; }).sort((a,b) => Number(b.n) - Number(a.n));
+    .filter(v => { const verdicts = humanReviewVerdicts(v.verdicts, 'rig-review').map(v => v.record).filter(d => date(d.at) <= at); return verdicts.at(-1)?.verdict === 'accepted'; }).sort((a,b) => Number(b.n) - Number(a.n));
   const rig = rigs[0];
   const provenance = isObject(rig?.provenance) ? rig.provenance : {};
   if (!signoff || !rig || !isObject(provenance.config)) fail('INTERVIEW_OPTIONS_STALE', 'accept a rig with retained config before drafting post options');

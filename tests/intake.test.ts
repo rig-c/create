@@ -119,7 +119,7 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>signoffCommand(['plan-approved',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>signoffCommand(['rigging-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>{setSystemTime(new Date(String(arr(p.signoffs).map(obj).find(s=>s.stage==='parts-review')!.at)));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--evidence',EXAMPLE_VERDICT,'--diff-report',EXAMPLE_DIFF_REPORT,'--component','p10-n3=in-painting:synthetic source','--component','p1000-n3=in-painting:synthetic source','--draft','example','--structure-file','evidence/structure-decisions.json']);},
-    ()=>signoffCommand(['direction-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
+    ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>handoff(dir,null),

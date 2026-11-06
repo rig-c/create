@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import { reviewPackageHash } from '../src/signoff-target.ts';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { asArray, isObject } from '../src/check.ts';
@@ -43,6 +44,7 @@ export function alignLegacyBuilds(project: JsonObject, files: Record<string, str
       files[`${String(pkg.from)}/parts.json`] = manifestBytes;
     }
   }
+  refreshFixtureTargets(project);
 }
 
 /** Synthetic producer bytes shipped with the filled example, relative to a review package. */
@@ -85,5 +87,18 @@ export function repackageFixtureVersion(dir: string, n: number): string {
   if (createHash('sha256').update(bytes).digest('hex') !== config.sha256) return dir;
   rmSync(join(dir, `derived/review/v${n}`), { recursive: true });
   reviewPackageCommand([String(n), dir, '--config', String(config.path), '--from', String(version.review_package.from)]);
+  const signed = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  refreshFixtureTargets(signed);
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(signed, null, 2)}\n`);
   return dir;
+}
+
+/** Setup-only package regeneration precedes the synthetic signature's freeze. */
+function refreshFixtureTargets(project: JsonObject): void {
+  for (const signoff of asArray(project.signoffs).filter(isObject)) {
+    const target = signoff.target;
+    if (signoff.stage !== 'rig-review' || !isObject(target) || !isObject(target.review_package)) continue;
+    const version = asArray(project.versions).find(v => isObject(v) && v.n === target.version);
+    if (isObject(version) && isObject(version.review_package)) target.review_package.sha256 = reviewPackageHash(version.review_package);
+  }
 }

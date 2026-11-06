@@ -28,9 +28,9 @@
     {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-06T00:00:48.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"a0f9b154ec78eb88bf5b7c77ab21c835600c69e081c3ccc6c2d8a82e68568bbb","constraints":"695cde7623648741f7602b76c449f870eb54967e60f4fd21c2df362b052d58ee"},"accepted_parts":{"signoff_at":"2026-11-06T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"e27c6c6d7e8861553c0bdbea3066801028229ad122204831d68c944adcd7cb94"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"}},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-06T00:00:45.000Z","verbatim":"ok, the scarf looks right in the sketch"},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-06T00:00:49.000Z","verbatim":"better"},
-    {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-06T00:00:51.000Z","verbatim":"yes, that's her"},
+    {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-06T00:00:51.000Z","verbatim":"yes, that's her","target":{"version":2,"verdict":"versions[1].verdicts[0]","review_package":{"path":"versions[1].review_package","sha256":"c09df0726c6bc421e34c1ce74503f333dd8a6f6a370d1a7b449ce4b61f094c27"}}},
     {"stage":"post-interview","checkpoint":null,"by":"user","at":"2026-11-06T00:01:00.000Z","verbatim":"go","step_hashes":{"camera":"8f1e897a086b1766221982d7b1e7109907b3363c5c69275e9fcfa480b29545f1","timing":"8e02895a81505af2be5bc89501eef396d961925e2fc683a6f064eeb7526c4ec2","composition":"3c813ae5a80dc23643b493de86304048e8145dbaac55f971369915ebf7eb5fa6"}},
-    {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-06T00:01:04.000Z","verbatim":"done, I like it"}
+    {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-06T00:01:04.000Z","verbatim":"done, I like it","target":{"version":4,"verdict":"versions[3].verdicts[0]","post_config":{"path":"derived/v4/take.json","sha256":"a254add3c9b992eda452000bc8fa8828d33506fd70fcbf871893e448efe2f5dc"}}}
   ],
   "interview": {
     "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.16.0)",

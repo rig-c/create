@@ -10,7 +10,7 @@ import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { latestPartsApproval, retainedJson } from './structure.ts';
-import type { JsonObject } from './templates.ts';
+import type { Json, JsonObject } from './templates.ts';
 
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 export const BUILD_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
@@ -152,7 +152,7 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
     const n = version.n as number;
     const pkg = join(ctx.dir, packagePath(n));
     if (version.review_package === undefined || version.review_package === null) {
-      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: no package recorded; write it with ${regeneration(n, null)}` });
+      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: no package recorded, so the figure mask has no verdict; write it with ${regeneration(n, null)}` });
       continue;
     }
     if (record === null || !isObject(record.config) || typeof record.config.path !== 'string' || typeof record.config.sha256 !== 'string'
@@ -164,7 +164,7 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
     }
     checkBuildIdentity(ctx, version, record);
     if (!packageExists(pkg)) {
-      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: package absent; regenerate with ${regeneration(n, record)}` });
+      ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: package absent, so the figure mask has no verdict; regenerate with ${regeneration(n, record)}` });
       continue;
     }
     try {
@@ -255,6 +255,45 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
         return { path, source: file, bytes: readFileSync(file) };
       });
     } catch (error) { if (error instanceof Refusal) throw error; refuse('REVIEW_PACKAGE_INPUT_INVALID', `versions[v${n}].review_package.config: ${error instanceof Error ? error.message : String(error)}`); }
+    const configObject = JSON.parse(configBytes.toString()) as JsonObject;
+    if (typeof configObject.requirements === 'string') {
+      const requirementsPath = relative(dirname(config), resolve(dirname(config), configObject.requirements)).split(sep).join('/');
+      const requirements = named.find(input => input.path === requirementsPath);
+      if (requirements) {
+        let document: Json;
+        try { document = JSON.parse(requirements.bytes.toString()); }
+        catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', `${requirements.path}: restore readable requirements JSON`); }
+        const setup = isObject(document) && isObject(document.setup_painting) ? document.setup_painting : {};
+        if (setup.figure_mask !== undefined) {
+          const mask = setup.figure_mask;
+          if (!isObject(mask) || typeof mask.path !== 'string' || !mask.path.trim()
+            || typeof mask.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(mask.sha256)) {
+            refuse('FIGURE_MASK_MISSING', `${requirements.path}: declare setup_painting.figure_mask {path, sha256} before packaging`);
+          }
+          const maskFile = resolve(dirname(config), dirname(requirements.path), mask.path);
+          const maskPath = relative(dirname(config), maskFile).split(sep).join('/');
+          if (isAbsolute(mask.path) || !maskPath || maskPath.split('/').some(part => part === '..' || part === '.' || part === '')) {
+            refuse('REVIEW_PACKAGE_PATH_INVALID', `${requirements.path}: figure mask ${mask.path} must stay inside the config directory`);
+          }
+          let current = dirname(config);
+          for (const part of maskPath.split('/')) {
+            current = join(current, part);
+            if (existsSync(current) && lstatSync(current).isSymbolicLink()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${maskPath}: retain a figure mask without symlinks`);
+          }
+          let regularFile = false;
+          try { regularFile = lstatSync(maskFile).isFile(); } catch { /* Missing paths are refused below. */ }
+          if (!regularFile) refuse('FIGURE_MASK_CHANGED', `${maskPath}: restore the declared mask as a readable PNG file before packaging`);
+          let bytes: Buffer;
+          try { bytes = readFileSync(maskFile); }
+          catch { refuse('FIGURE_MASK_CHANGED', `${maskPath}: cannot read the declared mask; restore its PNG before packaging`); }
+          if (hash(bytes) !== mask.sha256) refuse('FIGURE_MASK_CHANGED', `${maskPath}: bytes differ from the declared sha256; restore the mask or record its corrected declaration before packaging`);
+          if (maskPath === 'config.json' && !bytes.equals(configBytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${maskPath}: figure mask collides with the packaged config`);
+          const existing = named.find(input => input.path === maskPath);
+          if (existing && !existing.bytes.equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${maskPath}: figure mask collides with a named input`);
+          if (!existing) named.push({ path: maskPath, source: maskFile, bytes });
+        }
+      }
+    }
     // A compiled model already cited by an authored take cannot be rebound by packaging.
     for (const post of directionObjects(project.versions)) {
       if (post.kind !== 'post' || post.rig_version !== n || !isObject(post.provenance) || post.provenance.direction === undefined) continue;

@@ -854,7 +854,7 @@ config unchanged and the build's `parts.json`, `parts/`, `rig/`, and
 the build files under `out/`. Every config-relative file named by the installed loader is copied at its relative path and included in the frozen inventory, including nested requirements, animations and a file-based control skeleton. The source build must include `rig/rig.json`,
 `rig/motion.json`, `rig/mesh_report.json` and
 `check/build/skeleton.model.json`. Copies preserve the package when the build
-directory is cleaned. Each copied file is hashed. The command writes no new
+directory is cleaned. The packager also retains `setup_painting.figure_mask.path` from the frozen requirements at its requirements-relative path, verifies its declared SHA-256, and records its package binding. Each copied file is hashed. The command writes no new
 build and moves no stage.
 
 A config's named files are bound build inputs in versions and drafts, with draft inputs recorded separately as optional `config_inputs` path/raw-sha256 bindings while `files` remains outputs.

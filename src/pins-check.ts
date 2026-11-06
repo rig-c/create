@@ -23,6 +23,7 @@ import { classify, collectSignoffs, COLLECTION_SCHEMA, readJsonObject, type Find
 import { COLLECTION_STAGES, COLLECTION_STAGE_VALUES } from './collection.ts';
 import type { CommandResult } from './interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { collectionAnswerCommand } from './collection-answer.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export interface PinFile {
@@ -423,7 +424,7 @@ function checkPins(dir: string, collection: JsonObject, members: Member[], refus
 }
 
 /** Collection answers as `interview --check` reads a project's, against the collection's own stages. */
-function checkCollectionRecord(collection: JsonObject, stage: string, refusals: Finding[]): string {
+export function checkCollectionRecord(collection: JsonObject, stage: string, refusals: Finding[], warnings: Finding[] = []): string {
   const signoffs = collectSignoffs(collection, refusals);
   const order: readonly string[] = COLLECTION_STAGES.map((s) => s.id);
   const effective = stage === 'paused'
@@ -458,7 +459,24 @@ function checkCollectionRecord(collection: JsonObject, stage: string, refusals: 
     for (const item of asArray(list)) {
       if (!isObject(item) || typeof item.id !== 'string') continue;
       const path = `interview.${name}[${item.id}].${field}`;
-      const state = classify(item[field], { collection: null });
+      const raw = item[field];
+      if (isObject(raw) && 'deferred' in raw) {
+        const deferred = raw.deferred;
+        const deadline = isObject(deferred) ? order.indexOf(String(deferred.until_stage)) : -1;
+        const valid = name === 'questions' && item.scope === 'collection'
+          && Object.keys(raw).length === 1 && isObject(deferred)
+          && ['by', 'at', 'reason'].every(key => typeof deferred[key] === 'string' && String(deferred[key]).trim() !== '')
+          && Number.isFinite(Date.parse(String(deferred.at))) && typeof deferred.until_stage === 'string' && deadline >= 0;
+        if (!valid) {
+          refusals.push({ code: 'ANSWER_MALFORMED', path, message: `${path}: a collection question deferral needs by, valid at, reason and an ordered until_stage (not paused); record it with collection answer --defer-until` });
+        } else if (cur < deadline) {
+          warnings.push({ code: 'COLLECTION_ANSWER_DEFERRED', path, message: `${path}: deferred by ${String(deferred.by)} until ${String(deferred.until_stage)} (${String(deferred.reason)}); record an answer with collection answer --value-file before that stage` });
+        } else {
+          refusals.push({ code: cur === deadline ? 'INTERVIEW_INCOMPLETE' : 'COLLECTION_ITEM_SILENT', path, message: `${path}: deferral reached ${String(deferred.until_stage)}; record an answer with collection answer --value-file` });
+        }
+        continue;
+      }
+      const state = classify(raw, { collection: null });
       if (state.state === 'malformed') {
         refusals.push({ code: 'ANSWER_MALFORMED', path, message: `${path}: ${state.why}` });
       } else if (state.state === 'silent') {
@@ -501,7 +519,7 @@ export function checkCollection(dirArg: string): CollectionReport {
   if (recordValues.join(',') !== COLLECTION_STAGE_VALUES.join(',')) {
     warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the collection order is [${COLLECTION_STAGE_VALUES.join(', ')}]` });
   }
-  const effective = checkCollectionRecord(collection, stage, refusals);
+  const effective = checkCollectionRecord(collection, stage, refusals, warnings);
   const members = readMembers(dir, collection, refusals);
   for (const m of members) {
     if (m.project === null) refusals.push({ code: 'MEMBER_PROJECT_MISSING', path: m.path, message: `${m.path}: ${m.why}` });
@@ -531,6 +549,10 @@ export function formatCollectionReport(report: CollectionReport): string {
 }
 
 export const COLLECTION_HELP = `collection:
+  answer <question> [<dir>] --by <who>
+    (--value-file <answer JSON file> | --defer-until <stage> --reason-file <file>)
+                   record a collection-scope answer or defer it until a later lifecycle stage;
+                   retain the prior answer in history when present, without changing other fields
   pin [<dir>] [--changed <sentence>] [--member <name>=<version>]...
                    record a collection version: --member selects a rig version (repeatable); others use latest; hash each rig
                    file it lists (model, atlas, config per variant), and hash the collection's outputs/v<N>/
@@ -540,6 +562,7 @@ export const COLLECTION_HELP = `collection:
 
 export function collectionCommand(args: string[]): CommandResult {
   const [first, ...rest] = args;
+  if (first === 'answer') return collectionAnswerCommand(rest);
   if (first === 'pin') {
     let changed: string | null = null;
     const selectors: string[] = [];

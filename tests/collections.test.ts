@@ -414,3 +414,146 @@ test('a human reference signoff remains valid when a collection reaches members'
   expect(report.refusals).toEqual([]);
   expect(report.warnings).toEqual([]);
 });
+
+describe('collection answer deferrals', () => {
+  function ready(): string {
+    const dir = initCollection();
+    editCollection(dir, answerAll);
+    writeFileSync(join(dir, 'reason.txt'), 'Decide the lineup after member review.\n');
+    return dir;
+  }
+  function defer(dir: string, stage = 'post-interview') {
+    return cli(['collection', 'answer', 'composition', dir, '--by', 'delegate', '--defer-until', stage, '--reason-file', 'reason.txt'], dir, ENV);
+  }
+  function composition(dir: string): JsonObject {
+    return byId(obj(readJson(join(dir, 'collection.json')).interview).questions, 'composition');
+  }
+  function advance(dir: string, stage: string): void {
+    const c = readJson(join(dir, 'collection.json'));
+    c.stage = stage;
+    c.signoffs = ['interview', 'plan-approved', 'reference', 'post-interview'].map(stage => ({ stage, checkpoint: null, by: 'user', at: '2026-11-06T00:00:00Z', verbatim: 'approved' }));
+    for (const item of arr(obj(obj(c.interview).post).items)) obj(item).guide = ANSWER('post direction');
+    writeJson(join(dir, 'collection.json'), c);
+  }
+
+  test('real writer warns before the deadline, refuses at and after it, and resolves through an ordinary answer', () => {
+    const dir = ready();
+    const before = readFileSync(join(dir, 'collection.json'), 'utf8');
+    expect(defer(dir).code).toBe(0);
+    const recorded = obj(composition(dir).answer);
+    expect(recorded).toEqual({ deferred: { by: 'delegate', at: obj(recorded.deferred).at, reason: 'Decide the lineup after member review.\n', until_stage: 'post-interview' } });
+    expect(Number.isFinite(Date.parse(String(obj(recorded.deferred).at)))).toBe(true);
+    expect(arr(composition(dir).history)).toEqual([ANSWER('question composition')]);
+    const report = checkCollection(dir);
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings.map(w => w.code)).toEqual(['COLLECTION_ANSWER_DEFERRED']);
+    expect(cli(['interview', '--check', dir], dir, ENV).code).toBe(0);
+    // Only the selected answer and history values change, including in unusual formatting.
+    const after = readFileSync(join(dir, 'collection.json'), 'utf8');
+    const expected = before.replace(JSON.stringify(ANSWER('question composition'), null, 2).split('\n').join('\n        '), JSON.stringify(recorded));
+    // Verify every surrounding byte through the actual value locations.
+    const oldValue = JSON.stringify(ANSWER('question composition'), null, 2).replace(/\n/g, '\n        ');
+    expect(before).toContain(oldValue);
+    const originalQuestion = before.indexOf('"id": "composition"');
+    const historyPosition = expected.indexOf('"history": []', originalQuestion);
+    expect(after).toBe(expected.slice(0, historyPosition) + expected.slice(historyPosition).replace('"history": []', `"history": ${JSON.stringify([ANSWER('question composition')])}`));
+    advance(dir, 'post-interview');
+    expect(checkCollection(dir).refusals.map(f => f.code)).toEqual(['INTERVIEW_INCOMPLETE']);
+    expect(checkCollection(dir).warnings).toEqual([]);
+    advance(dir, 'post');
+    expect(checkCollection(dir).refusals.map(f => f.code)).toEqual(['COLLECTION_ITEM_SILENT']);
+    writeFileSync(join(dir, 'answer.json'), JSON.stringify(ANSWER('A row with room between members.')));
+    const resolved = cli(['collection', 'answer', 'composition', dir, '--by', 'user', '--value-file', 'answer.json'], dir, ENV);
+    expect(resolved.stderr).toBe('');
+    expect(resolved.code).toBe(0);
+    expect(arr(composition(dir).history)).toEqual([ANSWER('question composition'), recorded]);
+    expect(checkCollection(dir).refusals).toEqual([]);
+    expect(checkCollection(dir).warnings).toEqual([]);
+  });
+
+  test('missing by, at, reason, invalid dates and unknown or paused deadlines refuse by name', () => {
+    const dir = ready();
+    const valid: JsonObject = { by: 'user', at: '2026-11-06T00:00:00Z', reason: 'Later', until_stage: 'post' };
+    const invalid = ['by', 'at', 'reason'].map(key => { const value = { ...valid }; delete value[key]; return value; });
+    invalid.push({ ...valid, at: 'invalid' }, { ...valid, until_stage: 'unknown' }, { ...valid, until_stage: 'paused' }, { ...valid, reason: ' ' }, { ...valid, until_stage: ['post'] });
+    for (const deferred of invalid) {
+      const c = readJson(join(dir, 'collection.json'));
+      byId(obj(c.interview).questions, 'composition').answer = { deferred };
+      writeJson(join(dir, 'collection.json'), c);
+      expect(checkCollection(dir).refusals.map(f => f.code)).toEqual(['ANSWER_MALFORMED']);
+    }
+  });
+
+  test('invalid writer inputs leave bytes unchanged, including an already expired deferral', () => {
+    const dir = ready();
+    const file = join(dir, 'collection.json');
+    const before = readFileSync(file, 'utf8');
+    for (const stage of ['interview', 'unknown', 'paused']) {
+      const result = defer(dir, stage);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain('ANSWER_MALFORMED');
+      expect(readFileSync(file, 'utf8')).toBe(before);
+    }
+    writeFileSync(join(dir, 'reason.txt'), ' ');
+    expect(defer(dir).stderr).toContain('ANSWER_MALFORMED');
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    writeFileSync(join(dir, 'answer.json'), JSON.stringify({ delegated: false, verbatim: 'Missing value' }));
+    expect(cli(['collection', 'answer', 'composition', dir, '--by', 'user', '--value-file', 'answer.json'], dir, ENV).stderr).toContain('ANSWER_MALFORMED');
+    expect(readFileSync(file, 'utf8')).toBe(before);
+  });
+
+  test('invalid CLI combinations refuse without writing', () => {
+    const dir = ready();
+    const file = join(dir, 'collection.json');
+    const before = readFileSync(file, 'utf8');
+    const invalid = [
+      ['composition', dir, '--defer-until', 'post', '--reason-file', 'reason.txt'],
+      ['composition', dir, '--by', 'user', '--defer-until', 'post'],
+      ['composition', dir, '--by', 'user', '--value-file', 'answer.json', '--reason-file', 'reason.txt'],
+      ['composition', dir, '--by', 'user', '--value-file', 'answer.json', '--defer-until', 'post', '--reason-file', 'reason.txt'],
+    ];
+    for (const args of invalid) {
+      const result = cli(['collection', 'answer', ...args], dir, ENV);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain('COLLECTION_USAGE');
+      expect(readFileSync(file, 'utf8')).toBe(before);
+    }
+    expect(cli(['collection', 'answer', 'composition', dir, '--by', 'user', '--value-file', 'absent.json'], dir, ENV).stderr).toContain('ANSWER_MALFORMED');
+    expect(readFileSync(file, 'utf8')).toBe(before);
+  });
+
+  test('paused collections use their effective stage and history is optional', () => {
+    const dir = ready();
+    const c = readJson(join(dir, 'collection.json'));
+    c.stage = 'paused';
+    c.signoffs = [{ stage: 'paused', checkpoint: null, by: 'user', at: '2026-11-06T00:00:00Z', verbatim: 'pause' }];
+    delete byId(obj(c.interview).questions, 'composition').history;
+    // Compact JSON and unrelated escaped bytes survive writing unchanged.
+    writeFileSync(join(dir, 'collection.json'), JSON.stringify(c).replace('"title":null', '"title" : "\\u0041"'));
+    expect(defer(dir).code).toBe(0);
+    expect(composition(dir).history).toBeUndefined();
+    expect(readFileSync(join(dir, 'collection.json'), 'utf8')).toContain('"title" : "\\u0041"');
+    expect(checkCollection(dir).effective_stage).toBe('interview');
+    expect(checkCollection(dir).refusals).toEqual([]);
+    expect(checkCollection(dir).warnings.map(w => w.code)).toEqual(['COLLECTION_ANSWER_DEFERRED']);
+  });
+
+  test('shared deferrals never become inherited values and local deferrals refuse', () => {
+    const dir = ready();
+    const c = readJson(join(dir, 'collection.json'));
+    byId(obj(c.interview).framing, 'reference').answer = { deferred: { by: 'user', at: '2026-11-06T00:00:00Z', reason: 'Later', until_stage: 'post' } };
+    writeJson(join(dir, 'collection.json'), c);
+    expect(checkCollection(dir).refusals.map(f => f.code)).toEqual(['ANSWER_MALFORMED']);
+    expect(run(['git', 'commit', '-q', '-m', 'synthetic deferral', '--', 'collection.json'], dir, ENV).code).toBe(0);
+    expect(addMember(dir, 'keeper').code).toBe(0);
+    const member = join(dir, 'members', 'keeper');
+    const p = readJson(join(member, 'project.json'));
+    const reference = byId(obj(p.interview).framing, 'reference');
+    expect(reference.answer).toBeNull();
+    reference.answer = { basis: 'inherited', from: { collection: 'harbour', question: 'reference' } };
+    expect(checkProject(member, p).refusals.filter(f => f.path === 'interview.framing[reference].answer').map(f => f.code)).toEqual(['INTERVIEW_INCOMPLETE']);
+    reference.answer = { deferred: { by: 'user', at: '2026-11-06T00:00:00Z', reason: 'Later', until_stage: 'post' }, delegated: false, value: 'invalid', verbatim: 'invalid' };
+    expect(checkProject(member, p).refusals.filter(f => f.path === 'interview.framing[reference].answer').map(f => f.code)).toEqual(['ANSWER_MALFORMED']);
+    expect(cli(['collection', 'answer', 'reference', dir, '--by', 'user', '--defer-until', 'post', '--reason-file', 'reason.txt'], dir, ENV).stderr).toContain('ANSWER_MALFORMED');
+  });
+});

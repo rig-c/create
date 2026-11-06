@@ -94,6 +94,39 @@ back-pointer and keeps its shape.
 | `versions[]` | Collection versions, each with `pins` (below), `composition_inputs`, `outputs`, `evidence`, `verdicts`, `changed`, `answers_feedback`. |
 | `signoffs[]`, `stage`, `stage_values` | As in a project, with the collection's stages (below). |
 
+### Deferring a collection question
+
+Only `interview.questions[]` entries with `scope: "collection"` may be
+explicitly deferred. Record the person's or delegate's decision with
+`rig-create collection answer composition <dir> --by <who> --defer-until post-interview --reason-file <file>`.
+File paths are relative to the collection folder, or absolute. The reason
+file supplies nonblank text unchanged. The writer records
+`{ "deferred": { "by": "…", "at": "…", "reason": "…", "until_stage": "post-interview" } }`
+as the question's `answer`, with `at` set from the clock. `until_stage` must
+be an ordered collection lifecycle stage strictly later than the effective
+current stage. `paused` is excluded as a deadline. A paused collection uses
+its effective stage, as the collection check already does.
+
+Before the deadline the check emits `COLLECTION_ANSWER_DEFERRED`, preserving
+its exit status. At the deadline it refuses `INTERVIEW_INCOMPLETE`, and past
+it `COLLECTION_ITEM_SILENT`. Resolve the deferral with
+`rig-create collection answer composition <dir> --by <who> --value-file <file>`.
+That file contains an ordinary answer object in the
+[interview answer shape](INTERVIEW.md#answer-shape), including `verbatim`
+and `value` for a user answer. The writer sets its `by` and `at`. Both forms
+validate the candidate with the collection record check before writing;
+unrelated pre-existing refusals may remain. Refused writes leave the bytes
+unchanged. The previous non-null answer moves into the question's `history[]`
+when that array exists, including when an ordinary answer replaces a
+deferral. Without a history array it is simply replaced. All bytes outside
+the answer and history values remain unchanged.
+
+A deferral supplies no inherited value. New members start with a null answer
+where a shared answer is deferred, and an existing inherited reference to a
+deferred answer resolves as silence. Member-local deferrals and deferrals on
+framing, waypoint or post guides refuse `ANSWER_MALFORMED`. Their existing
+stage gates remain the way post items wait for their interview.
+
 ### `shared/conventions.json`
 
 | Field | Holds |

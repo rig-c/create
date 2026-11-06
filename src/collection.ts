@@ -191,7 +191,7 @@ export function readCollection(dir: string): JsonObject {
 function startingAnswer(collection: JsonObject, collectionName: string, id: string, at: string): { answer: Json; inherited: boolean } {
   const answer = collectionAnswer(collection, id);
   if (answer === undefined || answer === null) return { answer: null, inherited: false };
-  if (isObject(answer) && answer.value === 'per-member') return { answer: null, inherited: false };
+  if (isObject(answer) && ('deferred' in answer || answer.value === 'per-member')) return { answer: null, inherited: false };
   return { answer: { basis: 'inherited', from: { collection: collectionName, question: id }, by: 'rig-create', at }, inherited: true };
 }
 

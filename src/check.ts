@@ -250,6 +250,7 @@ export function collectionAnswer(collection: JsonObject, question: string): Json
 export function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, depth = 0): AnswerState {
   if (raw === null || raw === undefined) return { state: 'silent' };
   if (!isObject(raw)) return { state: 'malformed', why: 'an answer is an object or null' };
+  if ('deferred' in raw) return { state: 'malformed', why: 'deferral belongs only to a collection-scope question; record a member answer or delegation' };
   if (raw.basis === 'inherited') {
     const from = isObject(raw.from) ? raw.from : null;
     const collectionName = from === null ? null : asString(from.collection);
@@ -264,6 +265,7 @@ export function classify(raw: Json | undefined, ctx: Pick<Ctx, 'collection'>, de
     const answer = collectionAnswer(ctx.collection, question);
     if (answer === undefined) return { state: 'unresolved', why: `inherits '${question}', which the collection '${collectionName}' does not ask` };
     if (depth > 2) return { state: 'unresolved', why: 'inheritance chain too deep' };
+    if (isObject(answer) && 'deferred' in answer) return { state: 'silent', via: `collection '${collectionName}' deferred '${question}'; this member must answer it` };
     const resolved = classify(answer, { collection: null }, depth + 1);
     if (resolved.state === 'silent') return { state: 'silent', via: `collection '${collectionName}' answer '${question}' is null` };
     if (resolved.state === 'user' && resolved.answer.value === 'per-member') {

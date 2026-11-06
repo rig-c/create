@@ -14,7 +14,7 @@ import { checkProject, type CheckReport } from '../src/check.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj, rehashSignoffs, step, type Mutate } from './fixtures.ts';
+import { arr, fixture, historicalFixture, obj, rehashSignoffs, step, type Mutate } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, asciiPartImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
 
@@ -247,7 +247,7 @@ function shiftDates(v: Json, days: number): Json {
 
 describe('a project that passed plan-approved before the stages existed', () => {
   test('keeps the warning and is not asked for a verdict', () => {
-    const dir = fixture((p) => {
+    const dir = historicalFixture((p) => {
       const shifted = obj(shiftDates(p, 30));
       for (const k of Object.keys(p)) delete p[k];
       Object.assign(p, shifted);
@@ -258,13 +258,13 @@ describe('a project that passed plan-approved before the stages existed', () => 
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
   });
 });
 
 describe('an in-flight project that a person did review', () => {
   test('passes with one build-identity WARN per rig version without requiring a legacy verdict', () => {
-    const dir = fixture((p) => {
+    const dir = historicalFixture((p) => {
       const shifted = obj(shiftDates(p, 30));
       for (const k of Object.keys(p)) delete p[k];
       Object.assign(p, shifted);
@@ -275,7 +275,7 @@ describe('an in-flight project that a person did review', () => {
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 });
 

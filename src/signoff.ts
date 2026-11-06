@@ -1,3 +1,4 @@
+import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
@@ -5,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { asArray, checkProject, classify, isObject, type Finding } from './check.ts';
+import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
 import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
@@ -126,7 +127,9 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     if (!steps.some((step) => step.id === id)) refuse('SIGNOFF_STEP_INVALID', `${id}: no step in phase ${phase}`);
   }
   const covered = steps.filter((step) => requested === undefined || requested.includes(step.id as string));
-  if (phase !== undefined && covered.length === 0) refuse('SIGNOFF_STEP_INVALID', `no ${phase} steps to sign`);
+  const emptyPost = stage === 'post-interview' && requested === undefined && steps.length === 0
+    && postNotPassed({ items: collectItems(project, { collection: loadCollection(dir) }) });
+  if (phase !== undefined && covered.length === 0 && !emptyPost) refuse('SIGNOFF_STEP_INVALID', `no ${phase} steps to sign`);
   const ids = covered.map((step) => step.id);
   if (ids.some((id) => typeof id !== 'string' || id === '') || new Set(ids).size !== ids.length) refuse('SIGNOFF_STEP_INVALID', 'covered steps need distinct non-empty string ids');
   for (const step of covered) {
@@ -161,6 +164,8 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     signoff.steps = ids;
     signoff.step_hashes = hashes;
   }
+  const answerHashes = selectAnswerHashes(dir, project, signoff);
+  if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
   if (stage === PARTS_REVIEW && (hasStageOrder(project) || opts['--structure-file'] !== undefined)) {
     signoff.draft_id = opts['--draft'] ?? null;
     const path = opts['--structure-file'];
@@ -193,7 +198,12 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   if (target !== undefined) signoff.target = target;
   project.signoffs.push(signoff);
   if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
-    const first = checkProject(dir, project).refusals[0];
+    const path = `signoffs[${project.signoffs.length - 1}]`;
+    const first = checkProject(dir, project).refusals.find(f => {
+      if (f.code.startsWith('SIGNOFF_ANSWERS_')) return f.path.startsWith(`${path}.`);
+      if (f.code === 'GUIDE_CHANGED_UNSIGNED') return covered.some(step => f.path === `plan.steps[${String(step.id)}]`);
+      return true;
+    });
     if (first !== undefined) refuse(first.code, first.message);
   }
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);

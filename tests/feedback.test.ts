@@ -1,3 +1,4 @@
+import { resignAfterChange } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -296,28 +297,28 @@ describe('delegated feedback names its ask', () => {
   });
 
   test('missing ask warns, while a legacy guide gets no new feedback finding', () => {
-    const r = checkProject(verdict(null, false));
+    const r = checkProject(resignAfterChange(verdict(null, false)));
     expect(r.refusals).toEqual([]);
     expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'FEEDBACK_ASK_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
-    const legacy = checkProject(verdict(null, false, (p) => {
+    const legacy = checkProject(resignAfterChange(verdict(null, false, (p) => {
       const guide = obj(waypoint(p, 'meshes').guide);
       delete guide.asks;
       guide.at = '2026-11-04T00:00:00Z';
       for (const n of [1, 2]) for (const section of ['meshes', 'regions']) {
         for (const entry of arr(obj(obj(version(p, n).provenance).sections)[section])) if (obj(entry).guide === 'meshes') delete obj(entry).asks;
       }
-    }));
+    })));
     expect(legacy.refusals).toEqual([]);
     expect(legacy.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a verdict against the historical delegation survives a user re-answer', () => {
-    const r = checkProject(verdict('density', true, (p) => {
+    const r = checkProject(resignAfterChange(verdict('density', true, (p) => {
       const record = waypoint(p, 'meshes');
       record.history = [record.guide!];
       record.guide = { ...obj(record.guide), asks: arr(obj(record.guide).asks).map((entry) => ({ ...obj(entry), state: 'user' })) };
       delete obj(record.guide).agent_decision;
-    }));
+    })));
     expect(r.refusals).toEqual([]);
   });
 

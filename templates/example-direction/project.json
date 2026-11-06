@@ -75,7 +75,9 @@
         "order": 1,
         "does": "Author direction",
         "produces": "direction document",
-        "rests_on": "camera_depth",
+        "rests_on": [
+          "camera_depth"
+        ],
         "bar": "typed direction keys validate",
         "checkpoint_proposed": false,
         "checkpoint": {
@@ -92,7 +94,9 @@
         "order": 2,
         "does": "Author direction",
         "produces": "direction document",
-        "rests_on": "post_timing",
+        "rests_on": [
+          "post_timing"
+        ],
         "bar": "typed direction keys validate",
         "checkpoint_proposed": false,
         "checkpoint": {
@@ -124,8 +128,12 @@
         "timing"
       ],
       "step_hashes": {
-        "camera": "3ac66dfb93b78421362878f2f962eee92953d91e0e13ea30c7026cd78e8c5b5c",
-        "timing": "715702397d990029c981dcf8c805efbf75c1df4775c4e8966f1ffee71b31f476"
+        "camera": "b292b3b0ef96f9692d7145b3b3d6a3ee4125ddcf1b9ced0a88ea6bee28958899",
+        "timing": "5c62b9b183ddd4755f3c4e7b7d2ee2fa8f9ad08dc79ead2e609e3f91c2fdd6d8"
+      },
+      "answer_hashes": {
+        "camera_depth": "c84d0f8502dc2bf1c95b70e36912c11ef31b66dc999b3f62c49d3f705dfd8083",
+        "post_timing": "a731550efde306ce47b559e137bccd938a391b7e0a83238600b2f7d174da4984"
       }
     }
   ],

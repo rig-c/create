@@ -1,3 +1,4 @@
+import { resignAfterChange } from './fixtures.ts';
 import { expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,21 +27,21 @@ const mutations: [string, (a: JsonObject) => void][] = [
   ['OVERRIDE_REASON_MISSING', a => { a.why_verbatim = ' \n\t'; }],
 ];
 test('valid override of a current collection answer passes the whole checker at 0/0', () => {
-  const r = checkProject(member()); expect(r.ok).toBe(true); expect(r.refusals).toEqual([]); expect(r.warnings).toEqual([]);
+  const r = checkProject(resignAfterChange(member())); expect(r.ok).toBe(true); expect(r.refusals).toEqual([]); expect(r.warnings).toEqual([]);
 });
 for (const [code, edit] of mutations) {
   test(`${code} is refused from SINCE and WARN before SINCE`, () => {
     const fresh = checkProject(member(a => { edit(a); delete a.choice; a.at = OVERRIDDEN_ANSWERS_SINCE; }));
     expect(fresh.refusals.map(f => f.code)).toContain(code);
-    const old = checkProject(member(a => { edit(a); delete a.choice; a.at = '2026-11-05T23:59:59Z'; }));
+    const old = checkProject(resignAfterChange(member(a => { edit(a); delete a.choice; a.at = '2026-11-05T23:59:59Z'; })));
     expect(old.refusals).toEqual([]); expect(old.warnings.map(f => f.code)).toContain(code);
   });
 }
 test('a collection answer retained in history remains a valid override reference after replacement or withdrawal', () => {
   for (const current of [null, { ...source, at: '2026-11-08T00:00:00Z' }]) {
-    const r = checkProject(member(() => {}, c => {
+    const r = checkProject(resignAfterChange(member(() => {}, c => {
       const q = (obj(c.interview).framing as JsonObject[])[0]!; q.answer = current; q.history = [source];
-    }));
+    })));
     expect(r.refusals).toEqual([]); expect(r.warnings).toEqual([]);
   }
 });
@@ -55,7 +56,7 @@ test('historical overrides are checked with their own dates and record paths', (
   const dir = member(); const file = join(dir, 'project.json'); const p = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   const q = framing(p, 'reference'); const bad = structuredClone(obj(q.answer)); delete bad.choice; bad.why_verbatim = ''; bad.at = '2026-11-05T00:00:00Z'; q.history = [bad];
   writeFileSync(file, JSON.stringify(p));
-  const r = checkProject(dir); expect(r.refusals).toEqual([]);
+  const r = checkProject(resignAfterChange(dir)); expect(r.refusals).toEqual([]);
   expect(r.warnings).toContainEqual(expect.objectContaining({code:'OVERRIDE_REASON_MISSING',path:'interview.framing[reference].history[0]'}));
 });
 

@@ -1,3 +1,4 @@
+import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, setSystemTime, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
@@ -120,7 +121,7 @@ test('changed context bytes, reopened context and unavailable viewed draft refus
 test('future-dated unadopted answers stay legacy; explicit adoption preserves answer bytes',()=>{
   const dir=fixture(p=>{obj(obj(p.interview).order).spec='rig-create/stage-order@1';delete obj(obj(p.interview).order).choices_adopted_at;framing(p,'reference').answer={delegated:false,by:'user',at:'2026-11-22T00:00:00Z',verbatim:'None.',value:'none',source:'chat'};},'example-project.json');
   const before=JSON.stringify(current(load(dir),'reference').raw);setSystemTime(new Date('2026-12-01T00:00:00Z'));interviewOptionsCommand(['--adopt',dir]);
-  expect(obj(obj(load(dir).interview).order).spec).toBe(CHOICE_ORDER_SPEC);expect(JSON.stringify(current(load(dir),'reference').raw)).toBe(before);expect(checkProject(dir).refusals).toEqual([]);expect(checkProject(dir).warnings.map(f=>f.code)).toContain('CHOICE_ANSWERS_LEGACY');
+  expect(obj(obj(load(dir).interview).order).spec).toBe(CHOICE_ORDER_SPEC);expect(JSON.stringify(current(load(dir),'reference').raw)).toBe(before);resignAfterChange(dir);expect(checkProject(dir).refusals).toEqual([]);expect(checkProject(dir).warnings.map(f=>f.code)).toContain('CHOICE_ANSWERS_LEGACY');
 });
 
 test('constrained auto validates its own landed fragment before approval and refuses novel values byte-identically',()=>{

@@ -163,6 +163,11 @@
         },
         "refusal_baseline": [
           {
+            "code": "STAGE_UNSIGNED",
+            "path": "stage",
+            "count": 1
+          },
+          {
             "code": "INTERVIEW_CHOICE_REQUIRED",
             "path": "interview.waypoints[seethrough].guide",
             "count": 1

@@ -14,7 +14,7 @@ test('approval ownership separates parts from rigging only after explicit adopti
 });
 
 import { checkProject } from '../src/check.ts';
-import { fixture, arr, obj, step, waypoint, framing, rehashSignoffs } from './fixtures.ts';
+import { fixture, arr, obj, step, waypoint, framing, rehashSignoffs, resignAfterChange } from './fixtures.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 
 test('source interview can finish with later rig guides and plan absent', () => {
@@ -30,6 +30,7 @@ test('source interview can finish with later rig guides and plan absent', () => 
     }
     rehashSignoffs(p);
   });
+  resignAfterChange(dir);
   expect(checkProject(dir).refusals).toEqual([]);
 });
 

@@ -1,3 +1,4 @@
+import { resignAfterChange } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -170,7 +171,7 @@ describe('a section with no citation', () => {
       citedSections(p, 1).meshes = [{ entry: 'torso', guide: 'meshes' }];
     }));
     expect(codes(report)).toEqual(['ENTRY_UNCITED']);
-    expect(report.refusals[0]?.path).toBe('versions[v1].provenance.sections[meshes][0]');
+    expect(report.refusals.find(f => f.code === 'ENTRY_UNCITED')?.path).toBe('versions[v1].provenance.sections[meshes][0]');
   });
 });
 
@@ -200,8 +201,8 @@ describe('a citation that does not resolve', () => {
       delete guide.agent_decision;
       citedSections(p, 1).meshes = [{ entry: 'torso', guide: 'meshes', delegated: true }];
     }));
-    expect(codes(report)).toEqual(['DELEGATION_NOT_GIVEN']);
-    expect(report.refusals[0]?.path).toBe('versions[v1].provenance.sections[meshes][0]');
+    expect(codes(report)).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'DELEGATION_NOT_GIVEN']);
+    expect(report.refusals.find(f => f.code === 'DELEGATION_NOT_GIVEN')?.path).toBe('versions[v1].provenance.sections[meshes][0]');
   });
 
   test('partially delegated bones and meshes keep their written delegation available to citations', () => {
@@ -263,7 +264,7 @@ describe('an answer replaced after a version was built', () => {
 
   test('the old answer in history[] still resolves the earlier versions\' quotes', () => {
     // The step that ran on the old answer is sent back for a re-sign (its own check); provenance adds nothing.
-    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'meshes'), 'guide', NEW_MESHES); })))).toEqual(['GUIDE_CHANGED_UNSIGNED']);
+    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'meshes'), 'guide', NEW_MESHES); })))).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
   });
 
   test('overwritten without history[], the quotes no longer resolve', () => {
@@ -291,7 +292,7 @@ describe('an answer replaced after a version was built', () => {
       ],
       source: 'chat',
     };
-    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'seethrough'), 'guide', own); })))).toEqual(['GUIDE_CHANGED_UNSIGNED']);
+    expect(codes(checkProject(fixture((p) => { supersede(waypoint(p, 'seethrough'), 'guide', own); })))).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'GUIDE_CHANGED_UNSIGNED']);
   });
 });
 
@@ -397,13 +398,13 @@ describe('citations name the recorded ask', () => {
   }
 
   test('a legacy guide and legacy citations get no new finding', () => {
-    const r = checkProject(cited({ quote: 'The coat is one piece' }, (p) => {
+    const r = checkProject(resignAfterChange(cited({ quote: 'The coat is one piece' }, (p) => {
       const guide = obj(waypoint(p, 'meshes').guide);
       delete guide.asks;
       guide.at = '2026-11-04T00:00:00Z';
       for (const n of [1, 2]) for (const entry of citedSections(p, n).regions as JsonObject[]) if (entry.guide === 'meshes') delete entry.asks;
       for (const entry of citedSections(p, 2).meshes as JsonObject[]) if (entry.guide === 'meshes') delete entry.asks;
-    }));
+    })));
     expect(r.refusals).toEqual([]);
     expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });

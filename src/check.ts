@@ -1,3 +1,4 @@
+import { checkSignoffAnswers } from './signoff-answers.ts';
 import { checkSignoffTarget } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
@@ -411,7 +412,7 @@ export function itemFor(ctx: Ctx, id: string): Item | undefined {
   return ctx.items.find((i) => i.id === id);
 }
 /** Every post item answered not applicable — the project may skip `post` and `direction-review`. */
-function postNotPassed(ctx: Ctx): boolean {
+export function postNotPassed(ctx: Pick<Ctx, 'items'>): boolean {
   const post = ctx.items.filter((i) => i.kind === 'post');
   return post.length > 0 && post.every((i) => i.state.state === 'not_applicable');
 }
@@ -888,6 +889,8 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;
   const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection, predatesPartsReview };
+
+  for (const s of signoffs) checkSignoffAnswers(ctx, s.record, `signoffs[${s.index}]`);
 
   let parts: PartsSections | null = null;
   let derived: DerivedSet | null = null;

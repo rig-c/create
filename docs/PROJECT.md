@@ -541,6 +541,33 @@ preserved. The fields are `id`, `phase`, `order`, `does`, `produces`,
 checkpoint. Absent fields are omitted. `status` and other fields are excluded.
 The shared implementation is `src/step-hash.ts`.
 
+The four answer approvals (`interview`, `plan-approved`, `rigging-interview`,
+`post-interview`) also record `answer_hashes`, mapping item ids to SHA-256 of
+UTF-8 `JSON.stringify(sorted({ raw, resolved }))`: the local answer object
+and the answer resolved through collection inheritance (or null). Object keys
+are recursively sorted; array order is preserved. Both objects exclude
+`history`, `prompts`, `config`, `text`, `source` and `required_for`.
+The interview approves answers and delegations without `agent_decision`; plan
+approvals also bind the decisions their covered steps rest on.
+The writer captures every currently answered interview item, or the union of
+`rests_on` in its covered steps; an unanswered step basis refuses the write.
+An honestly empty set records `{}`. When every post item is N/A and there are
+no post steps, the user still signs post-interview with `steps: []` and bindings
+for every N/A post answer. Interview completeness requires a map,
+without comparing its keys to today's answered items or their dates.
+The latest live interview signature replaces the whole earlier interview map,
+so omitted unanswered items lose approval and earlier interview bindings are superseded.
+Plan-stage signatures supersede earlier bindings per item within the same stage,
+while completeness still follows each signature's own covered steps.
+Only live approvals are checked, using the same reopen and amendment liveness
+as other approvals. A changed or removed bound item refuses
+`SIGNOFF_ANSWERS_STALE`; an absent or incomplete map refuses
+`SIGNOFF_ANSWERS_MISSING` from `SIGNOFF_ANSWERS_SINCE = 2026-11-06T00:00:00Z`,
+and earlier signatures receive one `SIGNOFF_ANSWERS_MISSING_LEGACY` warning.
+These bindings do not preserve approvals during amendments: G2 lapse behavior
+and `keep_by_binding: []` remain unchanged until G8 is implemented.
+
+
 `review` accepts `--verbatim-file <file>` (or `-` for stdin) instead of
 `--verbatim`, and `--at <timestamp>` instead of the clock. Repeatable
 `--answers-feedback <version>:<verdict-index>` appends references to the
@@ -930,14 +957,15 @@ is the only order switch. A date does not establish which contract was used.
 `STAGE_ORDER_LEGACY` warning: its old rig guides are historical answers, never
 certification that they were asked after parts. No signature, checkpoint hash
 or old version is rewritten. To adopt, preserve the old rig guides whole in
-that question's `history[]`, ask fresh answers against accepted parts, and
-record the first human `signoff rigging-interview`. That writer records adoption
+that question's `history[]`, ask fresh answers against accepted parts, re-sign
+`interview` after adopting to approve the changed interview, and record the first
+human `signoff rigging-interview`. That writer records adoption
 and the live parts/structure context. Stage movement remains a separate human
 act, as for existing forward sign-offs. The filled legacy example is frozen in
 `templates/legacy-example-project.json`. Read under the current 2.16.0 pin it warns with that order warning plus
 `QUESTION_SET_STALE`, because its frozen question set remains at 2.14.1, and it is refused by the build-identity gate
 (`REVIEW_PACKAGE_CONFIG_MISMATCH` and `REVIEW_PACKAGE_PARTS_MISMATCH` on v1 and v2): its versions, dated after
-`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its bytes stay frozen.
+`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its interview, two plan-approved and post-interview signatures also lack answer bindings and each refuses `SIGNOFF_ANSWERS_MISSING`. Its bytes stay frozen.
 The new `example-project.json` is a synthetic new-order narrative at 0/0.
 
 Framing and source (`seethrough`, `assemble`) are the first interview. A
@@ -1172,7 +1200,7 @@ shape-only**, not a measured producer-gate result; see its README. Every retaine
 file uses its real byte hash. The frozen legacy example's exact warning set is
 `QUESTION_SET_STALE`, `STAGE_ORDER_LEGACY`, `CHOICE_ANSWERS_LEGACY`,
 `CORRECTION_PATH_LEGACY`, and it is refused by the build-identity gate and by
-`SIGNOFF_TARGET_MISSING` twice as described above; the current filled example stays at 0/0.
+`SIGNOFF_TARGET_MISSING` twice and `SIGNOFF_ANSWERS_MISSING` four times as described above; the current filled example stays at 0/0.
 
 ### Authored camera direction (create#92)
 

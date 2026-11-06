@@ -3,7 +3,7 @@ import { checkProject } from '../src/check.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { ASK_COVERAGE_SINCE } from '../src/ask-coverage.ts';
 import { WAYPOINT_ASKS } from '../src/waypoints.ts';
-import { arr, fixture, obj, waypoint, framing, citedSections } from './fixtures.ts';
+import { arr, fixture, resignAfterChange, obj, waypoint, framing, citedSections } from './fixtures.ts';
 
 test('filled synthetic example covers every applicable ask without warnings', () => {
   const report = checkProject(fixture());
@@ -13,7 +13,7 @@ test('filled synthetic example covers every applicable ask without warnings', ()
 });
 
 function crux(delegated: boolean): string {
-  return fixture((p) => {
+  const dir = fixture((p) => {
     const guide = obj(waypoint(p, 'motion').guide);
     guide.verbatim = delegated ? 'Breath and blink. The lantern flame flickers. The rest is yours.' : 'Breath and blink. The lantern flame flickers.';
     guide.asks = [{ id: 'tracks', state: 'user' }, { id: 'blink', state: 'user' }];
@@ -21,6 +21,7 @@ function crux(delegated: boolean): string {
       guide.asks.push(...['extent', 'speed', 'loop'].map((id) => ({ id, state: 'delegated' })));
     } else delete guide.agent_decision;
   });
+  return delegated ? resignAfterChange(dir) : dir;
 }
 
 test('crux answered with no agent_decision refuses each named remainder through interview --check', () => {
@@ -28,11 +29,14 @@ test('crux answered with no agent_decision refuses each named remainder through 
   expect(result.exit).toBe(1);
   const report = JSON.parse(result.stdout);
   expect(report.refusals.map((f: {path: string}) => f.path)).toEqual([
+    'signoffs[0].answer_hashes[motion]',
+    'signoffs[1].answer_hashes[motion]',
+    'signoffs[8].answer_hashes[motion]',
     'interview.waypoints[motion].guide.asks[extent]',
     'interview.waypoints[motion].guide.asks[speed]',
     'interview.waypoints[motion].guide.asks[loop]',
   ]);
-  expect(report.refusals[0].message).toContain('How far');
+  expect(report.refusals.find((f: { code: string }) => f.code === 'GUIDE_ASK_UNANSWERED').message).toContain('How far');
 });
 
 test('same crux with explicit delegation and decided remainder passes', () => {
@@ -56,7 +60,7 @@ for (const at of ['2026-11-04T23:59:59Z', 'unreadable']) {
       delete guide.asks;
       for (const n of [1, 2]) for (const entry of arr(citedSections(p, n).motion)) delete obj(entry).asks;
     });
-    const result = interviewCommand(['--check', dir, '--json']);
+    const result = interviewCommand(['--check', resignAfterChange(dir), '--json']);
     expect(result.exit).toBe(0);
     expect(JSON.parse(result.stdout).warnings.map((f: {code: string}) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
@@ -73,7 +77,7 @@ test('explicit partial legacy coverage is still checked', () => {
 
 test('a claimed delegation cannot bypass decision requirements by omitting agent_decision', () => {
   const r = checkProject(fixture((p) => { delete obj(waypoint(p, 'motion').guide).agent_decision; }));
-  expect(r.refusals.map((f) => f.code)).toEqual(['GUIDE_PARTIAL_UNMARKED', 'DELEGATION_UNDECIDED']);
+  expect(r.refusals.map((f) => f.code)).toEqual(['SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'GUIDE_PARTIAL_UNMARKED', 'DELEGATION_UNDECIDED']);
 });
 
 for (const bad of [null, [{ id: 'typo', state: 'user' }], [{ id: 'tracks', state: 'other' }], [{ id: 'tracks', state: 'user' }, { id: 'tracks', state: 'user' }]]) {
@@ -110,5 +114,5 @@ test('a missing finer-grained ask cannot hide behind its answered sibling', () =
       obj(entry).asks = arr(obj(entry).asks).filter((id) => id !== 'strength');
     }
   }));
-  expect(r.refusals.map((f) => f.path)).toEqual(['interview.waypoints[constraints].guide.asks[strength]']);
+  expect(r.refusals.map((f) => f.path)).toEqual(['signoffs[0].answer_hashes[constraints]', 'signoffs[5].answer_hashes[constraints]', 'interview.waypoints[constraints].guide.asks[strength]']);
 });

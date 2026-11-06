@@ -235,14 +235,17 @@ test('the installed producer reproduces every bound draft output from the retain
   expect(checkProject(dir).warnings).toEqual([]);
 }, 30_000);
 
-test('generation preserves approval fields and adds review targets', () => {
+test('generation preserves historical approval fields and writes answer and review bindings', () => {
   const generated = generateExampleOrder(join(tempDir(), 'generated'));
   const maskHashes = (value: unknown): unknown => JSON.parse(JSON.stringify(value, (key, item: unknown) => {
     if (key === 'sha256') return 'regenerated binding';
     if (key === 'step_hashes') return Object.fromEntries(Object.keys(item as object).map(id => [id, 'regenerated step binding']));
     return item;
   }));
-  const signatures = (generated.project.signoffs as JsonObject[]).map(({ target: _target, ...signature }) => signature);
+  const signatures = (generated.project.signoffs as JsonObject[]).map(({ target: _target, answer_hashes: _answers, ...signature }) => {
+    if (signature.stage === 'post-interview') { const { steps: _steps, ...historical } = signature; return historical; }
+    return signature;
+  });
   expect(maskHashes(signatures)).toEqual(maskHashes(retimeExample(originalSignoffs)));
   expect((generated.project.signoffs as JsonObject[]).filter(s => s.target).map(s => (s.target as JsonObject).version)).toEqual([2, 4]);
 }, 30_000);

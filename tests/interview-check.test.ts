@@ -1,4 +1,5 @@
-import { bindFixtureSignoffs } from './fixtures.ts';
+import { resignAfterChange } from './fixtures.ts';
+import { bindFixtureAnswers, bindFixtureSignoffs } from './fixtures.ts';
 import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -40,6 +41,7 @@ function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.j
   mkdirSync(dir);
   const project = readTemplate(template);
   if (template === 'project.json') obj(project.interview).order = { spec: 'rig-create/stage-order@1', adopted_at: '2026-11-05T00:00:00Z' };
+  bindFixtureAnswers(project, dir);
   mutate(project);
   bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
@@ -167,7 +169,7 @@ describe('a waypoint with no guide and no delegation', () => {
   });
 
   test('delegation is a pass: the refusal disappears', () => {
-    const report = checkProject(fixture((p) => { supersede(waypoint(p, 'bones'), 'guide', DELEGATED_GUIDE); }));
+    const report = checkProject(resignAfterChange(fixture((p) => { supersede(waypoint(p, 'bones'), 'guide', DELEGATED_GUIDE); })));
     expect(codes(report)).toEqual([]);
   });
 
@@ -191,10 +193,10 @@ describe('a waypoint with no guide and no delegation', () => {
   test('not applicable with a reason is a pass; without one it is malformed', () => {
     const na = { not_applicable: true, because: 'pre-layered input, no see-through pass', by: 'interviewer', at: '2026-11-10T14:03:00Z' };
     const pass = checkProject(
-      fixture((p) => {
+      resignAfterChange(fixture((p) => {
         supersede(waypoint(p, 'seethrough'), 'guide', na);
         obj(p.plan).steps = arr(obj(p.plan).steps).filter((s) => obj(s).id !== 'seethrough');
-      }),
+      })),
     );
     expect(codes(pass)).toEqual([]);
     const fail = checkProject(fixture((p) => { waypoint(p, 'seethrough').guide = { not_applicable: true, by: 'interviewer', at: '2026-11-10T14:03:00Z' }; }));
@@ -288,13 +290,13 @@ describe('a stage moved without a human sign-off', () => {
 
   test('when every post item is not applicable, post and direction-review need no sign-off', () => {
     const report = checkProject(
-      fixture((p) => {
+      resignAfterChange(fixture((p) => {
         for (const item of arr(obj(obj(p.interview).post).items).map(obj)) {
           supersede(item, 'guide', { not_applicable: true, because: 'composition belongs to the collection', by: 'interviewer', at: '2026-11-13T10:00:00Z' });
         }
         obj(p.plan).steps = arr(obj(p.plan).steps).filter((s) => obj(s).phase === 'rig');
-        dropSignoffs(p, (s) => s.stage !== 'direction-review');
-      }),
+        dropSignoffs(p, (s) => s.stage !== 'direction-review' && s.stage !== 'post-interview');
+      })),
     );
     expect(codes(report)).toEqual([]);
   });
@@ -377,16 +379,17 @@ describe('collection members', () => {
     byId(arr(obj(collection.interview).waypoints), 'motion').guide = collectionMotion;
     writeFileSync(join(col, 'collection.json'), JSON.stringify(collection, null, 2));
     const project = readTemplate('legacy-example-project.json');
-    bindFixtureSignoffs(project);
-    supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
     const dir = join(col, 'members', 'keeper');
+    bindFixtureAnswers(project, dir);
+    supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
+    bindFixtureSignoffs(project);
     writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2));
     writePartsPackage(dir);
     return dir;
   }
 
   test('a legacy inherited answer resolves against the collection and passes', () => {
-    const report = checkProject(member({ delegated: false, by: 'user', at: '2026-11-04T14:00:00Z', verbatim: 'Breath and blink.', value: [{ motion: 'breath' }, { motion: 'blink' }], source: 'interview, chat' }));
+    const report = checkProject(resignAfterChange(member({ delegated: false, by: 'user', at: '2026-11-04T14:00:00Z', verbatim: 'Breath and blink.', value: [{ motion: 'breath' }, { motion: 'blink' }], source: 'interview, chat' })));
     expect(codes(report)).toEqual([]);
   });
 

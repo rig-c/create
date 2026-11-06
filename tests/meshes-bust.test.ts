@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { checkProject, type CheckReport } from '../src/check.ts';
 import type { Json } from '../src/templates.ts';
-import { fixture, obj, waypoint, type Mutate } from './fixtures.ts';
+import { fixture, obj, resignAfterChange, waypoint, type Mutate } from './fixtures.ts';
 
 const BUST_CODES = new Set(['BUST_EXCLUSION_UNREASONED', 'BUST_VALUE_UNKNOWN']);
 const bust = (r: CheckReport): string[] => r.refusals.filter((f) => BUST_CODES.has(f.code)).map((f) => `${f.code} ${f.path}`);
@@ -18,13 +18,18 @@ describe('the bust at meshes', () => {
   });
 
   test('"default" passes', () => {
-    const report = checkProject(fixture(withBust('default')));
+    const dir = fixture(withBust('default'));
+    expect(checkProject(dir).refusals.some(f => f.code === 'SIGNOFF_ANSWERS_STALE' && f.message.includes('meshes'))).toBe(true);
+    resignAfterChange(dir);
+    const report = checkProject(dir);
     expect(bust(report)).toEqual([]);
     expect(report.ok).toBe(true);
   });
 
   test('an exclusion with its reason passes', () => {
-    const report = checkProject(fixture(withBust({ excluded: true, reason: 'a rigid breastplate covers the chest' })));
+    const dir = fixture(withBust({ excluded: true, reason: 'a rigid breastplate covers the chest' }));
+    resignAfterChange(dir);
+    const report = checkProject(dir);
     expect(bust(report)).toEqual([]);
     expect(report.ok).toBe(true);
   });

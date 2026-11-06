@@ -18,13 +18,13 @@ const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'pro
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
 function write(dir: string, path: string, data: string): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), data); }
 afterEach(() => setSystemTime());
-function setup(density?: number): string {
+function setup(density?: number, reopen = true): string {
   setSystemTime(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'parts-review'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
     obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-19T00:00:00Z' };
     p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts'].includes(String(obj(s).stage)));
-    for (const id of ['bones', 'meshes', 'constraints', 'motion']) waypoint(p, id).guide = null;
+    for (const id of ['bones', 'meshes', 'constraints', 'motion']) supersede(waypoint(p, id), 'guide', null);
     for (const raw of arr(obj(p.plan).steps)) if (!['seethrough', 'assemble'].includes(String(obj(raw).id))) obj(raw).status = 'pending';
     step(p, 'assemble').rests_on = ['assemble']; rehashSignoffs(p);
   });
@@ -34,6 +34,21 @@ function setup(density?: number): string {
   write(dir, `${root}/input/parts.json`, '{}'); write(dir, `${root}/input/parts/torso.png`, 'synthetic');
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${name}`, '{}');
   write(dir, 'words.txt', 'Approve this synthetic structure.\r\n');
+  if (reopen) {
+    setSystemTime(new Date('2026-11-19T00:00:00.500Z'));
+    signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    setSystemTime(new Date('2026-11-19T00:00:01Z'));
+    reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    setSystemTime(new Date('2026-11-19T00:00:02Z'));
+    signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    const p = read(dir); p.stage = 'parts';
+    for (const id of ['seethrough', 'assemble']) step(p, id).status = 'done';
+    save(dir, p); setSystemTime(new Date('2026-11-19T00:00:03Z'));
+    signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    p.signoffs = read(dir).signoffs; p.stage = 'parts-review'; save(dir, p);
+    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  }
+  if (!reopen) return dir;
   draftRigCommand(['shape', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   const draft = obj(arr(read(dir).drafts)[0]);
   write(dir, 'evidence/structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'shape', config: draft.config, entries: [{ path: '/meshes/torso', value: entry }] }));
@@ -148,4 +163,18 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   obj(arr(p.versions)[1]).provenance = production(2, 10, '2026-11-28T00:00:00Z').provenance as JsonObject; save(dir, p);
   const conflicts = checkProject(dir).refusals.filter(f => f.code === 'STRUCTURE_DECISIONS_CONFLICT');
   expect(conflicts.map(f => f.path)).toEqual(['versions[v2].provenance.config']);
+});
+
+
+test('live bound plan bases nulled during adoption refuse draft without writing', () => {
+  const dir = setup(undefined, false);
+  const before = readFileSync(join(dir, 'project.json'));
+  let failure: unknown;
+  try { draftRigCommand(['shape', dir, '--config', 'derived/drafts/shape/config.json', '--from', 'derived/drafts/shape/out', '--parts', 'derived/drafts/shape/input']); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(Refusal);
+  expect((failure as Refusal).code).toBe('SIGNOFF_ANSWERS_STALE');
+  const stale = checkProject(dir).refusals.filter(f => f.code === 'SIGNOFF_ANSWERS_STALE');
+  expect(stale.some(f => f.message.includes('bones'))).toBe(true);
+  expect(stale.some(f => f.message.includes('constraints'))).toBe(true);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

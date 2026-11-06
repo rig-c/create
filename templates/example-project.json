@@ -23,9 +23,9 @@
     {"stage":"interview","checkpoint":null,"by":"user","at":"2026-11-10T14:20:00Z","verbatim":"that's everything"},
     {"stage":"plan-approved","checkpoint":null,"by":"user","at":"2026-11-10T16:05:00.000Z","verbatim":"Approve the synthetic plan-approved record.\n","steps":["seethrough","assemble"],"step_hashes":{"seethrough":"6913f7c8b3fac3f5b88631115fab6fc352027ea15e0f44619f27fefcb9bd3c82","assemble":"a92cff01f666bea33bfee23339185268f7e2277b710d3519c08ba0a7aa21c362"}},
     {"stage":"parts","checkpoint":"assemble","by":"user","at":"2026-11-11T09:40:00Z","verbatim":"the cut is fine"},
-    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-11T10:20:00.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"},"diff_map":{"report":{"path":"evidence/diff-components.json","sha256":"6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"},"components":[{"id":"p10-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"},{"id":"p1000-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"}]},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
-    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-11T11:10:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","meshes","constraints","motion"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","meshes":"a159b1bd45ba764819c10cbd2e5ad3116822d1cc584232a4b97dfe432a113da7","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601","motion":"eee1686a07951c92b3ee62abe7a7ff79865570f09f3c134d2b09fc2994e242d2"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
-    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-12T10:30:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
+    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-11T10:20:00.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"},"diff_map":{"report":{"path":"evidence/diff-components.json","sha256":"6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"},"components":[{"id":"p10-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"},{"id":"p1000-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"}]},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"5bcdb05421e97fa6cc2944f72085b635829f212c6c6409e8d81a156bb710dc44"}},
+    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-11T11:10:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","meshes","constraints","motion"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","meshes":"a159b1bd45ba764819c10cbd2e5ad3116822d1cc584232a4b97dfe432a113da7","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601","motion":"eee1686a07951c92b3ee62abe7a7ff79865570f09f3c134d2b09fc2994e242d2"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"5bcdb05421e97fa6cc2944f72085b635829f212c6c6409e8d81a156bb710dc44"}},
+    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-12T10:30:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"5bcdb05421e97fa6cc2944f72085b635829f212c6c6409e8d81a156bb710dc44"}},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-11T13:10:00Z","verbatim":"ok, the scarf looks right in the sketch"},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-12T15:00:00Z","verbatim":"better"},
     {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-13T09:15:00Z","verbatim":"yes, that's her"},
@@ -567,7 +567,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-bones.json",
-              "sha256": "8b4d08bda371534e1323cf4806a7f53c807091f351a4b5833fe7dcf12e0e5a99"
+              "sha256": "cb21d93536d768dc697d1a08661a42d4d2dde5884c1d366578d0bc4b2387c755"
             },
             "picks": [
               {
@@ -763,7 +763,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-meshes.json",
-              "sha256": "5dcfa2a93ff77f7228b32ae7ca8ef49beec271f8d17387c57ee8ebaef2a19ff1"
+              "sha256": "57cc4fcacd1c51647c5f0f320d9d7064f42f1708106e9bc1c11e7333eb5c1656"
             },
             "picks": [
               {
@@ -920,7 +920,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-constraints.json",
-              "sha256": "f69f1cb34192817f4c01a5898692ebfc1719e5709d2fa03e63de9b385695e659"
+              "sha256": "23578c4f07affdba0c98f8a19bca64031436b5e1d6472b2fc043e9a573d5b181"
             },
             "picks": [
               {
@@ -1166,7 +1166,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-motion.json",
-              "sha256": "ffd9648b27969079439cf16bb7ffc5dded12591d828d93babefde4498ab14a5e"
+              "sha256": "d4c32eb14617b29676b2003c9606be66d0f8c2be42c26fef5cca21fb85be8196"
             },
             "picks": [
               {
@@ -1545,7 +1545,7 @@
       },
       "structure": {
         "path": "evidence/structure-decisions.json",
-        "sha256": "f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"
+        "sha256": "5bcdb05421e97fa6cc2944f72085b635829f212c6c6409e8d81a156bb710dc44"
       }
     }
   },
@@ -2572,7 +2572,7 @@
       },
       "config": {
         "path": "derived/drafts/example/config.json",
-        "sha256": "baa3ad05351a82fd81b0b25d33ef2d49fcba57086fb1cb77c22145655bba5a16"
+        "sha256": "81f4e06a55e5a4b6cca8836ccacd41ac92e5a09076dece6bc4ac2dacd26acd8a"
       },
       "parts": {
         "path": "derived/drafts/example/input",
@@ -2609,16 +2609,40 @@
       },
       "files": [
         {
+          "path": "derived/drafts/example/out/images/background.png",
+          "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
+        },
+        {
+          "path": "derived/drafts/example/out/images/eye_l.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+        },
+        {
+          "path": "derived/drafts/example/out/images/eye_r.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+        },
+        {
+          "path": "derived/drafts/example/out/images/face.png",
+          "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c"
+        },
+        {
+          "path": "derived/drafts/example/out/images/lantern.png",
+          "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041"
+        },
+        {
+          "path": "derived/drafts/example/out/images/torso.png",
+          "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5"
+        },
+        {
           "path": "derived/drafts/example/out/mesh_report.json",
-          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
         },
         {
           "path": "derived/drafts/example/out/motion.json",
-          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
         },
         {
           "path": "derived/drafts/example/out/rig.json",
-          "sha256": "5158500209d18a0f094980cf83e5b49af06a99f14a7bea1cd502dcccabf22514"
+          "sha256": "3e9666933af397939671c9d07e117cf3ab192d0a1d601109225986bc4e15f894"
         }
       ]
     }

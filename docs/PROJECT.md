@@ -16,6 +16,8 @@ of a record can tell which shape it follows once the shape moves; a validator
 and a migration come with the first shape change, not before. The empty
 skeleton is [../templates/project.json](../templates/project.json); a filled
 record is [../templates/example-project.json](../templates/example-project.json).
+Its sign-offs are fixture sign-offs, not a person's approval; see
+[../templates/example-draft/README.md](../templates/example-draft/README.md).
 
 ## Layout
 

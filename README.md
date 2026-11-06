@@ -85,6 +85,8 @@ option. See [the record contract](docs/PROJECT.md#recording-a-sign-off).
 - [templates/](templates/) — the empty `project.json` and `collection.json`
   skeletons, and a worked example ([example-interview.md](templates/example-interview.md),
   [example-project.json](templates/example-project.json)) on a made-up painting.
+  Its sign-offs are fixture sign-offs, not a person's approval
+  ([why](templates/example-draft/README.md)).
 
 ## Licence
 

@@ -1,1 +1,102 @@
-{"bones":[{"name":"root"}]}
+{
+ "spec": "rigc-rig/1",
+ "name": "synthetic_painting",
+ "images": "images",
+ "skeleton": {
+  "x": -64,
+  "y": 0,
+  "width": 128,
+  "height": 128
+ },
+ "bones": [
+  {
+   "name": "root",
+   "x": 0,
+   "y": 0
+  },
+  {
+   "name": "body",
+   "parent": "root",
+   "x": 0,
+   "y": 64
+  }
+ ],
+ "slots": [
+  {
+   "name": "background",
+   "bone": "body",
+   "attachment": "background"
+  },
+  {
+   "name": "torso",
+   "bone": "body",
+   "attachment": "torso"
+  },
+  {
+   "name": "lantern",
+   "bone": "body",
+   "attachment": "lantern"
+  },
+  {
+   "name": "face",
+   "bone": "body",
+   "attachment": "face"
+  },
+  {
+   "name": "eye_r",
+   "bone": "body",
+   "attachment": "eye_r"
+  },
+  {
+   "name": "eye_l",
+   "bone": "body",
+   "attachment": "eye_l"
+  }
+ ],
+ "skins": {
+  "default": {
+   "background": {
+    "background": {
+     "image": "background.png",
+     "x": 0,
+     "y": 0
+    }
+   },
+   "torso": {
+    "torso": {
+     "image": "torso.png",
+     "x": 0,
+     "y": -24
+    }
+   },
+   "lantern": {
+    "lantern": {
+     "image": "lantern.png",
+     "x": 40,
+     "y": -20
+    }
+   },
+   "face": {
+    "face": {
+     "image": "face.png",
+     "x": 0,
+     "y": 32
+    }
+   },
+   "eye_r": {
+    "eye_r": {
+     "image": "eye_r.png",
+     "x": -10,
+     "y": 32
+    }
+   },
+   "eye_l": {
+    "eye_l": {
+     "image": "eye_l.png",
+     "x": 10,
+     "y": 32
+    }
+   }
+  }
+ }
+}

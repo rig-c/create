@@ -1,16 +1,26 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-/** Synthetic draft artifacts use the same canonical inputs as the frozen review packages. */
-import { exampleReviewBytes } from './review-fixture.ts';
+/** Materialize the retained synthetic draft separately from the review controls. */
 
 export const EXAMPLE_DRAFT = 'derived/drafts/example';
-export function exampleDraftFiles(input?: Record<string, Uint8Array>): Record<string, string | Uint8Array> {
-  const bytes = exampleReviewBytes();
-  const files: Record<string, string | Uint8Array> = { [`${EXAMPLE_DRAFT}/config.json`]: bytes['config.json'] as string };
+export function exampleDraftFiles(input?: Record<string, Uint8Array>, output?: Record<string, Uint8Array>): Record<string, string | Uint8Array> {
+  const files: Record<string, string | Uint8Array> = {};
   const root = join(import.meta.dir, '../templates/example-draft/input');
   const parts = input ?? Object.fromEntries(['parts.json', ...readdirSync(join(root, 'parts')).map(name => `parts/${name}`)].map(path => [path, readFileSync(join(root, path))]));
   for (const [path, content] of Object.entries(parts)) files[`${EXAMPLE_DRAFT}/input/${path}`] = content;
-  for (const [path, content] of Object.entries(bytes)) if (path.startsWith('out/rig/')) files[`${EXAMPLE_DRAFT}/out/${path.slice('out/rig/'.length)}`] = content;
+  const collect = (path: string): void => {
+    for (const entry of readdirSync(join(root, '..', path), { withFileTypes: true })) {
+      const child = `${path}/${entry.name}`;
+      if (entry.isDirectory()) collect(child);
+      else files[`${EXAMPLE_DRAFT}/${child}`] = readFileSync(join(root, '..', child));
+    }
+  };
+  if (output) {
+    for (const [path, content] of Object.entries(output)) files[`${EXAMPLE_DRAFT}/${path}`] = content;
+  } else {
+    files[`${EXAMPLE_DRAFT}/config.json`] = readFileSync(join(root, '../config.json'));
+    collect('out');
+  }
   return files;
 }
 

@@ -1,3 +1,4 @@
+import { generateExampleDraft } from './generate-example-draft.ts';
 import { generateExampleParts } from './generate-example-parts.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
 /** Reproduce the new-order example's declarations through public writers on synthetic dated input. */
@@ -29,7 +30,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const reload = (): void => { p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject; };
   const write = (path: string, bytes: string | Uint8Array): void => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); };
   const input = generateExampleParts(join(dir, 'producer'));
-  const files = { ...exampleDraftFiles(input), ...partsPackage({ verdict: EXAMPLE_VERDICT, input }).files };
+  const files = { ...exampleDraftFiles(input, generateExampleDraft(join(dir, 'draft-producer'), input)), ...partsPackage({ verdict: EXAMPLE_VERDICT, input }).files };
   for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...files })) write(path, bytes);
   for (const raw of arr(original.versions)) {
     const version = obj(raw);

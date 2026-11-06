@@ -18,6 +18,7 @@ correction record [<dir>] --id <id> --path described|made --stage <review-stage>
 correction resolve <id> [<dir>]
   (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
   --by agent --reasoning-file <file> [--applied-feedback <session> --feedback-id <id>]
+  described direction-review: --version binds the authored direction and compiled model.
   --json prints the recorded object. No command executes a patch or producer.
   A preview patch hash is independent of review's retained patchSha256 claim.`;
 const common = ['--version', '--draft', '--parts-file', '--model-file', '--by'];
@@ -104,7 +105,16 @@ function command(args:string[]): {stdout:string;exit:number} {
     openStage(next,stage);
     const direction=Boolean(opts['--direction-patch-file']);
     if(direction && path!=='made')usage('direction-patch-file is made-only');
-    const on=identity(dir,next,opts,stage,direction);let artifact:JsonObject;let verbatim:string;
+    const version = path === 'described' && stage === 'direction-review' && opts['--version'] && !opts['--draft'] && !opts['--parts-file']
+      ? versionRecord(next, Number(opts['--version'].replace(/^v/, ''))) : null;
+    const describedDirection = path === 'described' && stage === 'direction-review' && version?.kind === 'post' && isObject(version.provenance) && isObject(version.provenance.direction);
+    let on: JsonObject;
+    if (describedDirection) {
+      if (opts['--draft'] || opts['--parts-file']) usage('select only --version for a direction description');
+      on = directionPostIdentity(dir, next, version.n);
+      if (opts['--model-file'] && opts['--model-file'] !== (on.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
+    } else on = identity(dir,next,opts,stage,direction);
+    let artifact:JsonObject;let verbatim:string;
     if(path==='described') {
       if(opts['--patch-file']||opts['--feedback-file']||opts['--item']||!opts['--verbatim-file'])usage('described requires only verbatim text, not producer artifact flags');
       artifact={kind:'description'};verbatim=readVerbatim(opts['--verbatim-file']);
@@ -127,7 +137,7 @@ function command(args:string[]): {stdout:string;exit:number} {
         else artifact={kind:'unsupported',operation:applied.schema==='rig-review-applied/3'?'mesh-delta':String(applied.op).includes('retarget')?'retarget':String(applied.op).includes('key')?'keyed-animation':'other',reason:'No checked create adapter for this producer-owned operation',files:[binding],producer_schema:String(applied.schema)};
       }
     }
-    record={schema:direction?DIRECTION_CORRECTION_SPEC:CORRECTION_SPEC,id:opts['--id'],path:path as string,by:opts['--by'],at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
+    record={schema:direction || describedDirection?DIRECTION_CORRECTION_SPEC:CORRECTION_SPEC,id:opts['--id'],path:path as string,by:opts['--by'],at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
     if(opts['--source']!==undefined)record.source=opts['--source'];
     next.corrections=[...asArray(next.corrections),record];
   } else {
@@ -151,7 +161,17 @@ function command(args:string[]): {stdout:string;exit:number} {
       artifact.state='applied-and-checked';
     }
     const direction=artifact.kind==='direction-patch';
-    record.outcome=identity(dir,next,opts,String(record.stage),direction);
+    if (record.schema === DIRECTION_CORRECTION_SPEC && artifact.kind === 'description') {
+      if (!opts['--version'] || opts['--draft'] || opts['--parts-file']) usage('direction description closure requires only --version and optional --model-file');
+      record.outcome = directionPostIdentity(dir, next, Number(opts['--version'].replace(/^v/, '')));
+      if (opts['--model-file'] && opts['--model-file'] !== (record.outcome.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
+    } else {
+      record.outcome=identity(dir,next,opts,String(record.stage),direction);
+      if (artifact.kind === 'description' && record.outcome.kind === 'post') {
+        const version = versionRecord(next, record.outcome.n);
+        if (isObject(version.provenance) && isObject(version.provenance.direction) && (record.outcome.model as JsonObject).path === version.provenance.direction.path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must not name the authored direction document; capture a new correction@2 description');
+      }
+    }
     if(direction){
       if(opts['--applied-feedback']||opts['--feedback-id'])usage('direction closure does not ingest review applied reports');
       artifact.result=(record.outcome as JsonObject).direction as JsonObject;artifact.state='applied-and-checked';validateDirectionOutcome(dir,next,record,artifact);

@@ -1068,7 +1068,8 @@ No stage or interview-order schema changes. New projects and the filled example
 adopt it with an empty list. Older records get `CORRECTION_PATH_LEGACY` without
 inventing corrections, rewriting dates, or changing their existing origins.
 
-Every record has `schema: "rig-create/correction@1"`, `id`, `path`, `by`, `at`,
+Every record has `schema: "rig-create/correction@1"` (or `@2` for authored
+direction descriptions and made direction patches), `id`, `path`, `by`, `at`,
 `verbatim`, optional text `source`, `stage`, `on`, `artifact`, `outcome` and
 `resolves`. `path` is `described` or `made`. The stage is `parts-review`,
 `rig-review` or `direction-review`. `on` is the source identity; `outcome:null`
@@ -1114,14 +1115,15 @@ must be a 64-lowercase-hex SHA-256, accepted as recorded; create cannot re-deriv
 Summary `source` may be absent or `remesh`, `retune`, or `check`, under the same producer-summary gates. No patch application,
 producer measurement, build or diff is recomputed by create.
 
-Identities are `{kind:"rig"|"post",n,config:{path,sha256},model:{path,sha256}}`,
+@1 identities are `{kind:"rig"|"post",n,config:{path,sha256},model:{path,sha256}}`,
 `{kind:"parts",manifest:{path,sha256},files:[{path,sha256}]}`, or
 `{kind:"draft",id,config,parts,model}` (parts is `{manifest,files}`).
 A rig binds to its version's provenance config and frozen review package model.
-A post binds config to `provenance.config`, and model to one declared retained
+An @1 post binds config to `provenance.config`, and model to one declared retained
 output explicitly selected by `--model-file`; it is output identity only,
 without a parts, rig or CG claim. `config-patch/1` is rig/draft-only: a direct
-post edit is unsupported. A described post closure requires changed output bytes.
+post edit is unsupported. A described post closure requires changed output bytes
+under @1, or a different bound direction document hash under @2.
 Parts identities retain a complete sorted parts.json + parts/ file inventory.
 Draft identities match the labelled draft inventory, including a retained
 compiled model when that reviewed identity is selected. Missing regenerable
@@ -1322,9 +1324,10 @@ the patch. Review may label export plus create ingestion “Apply”, but cannot
 claim ingestion or checked completion itself. `rig-review-applied/2` is never
 used as a direction result or proof.
 
-Only `direction-patch` uses `rig-create/correction@2`. All other correction
-records remain `rig-create/correction@1`, with the existing description,
-config-patch and unsupported grammar/behavior. The new exact artifact is
+Authored-direction descriptions and `direction-patch` use
+`rig-create/correction@2`. Other correction records remain
+`rig-create/correction@1`, with existing config-patch and unsupported behavior.
+The made patch artifact is
 `{kind:"direction-patch",patch:{path,sha256},state:"preview/pending"|
 "applied-and-checked",result:null|{path,sha256}}`. Its exact post source/outcome
 identity is `{kind:"post",n,config,model,direction:{path,sha256}}`; config binds
@@ -1334,12 +1337,30 @@ matches `provenance.direction`. This identity is not accepted by @1.
 A pending record has no outcome/result and cannot approve. On agent resolution,
 create checks its own patch/base/result and `direction_origin`, not an external
 producer report. The outcome is a later post on exactly the same rig model,
-with changed direction bytes and the typed replacements actually present. Only
-this post→post direction-patch variant accepts changed direction with unchanged
-rig model. Same-document, cross-kind, changed-rig or unrelated authored output
-pairs refuse. Existing @1 described corrections still require changed declared
-output; a direction file can be explicitly selected as that output without
-claiming it is a compiled model. Unsupported operations remain pending.
+with changed direction bytes and the typed replacements actually present.
+Same-document, cross-kind, changed-rig or unrelated authored output pairs
+refuse for made patches.
+
+A described request at direction-review on a post with authored direction
+also binds this exact identity, using `artifact:{kind:"description"}`. Record it
+with `--version`; an optional `--model-file` must name the source rig's compiled
+model. Selecting the direction JSON as model refuses before writing. Resolve
+it to a later authored post with a different bound direction document hash
+through `correction resolve --version`. This includes a later accepted rig
+because direction@1 embeds `rig.model`. The agent's closure reasoning carries
+the semantic claim that the request was met. No patch or `direction_origin`
+is required for a described request. Both source and outcome use
+`validateDirectionIdentity`. An existing @1 description cannot resolve with
+the direction document named as model. Capture a new @2 described record to
+close that legacy request.
+
+`DESCRIBED_DIRECTION_SINCE = 2026-11-06T00:00:00Z` dates existing @1 authored
+direction descriptions by their original `at`. Earlier records receive
+`DESCRIBED_DIRECTION_LEGACY`; contemporary records receive
+`DESCRIBED_DIRECTION_REQUIRED`. Preserve history and capture the next request
+through the writer. Posts without authored `provenance.direction` keep their
+existing @1 declared-output identity. Rig, draft and parts identities are
+unchanged. Unsupported operations remain pending.
 
 `checkProject`, direction signoff and the acceptance writer all check the
 relevant document. Handoff stays rig-only to bootstrap authoring. Review-package

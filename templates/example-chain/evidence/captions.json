@@ -1,0 +1,101 @@
+{
+  "schema": "rig-create/split-captions@0",
+  "inputs": {
+    "project": {
+      "path": "project.json",
+      "sha256": "943185bb014ee9999db1eda29ca6d58b3962b3f4d576f7ad983d6f57dfde6a78"
+    },
+    "config": {
+      "path": "evidence/split-config.json",
+      "sha256": "09894c45fb493a697713d2055cbd294b0cb2c9c28cf9d2cda41334d8f1904100"
+    }
+  },
+  "config": [
+    {
+      "path": "config[\"key\"]",
+      "value": "synthetic-interview-parts",
+      "text": "config[\"key\"] = \"synthetic-interview-parts\""
+    },
+    {
+      "path": "config[\"seethrough\"]",
+      "value": {
+        "resolution": 128,
+        "steps": 1,
+        "seed": 0,
+        "offload": false
+      },
+      "text": "config[\"seethrough\"] = {\"resolution\":128,\"steps\":1,\"seed\":0,\"offload\":false}"
+    },
+    {
+      "path": "config[\"assemble\"]",
+      "value": {
+        "rig_scale": 1,
+        "plan": [
+          [
+            "background",
+            "full",
+            "author:background"
+          ],
+          [
+            "torso",
+            "full",
+            "topwear"
+          ],
+          [
+            "lantern",
+            "full",
+            "author:lantern"
+          ],
+          [
+            "face",
+            "full",
+            "face"
+          ],
+          [
+            "eye_r",
+            "full",
+            "eyewhite-r"
+          ],
+          [
+            "eye_l",
+            "full",
+            "eyewhite-l"
+          ]
+        ]
+      },
+      "text": "config[\"assemble\"] = {\"rig_scale\":1,\"plan\":[[\"background\",\"full\",\"author:background\"],[\"torso\",\"full\",\"topwear\"],[\"lantern\",\"full\",\"author:lantern\"],[\"face\",\"full\",\"face\"],[\"eye_r\",\"full\",\"eyewhite-r\"],[\"eye_l\",\"full\",\"eyewhite-l\"]]}"
+    }
+  ],
+  "parts": [
+    {
+      "name": "background",
+      "label": "rigid",
+      "text": "\"background\" = \"rigid\""
+    },
+    {
+      "name": "torso",
+      "label": "rigid",
+      "text": "\"torso\" = \"rigid\""
+    },
+    {
+      "name": "lantern",
+      "label": "rigid",
+      "text": "\"lantern\" = \"rigid\""
+    },
+    {
+      "name": "face",
+      "label": "rigid",
+      "text": "\"face\" = \"rigid\""
+    },
+    {
+      "name": "eye_r",
+      "label": "rigid",
+      "text": "\"eye_r\" = \"rigid\""
+    },
+    {
+      "name": "eye_l",
+      "label": "rigid",
+      "text": "\"eye_l\" = \"rigid\""
+    }
+  ]
+}

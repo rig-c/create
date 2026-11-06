@@ -1,0 +1,69 @@
+{
+  "schema": "rig-create/direction@1",
+  "rig": {
+    "version": 1,
+    "model": {
+      "path": "derived/review/v1/out/check/build/skeleton.model.json",
+      "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+    }
+  },
+  "take": {
+    "duration": 4,
+    "loop": false
+  },
+  "camera": {
+    "space": "rig-world-y-up",
+    "keys": [
+      {
+        "time": 0,
+        "box": {
+          "x": -64,
+          "y": 0,
+          "width": 128,
+          "height": 128
+        },
+        "easing": "linear"
+      },
+      {
+        "time": 4,
+        "box": {
+          "x": -60,
+          "y": 4,
+          "width": 120,
+          "height": 120
+        },
+        "easing": "hold"
+      }
+    ]
+  },
+  "timing": {
+    "keys": [
+      {
+        "time": 0,
+        "source_time": 0,
+        "easing": "linear"
+      },
+      {
+        "time": 4,
+        "source_time": 4,
+        "easing": "hold"
+      }
+    ]
+  },
+  "citations": {
+    "camera": {
+      "guide": "camera_depth",
+      "asks": [
+        "camera_depth"
+      ],
+      "quote": "Use the synthetic camera_depth\nKeep the declared geometric example."
+    },
+    "timing": {
+      "guide": "post_timing",
+      "asks": [
+        "post_timing"
+      ],
+      "quote": "Use the synthetic post_timing\nKeep the declared geometric example."
+    }
+  }
+}

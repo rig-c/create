@@ -1,0 +1,193 @@
+{
+  "skeleton": {
+    "spine": "4.3.13",
+    "x": -68.00001,
+    "y": -4,
+    "width": 136,
+    "height": 136,
+    "images": "../../images/"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "body",
+      "parent": "root",
+      "y": 64
+    }
+  ],
+  "slots": [
+    {
+      "name": "background",
+      "bone": "body",
+      "attachment": "background"
+    },
+    {
+      "name": "torso",
+      "bone": "body",
+      "attachment": "torso"
+    },
+    {
+      "name": "lantern",
+      "bone": "body",
+      "attachment": "lantern"
+    },
+    {
+      "name": "face",
+      "bone": "body",
+      "attachment": "face"
+    },
+    {
+      "name": "eye_r",
+      "bone": "body",
+      "attachment": "eye_r"
+    },
+    {
+      "name": "eye_l",
+      "bone": "body",
+      "attachment": "eye_l"
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "attachments": {
+        "background": {
+          "background": {
+            "width": 136,
+            "height": 136
+          }
+        },
+        "eye_l": {
+          "eye_l": {
+            "x": 10,
+            "y": 32,
+            "width": 16,
+            "height": 16
+          }
+        },
+        "eye_r": {
+          "eye_r": {
+            "x": -10,
+            "y": 32,
+            "width": 16,
+            "height": 16
+          }
+        },
+        "face": {
+          "face": {
+            "y": 32,
+            "width": 48,
+            "height": 40
+          }
+        },
+        "lantern": {
+          "lantern": {
+            "x": 40,
+            "y": -20,
+            "width": 24,
+            "height": 32
+          }
+        },
+        "torso": {
+          "torso": {
+            "y": -24,
+            "width": 56,
+            "height": 72
+          }
+        }
+      }
+    }
+  ],
+  "animations": {
+    "idle": {
+      "bones": {
+        "body": {
+          "translatey": [
+            {
+              "curve": [
+                0.166667,
+                0.1309,
+                0.333333,
+                0.261
+              ]
+            },
+            {
+              "time": 0.5,
+              "value": 0.3536,
+              "curve": [
+                0.666667,
+                0.4461,
+                0.833333,
+                0.5
+              ]
+            },
+            {
+              "time": 1,
+              "value": 0.5,
+              "curve": [
+                1.166667,
+                0.5,
+                1.333333,
+                0.4461
+              ]
+            },
+            {
+              "time": 1.5,
+              "value": 0.3536,
+              "curve": [
+                1.666667,
+                0.261,
+                1.833333,
+                0.1309
+              ]
+            },
+            {
+              "time": 2,
+              "curve": [
+                2.166667,
+                -0.1309,
+                2.333333,
+                -0.261
+              ]
+            },
+            {
+              "time": 2.5,
+              "value": -0.3536,
+              "curve": [
+                2.666667,
+                -0.4461,
+                2.833333,
+                -0.5
+              ]
+            },
+            {
+              "time": 3,
+              "value": -0.5,
+              "curve": [
+                3.166667,
+                -0.5,
+                3.333333,
+                -0.4461
+              ]
+            },
+            {
+              "time": 3.5,
+              "value": -0.3536,
+              "curve": [
+                3.666667,
+                -0.261,
+                3.833333,
+                -0.1309
+              ]
+            },
+            {
+              "time": 4
+            }
+          ]
+        }
+      }
+    }
+  }
+}

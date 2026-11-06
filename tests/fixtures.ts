@@ -37,12 +37,18 @@ export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-pr
 
 /** Open either example record with the same retained asset bytes. */
 export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false, bindAnswers = true): string {
-  if (template === 'legacy-example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
+  const suppliedFiles = files;
+  const legacyFiles = template === 'legacy-example-project.json'
+    ? { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files } : null;
+  if (legacyFiles) files = { ...legacyFiles, ...suppliedFiles };
   if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
   const project = readTemplate(template);
   if (['legacy-example-project.json', 'example-project.json', 'example-reopened/project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
-  if (template === 'legacy-example-project.json' && !rawLegacy && bindAnswers) materializeLegacyPartPackages(dir, project, files);
+  if (legacyFiles && !rawLegacy && bindAnswers) {
+    materializeLegacyPartPackages(dir, project, legacyFiles);
+    files = { ...legacyFiles, ...suppliedFiles };
+  }
   mutate(project);
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
   if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);

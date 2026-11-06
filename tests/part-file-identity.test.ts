@@ -37,7 +37,7 @@ function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = 
   setSystemTime(new Date(at));
   const dir = tempDir();
   roots.push(dir);
-  const approved = partsPackage({ partsDir: 'reviewed', verdict: 'evidence/parts-review.json' });
+  const approved = partsPackage({ partsDir: 'reviewed', verdict: 'evidence/parts-review.json', edit: verdict => { verdict.updatedAt = at; } });
   for (const [path, bytes] of Object.entries(approved.files)) put(dir, path, bytes);
   put(dir, 'words.txt', 'Approve these synthetic retained inputs.\n');
   const config = '{"key":"synthetic","bones":[{"name":"root"}]}\n';

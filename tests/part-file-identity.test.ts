@@ -243,7 +243,7 @@ for (const boundary of ['acceptance', 'handoff']) test(`${boundary} ignores pack
   if (boundary === 'handoff') expect(handoffCommand([dir, '--json']).exit).toBe(0);
 });
 
-for (const at of ['pending', '', null, 123, undefined, '2026-02-31', '2026-13-01', 'pending 1', '1', 'build 3', '2026-11-07T00:00:00']) test(`all selected readers refuse an unreadable rig date: ${String(at)}`, () => {
+for (const at of ['pending', '', null, 123, undefined, '2026-02-31', '2026-02-31T10:00:00Z', '2026-13-01', 'pending 1', '1', 'build 3', '2026-11-07T00:00:00']) test(`all selected readers refuse an unreadable rig date: ${String(at)}`, () => {
   const dir = setup();
   packageRig(dir);
   accept(dir);
@@ -277,7 +277,7 @@ test('date findings include imported rigs and exclude posts and nested member sn
   expect(ctx.warnings).toEqual([]);
 });
 
-for (const at of ['2026-11-02', '2026-11-06T12:00:00+02:00']) test(`calendar dates and zoned ISO dates pass all boundaries: ${at}`, () => {
+for (const at of ['2026-11-02', '2026-11-06T12:00:00+02:00', '2026-11-06T23:30:00-02:00', '2026-11-06T00:30:00+09:00']) test(`calendar dates and zoned ISO dates pass all boundaries: ${at}`, () => {
   const dir = setup(at);
   packageRig(dir);
   accept(dir);

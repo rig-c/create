@@ -42,10 +42,15 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const write = (path: string, bytes: string | Uint8Array): void => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); };
   const input = generateExampleParts(join(dir, 'producer'));
   const files = { ...exampleDraftFiles(input, generateExampleDraft(join(dir, 'draft-producer'), input)), ...partsPackage({ verdict: EXAMPLE_VERDICT, input, edit: verdict => { verdict.updatedAt = exampleTime('2026-11-11T10:15:00Z'); } }).files };
+  const builtWith = Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => {
+    const installed = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')) as { version: string };
+    return [name, installed.version];
+  }));
   for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...files })) write(path, bytes);
   for (const raw of arr(original.versions)) {
     const version = obj(raw);
     if (version.kind === 'rig') {
+      version.built_with = { ...builtWith };
       const path = `evidence/v${String(version.n)}/interview-config.json`;
       const requirements = `evidence/v${String(version.n)}/interview-requirements.json`;
       files[path] = files[`${EXAMPLE_DRAFT}/config.json`]!;

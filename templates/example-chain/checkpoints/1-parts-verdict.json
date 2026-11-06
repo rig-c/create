@@ -1,0 +1,185 @@
+{
+  "schema": "rig-create/example-checkpoint@1",
+  "stage": 1,
+  "name": "1-parts-verdict",
+  "chain_step": 30,
+  "pending": {
+    "act": "Export the synthetic review-tool parts verdict, then approve the parts",
+    "commands": [
+      "partsPackage tests/parts-package.ts",
+      "rig-parts diff-components --stack assembled/render/recomposite_rig.png --painting painting.png --parts assembled/rig/parts.json --floor 2 --threshold 40 --out diff-components.json",
+      "seed project.stage \"parts-review\"",
+      "rig-create signoff parts-review --by user --verbatim-file evidence/approval.txt --draft chain --structure-file evidence/structure.json --evidence evidence/parts-review.json --diff-report evidence/diff-components.json"
+    ],
+    "command_roles": [
+      "producer",
+      "producer",
+      "seed",
+      "human"
+    ],
+    "awaits": [
+      "evidence/parts-review.json",
+      "signoffs[stage=parts-review]",
+      "project.stage"
+    ]
+  },
+  "expected_findings": {
+    "refusals": [],
+    "warnings": []
+  },
+  "project_sha256": "ab926ae8bfa6c48c5bda92f234ccdb80d4224baef9173272f35250f59d24e227",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "3127c9f6dc0fb3c6cfaa63ed0f7d14bcf9bf07a6ecc30c0d0f4f9c1b4062486e"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "8f551d835611162b0081399cf68d51fd81e51de174d2bb5385747e7d7ee53892"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "4f21b640d3591d6fc8614b18f1cef324097184c735bdd845562ef214a523612a"
+    },
+    {
+      "path": "derived/drafts/chain/config.json",
+      "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+    },
+    {
+      "path": "derived/drafts/chain/input/parts/background.png",
+      "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+    },
+    {
+      "path": "derived/drafts/chain/input/parts/eye_l.png",
+      "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+    },
+    {
+      "path": "derived/drafts/chain/input/parts/eye_r.png",
+      "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+    },
+    {
+      "path": "derived/drafts/chain/input/parts/face.png",
+      "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+    },
+    {
+      "path": "derived/drafts/chain/input/parts/lantern.png",
+      "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+    },
+    {
+      "path": "derived/drafts/chain/input/parts/torso.png",
+      "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+    },
+    {
+      "path": "derived/drafts/chain/input/parts.json",
+      "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+    },
+    {
+      "path": "derived/drafts/chain/input/recomposite_rig.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+    },
+    {
+      "path": "derived/drafts/chain/interview-requirements.json",
+      "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+    },
+    {
+      "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
+      "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+    },
+    {
+      "path": "derived/drafts/chain/out/check/build/skeleton.json",
+      "sha256": "a4b76fae1308a9c12822e2db2150c53c5a7103f5cf7a8f197f67825173e1a57a"
+    },
+    {
+      "path": "derived/drafts/chain/out/check/build/skeleton.model.json",
+      "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff"
+    },
+    {
+      "path": "derived/drafts/chain/out/check/build/skeleton.png",
+      "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+    },
+    {
+      "path": "derived/drafts/chain/out/images/background.png",
+      "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
+    },
+    {
+      "path": "derived/drafts/chain/out/images/eye_l.png",
+      "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+    },
+    {
+      "path": "derived/drafts/chain/out/images/eye_r.png",
+      "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+    },
+    {
+      "path": "derived/drafts/chain/out/images/face.png",
+      "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c"
+    },
+    {
+      "path": "derived/drafts/chain/out/images/lantern.png",
+      "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041"
+    },
+    {
+      "path": "derived/drafts/chain/out/images/torso.png",
+      "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5"
+    },
+    {
+      "path": "derived/drafts/chain/out/mesh_report.json",
+      "sha256": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db"
+    },
+    {
+      "path": "derived/drafts/chain/out/motion.json",
+      "sha256": "74df39025faec150b43ac4b6ffeab66379f5abf5192ebae521a512a1f641867e"
+    },
+    {
+      "path": "derived/drafts/chain/out/rig.json",
+      "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
+    },
+    {
+      "path": "evidence/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/approval.txt",
+      "sha256": "e05bbdcecef4e5783efa2415eea975b0abdbf4454bf9143d5fb650c0c513eb83"
+    },
+    {
+      "path": "evidence/interview/assemble.json",
+      "sha256": "25d98144bebe63f48146a4d53da1c6035a1d5d6de411652355ab2e0ac1a35041"
+    },
+    {
+      "path": "evidence/interview/reference.json",
+      "sha256": "76a5668b93fdb4e49e91549e95581a18ac8c901f054a797c649691c96d355ed2"
+    },
+    {
+      "path": "evidence/interview/rig_type.json",
+      "sha256": "f0e41c3ed17aee4a51f63bab4289e189f201f2206b8fe90cee92b28f3a18e9a7"
+    },
+    {
+      "path": "evidence/interview/seethrough.json",
+      "sha256": "4417f0f5a8354f50e845a8dba2cd140ea2d045b519b011176ffa50a6f34a23d4"
+    },
+    {
+      "path": "evidence/split-config.json",
+      "sha256": "09894c45fb493a697713d2055cbd294b0cb2c9c28cf9d2cda41334d8f1904100"
+    },
+    {
+      "path": "evidence/structure.json",
+      "sha256": "9969e25f3a767588e0afcf4db07b887017ac61502555f1fdd4614768661ed42f"
+    },
+    {
+      "path": "inputs/painting.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+    },
+    {
+      "path": "inputs/references/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "package.json",
+      "sha256": "6f51020052075e357b194c33ac2df6b4b97674040ccf17626e69cbe98042fd41"
+    },
+    {
+      "path": "project.json",
+      "sha256": "ab926ae8bfa6c48c5bda92f234ccdb80d4224baef9173272f35250f59d24e227"
+    }
+  ]
+}

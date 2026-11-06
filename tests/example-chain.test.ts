@@ -206,3 +206,144 @@ test('two fresh generator runs reproduce every shipped byte', () => {
     expect(inventory(join(root, 'first/project'))).toEqual(inventory(shipped));
   } finally { rmSync(root, { recursive: true }); }
 }, 60_000);
+
+interface CheckpointDeclaration {
+  schema: string;
+  stage: number;
+  name: string;
+  chain_step: number;
+  pending: { act: string; commands: string[]; command_roles: string[]; awaits: string[] };
+  expected_findings: { refusals: { code: string; path: string }[]; warnings: unknown[] };
+  project_sha256: string;
+  files: { path: string; sha256: string }[];
+}
+
+function fileInventory(dir: string, prefix = ''): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) Object.assign(result, fileInventory(join(dir, entry.name), path));
+    else result[path] = sha256(readFileSync(join(dir, entry.name)));
+  }
+  return result;
+}
+
+test.each([
+  ['1-parts-verdict', 1, 30, 'parts', 0],
+  ['2-rigging-answers', 2, 37, 'rigging-interview', 4],
+  ['3-rig-review', 3, 59, 'rig-review', 0],
+  ['4-direction-post', 4, 80, 'post', 0],
+] as const)('checkpoint %s preserves its complete prefix and pending state', (name, stage, index, projectStage, count) => {
+  const root = join(shipped, 'checkpoints', name);
+  const declaration = JSON.parse(readFileSync(`${root}.json`, 'utf8')) as CheckpointDeclaration;
+  const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as {
+    checkpoints: { stage: number; name: string; chain_step: number }[];
+    steps: ChainStep[];
+  };
+  expect(declaration.schema).toBe('rig-create/example-checkpoint@1');
+  expect(declaration.stage).toBe(stage);
+  expect(declaration.chain_step).toBe(index);
+  expect(chain.checkpoints).toContainEqual({ stage, name, chain_step: index });
+  expect(declaration.project_sha256).toBe(sha256(readFileSync(join(root, 'project.json'))));
+  expect(fileInventory(root)).toEqual(Object.fromEntries(declaration.files.map(file => [file.path, file.sha256])));
+  expect(declaration.files.every(file => !file.path.startsWith('checkpoints/') && file.path !== 'chain.json')).toBe(true);
+  const report = checkProject(root);
+  expect(report.stage).toBe(projectStage);
+  expect(report.refusals).toHaveLength(count);
+  expect(report.warnings).toEqual([]);
+  expect(declaration.expected_findings).toEqual({ refusals: report.refusals, warnings: report.warnings });
+  expect(declaration.pending.commands[0].split(' --sha256 ')[0]).toBe(chain.steps[index]!.command.join(' ').split(' --sha256 ')[0]!);
+  expect(declaration.pending.command_roles).toHaveLength(declaration.pending.commands.length);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const signoffs = project.signoffs as JsonObject[];
+  const awaited = ['parts-review', 'rigging-interview', 'rig-review', 'direction-review'][stage - 1];
+  expect(signoffs.some(signoff => signoff.stage === awaited)).toBe(false);
+  if (stage === 1) {
+    expect(declaration.files.some(file => file.path === 'evidence/parts-review.json')).toBe(false);
+    expect(declaration.pending.command_roles).toEqual(['producer', 'producer', 'seed', 'human']);
+  }
+  if (stage === 2) {
+    expect(report.refusals.map(finding => [finding.code, finding.path])).toEqual(
+      ['bones', 'meshes', 'constraints', 'motion'].map(id => ['INTERVIEW_INCOMPLETE', `interview.waypoints[${id}].guide`]));
+    expect(declaration.pending.command_roles).toEqual(['human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'human']);
+  }
+  if (stage === 3) expect((project.versions as JsonObject[])[0]!.verdicts).toEqual([]);
+  if (stage === 1 || stage === 4) {
+    expect(declaration.pending.awaits).toContain('project.stage');
+    expect(declaration.pending.commands).toContain(`seed project.stage "${stage === 1 ? 'parts-review' : 'direction-review'}"`);
+  }
+  if (stage === 4) {
+    expect((project.versions as JsonObject[]).some(version => version.kind === 'post')).toBe(false);
+    expect(declaration.files.some(file => file.path === 'evidence/direction-input.json')).toBe(false);
+    expect(declaration.pending.commands[0]).toBe('agent draft evidence/direction-input.json');
+    expect(declaration.pending.command_roles).toEqual(['agent', 'human', 'agent', 'seed', 'human', 'human']);
+  }
+});
+
+test('the labelled draft, package and production model retain a producer-made mesh on unchanged parts', () => {
+  for (const path of ['derived/drafts/chain/out/mesh_report.json', 'derived/review/v1/out/rig/mesh_report.json', 'outputs/v1/out/rig/mesh_report.json']) {
+    const report = JSON.parse(readFileSync(join(shipped, path), 'utf8')) as { part: string; vertices: number; triangles: number }[];
+    expect(report).toContainEqual(expect.objectContaining({ part: 'torso' }));
+    expect(report.find(part => part.part === 'torso')!.vertices).toBeGreaterThan(0);
+    expect(report.find(part => part.part === 'torso')!.triangles).toBeGreaterThan(0);
+  }
+  for (const path of ['derived/drafts/chain/out/check/build/skeleton.model.json', 'derived/review/v1/out/check/build/skeleton.model.json', 'outputs/v1/out/check/build/skeleton.model.json']) {
+    const model = JSON.parse(readFileSync(join(shipped, path), 'utf8')) as { skins: { attachments: Record<string, Record<string, { kind: string; triangles: number[] }>> }[] };
+    const attachments = model.skins.flatMap(skin => Object.values(skin.attachments).flatMap(slot => Object.entries(slot)));
+    const torso = attachments.find(([name]) => name === 'torso')![1];
+    expect(torso.kind).toBe('mesh');
+    expect(torso.triangles.length).toBeGreaterThan(0);
+  }
+});
+
+
+test('agent-authored inputs are declared at their true position before public writer consumption', () => {
+  const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };
+  const inputs: [string, string[]][] = [
+    ['evidence/approval.txt', ['rig-create', 'signoff', 'interview']],
+    ['inputs/painting.png', ['rig-create', 'interview-options', 'rig_type']],
+    ['evidence/split-config.json', ['rig-create', 'split-captions']],
+    ['evidence/structure.json', ['rig-create', 'signoff', 'parts-review']],
+    ['evidence/setup.png', ['rig-create', 'review-package', '1']],
+    ['evidence/v1/config.json', ['rig-create', 'review-package', '1']],
+    ['evidence/direction-input.json', ['rig-create', 'direction', 'write']],
+  ];
+  for (const id of ['rig_type', 'reference', 'seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion', 'camera_depth', 'post_timing', 'post_composition']) {
+    const path = `evidence/interview/${id}.json`;
+    inputs.push([path, ['rig-create', 'interview-options', id]]);
+    const draft = chain.steps.find(step => step.step === `agent-drafted option set ${id}`)!;
+    expect(draft.kind).toBe('producer');
+    expect(draft.authored_by).toBe('agent');
+    expect(draft.command).toEqual(['agent', 'draft', path]);
+    expect(draft.output_path).toBe(path);
+  }
+  for (const [name, consumer] of [
+    ['retain labelled draft inputs and outputs', ['rig-create', 'draft-rig']],
+    ['retain production inputs, outputs and setup evidence', ['rig-create', 'review-package', '1']],
+  ] as const) {
+    const copy = chain.steps.find(step => step.step === name)!;
+    for (const path of Object.keys(copy.outputs!)) inputs.push([path, [...consumer]]);
+  }
+  for (const [path, consumer] of inputs) {
+    const producer = chain.steps.findIndex(step => step.outputs?.[path] !== undefined);
+    const writer = chain.steps.findIndex(step => consumer.every((arg, index) => step.command[index] === arg));
+    expect(producer).toBeGreaterThanOrEqual(0);
+    expect(producer).toBeLessThan(writer);
+    expect(chain.steps[producer]!.outputs![path]).toBe(sha256(readFileSync(join(shipped, path))));
+  }
+});
+
+test('pending rigging answers use available drafted files and run-time hashes', () => {
+  const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints/2-rigging-answers.json'), 'utf8')) as CheckpointDeclaration;
+  const available = new Set(declaration.files.map(file => file.path));
+  for (const command of declaration.pending.commands) {
+    if (command.startsWith('agent draft ')) available.add(command.slice('agent draft '.length));
+    if (command.startsWith('rig-create interview-options ')) expect(available.has(command.split(' --file ')[1]!)).toBe(true);
+    if (command.startsWith('rig-create interview-answer ')) {
+      const path = command.split(' --set ')[1]!.split(' ')[0]!;
+      expect(available.has(path)).toBe(true);
+      expect(command).toContain(`--sha256 <sha256 of ${path}>`);
+      expect(command).not.toMatch(/--sha256 [a-f0-9]{64}/);
+    }
+  }
+});

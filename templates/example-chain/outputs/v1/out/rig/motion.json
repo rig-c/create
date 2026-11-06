@@ -24,7 +24,7 @@
    "note": "Breath (chest), head roll, hair/accessory sway, sleeve and hem sway, one blink. Sines with exact tangents; phase lags down every chain.",
    "tracks": [
     {
-     "bone": "body",
+     "bone": "body_ctl",
      "property": "translatey",
      "keys": [
       {

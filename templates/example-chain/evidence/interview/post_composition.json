@@ -11,7 +11,7 @@
     "signoff_at": "2026-11-06T01:00:35.000Z",
     "config": {
       "path": "evidence/v1/config.json",
-      "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+      "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
     },
     "parts": {
       "path": "derived/drafts/chain/input",

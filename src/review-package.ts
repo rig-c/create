@@ -176,6 +176,8 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
       ctx.refusals.push({ code: 'REVIEW_PACKAGE_CHANGED', path, message: `${path}: ${error instanceof Error ? error.message : String(error)}` });
       continue;
     }
+    // The project-level loader diagnostic already owns this unavailable dependency.
+    if (ctx.refusals.some(f => f.code === 'PARTS_SECTIONS_UNREADABLE' || f.code === 'PARTS_NOT_INSTALLED')) continue;
     try {
       const missing = (name: string): void => {
         const finding = { code: 'REVIEW_PACKAGE_INPUT_MISSING', path, message: `${path}: config-named input ${name} is missing from the frozen package inventory; preserve the package and record the complete inputs on the next build` };

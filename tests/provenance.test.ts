@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { repackageFixtureVersion } from './review-fixture.ts';
 import { checkProject } from '../src/check.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
@@ -14,7 +15,7 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 function withConfig(n: number, config: JsonObject, mutate: (p: JsonObject) => void = () => {}): string {
   const text = `${JSON.stringify({ ...config, requirements: 'requirements.json' }, null, 2)}\n`;
   const path = `derived/v${n}/config.json`;
-  return fixture(
+  return repackageFixtureVersion(fixture(
     (p) => {
       obj(version(p, n).provenance).config = { path, sha256: sha(text) };
       mutate(p);
@@ -26,7 +27,7 @@ function withConfig(n: number, config: JsonObject, mutate: (p: JsonObject) => vo
         spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true },
       }),
     },
-  );
+  ), n);
 }
 
 /** v2's config as the sections its provenance lists, plus the not-a-direction-call ones parts writes. */

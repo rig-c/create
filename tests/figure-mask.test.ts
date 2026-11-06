@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { repackageFixtureVersion } from './review-fixture.ts';
 import { checkProject, type CheckReport } from '../src/check.ts';
 import { FIGURE_MASK_SINCE } from '../src/figure-mask.ts';
 import { derivedCommand } from '../src/prepared-inputs.ts';
@@ -16,7 +17,7 @@ const findings = (report: CheckReport) => [...report.refusals, ...report.warning
 const mask = 'synthetic figure support';
 function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256: sha(mask) } }, mutate: Mutate = () => {}, ground = 'busy'): string {
   const config = json({ assemble: { project: 'visible', ground }, requirements: 'requirements.json' });
-  return fixture((p) => {
+  return repackageFixtureVersion(fixture((p) => {
     const guide = obj(waypoint(p, 'assemble').guide);
     obj(guide.value).ground = ground;
     arr(guide.asks).push({ id: 'ground', state: 'user' });
@@ -31,7 +32,7 @@ function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256
     'evidence/mask/figure.png': mask,
     'painting.txt': 'original',
     'foreground.txt': 'foreground',
-  });
+  }), 1);
 }
 
 describe('figure mask declaration and provenance', () => {

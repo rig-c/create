@@ -672,14 +672,14 @@ create-built rig versions. Post and pre-interview versions are exempt.
 | --- | --- | --- |
 | `REVIEW_PACKAGE_MISSING` | a create-built rig has no package record, or its recorded package is absent | run the `rig-create review-package` command printed by the warning with the explicit frozen sources |
 
-| Command refusal | Fires when |
+| Writer or checker finding | Fires when |
 | --- | --- |
 | `REVIEW_PACKAGE_USAGE` | version/options are missing, repeated or invalid (exit 2) |
 | `REVIEW_PACKAGE_VERSION_UNKNOWN` | the requested version is absent |
 | `REVIEW_PACKAGE_VERSION_INVALID` | the version is post or pre-interview |
 | `REVIEW_PACKAGE_PATH_INVALID` | a source is absolute, escapes the project, or the destination traverses a symlink outside it |
-| `REVIEW_PACKAGE_INPUT_MISSING` | a source or a required layout entry is absent |
-| `REVIEW_PACKAGE_INPUT_INVALID` | config is not a JSON object, a layout entry has the wrong kind or a copied tree contains a symlink |
+| `REVIEW_PACKAGE_INPUT_MISSING` | a writer source or required layout entry is absent, or the checker finds a config-named input missing from the frozen inventory. The checker WARNs before CONFIG_INPUTS_SINCE by version.at and refuses from that date. Preserve history and package the complete named inputs on the next build |
+| `REVIEW_PACKAGE_INPUT_INVALID` | a writer config is not a JSON object, a layout entry has the wrong kind or a copied tree contains a symlink. The checker also reports an unreadable frozen config or unavailable config-file declarations, with unavailable declarations WARNed before CONFIG_INPUTS_SINCE by version.at and refused from that date. An existing project-level parts-loader refusal suppresses duplicate input findings |
 | `REVIEW_PACKAGE_SOURCE_CHANGED` | source bytes change between hashing and copying |
 | `REVIEW_PACKAGE_EXISTS` | an existing package differs from the declared sources |
 | `REVIEW_PACKAGE_BUSY` | another writer holds the project's package lock |

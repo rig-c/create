@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { PRE_INTERVIEW_VERDICTS } from '../src/pre-interview.ts';
 import { latestAccepted, readVersions } from '../src/review.ts';
-import type { JsonObject } from '../src/templates.ts';
+import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, codes, fixture, obj, version, withCode, type Mutate } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
@@ -101,6 +101,7 @@ describe('pre-interview migration (#39)', () => {
     const dir = migrated((p) => {
       const post = version(p, 3);
       post.pre_interview = true;
+      post.original_n = 3;
       delete post.provenance;
       post.original_verdicts = [structuredClone(verdict(p, 3))];
       verdict(p, 3).as_recorded = structuredClone(original(p, 3));
@@ -287,6 +288,7 @@ describe('pre-interview handoff', () => {
       const next = structuredClone(version(p, 2));
       delete next.pre_interview;
       delete next.original_verdicts;
+      delete next.original_n;
       next.n = 5;
       next.verdicts = [];
       next.answers_feedback = [];
@@ -300,5 +302,88 @@ describe('pre-interview handoff', () => {
     const current = cli(['handoff', '--json', dir], dir, env);
     expect(current.code).toBe(0);
     expect(JSON.parse(current.stdout)).toMatchObject({ rig_version: 5, pre_interview: false });
+  });
+});
+
+describe('migration identities and lost outputs (#117)', () => {
+  test('source ids are copied while record numbers and references are rewritten', () => {
+    const dir = migrated((p) => {
+      version(p, 1).original_n = null;
+      version(p, 2).original_n = '5b';
+      version(p, 1).n = null;
+    });
+    expect(codes(checkProject(dir))).toContain('PRE_INTERVIEW_ORDER');
+    const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    obj(arr(p.versions)[0]).n = 1;
+    writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test('missing and duplicated source identities are named refusals', () => {
+    expect(codes(checkProject(migrated((p) => { delete version(p, 1).original_n; })))).toContain('PRE_INTERVIEW_ORIGINAL_N_MISSING');
+    expect(codes(checkProject(migrated((p) => {
+      version(p, 1).original_n = '5b';
+      version(p, 2).original_n = '5b';
+    })))).toContain('PRE_INTERVIEW_ORIGINAL_N_DUPLICATE');
+    expect(checkProject(migrated((p) => {
+      version(p, 1).original_n = 1;
+      version(p, 2).original_n = '1';
+    })).refusals).toEqual([]);
+    expect(checkProject(migrated((p) => {
+      version(p, 1).original_n = null;
+      version(p, 2).original_n = null;
+    })).refusals).toEqual([]);
+  });
+
+  test('a declared loss passes history validation and is printed by handoff', () => {
+    const dir = migrated((p) => {
+      version(p, 1).outputs = [];
+      version(p, 1).outputs_lost = { note: 'The first frozen rig was lost.', source: 'archive log, entry 1' };
+    });
+    expect(checkProject(dir).refusals).toEqual([]);
+    const result = cli(['handoff', dir], dir, env);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('The first frozen rig was lost.');
+    expect(result.stdout).toContain('archive log, entry 1');
+  });
+
+  test('a lost accepted output never authorizes post work', () => {
+    const dir = migrated((p) => {
+      version(p, 2).outputs = [];
+      version(p, 2).outputs_lost = { note: 'The accepted rig was lost.', source: 'archive log, entry 2' };
+    });
+    expect(cli(['handoff', dir], dir, env).stderr).toContain('PRE_INTERVIEW_OUTPUTS_LOST');
+    expect(codes(checkProject(dir))).toContain('POST_ON_UNACCEPTED_RIG');
+  });
+
+  test('malformed losses and losses beside surviving outputs are refused', () => {
+    const losses: Json[] = [null, {}, { note: ' ', source: 'log' }, { note: 'lost', source: '' }, 'lost'];
+    for (const loss of losses) {
+      expect(codes(checkProject(migrated((p) => {
+        version(p, 1).outputs = [];
+        version(p, 1).outputs_lost = loss;
+      })))).toContain('PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED');
+    }
+    expect(codes(checkProject(migrated((p) => {
+      version(p, 1).outputs_lost = { note: 'lost', source: 'log' };
+    })))).toContain('PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED');
+  });
+
+  test('the four ruled legacy strings have their exact mappings', () => {
+    for (const [value, mapped] of [
+      ['accepted (HQ-provisional, sent to owner)', 'provisional'],
+      ['accepted-provisional', 'provisional'],
+      ['ok for now, polish wanted', 'accepted'],
+      ['close, polish wanted', 'provisional'],
+    ]) {
+      expect(PRE_INTERVIEW_VERDICTS[value!]).toBe(mapped);
+      const dir = migrated((p) => {
+        original(p, 1).verdict = value!;
+        obj(verdict(p, 1).as_recorded).verdict = value!;
+        verdict(p, 1).verdict = mapped!;
+        version(p, 1).evidence = structuredClone(version(p, 2).evidence);
+      });
+      expect(checkProject(dir).refusals).toEqual([]);
+    }
   });
 });

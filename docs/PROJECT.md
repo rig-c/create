@@ -487,6 +487,8 @@ both kinds:
 | Field | Holds |
 | --- | --- |
 | `n` | the version number, `1, 2, …` |
+| `original_n` | on pre-interview versions only, the unchanged source id as a number, string or `null`; non-null ids are unique |
+| `outputs_lost` | on pre-interview versions only, `{ note, source }` with nonempty strings beside `outputs: []` when frozen outputs did not survive |
 | `kind` | `rig` or `post` |
 | `rig_version` | for a post version, the `n` of the accepted rig it is built on (accepted before the post version's `at`); `null` for a rig version |
 | `at`, `built_by`, `built_with` | when, which agent or tool, and the package versions used (`{ "@rig-c/parts": "…", "@rig-c/core": "…" }`) |
@@ -547,6 +549,10 @@ this exact table, also exported as `PRE_INTERVIEW_VERDICTS`.
 | `accepted (sent to owner)`, `Accepted (sent to owner)` | `accepted` |
 | `bounced`, `Bounced` | `bounced` |
 | `provisional`, `Provisional` | `provisional` |
+| `accepted (HQ-provisional, sent to owner)` | `provisional` — the reviewer marked “HQ-provisional”, org HQ ruling 2026-11-06 |
+| `accepted-provisional` | `provisional` — the reviewer marked “provisional”, org HQ ruling 2026-11-06 |
+| `ok for now, polish wanted` | `accepted`, polish in `on_items[]` — owner 2026-11-03, “`<pilot>`도 여기까지 OK” and “일단 여기까지는 OK”; org HQ ruling 2026-11-06 |
+| `close, polish wanted` | `provisional`, polish as its open item — owner 2026-11-03, “`<pilot>` 많이 좋아졌다. 조금만 더 다듬으면 되겠어”; org HQ ruling 2026-11-06 |
 
 An unlisted string is refused as `PRE_INTERVIEW_VERDICT_UNKNOWN`. Preserve it
 and obtain an explicit mapping before extending the table. A converted value
@@ -554,14 +560,19 @@ that disagrees with the table is `PRE_INTERVIEW_VERDICT_MISMATCH`.
 
 Every historical version lists its frozen `outputs[]` with project-relative
 `path`, `sha256` and `bytes`. The check reads every file and compares its hash
-and size. Missing files must be restored before the migration passes. All
+and size. If no frozen output survived, use `outputs: []` with
+`outputs_lost: { note, source }`, recording what was lost and the record that
+says so. Both strings must be nonempty. A loss declaration beside nonempty
+outputs is refused. Such a version can never authorize post work. All
 pre-interview versions precede the first create-built version, with positive,
 strictly increasing `n` across the combined history.
 
 An accepted pre-interview rig still authorizes post work. Its human
 `rig-review` verdict, valid acceptance time, still-frame record and
 `rig-review` sign-off remain required. `handoff` reports `pre_interview` in
-JSON and prints that status and the verdict's source in text. A later rig
+JSON and prints that status and the verdict's source in text. It also lists
+the note and source of historical output losses, and refuses a selected rig
+whose outputs were lost. A later rig
 requires its own acceptance and supersedes the older rig in the usual way.
 Other checks, including the CG gates where applicable, continue to run.
 
@@ -575,7 +586,11 @@ perform the following migration on its own decision record.
    index. Do not replace a missing original with a reconstructed quote.
 2. Move the historical entries into `versions[]`, keeping `kind` and adding
    `pre_interview: true`. Put them before the create-built entries, preserve
-   their numbers and update references consistently if numbering had collided.
+   a copy of the source id in `original_n` (number, string or `null`). Assign
+   positive, strictly increasing `n` in record order. Non-null `original_n`
+   values must be unique; multiple nulls are allowed. Rewrite `answers_feedback`
+   version references and post `rig_version` references to the new `n`.
+   Create-built versions carry no `original_n`.
    Remove the moved `x-pre_create.versions` array. A nonempty array left there
    produces the `PRE_INTERVIEW_UNMIGRATED` warning while migration is pending.
    It preserves the existing check exit code. Migrated records are checked
@@ -585,7 +600,11 @@ perform the following migration on its own decision record.
    with `note`. Preserve carried `on_items[]` and map them to the interview's
    item ids. Recover dates from dated evidence without inventing them.
 4. Restore each frozen output and record its actual `path`, `sha256` and
-   `bytes`. Retain acceptance stills and genuine stage sign-offs. The flag
+   `bytes`. When none survived, declare `outputs: []` and `outputs_lost`
+   with the known loss in `note` and its record in `source`. Check that all
+   `answers_feedback` and `rig_version` references use the new `n`, including
+   references from create-built entries. Retain acceptance stills and genuine
+   stage sign-offs. The flag
    supplies no missing review evidence or sign-off.
 5. On the first create-built version, list the earlier feedback it answers in
    `answers_feedback`, including carried items where relevant. The existing

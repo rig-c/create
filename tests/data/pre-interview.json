@@ -2,6 +2,7 @@
   "versions": [
     {
       "n": 1,
+      "original_n": 1,
       "kind": "rig",
       "pre_interview": true,
       "rig_version": null,
@@ -50,6 +51,7 @@
     },
     {
       "n": 2,
+      "original_n": 2,
       "kind": "rig",
       "pre_interview": true,
       "rig_version": null,

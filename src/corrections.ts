@@ -20,7 +20,7 @@ export function correctionCheckCoverage(summary: JsonObject): string {
   const bars = Object.entries(summary.bars as JsonObject);
   const measured = bars.filter(([, status]) => status === 'PASS').length;
   const unmeasured = bars.filter(([, status]) => status !== 'PASS').map(([name, status]) => `${name}=${String(status)}`);
-  return `${measured} PASS bar(s) measured; not measured: ${unmeasured.join(', ') || 'none'}; producer: ${String(summary.line)}`;
+  return `${measured} PASS bar(s) in the summary map; not measured: ${unmeasured.join(', ') || 'none'}; producer: ${String(summary.line)}`;
 }
 
 export const correctionHash = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');

@@ -306,7 +306,7 @@ describe('pre-interview handoff', () => {
 });
 
 describe('migration identities and lost outputs (#117)', () => {
-  test('source ids are copied while record numbers and references are rewritten', () => {
+  test('original_n is copied while invalid n ordering is refused', () => {
     const dir = migrated((p) => {
       version(p, 1).original_n = null;
       version(p, 2).original_n = '5b';

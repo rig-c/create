@@ -381,7 +381,6 @@ Exit `1`. Each names its object in `path`.
 | `PRE_INTERVIEW_ORIGINAL_N_MISSING` | a pre-interview version omits its source id or it is not a number, string or null | copy its original id unchanged into `original_n` |
 | `PRE_INTERVIEW_ORIGINAL_N_DUPLICATE` | two migrated versions have the same non-null `original_n` | restore their distinct source ids; repeated nulls are allowed |
 | `PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED` | `outputs_lost` lacks nonempty note and source strings, or is beside anything other than `outputs: []` | record the loss and source beside empty outputs, or restore the surviving output list |
-| `PRE_INTERVIEW_OUTPUTS_LOST` | handoff would select a rig with lost outputs | build and accept a new rig with surviving frozen outputs before post work |
 | `PRE_INTERVIEW_HISTORY_MISSING` | a pre-interview version has no `original_verdicts` array | preserve its complete original verdict array |
 | `PRE_INTERVIEW_VERDICT_LOST` | an original verdict has no unchanged `as_recorded` at the matching index, or an extra `as_recorded` has no original | restore the complete original history and its order |
 | `PRE_INTERVIEW_VERDICT_UNKNOWN` | an original verdict string has no exact entry in `PRE_INTERVIEW_VERDICTS` | retain it and obtain an explicit mapping, without guessing |
@@ -426,6 +425,7 @@ Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
 | `RIG_REVIEW_UNSIGNED` | no human `{ "stage": "rig-review", "checkpoint": null }` sign-off |
 | `RIG_VERSION_UNACCEPTED` | no rig version has an accepted rig-review verdict, or a newer rig version than the accepted one has none |
 | `RIG_ACCEPTED_WITHOUT_STILL` | the accepted rig version has no still-frame record |
+| `PRE_INTERVIEW_OUTPUTS_LOST` | handoff would select an accepted pre-interview rig with lost outputs. Build and accept a new rig with surviving frozen outputs before post work |
 | `POST_ON_UNACCEPTED_RIG` | `--rig <n>` names no rig version, or one never accepted |
 | `POST_ON_SUPERSEDED_RIG` | `--rig <n>` names a rig version accepted before the current one |
 

@@ -115,7 +115,7 @@ test('producer-shaped mixed statuses resolve and retain coverage verbatim', () =
   expect(command(dir, 'record').exitCode).toBe(0);
   const result = command(dir, 'resolve');
   expect(result.exitCode).toBe(0);
-  expect(result.stdout.toString()).toContain('3 PASS bar(s) measured');
+  expect(result.stdout.toString()).toContain('3 PASS bar(s) in the summary map');
   expect(result.stdout.toString()).toContain('RECOMPOSITE_HOLES=SKIP');
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   expect(project.corrections[0].closure.reasoning).toContain('PART_SUPPORT_REPORT=UNCLASSIFIED');

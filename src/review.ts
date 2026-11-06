@@ -58,6 +58,7 @@ export interface Still {
 
 export interface RigVersion {
   readonly preInterview: boolean;
+  readonly outputsLost?: { readonly note: string; readonly source: string };
   readonly live: boolean;
   readonly n: number;
   readonly path: string;
@@ -159,7 +160,9 @@ export function readVersions(project: JsonObject): Versions {
       if (typeof read === 'string') malformedStills.push({ index: i, why: read });
       else stills.push({ ...read, evidence: i });
     });
-    rigs.push({ n: v.n, path, live: liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(v.at) ?? '')), preInterview: v.pre_interview === true, accepted, stills, malformedStills });
+    const outputsLost = v.pre_interview === true && isObject(v.outputs_lost)
+      ? { note: asString(v.outputs_lost.note) ?? '', source: asString(v.outputs_lost.source) ?? '' } : undefined;
+    rigs.push({ outputsLost, n: v.n, path, live: liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(v.at) ?? '')), preInterview: v.pre_interview === true, accepted, stills, malformedStills });
   });
   return { rigs, posts, malformed };
 }
@@ -181,6 +184,7 @@ function postBasisProblem(post: PostVersion, versions: Versions): string | null 
   }
   const rig = versions.rigs.find((r) => r.n === rv);
   if (rig === undefined) return `${post.path}.rig_version=v${rv} names no rig version`;
+  if (rig.outputsLost !== undefined) return `${post.path}.rig_version=v${rv}: ${rig.path}.outputs_lost records lost outputs; build and accept a new rig with surviving frozen outputs before post work`;
   if (rig.accepted === null) {
     return `${post.path}.rig_version=v${rv}: rig v${rv} has no accepted rig-review verdict; post work runs only on a rig version the user accepted at rig-review`;
   }
@@ -267,6 +271,7 @@ export interface Handoff {
   readonly pre_interview: boolean;
   readonly accepted: Acceptance;
   readonly still: Still;
+  readonly outputs_lost?: readonly { readonly version: number; readonly note: string; readonly source: string }[];
 }
 
 /**
@@ -310,6 +315,9 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
       `${latest.path}: rig v${latest.n} was built after rig v${accepted.n} was accepted and has no rig-review acceptance of its own; review it on its still frame before post work runs`,
     );
   }
+  if (accepted.outputsLost !== undefined) {
+    refuse('PRE_INTERVIEW_OUTPUTS_LOST', `${accepted.path}.outputs_lost: ${accepted.outputsLost.note}; source: ${accepted.outputsLost.source}; build and accept a new rig with surviving frozen outputs before post work`);
+  }
   const still = accepted.stills[0];
   if (still === undefined) {
     refuse('RIG_ACCEPTED_WITHOUT_STILL', `${accepted.path}: rig v${accepted.n} is accepted with no still-frame record in its evidence[]`);
@@ -321,7 +329,9 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
     }
     refuse('POST_ON_UNACCEPTED_RIG', `versions[v${rig}]: ${named === undefined ? 'no rig version has that number' : `rig v${rig} has no accepted rig-review verdict`}; post work runs on rig v${accepted.n}`);
   }
-  return { ok: true, project_dir: dir, rig_version: accepted.n, pre_interview: accepted.preInterview, accepted: accepted.accepted, still };
+  const losses = asArray(record.versions).flatMap((v) => isObject(v) && v.pre_interview === true && isObject(v.outputs_lost)
+    ? [{ version: v.n as number, note: v.outputs_lost.note as string, source: v.outputs_lost.source as string }] : []);
+  return { ...(losses.length > 0 ? { outputs_lost: losses } : {}), ok: true, project_dir: dir, rig_version: accepted.n, pre_interview: accepted.preInterview, accepted: accepted.accepted, still };
 }
 
 export const HANDOFF_HELP = `handoff:
@@ -354,6 +364,7 @@ export function handoffCommand(args: string[]): { stdout: string; exit: number }
       `handoff: post work is on rig v${h.rig_version}${h.pre_interview ? ' (pre-interview)' : ''}`,
       `  accepted at rig-review by ${h.accepted.by} at ${h.accepted.at}: ${h.accepted.verbatim === null ? `record of the user: ${h.accepted.note}` : `"${h.accepted.verbatim}"`}`,
       ...(h.pre_interview ? [`  source: ${h.accepted.source}`] : []),
+      ...(h.outputs_lost ?? []).map((loss) => `  v${loss.version} (pre-interview) outputs lost: ${loss.note}; source: ${loss.source}`),
       `  still frame ${h.still.path} (sha256 ${h.still.sha256}, fixed camera, ${h.still.frame === 'setup' ? 'setup pose' : `${h.still.frame} s`})`,
     ].join('\n'),
     exit: 0,

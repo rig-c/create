@@ -14,6 +14,10 @@ export const PRE_INTERVIEW_VERDICTS: Readonly<Record<string, string>> = Object.f
   Accepted: 'accepted',
   'accepted (sent to owner)': 'accepted',
   'Accepted (sent to owner)': 'accepted',
+  'accepted (HQ-provisional, sent to owner)': 'provisional',
+  'accepted-provisional': 'provisional',
+  'ok for now, polish wanted': 'accepted',
+  'close, polish wanted': 'provisional',
   bounced: 'bounced',
   Bounced: 'bounced',
   provisional: 'provisional',
@@ -47,6 +51,15 @@ function checkOutputs(ctx: HistoryCtx, version: JsonObject, label: string): void
   const push = (code: string, path: string, message: string): void => {
     ctx.refusals.push({ code, path, message: `${path}: ${message}` });
   };
+  if (Object.hasOwn(version, 'outputs_lost')) {
+    const loss = version.outputs_lost;
+    if (!isObject(loss) || typeof loss.note !== 'string' || loss.note.trim() === ''
+      || typeof loss.source !== 'string' || loss.source.trim() === ''
+      || !Array.isArray(version.outputs) || version.outputs.length !== 0) {
+      push('PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED', `${label}.outputs_lost`, 'record { note, source } with nonempty strings only beside outputs: []; restore surviving output records otherwise');
+    }
+    return;
+  }
   if (!Array.isArray(version.outputs) || version.outputs.length === 0) {
     push('PRE_INTERVIEW_OUTPUT_MALFORMED', `${label}.outputs`, 'a pre-interview version lists its frozen output files with path, sha256 and bytes');
     return;
@@ -133,6 +146,7 @@ export function checkPreInterview(ctx: HistoryCtx): void {
     ctx.warnings.push({ code: 'PRE_INTERVIEW_UNMIGRATED', path: 'x-pre_create.versions', message: 'x-pre_create.versions awaits migration. Follow docs/PROJECT.md, Migrating work done before the interview, steps 1–6: preserve original verdicts and frozen outputs, move historical versions first into versions[] with pre_interview: true, normalize verdicts with sources, verify outputs, connect answers_feedback, then run interview --check and handoff' });
   }
   const versions = asArray(ctx.project.versions);
+  const originalIds = new Set<string | number>();
   let createSeen = false;
   let previous = 0;
   const hasPreInterview = versions.some((v) => isObject(v) && v.pre_interview === true);
@@ -152,6 +166,14 @@ export function checkPreInterview(ctx: HistoryCtx): void {
     }
     if (createSeen) {
       ctx.refusals.push({ code: 'PRE_INTERVIEW_ORDER', path: label, message: `${label}: every pre-interview version comes before the first create-built version` });
+    }
+    if (!Object.hasOwn(v, 'original_n') || (v.original_n !== null && typeof v.original_n !== 'number' && typeof v.original_n !== 'string')) {
+      ctx.refusals.push({ code: 'PRE_INTERVIEW_ORIGINAL_N_MISSING', path: `${label}.original_n`, message: `${label}.original_n: copy the source version id unchanged as a number, string or null` });
+    } else if (v.original_n !== null) {
+      if (originalIds.has(v.original_n)) {
+        ctx.refusals.push({ code: 'PRE_INTERVIEW_ORIGINAL_N_DUPLICATE', path: `${label}.original_n`, message: `${label}.original_n: two migrated versions share the same non-null source id; restore their distinct original ids` });
+      }
+      originalIds.add(v.original_n);
     }
     checkOriginals(ctx, v, label);
     checkOutputs(ctx, v, label);

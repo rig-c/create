@@ -976,7 +976,9 @@ config, inspected model and handoff input hashes bind to the source. Summary
 `pass:true`, `exitCode:0`, `gate:true` and passing bars are required, and the
 outcome's retained compiled-model SHA must equal `applied.modelHash`. A built
 preview or unknown/failed check cannot claim checked completion. Optional
-published route/files/environment context is retained. No patch application,
+published route/files/environment context is retained. Optional `stageInputHash`
+must be a 64-lowercase-hex SHA-256, accepted as recorded; create cannot re-derive it from the package.
+Summary `source` may be absent or `remesh`, `retune`, or `check`, under the same PASS gates. No patch application,
 producer measurement, build or diff is recomputed by create.
 
 Identities are `{kind:"rig"|"post",n,config:{path,sha256},model:{path,sha256}}`,

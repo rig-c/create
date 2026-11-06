@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Reproduce synthetic version selections through the collection pin writer. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -46,11 +47,10 @@ export function generateCollectionPinFixture(dir: string): string {
 }
 
 if (import.meta.main) {
-  const [destination, flag] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check')) throw Error('usage: generate-collection-pin-fixture.ts <fresh directory> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-collection-pin-fixture.ts <fresh directory> [--check]');
   const bytes = generateCollectionPinFixture(resolve(destination));
   const target = join(import.meta.dir, '../tests/fixtures/collection-pin.json');
-  if (flag === '--check') {
+  if (check) {
     if (readFileSync(target, 'utf8') !== bytes) throw Error('collection pin fixture differs');
   } else {
     mkdirSync(dirname(target), { recursive: true });

@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 import { writeExampleReopened } from './generate-example-reopened.ts';
 import { exampleTime, retimeExample } from './example-time.ts';
 import { generateExampleDraft } from './generate-example-draft.ts';
@@ -163,8 +164,7 @@ export function replaceValue(text: string, key: string, value: Json): string {
 }
 
 if (import.meta.main) {
-  const [destination, flag] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check')) throw new Error('usage: generate-example-order.ts <fresh dir> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-example-order.ts <fresh dir> [--check]');
   const generated = generateExampleOrder(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
@@ -177,9 +177,9 @@ if (import.meta.main) {
     outputs[rel] = bytes;
   }
   for (const [path, bytes] of Object.entries(outputs)) {
-    if (flag === '--check') { if (!readFileSync(join(root, path)).equals(Buffer.from(bytes))) throw new Error(`${path}: generated order differs`); }
+    if (check) { if (!readFileSync(join(root, path)).equals(Buffer.from(bytes))) throw new Error(`${path}: generated order differs`); }
     else { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), bytes); }
   }
-  writeExampleReopened(join(resolve(destination), 'reopened'), flag === '--check');
+  writeExampleReopened(join(resolve(destination), 'reopened'), check);
   console.log('new-order example and draft identities reproduce through the writers; 0 refusals, 0 warnings');
 }

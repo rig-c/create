@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Reproduce the current worked example, never a historical answer. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -12,12 +13,11 @@ export function generateInvariantsExample(dir: string): string {
   return bytes;
 }
 if (import.meta.main) {
-  const [destination, flag, extra] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check') || extra !== undefined) throw new Error('usage: generate-invariants-example.ts <fresh dir> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-invariants-example.ts <fresh dir> [--check]');
   const bytes = generateInvariantsExample(resolve(destination));
   const root = join(import.meta.dir, '../templates/example-invariants');
   const file = join(root, 'invariants.json');
-  if (flag === '--check') {
+  if (check) {
     if (readFileSync(file, 'utf8') !== bytes) throw new Error('example-invariants/invariants.json differs');
   } else {
     mkdirSync(root, { recursive: true });

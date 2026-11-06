@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Consumer writer fixtures. Applied-and-checked is synthetic shape-only, never producer-gate proof. */
 import { setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -22,8 +23,8 @@ export function generateCorrectionFixture(dir:string): Record<string,Buffer> {
   }finally{setSystemTime();}
 }
 if(import.meta.main){
-  const[destination,flag]=process.argv.slice(2);if(!destination||(flag!==undefined&&flag!=='--check'))throw Error('usage: generate-correction-fixture.ts <fresh directory> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-correction-fixture.ts <fresh directory> [--check]');
   const files=generateCorrectionFixture(resolve(destination));const root=join(import.meta.dir,'../tests/fixtures/correction-path');
-  for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(flag==='--check'){if(!readFileSync(file).equals(bytes))throw Error(`${path}: correction fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}
+  for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(check){if(!readFileSync(file).equals(bytes))throw Error(`${path}: correction fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}
   console.log('correction consumer records reproduce through writers; checked fixture is synthetic shape-only');
 }

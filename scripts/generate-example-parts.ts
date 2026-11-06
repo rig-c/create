@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** A public geometric plate, assembled by the installed producer without image repairs. */
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -48,12 +49,11 @@ export function generateExampleParts(dir: string): Record<string, Buffer> {
 }
 
 if (import.meta.main) {
-  const [destination, flag] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check')) throw new Error('usage: generate-example-parts.ts <fresh dir> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-example-parts.ts <fresh dir> [--check]');
   const files = generateExampleParts(resolve(destination));
   for (const [path, bytes] of Object.entries(files)) {
     const file = join(import.meta.dir, '../templates/example-draft/input', path);
-    if (flag === '--check') {
+    if (check) {
       if (!readFileSync(file).equals(bytes)) throw new Error(`${path}: producer fixture differs`);
     } else {
       mkdirSync(dirname(file), { recursive: true });

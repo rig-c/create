@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Reproduce the shipped parts inventory and the inline record through the normal sign-off writer. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -27,8 +28,7 @@ export function generateExampleDiff(dir: string): { report: string; stack: Buffe
 }
 
 if (import.meta.main) {
-  const [destination, flag] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check')) throw new Error('usage: bun scripts/generate-example-diff.ts <fresh scratch directory> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: bun scripts/generate-example-diff.ts <fresh scratch directory> [--check]');
   const generated = generateExampleDiff(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   const file = join(root, 'example-project.json');
@@ -39,7 +39,7 @@ if (import.meta.main) {
     entry.diff_map = generated.record;
     return `    ${JSON.stringify(entry)}${line.endsWith(',') ? ',' : ''}`;
   }).join('\n');
-  if (flag === '--check') {
+  if (check) {
     if (after !== before || generated.report !== readFileSync(join(root, 'example-diff/diff-components.json'), 'utf8')
       || !generated.stack.equals(readFileSync(join(root, 'example-diff/recomposite_rig.png')))) throw new Error('generated diff evidence differs from the shipped example');
     console.log('example diff report, stack and writer record reproduce byte for byte');

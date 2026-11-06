@@ -194,7 +194,6 @@ for (const artifact of ['parts/torso.png', 'parts.json']) for (const boundary of
     ? ['review', '1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']
     : ['handoff', dir, '--json'];
   const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), ...args], { env: process.env });
-  console.log(JSON.stringify({ artifact, boundary, exit: result.exitCode, stderr: result.stderr.toString() }));
   expect(result.exitCode).toBe(1);
   expect(result.stderr.toString()).toContain('REVIEW_PACKAGE_CHANGED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -209,15 +208,6 @@ test('an unreadable rig date cannot authorize a drifted part', () => {
   const before = readFileSync(join(dir, 'project.json'));
   let error: unknown;
   try { packageRig(dir); } catch (caught) { error = caught; }
-  console.log(JSON.stringify({ boundary: 'package', exit: error instanceof Refusal ? 1 : 0 }));
-  if (!error) {
-    const report = checked(dir);
-    console.log(JSON.stringify({ boundary: 'package-check', refusals: report.refusals, warnings: report.warnings }));
-    accept(dir);
-    sign(dir);
-    console.log(JSON.stringify({ boundary: 'acceptance', exit: 0 }));
-    console.log(JSON.stringify({ boundary: 'handoff', exit: handoffCommand([dir, '--json']).exit }));
-  }
   expect(error).toBeInstanceOf(Refusal);
   expect((error as Refusal).code).toBe('RIG_VERSION_AT_INVALID');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -253,7 +243,7 @@ for (const boundary of ['acceptance', 'handoff']) test(`${boundary} ignores pack
   if (boundary === 'handoff') expect(handoffCommand([dir, '--json']).exit).toBe(0);
 });
 
-for (const at of ['pending', '', null, 123, undefined]) test(`all selected readers refuse an unreadable rig date: ${String(at)}`, () => {
+for (const at of ['pending', '', null, 123, undefined, '2026-02-31', '2026-13-01', 'pending 1', '1', 'build 3', '2026-11-07T00:00:00']) test(`all selected readers refuse an unreadable rig date: ${String(at)}`, () => {
   const dir = setup();
   packageRig(dir);
   accept(dir);
@@ -266,7 +256,7 @@ for (const at of ['pending', '', null, 123, undefined]) test(`all selected reade
   put(dir, 'derived/review/v1/out/parts/torso.png', 'distinct reader-date drift\n');
   const before = readFileSync(join(dir, 'project.json'));
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('RIG_VERSION_AT_INVALID');
-  for (const action of [() => packageRig(dir), () => accept(dir), () => { handoffCommand([dir, '--json']); }]) {
+  for (const action of [() => packageRig(dir), () => accept(dir), () => sign(dir), () => { handoffCommand([dir, '--json']); }]) {
     const error = refusal(action);
     expect(error.code).toBe('RIG_VERSION_AT_INVALID');
     expect(error.message).toContain('versions[v1].at');
@@ -285,4 +275,23 @@ test('date findings include imported rigs and exclude posts and nested member sn
   checkReviewPackages(ctx);
   expect(ctx.refusals.map(f => [f.code, f.path])).toEqual([['RIG_VERSION_AT_INVALID', 'versions[v1].at']]);
   expect(ctx.warnings).toEqual([]);
+});
+
+for (const at of ['2026-11-02', '2026-11-06T12:00:00+02:00']) test(`calendar dates and zoned ISO dates pass all boundaries: ${at}`, () => {
+  const dir = setup(at);
+  packageRig(dir);
+  accept(dir);
+  sign(dir);
+  expect(checked(dir).refusals).toEqual([]);
+  expect(checked(dir).warnings).toEqual([]);
+  expect(handoffCommand([dir, '--json']).exit).toBe(0);
+});
+
+test('a date-only cutoff day enforces part identity at UTC midnight', () => {
+  const dir = setup('2026-11-06');
+  expect(Date.parse('2026-11-06')).toBe(Date.parse(PART_FILE_IDENTITY_SINCE));
+  put(dir, 'build/parts/torso.png', 'distinct cutoff-day torso\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(refusal(() => packageRig(dir)).code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

@@ -112,7 +112,8 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     const ctx = { dir, project: { ...project, versions: [{ ...version, pre_interview: false }] }, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkReviewPackages(ctx);
     checkFigureMask(ctx);
-    const mask = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_') || f.code === 'REVIEW_PACKAGE_PART_FILE_MISMATCH');
+    const mask = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_')
+      || ['REVIEW_PACKAGE_PART_FILE_MISMATCH', 'RIG_VERSION_AT_INVALID'].includes(f.code));
     if (mask) refuse(mask.code, mask.message);
     if (ctx.refusals.length || ctx.warnings.some(w => w.code === 'REVIEW_PACKAGE_MISSING')) fail('review package is missing or differs from its recorded binding');
   }

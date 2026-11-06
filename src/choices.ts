@@ -257,8 +257,17 @@ function answersAt(project: JsonObject, at: number, collection: JsonObject | nul
   return snapshot;
 }
 
+/** Validate the transition allowance independently of the decision being replaced. */
+export function refusalBaseline(answer: JsonObject): JsonObject[] {
+  if (answer.refusal_baseline !== undefined && (!Array.isArray(answer.refusal_baseline) || answer.refusal_baseline.some(entry =>
+    !isObject(entry) || Object.keys(entry).length !== 3 || !text(entry.code) || !text(entry.path)
+    || !Number.isSafeInteger(entry.count) || Number(entry.count) <= 0))) badChoice('refusal_baseline must contain only code, path and positive integer count');
+  return (answer.refusal_baseline ?? []) as JsonObject[];
+}
+
 export function validateChoice(dir: string, project: JsonObject, item: Item, answer: JsonObject): void {
   if (!isObject(answer.choice)) badChoice('choice must be an object');
+  refusalBaseline(answer);
   const choice = answer.choice;
   const { set } = optionFile(dir, choice.set);
   validateSet(answersAt(project, date(set.drafted_at),loadCollection(dir)), item, set); validateContext(dir, project, set, date(answer.at));

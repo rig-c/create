@@ -798,6 +798,10 @@ and date. The human still explicitly picks. It is recommended only with an
 agent reason. Never turn old words into a fabricated click or silently select
 a recommendation. Unadopted projects keep the earlier derived-answer rules.
 
+| Answer field | Writer and meaning |
+| --- | --- |
+| `refusal_baseline` | The answer writer records the pre-pending refusal multiset as `{code, path, count}[]` when auto or unresolved Other is selected. Entries have nonempty strings and positive integer counts. The record is retained when decided and in history. Each new pending answer gets a fresh baseline. Older pending answers without it keep the strict current-state comparison. |
+
 ### Public writers and review ingestion
 
 ```
@@ -828,7 +832,7 @@ paths produce the same answer bytes for the same human event.
 
 Writers use the check's choice validators before writing. A partial interview
 may keep unrelated existing refusals, but a writer cannot introduce a new
-one. A refused project write leaves its bytes identical; retained authored
+one. When ending the same pending auto transition, the decision writer permits each code/path up to the larger count in `refusal_baseline` and the current record, while refusing findings absent from both and refusing any excess count. A refused project write leaves its bytes identical; retained authored
 files are never rewritten. Regenerate all consumer examples with
 `scripts/generate-example-choices.ts <fresh scratch> [--check]`; the active full
 example also reproduces through `generate-example-order.ts` and stays 0/0.

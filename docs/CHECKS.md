@@ -375,6 +375,7 @@ Exit `1`. Each names its object in `path`.
 | `CITATION_GUIDE_SILENT` | an entry's `guide` names an item with no answer | answer the item (it is also reported on its own) |
 | `CITATION_WRONG_PHASE` | a `post` version's entry cites a rig waypoint | cite the post item (or framing answer) it rests on; a rig change is a new rig version |
 | `QUOTE_NOT_FOUND` | an entry's `quote` is in no `verbatim` or `additions[].verbatim` of the cited answer (current or `history[]`) | quote the stored sentence exactly; feedback no guide covered goes into `additions[]` first |
+| `RIG_VERSION_AT_INVALID` | a rig version in the project's own `versions[]`, including a pre-interview version, has a missing or unreadable `at` | restore the named version's readable build date from its record; package, acceptance and handoff refuse the selected version before writing |
 | `VERDICT_MALFORMED` | a verdict lacks `by`, `at` or `verbatim`, has a `verdict` other than `accepted` / `bounced` / `provisional` or a `review` other than `rig-review` / `direction-review`, `on_items` is not a list, or an item lacks `id` or a valid `answer_was` | write it in the verdict shape ([PROJECT.md § Versions](PROJECT.md#versions)); `rig-create review` writes it |
 | `FEEDBACK_UNANSWERED` | a human bounced verdict on version N, not withdrawn, and a version later than N exists while none lists `{ "version": N, "verdict": i }` in `answers_feedback` | list it in the version built from that feedback, with what changed in `changed`; if the feedback was not acted on, say so to the user — a later version that ignores it is the bounce coming back |
 | `PRE_INTERVIEW_ORDER` | pre-interview versions follow a create-built version, or migrated history has nonpositive, repeated or out-of-order version numbers | put historical versions first, with strictly increasing `n` and consistent references |
@@ -644,7 +645,7 @@ non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
 
 ## Review packages
 
-`BUILD_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates the build-identity findings by the rig version's `at`. Earlier or unreadably dated versions receive WARNs with the same named codes. The accepted manifest comes from the latest parts approval live at that version's build time; an unreadable build date uses the latest live approval and emits WARNs for any identity disagreement. The comparison reads declared hashes and the retained hash-bound verdict, including when the regenerable package is absent.
+`BUILD_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates the build-identity findings by the rig version's `at`. Earlier or unreadably dated versions receive WARNs with the same named codes. An unreadably dated rig version is also refused by `RIG_VERSION_AT_INVALID`; the census for #164 found none among seven template and eighteen consumer rig versions, so this refusal has no date cutoff. The accepted manifest comes from the latest parts approval live at that version's build time; an unreadable build date uses the latest live approval and emits WARNs for any identity disagreement. The comparison reads declared hashes and the retained hash-bound verdict, including when the regenerable package is absent.
 
 | Code | Condition | Remedy |
 | --- | --- | --- |

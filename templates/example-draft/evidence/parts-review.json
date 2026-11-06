@@ -1,0 +1,83 @@
+{
+  "schema": "rig-review-parts-verdict/1",
+  "mode": "parts",
+  "tool": {
+    "name": "@rig-c/review",
+    "version": "0.0.0-synthetic"
+  },
+  "source": {
+    "sha256": "62907cf5bd9a48d2cc6f35c276155e5d7629a67dcb96e81bb14cbcbd94035b64",
+    "files": [
+      {
+        "path": "../derived/parts/rig/parts.json",
+        "bytes": 3979,
+        "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+      },
+      {
+        "path": "../derived/parts/rig/parts/background.png",
+        "bytes": 300,
+        "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+      },
+      {
+        "path": "../derived/parts/rig/parts/torso.png",
+        "bytes": 137,
+        "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+      },
+      {
+        "path": "../derived/parts/rig/parts/lantern.png",
+        "bytes": 87,
+        "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+      },
+      {
+        "path": "../derived/parts/rig/parts/face.png",
+        "bytes": 109,
+        "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+      },
+      {
+        "path": "../derived/parts/rig/parts/eye_r.png",
+        "bytes": 76,
+        "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+      },
+      {
+        "path": "../derived/parts/rig/parts/eye_l.png",
+        "bytes": 76,
+        "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+      }
+    ],
+    "flags": []
+  },
+  "status": "approved",
+  "parts": {
+    "background": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "torso": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "lantern": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "face": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "eye_r": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    },
+    "eye_l": {
+      "outcome": "clean",
+      "note": "",
+      "flags": []
+    }
+  },
+  "updatedAt": "2026-11-11T10:15:00.000Z"
+}

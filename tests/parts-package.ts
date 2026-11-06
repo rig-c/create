@@ -25,7 +25,7 @@ export const EXAMPLE_VERDICT = 'evidence/parts-review.json';
 
 export const PART_NAMES = ['background', 'torso', 'lantern'] as const;
 
-const sha = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
+const sha = (s: string | Uint8Array): string => createHash('sha256').update(s).digest('hex');
 
 export function partsJson(names: readonly string[] = PART_NAMES): string {
   const parts = names.map((name, i) => ({ name, x: 10 * i, y: 20 * i, w: 64, h: 64 }));
@@ -35,6 +35,8 @@ export function partsJson(names: readonly string[] = PART_NAMES): string {
 export const asciiPartImage = (name: string): string => `synthetic part image: ${name}\n`;
 
 export interface PackageOptions {
+  /** Producer-relative parts.json and parts/*.png bytes; omitted for frozen legacy fixtures. */
+  readonly input?: Record<string, string | Uint8Array>;
   /** The assembled parts' directory, relative to the project. */
   readonly partsDir?: string;
   /** The verdict file, relative to the project (default: `parts-review.json` beside parts.json). */
@@ -57,11 +59,15 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
   const partsDir = options.partsDir ?? EXAMPLE_PARTS_DIR;
   const verdictPath = options.verdict ?? posix.join(partsDir, 'parts-review.json');
   const verdictDir = posix.dirname(verdictPath);
-  const files: Record<string, string> = { [posix.join(partsDir, 'parts.json')]: partsJson() };
-  for (const name of PART_NAMES) files[posix.join(partsDir, 'parts', `${name}.png`)] = asciiPartImage(name);
+  // No input preserves the frozen legacy-example-project.json verdict and its ASCII source bindings.
+  const input = options.input ?? { 'parts.json': partsJson(), ...Object.fromEntries(PART_NAMES.map(name => [`parts/${name}.png`, asciiPartImage(name)])) };
+  const manifest = JSON.parse(Buffer.from(input['parts.json']!).toString('utf8')) as { parts: { name: string }[] };
+  const names = manifest.parts.map(part => part.name);
+  const paths = ['parts.json', ...names.map(name => `parts/${name}.png`)];
+  const files: Record<string, string | Uint8Array> = Object.fromEntries(paths.map(path => [posix.join(partsDir, path), input[path]!]));
   const source = Object.entries(files).map(([path, content]) => ({
     path: posix.relative(verdictDir, path),
-    bytes: Buffer.byteLength(content, 'utf8'),
+    bytes: Buffer.byteLength(content),
     sha256: sha(content),
   }));
   const status = options.status ?? 'approved';
@@ -72,7 +78,7 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
     tool: { name: '@rig-c/review', version: '0.0.0-synthetic' },
     source: { sha256: sourceSha256(source), files: source, flags: [] },
     status,
-    parts: Object.fromEntries(PART_NAMES.map((name) => [name, { outcome, note: outcome === 'flagged' ? 'a ragged rim' : '', flags: [] }])),
+    parts: Object.fromEntries(names.map((name) => [name, { outcome, note: outcome === 'flagged' ? 'a ragged rim' : '', flags: [] }])),
     updatedAt: '2026-11-11T10:15:00.000Z',
   };
   options.edit?.(verdict);

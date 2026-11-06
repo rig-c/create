@@ -28,8 +28,9 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const save = (): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
   const reload = (): void => { p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject; };
   const write = (path: string, bytes: string | Uint8Array): void => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); };
-  const files = exampleDraftFiles(generateExampleParts(join(dir, 'producer')));
-  for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files })) write(path, bytes);
+  const input = generateExampleParts(join(dir, 'producer'));
+  const files = { ...exampleDraftFiles(input), ...partsPackage({ verdict: EXAMPLE_VERDICT, input }).files };
+  for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...files })) write(path, bytes);
   for (const raw of arr(original.versions)) {
     const version = obj(raw);
     if (version.kind === 'rig') {

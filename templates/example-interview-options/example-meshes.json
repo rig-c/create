@@ -12,7 +12,7 @@
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/parts-review.json",
-        "sha256": "b5e29c7060c7d912baee40b2e920ed9f11e4db2adba8da710d3ee3cb156d78bf"
+        "sha256": "03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"
       }
     },
     "structure": {

@@ -20,10 +20,11 @@ export function newOrderExampleFiles(): Record<string, string | Uint8Array> {
   const collect = (root: string, prefix: string): void => {
     for (const entry of readdirSync(root,{withFileTypes:true})) {
       const path = join(root,entry.name); const dest = `${prefix}/${entry.name}`;
-      if (entry.isDirectory()) collect(path,dest); else files[dest] = readFileSync(path,'utf8');
+      if (entry.isDirectory()) collect(path,dest); else files[dest] = entry.name.endsWith('.png') ? readFileSync(path) : readFileSync(path,'utf8');
     }
   };
   collect(join(import.meta.dir,'../templates/example-draft/evidence'),'evidence');
+  collect(join(import.meta.dir,'../templates/example-draft/derived/parts'),'derived/parts');
   collect(join(import.meta.dir,'../templates/example-interview-options'),'evidence/interview');
   return files;
 }

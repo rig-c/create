@@ -31,8 +31,8 @@ export function partsJson(names: readonly string[] = PART_NAMES): string {
   const parts = names.map((name, i) => ({ name, x: 10 * i, y: 20 * i, w: 64, h: 64 }));
   return `${JSON.stringify({ rig_size: [512, 768], parts }, null, 2)}\n`;
 }
-/** Stand-in bytes for a part image; the reader hashes them and never decodes them. */
-export const partImage = (name: string): string => `synthetic part image: ${name}\n`;
+/** ASCII-only variant for raw-binding refusal tests; never used by the interview draft. */
+export const asciiPartImage = (name: string): string => `synthetic part image: ${name}\n`;
 
 export interface PackageOptions {
   /** The assembled parts' directory, relative to the project. */
@@ -58,7 +58,7 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
   const verdictPath = options.verdict ?? posix.join(partsDir, 'parts-review.json');
   const verdictDir = posix.dirname(verdictPath);
   const files: Record<string, string> = { [posix.join(partsDir, 'parts.json')]: partsJson() };
-  for (const name of PART_NAMES) files[posix.join(partsDir, 'parts', `${name}.png`)] = partImage(name);
+  for (const name of PART_NAMES) files[posix.join(partsDir, 'parts', `${name}.png`)] = asciiPartImage(name);
   const source = Object.entries(files).map(([path, content]) => ({
     path: posix.relative(verdictDir, path),
     bytes: Buffer.byteLength(content, 'utf8'),

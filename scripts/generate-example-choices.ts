@@ -16,7 +16,7 @@ export function generateExampleChoices(dir:string): Record<string,string> {
   const generated=generateExampleOrder(dir);const p=generated.project;
   const entry:JsonObject={schema:'rig-create/interview-choice-fixture@1',project:'example-project.json',examples:collectItems(p,{collection:null}).map(i=>({question:i.id,answer:i.raw,options:obj(obj(i.raw).choice).set as Json})),scenarios:[]};
   const files:Record<string,string>={};
-  for(const[path,bytes]of Object.entries(generated.files))if(path.startsWith('evidence/interview/'))files[`example-interview-options/${path.slice('evidence/interview/'.length)}`]=bytes;
+  for(const[path,bytes]of Object.entries(generated.files))if(path.startsWith('evidence/interview/') && typeof bytes === 'string')files[`example-interview-options/${path.slice('evidence/interview/'.length)}`]=bytes;
   const load=():JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
   const item=(project:JsonObject,q:string)=>collectItems(project,{collection:null}).find(i=>i.id===q)!;
   const save=(project:JsonObject):void=>writeFileSync(join(dir,'project.json'),JSON.stringify(project,null,2)+'\n');

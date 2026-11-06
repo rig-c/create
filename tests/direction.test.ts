@@ -121,7 +121,7 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
     for(const v of objects(p.versions))if(v.kind==='post')v.verdicts=objects(v.verdicts).filter(d=>d.verdict!=='accepted');
     const camera=objects(((p.interview as JsonObject).post as JsonObject).items).find(i=>i.id==='camera_depth')!;
     camera.history=[...objects(camera.history),camera.guide as JsonObject];
-    camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:'2026-11-13T10:03:00Z'};
+    camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:(camera.guide as JsonObject).at!};
   },'example-project.json');
   setSystemTime(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;

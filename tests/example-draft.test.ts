@@ -1,13 +1,23 @@
 import { expect, test } from 'bun:test';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { exampleTime, retimeExample } from '../scripts/example-time.ts';
 import { generateExampleOrder } from '../scripts/generate-example-order.ts';
 import { checkProject } from '../src/check.ts';
 import { EXAMPLE_DRAFT } from './draft-fixture.ts';
 import { fixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { readTemplate } from '../src/templates.ts';
 
-// Approval records from the pre-producer fixture, with only the dependent hash masked.
+test('retiming preserves event order and simultaneous instants from the frozen narrative', () => {
+  const timestamps = [...JSON.stringify(readTemplate('legacy-example-project.json')).matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g)].map(match => match[0]);
+  const instants = [...new Set(timestamps.map(value => Date.parse(value)))].sort((a, b) => a - b);
+  const shifted = instants.map(value => Date.parse(exampleTime(new Date(value).toISOString())));
+  for (let index = 1; index < shifted.length; index++) expect(shifted[index]!).toBeGreaterThan(shifted[index - 1]!);
+  for (const value of timestamps) expect(exampleTime(value)).toBe(exampleTime(new Date(value).toISOString()));
+});
+
+// Approval records from the pre-producer fixture. Only event dates and bound hashes may move.
 const originalSignoffs = [
   {
     "stage": "interview",
@@ -180,6 +190,11 @@ test('the installed producer reproduces every bound draft output from the retain
     'rig', '--config', `${EXAMPLE_DRAFT}/config.json`, '--parts', `${EXAMPLE_DRAFT}/input`, '--out', out],
   { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0);
+  const compiled = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'),
+    'build', '--rig', join(out, 'rig.json'), '--motion', join(out, 'motion.json'), '--out', join(out, 'check/build'),
+    '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
+  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  expect(compiled.exitCode).toBe(0);
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   const outputs: string[] = [];
   const compare = (path: string): void => {
@@ -198,21 +213,14 @@ test('the installed producer reproduces every bound draft output from the retain
   expect(checkProject(dir).warnings).toEqual([]);
 }, 30_000);
 
-test('generation preserves every approval field except the dependent structure hash', () => {
+test('generation preserves every approval field except event dates and bound hashes', () => {
   const generated = generateExampleOrder(join(tempDir(), 'generated'));
-  const signoffs = structuredClone(generated.project.signoffs) as unknown as typeof originalSignoffs;
-  for (const signoff of signoffs) {
-    if (signoff.structure) signoff.structure.sha256 = 'regenerated structure binding';
-  }
-  expect(signoffs).toHaveLength(originalSignoffs.length);
-  for (let index = 0; index < signoffs.length; index++) {
-    const actual = signoffs[index]!;
-    const expected = originalSignoffs[index]!;
-    expect(Object.keys(actual)).toEqual(Object.keys(expected));
-    for (const field of Object.keys(expected)) {
-      expect(actual[field as keyof typeof actual]).toEqual(expected[field as keyof typeof expected]);
-    }
-  }
+  const maskHashes = (value: unknown): unknown => JSON.parse(JSON.stringify(value, (key, item: unknown) => {
+    if (key === 'sha256') return 'regenerated binding';
+    if (key === 'step_hashes') return Object.fromEntries(Object.keys(item as object).map(id => [id, 'regenerated step binding']));
+    return item;
+  }));
+  expect(maskHashes(generated.project.signoffs)).toEqual(maskHashes(retimeExample(originalSignoffs)));
 }, 30_000);
 
 test('one byte changed in any retained draft output is refused by code and path', () => {

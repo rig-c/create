@@ -1,3 +1,4 @@
+import { exampleTime, retimeExample } from './example-time.ts';
 import { generateExampleDraft } from './generate-example-draft.ts';
 import { generateExampleParts } from './generate-example-parts.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
@@ -11,6 +12,7 @@ import { checkProject } from '../src/check.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
+import { stepHash } from '../src/step-hash.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { exampleDraftFiles, EXAMPLE_DRAFT } from '../tests/draft-fixture.ts';
@@ -24,13 +26,20 @@ const arr = (v: Json | undefined): Json[] => v as Json[];
 export function generateExampleOrder(dir: string): { project: JsonObject; files: Record<string, string | Uint8Array> } {
   if (existsSync(dir)) throw new Error('example order needs a fresh scratch directory');
   mkdirSync(dir, { recursive: true });
-  const original = readTemplate('legacy-example-project.json');
+  const original = retimeExample(readTemplate('legacy-example-project.json'));
+  for (const signoff of arr(original.signoffs).map(obj)) {
+    if (!signoff.step_hashes) continue;
+    for (const id of Object.keys(obj(signoff.step_hashes))) {
+      const step = arr(obj(original.plan).steps).map(obj).find(step => step.id === id)!;
+      obj(signoff.step_hashes)[id] = stepHash(step);
+    }
+  }
   let p = structuredClone(original);
   const save = (): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
   const reload = (): void => { p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject; };
   const write = (path: string, bytes: string | Uint8Array): void => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); };
   const input = generateExampleParts(join(dir, 'producer'));
-  const files = { ...exampleDraftFiles(input, generateExampleDraft(join(dir, 'draft-producer'), input)), ...partsPackage({ verdict: EXAMPLE_VERDICT, input }).files };
+  const files = { ...exampleDraftFiles(input, generateExampleDraft(join(dir, 'draft-producer'), input)), ...partsPackage({ verdict: EXAMPLE_VERDICT, input, edit: verdict => { verdict.updatedAt = exampleTime('2026-11-11T10:15:00Z'); } }).files };
   for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...files })) write(path, bytes);
   for (const raw of arr(original.versions)) {
     const version = obj(raw);
@@ -49,14 +58,14 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   }
   const words = join(dir, 'words.txt');
   const sign = (stage: string, at: string, flags: string[] = []): void => {
-    setSystemTime(new Date(at)); writeFileSync(words, `Approve the synthetic ${stage} record.\n`);
+    setSystemTime(new Date(exampleTime(at))); writeFileSync(words, `Approve the synthetic ${stage} record.\n`);
     signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words, ...flags]); reload();
   };
   try {
     p.stage = 'plan-approved'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
-    save(); setSystemTime(new Date('2026-11-05T00:00:00Z')); correctionCommand(['--adopt', dir]); reload();
+    save(); setSystemTime(new Date(exampleTime('2026-11-05T00:00:00Z'))); correctionCommand(['--adopt', dir]); reload();
     const interview = obj(p.interview);
-    interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: '2026-11-10T14:00:00Z', choices_adopted_at: '2026-11-10T14:00:00Z' };
+    interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: exampleTime('2026-11-10T14:00:00Z'), choices_adopted_at: exampleTime('2026-11-10T14:00:00Z') };
     const source = readFileSync(join(dir,'inputs/preparation-source.svg'));
     p.inputs = [{path:'inputs/preparation-source.svg',sha256:sha256(source),bytes:source.length,origin:'synthetic source painting'}];
     interview.question_set = String(obj(readTemplate('project.json').interview).question_set);
@@ -68,7 +77,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     p.stage = 'parts';
     for (const s of arr(obj(p.plan).steps).map(obj)) if (['seethrough', 'assemble'].includes(String(s.id))) s.status = 'done';
     arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'parts'));
-    save(); setSystemTime(new Date('2026-11-11T10:00:00Z'));
+    save(); setSystemTime(new Date(exampleTime('2026-11-11T10:00:00Z')));
     draftRigCommand(['example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`]); reload();
     const draft = obj(arr(p.drafts)[0]);
     files['evidence/structure-decisions.json'] = `${JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'example', config: draft.config, entries: [] }, null, 2)}\n`;
@@ -77,13 +86,13 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     sign('parts-review', '2026-11-11T10:20:00Z', ['--evidence', EXAMPLE_VERDICT, '--diff-report', EXAMPLE_DIFF_REPORT,
       '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
       '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);
-    p.stage = 'rigging-interview'; obj(p.plan).rigging_drafted_at = '2026-11-11T11:05:00Z';
+    p.stage = 'rigging-interview'; obj(p.plan).rigging_drafted_at = exampleTime('2026-11-11T11:05:00Z');
     for (const w of arr(obj(p.interview).waypoints).map(obj)) {
       if (!['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) continue;
       const old = arr(obj(original.interview).waypoints).map(obj).find(x => x.id === w.id);
       const guide = structuredClone(obj(old?.guide));
       w.history = [...arr(w.history ?? []), structuredClone(guide)];
-      guide.at = '2026-11-11T11:00:00Z'; guide.verbatim = `Synthetic ${String(w.id)} answer after viewing the approved parts and structure.`; w.guide = guide;
+      guide.at = exampleTime('2026-11-11T11:00:00Z'); guide.verbatim = `Synthetic ${String(w.id)} answer after viewing the approved parts and structure.`; w.guide = guide;
     }
     save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview')); reload(); sign('rigging-interview', '2026-11-11T11:10:00Z');
     sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
@@ -127,6 +136,7 @@ if (import.meta.main) {
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
   for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'versions']) text = replaceValue(text, key, generated.project[key] as Json);
+  text = text.replace(/("proposed_at":\s*)"([^"]+)"/, (_match, prefix: string, at: string) => `${prefix}${JSON.stringify(exampleTime(at))}`);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
   const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };
   for (const [path, bytes] of Object.entries(generated.files)) {

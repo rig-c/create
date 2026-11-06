@@ -1,3 +1,4 @@
+import { exampleTime } from './example-time.ts';
 /** Synthetic authoring inputs; public writers alone construct the selected answer records. */
 import { setSystemTime } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ export function writeExampleChoices(dir: string, stage: string): Record<string,s
     const original = isObject(item.raw) ? item.raw : {};
     const value = original.delegated === true && isObject(original.agent_decision) ? original.agent_decision.value : original.value;
     // Rigging guides above were drafted at 11:00, so show the tailored option only after those words existed.
-    const drafted = `${day}01:00Z`;
+    const drafted = exampleTime(`${day}01:00Z`);
     const seed: JsonObject = {asks:[]};
     let names = applicableAsks(project,item,seed);
     // Source assembly offers core and visible, so explicitly include and constrain ground.
@@ -37,12 +38,12 @@ export function writeExampleChoices(dir: string, stage: string): Record<string,s
     if(item.id==='assemble') set.constraints=[{asks:['projection','ground'],allowed:[['keep','keep'],['alternative','keep'],['alternative','alternative']]}];
     const path = `evidence/interview/${String(set.id)}.json`;
     const bytes = `${JSON.stringify(set,null,2)}\n`; writeFileSync(join(dir,path),bytes);files[path]=bytes;
-    setSystemTime(new Date(`${day}02:00Z`));
+    setSystemTime(new Date(exampleTime(`${day}02:00Z`)));
     interviewOptionsCommand([item.id,dir,'--file',path]);
     const binding = JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
     const registered = collectItems(binding,{collection:null}).find(i=>i.id===item.id)?.record.pending_options as JsonObject;
     const flags = names.flatMap(name=>['--pick',`${name}=${item.id==='seethrough'&&name==='seed'?'auto':'keep'}`]);
-    setSystemTime(new Date(`${day}03:00Z`));
+    setSystemTime(new Date(exampleTime(`${day}03:00Z`)));
     if(item.id==='reference') {
       const picksPath = 'evidence/interview/example-picks.json';
       const payload = `${JSON.stringify({schema:'rig-review/interview-picks@1',set:registered,picks:[{ask:item.id,option_id:'keep'}],by:'user',at:new Date().toISOString()},null,2)}\n`;
@@ -52,7 +53,7 @@ export function writeExampleChoices(dir: string, stage: string): Record<string,s
     if(item.id==='seethrough') {
       const fragment = join(dir,'seed-fragment.json'); const reasoning = join(dir,'reasoning.txt');
       writeFileSync(fragment,JSON.stringify(fragments.get('seed')));writeFileSync(reasoning,'Retain the declared synthetic seed direction.');
-      setSystemTime(new Date(`${day}04:00Z`));
+      setSystemTime(new Date(exampleTime(`${day}04:00Z`)));
       interviewDecisionCommand([item.id,dir,'--by','agent','--fragment',`seed=${fragment}`,'--reasoning-file',reasoning]);
     }
   }

@@ -25,6 +25,12 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
     'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
   { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0) throw new Error(`rig exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
+  // This is check's installed compiler step, retaining its model without running diagnostic renders.
+  const compiled = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'),
+    'build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'out/check/build',
+    '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
+  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  if (compiled.exitCode !== 0) throw new Error(`rigc build exit ${compiled.exitCode}\n${compiled.stdout}\n${compiled.stderr}`);
   const files: Record<string, Buffer> = { 'config.json': readFileSync(join(dir, 'config.json')) };
   const collect = (path: string): void => {
     for (const entry of readdirSync(join(dir, path), { withFileTypes: true })) {

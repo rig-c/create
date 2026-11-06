@@ -105,7 +105,8 @@ function command(args:string[]): {stdout:string;exit:number} {
     openStage(next,stage);
     const direction=Boolean(opts['--direction-patch-file']);
     if(direction && path!=='made')usage('direction-patch-file is made-only');
-    const version = opts['--version'] ? versionRecord(next, Number(opts['--version'].replace(/^v/, ''))) : null;
+    const version = path === 'described' && stage === 'direction-review' && opts['--version'] && !opts['--draft'] && !opts['--parts-file']
+      ? versionRecord(next, Number(opts['--version'].replace(/^v/, ''))) : null;
     const describedDirection = path === 'described' && stage === 'direction-review' && version?.kind === 'post' && isObject(version.provenance) && isObject(version.provenance.direction);
     let on: JsonObject;
     if (describedDirection) {
@@ -164,7 +165,13 @@ function command(args:string[]): {stdout:string;exit:number} {
       if (!opts['--version'] || opts['--draft'] || opts['--parts-file']) usage('direction description closure requires only --version and optional --model-file');
       record.outcome = directionPostIdentity(dir, next, Number(opts['--version'].replace(/^v/, '')));
       if (opts['--model-file'] && opts['--model-file'] !== (record.outcome.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
-    } else record.outcome=identity(dir,next,opts,String(record.stage),direction);
+    } else {
+      record.outcome=identity(dir,next,opts,String(record.stage),direction);
+      if (artifact.kind === 'description' && record.outcome.kind === 'post') {
+        const version = versionRecord(next, record.outcome.n);
+        if (isObject(version.provenance) && isObject(version.provenance.direction) && (record.outcome.model as JsonObject).path === version.provenance.direction.path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must not name the authored direction document; capture a new correction@2 description');
+      }
+    }
     if(direction){
       if(opts['--applied-feedback']||opts['--feedback-id'])usage('direction closure does not ingest review applied reports');
       artifact.result=(record.outcome as JsonObject).direction as JsonObject;artifact.state='applied-and-checked';validateDirectionOutcome(dir,next,record,artifact);

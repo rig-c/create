@@ -949,8 +949,11 @@ bytes. Existing handoff, correction and provenance codes keep their meaning.
 `direction-patch` artifact. Its post identities add `direction:{path,sha256}`
 to `{kind:"post",n,config,model}`, binding the source rig's compiled model.
 A described artifact remains `{kind:"description"}` with unchanged human words.
-Its outcome is a later post with changed direction bytes, checked with the
-same exact direction identity validator as its source. An optional
+Its outcome is a later post with a different bound direction document hash,
+checked with the same exact direction identity validator as its source.
+This includes a later accepted rig because direction@1 embeds `rig.model`.
+The agent's closure reasoning carries the semantic claim that the request
+was met. An optional
 `--model-file` must name the bound compiled model, never the direction JSON.
 
 The made artifact remains

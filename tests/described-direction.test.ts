@@ -127,3 +127,56 @@ for (const at of ['2026-11-05T23:59:59Z', '2026-11-06T00:00:00Z']) {
     } else expect(ctx.refusals.map(f => f.code)).toEqual(['DESCRIBED_DIRECTION_REQUIRED']);
   });
 }
+
+test('made direction-patch preserves nonexistent-version and conflicting-selector refusals', () => {
+  const f = setup();
+  const args = ['record', f.dir, '--id', 'missing-post', '--path', 'made', '--stage', 'direction-review',
+    '--version', '999', '--direction-patch-file', 'evidence/patch.json', '--by', 'user',
+    '--verbatim-file', join(f.dir, 'words.txt')];
+  refusal(f.dir, 'DIRECTION_VERSION', () => correctionCommand(args));
+  const before = readFileSync(join(f.dir, 'project.json'));
+  expect(() => correctionCommand([...args, '--draft', 'missing-draft'])).toThrow(
+    expect.objectContaining({ code: 'CORRECTION_USAGE', exitCode: 2 }));
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+});
+
+test('legacy @1 description cannot resolve using an authored direction document as model', () => {
+  const f = setup('2026-11-05T23:59:59Z');
+  capture(f.dir, 3);
+  const p = f.load();
+  const record = (p.corrections as JsonObject[]).at(-1)!;
+  // Plant the historical schema only after the public writer binds the source.
+  record.schema = 'rig-create/correction@1';
+  const on = record.on as JsonObject;
+  on.model = on.direction!;
+  delete on.direction;
+  writeFileSync(join(f.dir, 'project.json'), JSON.stringify(p));
+  expect(findings(f.dir, p).refusals).toEqual([]);
+  setSystemTime(new Date('2026-11-06T10:10:00Z'));
+  directionCommand(['write', '4', f.dir, '--file', 'evidence/input.json', '--rig', '1']);
+  setSystemTime(new Date('2026-11-06T10:20:00Z'));
+  refusal(f.dir, 'CORRECTION_SOURCE', () => correctionCommand(['resolve', 'described-frame', f.dir,
+    '--version', '4', '--model-file', 'evidence/direction/v4.json', '--by', 'agent',
+    '--reasoning-file', join(f.dir, 'reasoning.txt')]));
+});
+
+for (const [kind, code] of [
+  ['post-without-direction', 'DIRECTION_DOCUMENT_REQUIRED'],
+  ['rig', 'CORRECTION_MALFORMED'],
+  ['other-stage', 'CORRECTION_MALFORMED'],
+] as const) {
+  test(`@2 described refuses ${kind} with ${code}`, () => {
+    const f = setup();
+    capture(f.dir, 3);
+    const p = f.load();
+    const record = (p.corrections as JsonObject[]).at(-1)!;
+    if (kind === 'post-without-direction') {
+      const version = (p.versions as JsonObject[]).find(v => v.n === 3)!;
+      delete (version.provenance as JsonObject).direction;
+    } else if (kind === 'rig') {
+      (record.on as JsonObject).kind = 'rig';
+      (record.on as JsonObject).n = 1;
+    } else record.stage = 'rig-review';
+    expect(findings(f.dir, p).refusals.map(f => f.code)).toContain(code);
+  });
+}

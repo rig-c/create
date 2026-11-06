@@ -1123,7 +1123,7 @@ An @1 post binds config to `provenance.config`, and model to one declared retain
 output explicitly selected by `--model-file`; it is output identity only,
 without a parts, rig or CG claim. `config-patch/1` is rig/draft-only: a direct
 post edit is unsupported. A described post closure requires changed output bytes
-under @1, or changed authored direction bytes under @2.
+under @1, or a different bound direction document hash under @2.
 Parts identities retain a complete sorted parts.json + parts/ file inventory.
 Draft identities match the labelled draft inventory, including a retained
 compiled model when that reviewed identity is selected. Missing regenerable
@@ -1345,9 +1345,14 @@ A described request at direction-review on a post with authored direction
 also binds this exact identity, using `artifact:{kind:"description"}`. Record it
 with `--version`; an optional `--model-file` must name the source rig's compiled
 model. Selecting the direction JSON as model refuses before writing. Resolve
-it to a later authored post with changed direction bytes through `correction
-resolve --version`; no patch or `direction_origin` is required for a described
-request. Both source and outcome use `validateDirectionIdentity`.
+it to a later authored post with a different bound direction document hash
+through `correction resolve --version`. This includes a later accepted rig
+because direction@1 embeds `rig.model`. The agent's closure reasoning carries
+the semantic claim that the request was met. No patch or `direction_origin`
+is required for a described request. Both source and outcome use
+`validateDirectionIdentity`. An existing @1 description cannot resolve with
+the direction document named as model. Capture a new @2 described record to
+close that legacy request.
 
 `DESCRIBED_DIRECTION_SINCE = 2026-11-06T00:00:00Z` dates existing @1 authored
 direction descriptions by their original `at`. Earlier records receive

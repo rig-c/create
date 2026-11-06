@@ -2,22 +2,25 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 1,
   "name": "1-parts-verdict",
-  "chain_step": 22,
+  "chain_step": 30,
   "pending": {
     "act": "Export the synthetic review-tool parts verdict, then approve the parts",
     "commands": [
       "partsPackage tests/parts-package.ts",
       "rig-parts diff-components --stack assembled/render/recomposite_rig.png --painting painting.png --parts assembled/rig/parts.json --floor 2 --threshold 40 --out diff-components.json",
+      "seed project.stage \"parts-review\"",
       "rig-create signoff parts-review --by user --verbatim-file evidence/approval.txt --draft chain --structure-file evidence/structure.json --evidence evidence/parts-review.json --diff-report evidence/diff-components.json"
     ],
     "command_roles": [
       "producer",
       "producer",
+      "seed",
       "human"
     ],
     "awaits": [
       "evidence/parts-review.json",
-      "signoffs[stage=parts-review]"
+      "signoffs[stage=parts-review]",
+      "project.stage"
     ]
   },
   "expected_findings": {

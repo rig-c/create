@@ -2,24 +2,30 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 4,
   "name": "4-direction-post",
-  "chain_step": 64,
+  "chain_step": 80,
   "pending": {
     "act": "Author the direction post and approve its review",
     "commands": [
+      "agent draft evidence/direction-input.json",
       "rig-create direction write 2 --file evidence/direction-input.json --rig 1",
       "rig-create direction check 2 --json",
+      "seed project.stage \"direction-review\"",
       "rig-create review 2 --verdict accepted --by user --review direction-review --verbatim-file evidence/approval.txt --source synthetic example",
       "rig-create signoff direction-review --by user --verbatim-file evidence/approval.txt --version 2"
     ],
     "command_roles": [
+      "agent",
       "human",
-      "validation",
+      "agent",
+      "seed",
       "human",
       "human"
     ],
     "awaits": [
+      "evidence/direction-input.json",
       "versions[n=2]",
-      "signoffs[stage=direction-review]"
+      "signoffs[stage=direction-review]",
+      "project.stage"
     ]
   },
   "expected_findings": {
@@ -231,10 +237,6 @@
     {
       "path": "evidence/diff-components.json",
       "sha256": "6727d1165b72f75c2e18d7734854be6939f6339849f42378588ee90bf3a8f39d"
-    },
-    {
-      "path": "evidence/direction-input.json",
-      "sha256": "34e154d98d84194452ef2a00ccfbc5a9439e94f6ba4b94c01eecccd11c46f27e"
     },
     {
       "path": "evidence/interview/assemble.json",

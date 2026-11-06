@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 3,
   "name": "3-rig-review",
-  "chain_step": 46,
+  "chain_step": 59,
   "pending": {
     "act": "Review and approve the rig",
     "commands": [

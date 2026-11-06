@@ -415,7 +415,7 @@
       "closure": {
         "by": "agent",
         "at": "2026-11-04T10:00:00.000Z",
-        "reasoning": "Agent declaration of the recorded response.\n\n1 PASS bar(s) measured; not measured: none; producer: check: synthetic shape-only"
+        "reasoning": "Agent declaration of the recorded response.\n\n1 PASS bar(s) in the summary map; not measured: none; producer: check: synthetic shape-only"
       }
     }
   ]

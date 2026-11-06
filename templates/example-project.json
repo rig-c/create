@@ -2609,6 +2609,22 @@
       },
       "files": [
         {
+          "path": "derived/drafts/example/out/check/build/skeleton.atlas",
+          "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+        },
+        {
+          "path": "derived/drafts/example/out/check/build/skeleton.json",
+          "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+        },
+        {
+          "path": "derived/drafts/example/out/check/build/skeleton.model.json",
+          "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+        },
+        {
+          "path": "derived/drafts/example/out/check/build/skeleton.png",
+          "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+        },
+        {
           "path": "derived/drafts/example/out/images/background.png",
           "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
         },

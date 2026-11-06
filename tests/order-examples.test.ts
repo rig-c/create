@@ -3,7 +3,24 @@ import { createHash } from 'node:crypto';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
+import { validateCorrectionIdentity } from '../src/corrections.ts';
+import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { fixture } from './fixtures.ts';
+
+test('the signed example draft resolves as a parts-review correction identity', () => {
+  const dir = fixture(() => {}, 'example-project.json');
+  const project = readTemplate('example-project.json');
+  const draft = (project.drafts as JsonObject[])[0]!;
+  const parts = draft.parts as JsonObject;
+  const files = [...parts.files as JsonObject[]].sort((a, b) => String(a.path) < String(b.path) ? -1 : 1);
+  const identity = {
+    kind: 'draft', id: draft.id!, config: draft.config!,
+    parts: { manifest: files.find(file => file.path === `${String(parts.path)}/parts.json`)!, files },
+    model: (draft.files as JsonObject[]).find(file => String(file.path).endsWith('/skeleton.model.json'))!,
+  };
+  expect(identity.model).toBeDefined();
+  expect(validateCorrectionIdentity(dir, project, identity, 'parts-review')).toEqual(identity);
+});
 
 test('the shipped new-order example passes at zero refusals and warnings', () => {
   const report = checkProject(fixture(() => {}, 'example-project.json'));

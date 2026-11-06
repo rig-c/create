@@ -180,6 +180,11 @@ test('the installed producer reproduces every bound draft output from the retain
     'rig', '--config', `${EXAMPLE_DRAFT}/config.json`, '--parts', `${EXAMPLE_DRAFT}/input`, '--out', out],
   { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0);
+  const compiled = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'),
+    'build', '--rig', join(out, 'rig.json'), '--motion', join(out, 'motion.json'), '--out', join(out, 'check/build'),
+    '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
+  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  expect(compiled.exitCode).toBe(0);
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   const outputs: string[] = [];
   const compare = (path: string): void => {

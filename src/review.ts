@@ -58,6 +58,7 @@ export interface Still {
 
 export interface RigVersion {
   readonly preInterview: boolean;
+  readonly configLost?: { readonly note: string; readonly source: string };
   readonly outputsLost?: { readonly note: string; readonly source: string };
   readonly live: boolean;
   readonly n: number;
@@ -162,7 +163,9 @@ export function readVersions(project: JsonObject): Versions {
     });
     const outputsLost = v.pre_interview === true && isObject(v.outputs_lost)
       ? { note: asString(v.outputs_lost.note) ?? '', source: asString(v.outputs_lost.source) ?? '' } : undefined;
-    rigs.push({ outputsLost, n: v.n, path, live: liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(v.at) ?? '')), preInterview: v.pre_interview === true, accepted, stills, malformedStills });
+    const configLost = v.pre_interview === true && isObject(v.config_lost)
+      ? { note: asString(v.config_lost.note) ?? '', source: asString(v.config_lost.source) ?? '' } : undefined;
+    rigs.push({ configLost, outputsLost, n: v.n, path, live: liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(v.at) ?? '')), preInterview: v.pre_interview === true, accepted, stills, malformedStills });
   });
   return { rigs, posts, malformed };
 }
@@ -184,6 +187,7 @@ function postBasisProblem(post: PostVersion, versions: Versions): string | null 
   }
   const rig = versions.rigs.find((r) => r.n === rv);
   if (rig === undefined) return `${post.path}.rig_version=v${rv} names no rig version`;
+  if (rig.configLost !== undefined) return `${post.path}.rig_version=v${rv}: ${rig.path}.config_lost records a lost config; build and accept a new rig with its retained config before post work`;
   if (rig.outputsLost !== undefined) return `${post.path}.rig_version=v${rv}: ${rig.path}.outputs_lost records lost outputs; build and accept a new rig with surviving frozen outputs before post work`;
   if (rig.accepted === null) {
     return `${post.path}.rig_version=v${rv}: rig v${rv} has no accepted rig-review verdict; post work runs only on a rig version the user accepted at rig-review`;
@@ -314,6 +318,9 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
       'RIG_VERSION_UNACCEPTED',
       `${latest.path}: rig v${latest.n} was built after rig v${accepted.n} was accepted and has no rig-review acceptance of its own; review it on its still frame before post work runs`,
     );
+  }
+  if (accepted.configLost !== undefined) {
+    refuse('PRE_INTERVIEW_CONFIG_LOST', `${accepted.path}.config_lost: ${accepted.configLost.note}; source: ${accepted.configLost.source}; build and accept a new rig with its retained config before post work`);
   }
   if (accepted.outputsLost !== undefined) {
     refuse('PRE_INTERVIEW_OUTPUTS_LOST', `${accepted.path}.outputs_lost: ${accepted.outputsLost.note}; source: ${accepted.outputsLost.source}; build and accept a new rig with surviving frozen outputs before post work`);

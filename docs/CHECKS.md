@@ -380,6 +380,7 @@ Exit `1`. Each names its object in `path`.
 | `PRE_INTERVIEW_ORDER` | pre-interview versions follow a create-built version, or migrated history has nonpositive, repeated or out-of-order version numbers | put historical versions first, with strictly increasing `n` and consistent references |
 | `PRE_INTERVIEW_ORIGINAL_N_MISSING` | a pre-interview version omits its source id or it is not a number, string or null | copy its original id unchanged into `original_n` |
 | `PRE_INTERVIEW_ORIGINAL_N_DUPLICATE` | two migrated versions have the same non-null `original_n` | restore their distinct source ids; repeated nulls are allowed |
+| `PRE_INTERVIEW_CONFIG_LOST_MALFORMED` | `config_lost` lacks nonempty note and source strings, accompanies a non-null `provenance.config`, or is on a create-built version | record `{ note, source }` only on a pre-interview version whose config was lost, or restore its surviving config |
 | `PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED` | `outputs_lost` lacks nonempty note and source strings, or is beside anything other than `outputs: []` | record the loss and source beside empty outputs, or restore the surviving output list |
 | `PRE_INTERVIEW_HISTORY_MISSING` | a pre-interview version has no `original_verdicts` array | preserve its complete original verdict array |
 | `PRE_INTERVIEW_VERDICT_LOST` | an original verdict has no unchanged `as_recorded` at the matching index, or an extra `as_recorded` has no original | restore the complete original history and its order |
@@ -425,6 +426,7 @@ Exit `0` prints the rig version post work is on (with `--json`: `rig_version`,
 | `RIG_REVIEW_UNSIGNED` | no human `{ "stage": "rig-review", "checkpoint": null }` sign-off |
 | `RIG_VERSION_UNACCEPTED` | no rig version has an accepted rig-review verdict, or a newer rig version than the accepted one has none |
 | `RIG_ACCEPTED_WITHOUT_STILL` | the accepted rig version has no still-frame record |
+| `PRE_INTERVIEW_CONFIG_LOST` | handoff would select an accepted pre-interview rig with a declared lost config. Build and accept a new rig with its retained config before post work |
 | `PRE_INTERVIEW_OUTPUTS_LOST` | handoff would select an accepted pre-interview rig with lost outputs. Build and accept a new rig with surviving frozen outputs before post work |
 | `POST_ON_UNACCEPTED_RIG` | `--rig <n>` names no rig version, or one never accepted |
 | `POST_ON_SUPERSEDED_RIG` | `--rig <n>` names a rig version accepted before the current one |
@@ -476,6 +478,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
 | `DIFF_MAP_PREDATES` | a gated parts-review sign-off predates `DIFF_MAP_SINCE` and has no diff_map | preserve the record and include the map when parts are reviewed again |
 | `PARTS_REVIEW_PREDATES_STAGE` | the project passed `plan-approved` (its first sign-off dated before 2026-11-04) before `parts` and `parts-review` existed, is past `parts-review`, and has no `parts-review` sign-off; the message names the project | nothing is assumed: no sign-off is written for it. A person may still review the parts and sign `parts-review`, which clears it ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
+| `CG_GATES_CONFIG_LOST` | a CG rig has a valid pre-interview `config_lost` declaration and no config; may accompany `CG_GATES_PREDATE` | preserve its loss note and source; build and accept a new rig with its retained config before post work |
 | `CG_GATES_PREDATE` | a CG project's `rig` version was built with `@rig-c/parts` older than 2.4.0, before the CG gates existed (§ CG gates) | nothing for that version; the next CG version declares the gates |
 
 ## Collections

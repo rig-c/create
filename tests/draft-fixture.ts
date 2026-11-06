@@ -19,6 +19,7 @@ export function exampleDraftFiles(input?: Record<string, Uint8Array>, output?: R
     for (const [path, content] of Object.entries(output)) files[`${EXAMPLE_DRAFT}/${path}`] = content;
   } else {
     files[`${EXAMPLE_DRAFT}/config.json`] = readFileSync(join(root, '../config.json'));
+    files[`${EXAMPLE_DRAFT}/interview-requirements.json`] = readFileSync(join(root, '../interview-requirements.json'));
     collect('out');
   }
   return files;
@@ -34,7 +35,8 @@ export function newOrderExampleFiles(): Record<string, string | Uint8Array> {
     }
   };
   collect(join(import.meta.dir,'../templates/example-draft/evidence'),'evidence');
-  collect(join(import.meta.dir,'../templates/example-draft/derived/parts'),'derived/parts');
+  collect(join(import.meta.dir,'../templates/example-draft/derived'),'derived');
+  collect(join(import.meta.dir,'../templates/example-draft/outputs'),'outputs');
   collect(join(import.meta.dir,'../templates/example-interview-options'),'evidence/interview');
   return files;
 }

@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type { Json } from './templates.ts';
 import { asArray, isObject, type Ctx } from './check.ts';
+import { reviewHandoffInputs } from './review-package.ts';
 
 export const APPLIED_REVIEW_SINCE = '2026-11-06T00:00:00Z';
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -71,7 +72,7 @@ export function checkAppliedReview(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'
     const files = isObject(pkg) ? asArray(pkg.files) : [];
     const fileHash = (name: string): Json | undefined => files.find((f) => isObject(f) && f.path === name);
     const model = fileHash('out/check/build/skeleton.model.json');
-    const inputs = files.filter((f) => isObject(f) && !String(f.path).startsWith('out/check/'));
+    const inputs = isObject(pkg) ? reviewHandoffInputs(pkg) : [];
     const handoffFiles = isObject(handoff) ? asArray(handoff.files) : [];
     const boundInputs = inputs.every((input) => isObject(input) && handoffFiles.some((f) => isObject(f)
       && typeof f.path === 'string' && posix.normalize(`out/check/${f.path}`) === input.path && f.sha256 === input.sha256));

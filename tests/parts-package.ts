@@ -7,13 +7,14 @@
  * is recomputed the way review computes it. Nothing here is a real painting.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix } from 'node:path';
 
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { exampleDiffFiles } from './diff-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
-import { reviewExampleFiles } from './review-fixture.ts';
+import { alignLegacyBuilds, reviewExampleFiles } from './review-fixture.ts';
+import type { JsonObject } from '../src/templates.ts';
 
 /**
  * Where the filled example keeps its assembled parts (derived/, not in git) and
@@ -89,7 +90,13 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
 
 /** Writes a package's files under a project folder (default: the filled example's approved package). */
 export function writePartsPackage(dir: string, pkg: PartsPackage = partsPackage({ verdict: EXAMPLE_VERDICT })): void {
-  for (const [path, content] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...pkg.files })) {
+  const files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...pkg.files };
+  if (existsSync(join(dir, 'project.json'))) {
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    alignLegacyBuilds(project, files);
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  }
+  for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), content);
   }

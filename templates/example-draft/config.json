@@ -1,5 +1,6 @@
 {
   "key": "synthetic",
+  "requirements": "interview-requirements.json",
   "assemble": {
     "rig_scale": 1,
     "plan": [

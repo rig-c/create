@@ -4,11 +4,15 @@ import { dirname, join, resolve } from 'node:path';
 
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { exampleReviewBytes } from '../tests/review-fixture.ts';
+import { asArray, isObject } from '../src/check.ts';
+import { sha256 } from '../src/choices.ts';
+import { generateExampleOrder } from './generate-example-order.ts';
 
 export function generateExampleReview(dir: string): JsonObject[] {
   if (existsSync(dir)) throw new Error('generation needs a fresh project directory');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(readTemplate('example-project.json'), null, 2)}\n`);
+  const project = readTemplate('legacy-example-project.json');
+  project.signoffs = [];
   const records: JsonObject[] = [];
   for (const n of [1, 2]) {
     for (const [path, bytes] of Object.entries(exampleReviewBytes())) {
@@ -16,6 +20,9 @@ export function generateExampleReview(dir: string): JsonObject[] {
       mkdirSync(dirname(join(dir, source)), { recursive: true });
       writeFileSync(join(dir, source), bytes);
     }
+    const version = asArray(project.versions).find(v => isObject(v) && v.n === n) as JsonObject;
+    (version.provenance as JsonObject).config = { path: `evidence/v${n}/review-config.json`, sha256: sha256(readFileSync(join(dir, `evidence/v${n}/review-config.json`))) };
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
     const command = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'review-package', String(n), dir,
       '--config', `evidence/v${n}/review-config.json`, '--from', `outputs/v${n}/out`, '--json'], { stdout: 'pipe', stderr: 'pipe' });
     if (command.exitCode !== 0) throw new Error(command.stderr.toString());
@@ -27,7 +34,8 @@ export function generateExampleReview(dir: string): JsonObject[] {
 if (import.meta.main) {
   const [destination, flag] = process.argv.slice(2);
   if (!destination || (flag !== undefined && flag !== '--check')) throw new Error('usage: bun scripts/generate-example-review.ts <fresh scratch project> [--check]');
-  const records = generateExampleReview(resolve(destination));
+  const generated = generateExampleOrder(resolve(destination));
+  const records = asArray(generated.project.versions).filter(v => isObject(v) && v.kind === 'rig').map(v => (v as JsonObject).review_package);
   const file = join(import.meta.dir, '../templates/example-project.json');
   const before = readFileSync(file, 'utf8');
   const after = before.split(/(?=    \{\n      "n": \d+,\n      "kind":)/).map((block) => {

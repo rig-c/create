@@ -14,6 +14,7 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
   };
   const config = {
     key: 'synthetic',
+    requirements: 'interview-requirements.json',
     assemble: { rig_scale: 1, plan: manifest.parts.map(part => [part.name, part.from.slice(0, part.from.indexOf(':')), part.from.slice(part.from.indexOf(':') + 1)]) },
     bones: [{ name: 'body', parent: 'root', at: [64, 64] }],
     meshes: {},
@@ -21,6 +22,7 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
     motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: 0.5, period: 4, phase: 0, base: 0 }] },
   };
   writeFileSync(join(dir, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(join(dir, 'interview-requirements.json'), `${JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }, null, 2)}\n`);
   const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
     'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
   { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
@@ -31,7 +33,7 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
     '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
   { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
   if (compiled.exitCode !== 0) throw new Error(`rigc build exit ${compiled.exitCode}\n${compiled.stdout}\n${compiled.stderr}`);
-  const files: Record<string, Buffer> = { 'config.json': readFileSync(join(dir, 'config.json')) };
+  const files: Record<string, Buffer> = { 'config.json': readFileSync(join(dir, 'config.json')), 'interview-requirements.json': readFileSync(join(dir, 'interview-requirements.json')) };
   const collect = (path: string): void => {
     for (const entry of readdirSync(join(dir, path), { withFileTypes: true })) {
       const child = `${path}/${entry.name}`;

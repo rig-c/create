@@ -483,6 +483,8 @@ new reference. Both writers refuse `by: agent` case-insensitively.
 A reopen preserves every version and verdict; a rebuild is a new numbered
 version, never an overwrite of an accepted historical build.
 
+A rig version's provenance config, review package and accepted parts must identify the same build.
+
 Every build shown to anyone is a `versions[]` entry, numbered in order across
 both kinds:
 
@@ -752,7 +754,7 @@ rig-create review-package 1 --config evidence/v1/config.json --from outputs/v1/o
 The source paths are explicit, project-relative inputs. The command copies the
 config unchanged and the build's `parts.json`, `parts/`, `rig/`, and
 `check/build/` into `derived/review/v1/`, with the config at `config.json` and
-the build files under `out/`. The source build must include `rig/rig.json`,
+the build files under `out/`. A declared adjacent JSON requirements file is copied beside the config and included in the frozen inventory. The source build must include `rig/rig.json`,
 `rig/motion.json`, `rig/mesh_report.json` and
 `check/build/skeleton.model.json`. Copies preserve the package when the build
 directory is cleaned. Each copied file is hashed. The command writes no new
@@ -860,8 +862,10 @@ that question's `history[]`, ask fresh answers against accepted parts, and
 record the first human `signoff rigging-interview`. That writer records adoption
 and the live parts/structure context. Stage movement remains a separate human
 act, as for existing forward sign-offs. The filled legacy example is frozen in
-`templates/legacy-example-project.json`; it passes with that order warning plus `QUESTION_SET_STALE` when read under
-the current 2.16.0 pin, because its frozen question set remains at 2.14.1.
+`templates/legacy-example-project.json`. Read under the current 2.16.0 pin it warns with that order warning plus
+`QUESTION_SET_STALE`, because its frozen question set remains at 2.14.1, and it is refused by the build-identity gate
+(`REVIEW_PACKAGE_CONFIG_MISMATCH` and `REVIEW_PACKAGE_PARTS_MISMATCH` on v1 and v2): its versions, dated after
+`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its bytes stay frozen.
 The new `example-project.json` is a synthetic new-order narrative at 0/0.
 
 Framing and source (`seethrough`, `assemble`) are the first interview. A
@@ -1095,7 +1099,8 @@ full-example integration. Its checked positive is explicitly **synthetic
 shape-only**, not a measured producer-gate result; see its README. Every retained
 file uses its real byte hash. The frozen legacy example's exact warning set is
 `QUESTION_SET_STALE`, `STAGE_ORDER_LEGACY`, `CHOICE_ANSWERS_LEGACY`,
-`CORRECTION_PATH_LEGACY`; the current filled example stays at 0/0.
+`CORRECTION_PATH_LEGACY`, and it is refused by the build-identity gate as described
+above; the current filled example stays at 0/0.
 
 ### Authored camera direction (create#92)
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -11,6 +11,7 @@ import { generateExampleReview } from '../scripts/generate-example-review.ts';
 import { fixture as exampleFixture, obj, version } from './fixtures.ts';
 import { reviewExampleFiles } from './review-fixture.ts';
 import { CLI, run } from './helpers.ts';
+import { Refusal } from '../src/refusal.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -44,6 +45,98 @@ function checked(dir: string) {
 }
 
 describe('frozen review package', () => {
+  test('an unreadable verdict cannot silence a parts mismatch after acceptance', () => {
+    const dir = exampleFixture(() => {}, 'example-project.json');
+    roots.push(dirname(dir));
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const pkg = obj(version(project, 1).review_package);
+    const changed = '{"parts":[]}\n';
+    (pkg.files as JsonObject[]).find(file => file.path === 'out/parts.json')!.sha256 = sha(changed);
+    put(dir, 'derived/review/v1/out/parts.json', changed);
+    put(dir, 'project.json', JSON.stringify(project));
+    expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_MISMATCH']);
+    appendFileSync(join(dir, 'evidence/parts-review.json'), '\n');
+    expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD']);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('REVIEW_PACKAGE_PARTS_UNREAD');
+  });
+  test('an unreadable verdict before SINCE warns instead of refusing', () => {
+    const dir = exampleFixture(project => {
+      for (const raw of project.versions as JsonObject[]) raw.at = '2026-11-02T00:00:00Z';
+      for (const raw of project.signoffs as JsonObject[]) raw.at = '2026-11-01T00:00:00Z';
+    }, 'example-project.json');
+    roots.push(dirname(dir));
+    appendFileSync(join(dir, 'evidence/parts-review.json'), '\n');
+    const result = checked(dir);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD']);
+  });
+  test('unknown build dates compare both identities against the latest approval as WARNs', () => {
+    const dir = exampleFixture(project => {
+      for (const raw of project.versions as JsonObject[]) raw.at = 'unknown';
+    }, 'legacy-example-project.json', {}, true);
+    roots.push(dirname(dir));
+    const result = checked(dir);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
+  });
+  for (const [field, code] of [['config', 'REVIEW_PACKAGE_CONFIG_MISMATCH'], ['parts', 'REVIEW_PACKAGE_PARTS_MISMATCH']] as const) {
+    test(`names a planted ${field} build mismatch in an otherwise passing signed example`, () => {
+      const dir = exampleFixture(() => {}, 'example-project.json');
+      roots.push(dirname(dir));
+      expect(checkProject(dir).refusals).toEqual([]);
+      const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+      const pkg = obj(version(project, 1).review_package);
+      if (field === 'config') obj(version(project, 1).provenance).config = { ...obj(obj(version(project, 1).provenance).config), sha256: sha('another build config') };
+      else (pkg.files as JsonObject[]).find(f => f.path === 'out/parts.json')!.sha256 = sha('another manifest');
+      writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
+      const report = checkProject(dir);
+      expect(report.refusals.map(f => f.code)).toContain(code);
+      expect(report.refusals.find(f => f.code === code)?.message).toContain(field === 'config' ? sha('another build config') : sha('another manifest'));
+    });
+  }
+  test('file drift does not conceal disagreement between recorded config identities', () => {
+    const dir = exampleFixture(() => {}, 'example-project.json');
+    roots.push(dirname(dir));
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const config = obj(obj(version(project, 1).provenance).config);
+    writeFileSync(join(dir, String(config.path)), '{}');
+    config.sha256 = sha('a third recorded config');
+    writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
+    const report = checkProject(dir);
+    expect(report.refusals.map(f => f.code)).toContain('REVIEW_PACKAGE_CONFIG_MISMATCH');
+    expect(report.warnings.map(f => f.code)).toContain('PROVENANCE_CONFIG_CHANGED');
+  });
+  test('before-SINCE raw identities warn while their frozen bytes remain readable', () => {
+    const dir = exampleFixture(project => {
+      for (const raw of project.versions as JsonObject[]) raw.at = '2026-11-02T00:00:00Z';
+      for (const raw of project.signoffs as JsonObject[]) raw.at = '2026-11-01T00:00:00Z';
+    }, 'legacy-example-project.json', {}, true);
+    roots.push(dirname(dir));
+    const result = checked(dir);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
+  });
+  test('the public package writer refuses a different config before publishing or recording', () => {
+    const dir = exampleFixture(() => {}, 'example-project.json');
+    roots.push(dirname(dir));
+    put(dir, 'evidence/another-config.json', '{}');
+    const before = readFileSync(join(dir, 'project.json'));
+    let refusal: unknown;
+    try { reviewPackageCommand(['1', dir, '--config', 'evidence/another-config.json', '--from', 'outputs/v1/out']); } catch (error) { refusal = error; }
+    expect(refusal).toBeInstanceOf(Refusal);
+    expect((refusal as Refusal).code).toBe('REVIEW_PACKAGE_CONFIG_MISMATCH');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+  test('the unchanged config resolves its adjacent requirements inside the frozen package', () => {
+    const dir = fixture();
+    put(dir, 'frozen/config.json', JSON.stringify({ requirements: 'interview-requirements.json' }));
+    put(dir, 'frozen/interview-requirements.json', '{"requirements":[]}\n');
+    const record = write(dir);
+    expect(readFileSync(join(dir, 'derived/review/v1/config.json'))).toEqual(readFileSync(join(dir, 'frozen/config.json')));
+    expect(readFileSync(join(dir, 'derived/review/v1/interview-requirements.json'), 'utf8')).toBe('{"requirements":[]}\n');
+    expect((record.files as JsonObject[]).find(f => f.path === 'interview-requirements.json')?.sha256).toBe(sha('{"requirements":[]}\n'));
+    expect(checked(dir).refusals).toEqual([]);
+  });
   test('the shipped example regenerates identical records and package bytes in two fresh projects', () => {
     const root = mkdtempSync(join(tmpdir(), 'example-review-'));
     roots.push(root);
@@ -59,26 +152,26 @@ describe('frozen review package', () => {
       expect(readFileSync(join(second, path), 'utf8')).toBe(bytes);
     }
   });
-  test('the filled example checks clean with real package files', () => {
-    const dir = exampleFixture();
+  test('the raw legacy example is refused only by the build-identity gate', () => {
+    const dir = exampleFixture(() => {}, 'legacy-example-project.json', {}, true);
     roots.push(dirname(dir));
     const report = checkProject(dir);
-    expect(report.refusals).toEqual([]);
+    expect(report.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
     expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
-  test('stripping an example package record warns and keeps exit zero', () => {
-    const dir = exampleFixture((project) => { delete version(project, 1).review_package; });
+  test('stripping a raw legacy package warns and still refuses the other build mismatch', () => {
+    const dir = exampleFixture((project) => { delete version(project, 1).review_package; }, 'legacy-example-project.json', {}, true);
     roots.push(dirname(dir));
     const report = checkProject(dir);
-    expect(report.refusals).toEqual([]);
+    expect(report.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
     expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
-  test('removing one example package warns with its recorded regeneration command', () => {
-    const dir = exampleFixture();
+  test('removing a raw legacy package warns and keeps declared build mismatches visible', () => {
+    const dir = exampleFixture(() => {}, 'legacy-example-project.json', {}, true);
     roots.push(dirname(dir));
     rmSync(join(dir, 'derived/review/v1'), { recursive: true });
     const report = checkProject(dir);
-    expect(report.refusals).toEqual([]);
+    expect(report.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
     expect(report.warnings.map((finding) => finding.code)).toEqual(['QUESTION_SET_STALE', 'REVIEW_PACKAGE_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
     expect(report.warnings[1]?.message).toContain("--config 'evidence/v1/review-config.json' --from 'outputs/v1/out'");
   });

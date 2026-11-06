@@ -26,6 +26,7 @@ test.each([false, true])('draft recorder binds standalone/build=%s without creat
   const { dir, args } = draft(build); const before = read(dir);
   const r = draftRigCommand(args); expect(r.exit).toBe(0);
   const record = JSON.parse(r.stdout) as JsonObject;
+  expect(record.config_inputs).toBeUndefined();
   expect(record.kind).toBe('draft-rig'); expect(record.handoff).toBeUndefined();
   expect(arr(obj(record.parts).files)).toHaveLength(2);
   expect(read(dir).versions).toEqual(before.versions);

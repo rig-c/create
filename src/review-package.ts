@@ -1,3 +1,4 @@
+import { configInputBindings, configInputReferences } from './config-inputs.ts';
 import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
 import { createHash } from 'node:crypto';
@@ -53,10 +54,28 @@ const inside = (root: string, file: string): boolean => {
 
 interface FileHash { path: string; sha256: string }
 
-/** Review's handoff reads config and rig/parts inputs, while requirements support check only. */
-export function reviewHandoffInputs(record: JsonObject): JsonObject[] {
-  return asArray(record.files).filter((file): file is JsonObject => isObject(file) && typeof file.path === 'string'
+/** Named files are separate from producer outputs and required by their reader's date. */
+export function reviewConfigInputs(record: JsonObject, dir: string, n: number): JsonObject[] {
+  const config = isObject(record.config) ? record.config : {};
+  const original = typeof config.path === 'string' ? resolve(dir, config.path) : '';
+  const path = original && inside(dir, original) && existsSync(original) ? original : join(dir, packagePath(n), 'config.json');
+  if (!existsSync(path)) return [];
+  const bytes = readFileSync(path);
+  if (hash(bytes) !== config.sha256) throw new Error('source config differs from its recorded sha256');
+  const refs = configInputReferences(dir, JSON.parse(bytes.toString('utf8')));
+  return refs.map(ref => {
+    const file = asArray(record.files).find(f => isObject(f) && f.path === ref.value);
+    if (isObject(file)) return file;
+    const bound = configInputBindings(dir, relative(dir, path), true).find(f => resolve(dir, String(f.path)) === resolve(dirname(path), ref.value));
+    if (!bound) throw new Error(`config.${ref.at}: missing named input ${ref.value}`);
+    return { ...bound, path: ref.value };
+  });
+}
+export function reviewHandoffInputs(record: JsonObject, dir: string, n: number): JsonObject[] {
+  const base = asArray(record.files).filter((file): file is JsonObject => isObject(file) && typeof file.path === 'string'
     && (file.path === 'config.json' || file.path.startsWith('out/') && !file.path.startsWith('out/check/')));
+  const named = reviewConfigInputs(record, dir, n);
+  return [...base, ...named.filter(file => !base.some(f => f.path === file.path))];
 }
 
 function packageExists(path: string): boolean {

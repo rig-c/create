@@ -600,7 +600,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -788,7 +788,7 @@ is create-owned artifact identity, not producer provenance or reproducibility.
 | `RIGGING_INTERVIEW_CONTEXT` | adoption/context lacks its date or current accepted parts and structure binding | retain the reviewed structure and sign the rigging interview |
 | `RIG_GUIDE_BEFORE_PARTS` | claimed new rigging answers are undated, earlier than the accepted parts, or later than approval | preserve old answers in history and ask fresh against approved parts |
 | `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout or missing standalone parts inputs | retain one labelled output with explicit parts inputs |
-| `DRAFT_RIG_FILE` | a present draft artifact is unreadable, changed, unexpected or escapes its root | restore its frozen config, parts and output files |
+| `DRAFT_RIG_FILE` | a config-named input lacks a config_inputs binding (WARN before CONFIG_INPUTS_SINCE), or a present draft artifact is unreadable, changed, unexpected or escapes its root | restore its frozen config, parts and output files |
 | `DRAFT_RIG_UNAVAILABLE` | WARN: declared regenerable draft artifacts are absent under the ignored draft root | restore the named recorded bytes before inspecting or rebuilding the draft; retained structure snapshots still verify |
 | `DRAFT_RIG_AS_VERSION` | draft role/identity/reserved paths are offered as a numbered version, review, package or handoff | build an independently authorised production rig |
 | `STRUCTURE_DECISIONS_MISSING` | new-order parts approval lacks its draft or explicit structure snapshot | supply --draft and --structure-file, including entries:[] when unchanged |
@@ -848,6 +848,8 @@ or required reason. Shared delegations remain classified as delegated.
 
 ## Correction paths
 
+`CONFIG_INPUTS_SINCE = 2026-11-06T00:00:00Z` dates missing config-input bindings by `draft.at`, correction handoff omissions by `correction.at`, and applied-review omissions by the resulting version's `at`. Earlier omissions WARN with the same code. Honest named inputs are accepted in every era, and altered hashes always refuse. Preserve historical bytes and include every config-named input and its raw sha256 in the next draft or handoff.
+
 `corrections_contract.schema = "rig-create/corrections@1"` is explicitly adopted
 with `correction --adopt`; it is independent of `interview.order` and dates do
 not activate it. Existing records are preserved. Missing adoption warns once,
@@ -864,7 +866,7 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_HASH` | raw retained bytes differ from their recorded SHA-256 |
 | `CORRECTION_SOURCE` | unknown/ambiguous/stale source, stage/kind/config/handoff mismatch, or mutation under a live approval |
 | `CORRECTION_PATCH_INVALID` | config-patch/1 grammar, keys, flags or pointer syntax invalid; no operation is replayed |
-| `CORRECTION_APPLIED_INVALID` | session/item/applied identity or embedded patch differs, optional `stageInputHash` is not a 64-lowercase-hex SHA-256, or a claimed checked result lacks its passing retained summary, has a FAIL/unknown named bar or no PASS bar, or marks a line-named skipped bar PASS |
+| `CORRECTION_APPLIED_INVALID` | a config-named input is missing from the handoff (WARN before CONFIG_INPUTS_SINCE) or has an altered hash, session/item/applied identity or embedded patch differs, optional `stageInputHash` is not a 64-lowercase-hex SHA-256, or a claimed checked result lacks its passing retained summary, has a FAIL/unknown named bar or no PASS bar, or marks a line-named skipped bar PASS |
 | `CORRECTION_OUTCOME` | outcome is invalid/nonlater/unchanged, closure bytes are missing, model differs from Apply, origin differs, or closure is repeated |
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |

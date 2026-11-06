@@ -1,3 +1,4 @@
+import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
 import { createHash } from 'node:crypto';
@@ -8,7 +9,7 @@ import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
 import { stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { reviewHandoffInputs } from './review-package.ts';
+import { reviewConfigInputs, reviewHandoffInputs } from './review-package.ts';
 
 export const CORRECTIONS_SPEC = 'rig-create/corrections@1';
 export const CORRECTION_SPEC = 'rig-create/correction@1';
@@ -201,22 +202,47 @@ export function correctionApplied(dir: string, artifact: JsonObject): { feedback
   }
   return { feedback, item, applied };
 }
-function validateApplied(dir: string, project: JsonObject, record: JsonObject, artifact: JsonObject, on: JsonObject): void {
+function validateApplied(dir: string, project: JsonObject, record: JsonObject, artifact: JsonObject, on: JsonObject, warnings: Finding[], path: string): void {
   const { feedback, item, applied } = correctionApplied(dir, artifact);
   if (record.verbatim !== item.summary || record.by !== 'user') fail('CORRECTION_APPLIED_INVALID', 'made human fields must retain summary and by:user');
   if (!isObject(on.config) || on.config.sha256 !== applied.configHash || !isObject(on.model)) fail('CORRECTION_APPLIED_INVALID', 'Apply does not bind source config/model');
   const reviewed = feedback.reviewedSource as JsonObject;
   const handoff = reviewed.handoff;
   if (!isObject(reviewed.rig) || reviewed.rig.sha256 !== on.model.sha256 || reviewed.motion !== null || !isObject(handoff) || !sameHash(handoff.config, on.config) || !Array.isArray(handoff.files) || !Array.isArray(handoff.missing) || handoff.missing.length !== 0) fail('CORRECTION_APPLIED_INVALID', 'feedback reviewed source/handoff differs');
+  const requireNamed = (named: JsonObject[], files: JsonObject[]): void => {
+    for (const input of named) {
+      const matches = files.filter(f => f.path === input.path);
+      if (matches.length && (!hex(input.sha256) || matches.length !== 1 || matches[0]!.sha256 !== input.sha256)) fail('CORRECTION_APPLIED_INVALID', `config-named input ${String(input.path)} has an altered hash`);
+      if (!matches.length) {
+        const reason = `config-named input ${String(input.path)} is missing from handoff`;
+        if (!configInputsLegacy(record.at)) fail('CORRECTION_APPLIED_INVALID', reason);
+        warnings.push(correctionFinding('CORRECTION_APPLIED_INVALID', path, `${reason}; legacy input omission`));
+      }
+    }
+  };
   if (on.kind === 'rig') {
     const pkg = versionRecord(project, on.n).review_package as JsonObject;
-    const inputs = reviewHandoffInputs(pkg);
-    if (handoff.files.length !== inputs.length || !inputs.every(f => bindings(handoff.files).some(h => typeof h.path === 'string' && posix.normalize(`out/check/${h.path}`) === f.path && h.sha256 === f.sha256))) fail('CORRECTION_APPLIED_INVALID', 'feedback input inventory differs from source package');
+    const inputs = reviewHandoffInputs(pkg, dir, Number(on.n));
+    const named = reviewConfigInputs(pkg, dir, Number(on.n));
+    const files: JsonObject[] = bindings(handoff.files).map(f => ({ ...f, path: posix.normalize(`out/check/${String(f.path)}`) }));
+    requireNamed(named, files);
+    const required = inputs.filter(f => !named.some(n => n.path === f.path));
+    if (files.length !== handoff.files.length || !required.every(f => files.some(h => h.path === f.path && h.sha256 === f.sha256)) || !files.every(h => inputs.some(f => f.path === h.path && f.sha256 === h.sha256)) || new Set(files.map(f => f.path)).size !== files.length) fail('CORRECTION_APPLIED_INVALID', 'feedback input inventory differs from source package');
   } else if (on.kind === 'draft') {
     const draft = draftRecord(project, on.id);
-    const expected = [draft.config, ...bindings(isObject(draft.parts) ? draft.parts.files : undefined), ...bindings(draft.files)];
+    const named = configInputBindings(dir, String((draft.config as JsonObject).path), true).map(input => {
+      const bound = bindings(draft.config_inputs).find(f => f.path === input.path);
+      if (bound && input.sha256 === null) return bound;
+      return input;
+    });
+    for (const input of bindings(draft.config_inputs)) {
+      if (!named.some(f => f.path === input.path && f.sha256 === input.sha256)) fail('CORRECTION_APPLIED_INVALID', `config-named input ${String(input.path)} differs from draft binding`);
+    }
+    const files = bindings(handoff.files);
+    requireNamed(named, files);
+    const expected = [draft.config, ...bindings(isObject(draft.parts) ? draft.parts.files : undefined), ...bindings(draft.files), ...named];
     const required = expected.filter(x => isObject(x) && (x === draft.config || String(x.path).endsWith('/parts.json') || String(x.path).includes('/parts/') || /\/(rig|motion|mesh_report)\.json$/.test(String(x.path))));
-    if (!required.every(x=>bindings(handoff.files).some(f=>sameHash(x,f))) || !bindings(handoff.files).every(f => expected.some(x => sameHash(x, f)))) fail('CORRECTION_APPLIED_INVALID', 'draft handoff contains foreign inputs');
+    if (!required.every(x=>files.some(f=>sameHash(x,f))) || !files.every(f => expected.some(x => sameHash(x, f)))) fail('CORRECTION_APPLIED_INVALID', 'draft handoff contains foreign inputs');
   } else fail('CORRECTION_APPLIED_INVALID', 'config patch Apply requires rig or reviewed draft');
   if (artifact.patch !== undefined) {
     const patch = correctionJson(correctionFile(dir, artifact.patch)); validateCorrectionPatch(patch);
@@ -309,7 +335,10 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
             const patch = correctionJson(correctionFile(dir, art.patch)); validateCorrectionPatch(patch);
             if (!isObject(on.config) || patch.config_sha256 !== on.config.sha256) fail('CORRECTION_SOURCE', 'patch targets another source config');
           }
-          if (art.feedback !== null) validateApplied(dir, project, record, art, on);
+          if (art.feedback !== null) {
+            try { validateApplied(dir, project, record, art, on, warnings, path); }
+            catch (error) { if (error instanceof CorrectionError) throw error; fail('CORRECTION_APPLIED_INVALID', `config-named inputs unreadable: ${error instanceof Error ? error.message : String(error)}`); }
+          }
           else if (art.patch === undefined || art.state === 'applied-and-checked') fail('CORRECTION_APPLIED_INVALID', 'missing preview patch or checked session');
           if (record.outcome !== null && art.state !== 'applied-and-checked') fail('CORRECTION_APPLIED_INVALID', 'pending preview cannot claim completed outcome');
         }

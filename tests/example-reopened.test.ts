@@ -67,7 +67,7 @@ test('a parts-review made correction records and resolves against the reopened e
   applied.configHash = obj(source.config).sha256!;
   const model = arr(source.files).map(obj).find(file => String(file.path).endsWith('/skeleton.model.json'))!;
   feedback.reviewedSource = { rig: { path: model.path!, sha256: model.sha256! }, motion: null,
-    handoff: { config: source.config!, files: [source.config!, ...arr(obj(source.parts).files), ...arr(source.files)], missing: [] } };
+    handoff: { config: source.config!, files: [source.config!, ...arr(source.config_inputs), ...arr(obj(source.parts).files), ...arr(source.files)], missing: [] } };
   writeFileSync(join(dir, 'evidence/correction-session.json'), JSON.stringify(feedback));
   const at = Date.parse(EXAMPLE_REOPEN_AT);
   setSystemTime(new Date(at + 1000));

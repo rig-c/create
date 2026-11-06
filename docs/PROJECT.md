@@ -760,6 +760,8 @@ the build files under `out/`. A declared adjacent JSON requirements file is copi
 directory is cleaned. Each copied file is hashed. The command writes no new
 build and moves no stage.
 
+A config's named files are bound build inputs in versions and drafts, with draft inputs recorded separately as optional `config_inputs` path/raw-sha256 bindings while `files` remains outputs.
+
 The version's `review_package` field records `config` (`path`, `sha256`),
 `from` (the declared build directory), `files` (sorted package-relative
 `{path, sha256}` entries, including the copied config), and `open`:

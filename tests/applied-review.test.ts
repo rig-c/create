@@ -123,11 +123,12 @@ for (const [name, code, mutate] of [
 }
 
 
-test('the new-order rig-review hand pass uses the existing applied-review chain', async () => {
+test('installed review omitting a named input is refused for the current signed example', async () => {
   const { dir, project } = await chain('example-project.json');
-  expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
+  expect(checked(dir, project).refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
+  expect(checked(dir, project).refusals[0]?.message).toContain('interview-requirements.json');
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   const report = checkProject(dir);
-  expect(report.refusals).toEqual([]);
+  expect(report.refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
   expect(report.warnings).toEqual([]);
 });

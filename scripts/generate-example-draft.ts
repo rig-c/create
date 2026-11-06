@@ -59,4 +59,5 @@ if (import.meta.main) {
       writeFileSync(file, bytes);
     }
   }
+  if (check) console.log('example draft producer bytes reproduce byte for byte');
 }

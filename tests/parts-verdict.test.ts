@@ -16,7 +16,7 @@ import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, rehashSignoffs, step, type Mutate } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, partImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
+import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, asciiPartImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
 const LATER_RIG_STEPS = ['bones', 'meshes', 'constraints', 'motion'];
@@ -170,7 +170,7 @@ describe('refused, each by name', () => {
   });
 
   test('PARTS_VERDICT_SOURCE_CHANGED: a part repainted after the sign-off', () => {
-    const dir = project({}, () => {}, { [`${EXAMPLE_PARTS_DIR}/parts/torso.png`]: `${partImage('torso')}repainted\n` });
+    const dir = project({}, () => {}, { [`${EXAMPLE_PARTS_DIR}/parts/torso.png`]: `${asciiPartImage('torso')}repainted\n` });
     const report = checkProject(dir);
     expect(only(report, 'PARTS_VERDICT_SOURCE_CHANGED')).toContain('parts/torso.png');
   });

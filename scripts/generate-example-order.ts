@@ -1,3 +1,4 @@
+import { generateExampleParts } from './generate-example-parts.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
 /** Reproduce the new-order example's declarations through public writers on synthetic dated input. */
 import { writeExampleChoices } from './example-choices.ts';
@@ -19,7 +20,7 @@ import { EXAMPLE_DIFF_REPORT } from '../tests/diff-fixture.ts';
 const obj = (v: Json | undefined): JsonObject => v as JsonObject;
 const arr = (v: Json | undefined): Json[] => v as Json[];
 
-export function generateExampleOrder(dir: string): { project: JsonObject; files: Record<string, string> } {
+export function generateExampleOrder(dir: string): { project: JsonObject; files: Record<string, string | Uint8Array> } {
   if (existsSync(dir)) throw new Error('example order needs a fresh scratch directory');
   mkdirSync(dir, { recursive: true });
   const original = readTemplate('legacy-example-project.json');
@@ -27,8 +28,9 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const save = (): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
   const reload = (): void => { p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject; };
   const write = (path: string, bytes: string | Uint8Array): void => { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); };
-  const files = exampleDraftFiles();
-  for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files })) write(path, bytes);
+  const input = generateExampleParts(join(dir, 'producer'));
+  const files = { ...exampleDraftFiles(input), ...partsPackage({ verdict: EXAMPLE_VERDICT, input }).files };
+  for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...files })) write(path, bytes);
   for (const raw of arr(original.versions)) {
     const version = obj(raw);
     if (version.kind === 'rig') {
@@ -125,13 +127,13 @@ if (import.meta.main) {
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
   for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'versions']) text = replaceValue(text, key, generated.project[key] as Json);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
-  const outputs: Record<string, string> = { 'example-project.json': text };
+  const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };
   for (const [path, bytes] of Object.entries(generated.files)) {
     const rel = path.startsWith('evidence/interview/') ? `example-interview-options/${path.slice('evidence/interview/'.length)}` : path.startsWith(EXAMPLE_DRAFT) ? `example-draft/${path.slice(EXAMPLE_DRAFT.length + 1)}` : `example-draft/${path}`;
     outputs[rel] = bytes;
   }
   for (const [path, bytes] of Object.entries(outputs)) {
-    if (flag === '--check') { if (readFileSync(join(root, path), 'utf8') !== bytes) throw new Error(`${path}: generated order differs`); }
+    if (flag === '--check') { if (!readFileSync(join(root, path)).equals(Buffer.from(bytes))) throw new Error(`${path}: generated order differs`); }
     else { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), bytes); }
   }
   console.log('new-order example and draft identities reproduce through the writers; 0 refusals, 0 warnings');

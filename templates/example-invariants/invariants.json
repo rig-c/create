@@ -304,7 +304,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-bones.json",
-            "sha256": "312142fb4e6b6681914edbc01006dd607ea060540da3a662bc7ad996dd804848"
+            "sha256": "8b4d08bda371534e1323cf4806a7f53c807091f351a4b5833fe7dcf12e0e5a99"
           },
           "picks": [
             {
@@ -367,7 +367,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-meshes.json",
-            "sha256": "c7c98631cddd1039d86a22b5506104469d1390c4e7c0081d72a251a1665eb7b1"
+            "sha256": "5dcfa2a93ff77f7228b32ae7ca8ef49beec271f8d17387c57ee8ebaef2a19ff1"
           },
           "picks": [
             {
@@ -430,7 +430,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-constraints.json",
-            "sha256": "3362e4d33dc2cfa19d47ac67263e4ae0a0f221534f474d683bcda778a3a581dd"
+            "sha256": "f69f1cb34192817f4c01a5898692ebfc1719e5709d2fa03e63de9b385695e659"
           },
           "picks": [
             {
@@ -519,7 +519,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-motion.json",
-            "sha256": "e0ca7579199322a218662a4ff486b4ed9aebc7f513b6ca0b2e7dd2681cce44c8"
+            "sha256": "ffd9648b27969079439cf16bb7ffc5dded12591d828d93babefde4498ab14a5e"
           },
           "picks": [
             {
@@ -608,7 +608,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-camera-depth.json",
-            "sha256": "c63f83a8789161aba24e9eb02753d5770a2471b8f6c0ae1887eaf901822eb01d"
+            "sha256": "0ac6c0f59a4462b14eaf7b7f5fc4712a11591c98764d551614ab0ba2e0eb938a"
           },
           "picks": [
             {
@@ -646,7 +646,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-post-timing.json",
-            "sha256": "6e873b8a54c95159184318ba2779eab8fa319a12f6d6efe041b43e5d4ea14708"
+            "sha256": "88d99735ef0f63e800cf15ed88e27bef4985f0a52f482a081d9b7cb655ba0226"
           },
           "picks": [
             {
@@ -690,7 +690,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-post-composition.json",
-            "sha256": "bf0747e55ae0c7664029bb2e64f4dd8e12a3adeccf01ed123b12e782defbc636"
+            "sha256": "797634989454450cd6c281092b830ca7e56649da5110d391a75886e36e6cfb44"
           },
           "picks": [
             {

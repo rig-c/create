@@ -23,9 +23,9 @@
     {"stage":"interview","checkpoint":null,"by":"user","at":"2026-11-10T14:20:00Z","verbatim":"that's everything"},
     {"stage":"plan-approved","checkpoint":null,"by":"user","at":"2026-11-10T16:05:00.000Z","verbatim":"Approve the synthetic plan-approved record.\n","steps":["seethrough","assemble"],"step_hashes":{"seethrough":"6913f7c8b3fac3f5b88631115fab6fc352027ea15e0f44619f27fefcb9bd3c82","assemble":"a92cff01f666bea33bfee23339185268f7e2277b710d3519c08ba0a7aa21c362"}},
     {"stage":"parts","checkpoint":"assemble","by":"user","at":"2026-11-11T09:40:00Z","verbatim":"the cut is fine"},
-    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-11T10:20:00.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"b5e29c7060c7d912baee40b2e920ed9f11e4db2adba8da710d3ee3cb156d78bf"},"diff_map":{"report":{"path":"evidence/diff-components.json","sha256":"6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"},"components":[{"id":"p10-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"},{"id":"p1000-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"}]},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
-    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-11T11:10:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","meshes","constraints","motion"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","meshes":"a159b1bd45ba764819c10cbd2e5ad3116822d1cc584232a4b97dfe432a113da7","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601","motion":"eee1686a07951c92b3ee62abe7a7ff79865570f09f3c134d2b09fc2994e242d2"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"b5e29c7060c7d912baee40b2e920ed9f11e4db2adba8da710d3ee3cb156d78bf"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
-    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-12T10:30:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"b5e29c7060c7d912baee40b2e920ed9f11e4db2adba8da710d3ee3cb156d78bf"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
+    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-11T10:20:00.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"},"diff_map":{"report":{"path":"evidence/diff-components.json","sha256":"6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"},"components":[{"id":"p10-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"},{"id":"p1000-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"}]},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
+    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-11T11:10:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","meshes","constraints","motion"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","meshes":"a159b1bd45ba764819c10cbd2e5ad3116822d1cc584232a4b97dfe432a113da7","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601","motion":"eee1686a07951c92b3ee62abe7a7ff79865570f09f3c134d2b09fc2994e242d2"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
+    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-12T10:30:00.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"457fdb23b2fba7eacaab9a54765d45b651d2059b070bfdafb10226f3cfba0e8d","constraints":"91690a465a7b4a9fd2fdbfd6a229ec07ddf521adcc1107dca97f7b2d90adb601"},"accepted_parts":{"signoff_at":"2026-11-11T10:20:00.000Z","evidence":{"kind":"parts-verdict","path":"evidence/parts-review.json","sha256":"03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"f6e45441a5729e994cb7163e64896fcaf2eff486d0a34dd23c41c8b0b73308f2"}},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-11T13:10:00Z","verbatim":"ok, the scarf looks right in the sketch"},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-12T15:00:00Z","verbatim":"better"},
     {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-13T09:15:00Z","verbatim":"yes, that's her"},
@@ -555,7 +555,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-bones.json",
-              "sha256": "312142fb4e6b6681914edbc01006dd607ea060540da3a662bc7ad996dd804848"
+              "sha256": "8b4d08bda371534e1323cf4806a7f53c807091f351a4b5833fe7dcf12e0e5a99"
             },
             "picks": [
               {
@@ -751,7 +751,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-meshes.json",
-              "sha256": "c7c98631cddd1039d86a22b5506104469d1390c4e7c0081d72a251a1665eb7b1"
+              "sha256": "5dcfa2a93ff77f7228b32ae7ca8ef49beec271f8d17387c57ee8ebaef2a19ff1"
             },
             "picks": [
               {
@@ -908,7 +908,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-constraints.json",
-              "sha256": "3362e4d33dc2cfa19d47ac67263e4ae0a0f221534f474d683bcda778a3a581dd"
+              "sha256": "f69f1cb34192817f4c01a5898692ebfc1719e5709d2fa03e63de9b385695e659"
             },
             "picks": [
               {
@@ -1154,7 +1154,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-motion.json",
-              "sha256": "e0ca7579199322a218662a4ff486b4ed9aebc7f513b6ca0b2e7dd2681cce44c8"
+              "sha256": "ffd9648b27969079439cf16bb7ffc5dded12591d828d93babefde4498ab14a5e"
             },
             "picks": [
               {
@@ -1359,7 +1359,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-camera-depth.json",
-                "sha256": "c63f83a8789161aba24e9eb02753d5770a2471b8f6c0ae1887eaf901822eb01d"
+                "sha256": "0ac6c0f59a4462b14eaf7b7f5fc4712a11591c98764d551614ab0ba2e0eb938a"
               },
               "picks": [
                 {
@@ -1412,7 +1412,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-post-timing.json",
-                "sha256": "6e873b8a54c95159184318ba2779eab8fa319a12f6d6efe041b43e5d4ea14708"
+                "sha256": "88d99735ef0f63e800cf15ed88e27bef4985f0a52f482a081d9b7cb655ba0226"
               },
               "picks": [
                 {
@@ -1477,7 +1477,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-post-composition.json",
-                "sha256": "bf0747e55ae0c7664029bb2e64f4dd8e12a3adeccf01ed123b12e782defbc636"
+                "sha256": "797634989454450cd6c281092b830ca7e56649da5110d391a75886e36e6cfb44"
               },
               "picks": [
                 {
@@ -1528,7 +1528,7 @@
         "evidence": {
           "kind": "parts-verdict",
           "path": "evidence/parts-review.json",
-          "sha256": "b5e29c7060c7d912baee40b2e920ed9f11e4db2adba8da710d3ee3cb156d78bf"
+          "sha256": "03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"
         }
       },
       "structure": {
@@ -2567,19 +2567,31 @@
         "files": [
           {
             "path": "derived/drafts/example/input/parts/background.png",
-            "sha256": "dea775d6f20491472a8246c20d82305bbb8550ea96d111305cb78288b4cb0f4e"
+            "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+          },
+          {
+            "path": "derived/drafts/example/input/parts/eye_l.png",
+            "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+          },
+          {
+            "path": "derived/drafts/example/input/parts/eye_r.png",
+            "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+          },
+          {
+            "path": "derived/drafts/example/input/parts/face.png",
+            "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
           },
           {
             "path": "derived/drafts/example/input/parts/lantern.png",
-            "sha256": "ff17256626ecb97c8c7af085aeb61d0c462b32dc2fba6f117884cd8af41a58ae"
+            "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
           },
           {
             "path": "derived/drafts/example/input/parts/torso.png",
-            "sha256": "8aff9a4c8543de951f08c0297dc0871d1f706aa33515e830fe567c84f1027346"
+            "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
           },
           {
             "path": "derived/drafts/example/input/parts.json",
-            "sha256": "4922589bf3f6dc457ff2413e70281f6ec804fb20561d28825e2b03b8d9159203"
+            "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
           }
         ]
       },

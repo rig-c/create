@@ -1,3 +1,4 @@
+import { writeExampleReopened } from './generate-example-reopened.ts';
 import { exampleTime, retimeExample } from './example-time.ts';
 import { generateExampleDraft } from './generate-example-draft.ts';
 import { generateExampleParts } from './generate-example-parts.ts';
@@ -147,5 +148,6 @@ if (import.meta.main) {
     if (flag === '--check') { if (!readFileSync(join(root, path)).equals(Buffer.from(bytes))) throw new Error(`${path}: generated order differs`); }
     else { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), bytes); }
   }
+  writeExampleReopened(join(resolve(destination), 'reopened'), flag === '--check');
   console.log('new-order example and draft identities reproduce through the writers; 0 refusals, 0 warnings');
 }

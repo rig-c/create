@@ -24,9 +24,13 @@ export type Mutate = (project: JsonObject) => void;
  * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
  */
 export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}): string {
+  return materializeFixture(join(tempDir(), 'project'), mutate, template, files);
+}
+
+/** Open either example record with the same retained asset bytes. */
+export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}): string {
   if (template === 'legacy-example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
-  if (template === 'example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...newOrderExampleFiles(), ...files };
-  const dir = join(tempDir(), 'project');
+  if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
   const project = readTemplate(template);
   mutate(project);

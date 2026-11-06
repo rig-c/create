@@ -35,3 +35,6 @@ export function exampleTime(value: string): string {
 export function retimeExample<T>(value: T): T {
   return JSON.parse(JSON.stringify(value).replace(timestamp, value => exampleTime(value))) as T;
 }
+
+/** A final event after the signed narrative, without changing any existing event index. */
+export const EXAMPLE_REOPEN_AT = new Date(EXAMPLE_ANCHOR + events.length * 1000).toISOString();

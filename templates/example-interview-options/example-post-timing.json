@@ -11,7 +11,7 @@
     "signoff_at": "2026-11-06T00:00:51.000Z",
     "config": {
       "path": "evidence/v2/interview-config.json",
-      "sha256": "2d620e7df7891b900b3032cf6473ba1d071552c4317667975b65e158d8390df4"
+      "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
     },
     "parts": {
       "path": "derived/drafts/example/input",

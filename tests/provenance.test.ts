@@ -88,7 +88,7 @@ describe('a section with no citation', () => {
 
   test('a config whose hash is not the recorded one is not read: a warning, and the listed sections are checked', () => {
     const report = checkProject(withConfig(2, { ...V2_CONFIG, cloth: {} }, (p) => {
-      obj(obj(version(p, 2).provenance).config).sha256 = '0'.repeat(64);
+      obj(obj(version(p, 2).provenance).config).sha256 = obj(obj(version(p, 2).review_package).config).sha256;
     }));
     expect(report.provenance[1]?.config).toBe('changed');
     expect(report.refusals).toEqual([]);

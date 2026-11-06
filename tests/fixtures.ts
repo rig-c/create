@@ -13,7 +13,7 @@ import { tempDir } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { newOrderExampleFiles } from './draft-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
-import { reviewExampleFiles } from './review-fixture.ts';
+import { alignLegacyBuilds, reviewExampleFiles } from './review-fixture.ts';
 
 export type Mutate = (project: JsonObject) => void;
 
@@ -23,17 +23,18 @@ export type Mutate = (project: JsonObject) => void;
  * also gets the assembled parts and the approved verdict its parts-review
  * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
  */
-export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}): string {
-  return materializeFixture(join(tempDir(), 'project'), mutate, template, files);
+export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false): string {
+  return materializeFixture(join(tempDir(), 'project'), mutate, template, files, rawLegacy);
 }
 
 /** Open either example record with the same retained asset bytes. */
-export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}): string {
+export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false): string {
   if (template === 'legacy-example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
-  if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...newOrderExampleFiles(), ...files };
+  if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
   const project = readTemplate(template);
   mutate(project);
+  if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });

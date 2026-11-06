@@ -8,9 +8,36 @@ import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { latestPartsApproval, retainedJson } from './structure.ts';
 import type { JsonObject } from './templates.ts';
 
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
+export const BUILD_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
+
+/** Compare declared identities even when regenerable package bytes are absent. */
+function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>, version: JsonObject, record: JsonObject): void {
+  const at = Date.parse(String(version.at));
+  const findings = Number.isFinite(at) && at >= Date.parse(BUILD_IDENTITY_SINCE) ? ctx.refusals : ctx.warnings;
+  const path = `versions[v${String(version.n)}].review_package`;
+  const mismatch = (code: string, field: string, expected: string, actual: string): void => {
+    findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: package sha256 ${actual} differs from recorded build sha256 ${expected}; preserve the historical package and record a new version from the same config and accepted parts` });
+  };
+  const provenance = isObject(version.provenance) ? version.provenance : {};
+  const config = isObject(provenance.config) ? provenance.config : {};
+  if (typeof config.sha256 === 'string' && isObject(record.config) && typeof record.config.sha256 === 'string' && config.sha256 !== record.config.sha256) {
+    mismatch('REVIEW_PACKAGE_CONFIG_MISMATCH', 'config', config.sha256, record.config.sha256);
+  }
+  const approval = latestPartsApproval(ctx.project, at);
+  if (!approval) return;
+  let verdict: JsonObject;
+  try { verdict = retainedJson(ctx.dir, approval.evidence); } catch { return; } // The parts-verdict reader owns invalid evidence.
+  const source = isObject(verdict.source) ? verdict.source : {};
+  const manifest = asArray(source.files).find(f => isObject(f) && typeof f.path === 'string' && f.path.split('/').at(-1) === 'parts.json');
+  const packaged = asArray(record.files).find(f => isObject(f) && f.path === 'out/parts.json');
+  if (isObject(manifest) && typeof manifest.sha256 === 'string' && isObject(packaged) && typeof packaged.sha256 === 'string' && manifest.sha256 !== packaged.sha256) {
+    mismatch('REVIEW_PACKAGE_PARTS_MISMATCH', 'files[out/parts.json]', manifest.sha256, packaged.sha256);
+  }
+}
 const word = (s: string): string => `'${s.replaceAll("'", "'\\''")}'`;
 const packagePath = (n: number): string => `derived/review/v${n}`;
 const openCommand = (n: number): string => `rig-review open ${word(`${packagePath(n)}/out`)}`;
@@ -21,6 +48,12 @@ const inside = (root: string, file: string): boolean => {
 };
 
 interface FileHash { path: string; sha256: string }
+
+/** Review's handoff reads config and rig/parts inputs, while requirements support check only. */
+export function reviewHandoffInputs(record: JsonObject): JsonObject[] {
+  return asArray(record.files).filter((file): file is JsonObject => isObject(file) && typeof file.path === 'string'
+    && (file.path === 'config.json' || file.path.startsWith('out/') && !file.path.startsWith('out/check/')));
+}
 
 function packageExists(path: string): boolean {
   try { lstatSync(path); return true; } catch (error) {
@@ -45,7 +78,7 @@ function validFiles(value: JsonObject['files']): boolean {
   for (const entry of value) {
     if (!isObject(entry) || typeof entry.path !== 'string' || typeof entry.sha256 !== 'string'
       || !/^[a-f0-9]{64}$/.test(entry.sha256) || entry.path <= previous
-      || !/^(config\.json|out\/.+)$/.test(entry.path) || entry.path.split('/').some((part) => part === '..' || part === '.' || part === '')) return false;
+      || !/^(out\/.+|[^/]+\.json)$/.test(entry.path) || entry.path.split('/').some((part) => part === '..' || part === '.' || part === '')) return false;
     previous = entry.path;
   }
   return value.some((entry) => isObject(entry) && entry.path === 'config.json');
@@ -109,6 +142,7 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
       ctx.refusals.push({ code: 'REVIEW_PACKAGE_MALFORMED', path, message: `${path}: expected config {path, sha256}, from, sorted files {path, sha256} and the package open command` });
       continue;
     }
+    checkBuildIdentity(ctx, version, record);
     if (!packageExists(pkg)) {
       ctx.warnings.push({ code: 'REVIEW_PACKAGE_MISSING', path, message: `${path}: package absent; regenerate with ${regeneration(n, record)}` });
       continue;
@@ -177,6 +211,12 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     requireLayout(from);
     const configBytes = readFileSync(config);
     try { if (!isObject(JSON.parse(configBytes.toString()))) throw new Error(); } catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', 'config must be a JSON object'); }
+    const requirements = (JSON.parse(configBytes.toString()) as JsonObject).requirements;
+    // Retain a named adjacent requirements document without rewriting config bytes.
+    const requirementsFile = typeof requirements === 'string' && /^[^/\\]+\.json$/.test(requirements)
+      && requirements !== 'config.json' && existsSync(join(dirname(config), requirements))
+      ? source(relative(dir, join(dirname(config), requirements))) : null;
+    const requirementsBytes = requirementsFile === null ? null : readFileSync(requirementsFile);
     // A compiled model already cited by an authored take cannot be rebound by packaging.
     for (const post of directionObjects(project.versions)) {
       if (post.kind !== 'post' || post.rig_version !== n || !isObject(post.provenance) || post.provenance.direction === undefined) continue;
@@ -193,6 +233,7 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     let published = false;
     try {
       writeFileSync(join(scratch, 'config.json'), configBytes);
+      if (requirementsBytes !== null) writeFileSync(join(scratch, requirements as string), requirementsBytes);
       for (const entry of required) {
         if (entry !== 'parts.json') mkdirSync(join(scratch, 'out', entry), { recursive: true });
       }
@@ -206,8 +247,12 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
       if (!isDeepStrictEqual(sourceFiles(from), inputs) || hash(readFileSync(config)) !== hash(configBytes)) {
         refuse('REVIEW_PACKAGE_SOURCE_CHANGED', 'producer inputs changed during copy');
       }
+      if (requirementsFile !== null && !readFileSync(requirementsFile).equals(requirementsBytes!)) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', 'requirements changed during copy');
       const files = filesAt(scratch);
       const record: JsonObject = { config: { path: relative(dir, config), sha256: hash(configBytes) }, from: relative(dir, from), files: files.map((f) => ({ ...f })), open: openCommand(n) };
+      const identity = { dir, project, refusals: [] as Ctx['refusals'], warnings: [] as Ctx['warnings'] };
+      checkBuildIdentity(identity, version, record);
+      if (identity.refusals[0]) refuse(identity.refusals[0].code, identity.refusals[0].message);
       if (packageExists(pkg)) {
         if (lstatSync(pkg).isSymbolicLink() || realpathSync(pkg) !== pkg) refuse('REVIEW_PACKAGE_PATH_INVALID', 'existing package must have no symlink parents');
         if (!isDeepStrictEqual(filesAt(pkg), files)) refuse('REVIEW_PACKAGE_EXISTS', 'existing package differs; preserve it and inspect the recorded version before regenerating');

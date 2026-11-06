@@ -1,9 +1,71 @@
 {
   "key": "synthetic",
+  "requirements": "interview-requirements.json",
+  "assemble": {
+    "rig_scale": 1,
+    "plan": [
+      [
+        "background",
+        "full",
+        "author:background"
+      ],
+      [
+        "torso",
+        "full",
+        "topwear"
+      ],
+      [
+        "lantern",
+        "full",
+        "author:lantern"
+      ],
+      [
+        "face",
+        "full",
+        "face"
+      ],
+      [
+        "eye_r",
+        "full",
+        "eyewhite-r"
+      ],
+      [
+        "eye_l",
+        "full",
+        "eyewhite-l"
+      ]
+    ]
+  },
   "bones": [
     {
-      "name": "root"
+      "name": "body",
+      "parent": "root",
+      "at": [
+        64,
+        64
+      ]
     }
   ],
-  "requirements": "interview-requirements.json"
+  "meshes": {},
+  "regions": {
+    "background": "body",
+    "torso": "body",
+    "lantern": "body",
+    "face": "body",
+    "eye_r": "body",
+    "eye_l": "body"
+  },
+  "motion": {
+    "duration": 4,
+    "tracks": [
+      {
+        "bone": "body",
+        "prop": "translatey",
+        "amp": 0.5,
+        "period": 4,
+        "phase": 0,
+        "base": 0
+      }
+    ]
+  }
 }

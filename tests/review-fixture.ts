@@ -1,5 +1,48 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
+import { createHash } from 'node:crypto';
+import { asArray, isObject } from '../src/check.ts';
+import { latestPartsApproval } from '../src/structure.ts';
+import type { JsonObject } from '../src/templates.ts';
+
+/** Keep unrelated legacy tests on a consistent synthetic build, with raw controls opting out. */
+export function alignLegacyBuilds(project: JsonObject, files: Record<string, string | Uint8Array>): void {
+  const hash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+  for (const version of asArray(project.versions).filter(isObject)) {
+    const pkg = version.review_package;
+    const provenance = version.provenance;
+    if (version.kind !== 'rig' || !isObject(pkg) || !isObject(pkg.config)) continue;
+    if (isObject(provenance) && isObject(provenance.config)) {
+      const config = provenance.config;
+      const bytes = files[String(config.path)];
+      if (bytes !== undefined && hash(bytes) === config.sha256) {
+        pkg.config.sha256 = hash(bytes);
+        files[String(pkg.config.path)] = bytes;
+        files[`derived/review/v${String(version.n)}/config.json`] = bytes;
+        const entry = asArray(pkg.files).find(f => isObject(f) && f.path === 'config.json');
+        if (isObject(entry)) entry.sha256 = hash(bytes);
+      } else if (bytes === undefined) config.sha256 = pkg.config.sha256;
+    }
+    const approval = latestPartsApproval(project, Date.parse(String(version.at)));
+    // A signature-writer test may remove the approval before recording it again.
+    const evidence = approval?.evidence ?? { path: 'evidence/parts-review.json' };
+    if (!isObject(evidence) || typeof evidence.path !== 'string' || files[evidence.path] === undefined) continue;
+    let verdict: JsonObject;
+    try { verdict = JSON.parse(Buffer.from(files[evidence.path]!).toString()) as JsonObject; } catch { continue; }
+    const source = isObject(verdict.source) ? verdict.source : {};
+    const manifest = asArray(source.files).find(isObject);
+    if (!manifest || typeof manifest.path !== 'string') continue;
+    const path = posix.normalize(posix.join(posix.dirname(evidence.path), manifest.path));
+    const manifestBytes = files[path];
+    if (manifestBytes === undefined || hash(manifestBytes) !== manifest.sha256) continue;
+    const entry = asArray(pkg.files).find(f => isObject(f) && f.path === 'out/parts.json');
+    if (isObject(entry)) {
+      entry.sha256 = hash(manifestBytes);
+      files[`derived/review/v${String(version.n)}/out/parts.json`] = manifestBytes;
+      files[`${String(pkg.from)}/parts.json`] = manifestBytes;
+    }
+  }
+}
 
 /** Synthetic producer bytes shipped with the filled example, relative to a review package. */
 export function exampleReviewBytes(): Record<string, string> {

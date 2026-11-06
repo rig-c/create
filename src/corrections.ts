@@ -8,6 +8,7 @@ import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
 import { stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { reviewHandoffInputs } from './review-package.ts';
 
 export const CORRECTIONS_SPEC = 'rig-create/corrections@1';
 export const CORRECTION_SPEC = 'rig-create/correction@1';
@@ -209,7 +210,7 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
   if (!isObject(reviewed.rig) || reviewed.rig.sha256 !== on.model.sha256 || reviewed.motion !== null || !isObject(handoff) || !sameHash(handoff.config, on.config) || !Array.isArray(handoff.files) || !Array.isArray(handoff.missing) || handoff.missing.length !== 0) fail('CORRECTION_APPLIED_INVALID', 'feedback reviewed source/handoff differs');
   if (on.kind === 'rig') {
     const pkg = versionRecord(project, on.n).review_package as JsonObject;
-    const inputs = bindings(pkg.files).filter(f => !String(f.path).startsWith('out/check/'));
+    const inputs = reviewHandoffInputs(pkg);
     if (handoff.files.length !== inputs.length || !inputs.every(f => bindings(handoff.files).some(h => typeof h.path === 'string' && posix.normalize(`out/check/${h.path}`) === f.path && h.sha256 === f.sha256))) fail('CORRECTION_APPLIED_INVALID', 'feedback input inventory differs from source package');
   } else if (on.kind === 'draft') {
     const draft = draftRecord(project, on.id);

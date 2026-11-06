@@ -7,10 +7,11 @@ import { correctionCommand } from '../src/correction-writers.ts';
 import { writeExampleChoices } from './example-choices.ts';
 import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
 import { setSystemTime } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { draftRigCommand } from '../src/drafts.ts';
+import { reviewPackageCommand } from '../src/review-package.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
@@ -46,13 +47,23 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     const version = obj(raw);
     if (version.kind === 'rig') {
       const path = `evidence/v${String(version.n)}/interview-config.json`;
-      const config = JSON.parse(readFileSync(join(dir,`evidence/v${String(version.n)}/review-config.json`),'utf8')) as JsonObject;
-      config.requirements = 'interview-requirements.json';
       const requirements = `evidence/v${String(version.n)}/interview-requirements.json`;
-      files[path] = `${JSON.stringify(config,null,2)}\n`;
-      files[requirements] = `${JSON.stringify({spec:'spine-parts-requirements/1',fps:12,requirements:[],setup_painting:{required:true}},null,2)}\n`;
+      files[path] = files[`${EXAMPLE_DRAFT}/config.json`]!;
+      files[requirements] = files[`${EXAMPLE_DRAFT}/interview-requirements.json`]!;
       write(path,files[path] as string); write(requirements,files[requirements] as string);
-      obj(version.provenance).config = {path,sha256:sha256(Buffer.from(files[path] as string))};
+      // Package the same producer population retained by the labelled draft.
+      const reviewConfig = `evidence/v${String(version.n)}/review-config.json`;
+      files[reviewConfig] = files[path]!; write(reviewConfig, files[path]!);
+      const build = `outputs/v${String(version.n)}/out`;
+      rmSync(join(dir, build), { recursive: true });
+      for (const [file, bytes] of Object.entries(input)) { files[`${build}/${file}`] = bytes; write(`${build}/${file}`, bytes); }
+      for (const [file, bytes] of Object.entries(files).filter(([file]) => file.startsWith(`${EXAMPLE_DRAFT}/out/`))) {
+        const suffix = file.slice(`${EXAMPLE_DRAFT}/out/`.length);
+        const dest = `${build}/${suffix.startsWith('check/') ? suffix : `rig/${suffix}`}`;
+        files[dest] = bytes; write(dest, bytes);
+      }
+      const provenance = obj(version.provenance);
+      provenance.config = {path,sha256:sha256(Buffer.from(files[path] as string))};
     } else {
       for (const entries of Object.values(obj(obj(version.provenance).sections))) for (const entry of arr(entries).map(obj)) entry.asks = [entry.guide as Json];
     }
@@ -99,7 +110,23 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
     // Retain the already writer-shaped synthetic execution/review history; new approvals are all writer-generated.
     arr(p.signoffs).push(...arr(original.signoffs).filter(s => ['rigging','rig-review'].includes(String(obj(s).stage))));
-    p.versions = original.versions as Json; p.stage = 'post-interview';
+    p.versions = original.versions as Json;
+    // Original sparse controls are separate from the signed build packages.
+    for (const version of arr(p.versions).map(obj).filter(v => v.kind === 'rig')) {
+      const n = String(version.n);
+      const packageRoot = `derived/review/v${n}`;
+      // The generator materialised the independent controls above. Remove only
+      // this fresh scratch copy before publishing the signed population.
+      rmSync(join(dir, packageRoot), { recursive: true });
+      save();
+      const record = JSON.parse(reviewPackageCommand([n, dir, '--config', `evidence/v${n}/review-config.json`, '--from', `outputs/v${n}/out`, '--json']).stdout) as JsonObject;
+      version.review_package = record;
+      for (const entry of arr(record.files).map(obj)) {
+        const path = `${packageRoot}/${String(entry.path)}`;
+        files[path] = readFileSync(join(dir, path));
+      }
+    }
+    p.stage = 'post-interview';
     obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
     for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
     save(); Object.assign(files,writeExampleChoices(dir,'post-interview')); reload();

@@ -3,7 +3,7 @@
   "draft_id": "example",
   "config": {
     "path": "derived/drafts/example/config.json",
-    "sha256": "81f4e06a55e5a4b6cca8836ccacd41ac92e5a09076dece6bc4ac2dacd26acd8a"
+    "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
   },
   "entries": []
 }

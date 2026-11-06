@@ -68,9 +68,9 @@ test('the shipped new-order example passes at zero refusals and warnings', () =>
   expect(report.warnings).toEqual([]);
 });
 
-test('frozen pre-split example stays valid with exactly pin-drift and legacy-order warnings', () => {
-  const report = checkProject(fixture());
-  expect(report.refusals).toEqual([]);
+test('frozen pre-split example is refused only by the build-identity gate', () => {
+  const report = checkProject(fixture(() => {}, 'legacy-example-project.json', {}, true));
+  expect(report.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
   expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const bytes = readFileSync(join(import.meta.dir, '../templates/legacy-example-project.json'));
   // Sealed original bytes from the pre-split main head, not a rewritten migration.

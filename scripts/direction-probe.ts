@@ -21,7 +21,7 @@ export function buildDirectionProbe(dir: string): {model: Buffer; config: Buffer
   writeFileSync(join(dir, 'evidence/rig-config.json'), config);
   writeFileSync(join(dir, 'evidence/motion.json'), `${JSON.stringify({spec: 'rigc-motion/1', archetype: 'direction-probe', cut: 'probe', easings: {}, groups: {}, animations: {turn: {duration: 1, loop: false, tracks: [{bone: 'body', property: 'rotate', keys: [{t: 0, v: [-10]}, {t: 1, v: [10]}]}]}}}, null, 2)}\n`);
   // The binary is installed by parts' declared core dependency; no phantom core import.
-  const run = spawnSync(resolve(import.meta.dir, '../node_modules/.bin/rigc'), ['build', '--rig', 'evidence/rig-config.json', '--motion', 'evidence/motion.json', '--out', 'derived/review/v1/out/check/build', '--copy-images'], {cwd: dir, encoding: 'utf8', timeout: 60_000});
+  const run = spawnSync(process.execPath, [resolve(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'), 'build', '--rig', 'evidence/rig-config.json', '--motion', 'evidence/motion.json', '--out', 'derived/review/v1/out/check/build', '--copy-images'], {cwd: dir, encoding: 'utf8', timeout: 60_000});
   if (run.status !== 0) throw Error(`probe rigc build failed (${run.status}): ${run.stdout}\n${run.stderr}`);
   return {model: readFileSync(join(dir, 'derived/review/v1/out/check/build/skeleton.model.json')), config, still};
 }

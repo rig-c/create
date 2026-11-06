@@ -1,7 +1,8 @@
-/** A single synthetic lifecycle. Binding records must enter through public writers. */
+/** A synthetic lifecycle with declared inputs and writer-produced create records. */
 import { setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { main } from '../src/cli.ts';
 import { asArray, checkProject, collectItems, isObject } from '../src/check.ts';
 import { applicableAsks, optionContext, OPTIONS_SPEC, sha256 } from '../src/choices.ts';
@@ -29,6 +30,7 @@ export interface ChainStep {
     value: Json;
     citation: string;
     first_consumer: number;
+    first_consumer_command: string[];
   };
 }
 
@@ -47,6 +49,67 @@ function containsBinding(value: Json): boolean {
 function overlaps(a: string, b: string): boolean {
   return a === b || a.startsWith(`${b}.`) || b.startsWith(`${a}.`)
     || a.startsWith(`${b}[`) || b.startsWith(`${a}[`);
+}
+
+function child(value: Json | undefined, key: string): Json | undefined {
+  if (Array.isArray(value)) return value[Number(key)];
+  return isObject(value) ? value[key] : undefined;
+}
+
+function changedPaths(before: Json | undefined, after: Json | undefined, path: string[] = []): string[][] {
+  if (isDeepStrictEqual(before, after)) return [];
+  if (Array.isArray(before) && Array.isArray(after) || isObject(before) && isObject(after)) {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    return [...keys].flatMap(key => changedPaths(child(before, key), child(after, key), [...path, key]));
+  }
+  return [path];
+}
+
+/** This is the mutation path used by every generator seed, before writing project.json. */
+export function applyChainSeed(project: JsonObject, field: string, value: Json, apply: (candidate: JsonObject) => void): JsonObject {
+  if (!seedField.test(field) || containsBinding(value)) throw new Error(`${field}: seeded binding field or unsupported seed kind`);
+  const next = structuredClone(project);
+  apply(next);
+  let target: string[];
+  if (field === 'versions[]') {
+    if (!isObject(value) || value.kind !== 'rig' || asArray(next.versions).length !== asArray(project.versions).length + 1) {
+      throw new Error('versions[]: expected one new rig declaration');
+    }
+    target = ['versions', String(asArray(project.versions).length)];
+  } else if (field.startsWith('plan.steps[')) {
+    const match = /^plan\.steps\[([a-z_-]+)\](\.status)?$/.exec(field)!;
+    const steps = asArray((next.plan as JsonObject).steps);
+    const index = steps.findIndex(step => isObject(step) && step.id === match[1]);
+    if (index < 0) throw new Error(`${field}: step missing`);
+    const previous = asArray((project.plan as JsonObject).steps);
+    const previousIndex = previous.findIndex(step => isObject(step) && step.id === match[1]);
+    const expectedIndex = previousIndex < 0 ? previous.length : previousIndex;
+    if (index !== expectedIndex) throw new Error(`${field}: seed changes a path outside its declared field`);
+    target = ['plan', 'steps', String(index), ...(match[2] ? ['status'] : [])];
+  } else {
+    target = field.replace(/^project\./, '').replace(/\[\]$/, '').split('.');
+  }
+  const changes = changedPaths(project, next);
+  if (changes.some(path => !target.every((part, index) => path[index] === part))) {
+    throw new Error(`${field}: seed changes a path outside its declared field`);
+  }
+  const actual = target.reduce<Json | undefined>((current, key) => child(current, key), next);
+  if (!isDeepStrictEqual(actual, value)) throw new Error(`${field}: written subtree differs from declared value`);
+  const statuses = ['pending', 'in-progress', 'at-checkpoint', 'done'];
+  for (const step of asArray((project.plan as JsonObject).steps).filter(isObject)) {
+    const updated = asArray((next.plan as JsonObject).steps).filter(isObject).find(candidate => candidate.id === step.id);
+    const signed = asArray(project.signoffs).filter(isObject).some(s => isObject(s.step_hashes) && String(step.id) in s.step_hashes);
+    if (signed && (!updated || stepHash(updated) !== stepHash(step))) throw new Error(`${field}: seed changes a signed plan`);
+    if (!updated) continue;
+    const from = statuses.indexOf(String(step.status ?? 'pending'));
+    const to = statuses.indexOf(String(updated.status ?? 'pending'));
+    if (to < 0 || to < from) throw new Error(`${String(step.id)}: status must move forward to a supported value`);
+  }
+  return next;
+}
+
+function matchesCommand(command: string[], declared: string[]): boolean {
+  return declared.length > 1 && declared.every((part, index) => command[index] === part);
 }
 
 function chainFiles(dir: string, prefix = ''): Record<string, Buffer> {
@@ -75,8 +138,11 @@ export function validateChainSteps(steps: ChainStep[]): void {
         throw new Error(`${step.step}: only a rig version declaration may be seeded`);
       }
       if (!seed.citation.startsWith('docs/PROJECT.md:')) throw new Error(`${step.step}: missing seed citation`);
-      const consumer = steps.findIndex(candidate => candidate.kind === 'writer' && candidate.consumes.includes(step.step));
-      if (consumer <= index || seed.first_consumer !== consumer) throw new Error(`${step.step}: seed must precede its first consumer`);
+      const consumer = steps.findIndex((candidate, position) => position > index && candidate.kind === 'writer'
+        && matchesCommand(candidate.command, seed.first_consumer_command));
+      if (consumer <= index || seed.first_consumer !== consumer || !steps[consumer]!.consumes.includes(step.step)) {
+        throw new Error(`${step.step}: seed must precede its declared first consumer`);
+      }
       if ([...bound.keys()].some(field => overlaps(field, seed.field))) {
         throw new Error(`${step.step}: seed changes an already-bound field or byte`);
       }
@@ -125,7 +191,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     let exit: number;
     try { exit = main(args); } finally { process.stdout.write = stdout; process.stderr.write = stderr; }
     if (exit !== 0) throw new Error(`${args.join(' ')}: exit ${exit}\n${output}`);
-    const ready = pending.filter(index => steps[index]!.seed!.field !== 'split.parts' || args[0] === 'split-captions');
+    const ready = pending.filter(index => matchesCommand(['rig-create', ...args], steps[index]!.seed!.first_consumer_command));
     const consumes = ready.map(index => {
       pending.splice(pending.indexOf(index), 1);
       steps[index]!.seed!.first_consumer = steps.length;
@@ -147,25 +213,17 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     steps.push({ kind: 'writer', step: `writer-${steps.length}`, command: ['rig-create', ...args], exit,
       output_path: outputPath ?? 'project.json', output_sha256: sha256(readFileSync(join(dir, outputPath ?? 'project.json'))), consumes, bindings });
   };
-  const seed = (field: string, value: Json, citation: string, apply: (project: JsonObject) => void): void => {
+  const seed = (field: string, value: Json, citation: string, consumer: string[], apply: (project: JsonObject) => void): void => {
     const entry: ChainStep = { kind: 'seed', step: `seed-${steps.length}`, command: [], exit: 0,
       output_sha256: sha256(Buffer.from(JSON.stringify(value))), consumes: [], bindings: {},
-      seed: { field, value, citation, first_consumer: -1 } };
-    const project = load();
-    const signed = asArray(project.plan && isObject(project.plan) ? project.plan.steps : []).filter(isObject)
-      .filter(step => asArray(project.signoffs).filter(isObject).some(s => isObject(s.step_hashes) && String(step.id) in s.step_hashes))
-      .map(step => [String(step.id), stepHash(step)]);
-    apply(project);
-    for (const [id, hash] of signed) {
-      const step = asArray((project.plan as JsonObject).steps).filter(isObject).find(step => step.id === id);
-      if (!step || stepHash(step) !== hash) throw new Error(`${field}: seed changes a signed plan`);
-    }
+      seed: { field, value, citation, first_consumer: -1, first_consumer_command: ['rig-create', ...consumer] } };
+    const project = applyChainSeed(load(), field, value, apply);
     steps.push(entry); pending.push(steps.length - 1);
     json('project.json', project);
   };
-  const stage = (value: string): void => seed('project.stage', value, 'docs/PROJECT.md:528,966', p => { p.stage = value; });
-  const status = (ids: string[]): void => {
-    for (const id of ids) seed(`plan.steps[${id}].status`, 'done', 'docs/PROJECT.md:81,84', p => {
+  const stage = (value: string, consumer: string[]): void => seed('project.stage', value, 'docs/PROJECT.md:528,966', consumer, p => { p.stage = value; });
+  const status = (ids: string[], consumer: string[]): void => {
+    for (const id of ids) seed(`plan.steps[${id}].status`, 'done', 'docs/PROJECT.md:81,84', consumer, p => {
       const step = asArray((p.plan as JsonObject).steps).filter(isObject).find(s => s.id === id)!;
       step.status = 'done';
     });
@@ -173,7 +231,10 @@ export function generateExampleChain(destination: string): Record<string, Buffer
   const sign = (name: string, flags: string[] = []): void => writer(['signoff', name, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', ...flags]);
   const producer = (name: string, command: string[], files: Record<string, Buffer>): void => {
     const outputs = Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)).map(([path, bytes]) => [path, sha256(bytes)]));
-    steps.push({ kind: 'producer', step: name, command, exit: 0, output_sha256: sha256(Buffer.from(JSON.stringify(outputs))),
+    const paths = Object.keys(outputs);
+    const output = paths.length === 1 ? { output_path: paths[0], output_sha256: outputs[paths[0]!]! }
+      : { output_sha256: sha256(Buffer.from(JSON.stringify(outputs))) };
+    steps.push({ kind: 'producer', step: name, command, exit: 0, ...output,
       outputs, consumes: [], bindings: {} });
   };
   const choices = (phase: string): void => {
@@ -219,31 +280,34 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     const painting = readFileSync(join(dir, 'inputs/painting.png'));
     const inputPath = relative(dir, join(dir, 'inputs/painting.png')).split('\\').join('/');
     const inputs = [{ path: inputPath, sha256: sha256(painting), bytes: painting.length, origin: 'synthetic, generated by generateExampleParts' }];
-    seed('inputs[]', inputs, 'docs/PROJECT.md:51,757', p => { p.inputs = inputs; });
-    const ids = ['seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion', 'camera', 'timing', 'composition'];
-    const plan = ids.map((id, index) => ({ id, phase: index < 6 ? 'rig' : 'post', order: index + 1,
+    seed('inputs[]', inputs, 'docs/PROJECT.md:51,757', ['interview-options', 'rig_type'], p => { p.inputs = inputs; });
+    const ids = ['seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion'];
+    const plan = ids.map((id, index) => ({ id, phase: 'rig', order: index + 1,
       does: `Execute synthetic ${id}`, produces: `Synthetic ${id} output`,
-      rests_on: [id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id],
+      rests_on: [id],
       bar: 'The synthetic output matches its declared input.', checkpoint_proposed: id === 'assemble', checkpoint: null, status: 'pending' }));
-    seed('plan.steps', plan, 'docs/PROJECT.md:450,480', p => { (p.plan as JsonObject).steps = plan; });
+    seed('plan.steps', plan, 'docs/PROJECT.md:450,480', ['interview-options', 'rig_type'], p => { (p.plan as JsonObject).steps = plan; });
     const manifest = JSON.parse(input['parts.json']!.toString()) as { parts: { name: string }[] };
     const split = manifest.parts.map(part => ({ name: part.name, label: 'rigid', note: 'Synthetic geometric block.' }));
-    seed('split.parts', split, 'docs/PROJECT.md:399,756', p => { (p.split as JsonObject).parts = split; });
+    seed('split.parts', split, 'docs/PROJECT.md:399,756', ['split-captions'], p => { (p.split as JsonObject).parts = split; });
     choices('interview'); sign('interview');
-    stage('plan-approved'); sign('plan-approved');
-    stage('parts'); status(['seethrough', 'assemble']);
+    stage('plan-approved', ['signoff', 'plan-approved']); sign('plan-approved');
+    stage('parts', ['signoff', 'parts']); status(['seethrough', 'assemble'], ['signoff', 'parts']);
     sign('parts', ['--checkpoint', 'assemble']);
     const draft = generateExampleDraft(join(scratch, 'draft-producer'), input);
     producer('labelled draft producer', ['generateExampleDraft', '../draft-producer', 'same generated parts'], draft);
     const draftRoot = 'derived/drafts/chain';
     for (const [path, bytes] of Object.entries(input)) write(`${draftRoot}/input/${path}`, bytes);
     for (const [path, bytes] of Object.entries(draft)) write(`${draftRoot}/${path}`, bytes);
+    write(`${draftRoot}/input/recomposite_rig.png`, readFileSync(join(scratch, 'parts-producer/assembled/render/recomposite_rig.png')));
     writer(['draft-rig', 'chain', '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`, '--parts', `${draftRoot}/input`]);
     const declaredDraft = asArray(load().drafts).filter(isObject)[0]!;
     json('evidence/structure.json', { schema: STRUCTURE_SCHEMA, draft_id: 'chain', config: declaredDraft.config, entries: [] });
     const partsDir = `${draftRoot}/input`;
     const verdict = partsPackage({ input, partsDir, verdict: 'evidence/parts-review.json', edit: v => { v.updatedAt = new Date().toISOString(); } });
     write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
+    producer('synthetic review-tool parts verdict (tests/parts-package.ts)', ['partsPackage', 'tests/parts-package.ts'],
+      { 'evidence/parts-review.json': readFileSync(join(dir, 'evidence/parts-review.json')) });
     const diff = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
       'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png', '--parts', 'assembled/rig/parts.json',
       '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'],
@@ -253,13 +317,13 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     producer('assembly difference report', ['rig-parts', 'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png',
       '--parts', 'assembled/rig/parts.json', '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'], { 'diff-components.json': reportBytes });
     write('evidence/diff-components.json', reportBytes);
-    write(`${partsDir}/recomposite_rig.png`, readFileSync(join(scratch, 'parts-producer/assembled/render/recomposite_rig.png')));
     const diffReport = JSON.parse(reportBytes.toString()) as { stack: { sha256: string }; painting: { sha256: string }; components: { id: string }[] };
-    stage('parts-review');
+    stage('parts-review', ['signoff', 'parts-review']);
     sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure.json', '--evidence', 'evidence/parts-review.json', '--diff-report', 'evidence/diff-components.json',
       ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`])]);
-    stage('rigging-interview'); choices('rigging-interview'); sign('rigging-interview');
-    stage('rigging'); status(['bones', 'meshes', 'constraints', 'motion']);
+    stage('rigging-interview', ['interview-options', 'bones']); choices('rigging-interview'); sign('rigging-interview');
+    stage('rigging', ['interview', '--check']); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
+    writer(['interview', '--check', '--json']);
     const built = generateExampleDraft(join(scratch, 'rig-producer'), input);
     producer('production rig and compiled model', ['generateExampleDraft', '../rig-producer', 'same approved parts'], built);
     for (const [path, bytes] of Object.entries(input)) write(`outputs/v1/out/${path}`, bytes);
@@ -284,13 +348,22 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       changed: 'Build the synthetic approved parts.', outputs: [{ ...binding('outputs/v1/out/check/build/skeleton.model.json'), bytes: built['out/check/build/skeleton.model.json']!.length }],
       evidence: [{ kind: 'still', ...binding('evidence/setup.png'), camera: 'fixed', frame: 'setup' }],
       verdicts: [], answers_feedback: [], review_origin: null, provenance: { config: binding('evidence/v1/config.json'), sections } };
-    seed('versions[]', version, 'docs/PROJECT.md:580,595', p => { p.versions = [...asArray(p.versions), version]; });
+    seed('versions[]', version, 'docs/PROJECT.md:580,595', ['review-package', '1'], p => { p.versions = [...asArray(p.versions), version]; });
     writer(['review-package', '1', '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out']);
-    stage('rig-review');
+    stage('rig-review', ['review', '1']);
     writer(['review', '1', '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', 'evidence/approval.txt', '--source', 'synthetic example']);
     sign('rig-review', ['--version', '1']);
-    stage('post-interview'); choices('post-interview'); sign('post-interview');
-    stage('post'); status(['camera', 'timing', 'composition']);
+    stage('post-interview', ['interview-options', 'camera_depth']);
+    for (const [index, id] of ['camera', 'timing', 'composition'].entries()) {
+      const step: JsonObject = { id, phase: 'post', order: ids.length + index + 1, does: `Execute synthetic ${id}`,
+        produces: `Synthetic ${id} output`, rests_on: [{ camera: 'camera_depth', timing: 'post_timing', composition: 'post_composition' }[id]!],
+        bar: 'The synthetic output matches its declared input.', checkpoint_proposed: false, checkpoint: null, status: 'pending' };
+      seed(`plan.steps[${id}]`, step, 'docs/PROJECT.md:479,480', ['interview-options', 'camera_depth'], p => {
+        (p.plan as JsonObject).steps = [...asArray((p.plan as JsonObject).steps), step];
+      });
+    }
+    choices('post-interview'); sign('post-interview');
+    stage('post', ['direction', '--adopt']); status(['camera', 'timing', 'composition'], ['direction', '--adopt']);
     writer(['direction', '--adopt']);
     const cite = (id: string): JsonObject => {
       const answer = collectItems(load(), { collection: null }).find(i => i.id === id)!.raw as JsonObject;
@@ -304,20 +377,27 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       citations: { camera: cite('camera_depth'), timing: cite('post_timing') } });
     writer(['direction', 'write', '2', '--file', 'evidence/direction-input.json', '--rig', '1']);
     writer(['direction', 'check', '2', '--json']);
-    stage('direction-review');
+    stage('direction-review', ['review', '2']);
     writer(['review', '2', '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--verbatim-file', 'evidence/approval.txt', '--source', 'synthetic example']);
     sign('direction-review', ['--version', '2']);
-    stage('accepted'); writer(['interview', '--check', '--json']);
+    stage('accepted', ['interview', '--check']); writer(['interview', '--check', '--json']);
     writer(['split-captions', '--config', 'evidence/split-config.json'], 'evidence/captions.json');
     const checked = checkExampleChain(dir);
     validateChainSteps(steps);
-    json('chain.json', { claim: 'Every binding record is writer-produced; stage, plan/split, rig declarations and source inventory are declared seeds.',
+    json('chain.json', { claim: 'Create signoffs, rig/post review verdicts, packages and authored direction use public writers. The parts verdict is a synthetic review-tool export. Input declarations are seeds.',
+      seed_kinds: [
+        { kind: 'forward project.stage', fields: ['project.stage'] },
+        { kind: 'plan.steps (setup and status progress)', fields: ['plan.steps', 'split.parts'] },
+        { kind: 'rig version declaration', fields: ['versions[]'] },
+        { kind: 'source inventory', fields: ['inputs[]'] },
+      ],
       index_base: 0, stack_equals_painting: diffReport.stack.sha256 === diffReport.painting.sha256,
       steps, check: { refusals: checked.refusals, warnings: checked.warnings } });
     write('README.md', '# Synthetic bound chain\n\n'
       + 'The geometric painting and parts come from generateExampleParts. The labelled draft and production model come from generateExampleDraft on those exact parts.\n\n'
       + 'The setup still is the assembly recomposite, retained as synthetic setup evidence. The example demonstrates record binding. Rendered motion and camera behaviour require separate producer validation.\n\n'
-      + 'Approvals, verdicts, the review package and authored direction are written through the public create CLI. Forward stages, plan/split declarations, the rig version declaration and source inventory are declared seeds, listed with their first consumer in chain.json.\n\n'
+      + 'The public create CLI writes signoffs, rig/post review verdicts, the review package and authored direction. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.\n\n'
+      + 'Four seed kinds cover forward stages, plan.steps (setup and status progress) with split.parts, the rig version declaration and source inventory. Each seed declares its consuming command and records that command’s step index in chain.json.\n\n'
       + 'Reproduce with `bun scripts/generate-example-chain.ts <fresh-dir> --check` from the create repository.\n');
     return chainFiles(dir);
   } finally { process.chdir(originalCwd); setSystemTime(); }

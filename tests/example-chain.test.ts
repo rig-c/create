@@ -2,16 +2,18 @@ import { expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkExampleChain, validateChainSteps, type ChainStep } from '../scripts/generate-example-chain.ts';
+import { applyChainSeed, checkExampleChain, validateChainSteps, type ChainStep } from '../scripts/generate-example-chain.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { checkProject } from '../src/check.ts';
 import { sha256 } from '../src/choices.ts';
+import { stepHash } from '../src/step-hash.ts';
 
 const hash = 'a'.repeat(64);
 function receipt(): ChainStep[] {
   return [
     { kind: 'seed', step: 'declare plan', command: [], exit: 0, output_sha256: hash, consumes: [], bindings: {},
-      seed: { field: 'plan.steps', value: [], citation: 'docs/PROJECT.md:450', first_consumer: 1 } },
+      seed: { field: 'plan.steps', value: [], citation: 'docs/PROJECT.md:450', first_consumer: 1,
+        first_consumer_command: ['rig-create', 'signoff', 'plan-approved'] } },
     { kind: 'writer', step: 'approve plan', command: ['rig-create', 'signoff', 'plan-approved'], exit: 0,
       output_sha256: hash, consumes: ['declare plan'], bindings: { 'plan.steps': hash } },
   ];
@@ -21,7 +23,61 @@ test('a declared seed precedes its own binding consumer', () => {
   expect(() => validateChainSteps(receipt())).not.toThrow();
   const steps = receipt();
   steps.reverse();
-  expect(() => validateChainSteps(steps)).toThrow('seed must precede its first consumer');
+  expect(() => validateChainSteps(steps)).toThrow('seed must precede its declared first consumer');
+});
+
+test('the real generator seed path rejects a mislabelled apply before changing the source record', () => {
+  const project = readTemplate('project.json');
+  const original = structuredClone(project);
+  expect(() => applyChainSeed(project, 'project.stage', 'parts', candidate => {
+    candidate.stage = 'parts';
+    (candidate.signoffs as JsonObject[]).push({ stage: 'interview', by: 'user' });
+  })).toThrow('seed changes a path outside its declared field');
+  expect(project).toEqual(original);
+  expect(() => applyChainSeed(project, 'project.stage', 'parts', candidate => {
+    candidate.stage = 'rigging';
+  })).toThrow('written subtree differs from declared value');
+  (project.plan as JsonObject).steps = [{ id: 'assemble', status: 'pending' }];
+  const renamed = { id: 'camera', status: 'pending' };
+  expect(() => applyChainSeed(project, 'plan.steps[camera]', renamed, candidate => {
+    (candidate.plan as JsonObject).steps = [renamed];
+  })).toThrow('seed changes a path outside its declared field');
+});
+
+test('status seeds on the real generator path reject backward and unsupported progress', () => {
+  const project = readTemplate('project.json');
+  (project.plan as JsonObject).steps = [{ id: 'assemble', status: 'done' }];
+  const setStatus = (value: string): void => {
+    applyChainSeed(project, 'plan.steps[assemble].status', value, candidate => {
+      ((candidate.plan as JsonObject).steps as JsonObject[])[0]!.status = value;
+    });
+  };
+  expect(() => setStatus('pending')).toThrow('status must move forward to a supported value');
+  expect(() => setStatus('invented-status')).toThrow('status must move forward to a supported value');
+});
+
+test('the real generator seed path preserves the fields a plan signature bound', () => {
+  const project = readTemplate('project.json');
+  const step: JsonObject = { id: 'assemble', status: 'pending', bar: 'original bar', checkpoint: null };
+  (project.plan as JsonObject).steps = [step];
+  project.signoffs = [{ stage: 'plan-approved', step_hashes: { assemble: stepHash(step) } }];
+  const changed = { ...step, bar: 'changed bar' };
+  expect(() => applyChainSeed(project, 'plan.steps[assemble]', changed, candidate => {
+    (candidate.plan as JsonObject).steps = [changed];
+  })).toThrow('seed changes a signed plan');
+  expect(() => applyChainSeed(project, 'plan.steps', [], candidate => {
+    (candidate.plan as JsonObject).steps = [];
+  })).toThrow('seed changes a signed plan');
+  const progressed = applyChainSeed(project, 'plan.steps[assemble].status', 'done', candidate => {
+    ((candidate.plan as JsonObject).steps as JsonObject[])[0]!.status = 'done';
+  });
+  expect(stepHash(((progressed.plan as JsonObject).steps as JsonObject[])[0]!)).toBe(stepHash(step));
+});
+
+test('a seed declares its actual consuming command and that command must run after it', () => {
+  const steps = receipt();
+  steps[0]!.seed!.first_consumer_command = ['rig-create', 'review-package'];
+  expect(() => validateChainSteps(steps)).toThrow('seed must precede its declared first consumer');
 });
 
 test('a seed cannot change an already-bound field or byte', () => {
@@ -93,11 +149,21 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(40);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(41);
   expect(receipt.steps.every(step => step.exit === 0)).toBe(true);
   expect(receipt.steps.some(step => step.command.join(' ') === 'rig-create direction check 2 --json')).toBe(true);
   const split = receipt.steps.find(step => step.seed?.field === 'split.parts')!;
   expect(receipt.steps[split.seed!.first_consumer]!.command[1]).toBe('split-captions');
+  const partsVerdict = receipt.steps.find(step => step.step === 'synthetic review-tool parts verdict (tests/parts-package.ts)')!;
+  expect(partsVerdict.kind).toBe('producer');
+  expect(partsVerdict.output_sha256).toBe(sha256(readFileSync(join(shipped, 'evidence/parts-review.json'))));
+  const rigReview = receipt.steps.findIndex(step => step.command[1] === 'signoff' && step.command[2] === 'rig-review');
+  for (const id of ['camera', 'timing', 'composition']) {
+    const index = receipt.steps.findIndex(step => step.seed?.field === `plan.steps[${id}]`);
+    expect(index).toBeGreaterThan(rigReview);
+    expect(index).toBeLessThan(receipt.steps[index]!.seed!.first_consumer);
+    expect(receipt.steps[index]!.seed!.first_consumer_command).toEqual(['rig-create', 'interview-options', 'camera_depth']);
+  }
   for (const name of ['rig-review', 'direction-review']) {
     const signoff = (project.signoffs as JsonObject[]).find(s => s.stage === name)!;
     expect(signoff.target).toBeDefined();

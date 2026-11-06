@@ -4,11 +4,11 @@
   "question": "camera_depth",
   "stage": "post-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-06T01:00:35.000Z",
+  "drafted_at": "2026-11-06T01:00:36.000Z",
   "context": {
     "kind": "rig",
     "rig_version": 1,
-    "signoff_at": "2026-11-06T01:00:34.000Z",
+    "signoff_at": "2026-11-06T01:00:35.000Z",
     "config": {
       "path": "evidence/v1/config.json",
       "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"

@@ -1,8 +1,8 @@
 {
   "schema": "rig-review-direction-patch/1",
   "source_post": 2,
-  "rig_model_sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8",
-  "direction_sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79",
+  "rig_model_sha256": "63190ec6746bafbc73847fa6c6905b5811cc0adb41897dfed923fe802e4dc261",
+  "direction_sha256": "9bec50f753d4790ee0d9dde824a612126ed37e7b0e63d393505ac836118c50a4",
   "replace": {
     "camera": {
       "space": "rig-world-y-up",

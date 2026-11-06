@@ -1347,13 +1347,21 @@ stays rig-only and cannot rebind a model already cited by a direction document.
 Reopen rules, historical evidence, human signoff and agent closure remain
 separate gates.
 
-The generated synthetic example is `templates/example-direction/`, including a
+The generated geometric example is `templates/example-direction/`, including a
 small staged project, exact input/result documents, a review-format patch and
 @2 correction. It uses invented sentences shaped like a pilot interview, not
 pilot words or assets. Reproduce with
 `bun scripts/generate-direction-fixture.ts <fresh-dir> --check`. It demonstrates
-writer/contract behavior, not a rendered take or upstream producer gate; the
-main filled project remains the separate zero-refusal/zero-warning example.
+writer/contract behavior with a real installed `rigc build` of a public rectangle
+probe. Its compiled local yaw slider is readable by review's `discoverTurnDials`
+(`src/turn-pad.ts`, revision `c3e571db1878093b183c282b56f5eb846c1d742b`),
+using core 3.2.1's `RigSliderConstraint` (`src/rig.ts`). The compiled model has
+no authored camera capability; camera requests in the direction documents are
+unsupported playback requests, not evidence of camera rendering or Apply.
+The installed core-only build reports `A00_ROUNDTRIP_PARSE` as SKIP; this is
+not a spine-core round-trip or a rendered-take claim. Recompute every recorded
+file hash with `bun scripts/check-direction-fixture-hashes.ts`.
+The main filled project remains the separate zero-refusal/zero-warning example.
 
 ## Advisory intake reports
 

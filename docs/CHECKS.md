@@ -974,6 +974,6 @@ direction-review signature binds an accepted verdict and its version's reviewed 
 | Code | Meaning | Remedy |
 | --- | --- | --- |
 | `SIGNOFF_TARGET_MISSING` | A current-era review signature has no target | Preserve the reviewed inputs and sign again with `--version` |
-| `SIGNOFF_TARGET_STALE` | The version, accepted verdict, package inventory or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed inputs and select the accepted version with `--version` |
+| `SIGNOFF_TARGET_STALE` | The version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed inputs and select the accepted version with `--version` |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
 | `SIGNOFF_TARGET_STALE_LEGACY` | A pre-contract signature's target no longer resolves | Preserve history and bind the next review signature |

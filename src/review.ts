@@ -97,6 +97,19 @@ function isHuman(by: string | null): by is string {
   return by !== null && by.toLowerCase() !== 'agent';
 }
 
+/** Human, non-provisional verdicts retain their original array indices. */
+export function humanReviewVerdicts(value: Json | undefined, stage: string): { index: number; record: JsonObject }[] {
+  return asArray(value).flatMap((record, index) =>
+    isObject(record) && record.review === stage && isHuman(asString(record.by)) && record.verdict !== 'provisional'
+      ? [{ index, record }] : []);
+}
+
+/** A later human verdict withdraws any earlier acceptance. */
+export function acceptedReviewVerdict(version: JsonObject, stage: string): number {
+  const last = humanReviewVerdicts(version.verdicts, stage).at(-1);
+  return last?.record.verdict === 'accepted' ? last.index : -1;
+}
+
 function readStill(e: JsonObject): Still | string {
   const missing = ['path', 'sha256'].filter((k) => asString(e[k]) === null);
   if (missing.length > 0) return `missing ${missing.join(', ')}`;
@@ -136,8 +149,7 @@ export function readVersions(project: JsonObject): Versions {
     // earlier acceptance. An acceptance must be dated, or the post-before-
     // acceptance order cannot be checked.
     let accepted: Acceptance | null = null;
-    for (const [verdict, d] of asArray(v.verdicts).entries()) {
-      if (!isObject(d) || d.review !== RIG_REVIEW || !isHuman(asString(d.by)) || d.verdict === 'provisional') continue;
+    for (const { index: verdict, record: d } of humanReviewVerdicts(v.verdicts, RIG_REVIEW)) {
       if (d.verdict !== 'accepted') {
         accepted = null;
         continue;

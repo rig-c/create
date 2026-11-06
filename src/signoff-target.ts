@@ -1,3 +1,4 @@
+import { acceptedReviewVerdict } from './review.ts';
 /** Review signatures bind accepted verdicts and the reviewed version's retained inputs. */
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -12,6 +13,10 @@ import type { Json, JsonObject } from './templates.ts';
 export const SIGNOFF_TARGET_SINCE = '2026-11-06T00:00:00Z';
 const kinds: Record<string, string> = { 'rig-review': 'rig', 'direction-review': 'post' };
 
+export function outputsHash(outputs: Json[]): string {
+  return createHash('sha256').update(JSON.stringify(sorted(outputs))).digest('hex');
+}
+
 export function reviewPackageHash(record: JsonObject): string {
   return createHash('sha256').update(JSON.stringify(sorted({ config: record.config, files: record.files }))).digest('hex');
 }
@@ -23,7 +28,11 @@ function validBinding(value: Json | undefined): value is JsonObject {
 
 function targetFor(dir: string, project: JsonObject, stage: string, version: JsonObject, index: number, verdict: number): JsonObject {
   const target: JsonObject = { version: version.n, verdict: `versions[${index}].verdicts[${verdict}]` };
-  if (stage === 'rig-review') {
+  if (stage === 'rig-review' && version.pre_interview === true) {
+    if (version.outputs_lost !== undefined) throw Error('outputs lost: nothing to bind');
+    if (!Array.isArray(version.outputs) || version.outputs.length === 0) throw Error('outputs missing: nothing to bind');
+    target.outputs = { path: `versions[${index}].outputs`, sha256: outputsHash(version.outputs) };
+  } else if (stage === 'rig-review') {
     if (!isObject(version.review_package) || !isObject(version.review_package.config) || !Array.isArray(version.review_package.files)) throw Error('review_package missing or malformed');
     target.review_package = { path: `versions[${index}].review_package`, sha256: reviewPackageHash(version.review_package) };
   } else {
@@ -60,9 +69,9 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
       if (!match || Number(match[1]) !== i) throw Error('verdict path does not resolve to the target version');
       const verdictIndex = Number(match[2]);
       const verdict = asArray(v.verdicts)[verdictIndex];
-      if (!isObject(verdict) || verdict.review !== stage || verdict.verdict !== 'accepted') throw Error('named verdict is missing, not accepted or belongs to another review stage');
+      if (!isObject(verdict) || verdictIndex !== acceptedReviewVerdict(v, stage)) throw Error('named verdict is missing, not accepted or belongs to another review stage');
       const expected = targetFor(dir, project, stage, v, i, verdictIndex);
-      if (!isDeepStrictEqual(target, expected)) throw Error(stage === 'rig-review' ? 'review_package changed since signing' : expected.direction ? 'direction changed since signing' : 'post config changed since signing');
+      if (!isDeepStrictEqual(target, expected)) throw Error(expected.outputs ? 'outputs changed since signing' : stage === 'rig-review' ? 'review_package changed since signing' : expected.direction ? 'direction changed since signing' : 'post config changed since signing');
     } catch (error) { reason = error instanceof Error ? error.message : String(error); }
   }
   if (!reason) return;
@@ -81,7 +90,7 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
   const signed = collectSignoffs(project, []).filter(s => s.stage === stage && liveSignoff(reopens, stage, s.at));
   const versions = asArray(project.versions);
   const candidates = versions.filter((v): v is JsonObject => isObject(v) && v.kind === kinds[stage]
-    && asArray(v.verdicts).some(d => isObject(d) && d.review === stage && d.verdict === 'accepted')
+    && acceptedReviewVerdict(v, stage) >= 0
     && !signed.some(s => isObject(s.record.target) && s.record.target.version === v.n));
   const fail = (reason: string): never => refuse('SIGNOFF_TARGET_STALE', `signoffs[${asArray(project.signoffs).length}].target: ${reason}; candidates [${candidates.map(v => String(v.n)).join(', ')}]; select an accepted version with --version and restore its reviewed inputs`);
   let version: JsonObject;
@@ -93,13 +102,12 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     if (!/^[1-9][0-9]*$/.test(requested) || matches.length !== 1 || matches[0]?.kind !== kinds[stage]) fail('requested version does not exist uniquely with this stage kind');
     version = matches[0]!;
   }
-  const verdictIndex = asArray(version.verdicts).reduce<number>((last, d, i) =>
-    isObject(d) && d.review === stage && d.verdict === 'accepted' ? i : last, -1);
+  const verdictIndex = acceptedReviewVerdict(version, stage);
   if (verdictIndex < 0) fail('version has no accepted verdict');
   let target: JsonObject;
   try { target = targetFor(dir, project, stage, version, versions.indexOf(version), verdictIndex); }
   catch (error) { return fail(error instanceof Error ? error.message : String(error)); }
-  if (stage === 'rig-review') {
+  if (stage === 'rig-review' && version.pre_interview !== true) {
     const ctx = { dir, project: { ...project, versions: [{ ...version, pre_interview: false }] }, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkReviewPackages(ctx);
     if (ctx.refusals.length || ctx.warnings.some(w => w.code === 'REVIEW_PACKAGE_MISSING')) fail('review package is missing or differs from its recorded binding');

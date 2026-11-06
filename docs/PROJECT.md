@@ -937,7 +937,7 @@ act, as for existing forward sign-offs. The filled legacy example is frozen in
 `templates/legacy-example-project.json`. Read under the current 2.16.0 pin it warns with that order warning plus
 `QUESTION_SET_STALE`, because its frozen question set remains at 2.14.1, and it is refused by the build-identity gate
 (`REVIEW_PACKAGE_CONFIG_MISMATCH` and `REVIEW_PACKAGE_PARTS_MISMATCH` on v1 and v2): its versions, dated after
-`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its bytes stay frozen.
+`BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its bytes stay frozen.
 The new `example-project.json` is a synthetic new-order narrative at 0/0.
 
 Framing and source (`seethrough`, `assemble`) are the first interview. A
@@ -1171,8 +1171,8 @@ full-example integration. Its checked positive is explicitly **synthetic
 shape-only**, not a measured producer-gate result; see its README. Every retained
 file uses its real byte hash. The frozen legacy example's exact warning set is
 `QUESTION_SET_STALE`, `STAGE_ORDER_LEGACY`, `CHOICE_ANSWERS_LEGACY`,
-`CORRECTION_PATH_LEGACY`, and it is refused by the build-identity gate as described
-above; the current filled example stays at 0/0.
+`CORRECTION_PATH_LEGACY`, and it is refused by the build-identity gate and by
+`SIGNOFF_TARGET_MISSING` twice as described above; the current filled example stays at 0/0.
 
 ### Authored camera direction (create#92)
 
@@ -1397,3 +1397,11 @@ From `SIGNOFF_TARGET_SINCE = 2026-11-06T00:00:00Z`, missing and stale targets
 refuse as `SIGNOFF_TARGET_MISSING` and `SIGNOFF_TARGET_STALE`. Earlier signatures
 receive one corresponding `_LEGACY` warning each. Amendment lapse rules continue
 to apply to these approvals.
+
+Pre-interview rig versions bind `target.outputs = {path: "versions[i].outputs",
+sha256}` using SHA-256 of UTF-8 `JSON.stringify(sorted(outputs))`. A declared
+`outputs_lost` refuses signing because nothing survives to bind. Any target has
+exactly one of `review_package`, `outputs`, `direction` or `post_config`.
+The operative verdict is the last human, non-provisional verdict for that
+review stage. It must be accepted, and the target must name that exact verdict.
+A later human bounce makes the earlier bound acceptance stale.

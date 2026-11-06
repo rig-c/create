@@ -19,8 +19,6 @@ const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-inter
 function migrated(mutate: Mutate = () => {}): string {
   return fixture((p) => {
     p.versions = [...structuredClone(historical.versions), version(p, 3), version(p, 4)];
-    // The imported rig approval predates the target contract and has no package inventory.
-    for (const s of arr(p.signoffs).map(obj)) if (['rig-review', 'direction-review'].includes(String(s.stage))) s.at = '2026-11-04T09:00:00Z';
     // The first create build answers both the earlier bounce and the carried timing item.
     version(p, 3).answers_feedback = [{ version: 1, verdict: 0 }, { version: 2, verdict: 0 }];
     mutate(p);
@@ -404,23 +402,23 @@ describe('lost pre-interview configs (#133)', () => {
 
   test('unknown producers with no config retain the main refusal', () => {
     const report = checkProject(migrated(scene));
-    expect(report.refusals.map(f => f.code)).toEqual(['CG_GATES_UNREAD', 'CG_GATES_UNREAD']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'CG_GATES_UNREAD', 'CG_GATES_UNREAD']);
     expect(report.ok).toBe(false);
   });
 
-  test('declared losses replace only unread-config refusals and preserve check exit', () => {
+  test('declared losses replace unread-config refusals while missing post targets remain', () => {
     const baseline = checkProject(migrated(scene));
     const dir = migrated(p => {
       scene(p);
       for (const v of arr(p.versions)) obj(v).config_lost = loss;
     });
     const report = checkProject(dir);
-    expect(report.refusals).toEqual([]);
-    expect(report.ok).toBe(true);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING']);
+    expect(report.ok).toBe(false);
     expect(report.warnings).toHaveLength(baseline.warnings.length + 2);
     for (const warning of baseline.warnings) expect(report.warnings).toContainEqual(warning);
     expect(report.warnings.filter(f => f.code === 'CG_GATES_CONFIG_LOST').map(f => f.path)).toEqual(['versions[v1].config_lost', 'versions[v2].config_lost']);
-    expect(cli(['interview', '--check', '--json', dir], dir, env).code).toBe(0);
+    expect(cli(['interview', '--check', '--json', dir], dir, env).code).toBe(1);
   });
 
   test('loss does not hide unrelated refusals', () => {
@@ -430,7 +428,7 @@ describe('lost pre-interview configs (#133)', () => {
     });
     const report = checkProject(dir);
     expect(report.ok).toBe(false);
-    expect(report.refusals.map(f => f.code)).toEqual(['CG_GATES_UNREAD']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'CG_GATES_UNREAD']);
     expect(report.warnings.some(f => f.code === 'CG_GATES_CONFIG_LOST')).toBe(true);
     expect(cli(['interview', '--check', '--json', dir], dir, env).code).toBe(1);
   });
@@ -443,7 +441,7 @@ describe('lost pre-interview configs (#133)', () => {
         obj(v).built_with = { '@rig-c/parts': '2.3.0' };
       }
     }));
-    expect(report.refusals).toEqual([]);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING']);
     expect(report.warnings.filter(f => f.code.startsWith('CG_')).map(f => f.code)).toEqual([
       'CG_GATES_CONFIG_LOST', 'CG_GATES_PREDATE', 'CG_GATES_CONFIG_LOST', 'CG_GATES_PREDATE',
     ]);

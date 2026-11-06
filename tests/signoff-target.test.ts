@@ -56,7 +56,7 @@ test.each([undefined, '2'])('adopted post writer binds document bytes, version %
 
 test('ambiguous candidates, nonexistent version and unaccepted verdict refuse atomically', () => {
   const dir = setup(); const p = load(dir); const v = obj(arr(p.versions)[0]);
-  v.verdicts = [...arr(v.verdicts), { review: 'rig-review', verdict: 'accepted' }]; save(dir, p);
+  v.verdicts = [...arr(v.verdicts), { review: 'rig-review', verdict: 'accepted', by: 'user' }]; save(dir, p);
   refused(dir, 'rig-review'); refused(dir, 'rig-review', '999');
   v.verdicts = []; save(dir, p); refused(dir, 'rig-review', '1');
 });
@@ -137,6 +137,6 @@ test('post config drift is stale and source locations are excluded from package 
 
 test('candidate refusal names every version without a recency preference', () => {
   const dir = setup(); const p = load(dir);
-  obj(arr(p.versions)[0]).verdicts = [{ review: 'rig-review', verdict: 'accepted' }]; save(dir, p);
+  obj(arr(p.versions)[0]).verdicts = [{ review: 'rig-review', verdict: 'accepted', by: 'user' }]; save(dir, p);
   expect(() => sign(dir, 'rig-review')).toThrow('candidates [1, 2]');
 });

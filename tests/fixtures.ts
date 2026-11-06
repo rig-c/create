@@ -1,5 +1,6 @@
 import { asArray, isObject } from '../src/check.ts';
-import { reviewPackageHash } from '../src/signoff-target.ts';
+import { acceptedReviewVerdict } from '../src/review.ts';
+import { outputsHash, reviewPackageHash } from '../src/signoff-target.ts';
 /**
  * Project fixtures for `interview --check` tests: the filled example (or any
  * template) written to a fresh folder under the OS temp dir, mutated in place
@@ -37,7 +38,7 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   const project = readTemplate(template);
   mutate(project);
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
-  if (template === 'legacy-example-project.json') bindFixtureSignoffs(project);
+  if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
@@ -97,10 +98,15 @@ export function bindFixtureSignoffs(project: JsonObject): void {
   const versions = asArray(project.versions);
   for (const signoff of asArray(project.signoffs).filter(isObject)) {
     if (signoff.target !== undefined || !['rig-review', 'direction-review'].includes(String(signoff.stage))) continue;
-    const index = versions.findIndex(v => isObject(v) && asArray(v.verdicts).some(d => isObject(d) && d.review === signoff.stage && d.verdict === 'accepted'));
+    const index = versions.findIndex(v => isObject(v) && acceptedReviewVerdict(v, String(signoff.stage)) >= 0);
     if (index < 0) continue;
     const version = versions[index] as JsonObject;
-    const verdict = asArray(version.verdicts).findIndex(d => isObject(d) && d.review === signoff.stage && d.verdict === 'accepted');
+    const verdict = acceptedReviewVerdict(version, String(signoff.stage));
+    if (signoff.stage === 'rig-review' && version.pre_interview === true) {
+      if (version.outputs_lost !== undefined || !Array.isArray(version.outputs) || !version.outputs.length) continue;
+      signoff.target = { version: version.n, verdict: `versions[${index}].verdicts[${verdict}]`, outputs: { path: `versions[${index}].outputs`, sha256: outputsHash(version.outputs) } };
+      continue;
+    }
     if (signoff.stage === 'rig-review' && !isObject(version.review_package)) continue;
     if (signoff.stage === 'direction-review' && !isObject(version.provenance)) continue;
     signoff.target = { version: version.n, verdict: `versions[${index}].verdicts[${verdict}]`, ...(signoff.stage === 'rig-review'

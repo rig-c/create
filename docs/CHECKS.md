@@ -624,7 +624,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -905,6 +905,8 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |
 | `CORRECTION_PATH_LEGACY` | WARN once when explicit corrections adoption is absent |
+| `DESCRIBED_DIRECTION_REQUIRED` | a described correction on a post with authored direction uses @1 on or after `DESCRIBED_DIRECTION_SINCE = 2026-11-06T00:00:00Z`. Preserve the evidence and capture a new correction@2 request with the exact direction identity |
+| `DESCRIBED_DIRECTION_LEGACY` | WARN for the same @1 authored-direction description before DESCRIBED_DIRECTION_SINCE, dated by correction.at. Preserve history and use correction@2 for the next request |
 | `CORRECTION_OPEN` | WARN per active described-open or made preview/pending record |
 | `CORRECTION_UNSUPPORTED` | WARN per active unsupported made operation; not duplicated as OPEN |
 
@@ -941,21 +943,34 @@ direction*, defines the closed schema, immutable paths and read contract.
 | `DIRECTION_REVIEW_CLOSED` | authoring attempts to change still-live approved direction review | explicitly reopen before writing |
 | `DIRECTION_SOURCE_CHANGED` | lock held, immutable destination exists, or any captured source differs before project commit | preserve published bytes and retry against frozen inputs |
 | `DIRECTION_PATCH` | wrong patch schema/base/allowed replacement fields, absent replacements or semantic no-op | export whole changed camera/timing/take sections on the exact current base |
-| `DIRECTION_CORRECTION_OUTCOME` | made direction closure lacks matching exact patch/base/result, same rig and later changed post | ingest the patch through create and resolve to that result |
+| `DIRECTION_CORRECTION_OUTCOME` | a correction@2 source/outcome differs from the exact direction post identity, or a made direction closure lacks matching patch/base/result and the same rig | retain the exact compiled model and direction bindings, and resolve a made patch only to its create-ingested result |
 
 Each message names the record path and a remedy. Code assertions accompany
 negative controls; failed writer/transaction tests also assert unchanged record
 bytes. Existing handoff, correction and provenance codes keep their meaning.
 
-`rig-create/correction@2` is exclusively the `direction-patch` artifact:
-`{kind,patch:{path,sha256},state,result:null|{path,sha256}}`. State is
-`preview/pending` or `applied-and-checked`. Its post identities add
-`direction:{path,sha256}` to `{kind:"post",n,config,model}`. Only this variant's
-post→post pair accepts changed direction bytes with the same compiled rig model.
-The exact create-owned `direction_origin` and typed patch result are checked;
-a preview, same-document result, cross-kind result, changed rig or
-`rig-review-applied/2` report cannot close it. @1 records, their fixture bytes,
-unsupported operations and described/config-patch behavior remain unchanged.
+`rig-create/correction@2` covers authored-direction descriptions and the
+`direction-patch` artifact. Its post identities add `direction:{path,sha256}`
+to `{kind:"post",n,config,model}`, binding the source rig's compiled model.
+A described artifact remains `{kind:"description"}` with unchanged human words.
+Its outcome is a later post with a different bound direction document hash,
+checked with the same exact direction identity validator as its source.
+This includes a later accepted rig because direction@1 embeds `rig.model`.
+The agent's closure reasoning carries the semantic claim that the request
+was met. An optional
+`--model-file` must name the bound compiled model, never the direction JSON.
+
+The made artifact remains
+`{kind,patch:{path,sha256},state,result:null|{path,sha256}}`, with state
+`preview/pending` or `applied-and-checked`. Its exact create-owned
+`direction_origin` and typed patch result are checked, and it requires the
+same compiled rig model. A preview, same-document result, cross-kind result,
+changed rig or `rig-review-applied/2` report cannot close a made patch.
+
+Existing @1 descriptions of authored direction are WARNed before
+`DESCRIBED_DIRECTION_SINCE` and refused from that date. Posts without authored
+`provenance.direction`, rig/draft/parts identities, unsupported operations and
+config-patch behavior keep their existing @1 contracts and fixture bytes.
 
 ### Advisory intake
 

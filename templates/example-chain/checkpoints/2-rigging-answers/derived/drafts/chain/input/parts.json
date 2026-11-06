@@ -1,0 +1,183 @@
+{
+  "rig_size": [
+    128,
+    128
+  ],
+  "scale_rig_per_source": 1,
+  "parts": [
+    {
+      "name": "background",
+      "from": "full:author:background",
+      "x": 0,
+      "y": 0,
+      "w": 128,
+      "h": 128,
+      "opaque_px": 16384,
+      "provenance": {
+        "unchanged_layer_px": 0,
+        "hand_px": 16384,
+        "automatic_px": 0,
+        "edits": [
+          {
+            "edit": "full:author:background",
+            "px": 16384
+          }
+        ],
+        "automatic": []
+      },
+      "visible_px": 11648,
+      "occluded_px": 4736,
+      "projected_core_px": 10704,
+      "source_px_taken": 10704,
+      "visible_not_projected_px": 944,
+      "refused_drift_px": 0,
+      "merged_px": 0,
+      "seam_override_px": 0
+    },
+    {
+      "name": "torso",
+      "from": "full:topwear",
+      "x": 40,
+      "y": 56,
+      "w": 48,
+      "h": 64,
+      "opaque_px": 3072,
+      "provenance": {
+        "unchanged_layer_px": 3072,
+        "hand_px": 0,
+        "automatic_px": 0,
+        "edits": [],
+        "automatic": []
+      },
+      "visible_px": 3072,
+      "occluded_px": 0,
+      "projected_core_px": 2640,
+      "source_px_taken": 2640,
+      "visible_not_projected_px": 432,
+      "refused_drift_px": 0,
+      "merged_px": 0,
+      "seam_override_px": 0
+    },
+    {
+      "name": "lantern",
+      "from": "full:author:lantern",
+      "x": 96,
+      "y": 72,
+      "w": 16,
+      "h": 24,
+      "opaque_px": 384,
+      "provenance": {
+        "unchanged_layer_px": 0,
+        "hand_px": 384,
+        "automatic_px": 0,
+        "edits": [
+          {
+            "edit": "full:author:lantern",
+            "px": 384
+          }
+        ],
+        "automatic": []
+      },
+      "visible_px": 384,
+      "occluded_px": 0,
+      "projected_core_px": 240,
+      "source_px_taken": 240,
+      "visible_not_projected_px": 144,
+      "refused_drift_px": 0,
+      "merged_px": 0,
+      "seam_override_px": 0
+    },
+    {
+      "name": "face",
+      "from": "full:face",
+      "x": 44,
+      "y": 16,
+      "w": 40,
+      "h": 32,
+      "opaque_px": 1280,
+      "provenance": {
+        "unchanged_layer_px": 1280,
+        "hand_px": 0,
+        "automatic_px": 0,
+        "edits": [],
+        "automatic": []
+      },
+      "visible_px": 1152,
+      "occluded_px": 128,
+      "projected_core_px": 720,
+      "source_px_taken": 720,
+      "visible_not_projected_px": 432,
+      "refused_drift_px": 0,
+      "merged_px": 0,
+      "seam_override_px": 0
+    },
+    {
+      "name": "eye_r",
+      "from": "full:eyewhite-r",
+      "x": 50,
+      "y": 28,
+      "w": 8,
+      "h": 8,
+      "opaque_px": 64,
+      "provenance": {
+        "unchanged_layer_px": 64,
+        "hand_px": 0,
+        "automatic_px": 0,
+        "edits": [],
+        "automatic": []
+      },
+      "visible_px": 64,
+      "occluded_px": 0,
+      "projected_core_px": 16,
+      "source_px_taken": 16,
+      "visible_not_projected_px": 48,
+      "refused_drift_px": 0,
+      "merged_px": 0,
+      "seam_override_px": 0
+    },
+    {
+      "name": "eye_l",
+      "from": "full:eyewhite-l",
+      "x": 70,
+      "y": 28,
+      "w": 8,
+      "h": 8,
+      "opaque_px": 64,
+      "provenance": {
+        "unchanged_layer_px": 64,
+        "hand_px": 0,
+        "automatic_px": 0,
+        "edits": [],
+        "automatic": []
+      },
+      "visible_px": 64,
+      "occluded_px": 0,
+      "projected_core_px": 16,
+      "source_px_taken": 16,
+      "visible_not_projected_px": 48,
+      "refused_drift_px": 0,
+      "merged_px": 0,
+      "seam_override_px": 0
+    }
+  ],
+  "ghost_px": {
+    "full:author:background": 0,
+    "full:author:lantern": 0,
+    "full:eyewhite-l": 0,
+    "full:eyewhite-r": 0,
+    "full:face": 0,
+    "full:topwear": 0
+  },
+  "recomposite": {
+    "mean_abs": 0,
+    "within_limit": 8,
+    "within_share": 1,
+    "error_limit": 40,
+    "error_px": 0,
+    "covered_alpha": 128,
+    "uncovered_error_px": 0,
+    "hole_count": 0,
+    "holes_listed": 5,
+    "holes": []
+  }
+}

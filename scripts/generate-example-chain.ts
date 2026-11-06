@@ -12,7 +12,7 @@ import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { generatorArgs } from './generator-args.ts';
 import { generateExampleParts } from './generate-example-parts.ts';
-import { generateExampleDraft } from './generate-example-draft.ts';
+import { generateExampleMeshDraft } from './generate-example-draft.ts';
 import { partsPackage } from '../tests/parts-package.ts';
 
 export interface ChainStep {
@@ -170,6 +170,10 @@ export function generateExampleChain(destination: string): Record<string, Buffer
   const dir = join(scratch, 'project');
   const steps: ChainStep[] = [];
   const pending: number[] = [];
+  const checkpoints: { stage: number; name: string; chain_step: number; files: Record<string, Buffer>; awaits: string[]; act: string }[] = [];
+  const checkpoint = (stage: number, name: string, act: string, awaits: string[]): void => {
+    checkpoints.push({ stage, name, chain_step: steps.length, files: chainFiles(dir), awaits, act });
+  };
   const originalCwd = process.cwd();
   let clock = Date.parse('2026-11-06T01:00:00Z');
   const tick = (): void => { setSystemTime(new Date(clock)); clock += 1000; };
@@ -181,6 +185,16 @@ export function generateExampleChain(destination: string): Record<string, Buffer
   const json = (path: string, value: unknown): void => write(path, `${JSON.stringify(value, null, 2)}\n`);
   const binding = (path: string): JsonObject => ({ path, sha256: sha256(readFileSync(join(dir, path))) });
   const writer = (args: string[], outputPath?: string): void => {
+    if (args[0] === 'interview-answer' && args[1] === 'bones') {
+      checkpoint(2, '2-rigging-answers', 'Choose the rigging interview answers and approve their plan',
+        ['interview.waypoints[bones].guide', 'interview.waypoints[meshes].guide', 'interview.waypoints[constraints].guide', 'interview.waypoints[motion].guide', 'signoffs[stage=rigging-interview]']);
+    }
+    if (args[0] === 'review' && args[1] === '1') {
+      checkpoint(3, '3-rig-review', 'Review and approve the rig', ['versions[n=1].verdicts[review=rig-review]', 'signoffs[stage=rig-review]']);
+    }
+    if (args[0] === 'direction' && args[1] === 'write') {
+      checkpoint(4, '4-direction-post', 'Author the direction post and approve its review', ['versions[n=2]', 'signoffs[stage=direction-review]']);
+    }
     tick();
     const stdout = process.stdout.write;
     const stderr = process.stderr.write;
@@ -294,8 +308,8 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     stage('plan-approved', ['signoff', 'plan-approved']); sign('plan-approved');
     stage('parts', ['signoff', 'parts']); status(['seethrough', 'assemble'], ['signoff', 'parts']);
     sign('parts', ['--checkpoint', 'assemble']);
-    const draft = generateExampleDraft(join(scratch, 'draft-producer'), input);
-    producer('labelled draft producer', ['generateExampleDraft', '../draft-producer', 'same generated parts'], draft);
+    const draft = generateExampleMeshDraft(join(scratch, 'draft-producer'), input);
+    producer('labelled draft producer', ['generateExampleMeshDraft', '../draft-producer', 'same generated parts'], draft);
     const draftRoot = 'derived/drafts/chain';
     for (const [path, bytes] of Object.entries(input)) write(`${draftRoot}/input/${path}`, bytes);
     for (const [path, bytes] of Object.entries(draft)) write(`${draftRoot}/${path}`, bytes);
@@ -304,6 +318,8 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     const declaredDraft = asArray(load().drafts).filter(isObject)[0]!;
     json('evidence/structure.json', { schema: STRUCTURE_SCHEMA, draft_id: 'chain', config: declaredDraft.config, entries: [] });
     const partsDir = `${draftRoot}/input`;
+    checkpoint(1, '1-parts-verdict', 'Export the synthetic review-tool parts verdict, then approve the parts',
+      ['evidence/parts-review.json', 'signoffs[stage=parts-review]']);
     const verdict = partsPackage({ input, partsDir, verdict: 'evidence/parts-review.json', edit: v => { v.updatedAt = new Date().toISOString(); } });
     write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
     producer('synthetic review-tool parts verdict (tests/parts-package.ts)', ['partsPackage', 'tests/parts-package.ts'],
@@ -324,8 +340,8 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     stage('rigging-interview', ['interview-options', 'bones']); choices('rigging-interview'); sign('rigging-interview');
     stage('rigging', ['interview', '--check']); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
     writer(['interview', '--check', '--json']);
-    const built = generateExampleDraft(join(scratch, 'rig-producer'), input);
-    producer('production rig and compiled model', ['generateExampleDraft', '../rig-producer', 'same approved parts'], built);
+    const built = generateExampleMeshDraft(join(scratch, 'rig-producer'), input);
+    producer('production rig and compiled model', ['generateExampleMeshDraft', '../rig-producer', 'same approved parts'], built);
     for (const [path, bytes] of Object.entries(input)) write(`outputs/v1/out/${path}`, bytes);
     for (const [path, bytes] of Object.entries(built)) {
       if (!path.startsWith('out/')) write(`evidence/v1/${path}`, bytes);
@@ -392,12 +408,30 @@ export function generateExampleChain(destination: string): Record<string, Buffer
         { kind: 'source inventory', fields: ['inputs[]'] },
       ],
       index_base: 0, stack_equals_painting: diffReport.stack.sha256 === diffReport.painting.sha256,
+      checkpoints: checkpoints.map(({ stage, name, chain_step }) => ({ stage, name, chain_step })),
       steps, check: { refusals: checked.refusals, warnings: checked.warnings } });
+    for (const saved of checkpoints) {
+      for (const [path, bytes] of Object.entries(saved.files)) write(`checkpoints/${saved.name}/${path}`, bytes);
+      const closingStage = ['parts-review', 'rigging-interview', 'rig-review', 'direction-review'][saved.stage - 1]!;
+      const end = steps.findIndex(step => step.command[1] === 'signoff' && step.command[2] === closingStage);
+      const acts = steps.slice(saved.chain_step, end + 1).filter(step => step.kind !== 'seed');
+      const commands = acts.map(step => step.command.join(' '));
+      const command_roles = acts.map(step => step.kind === 'producer' ? 'producer'
+        : step.command[1] === 'interview-options' ? 'agent'
+          : step.command[1] === 'direction' && step.command[2] === 'check' ? 'validation' : 'human');
+      const report = checkProject(join(dir, 'checkpoints', saved.name));
+      json(`checkpoints/${saved.name}.json`, { schema: 'rig-create/example-checkpoint@1', stage: saved.stage, name: saved.name,
+        chain_step: saved.chain_step, pending: { act: saved.act, commands, command_roles, awaits: saved.awaits },
+        expected_findings: { refusals: report.refusals, warnings: report.warnings },
+        project_sha256: sha256(saved.files['project.json']!),
+        files: Object.entries(saved.files).map(([path, bytes]) => ({ path, sha256: sha256(bytes) })) });
+    }
     write('README.md', '# Synthetic bound chain\n\n'
-      + 'The geometric painting and parts come from generateExampleParts. The labelled draft and production model come from generateExampleDraft on those exact parts.\n\n'
+      + 'The geometric painting and parts come from generateExampleParts. The labelled draft and production model come from generateExampleMeshDraft on those exact parts, with a producer-made torso mesh.\n\n'
       + 'The setup still is the assembly recomposite, retained as synthetic setup evidence. The example demonstrates record binding. Rendered motion and camera behaviour require separate producer validation.\n\n'
       + 'The public create CLI writes signoffs, rig/post review verdicts, the review package and authored direction. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.\n\n'
       + 'Four seed kinds cover forward stages, plan.steps (setup and status progress) with split.parts, the rig version declaration and source inventory. Each seed declares its consuming command and records that command’s step index in chain.json.\n\n'
+      + 'checkpoints/ contains frozen prefix projects and adjacent pending-act declarations. Stage 1 precedes the synthetic review-tool parts verdict export. Stage 2 precedes the first rigging answer and still needs later option sets to be drafted by the recorded public writers. Stage 3 precedes rig review. Stage 4 precedes direction write. The chain_step indices are zero-based. Stage 2 has four expected INTERVIEW_INCOMPLETE findings for its unanswered rigging guides. The other three prefixes have no findings. tests/example-chain.test.ts checks these states.\n\n'
       + 'Reproduce with `bun scripts/generate-example-chain.ts <fresh-dir> --check` from the create repository.\n');
     return chainFiles(dir);
   } finally { process.chdir(originalCwd); setSystemTime(); }

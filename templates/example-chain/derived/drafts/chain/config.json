@@ -46,10 +46,27 @@
       ]
     }
   ],
-  "meshes": {},
+  "meshes": {
+    "torso": {
+      "grid": 16,
+      "r": 16,
+      "segments": [
+        [
+          "body",
+          [
+            64,
+            8
+          ],
+          [
+            64,
+            72
+          ]
+        ]
+      ]
+    }
+  },
   "regions": {
     "background": "body",
-    "torso": "body",
     "lantern": "body",
     "face": "body",
     "eye_r": "body",

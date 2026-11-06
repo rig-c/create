@@ -139,6 +139,76 @@ a new verdict on an old build cannot revive that build. Historical post
 versions keep their original basis; new post work requires the live rig.
 Reopening only post work preserves the unaffected rig acceptance.
 
+### Forward amendments
+
+Raise a correction against an artifact and its owning stage with the public
+writer. The stage is chosen explicitly by the person recording the correction.
+
+```sh
+rig-create amend parts --kind part --target panel --change inputs/replacement.svg \
+  --by owner --verbatim-file correction.txt
+```
+
+`amendments[]` retains `{ target, by, at, verbatim, source?, changes }`.
+`target` contains `{ stage, kind, id }`, where `kind` is `part`, `config-field`,
+`motion-track` or `interview-answer`. `id` names the artifact, config pointer,
+track or answer path. Any ordered non-terminal stage may own a target.
+`changes` contains `{ path, sha256 }` for every repeated `--change` file.
+The writer reads and hashes those files under the project. These are declared
+new inputs retained as historical byte identities. Checking history validates
+their shape and does not require the mutable working files to retain those
+bytes forever. `at` comes from the clock, and UTF-8 words are retained unchanged.
+An agent signer is refused. Optional `--source` records the origin separately.
+
+An amendment invalidates every approval at its owning stage or later, using
+the same stage/time cutoff as `reopen`. The reason for each is exactly
+`no binding proves independence`, with the fixed gap row below. Upstream means
+every ordered stage preceding the amended stage. Its live approvals remain
+live and its plan-step states are preserved. There is no additional unrelated
+category. A downstream approval cannot stay live on this contract.
+
+| Approval kind | Missing proof from the step-0 census |
+| --- | --- |
+| `interview` | G1, approved answer and input set |
+| `plan-approved` | G2, answer contents and consumed inputs |
+| `parts` checkpoint | G3, executed inputs and checked outputs |
+| `parts-review` | G5, comparison inputs and rendered-stack input binding |
+| `rigging-interview` | G2, answer contents and consumed inputs |
+| `rigging` checkpoint | G3, executed inputs and checked outputs |
+| `rig-review` signature or accepted verdict | G7, review target and evidence |
+| `post-interview` | G2, answer contents and consumed inputs |
+| `post` checkpoint | G3, executed inputs and checked outputs |
+| `direction-review` signature or accepted verdict | G7, review target and evidence |
+| An explicitly recorded `accepted` stage signature | G9, acceptance input closure |
+
+The fixed table is `AMENDMENT_APPROVAL_GAPS` in `src/amend.ts`. The remaining
+census rows cover producer derivation (G4), approval granularity (G6), field
+consumption (G8), build closure (G9) and opaque producer resolvers (G10).
+This table identifies missing proof for the approval kind. It does not assert
+that one gap alone suffices to prove independence.
+
+The extension point is `keepByBinding()` and the report field is
+`keep_by_binding`. It ships as an empty list. Later binding cards may place an
+approval there with the binding that proves its independence. Until then the
+amendment's stage and downstream approvals all lapse.
+
+`interview --check` adds `amendments[]` only on amended records. Each entry
+names the target, every invalidated signature and accepted verdict by record
+path, its stage/checkpoint, reason and gap, the still-live upstream approvals,
+and the empty keep-by-binding list. A new signature remains a separate act
+from the lapsed historical one. Multiple amendments and reopens accumulate
+cutoffs, so a narrower amendment cannot revive an earlier invalidation.
+
+The writer leaves `project.stage` in place, sets plan steps running at or after
+the amended stage to `pending`, and retains all previous approvals and versions.
+The check's `effective_stage` is the first unfinished stage while re-approval
+is pending, bounded by the stored stage. Re-sign the lapsed approvals and meet
+the affected steps' bars in order. Existing upstream approvals need no re-sign.
+A rig covered by the cutoff needs a new build and acceptance before handoff.
+The writer runs the same complete candidate check before writing. Any refusal
+leaves `project.json` byte-identical. Existing records and `reopen` output retain
+their existing shape when no amendment is present.
+
 ### The parts are reviewed before rigging
 
 A defect in the parts — a part with nothing painted under its occluder, a

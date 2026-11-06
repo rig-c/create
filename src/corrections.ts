@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:p
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
+import { collectAmendments } from './amend.ts';
 import { stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { reviewConfigInputs, reviewHandoffInputs } from './review-package.ts';
@@ -370,9 +371,12 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
     if (verdict.verdict === 'accepted' && CORRECTION_STAGES.includes(String(verdict.review)) && liveSignoff(reopens, String(verdict.review), date(verdict.at)) && isObject(contract) && date(verdict.at) > date(contract.adopted_at)) refusals.push(...correctionApprovalFindings(project, String(verdict.review), verdict));
   }
   // Accepted verdicts and downstream stages also cannot use an unresolved current correction.
+  const amendments = collectAmendments(project, []);
   for (const stage of CORRECTION_STAGES) {
     const accepted = bindings(project.versions).some(v => bindings(v.verdicts).some(d => d.review === stage && d.verdict === 'accepted' && date(d.at) > date(isObject(contract) ? contract.adopted_at : undefined) && liveSignoff(reopens, stage, date(d.at))));
-    if (accepted || stageIndex(String(project.stage)) > stageIndex(stage)) {
+    const awaitsReapproval = amendments.some(a => stageIndex(a.stage) <= stageIndex(stage))
+      && !collectSignoffs(project, []).some(s => s.stage === stage && s.checkpoint === null && liveSignoff(reopens, stage, s.at));
+    if (accepted || (stageIndex(String(project.stage)) > stageIndex(stage) && !awaitsReapproval)) {
       for (const f of correctionApprovalFindings(project, stage)) if (!refusals.some(x => x.code === f.code && x.path === f.path)) refusals.push(f);
     }
   }

@@ -12,6 +12,17 @@ import type { Json, JsonObject } from './templates.ts';
 export const CORRECTIONS_SPEC = 'rig-create/corrections@1';
 export const CORRECTION_SPEC = 'rig-create/correction@1';
 export const CORRECTION_STAGES = ['parts-review', 'rig-review', 'direction-review'];
+// @rig-c/parts 2.16.0, src/check.ts:3094 (CheckStatus), read from the installed producer.
+const PRODUCER_CHECK_STATUSES = new Set(['PASS', 'FAIL', 'SKIP', 'WARN', 'CLEAR', 'REPORTED', 'UNCLASSIFIED']);
+
+/** Count retained PASS statuses only; preserve every other named status and the producer line. */
+export function correctionCheckCoverage(summary: JsonObject): string {
+  const bars = Object.entries(summary.bars as JsonObject);
+  const measured = bars.filter(([, status]) => status === 'PASS').length;
+  const unmeasured = bars.filter(([, status]) => status !== 'PASS').map(([name, status]) => `${name}=${String(status)}`);
+  return `${measured} PASS bar(s) measured; not measured: ${unmeasured.join(', ') || 'none'}; producer: ${String(summary.line)}`;
+}
+
 export const correctionHash = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const hex = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
@@ -212,7 +223,18 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
   }
   const summary = applied.check;
   if (artifact.state === 'applied-and-checked') {
-    if (!isObject(summary) || summary.schema !== 'rig-review-check-summary/1' || summary.pass !== true || summary.exitCode !== 0 || summary.gate !== true || !text(summary.line) || !isObject(summary.bars) || Object.values(summary.bars).some(s => s !== 'PASS') || (summary.source !== undefined && !['remesh', 'retune', 'check'].includes(String(summary.source)))) fail('CORRECTION_APPLIED_INVALID', 'claimed checked Apply lacks a passing producer check summary');
+    if (!isObject(summary) || summary.schema !== 'rig-review-check-summary/1' || summary.pass !== true || summary.exitCode !== 0 || summary.gate !== true || !text(summary.line) || !isObject(summary.bars) || (summary.source !== undefined && !['remesh', 'retune', 'check'].includes(String(summary.source)))) fail('CORRECTION_APPLIED_INVALID', 'claimed checked Apply lacks a passing producer check summary');
+    const bars = summary.bars as JsonObject;
+    for (const [name, status] of Object.entries(bars)) {
+      if (status === 'FAIL' || typeof status !== 'string' || !PRODUCER_CHECK_STATUSES.has(status)) fail('CORRECTION_APPLIED_INVALID', `check bar ${name} has invalid status ${String(status)}`);
+    }
+    if (!Object.values(bars).includes('PASS')) fail('CORRECTION_APPLIED_INVALID', `check bars ${Object.keys(bars).join(', ') || '(empty)'} contain no PASS bar`);
+    // parts 2.16.0 src/check.ts:3069–3071 prints coverage's skipped names.
+    // Report-only SKIPs need not appear there, so compare only names the line supplies.
+    const coverage = /\b\d+ of \d+ bar\(s\) measured, \d+ skipped \(([^)]*)\)/.exec(String(summary.line));
+    for (const name of coverage?.[1]?.split(', ') ?? []) {
+      if (Object.hasOwn(bars, name) && bars[name] === 'PASS') fail('CORRECTION_APPLIED_INVALID', `check bar ${name} is PASS but the producer line names it skipped`);
+    }
     if (!isObject(record.outcome) || !sameHash(record.outcome.model, { sha256: applied.modelHash })) fail('CORRECTION_OUTCOME', 'checked Apply outcome differs from applied.modelHash');
   }
 }

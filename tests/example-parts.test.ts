@@ -46,7 +46,7 @@ test('the whole producer-backed fixture is byte-identical across fresh runs and 
       expect(png.data.length).toBe(png.width * png.height * 4);
     }
   }
-  const assets = Object.keys(first.files).filter(path => path.startsWith(EXAMPLE_DRAFT) && path.endsWith('.png'));
+  const assets = Object.keys(first.files).filter(path => path.startsWith(`${EXAMPLE_DRAFT}/input/`) && path.endsWith('.png'));
   expect([...referenced].sort()).toEqual(assets.sort());
   expect(referenced.size).toBe(6);
   const accepted = Object.keys(first.files).filter(path => path.startsWith('derived/parts/') && path.endsWith('.png'));

@@ -19,6 +19,8 @@ const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-inter
 function migrated(mutate: Mutate = () => {}): string {
   return fixture((p) => {
     p.versions = [...structuredClone(historical.versions), version(p, 3), version(p, 4)];
+    // The imported rig approval predates the target contract and has no package inventory.
+    for (const s of arr(p.signoffs).map(obj)) if (['rig-review', 'direction-review'].includes(String(s.stage))) s.at = '2026-11-04T09:00:00Z';
     // The first create build answers both the earlier bounce and the carried timing item.
     version(p, 3).answers_feedback = [{ version: 1, verdict: 0 }, { version: 2, verdict: 0 }];
     mutate(p);

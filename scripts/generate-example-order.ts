@@ -76,7 +76,9 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   }
   const words = join(dir, 'words.txt');
   const sign = (stage: string, at: string, flags: string[] = []): void => {
-    setSystemTime(new Date(exampleTime(at))); writeFileSync(words, `Approve the synthetic ${stage} record.\n`);
+    setSystemTime(new Date(exampleTime(at))); writeFileSync(words, ['rig-review', 'direction-review'].includes(stage)
+      ? String(arr(original.signoffs).map(obj).find(s => s.stage === stage)!.verbatim)
+      : `Approve the synthetic ${stage} record.\n`);
     signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words, ...flags]); reload();
   };
   try {
@@ -115,7 +117,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview')); reload(); sign('rigging-interview', '2026-11-11T11:10:00Z');
     sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
     // Retain the already writer-shaped synthetic execution/review history; new approvals are all writer-generated.
-    arr(p.signoffs).push(...arr(original.signoffs).filter(s => ['rigging','rig-review'].includes(String(obj(s).stage))));
+    arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'rigging'));
     p.versions = original.versions as Json;
     // Original sparse controls are separate from the signed build packages.
     for (const version of arr(p.versions).map(obj).filter(v => v.kind === 'rig')) {
@@ -132,14 +134,21 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
         files[path] = readFileSync(join(dir, path));
       }
     }
+    p.stage = 'rig-review';
+    p.versions = arr(original.versions).filter(v => obj(v).kind === 'rig');
+    for (const s of arr(obj(p.plan).steps).map(obj)) if (s.phase === 'rig') s.status = 'done';
+    save(); sign('rig-review', '2026-11-13T09:15:00Z', ['--version', '2']);
+    p.versions = original.versions as Json;
     p.stage = 'post-interview';
     obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
     for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
     save(); Object.assign(files,writeExampleChoices(dir,'post-interview')); reload();
-    arr(p.signoffs).push(...arr(original.signoffs).filter(s => ['post-interview','direction-review'].includes(String(obj(s).stage))));
+    arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'post-interview'));
     p.stage = original.stage as Json; p.versions = original.versions as Json;
     for (const s of arr(obj(p.plan).steps).map(obj)) s.status = 'done';
-    save();
+    p.stage = 'direction-review'; save();
+    sign('direction-review', '2026-11-15T11:00:00Z', ['--version', '4']);
+    p.stage = original.stage as Json; save();
     const checked = checkProject(dir);
     if (checked.refusals.length || checked.warnings.length) throw new Error(JSON.stringify({ refusals: checked.refusals, warnings: checked.warnings }));
     return { project: p, files };

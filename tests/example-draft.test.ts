@@ -1,3 +1,4 @@
+import type { JsonObject } from '../src/templates.ts';
 import { expect, test } from 'bun:test';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -234,14 +235,16 @@ test('the installed producer reproduces every bound draft output from the retain
   expect(checkProject(dir).warnings).toEqual([]);
 }, 30_000);
 
-test('generation preserves every approval field except event dates and bound hashes', () => {
+test('generation preserves approval fields and adds review targets', () => {
   const generated = generateExampleOrder(join(tempDir(), 'generated'));
   const maskHashes = (value: unknown): unknown => JSON.parse(JSON.stringify(value, (key, item: unknown) => {
     if (key === 'sha256') return 'regenerated binding';
     if (key === 'step_hashes') return Object.fromEntries(Object.keys(item as object).map(id => [id, 'regenerated step binding']));
     return item;
   }));
-  expect(maskHashes(generated.project.signoffs)).toEqual(maskHashes(retimeExample(originalSignoffs)));
+  const signatures = (generated.project.signoffs as JsonObject[]).map(({ target: _target, ...signature }) => signature);
+  expect(maskHashes(signatures)).toEqual(maskHashes(retimeExample(originalSignoffs)));
+  expect((generated.project.signoffs as JsonObject[]).filter(s => s.target).map(s => (s.target as JsonObject).version)).toEqual([2, 4]);
 }, 30_000);
 
 test('one byte changed in any retained draft output is refused by code and path', () => {

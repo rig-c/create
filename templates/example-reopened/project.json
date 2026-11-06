@@ -164,7 +164,15 @@
       "checkpoint": null,
       "by": "user",
       "at": "2026-11-06T00:00:51.000Z",
-      "verbatim": "yes, that's her"
+      "verbatim": "yes, that's her",
+      "target": {
+        "version": 2,
+        "verdict": "versions[1].verdicts[0]",
+        "review_package": {
+          "path": "versions[1].review_package",
+          "sha256": "c09df0726c6bc421e34c1ce74503f333dd8a6f6a370d1a7b449ce4b61f094c27"
+        }
+      }
     },
     {
       "stage": "post-interview",
@@ -183,7 +191,15 @@
       "checkpoint": null,
       "by": "user",
       "at": "2026-11-06T00:01:04.000Z",
-      "verbatim": "done, I like it"
+      "verbatim": "done, I like it",
+      "target": {
+        "version": 4,
+        "verdict": "versions[3].verdicts[0]",
+        "post_config": {
+          "path": "derived/v4/take.json",
+          "sha256": "a254add3c9b992eda452000bc8fa8828d33506fd70fcbf871893e448efe2f5dc"
+        }
+      }
     }
   ],
   "interview": {

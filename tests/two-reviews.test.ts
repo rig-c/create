@@ -1,3 +1,4 @@
+import { bindFixtureSignoffs } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,6 +16,7 @@ function fixture(mutate: Mutate = () => {}): string {
   mkdirSync(dir);
   const project = readTemplate('legacy-example-project.json');
   mutate(project);
+  bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   writePartsPackage(dir);
   return dir;

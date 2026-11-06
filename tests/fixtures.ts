@@ -1,3 +1,5 @@
+import { asArray, isObject } from '../src/check.ts';
+import { reviewPackageHash } from '../src/signoff-target.ts';
 /**
  * Project fixtures for `interview --check` tests: the filled example (or any
  * template) written to a fresh folder under the OS temp dir, mutated in place
@@ -35,6 +37,7 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   const project = readTemplate(template);
   mutate(project);
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
+  if (template === 'legacy-example-project.json') bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
@@ -86,5 +89,22 @@ export function rehashSignoffs(project: JsonObject): void {
     if (signoff.step_hashes === undefined) continue;
     const hashes = obj(signoff.step_hashes);
     for (const id of Object.keys(hashes)) hashes[id] = stepHash(step(project, id));
+  }
+}
+
+/** Bind synthetic approvals after fixture setup, before any operation under test. */
+export function bindFixtureSignoffs(project: JsonObject): void {
+  const versions = asArray(project.versions);
+  for (const signoff of asArray(project.signoffs).filter(isObject)) {
+    if (signoff.target !== undefined || !['rig-review', 'direction-review'].includes(String(signoff.stage))) continue;
+    const index = versions.findIndex(v => isObject(v) && asArray(v.verdicts).some(d => isObject(d) && d.review === signoff.stage && d.verdict === 'accepted'));
+    if (index < 0) continue;
+    const version = versions[index] as JsonObject;
+    const verdict = asArray(version.verdicts).findIndex(d => isObject(d) && d.review === signoff.stage && d.verdict === 'accepted');
+    if (signoff.stage === 'rig-review' && !isObject(version.review_package)) continue;
+    if (signoff.stage === 'direction-review' && !isObject(version.provenance)) continue;
+    signoff.target = { version: version.n, verdict: `versions[${index}].verdicts[${verdict}]`, ...(signoff.stage === 'rig-review'
+      ? { review_package: { path: `versions[${index}].review_package`, sha256: reviewPackageHash(version.review_package as JsonObject) } }
+      : { post_config: (version.provenance as JsonObject).config! }) };
   }
 }

@@ -1,3 +1,4 @@
+import { checkSignoffTarget } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
@@ -861,6 +862,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: unknown stage ${s.stage}; use a known stage` });
     return false;
   });
+  for (const s of historySignoffs) checkSignoffTarget(dir, project, s.record, `signoffs[${s.index}]`, refusals, warnings);
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const steps = collectSteps(project, refusals);
   const items = collectItems(project, { collection });

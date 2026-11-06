@@ -1370,3 +1370,30 @@ Colour-adjacent ground and ground enclosed between strands are
 a model sweep on a pilot did not separate them), with no threshold or warning.
 Silhouette stepping, source-vs-final alpha classes, patchwork runs and
 versioned dark retention need post-assemble outputs and are excluded.
+
+### Targets of review signatures
+
+`signoff rig-review` and `signoff direction-review` accept `--version <n>`.
+Without it, exactly one candidate must exist. Candidates are versions of the
+review's kind with an accepted verdict and no live same-stage signature
+already targeting them. A refusal lists candidates without a recency preference.
+An explicit version must exist with the right kind and an accepted verdict.
+
+Each signature records `target.version` and `target.verdict`, the literal
+`versions[i].verdicts[j]` path of the accepted verdict. A rig review adds
+`target.review_package = {path: "versions[i].review_package", sha256}`. Its hash
+is SHA-256 of UTF-8 `JSON.stringify(sorted({config, files}))` from the inline
+package record. Keys sort recursively, arrays retain order, and `from` and
+`open` are excluded. Package checks still resolve the retained files on disk.
+
+An adopted authored direction adds `target.direction = {path, sha256}` from
+the version's `provenance.direction` and the retained document bytes. A post
+without an adopted document instead adds `target.post_config`, copied from
+`provenance.config`. Exactly one is present. The latter is compared with the
+version's current binding, while existing provenance checks own file reads.
+Writers validate targets before writing. Refusals leave project.json identical.
+
+From `SIGNOFF_TARGET_SINCE = 2026-11-06T00:00:00Z`, missing and stale targets
+refuse as `SIGNOFF_TARGET_MISSING` and `SIGNOFF_TARGET_STALE`. Earlier signatures
+receive one corresponding `_LEGACY` warning each. Amendment lapse rules continue
+to apply to these approvals.

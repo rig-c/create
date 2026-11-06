@@ -624,7 +624,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `SIGNOFF_TARGET_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -965,3 +965,15 @@ any write, not a screening decision about the painting.
 | Code | Meaning and remedy |
 | --- | --- |
 | `GENERATOR_ARGS_INVALID` | The named generator refuses the displayed argument (a destination starting with `-`, a missing destination, or any flag but `--check`) before writing its destination. Supply the destination shown in its unchanged usage line and only the optional `--check` flag. |
+
+### Review sign-off targets
+
+From `SIGNOFF_TARGET_SINCE = 2026-11-06T00:00:00Z`, every rig-review and
+direction-review signature binds an accepted verdict and its version's reviewed inputs.
+
+| Code | Meaning | Remedy |
+| --- | --- | --- |
+| `SIGNOFF_TARGET_MISSING` | A current-era review signature has no target | Preserve the reviewed inputs and sign again with `--version` |
+| `SIGNOFF_TARGET_STALE` | The version, accepted verdict, package inventory or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed inputs and select the accepted version with `--version` |
+| `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
+| `SIGNOFF_TARGET_STALE_LEGACY` | A pre-contract signature's target no longer resolves | Preserve history and bind the next review signature |

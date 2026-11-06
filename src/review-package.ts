@@ -27,10 +27,14 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   if (typeof config.sha256 === 'string' && isObject(record.config) && typeof record.config.sha256 === 'string' && config.sha256 !== record.config.sha256) {
     mismatch('REVIEW_PACKAGE_CONFIG_MISMATCH', 'config', config.sha256, record.config.sha256);
   }
-  const approval = latestPartsApproval(ctx.project, at);
+  const approval = latestPartsApproval(ctx.project, Number.isFinite(at) ? at : Infinity);
   if (!approval) return;
   let verdict: JsonObject;
-  try { verdict = retainedJson(ctx.dir, approval.evidence); } catch { return; } // The parts-verdict reader owns invalid evidence.
+  try { verdict = retainedJson(ctx.dir, approval.evidence); } catch (error) {
+    const evidence = isObject(approval.evidence) ? approval.evidence : {};
+    findings.push({ code: 'REVIEW_PACKAGE_PARTS_UNREAD', path: `${path}.files[out/parts.json]`, message: `${path}.files[out/parts.json]: cannot resolve the accepted parts manifest from verdict ${String(evidence.path)} (${error instanceof Error ? error.message : String(error)}); restore the retained verdict bytes matching signoffs[].evidence.sha256 before checking or packaging this version` });
+    return;
+  }
   const source = isObject(verdict.source) ? verdict.source : {};
   const manifest = asArray(source.files).find(f => isObject(f) && typeof f.path === 'string' && f.path.split('/').at(-1) === 'parts.json');
   const packaged = asArray(record.files).find(f => isObject(f) && f.path === 'out/parts.json');

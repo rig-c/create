@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -45,6 +45,40 @@ function checked(dir: string) {
 }
 
 describe('frozen review package', () => {
+  test('an unreadable verdict cannot silence a parts mismatch after acceptance', () => {
+    const dir = exampleFixture(() => {}, 'example-project.json');
+    roots.push(dirname(dir));
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const pkg = obj(version(project, 1).review_package);
+    const changed = '{"parts":[]}\n';
+    (pkg.files as JsonObject[]).find(file => file.path === 'out/parts.json')!.sha256 = sha(changed);
+    put(dir, 'derived/review/v1/out/parts.json', changed);
+    put(dir, 'project.json', JSON.stringify(project));
+    expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_MISMATCH']);
+    appendFileSync(join(dir, 'evidence/parts-review.json'), '\n');
+    expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD']);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('REVIEW_PACKAGE_PARTS_UNREAD');
+  });
+  test('an unreadable verdict before SINCE warns instead of refusing', () => {
+    const dir = exampleFixture(project => {
+      for (const raw of project.versions as JsonObject[]) raw.at = '2026-11-02T00:00:00Z';
+      for (const raw of project.signoffs as JsonObject[]) raw.at = '2026-11-01T00:00:00Z';
+    }, 'example-project.json');
+    roots.push(dirname(dir));
+    appendFileSync(join(dir, 'evidence/parts-review.json'), '\n');
+    const result = checked(dir);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD']);
+  });
+  test('unknown build dates compare both identities against the latest approval as WARNs', () => {
+    const dir = exampleFixture(project => {
+      for (const raw of project.versions as JsonObject[]) raw.at = 'unknown';
+    }, 'legacy-example-project.json', {}, true);
+    roots.push(dirname(dir));
+    const result = checked(dir);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
+  });
   for (const [field, code] of [['config', 'REVIEW_PACKAGE_CONFIG_MISMATCH'], ['parts', 'REVIEW_PACKAGE_PARTS_MISMATCH']] as const) {
     test(`names a planted ${field} build mismatch in an otherwise passing signed example`, () => {
       const dir = exampleFixture(() => {}, 'example-project.json');

@@ -22,6 +22,14 @@ test('signed build tools match the installed draft producers', () => {
   });
 });
 
+test('signed post build tools come from the installed producers', () => {
+  const installed = Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [name,
+    (JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')) as { version: string }).version,
+  ]));
+  const posts = (readTemplate('example-project.json').versions as { kind: string; built_with: unknown }[]).filter(version => version.kind === 'post');
+  expect(posts.map(version => version.built_with)).toEqual(posts.map(() => installed));
+});
+
 test('retiming preserves event order and simultaneous instants from the frozen narrative', () => {
   const timestamps = [...JSON.stringify(readTemplate('legacy-example-project.json')).matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g)].map(match => match[0]);
   const instants = [...new Set(timestamps.map(value => Date.parse(value)))].sort((a, b) => a - b);

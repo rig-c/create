@@ -263,7 +263,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
 });
 
 describe('an in-flight project that a person did review', () => {
-  test('is not asked for a verdict either: a parts-review sign-off without evidence passes', () => {
+  test('passes with one build-identity WARN per rig version without requiring a legacy verdict', () => {
     const dir = fixture((p) => {
       const shifted = obj(shiftDates(p, 30));
       for (const k of Object.keys(p)) delete p[k];
@@ -275,7 +275,7 @@ describe('an in-flight project that a person did review', () => {
     });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 });
 

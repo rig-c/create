@@ -620,12 +620,13 @@ non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
 
 ## Review packages
 
-`BUILD_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates the two build-identity findings by the rig version's `at`. Earlier or unreadably dated versions receive WARNs with the same named codes. The accepted manifest comes from the latest parts approval live at that version's build time. The comparison reads declared hashes and the retained hash-bound verdict, including when the regenerable package is absent.
+`BUILD_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates the build-identity findings by the rig version's `at`. Earlier or unreadably dated versions receive WARNs with the same named codes. The accepted manifest comes from the latest parts approval live at that version's build time; an unreadable build date uses the latest live approval and emits WARNs for any identity disagreement. The comparison reads declared hashes and the retained hash-bound verdict, including when the regenerable package is absent.
 
 | Code | Condition | Remedy |
 | --- | --- | --- |
 | `REVIEW_PACKAGE_CONFIG_MISMATCH` | package config SHA256 differs from the version's provenance config SHA256 | preserve history and record a new version whose config and package bind the same build |
 | `REVIEW_PACKAGE_PARTS_MISMATCH` | package out/parts.json SHA256 differs from the accepted parts manifest SHA256 at build time | preserve history and record a new version from the accepted parts and its own build outputs |
+| `REVIEW_PACKAGE_PARTS_UNREAD` | the hash-bound verdict needed for a version's parts comparison is unreadable or differs from its recorded bytes | restore the retained verdict matching signoffs[].evidence.sha256 before checking or packaging the version; before BUILD_IDENTITY_SINCE or with an unreadable version date this is a WARN |
 
 ```sh
 rig-create review-package <n> [<project dir>] --config <path> --from <build out dir> [--json]

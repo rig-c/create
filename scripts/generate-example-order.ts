@@ -49,8 +49,8 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...files })) write(path, bytes);
   for (const raw of arr(original.versions)) {
     const version = obj(raw);
+    version.built_with = { ...builtWith };
     if (version.kind === 'rig') {
-      version.built_with = { ...builtWith };
       const path = `evidence/v${String(version.n)}/interview-config.json`;
       const requirements = `evidence/v${String(version.n)}/interview-requirements.json`;
       files[path] = files[`${EXAMPLE_DRAFT}/config.json`]!;

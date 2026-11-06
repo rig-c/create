@@ -2488,8 +2488,8 @@
       "at": "2026-11-06T00:01:01.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.4.1",
-        "@rig-c/core": "3.2.0"
+        "@rig-c/parts": "2.16.0",
+        "@rig-c/core": "3.2.1"
       },
       "answers_feedback": [],
       "changed": "first post version on rig v2",
@@ -2586,8 +2586,8 @@
       "at": "2026-11-06T00:01:03.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.4.1",
-        "@rig-c/core": "3.2.0"
+        "@rig-c/parts": "2.16.0",
+        "@rig-c/core": "3.2.1"
       },
       "answers_feedback": [
         {

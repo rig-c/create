@@ -419,15 +419,17 @@ function postNotPassed(ctx: Ctx): boolean {
  * Where a paused project resumes, and what its checks are applied as: the
  * first stage closed by a sign-off that has none, or, before it, a `bar` stage
  * that names its steps (`parts`) while one of them in the plan is not `done`.
- * Amendments also resume at unfinished rigging/post bars. Ordinary paused
- * records retain their previous resume behavior.
+ * Amendments resume at unfinished bars only within an amended stage suffix.
+ * Ordinary paused records retain their previous resume behavior.
  */
-function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean, newOrder = false, amended = false, noPost = false): string {
+function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean, newOrder = false, amendedFrom = Infinity, noPost = false): string {
+  const amended = Number.isFinite(amendedFrom);
   for (const s of newOrder ? STAGES : LEGACY_STAGES) {
     if (amended && noPost && SKIPPED_WHEN_NO_POST.includes(s.id)) continue;
     // A project that predates parts-review resumes where it would have before the two stages existed.
     if (predatesPartsReview && (s.id === PARTS_REVIEW || s.id === 'parts')) continue;
-    if (s.closed_by === 'bar' && (s.steps !== undefined || amended)) {
+    const enforceBar = amended ? stageIndex(s.id) >= amendedFrom : s.steps !== undefined;
+    if (s.closed_by === 'bar' && enforceBar) {
       if (steps.some((x) => (amended ? stageOfStep(x.phase, x.id) === s.id : s.steps?.includes(x.id)) && (asString(x.record.status) ?? 'pending') !== 'done')) return s.id;
       continue;
     }
@@ -877,7 +879,8 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   const amendments = collectAmendments(project, []);
   const postItems = items.filter(i => i.kind === 'post');
   const noPost = postItems.length > 0 && postItems.every(i => i.state.state === 'not_applicable');
-  const resumeStage = firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project), amendments.length > 0, noPost);
+  const amendedFrom = Math.min(...amendments.map(a => stageIndex(a.stage)));
+  const resumeStage = firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project), amendedFrom, noPost);
   const effectiveStage = stage === PAUSED_STAGE ? resumeStage
     : amendments.length > 0 && stageIndex(resumeStage) < stageIndex(stage) ? resumeStage : stage;
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.

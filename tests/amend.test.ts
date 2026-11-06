@@ -89,9 +89,26 @@ describe('forward human amendments', () => {
     expect(readVersions(amended)).toEqual(readVersions(reopened));
     const history = collectSignoffs(amended, []);
     expect(nonLive(amended)).toEqual(history.filter(s => stageIndex(s.stage) >= stageIndex(stage)).map(s => s.index));
+    const report = checkProject(amendmentDir);
+    const summary = report.amendments![0]!;
+    const reopenedEvents = collectReopens(reopened, []);
+    const expectedLapsed = nonLive(reopened).map(index => `signoffs[${index}]`);
+    for (const [vi, raw] of arr(reopened.versions).entries()) {
+      for (const [di, verdict] of arr(obj(raw).verdicts).entries()) {
+        const approval = obj(verdict);
+        if (approval.verdict === 'accepted' && !liveSignoff(reopenedEvents, String(approval.review), Date.parse(String(approval.at)))) {
+          expectedLapsed.push(`versions[${vi}].verdicts[${di}]`);
+        }
+      }
+    }
+    expect(summary.lapsed.map(a => a.path).sort()).toEqual(expectedLapsed.sort());
+    expect(summary.keep_by_binding).toEqual([]);
+    const printedLapsed = formatReport(report).split('    lapsed (')[1]!.split('    upstream live (')[0]!;
+    expect(printedLapsed.split('\n').filter(line => line.startsWith('      ')).map(line => line.trim().split(' ')[0]).sort()).toEqual(expectedLapsed);
+    expect(formatReport(report)).toContain('keep-by-binding (0)');
     expect(amended.stage).toBe('accepted');
     expect(reopened.stage).toBe(stage);
-    expect(checkProject(amendmentDir).refusals).toEqual([]);
+    expect(report.refusals).toEqual([]);
   });
 
   test('a later-stage amendment preserves every preceding plan-step state and rig handoff', () => {
@@ -104,6 +121,32 @@ describe('forward human amendments', () => {
       if (stageIndex(stageOfStep(s.phase as 'rig' | 'post', String(s.id))) < stageIndex('post')) expect(s).toEqual(step(before, String(s.id)));
       else expect(s.status).toBe('pending');
     }
+    expect(handoff(dir, null).rig_version).toBe(2);
+  });
+
+  test.each(([
+    ['post-interview', 'motion'],
+    ['direction-review', 'motion'],
+    ['direction-review', 'timing'],
+  ] as const).flatMap(([stage, upstream]) => [false, true].map(resign => [stage, upstream, resign] as const)))('upstream unfinished bars do not lower amend %s with %s unfinished and re-sign %s', (stage, upstream, resign) => {
+    const dir = fixture(p => { step(p, upstream).status = 'in-progress'; }, 'example-project.json');
+    const before = read(dir);
+    const control = checkProject(dir);
+    expect(control.refusals).toEqual([]);
+    expect(control.effective_stage).toBe(before.stage as string);
+    expect(JSON.stringify(checkProject(dir))).toBe(JSON.stringify(control));
+    expect(formatReport(checkProject(dir))).toBe(formatReport(control));
+    amend(dir, stage);
+    if (resign) {
+      setSystemTime(new Date('2026-11-21T00:00:00Z'));
+      signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    }
+    const report = checkProject(dir);
+    expect(report.refusals).toEqual([]);
+    const afterSignoff = stage === 'post-interview' ? 'post' : 'accepted';
+    expect(report.effective_stage).toBe(resign ? afterSignoff : stage);
+    expect(read(dir).stage).toBe(before.stage);
+    expect(step(read(dir), upstream)).toEqual(step(before, upstream));
     expect(handoff(dir, null).rig_version).toBe(2);
   });
 

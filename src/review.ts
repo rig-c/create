@@ -307,7 +307,6 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
   }
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
-  assertFigureMaskApproval(dir, record, rig ?? undefined);
   assertCorrectionApproval(dir, record, RIG_REVIEW);
   const historyRefusals: ReviewCtx['refusals'] = draftVersionFindings(dir, record);
   checkPreInterview({ dir, project: record, refusals: historyRefusals, warnings: [] });
@@ -350,6 +349,7 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
     }
     refuse('POST_ON_UNACCEPTED_RIG', `versions[v${rig}]: ${named === undefined ? 'no rig version has that number' : `rig v${rig} has no accepted rig-review verdict`}; post work runs on rig v${accepted.n}`);
   }
+  assertFigureMaskApproval(dir, record, accepted.n);
   const losses = asArray(record.versions).flatMap((v) => isObject(v) && v.pre_interview === true && isObject(v.outputs_lost)
     ? [{ version: v.n as number, note: v.outputs_lost.note as string, source: v.outputs_lost.source as string }] : []);
   return { ...(losses.length > 0 ? { outputs_lost: losses } : {}), ok: true, project_dir: dir, rig_version: accepted.n, pre_interview: accepted.preInterview, accepted: accepted.accepted, still };

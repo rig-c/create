@@ -112,27 +112,16 @@ export function checkFigureMask(ctx: MaskContext): void {
         && typeof source.path === 'string' && source.path.trim() !== ''
         && typeof source.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(source.sha256));
     });
-    if (!recorded) finding('FIGURE_MASK_UNRECORDED', `${relative(ctx.dir, file)}: record this PNG and hash with derived add and at least one source; operation names the matte model, alpha >= 128 threshold and foreground plane subtracted (or none)`);
+    if (!recorded) finding('FIGURE_MASK_UNRECORDED', `${relative(ctx.dir, originalMask)}: record this PNG and hash with derived add and at least one source; operation names the matte model, alpha >= 128 threshold and foreground plane subtracted (or none)`);
   });
 }
 
 /** Apply the same packaged gates at review writer and handoff boundaries. */
-export function assertFigureMaskApproval(dir: string, project: JsonObject, version?: number): void {
-  const versions = asArray(project.versions).filter(v => {
-    if (!isObject(v) || v.kind !== 'rig' || v.pre_interview === true
-      || version !== undefined && v.n !== version || !isObject(v.review_package)) return false;
-    if (!existsSync(join(dir, 'derived/review', `v${String(v.n)}`))) return false;
-    const config = asArray(v.review_package.files).find(f => isObject(f) && f.path === 'config.json');
-    if (!isObject(config) || typeof config.sha256 !== 'string') return false;
-    const frozen = readObject(dir, join(dir, 'derived/review', `v${String(v.n)}`, 'config.json'), config.sha256);
-    if (!frozen.ok) return true;
-    const assemble = isObject(frozen.value.assemble) ? frozen.value.assemble : {};
-    return assemble.project === 'visible' && assemble.ground === 'busy';
-  });
-  const selected = { ...project, versions };
+export function assertFigureMaskApproval(dir: string, project: JsonObject, version: number): void {
+  const selected = { ...project, versions: asArray(project.versions).filter(v => isObject(v) && v.n === version) };
   const ctx: MaskContext = { dir, project: selected, refusals: [], warnings: [] };
   checkReviewPackages(ctx);
   checkFigureMask(ctx);
-  const first = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_')) ?? ctx.refusals[0];
+  const first = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_'));
   if (first) refuse(first.code, first.message);
 }

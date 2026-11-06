@@ -280,6 +280,9 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
             current = join(current, part);
             if (existsSync(current) && lstatSync(current).isSymbolicLink()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${maskPath}: retain a figure mask without symlinks`);
           }
+          let regularFile = false;
+          try { regularFile = lstatSync(maskFile).isFile(); } catch { /* Missing paths are refused below. */ }
+          if (!regularFile) refuse('FIGURE_MASK_CHANGED', `${maskPath}: restore the declared mask as a readable PNG file before packaging`);
           let bytes: Buffer;
           try { bytes = readFileSync(maskFile); }
           catch { refuse('FIGURE_MASK_CHANGED', `${maskPath}: cannot read the declared mask; restore its PNG before packaging`); }

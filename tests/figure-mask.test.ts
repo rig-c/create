@@ -59,7 +59,9 @@ describe('figure mask declaration and provenance', () => {
     expect((error as Refusal).code).toBe('FIGURE_MASK_CHANGED');
   });
   test('unrecorded mask refuses', () => {
-    expect(findings(checkProject(project(undefined, (p) => { p.derived = []; }))).map((f) => f.code)).toEqual(['FIGURE_MASK_UNRECORDED']);
+    const report = findings(checkProject(project(undefined, (p) => { p.derived = []; })));
+    expect(report.map((f) => f.code)).toEqual(['FIGURE_MASK_UNRECORDED']);
+    expect(report[0]?.message).toContain('evidence/mask/figure.png');
   });
   test.each(['2026-11-05T23:59:59Z', 'undated'])('older declarations warn: %s', (at) => {
     const report = checkProject(project({}, (p) => { version(p, 1).at = at; }));
@@ -179,6 +181,7 @@ test('the nested mask is retained without joining handoff named inputs', async (
 
 test.each(['unrecorded', 'requirements.json', 'figure.png'])('check, acceptance, signoff and handoff share the frozen mask finding: %s', missing => {
   const dir = project(undefined, p => {
+    p.versions = arr(p.versions).filter(v => obj(v).n === 1);
     if (missing === 'unrecorded') p.derived = [];
     version(p, 1).verdicts = [{ review: 'rig-review', verdict: 'accepted', by: 'user', at: FIGURE_MASK_SINCE, verbatim: 'Accept synthetic rig' }];
   });

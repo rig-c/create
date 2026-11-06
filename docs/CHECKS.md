@@ -677,7 +677,9 @@ create-built rig versions. Post and pre-interview versions are exempt.
 | `REVIEW_PACKAGE_USAGE` | version/options are missing, repeated or invalid (exit 2) |
 | `REVIEW_PACKAGE_VERSION_UNKNOWN` | the requested version is absent |
 | `REVIEW_PACKAGE_VERSION_INVALID` | the version is post or pre-interview |
-| `REVIEW_PACKAGE_PATH_INVALID` | a source is absolute, escapes the project, or the destination traverses a symlink outside it |
+| `REVIEW_PACKAGE_PATH_INVALID` | a source is absolute, escapes the project, a figure-mask path leaves the config directory, or the destination traverses a symlink outside it |
+| `FIGURE_MASK_CHANGED` | the packager's declared mask is missing, unreadable, a non-file, or differs from its declared SHA-256. Restore the declared PNG before packaging |
+| `FIGURE_MASK_MISSING` | the packager's retained requirements contain a malformed figure-mask declaration. Declare its path and lowercase SHA-256 before packaging |
 | `REVIEW_PACKAGE_INPUT_MISSING` | a writer source or required layout entry is absent, or the checker finds a config-named input missing from the frozen inventory. The checker WARNs before CONFIG_INPUTS_SINCE by version.at and refuses from that date. Preserve history and package the complete named inputs on the next build |
 | `REVIEW_PACKAGE_INPUT_INVALID` | a writer config is not a JSON object, a layout entry has the wrong kind or a copied tree contains a symlink. The checker also reports an unreadable frozen config or unavailable config-file declarations, with unavailable declarations WARNed before CONFIG_INPUTS_SINCE by version.at and refused from that date. An existing project-level parts-loader refusal suppresses duplicate input findings |
 | `REVIEW_PACKAGE_SOURCE_CHANGED` | source bytes change between hashing and copying |

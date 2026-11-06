@@ -14,6 +14,7 @@ import { reviewConfigInputs, reviewHandoffInputs } from './review-package.ts';
 
 export const CORRECTIONS_SPEC = 'rig-create/corrections@1';
 export const CORRECTION_SPEC = 'rig-create/correction@1';
+export const DESCRIBED_DIRECTION_SINCE = '2026-11-06T00:00:00Z';
 export const CORRECTION_STAGES = ['parts-review', 'rig-review', 'direction-review'];
 // @rig-c/parts 2.16.0, src/check.ts:3094 (CheckStatus), read from the installed producer.
 const PRODUCER_CHECK_STATUSES = new Set(['PASS', 'FAIL', 'SKIP', 'WARN', 'CLEAR', 'REPORTED', 'UNCLASSIFIED']);
@@ -321,7 +322,16 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       }
       seen.set(String(record.id), record);
       const direction = record.schema === DIRECTION_CORRECTION_SPEC;
-      if (direction !== (isObject(record.artifact) && record.artifact.kind === 'direction-patch')) fail('CORRECTION_MALFORMED', 'correction@2 is only for direction-patch');
+      const describedDirection = record.path === 'described' && record.stage === 'direction-review' && isObject(record.on) && record.on.kind === 'post';
+      const directionPatch = isObject(record.artifact) && record.artifact.kind === 'direction-patch';
+      if (direction && !describedDirection && !directionPatch || !direction && directionPatch) fail('CORRECTION_MALFORMED', 'correction@2 requires a direction description or direction-patch');
+      if (!direction && describedDirection) {
+        const version = versionRecord(project, (record.on as JsonObject).n);
+        if (isObject(version.provenance) && isObject(version.provenance.direction)) {
+          if (date(record.at) >= Date.parse(DESCRIBED_DIRECTION_SINCE)) fail('DESCRIBED_DIRECTION_REQUIRED', 'authored direction description requires correction@2 and exact direction identity');
+          warnings.push(correctionFinding('DESCRIBED_DIRECTION_LEGACY', path, 'historical description lacks the exact direction identity; preserve it and capture a new correction@2 request'));
+        }
+      }
       const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage), direction);
       if (identityTime(project, on) > date(record.at)) fail('CORRECTION_SOURCE', 'correction predates its source');
       if (record.resolves !== null && (on.kind === 'rig' || on.kind === 'post') && bindings(project.versions).some(v => v.kind === on.kind && Number(v.n) > Number(on.n) && date(v.at) <= date(record.at))) fail('CORRECTION_SOURCE', 'correction must name the latest reviewed version at capture');
@@ -357,7 +367,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
         let outcome: JsonObject;
         try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
         const closure = record.closure;
-        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > Date.now() || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? sameHash(on.model,outcome.model) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
+        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > Date.now() || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? (record.path === 'described' || sameHash(on.model,outcome.model)) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
         if (record.path === 'made' && on.kind === 'rig' && outcome.kind === 'rig') {
           const target = versionRecord(project, outcome.n); const { applied } = correctionApplied(dir, art);
           const origin = target.review_origin;

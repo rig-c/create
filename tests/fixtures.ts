@@ -21,7 +21,7 @@ import { tempDir } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { newOrderExampleFiles } from './draft-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
-import { alignLegacyBuilds, reviewExampleFiles } from './review-fixture.ts';
+import { alignLegacyBuilds, materializeLegacyPartPackages, reviewExampleFiles } from './review-fixture.ts';
 
 export type Mutate = (project: JsonObject) => void;
 
@@ -42,6 +42,7 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   mkdirSync(dir);
   const project = readTemplate(template);
   if (['legacy-example-project.json', 'example-project.json', 'example-reopened/project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
+  if (template === 'legacy-example-project.json' && !rawLegacy && bindAnswers) materializeLegacyPartPackages(dir, project, files);
   mutate(project);
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
   if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);

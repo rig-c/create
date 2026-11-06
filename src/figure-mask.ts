@@ -122,6 +122,6 @@ export function assertFigureMaskApproval(dir: string, project: JsonObject, versi
   const ctx: MaskContext = { dir, project: selected, refusals: [], warnings: [] };
   checkReviewPackages(ctx);
   checkFigureMask(ctx);
-  const first = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_'));
+  const first = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_') || f.code === 'REVIEW_PACKAGE_PART_FILE_MISMATCH');
   if (first) refuse(first.code, first.message);
 }

@@ -63,12 +63,12 @@ function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = 
 function packageRig(dir: string): void {
   reviewPackageCommand(['1', dir, '--config', 'frozen/config.json', '--from', 'build']);
 }
-function accept(dir: string): void {
-  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
+function accept(dir: string, n = '1'): void {
+  reviewCommand([n, dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
     '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic retained-byte control']);
 }
-function sign(dir: string): void {
-  signoffCommand(['rig-review', dir, '--version', '1', '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+function sign(dir: string, n = '1'): void {
+  signoffCommand(['rig-review', dir, '--version', n, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
 }
 function checked(dir: string) {
   const ctx = { dir, project: load(dir), refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
@@ -182,4 +182,116 @@ test('acceptance scopes the part gate to its selected version', () => {
   ]);
   accept(dir);
   sign(dir);
+});
+
+for (const artifact of ['parts/torso.png', 'parts.json']) for (const boundary of ['acceptance', 'handoff']) test(`${boundary} refuses post-write package drift: ${artifact}`, () => {
+  const dir = setup();
+  packageRig(dir);
+  if (boundary === 'handoff') { accept(dir); sign(dir); }
+  put(dir, `derived/review/v1/out/${artifact}`, 'distinct post-write bytes\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  const args = boundary === 'acceptance'
+    ? ['review', '1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']
+    : ['handoff', dir, '--json'];
+  const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), ...args], { env: process.env });
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr.toString()).toContain('REVIEW_PACKAGE_CHANGED');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('an unreadable rig date cannot authorize a drifted part', () => {
+  const dir = setup();
+  const p = load(dir);
+  (p.versions as JsonObject[])[0]!.at = 'pending';
+  put(dir, 'project.json', JSON.stringify(p));
+  put(dir, 'build/parts/torso.png', 'distinct pending-date torso\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  let error: unknown;
+  try { packageRig(dir); } catch (caught) { error = caught; }
+  expect(error).toBeInstanceOf(Refusal);
+  expect((error as Refusal).code).toBe('RIG_VERSION_AT_INVALID');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+for (const boundary of ['acceptance', 'handoff']) test(`${boundary} propagates manifest identity disagreement without global gating`, () => {
+  const dir = setup(PART_FILE_IDENTITY_SINCE, false);
+  // The alternate manifest exists before packaging and before its approval is recorded.
+  put(dir, 'build/parts.json', '{"parts":[]}\n');
+  packageRig(dir);
+  accept(dir);
+  sign(dir);
+  approveParts(dir);
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(refusal(() => {
+    if (boundary === 'acceptance') accept(dir);
+    else handoffCommand([dir, '--json']);
+  }).code).toBe('REVIEW_PACKAGE_PARTS_MISMATCH');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+for (const boundary of ['acceptance', 'handoff']) test(`${boundary} ignores package drift on an unselected version`, () => {
+  const dir = setup();
+  const project = load(dir);
+  (project.versions as JsonObject[]).unshift({ ...structuredClone((project.versions as JsonObject[])[0]!), n: 2 });
+  put(dir, 'project.json', JSON.stringify(project));
+  packageRig(dir);
+  reviewPackageCommand(['2', dir, '--config', 'frozen/config.json', '--from', 'build']);
+  put(dir, 'derived/review/v1/out/parts/torso.png', 'unselected post-write drift\n');
+  expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CHANGED']);
+  accept(dir, '2');
+  sign(dir, '2');
+  if (boundary === 'handoff') expect(handoffCommand([dir, '--json']).exit).toBe(0);
+});
+
+for (const at of ['pending', '', null, 123, undefined, '2026-02-31', '2026-02-31T10:00:00Z', '2026-13-01', 'pending 1', '1', 'build 3', '2026-11-07T00:00:00']) test(`all selected readers refuse an unreadable rig date: ${String(at)}`, () => {
+  const dir = setup();
+  packageRig(dir);
+  accept(dir);
+  sign(dir);
+  const p = load(dir);
+  const rig = (p.versions as JsonObject[])[0]!;
+  if (at === undefined) delete rig.at;
+  else rig.at = at;
+  put(dir, 'project.json', JSON.stringify(p));
+  put(dir, 'derived/review/v1/out/parts/torso.png', 'distinct reader-date drift\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('RIG_VERSION_AT_INVALID');
+  for (const action of [() => packageRig(dir), () => accept(dir), () => sign(dir), () => { handoffCommand([dir, '--json']); }]) {
+    const error = refusal(action);
+    expect(error.code).toBe('RIG_VERSION_AT_INVALID');
+    expect(error.message).toContain('versions[v1].at');
+    expect(error.message).toContain(JSON.stringify(at) ?? 'undefined');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
+});
+
+test('date findings include imported rigs and exclude posts and nested member snapshots', () => {
+  const ctx = { dir: tempDir(), project: { versions: [
+    { n: 1, kind: 'rig', pre_interview: true, at: 'pending' },
+    { n: 2, kind: 'post', at: 'pending' },
+  ], members: { first: { versions: [{ n: 3, kind: 'rig', at: 'pending' }] } } } as JsonObject,
+  refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
+  roots.push(ctx.dir);
+  checkReviewPackages(ctx);
+  expect(ctx.refusals.map(f => [f.code, f.path])).toEqual([['RIG_VERSION_AT_INVALID', 'versions[v1].at']]);
+  expect(ctx.warnings).toEqual([]);
+});
+
+for (const at of ['2026-11-02', '2026-11-06T12:00:00+02:00', '2026-11-06T23:30:00-02:00', '2026-11-06T00:30:00+09:00']) test(`calendar dates and zoned ISO dates pass all boundaries: ${at}`, () => {
+  const dir = setup(at);
+  packageRig(dir);
+  accept(dir);
+  sign(dir);
+  expect(checked(dir).refusals).toEqual([]);
+  expect(checked(dir).warnings).toEqual([]);
+  expect(handoffCommand([dir, '--json']).exit).toBe(0);
+});
+
+test('a date-only cutoff day enforces part identity at UTC midnight', () => {
+  const dir = setup('2026-11-06');
+  expect(Date.parse('2026-11-06')).toBe(Date.parse(PART_FILE_IDENTITY_SINCE));
+  put(dir, 'build/parts/torso.png', 'distinct cutoff-day torso\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(refusal(() => packageRig(dir)).code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

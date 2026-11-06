@@ -16,6 +16,7 @@ import { Refusal } from '../src/refusal.ts';
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+const BUILD_AT = '2026-11-06T00:00:00Z';
 const config = '{"key":"synthetic","bones":[{"name":"root"}]}\n';
 const model = JSON.stringify({ spec: 'rigc-compiled/3', referenceScale: 100, stage: { x: 0, y: 0, width: 10, height: 10 }, bones: [{ name: 'root' }], slots: [], skins: [], constraints: [], events: [], animations: [], pages: [] });
 function put(dir: string, path: string, text: string): void {
@@ -25,7 +26,7 @@ function put(dir: string, path: string, text: string): void {
 function fixture(): string {
   const dir = mkdtempSync(join(tmpdir(), 'review-package-'));
   roots.push(dir);
-  put(dir, 'project.json', JSON.stringify({ schema: 'rig-create/project@0', stage: 'interview', versions: [{ n: 1, kind: 'rig', outputs: [], verdicts: [] }] }));
+  put(dir, 'project.json', JSON.stringify({ schema: 'rig-create/project@0', stage: 'interview', versions: [{ n: 1, kind: 'rig', at: BUILD_AT, outputs: [], verdicts: [] }] }));
   put(dir, 'frozen/config.json', config);
   put(dir, 'build/parts.json', '{"parts":[]}');
   put(dir, 'build/parts/piece.png', 'synthetic part');
@@ -94,7 +95,7 @@ describe('frozen review package', () => {
     }, 'legacy-example-project.json', {}, true);
     roots.push(dirname(dir));
     const result = checked(dir);
-    expect(result.refusals).toEqual([]);
+    expect(result.refusals.map(f => f.code)).toEqual(['RIG_VERSION_AT_INVALID', 'RIG_VERSION_AT_INVALID']);
     expect(result.warnings.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_LEGACY', 'REVIEW_PACKAGE_PART_FILE_LEGACY', 'REVIEW_PACKAGE_PART_FILE_LEGACY', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_LEGACY', 'REVIEW_PACKAGE_PART_FILE_LEGACY', 'REVIEW_PACKAGE_PART_FILE_LEGACY']);
   });
   for (const [field, code] of [['config', 'REVIEW_PACKAGE_CONFIG_MISMATCH'], ['parts', 'REVIEW_PACKAGE_PARTS_MISMATCH']] as const) {
@@ -235,7 +236,7 @@ describe('frozen review package', () => {
   test('legacy rigs warn while post and pre-interview versions are exempt', () => {
     const dir = fixture();
     expect(checked(dir).warnings[0]?.code).toBe('REVIEW_PACKAGE_MISSING');
-    put(dir, 'project.json', JSON.stringify({ schema: 'rig-create/project@0', versions: [{ n: 1, kind: 'rig', pre_interview: true }, { n: 2, kind: 'post' }] }));
+    put(dir, 'project.json', JSON.stringify({ schema: 'rig-create/project@0', versions: [{ n: 1, kind: 'rig', at: BUILD_AT, pre_interview: true }, { n: 2, kind: 'post' }] }));
     expect(checked(dir).warnings).toEqual([]);
     expect(() => write(dir)).toThrow('create-built rig');
   });

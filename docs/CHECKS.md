@@ -375,6 +375,7 @@ Exit `1`. Each names its object in `path`.
 | `CITATION_GUIDE_SILENT` | an entry's `guide` names an item with no answer | answer the item (it is also reported on its own) |
 | `CITATION_WRONG_PHASE` | a `post` version's entry cites a rig waypoint | cite the post item (or framing answer) it rests on; a rig change is a new rig version |
 | `QUOTE_NOT_FOUND` | an entry's `quote` is in no `verbatim` or `additions[].verbatim` of the cited answer (current or `history[]`) | quote the stored sentence exactly; feedback no guide covered goes into `additions[]` first |
+| `RIG_VERSION_AT_INVALID` | a rig version in the project's own `versions[]`, including a pre-interview version, has an `at` other than a calendar date `YYYY-MM-DD` or an ISO date-time with mandatory `Z` or `±HH:MM`, or parsing fails or its written calendar date is invalid | restore the named version's valid build date from its record. Package, rig acceptance, rig signoff and handoff refuse the selected version before writing |
 | `VERDICT_MALFORMED` | a verdict lacks `by`, `at` or `verbatim`, has a `verdict` other than `accepted` / `bounced` / `provisional` or a `review` other than `rig-review` / `direction-review`, `on_items` is not a list, or an item lacks `id` or a valid `answer_was` | write it in the verdict shape ([PROJECT.md § Versions](PROJECT.md#versions)); `rig-create review` writes it |
 | `FEEDBACK_UNANSWERED` | a human bounced verdict on version N, not withdrawn, and a version later than N exists while none lists `{ "version": N, "verdict": i }` in `answers_feedback` | list it in the version built from that feedback, with what changed in `changed`; if the feedback was not acted on, say so to the user — a later version that ignores it is the bounce coming back |
 | `PRE_INTERVIEW_ORDER` | pre-interview versions follow a create-built version, or migrated history has nonpositive, repeated or out-of-order version numbers | put historical versions first, with strictly increasing `n` and consistent references |
@@ -644,17 +645,17 @@ non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
 
 ## Review packages
 
-`BUILD_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates the build-identity findings by the rig version's `at`. Earlier or unreadably dated versions receive WARNs with the same named codes. The accepted manifest comes from the latest parts approval live at that version's build time; an unreadable build date uses the latest live approval and emits WARNs for any identity disagreement. The comparison reads declared hashes and the retained hash-bound verdict, including when the regenerable package is absent.
+`BUILD_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates the build-identity findings by the rig version's `at`. Earlier or unreadably dated versions receive WARNs with the same named codes. An unreadably dated rig version is also refused by `RIG_VERSION_AT_INVALID`; the census for #164 found none among seven template and eighteen consumer rig versions, so this refusal has no date cutoff. The accepted manifest comes from the latest parts approval live at that version's build time; an unreadable build date uses the latest live approval and emits WARNs for any identity disagreement. The comparison reads declared hashes and the retained hash-bound verdict, including when the regenerable package is absent.
 
 | Code | Condition | Remedy |
 | --- | --- | --- |
 | `REVIEW_PACKAGE_CONFIG_MISMATCH` | package config SHA256 differs from the version's provenance config SHA256 | preserve history and record a new version whose config and package bind the same build |
-| `REVIEW_PACKAGE_PARTS_MISMATCH` | package out/parts.json SHA256 differs from the accepted parts manifest SHA256 at build time | preserve history and record a new version from the accepted parts and its own build outputs |
+| `REVIEW_PACKAGE_PARTS_MISMATCH` | package out/parts.json SHA256 differs from the accepted parts manifest SHA256 at build time. Rig acceptance and handoff refuse this for the selected version | preserve history and record a new version from the accepted parts and its own build outputs |
 | `REVIEW_PACKAGE_PART_FILE_MISMATCH` | on or after PART_FILE_IDENTITY_SINCE, a packaged part SHA256 differs from an image listed in the accepted verdict source.files, or that image is missing from the package | preserve the package and record a new version containing the reviewed part files |
 | `REVIEW_PACKAGE_PART_FILE_LEGACY` | WARN for the same differing or missing part identity before PART_FILE_IDENTITY_SINCE or with an unreadable version date | preserve historical bytes and include the reviewed part files in the next version |
 | `REVIEW_PACKAGE_PARTS_UNREAD` | the hash-bound verdict needed for a version's parts comparison is unreadable or differs from its recorded bytes | restore the retained verdict matching signoffs[].evidence.sha256 before checking or packaging the version; before BUILD_IDENTITY_SINCE or with an unreadable version date this is a WARN |
 
-`PART_FILE_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates individual part identity by the rig version's `at`. Each non-manifest entry in the selected accepted verdict's `source.files[]` maps relative to its `parts.json` directory into the package's `out/` directory. The package writer checks those identities before publication. Check, rig acceptance, rig signoff and handoff enforce the same cutoff, scoped to the selected rig at writer and handoff boundaries. The message names the part path, reviewed hash and packaged hash or `missing`.
+`PART_FILE_IDENTITY_SINCE = 2026-11-06T00:00:00Z` dates individual part identity by the rig version's `at`. Each non-manifest entry in the selected accepted verdict's `source.files[]` maps relative to its `parts.json` directory into the package's `out/` directory. The package writer checks those identities before publication. Check, rig acceptance, rig signoff and handoff enforce the same cutoff, scoped to the selected rig at writer and handoff boundaries. The message names the part path, reviewed hash and packaged hash or `missing`. Rig acceptance and handoff also propagate `REVIEW_PACKAGE_CHANGED` and `REVIEW_PACKAGE_PARTS_MISMATCH` for the selected version. A date-only `at` compares against each cutoff as UTC midnight, so `2026-11-06` falls on the post-cutoff side exactly like `2026-11-06T00:00:00Z`.
 
 ```sh
 rig-create review-package <n> [<project dir>] --config <path> --from <build out dir> [--json]
@@ -670,7 +671,7 @@ create-built rig versions. Post and pre-interview versions are exempt.
 | Refusal | Fires when | Clear it by |
 | --- | --- | --- |
 | `REVIEW_PACKAGE_MALFORMED` | a present `review_package` record lacks its config path/hash, source directory, file list or canonical open command | restore the recorded snapshot shape |
-| `REVIEW_PACKAGE_CHANGED` | a present package has missing, extra or changed files, a symlink, or an invalid required layout | inspect and restore its recorded frozen bytes |
+| `REVIEW_PACKAGE_CHANGED` | a present package has missing, extra or changed files, a symlink, or an invalid required layout. Rig acceptance and handoff refuse this for the selected version | inspect and restore its recorded frozen bytes |
 
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |

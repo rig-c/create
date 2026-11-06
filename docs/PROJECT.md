@@ -708,6 +708,9 @@ perform the following migration on its own decision record.
    values must be unique; multiple nulls are allowed. Rewrite `answers_feedback`
    version references and post `rig_version` references to the new `n`.
    Create-built versions carry no `original_n`.
+   Every migrated rig version must retain a readable `at` from its build record;
+   if no date can be recovered, stop the migration rather than inventing one
+   (`RIG_VERSION_AT_INVALID`).
    Remove the moved `x-pre_create.versions` array. A nonempty array left there
    produces the `PRE_INTERVIEW_UNMIGRATED` warning while migration is pending.
    It preserves the existing check exit code. Migrated records are checked

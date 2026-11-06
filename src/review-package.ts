@@ -9,6 +9,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
 import { latestPartsApproval, retainedJson } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -160,7 +161,10 @@ function regeneration(n: number, record: JsonObject | null): string {
 /** Hash the complete package, so added files cannot silently change discovery. */
 export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>): void {
   for (const version of asArray(ctx.project.versions)) {
-    if (!isObject(version) || version.kind !== 'rig' || version.pre_interview === true) continue;
+    if (!isObject(version) || version.kind !== 'rig') continue;
+    const dateFinding = rigVersionDateFinding(version);
+    if (dateFinding) ctx.refusals.push(dateFinding);
+    if (version.pre_interview === true) continue;
     const path = `versions[v${String(version.n)}].review_package`;
     const record = isObject(version.review_package) ? version.review_package : null;
     if (!Number.isSafeInteger(version.n) || (version.n as number) < 1) continue;
@@ -241,6 +245,7 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'review-package reads rig-create/project@0');
     const version = asArray(project.versions).find((v) => isObject(v) && v.n === n);
     if (!isObject(version)) refuse('REVIEW_PACKAGE_VERSION_UNKNOWN', `no version ${n}`);
+    assertRigVersionDate(version);
     const draftProblem = draftVersionFindings(dir, { ...project, versions: [version] })[0];
     if (draftProblem !== undefined) refuse(draftProblem.code, draftProblem.message);
     if (version.kind !== 'rig' || version.pre_interview === true) refuse('REVIEW_PACKAGE_VERSION_INVALID', 'review packages are for create-built rig versions');

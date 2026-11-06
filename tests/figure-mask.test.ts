@@ -64,7 +64,10 @@ describe('figure mask declaration and provenance', () => {
     expect(report[0]?.message).toContain('evidence/mask/figure.png');
   });
   test.each(['2026-11-05T23:59:59Z', 'undated'])('older declarations warn: %s', (at) => {
-    const report = checkProject(project({}, (p) => { version(p, 1).at = at; }));
+    const dir = project({});
+    changeRecord(dir, p => { version(p, 1).at = at; });
+    const report = checkProject(dir);
+    expect(report.refusals.filter(f => f.code === 'RIG_VERSION_AT_INVALID').map(f => f.code)).toEqual(at === 'undated' ? ['RIG_VERSION_AT_INVALID'] : []);
     expect(findings(report).map((f) => f.code)).toEqual(['FIGURE_MASK_LEGACY']);
     expect(report.refusals.some((f) => f.code.startsWith('FIGURE_MASK_'))).toBe(false);
   });

@@ -139,6 +139,16 @@ function checkOriginals(ctx: HistoryCtx, version: JsonObject, label: string): vo
   });
 }
 
+/** A loss declaration is usable only when the historical config is absent. */
+export function validConfigLoss(version: JsonObject): boolean {
+  const loss = version.config_lost;
+  const provenance = isObject(version.provenance) ? version.provenance : {};
+  return version.pre_interview === true && isObject(loss)
+    && typeof loss.note === 'string' && loss.note.trim() !== ''
+    && typeof loss.source === 'string' && loss.source.trim() !== ''
+    && provenance.config == null;
+}
+
 /** Also used by handoff so unchecked imported history cannot authorize post work. */
 export function checkPreInterview(ctx: HistoryCtx): void {
   const legacy = ctx.project['x-pre_create'];
@@ -153,6 +163,9 @@ export function checkPreInterview(ctx: HistoryCtx): void {
   versions.forEach((v, index) => {
     if (!isObject(v)) return;
     const label = typeof v.n === 'number' ? `versions[v${v.n}]` : `versions[${index}]`;
+    if (Object.hasOwn(v, 'config_lost') && !validConfigLoss(v)) {
+      ctx.refusals.push({ code: 'PRE_INTERVIEW_CONFIG_LOST_MALFORMED', path: `${label}.config_lost`, message: `${label}.config_lost: record { note, source } with nonempty strings only on a pre-interview version without provenance.config; restore a surviving config instead` });
+    }
     if (v.pre_interview !== undefined && typeof v.pre_interview !== 'boolean') {
       ctx.refusals.push({ code: 'VERSION_MALFORMED', path: `${label}.pre_interview`, message: `${label}.pre_interview is a boolean flag` });
     }

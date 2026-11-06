@@ -25,6 +25,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 
 import { asString, isObject, itemFor, asArray, type Ctx } from './check.ts';
+import { validConfigLoss } from './pre-interview.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 /** The `rig_type` values (docs/INTERVIEW.md § Framing). */
@@ -120,6 +121,14 @@ export function checkCgGates(ctx: Ctx): void {
   asArray(ctx.project.versions).forEach((v, index) => {
     if (!isObject(v) || v.kind !== 'rig') return;
     const label = versionLabel(v, index);
+    const configLost = validConfigLoss(v);
+    if (configLost) {
+      ctx.warnings.push({
+        code: 'CG_GATES_CONFIG_LOST',
+        path: `${label}.config_lost`,
+        message: `${label}.config_lost: the historical config was lost, so its CG gates cannot be read; preserve the note and source, and build and accept a new rig with its retained config before post work`,
+      });
+    }
     const builtWith = isObject(v.built_with) ? asString(v.built_with['@rig-c/parts']) : null;
     if (builtWith !== null && before(builtWith, CG_GATES_FROM_PARTS)) {
       ctx.warnings.push({
@@ -129,6 +138,7 @@ export function checkCgGates(ctx: Ctx): void {
       });
       return;
     }
+    if (configLost) return;
     const prov = isObject(v.provenance) ? v.provenance : {};
     const config = isObject(prov.config) ? prov.config : {};
     const configPath = asString(config.path);

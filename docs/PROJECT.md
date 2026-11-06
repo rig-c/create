@@ -490,6 +490,7 @@ both kinds:
 | --- | --- |
 | `n` | the version number, `1, 2, …` |
 | `original_n` | on pre-interview versions only, the unchanged source id as a number, string or `null`; non-null ids are unique |
+| `config_lost` | on pre-interview versions only, `{ note, source }` with nonempty strings when the build config did not survive; cannot accompany `provenance.config` or authorize post work |
 | `outputs_lost` | on pre-interview versions only, `{ note, source }` with nonempty strings beside `outputs: []` when frozen outputs did not survive |
 | `kind` | `rig` or `post` |
 | `rig_version` | for a post version, the `n` of the accepted rig it is built on (accepted before the post version's `at`); `null` for a rig version |
@@ -569,7 +570,22 @@ outputs is refused. Such a version can never authorize post work. All
 pre-interview versions precede the first create-built version, with positive,
 strictly increasing `n` across the combined history.
 
-An accepted pre-interview rig still authorizes post work. Its human
+For a lost build config, first recover the producer version from that version's
+own source record and put it in `built_with["@rig-c/parts"]`. A version's
+producer is recorded from its own source record, never inferred from neighbours.
+A producer older than 2.4.0 receives `CG_GATES_PREDATE` on a CG rig.
+If the config did not survive, declare `config_lost: { note, source }` with
+nonempty strings explaining the loss and naming its source. This requires
+`pre_interview: true` and absent or null `provenance.config`. A CG rig receives
+`CG_GATES_CONFIG_LOST` instead of `CG_GATES_UNREAD`, preserving the check exit
+when the rest of the record passes. A known old producer and a declared config
+loss receive both warnings. The declaration is also available when the source
+names no producer version. Handoff refuses a selected rig with this declaration
+as `PRE_INTERVIEW_CONFIG_LOST`; post records cannot use it as their rig basis.
+Build and accept a new rig with its retained config before post work.
+
+An accepted pre-interview rig with surviving outputs and no config loss still
+authorizes post work. Its human
 `rig-review` verdict, valid acceptance time, still-frame record and
 `rig-review` sign-off remain required. `handoff` reports `pre_interview` in
 JSON and prints that status and the verdict's source in text. It also lists
@@ -601,7 +617,12 @@ perform the following migration on its own decision record.
    table, stating their source and recording summaries as `verbatim: null`
    with `note`. Preserve carried `on_items[]` and map them to the interview's
    item ids. Recover dates from dated evidence without inventing them.
-4. Restore each frozen output and record its actual `path`, `sha256` and
+4. First record any producer version named by each version's own source in
+   `built_with`; never infer it from neighbouring versions. Restore the build
+   config and its provenance binding if it survived. Otherwise declare
+   `config_lost: { note, source }` explaining the loss and its source; this
+   version cannot authorize post work.
+   Restore each frozen output and record its actual `path`, `sha256` and
    `bytes`. When none survived, declare `outputs: []` and `outputs_lost`
    with the known loss in `note` and its record in `source`. Check that all
    `answers_feedback` and `rig_version` references use the new `n`, including

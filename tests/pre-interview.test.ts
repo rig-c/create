@@ -7,7 +7,7 @@ import { checkProject } from '../src/check.ts';
 import { PRE_INTERVIEW_VERDICTS } from '../src/pre-interview.ts';
 import { latestAccepted, readVersions } from '../src/review.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, codes, fixture, obj, version, withCode, type Mutate } from './fixtures.ts';
+import { arr, codes, fixture, framing, obj, version, withCode, type Mutate } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
 const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-interview.json'), 'utf8')) as {
@@ -385,5 +385,94 @@ describe('migration identities and lost outputs (#117)', () => {
       });
       expect(checkProject(dir).refusals).toEqual([]);
     }
+  });
+});
+
+
+describe('lost pre-interview configs (#133)', () => {
+  const loss = { note: 'The historical build config did not survive.', source: 'archive log, config inventory' };
+  const scene: Mutate = (p) => {
+    obj(framing(p, 'rig_type').answer).value = 'fullscreen.minimal';
+    p.versions = structuredClone(historical.versions);
+    for (const v of arr(p.versions)) {
+      obj(v).provenance = null;
+      delete obj(v).built_with;
+    }
+  };
+
+  test('unknown producers with no config retain the main refusal', () => {
+    const report = checkProject(migrated(scene));
+    expect(report.refusals.map(f => f.code)).toEqual(['CG_GATES_UNREAD', 'CG_GATES_UNREAD']);
+    expect(report.ok).toBe(false);
+  });
+
+  test('declared losses replace only unread-config refusals and preserve check exit', () => {
+    const baseline = checkProject(migrated(scene));
+    const dir = migrated(p => {
+      scene(p);
+      for (const v of arr(p.versions)) obj(v).config_lost = loss;
+    });
+    const report = checkProject(dir);
+    expect(report.refusals).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(report.warnings).toHaveLength(baseline.warnings.length + 2);
+    for (const warning of baseline.warnings) expect(report.warnings).toContainEqual(warning);
+    expect(report.warnings.filter(f => f.code === 'CG_GATES_CONFIG_LOST').map(f => f.path)).toEqual(['versions[v1].config_lost', 'versions[v2].config_lost']);
+    expect(cli(['interview', '--check', '--json', dir], dir, env).code).toBe(0);
+  });
+
+  test('loss does not hide unrelated refusals', () => {
+    const dir = migrated(p => {
+      scene(p);
+      version(p, 2).config_lost = loss;
+    });
+    const report = checkProject(dir);
+    expect(report.ok).toBe(false);
+    expect(report.refusals.map(f => f.code)).toEqual(['CG_GATES_UNREAD']);
+    expect(report.warnings.some(f => f.code === 'CG_GATES_CONFIG_LOST')).toBe(true);
+    expect(cli(['interview', '--check', '--json', dir], dir, env).code).toBe(1);
+  });
+
+  test('a known old producer and config loss each keep their warning', () => {
+    const report = checkProject(migrated(p => {
+      scene(p);
+      for (const v of arr(p.versions)) {
+        obj(v).config_lost = loss;
+        obj(v).built_with = { '@rig-c/parts': '2.3.0' };
+      }
+    }));
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings.filter(f => f.code.startsWith('CG_')).map(f => f.code)).toEqual([
+      'CG_GATES_CONFIG_LOST', 'CG_GATES_PREDATE', 'CG_GATES_CONFIG_LOST', 'CG_GATES_PREDATE',
+    ]);
+  });
+
+  test('bad shapes, surviving configs and create-built declarations are refused', () => {
+    const malformed: Json[] = [null, {}, [], 'lost', { note: ' ', source: 'log' }, { note: 'lost', source: '' }, { note: 1, source: 'log' }];
+    for (const bad of malformed) {
+      expect(codes(checkProject(migrated(p => { version(p, 1).config_lost = bad; })))).toContain('PRE_INTERVIEW_CONFIG_LOST_MALFORMED');
+    }
+    const configs: JsonObject[] = [{ path: 'missing.json', sha256: 'a'.repeat(64) }, {}];
+    for (const config of configs) {
+      expect(codes(checkProject(migrated(p => {
+        version(p, 1).config_lost = loss;
+        version(p, 1).provenance = { config };
+      })))).toContain('PRE_INTERVIEW_CONFIG_LOST_MALFORMED');
+    }
+    expect(codes(checkProject(fixture(p => { version(p, 1).config_lost = loss; })))).toContain('PRE_INTERVIEW_CONFIG_LOST_MALFORMED');
+  });
+
+  test('an accepted rig with lost config never authorizes handoff or post records', () => {
+    const dir = migrated(p => { version(p, 2).config_lost = loss; });
+    const result = cli(['handoff', dir], dir, env);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('PRE_INTERVIEW_CONFIG_LOST');
+    expect(codes(checkProject(dir))).toContain('POST_ON_UNACCEPTED_RIG');
+  });
+
+  test('an earlier lost config leaves a later accepted rig handoff usable', () => {
+    const dir = migrated(p => { version(p, 1).config_lost = loss; });
+    expect(checkProject(dir).refusals).toEqual([]);
+    expect(cli(['handoff', dir], dir, env).code).toBe(0);
   });
 });

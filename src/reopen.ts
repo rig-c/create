@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { asArray, asString, checkProject, isObject, type Finding } from './check.ts';
+import { collectAmendments } from './amend.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -56,7 +57,7 @@ export function collectReopens(project: JsonObject, refusals: Finding[]): Reopen
     }
     out.push({ stage, at });
   }
-  return out;
+  return [...out, ...collectAmendments(project, refusals)];
 }
 
 /** Historical stages and dated builds witness reach even after stage has moved back. */

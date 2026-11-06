@@ -1063,6 +1063,18 @@ The synthetic new-order record and draft declaration files reproduce with
 `bun scripts/generate-example-order.ts <fresh scratch dir> --check`. The frozen
 legacy record is byte-preserved; generated evidence is never hand-written.
 
+The [synthetic bound chain](../templates/example-chain/README.md) carries one
+project from its labelled draft and approved parts through a packaged rig,
+rig-review, signed post interview, authored direction and direction-review.
+`bun scripts/generate-example-chain.ts <fresh scratch dir> --check` reproduces
+it. Every approval, verdict, package and direction record uses the public
+writers. `chain.json` names the declared stage, plan/split, rig-version and
+source-inventory seeds, their documentation and first consuming writer.
+The direction binds that package's compiled model, built from the approved
+parts. Its comparison report records the identical painting and assembly.
+The retained setup still is the assembly recomposite. Rendered motion and
+camera behaviour require separate producer validation.
+
 ## Correction paths: described and made
 
 A correction lives in project-level `corrections[]`, including at `parts-review`

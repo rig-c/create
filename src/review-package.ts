@@ -1,3 +1,4 @@
+import { configInputReferences, configInputsLegacy, type ConfigInputsWarning } from './config-inputs.ts';
 import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
 import { createHash } from 'node:crypto';
@@ -7,7 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
-import { refuse, USAGE_EXIT } from './refusal.ts';
+import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { latestPartsApproval, retainedJson } from './structure.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -53,10 +54,25 @@ const inside = (root: string, file: string): boolean => {
 
 interface FileHash { path: string; sha256: string }
 
-/** Review's handoff reads config and rig/parts inputs, while requirements support check only. */
-export function reviewHandoffInputs(record: JsonObject): JsonObject[] {
-  return asArray(record.files).filter((file): file is JsonObject => isObject(file) && typeof file.path === 'string'
+/** Named files are separate from producer outputs and required by their reader's date. */
+export function reviewConfigInputs(record: JsonObject, dir: string, n: number, missing?: (path: string) => void, unavailable?: ConfigInputsWarning): JsonObject[] {
+  const path = join(dir, packagePath(n), 'config.json');
+  if (!existsSync(path)) return [];
+  const config = JSON.parse(readFileSync(path, 'utf8'));
+  const refs = configInputReferences(dir, config, unavailable);
+  return refs.flatMap(ref => {
+    const name = relative(dirname(path), resolve(dirname(path), ref.value)).split(sep).join('/');
+    const file = asArray(record.files).find(f => isObject(f) && f.path === name);
+    if (isObject(file)) return [file];
+    if (!missing) throw new Error(`config.${ref.at}: named input ${name} is missing from source package`);
+    missing(name);
+    return [{ path: name, sha256: null }];
+  });
+}
+export function reviewHandoffInputs(record: JsonObject, dir: string, n: number, named = reviewConfigInputs(record, dir, n)): JsonObject[] {
+  const base = asArray(record.files).filter((file): file is JsonObject => isObject(file) && typeof file.path === 'string'
     && (file.path === 'config.json' || file.path.startsWith('out/') && !file.path.startsWith('out/check/')));
+  return [...base, ...named.filter(file => !base.some(f => f.path === file.path))];
 }
 
 function packageExists(path: string): boolean {
@@ -82,7 +98,7 @@ function validFiles(value: JsonObject['files']): boolean {
   for (const entry of value) {
     if (!isObject(entry) || typeof entry.path !== 'string' || typeof entry.sha256 !== 'string'
       || !/^[a-f0-9]{64}$/.test(entry.sha256) || entry.path <= previous
-      || !/^(out\/.+|[^/]+\.json)$/.test(entry.path) || entry.path.split('/').some((part) => part === '..' || part === '.' || part === '')) return false;
+      || isAbsolute(entry.path) || entry.path.split('/').some((part) => part === '..' || part === '.' || part === '')) return false;
     previous = entry.path;
   }
   return value.some((entry) => isObject(entry) && entry.path === 'config.json');
@@ -158,7 +174,21 @@ export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
       if (!isDeepStrictEqual(actual, record.files) || hash(readFileSync(join(pkg, 'config.json'))) !== record.config.sha256) throw new Error('package files differ from recorded hashes');
     } catch (error) {
       ctx.refusals.push({ code: 'REVIEW_PACKAGE_CHANGED', path, message: `${path}: ${error instanceof Error ? error.message : String(error)}` });
+      continue;
     }
+    // The project-level loader diagnostic already owns this unavailable dependency.
+    if (ctx.refusals.some(f => f.code === 'PARTS_SECTIONS_UNREADABLE' || f.code === 'PARTS_NOT_INSTALLED')) continue;
+    try {
+      const missing = (name: string): void => {
+        const finding = { code: 'REVIEW_PACKAGE_INPUT_MISSING', path, message: `${path}: config-named input ${name} is missing from the frozen package inventory; preserve the package and record the complete inputs on the next build` };
+        (configInputsLegacy(version.at) ? ctx.warnings : ctx.refusals).push(finding);
+      };
+      const unavailable = (error: Error): void => {
+        const finding = { code: 'REVIEW_PACKAGE_INPUT_INVALID', path, message: `${path}: ${error.message}` };
+        (configInputsLegacy(version.at) ? ctx.warnings : ctx.refusals).push(finding);
+      };
+      reviewConfigInputs(record, ctx.dir, n, missing, unavailable);
+    } catch (error) { ctx.refusals.push({ code: 'REVIEW_PACKAGE_INPUT_INVALID', path, message: `${path}: ${error instanceof Error ? error.message : String(error)}; restore the frozen package config` }); }
   }
 }
 
@@ -215,12 +245,16 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     requireLayout(from);
     const configBytes = readFileSync(config);
     try { if (!isObject(JSON.parse(configBytes.toString()))) throw new Error(); } catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', 'config must be a JSON object'); }
-    const requirements = (JSON.parse(configBytes.toString()) as JsonObject).requirements;
-    // Retain a named adjacent requirements document without rewriting config bytes.
-    const requirementsFile = typeof requirements === 'string' && /^[^/\\]+\.json$/.test(requirements)
-      && requirements !== 'config.json' && existsSync(join(dirname(config), requirements))
-      ? source(relative(dir, join(dirname(config), requirements))) : null;
-    const requirementsBytes = requirementsFile === null ? null : readFileSync(requirementsFile);
+    let named: { path: string; source: string; bytes: Buffer }[];
+    try {
+      named = configInputReferences(dir, JSON.parse(configBytes.toString())).map(ref => {
+        const path = relative(dirname(config), resolve(dirname(config), ref.value)).split(sep).join('/');
+        if (isAbsolute(ref.value) || !path || path.split('/').some(part => part === '..' || part === '.' || part === '')) refuse('REVIEW_PACKAGE_PATH_INVALID', `config.${ref.at}: ${ref.value} cannot be retained inside the package; use a config-relative input inside its directory`);
+        const file = source(relative(dir, resolve(dirname(config), ref.value)));
+        if (!lstatSync(file).isFile()) refuse('REVIEW_PACKAGE_INPUT_INVALID', `config.${ref.at}: ${path} must be a regular file`);
+        return { path, source: file, bytes: readFileSync(file) };
+      });
+    } catch (error) { if (error instanceof Refusal) throw error; refuse('REVIEW_PACKAGE_INPUT_INVALID', `versions[v${n}].review_package.config: ${error instanceof Error ? error.message : String(error)}`); }
     // A compiled model already cited by an authored take cannot be rebound by packaging.
     for (const post of directionObjects(project.versions)) {
       if (post.kind !== 'post' || post.rig_version !== n || !isObject(post.provenance) || post.provenance.direction === undefined) continue;
@@ -237,7 +271,11 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     let published = false;
     try {
       writeFileSync(join(scratch, 'config.json'), configBytes);
-      if (requirementsBytes !== null) writeFileSync(join(scratch, requirements as string), requirementsBytes);
+      for (const input of named) {
+        const dest = join(scratch, input.path);
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, input.bytes);
+      }
       for (const entry of required) {
         if (entry !== 'parts.json') mkdirSync(join(scratch, 'out', entry), { recursive: true });
       }
@@ -245,13 +283,14 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
         const bytes = readFileSync(join(from, file.path));
         if (hash(bytes) !== file.sha256) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${file.path}: source changed during copy`);
         const dest = join(scratch, 'out', file.path);
+        if (existsSync(dest) && !readFileSync(dest).equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${file.path}: config input collides with a producer output`);
         mkdirSync(dirname(dest), { recursive: true });
         writeFileSync(dest, bytes);
       }
       if (!isDeepStrictEqual(sourceFiles(from), inputs) || hash(readFileSync(config)) !== hash(configBytes)) {
         refuse('REVIEW_PACKAGE_SOURCE_CHANGED', 'producer inputs changed during copy');
       }
-      if (requirementsFile !== null && !readFileSync(requirementsFile).equals(requirementsBytes!)) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', 'requirements changed during copy');
+      for (const input of named) if (!readFileSync(input.source).equals(input.bytes)) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${input.path}: config input changed during copy`);
       const files = filesAt(scratch);
       const record: JsonObject = { config: { path: relative(dir, config), sha256: hash(configBytes) }, from: relative(dir, from), files: files.map((f) => ({ ...f })), open: openCommand(n) };
       const identity = { dir, project, refusals: [] as Ctx['refusals'], warnings: [] as Ctx['warnings'] };

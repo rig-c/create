@@ -1,4 +1,5 @@
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
+import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -79,7 +80,8 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     ids.add(raw.id);
     const root = `derived/drafts/${raw.id}`;
     const parts = raw.parts;
-    const all = [raw.config, ...asArray(parts.files), ...asArray(raw.files)];
+    const all = [raw.config, ...asArray(parts.files), ...asArray(raw.files), ...asArray(raw.config_inputs)];
+    if (raw.config_inputs !== undefined && (!Array.isArray(raw.config_inputs) || raw.config_inputs.some(f => !binding(f)))) { add('DRAFT_RIG_MALFORMED', path, 'config_inputs must bind paths and sha256 hashes'); continue; }
     if (raw.files.length === 0 || asArray(parts.files).length === 0 || all.some(f => !binding(f))
       || !asArray(parts.files).some(f => binding(f) && f.path === `${String(parts.path)}/parts.json`)) { add('DRAFT_RIG_MALFORMED', path, 'file inventories must bind config, parts.json and output'); continue; }
     const rigs = asArray(raw.files).filter(f => binding(f) && String(f.path).endsWith('/rig.json'));
@@ -93,6 +95,21 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         const bytes = readFileSync(fileAt(dir, file, root));
         if (sha(bytes) !== entry.sha256) throw new Error(`${file} changed`);
       } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
+    }
+    try {
+      if (!draftFileUnavailable(dir, String(raw.config.path), root)) {
+        const config = JSON.parse(readFileSync(fileAt(dir, String(raw.config.path), root), 'utf8'));
+        for (const ref of configInputReferences(dir, config)) {
+          const named = relative(resolve(dir), resolve(dir, String(raw.config.path), '..', ref.value)).split(sep).join('/');
+          if (!asArray(raw.config_inputs).some(f => binding(f) && f.path === named)) {
+            const finding = { code: 'DRAFT_RIG_FILE', path, message: `${path}.config_inputs: missing config.${ref.at} input ${named}; preserve the old draft and record a new draft with draft-rig` };
+            (configInputsLegacy(raw.at) ? warnings : refusals).push(finding);
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof ConfigInputsUnavailable && configInputsLegacy(raw.at)) warnings.push({ code: 'DRAFT_RIG_FILE', path, message: `${path}: ${error.message}` });
+      else add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error));
     }
     try {
       if (!draftFileUnavailable(dir, String(parts.path), root)) {
@@ -171,11 +188,13 @@ export function draftRigCommand(args: string[]): { stdout: string; exit: number 
     for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
     const configFile = fileAt(dir, opts['--config'], root);
     if (!isObject(JSON.parse(readFileSync(configFile, 'utf8')))) throw new Error('config must be an object');
+    const configInputs = configInputBindings(dir, opts['--config']);
+    for (const input of configInputs) fileAt(dir, String(input.path), root);
     const installed = locateParts(dir);
     if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
     const pkgFile = join(installed, 'package.json');
     const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { name: string; version: string };
-    record = { id, kind: 'draft-rig', at: new Date().toISOString(), producer: { name: pkg.name, version: pkg.version }, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output };
+    record = { id, kind: 'draft-rig', at: new Date().toISOString(), producer: { name: pkg.name, version: pkg.version }, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
   } catch (error) { refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`); }
   if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
   project.drafts = [...asArray(project.drafts), record];

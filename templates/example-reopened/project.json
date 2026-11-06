@@ -3022,6 +3022,12 @@
           "path": "derived/drafts/example/out/rig.json",
           "sha256": "3e9666933af397939671c9d07e117cf3ab192d0a1d601109225986bc4e15f894"
         }
+      ],
+      "config_inputs": [
+        {
+          "path": "derived/drafts/example/interview-requirements.json",
+          "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+        }
       ]
     }
   ],

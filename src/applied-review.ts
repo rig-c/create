@@ -1,3 +1,4 @@
+import { configInputsLegacy } from './config-inputs.ts';
 /** A retained review Apply and the create version made from it (create#65). */
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type { Json } from './templates.ts';
 import { asArray, isObject, type Ctx } from './check.ts';
-import { reviewHandoffInputs } from './review-package.ts';
+import { reviewConfigInputs, reviewHandoffInputs } from './review-package.ts';
 
 export const APPLIED_REVIEW_SINCE = '2026-11-06T00:00:00Z';
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -72,16 +73,30 @@ export function checkAppliedReview(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'
     const files = isObject(pkg) ? asArray(pkg.files) : [];
     const fileHash = (name: string): Json | undefined => files.find((f) => isObject(f) && f.path === name);
     const model = fileHash('out/check/build/skeleton.model.json');
-    const inputs = isObject(pkg) ? reviewHandoffInputs(pkg) : [];
+    let inputs: ReturnType<typeof reviewHandoffInputs> = [];
+    let named: ReturnType<typeof reviewConfigInputs> = [];
+    try {
+      if (isObject(pkg)) {
+        const issue = (reason: string, at: unknown): void => {
+          if (!configInputsLegacy(at)) throw new Error(reason);
+          ctx.warnings.push({ code: 'APPLIED_REVIEW_SOURCE', path, message: `${path}: ${reason}; preserve history and include the config inputs on the next build` });
+        };
+        named = reviewConfigInputs(pkg, ctx.dir, Number(source.n), name => issue(`config-named input ${name} is missing from source package`, source.at), error => issue(error.message, version.at));
+        inputs = reviewHandoffInputs(pkg, ctx.dir, Number(source.n), named);
+      }
+    } catch (error) { push('APPLIED_REVIEW_SOURCE', `${error instanceof Error ? error.message : String(error)}; restore the source config and its named input bindings`); continue; }
     const handoffFiles = isObject(handoff) ? asArray(handoff.files) : [];
-    const boundInputs = inputs.every((input) => isObject(input) && handoffFiles.some((f) => isObject(f)
+    const missingNamed = named.filter(input => hex(input.sha256) && !handoffFiles.some(f => isObject(f) && typeof f.path === 'string' && posix.normalize(`out/check/${f.path}`) === input.path));
+    if (missingNamed.length && configInputsLegacy(version.at)) ctx.warnings.push({ code: 'APPLIED_REVIEW_SOURCE', path, message: `${path}: legacy handoff omits config-named inputs ${missingNamed.map(f => f.path).join(', ')}; preserve history and include them in the next rebuild` });
+    const requiredInputs = inputs.filter(f => !named.some(n => n.path === f.path && (!hex(n.sha256) || configInputsLegacy(version.at))));
+    const boundInputs = requiredInputs.every((input) => isObject(input) && handoffFiles.some((f) => isObject(f)
       && typeof f.path === 'string' && posix.normalize(`out/check/${f.path}`) === input.path && f.sha256 === input.sha256));
     if (!isObject(pkg) || !isObject(pkg.config) || !isObject(handoff?.config)
       || handoff.config.sha256 !== pkg.config.sha256 || record.applied.configHash !== pkg.config.sha256
       || !isObject(model) || !isObject(reviewed.rig) || reviewed.rig.path !== 'build/skeleton.model.json'
       || reviewed.rig.sha256 !== model.sha256 || reviewed.motion !== null || !boundInputs
-      || handoffFiles.length !== inputs.length || asArray(handoff.missing).length !== 0) {
-      push('APPLIED_REVIEW_SOURCE', 'feedback handoff inputs and inspected compiled model must match the source version package');
+      || !handoffFiles.every(f => isObject(f) && typeof f.path === 'string' && inputs.some(input => hex(input.sha256) && posix.normalize(`out/check/${f.path}`) === input.path && f.sha256 === input.sha256)) || new Set(handoffFiles.map(f => isObject(f) ? f.path : null)).size !== handoffFiles.length || asArray(handoff.missing).length !== 0) {
+      push('APPLIED_REVIEW_SOURCE', `feedback handoff inputs and inspected compiled model must match the source version package${named.length ? `; config-named inputs ${named.map(f => f.path).join(', ')} must carry their bound hashes` : ''}; include the source config inputs when rebuilding`);
       continue;
     }
     const items = feedback.feedback.filter((item) => isObject(item) && item.id === record.feedback_id);

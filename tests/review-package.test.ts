@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { checkProject } from '../src/check.ts';
-import { checkReviewPackages, reviewPackageCommand } from '../src/review-package.ts';
+import { checkReviewPackages, reviewPackageCommand, reviewConfigInputs } from '../src/review-package.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { generateExampleReview } from '../scripts/generate-example-review.ts';
 import { fixture as exampleFixture, obj, version } from './fixtures.ts';
@@ -39,7 +39,7 @@ function write(dir: string): JsonObject {
   return JSON.parse(reviewPackageCommand(['1', dir, '--config', 'frozen/config.json', '--from', 'build', '--json']).stdout) as JsonObject;
 }
 function checked(dir: string) {
-  const ctx = { dir, project: JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject, refusals: [] as { code: string }[], warnings: [] as { code: string; message: string }[] };
+  const ctx = { dir, project: JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject, refusals: [] as { code: string; message: string }[], warnings: [] as { code: string; message: string }[] };
   checkReviewPackages(ctx as Parameters<typeof checkReviewPackages>[0]);
   return ctx;
 }
@@ -291,4 +291,38 @@ describe('frozen review package', () => {
     expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
     expect(readFileSync(join(dir, 'derived/review/v1/out/parts/piece.png'), 'utf8')).toBe('synthetic part');
   });
+});
+
+test('package binds every nested config input and ignores later live edits', () => {
+  const dir = fixture();
+  const named = ['inputs/requirements.json', 'inputs/animations.json', 'inputs/skeleton.json'];
+  put(dir, 'frozen/config.json', JSON.stringify({ requirements: named[0], motion: { animations_from: named[1] }, generation: { control: { skeleton: named[2] } } }));
+  for (const path of named) put(dir, `frozen/${path}`, JSON.stringify({ synthetic: path }));
+  const record = write(dir);
+  const files = record.files as JsonObject[];
+  const frozen = reviewConfigInputs(record, dir, 1);
+  for (const path of named) {
+    expect(files.find(f => f.path === path)?.sha256).toBe(sha(JSON.stringify({ synthetic: path })));
+    expect(readFileSync(join(dir, 'derived/review/v1', path), 'utf8')).toBe(JSON.stringify({ synthetic: path }));
+    put(dir, `frozen/${path}`, 'changed live input');
+  }
+  put(dir, 'frozen/config.json', '{"note":"edited live config"}');
+  expect(reviewConfigInputs(record, dir, 1)).toEqual(frozen);
+  expect(checked(dir).refusals).toEqual([]);
+});
+
+
+for (const legacy of [false, true]) test(`a frozen config input missing from inventory ${legacy ? 'warns historically' : 'refuses currently'}`, () => {
+  const dir = fixture(); put(dir, 'frozen/config.json', '{"requirements":"inputs/requirements.json"}');
+  put(dir, 'frozen/inputs/requirements.json', '{"synthetic":"bound input"}');
+  write(dir);
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  project.versions[0].at = legacy ? '2026-11-05T00:00:00Z' : '2026-11-06T00:00:00Z';
+  project.versions[0].review_package.files = project.versions[0].review_package.files.filter((f: JsonObject) => f.path !== 'inputs/requirements.json');
+  rmSync(join(dir, 'derived/review/v1/inputs/requirements.json'));
+  put(dir, 'project.json', JSON.stringify(project));
+  const result = checked(dir);
+  expect((legacy ? result.warnings : result.refusals).map(f => f.code)).toEqual(['REVIEW_PACKAGE_INPUT_MISSING']);
+  expect((legacy ? result.warnings : result.refusals)[0]?.message).toContain('inputs/requirements.json');
+  expect(legacy ? result.refusals : result.warnings).toEqual([]);
 });

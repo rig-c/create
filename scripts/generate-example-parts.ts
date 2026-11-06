@@ -60,4 +60,5 @@ if (import.meta.main) {
       writeFileSync(file, bytes);
     }
   }
+  if (check) console.log('example parts producer bytes reproduce byte for byte');
 }

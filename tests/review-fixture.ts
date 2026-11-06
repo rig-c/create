@@ -1,7 +1,8 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { asArray, isObject } from '../src/check.ts';
+import { reviewPackageCommand } from '../src/review-package.ts';
 import { latestPartsApproval } from '../src/structure.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -70,4 +71,19 @@ export function reviewExampleFiles(): Record<string, string> {
     }
   }
   return files;
+}
+
+/** Rebuild a newly materialized synthetic package after a test replaces its config. */
+export function repackageFixtureVersion(dir: string, n: number): string {
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  const version = asArray(project.versions).find(v => isObject(v) && v.n === n);
+  if (!isObject(version) || !isObject(version.provenance) || !isObject(version.provenance.config) || !isObject(version.review_package)) throw new Error('expected a synthetic rig fixture with config provenance');
+  if (version.pre_interview === true) return dir;
+  const config = version.provenance.config;
+  const bytes = readFileSync(join(dir, String(config.path)));
+  // Config-drift controls deliberately retain their mismatched historical binding.
+  if (createHash('sha256').update(bytes).digest('hex') !== config.sha256) return dir;
+  rmSync(join(dir, `derived/review/v${n}`), { recursive: true });
+  reviewPackageCommand([String(n), dir, '--config', String(config.path), '--from', String(version.review_package.from)]);
+  return dir;
 }

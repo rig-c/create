@@ -1,0 +1,73 @@
+{
+  "skeleton": {
+    "spine": "4.3.13",
+    "x": -4.000001,
+    "y": 0,
+    "width": 8.000001,
+    "height": 16,
+    "images": "../build/"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "body",
+      "parent": "root",
+      "y": 8
+    },
+    {
+      "name": "yaw_dial",
+      "parent": "root"
+    }
+  ],
+  "slots": [
+    {
+      "name": "rectangle",
+      "bone": "body",
+      "attachment": "rectangle"
+    }
+  ],
+  "constraints": [
+    {
+      "name": "yaw",
+      "type": "slider",
+      "animation": "turn",
+      "bone": "yaw_dial",
+      "property": "rotate",
+      "from": -30,
+      "scale": 0.016666668,
+      "local": true
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "attachments": {
+        "rectangle": {
+          "rectangle": {
+            "width": 8,
+            "height": 16
+          }
+        }
+      }
+    }
+  ],
+  "animations": {
+    "turn": {
+      "bones": {
+        "body": {
+          "rotate": [
+            {
+              "value": -10
+            },
+            {
+              "time": 1,
+              "value": 10
+            }
+          ]
+        }
+      }
+    }
+  }
+}

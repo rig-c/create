@@ -1,1 +1,195 @@
-{"synthetic":true}
+{
+  "spec": "rigc-compiled/3",
+  "referenceScale": 100,
+  "stage": {
+    "x": -4,
+    "y": 0,
+    "width": 8,
+    "height": 16
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "body",
+      "parent": "root",
+      "y": 8
+    },
+    {
+      "name": "yaw_dial",
+      "parent": "root"
+    }
+  ],
+  "slots": [
+    {
+      "name": "rectangle",
+      "bone": "body",
+      "setup": "rectangle"
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "bones": [],
+      "constraints": {
+        "ik": [],
+        "transform": [],
+        "path": [],
+        "physics": [],
+        "slider": []
+      },
+      "attachments": {
+        "rectangle": {
+          "rectangle": {
+            "kind": "region",
+            "width": 8,
+            "height": 16,
+            "atlas": {
+              "width": 8,
+              "height": 16,
+              "offsetX": 0,
+              "offsetY": 0,
+              "originalWidth": 8,
+              "originalHeight": 16
+            }
+          }
+        }
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "kind": "slider",
+      "name": "yaw",
+      "declaredIn": "rig",
+      "animation": "turn",
+      "loop": false,
+      "bone": "yaw_dial",
+      "property": "rotate",
+      "from": -30,
+      "to": 0,
+      "scale": 0.016666668,
+      "local": true
+    }
+  ],
+  "events": [],
+  "animations": [
+    {
+      "name": "turn",
+      "duration": 1,
+      "bones": [
+        {
+          "name": "body",
+          "timelines": [
+            {
+              "name": "rotate",
+              "keys": [
+                {
+                  "time": 0,
+                  "value": -10
+                },
+                {
+                  "time": 1,
+                  "value": 10
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "slots": [],
+      "constraints": {
+        "ik": [],
+        "transform": [],
+        "path": [],
+        "physics": [],
+        "slider": []
+      },
+      "attachments": [],
+      "drawOrder": [],
+      "events": []
+    }
+  ],
+  "editorOrder": {
+    "skins": [
+      {
+        "name": "default",
+        "slots": [
+          "rectangle"
+        ]
+      }
+    ],
+    "animations": [
+      "turn"
+    ]
+  },
+  "images": [
+    {
+      "region": "rectangle",
+      "page": "../../../../../../evidence/images/rectangle.png",
+      "width": 8,
+      "height": 16,
+      "hasAlpha": true,
+      "isBase": false
+    }
+  ],
+  "pageGrids": [],
+  "droppedStates": [],
+  "absentParts": [],
+  "meshBones": [],
+  "meshes": [],
+  "physics": [],
+  "deformTransforms": [],
+  "trackDerivations": [],
+  "rig": {
+    "archetype": "direction-probe",
+    "axisBone": null,
+    "axisSubtree": [],
+    "detached": [],
+    "slotOrder": [
+      "rectangle"
+    ],
+    "meshKinds": {},
+    "meshDeclaredBones": {},
+    "meshSoftBones": {},
+    "deformMayFold": [],
+    "consumerDrivenMix": [],
+    "idleDrivesMeshes": null,
+    "axes": [],
+    "basePlates": [],
+    "meshSlotBudget": null,
+    "meshTriangleBudget": null,
+    "contactDepth": null,
+    "capContainmentCeiling": null,
+    "massBone": null,
+    "inwardUnit": null
+  },
+  "pages": [
+    {
+      "name": "rectangle.png",
+      "width": 8,
+      "height": 16,
+      "pma": false,
+      "scale": null,
+      "regions": [
+        {
+          "name": "rectangle",
+          "x": 0,
+          "y": 0,
+          "width": 8,
+          "height": 16,
+          "offsetX": 0,
+          "offsetY": 0,
+          "originalWidth": 8,
+          "originalHeight": 16,
+          "degrees": 0,
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "spine": {
+    "sha256": "238f37be91c56a7e989281590e07efb876c8e5e1ab131f3e7e309c9749d271d7"
+  }
+}

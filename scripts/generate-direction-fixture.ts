@@ -1,3 +1,4 @@
+import { buildDirectionProbe } from './direction-probe.ts';
 import { generatorArgs } from './generator-args.ts';
 /** Reproduce a tiny authored take and made correction using only public writers. */
 import { setSystemTime } from 'bun:test';
@@ -11,7 +12,7 @@ import { directionFixture } from '../tests/direction-fixture.ts';
 export function generateDirectionFixture(dir:string):Record<string,Buffer> {
   if(existsSync(dir))throw Error('direction generation needs fresh directory');
   try {
-    const f=directionFixture(dir);
+    const f=directionFixture(dir,buildDirectionProbe(dir));
     setSystemTime(new Date('2026-11-04T09:10:00Z'));
     directionCommand(['write','2',dir,'--file','evidence/input.json','--rig','1']);
     const p=f.load();const post=(p.versions as JsonObject[])[1] as JsonObject;const binding=(post.provenance as JsonObject).direction as JsonObject;
@@ -27,4 +28,4 @@ export function generateDirectionFixture(dir:string):Record<string,Buffer> {
   }finally{setSystemTime();}
 }
 import type { JsonObject } from '../src/templates.ts';
-if(import.meta.main){const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-direction-fixture.ts <fresh dir> [--check]');const files=generateDirectionFixture(resolve(destination));const root=join(import.meta.dir,'../templates/example-direction');for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(check){if(!readFileSync(file).equals(bytes))throw Error(`${path}: direction fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}console.log('synthetic direction and correction reproduce through writers');}
+if(import.meta.main){const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-direction-fixture.ts <fresh dir> [--check]');const files=generateDirectionFixture(resolve(destination));const root=join(import.meta.dir,'../templates/example-direction');for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(check){if(!readFileSync(file).equals(bytes))throw Error(`${path}: direction fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}console.log('direction probe build and correction reproduce through writers');}

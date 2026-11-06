@@ -1,0 +1,33 @@
+{
+  "spec": "rigc-motion/1",
+  "archetype": "direction-probe",
+  "cut": "probe",
+  "easings": {},
+  "groups": {},
+  "animations": {
+    "turn": {
+      "duration": 1,
+      "loop": false,
+      "tracks": [
+        {
+          "bone": "body",
+          "property": "rotate",
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                -10
+              ]
+            },
+            {
+              "t": 1,
+              "v": [
+                10
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

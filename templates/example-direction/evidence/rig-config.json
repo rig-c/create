@@ -1,1 +1,55 @@
-{}
+{
+  "spec": "rigc-rig/1",
+  "name": "direction-probe",
+  "images": "images",
+  "skeleton": {
+    "x": -4,
+    "y": 0,
+    "width": 8,
+    "height": 16
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "body",
+      "parent": "root",
+      "y": 8
+    },
+    {
+      "name": "yaw_dial",
+      "parent": "root"
+    }
+  ],
+  "slots": [
+    {
+      "name": "rectangle",
+      "bone": "body",
+      "attachment": "rectangle"
+    }
+  ],
+  "skins": {
+    "default": {
+      "rectangle": {
+        "rectangle": {
+          "image": "rectangle.png"
+        }
+      }
+    }
+  },
+  "constraints": [
+    {
+      "type": "slider",
+      "name": "yaw",
+      "bone": "yaw_dial",
+      "property": "rotate",
+      "animation": "turn",
+      "local": true,
+      "from": -30,
+      "to": 0,
+      "scale": 0.016666666666666666,
+      "loop": false
+    }
+  ]
+}

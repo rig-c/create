@@ -1,6 +1,6 @@
 {
   "schema": "rig-create/project@0",
-  "name": "synthetic-direction",
+  "name": "direction-probe",
   "stage": "post",
   "stage_values": [
     "interview",
@@ -25,7 +25,7 @@
         {
           "id": "camera_depth",
           "config": [],
-          "text": "Synthetic question",
+          "text": "Probe question",
           "guide": {
             "delegated": false,
             "by": "user",
@@ -46,7 +46,7 @@
         {
           "id": "post_timing",
           "config": [],
-          "text": "Synthetic question",
+          "text": "Probe question",
           "guide": {
             "delegated": false,
             "by": "user",
@@ -115,7 +115,7 @@
       "checkpoint": null,
       "by": "user",
       "at": "2026-11-04T08:30:00Z",
-      "verbatim": "Accept the synthetic rig"
+      "verbatim": "Accept the probe rig"
     },
     {
       "stage": "post-interview",
@@ -146,19 +146,19 @@
       "provenance": {
         "config": {
           "path": "evidence/rig-config.json",
-          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          "sha256": "e1a1922659f23ecaecb551f319d750e6553e37508ff9c5434dce89e3fd06c595"
         },
         "sections": {}
       },
       "review_package": {
         "config": {
           "path": "evidence/rig-config.json",
-          "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+          "sha256": "e1a1922659f23ecaecb551f319d750e6553e37508ff9c5434dce89e3fd06c595"
         },
         "files": [
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+            "sha256": "63190ec6746bafbc73847fa6c6905b5811cc0adb41897dfed923fe802e4dc261"
           }
         ]
       },
@@ -166,7 +166,7 @@
         {
           "kind": "still",
           "path": "evidence/still.png",
-          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sha256": "6030af0b8c57d0f6f3a25cf417b7d4fb3b442c1e0a4f441e4918623db571e511",
           "camera": "fixed",
           "frame": "setup"
         }
@@ -177,7 +177,7 @@
           "verdict": "accepted",
           "by": "user",
           "at": "2026-11-04T08:30:00Z",
-          "verbatim": "Accept the synthetic rig"
+          "verbatim": "Accept the probe rig"
         }
       ]
     },
@@ -194,7 +194,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v2.json",
-          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+          "sha256": "9bec50f753d4790ee0d9dde824a612126ed37e7b0e63d393505ac836118c50a4"
         }
       ],
       "evidence": [],
@@ -204,11 +204,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v2.json",
-          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+          "sha256": "9bec50f753d4790ee0d9dde824a612126ed37e7b0e63d393505ac836118c50a4"
         },
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+          "sha256": "9bec50f753d4790ee0d9dde824a612126ed37e7b0e63d393505ac836118c50a4"
         },
         "sections": {
           "camera": [
@@ -247,7 +247,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v3.json",
-          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
         }
       ],
       "evidence": [],
@@ -257,11 +257,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v3.json",
-          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
         },
         "direction": {
           "path": "evidence/direction/v3.json",
-          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
         },
         "sections": {
           "camera": [
@@ -290,11 +290,11 @@
         "source_post": 2,
         "patch": {
           "path": "evidence/patch.json",
-          "sha256": "3828b041932cd930821b3b1ac32d5185e883f8384f182b2e753518cc83989855"
+          "sha256": "57e6d3ad060066847ff24605ba2969a41b89bcd454618c1b9f3a93d3eb46b193"
         },
         "result": {
           "path": "evidence/direction/v3.json",
-          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
         }
       }
     }
@@ -322,27 +322,27 @@
         "n": 2,
         "config": {
           "path": "evidence/direction/v2.json",
-          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+          "sha256": "9bec50f753d4790ee0d9dde824a612126ed37e7b0e63d393505ac836118c50a4"
         },
         "model": {
           "path": "derived/review/v1/out/check/build/skeleton.model.json",
-          "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+          "sha256": "63190ec6746bafbc73847fa6c6905b5811cc0adb41897dfed923fe802e4dc261"
         },
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "30dc0bd5ff4dd2fefa340e890eb51f8f9fe5ad1e84fe84121ddb1fe2d4714d79"
+          "sha256": "9bec50f753d4790ee0d9dde824a612126ed37e7b0e63d393505ac836118c50a4"
         }
       },
       "artifact": {
         "kind": "direction-patch",
         "patch": {
           "path": "evidence/patch.json",
-          "sha256": "3828b041932cd930821b3b1ac32d5185e883f8384f182b2e753518cc83989855"
+          "sha256": "57e6d3ad060066847ff24605ba2969a41b89bcd454618c1b9f3a93d3eb46b193"
         },
         "state": "applied-and-checked",
         "result": {
           "path": "evidence/direction/v3.json",
-          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
         }
       },
       "outcome": {
@@ -350,15 +350,15 @@
         "n": 3,
         "config": {
           "path": "evidence/direction/v3.json",
-          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
         },
         "model": {
           "path": "derived/review/v1/out/check/build/skeleton.model.json",
-          "sha256": "cb8daed7b30399a1c3c8b83b3b7bee4b774a30fc389afc1d375e4c23a3cc4ae8"
+          "sha256": "63190ec6746bafbc73847fa6c6905b5811cc0adb41897dfed923fe802e4dc261"
         },
         "direction": {
           "path": "evidence/direction/v3.json",
-          "sha256": "d9f7e3e831d563e01e405c935eba1cb4b56c709e597fe4b28f0a8dbe2d7b0520"
+          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
         }
       },
       "resolves": null,

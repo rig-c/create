@@ -1,3 +1,4 @@
+import { resignAfterChange } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -37,7 +38,7 @@ function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256
 
 describe('figure mask declaration and provenance', () => {
   test('declared and recorded busy mask has no mask findings', () => {
-    const report = checkProject(project());
+    const report = checkProject(resignAfterChange(project()));
     expect(report.refusals).toEqual([]);
     expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });

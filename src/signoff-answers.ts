@@ -1,6 +1,6 @@
 /** Approval bindings for local and inherited answer revisions. */
 import { createHash } from 'node:crypto';
-import { answered, asArray, collectItems, isObject, loadCollection, type Ctx, type Finding, type Item } from './check.ts';
+import { answered, asArray, collectItems, isObject, itemFor, loadCollection, postNotPassed, type Ctx, type Finding, type Item } from './check.ts';
 import { refuse } from './refusal.ts';
 import { approvalStageOfStep, hasStageOrder } from './stages.ts';
 import { sorted } from './step-hash.ts';
@@ -22,15 +22,13 @@ export function answerRevisionHash(item: Item, stage = 'plan-approved'): string 
   return createHash('sha256').update(JSON.stringify(sorted(envelope))).digest('hex');
 }
 
-/** Current answered items already present at signing, or the covered steps' bases. */
+/** Plan completeness follows the signature's own covered steps. */
 function requiredIds(project: JsonObject, signoff: JsonObject, items: Item[]): string[] {
-  if (signoff.stage === 'interview') {
-    return items.filter(item => answered(item.state) && (!isObject(item.raw) || !Number.isFinite(Date.parse(String(item.raw.at)))
-      || Date.parse(String(item.raw.at)) <= Date.parse(String(signoff.at)))).map(item => item.id);
-  }
+  if (signoff.stage === 'interview') return [];
   const phase = signoff.stage === 'post-interview' ? 'post' : 'rig';
-  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)
-    .filter(step => step.phase === phase && (Array.isArray(signoff.steps) ? signoff.steps.includes(step.id as Json)
+  const phaseSteps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject).filter(step => step.phase === phase);
+  if (phase === 'post' && phaseSteps.length === 0 && postNotPassed({ items })) return items.filter(item => item.kind === 'post').map(item => item.id);
+  const steps = phaseSteps.filter(step => (Array.isArray(signoff.steps) ? signoff.steps.includes(step.id as Json)
       : approvalStageOfStep(phase, String(step.id), hasStageOrder(project) || signoff.stage === 'rigging-interview') === signoff.stage));
   return [...new Set(steps.flatMap(step => asArray(step.rests_on).filter((id): id is string => typeof id === 'string')))];
 }
@@ -58,14 +56,21 @@ export function checkSignoffAnswers(ctx: Ctx, signoff: JsonObject, path: string)
   if (missing) {
     const legacy = Date.parse(String(signoff.at)) < Date.parse(SIGNOFF_ANSWERS_SINCE);
     const code = `SIGNOFF_ANSWERS_MISSING${legacy ? '_LEGACY' : ''}`;
-    const finding: Finding = { code, path: `${path}.answer_hashes`, message: `${path}.answer_hashes: missing answer revisions${hashes === null ? '' : ` for ${ids.filter(id => !Object.hasOwn(hashes, id)).join(', ')}`}; reopen and sign ${String(signoff.stage)} again to bind its answers` };
+    const finding: Finding = { code, path: `${path}.answer_hashes`, message: `${path}.answer_hashes: missing answer revisions${hashes === null ? '' : ` for ${ids.filter(id => !Object.hasOwn(hashes, id)).join(', ')}`}; sign ${String(signoff.stage)} again to bind its answers` };
     (legacy ? ctx.warnings : ctx.refusals).push(finding);
   }
+  const current = (ctx.signoffs ?? []).find(s => s.record === signoff);
+  const at = Date.parse(String(signoff.at));
+  const newer = (ctx.signoffs ?? []).filter(s => s.stage === signoff.stage
+    && (s.at > at || (s.at === at && s.index > (current?.index ?? -1))));
   for (const [id, hash] of Object.entries(hashes ?? {})) {
-    const item = ctx.items.find(item => item.id === id);
+    const superseded = newer.some(s => signoff.stage === 'interview'
+      || (isObject(s.record.answer_hashes) && Object.hasOwn(s.record.answer_hashes, id)));
+    if (superseded) continue;
+    const item = itemFor(ctx, id);
     if (!item || !answered(item.state) || hash !== answerRevisionHash(item, String(signoff.stage))) {
       const at = `${path}.answer_hashes[${id}]`;
-      ctx.refusals.push({ code: 'SIGNOFF_ANSWERS_STALE', path: at, message: `${at}: ${id} is missing, unresolved or changed since signing; reopen and sign ${String(signoff.stage)} again after restoring the intended answer` });
+      ctx.refusals.push({ code: 'SIGNOFF_ANSWERS_STALE', path: at, message: `${at}: ${id} is missing, unresolved or changed since signing; sign ${String(signoff.stage)} again after restoring the intended answer` });
     }
   }
 }

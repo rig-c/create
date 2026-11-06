@@ -1,3 +1,4 @@
+import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, test, setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -123,6 +124,7 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
     camera.history=[...objects(camera.history),camera.guide as JsonObject];
     camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:(camera.guide as JsonObject).at!};
   },'example-project.json');
+  resignAfterChange(dir, '2026-11-20T00:00:00Z');
   setSystemTime(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
   const f=setup();setSystemTime(new Date('2026-11-21T09:10:00Z'));const doc=f.doc;

@@ -10,7 +10,7 @@ import { sourceSha256 } from '../src/parts-verdict.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
-import { arr, fixture, obj, rehashSignoffs } from './fixtures.ts';
+import { arr, fixture, historicalFixture, obj, rehashSignoffs } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from './parts-package.ts';
 
@@ -33,9 +33,10 @@ function rigging(p: JsonObject): void {
   p.signoffs = arr(p.signoffs).filter((s) => ['interview', 'plan-approved', 'parts', 'parts-review'].includes(String(obj(s).stage)) && !Array.isArray(obj(s).steps));
   for (const s of arr(obj(p.plan).steps).map(obj)) if (s.phase === 'post' || ['bones', 'meshes', 'constraints', 'motion'].includes(String(s.id))) s.status = 'pending';
 }
-function project(edit: (s: JsonObject) => void = () => {}, name = 'normal'): string {
+function project(edit: (s: JsonObject) => void = () => {}, name = 'normal', historical = false): string {
   const report = reports[name];
-  return fixture((p) => {
+  const materialize = historical ? historicalFixture : fixture;
+  return materialize((p) => {
     rigging(p);
     const s = signoff(p);
     s.diff_map = { report: { path: EXAMPLE_DIFF_REPORT, sha256: sha(report) },
@@ -181,7 +182,7 @@ test('an old sign-off with a map is checked fully', () => {
   only(project((s) => { s.at = '2026-11-05T00:00:00Z'; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
 });
 test('a pre-stage legacy project still validates a map it carries while rigging', () => {
-  const dir = project((s) => { obj(arr(obj(s.diff_map).components)[0]).why = ''; });
+  const dir = project((s) => { obj(arr(obj(s.diff_map).components)[0]).why = ''; }, 'normal', true);
   const file = join(dir, 'project.json');
   const p = JSON.parse(readFileSync(file, 'utf8'), (_key, value: unknown) => {
     if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value)) {
@@ -192,6 +193,7 @@ test('a pre-stage legacy project still validates a map it carries while rigging'
   rehashSignoffs(p);
   writeFileSync(file, JSON.stringify(p));
   only(dir, 'DIFF_MAP_STATUS');
+  expect(checkProject(dir).warnings.filter(f => f.code === 'SIGNOFF_ANSWERS_MISSING_LEGACY')).toHaveLength(2);
 });
 test('the latest sign-off is read', () => {
   const dir = project();

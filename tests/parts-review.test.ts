@@ -10,7 +10,7 @@ import { describe, expect, test } from 'bun:test';
 import { checkProject } from '../src/check.ts';
 import { PARTS_REVIEW_SINCE, STAGE_VALUES, STAGES } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, codes, fixture, obj, rehashSignoffs, step, withCode } from './fixtures.ts';
+import { arr, codes, fixture, historicalFixture, obj, rehashSignoffs, step, withCode } from './fixtures.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
 const LATER_RIG_STEPS = ['bones', 'meshes', 'constraints', 'motion'];
@@ -200,30 +200,30 @@ describe('paused, with the parts stage in it', () => {
 
 describe('a project that passed plan-approved before the stages existed', () => {
   test('is warned about by name, never refused, and given no sign-off', () => {
-    const dir = fixture(inFlight);
+    const dir = historicalFixture(inFlight);
     const report = checkProject(dir);
     expect(codes(report)).toEqual([]);
     const warned = report.warnings.filter((w) => w.code === 'PARTS_REVIEW_PREDATES_STAGE');
     expect(warned).toHaveLength(1);
     expect(warned[0]?.message).toContain("project 'lantern-keeper'");
     expect(warned[0]?.message).toContain(PARTS_REVIEW_SINCE);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
   });
 
   test('one that a person did review is not warned about as predating the stage; its evidence-less approval gets one build-identity WARN per rig version', () => {
     const report = checkProject(
-      fixture((p) => {
+      historicalFixture((p) => {
         inFlight(p);
         arr(p.signoffs).push({ stage: 'parts-review', checkpoint: null, by: 'user', at: '2026-10-12T10:00:00Z', verbatim: 'parts are fine' });
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {
     const report = checkProject(
-      fixture((p) => {
+      historicalFixture((p) => {
         inFlight(p);
         atRiggingStart(p);
         p.stage = 'plan-approved';
@@ -232,12 +232,12 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a plan-approved sign-off dated on or after the stages arrived is not in flight: rigging without parts-review is refused', () => {
     const report = checkProject(
-      fixture((p) => {
+      historicalFixture((p) => {
         inFlight(p);
         // Every plan-approved sign-off, the re-sign included: the earliest one is what is read.
         for (const s of arr(p.signoffs).map(obj)) if (s.stage === 'plan-approved') s.at = PARTS_REVIEW_SINCE;
@@ -249,7 +249,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
 
   test('paused, it resumes where it would have before the stages existed', () => {
     const report = checkProject(
-      fixture((p) => {
+      historicalFixture((p) => {
         inFlight(p);
         p.stage = 'paused';
         dropSignoffs(p, (s) => s.stage !== 'rig-review' && s.stage !== 'post-interview' && s.stage !== 'direction-review');

@@ -412,7 +412,7 @@ export function itemFor(ctx: Ctx, id: string): Item | undefined {
   return ctx.items.find((i) => i.id === id);
 }
 /** Every post item answered not applicable — the project may skip `post` and `direction-review`. */
-function postNotPassed(ctx: Ctx): boolean {
+export function postNotPassed(ctx: Pick<Ctx, 'items'>): boolean {
   const post = ctx.items.filter((i) => i.kind === 'post');
   return post.length > 0 && post.every((i) => i.state.state === 'not_applicable');
 }

@@ -1,6 +1,9 @@
-import { Refusal } from '../src/refusal.ts';
+import { reopenCommand } from '../src/reopen.ts';
+import { approvalStageOfStep, hasStageOrder } from '../src/stages.ts';
+import { setSystemTime } from 'bun:test';
+import { signoffCommand } from '../src/signoff.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
-import { answered, asArray, collectItems, isObject, loadCollection } from '../src/check.ts';
+import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed } from '../src/check.ts';
 import { acceptedReviewVerdict } from '../src/review.ts';
 import { outputsHash, reviewPackageHash } from '../src/signoff-target.ts';
 /**
@@ -8,7 +11,7 @@ import { outputsHash, reviewPackageHash } from '../src/signoff-target.ts';
  * template) written to a fresh folder under the OS temp dir, mutated in place
  * first. Nothing is copied into the repository.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { CheckReport } from '../src/check.ts';
@@ -33,20 +36,26 @@ export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-pr
 }
 
 /** Open either example record with the same retained asset bytes. */
-export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false): string {
+export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false, bindAnswers = true): string {
   if (template === 'legacy-example-project.json') files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, ...files };
   if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
   const project = readTemplate(template);
+  if (['legacy-example-project.json', 'example-project.json', 'example-reopened/project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
   mutate(project);
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
-  if (['legacy-example-project.json', 'example-project.json', 'example-reopened/project.json'].includes(template) && !rawLegacy) bindFixtureSignoffs(project, dir);
+  if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), content);
   }
   return dir;
+}
+
+/** Pre-contract source records have no answer binding field, including before any mutation. */
+export function historicalFixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}): string {
+  return materializeFixture(join(tempDir(), 'project'), mutate, template, files, false, false);
 }
 
 // Typed access into the record, so a mutation names the object it changes.
@@ -93,30 +102,19 @@ export function rehashSignoffs(project: JsonObject): void {
     const hashes = obj(signoff.step_hashes);
     for (const id of Object.keys(hashes)) hashes[id] = stepHash(step(project, id));
   }
-  bindFixtureSignoffs(project);
 }
 
-/** Bind synthetic approvals after fixture setup, before any operation under test; never used for raw history. */
-export function bindFixtureSignoffs(project: JsonObject, dir = '.'): void {
+/** Bind unmodified synthetic source approvals before any mutation; never used for raw history. */
+export function bindFixtureAnswers(project: JsonObject, dir = '.'): void {
   for (const signoff of asArray(project.signoffs).filter(isObject)) {
-    try {
-      const hashes = selectAnswerHashes(dir, project, signoff);
-      if (hashes !== undefined) {
-        if (signoff.stage === 'interview') {
-          const items = collectItems(project, { collection: loadCollection(dir) });
-          for (const id of Object.keys(hashes)) {
-            const item = items.find(item => item.id === id)!;
-            if (!answered(item.state) || (isObject(item.raw) && Date.parse(String(item.raw.at)) > Date.parse(String(signoff.at)))) delete hashes[id];
-          }
-        }
-        signoff.answer_hashes = hashes;
-      }
-    } catch (error) {
-      if (!(error instanceof Refusal) || error.code !== 'SIGNOFF_ANSWERS_UNANSWERED') throw error;
-      // Preserve the intentionally unanswered setup as an incomplete binding.
-      signoff.answer_hashes = {};
-    }
+    if (signoff.answer_hashes !== undefined) continue;
+    const hashes = selectAnswerHashes(dir, project, signoff);
+    if (hashes !== undefined) signoff.answer_hashes = hashes;
   }
+}
+
+/** Prepare synthetic review targets after version setup, as the review fixtures require. */
+export function bindFixtureSignoffs(project: JsonObject): void {
   const versions = asArray(project.versions);
   for (const signoff of asArray(project.signoffs).filter(isObject)) {
     if (signoff.target !== undefined || !['rig-review', 'direction-review'].includes(String(signoff.stage))) continue;
@@ -135,4 +133,58 @@ export function bindFixtureSignoffs(project: JsonObject, dir = '.'): void {
       ? { review_package: { path: `versions[${index}].review_package`, sha256: reviewPackageHash(version.review_package as JsonObject) } }
       : { post_config: (version.provenance as JsonObject).config! }) };
   }
+}
+
+
+/** Append real approvals for changed synthetic answers, preserving all old signatures. */
+export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z'): string {
+  const file = join(dir, 'project.json');
+  const before = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const affected = new Map<string, Set<string>>();
+  const steps = asArray(isObject(before.plan) ? before.plan.steps : undefined).filter(isObject);
+  const signoffs = asArray(before.signoffs).filter(isObject);
+  for (const finding of checkProject(dir).refusals) {
+    if (finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
+    const match = /^signoffs\[(\d+)\]\.answer_hashes\[(.+)\]$/.exec(finding.path);
+    if (!match) throw new Error(`Unexpected stale binding path ${finding.path}`);
+    const signature = signoffs[Number(match[1])];
+    if (!signature || signature.stage === 'interview') continue;
+    const stage = String(signature.stage);
+    const ids = affected.get(stage) ?? new Set<string>();
+    for (const step of steps) {
+      const covered = Array.isArray(signature.steps) ? signature.steps.includes(step.id as Json)
+        : step.phase === (stage === 'post-interview' ? 'post' : 'rig');
+      if (covered && asArray(step.rests_on).includes(match[2]!)) ids.add(String(step.id));
+    }
+    affected.set(stage, ids);
+  }
+  if (steps.every(step => step.phase !== 'post') && postNotPassed({ items: collectItems(before, { collection: loadCollection(dir) }) })) affected.set('post-interview', new Set<string>());
+  const at = Date.parse(eventAt);
+  const dates = [...JSON.stringify(before).matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g)].map(match => Date.parse(match[0]));
+  if (dates.some(date => date >= at)) throw new Error('Synthetic re-approval clock must follow every existing dated record');
+  const words = join(dir, 'reapproval.txt');
+  writeFileSync(words, 'Approve the changed synthetic answers at this new event.\n');
+  const clock = Date.now();
+  try {
+    setSystemTime(new Date(at));
+    signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words]);
+    let tick = 1;
+    for (const stage of ['plan-approved', 'rigging-interview', 'post-interview']) {
+      const ids = affected.get(stage);
+      if (!ids) continue;
+      if (!ids.size && stage !== 'post-interview') {
+        setSystemTime(new Date(at + tick++));
+        reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', words]);
+        const phase = stage === 'post-interview' ? 'post' : 'rig';
+        for (const step of steps) {
+          if (step.phase === phase && approvalStageOfStep(phase, String(step.id), hasStageOrder(before)) === stage) ids.add(String(step.id));
+        }
+      }
+      setSystemTime(new Date(at + tick++));
+      signoffCommand([stage, dir, ...(ids.size ? ['--steps', [...ids].join(',')] : []), '--by', 'user', '--verbatim-file', words]);
+    }
+  } finally { setSystemTime(new Date(clock)); }
+  const after = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  if (JSON.stringify(asArray(after.signoffs).slice(0, asArray(before.signoffs).length)) !== JSON.stringify(before.signoffs)) throw new Error('Re-approval rewrote historical signatures');
+  return dir;
 }

@@ -985,6 +985,6 @@ direction-review signature binds an accepted verdict and its version's reviewed 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
 | `SIGNOFF_ANSWERS_UNANSWERED` | The writer's covered `rests_on` item is absent, unanswered or unresolved | Answer the named item before signing |
-| `SIGNOFF_ANSWERS_MISSING` | A current-era live approval has no answer hash map or omits an expected item | Reopen and sign the named stage again |
+| `SIGNOFF_ANSWERS_MISSING` | A current-era live approval has no answer hash map or omits an expected item | Sign the named stage again |
 | `SIGNOFF_ANSWERS_MISSING_LEGACY` | A pre-contract live approval lacks a complete answer hash map | Preserve history and bind the next approval |
-| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs | Restore the intended answer, reopen and sign again |
+| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs | Restore the intended answer and sign its stage again |

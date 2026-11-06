@@ -10,7 +10,7 @@ import { answerRevisionHash, checkSignoffAnswers, selectAnswerHashes, SIGNOFF_AN
 import { signoffCommand } from '../src/signoff.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, fixture, materializeFixture, obj, step, waypoint } from './fixtures.ts';
+import { arr, fixture, materializeFixture, obj, resignAfterChange, step, waypoint } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 
 afterEach(() => setSystemTime());
@@ -113,12 +113,9 @@ test('inheritance binds both resolved content and reference identity', () => {
   }, 'example-project.json');
   const collection: JsonObject = { name: 'group', interview: { waypoints: [{ id: 'bones', guide: answer }] } };
   writeFileSync(join(root, 'collection.json'), JSON.stringify(collection));
-  const p = load(dir);
-  // This is the operation under test: the writer must read the real parent collection.
+  resignAfterChange(dir, '2026-11-19T00:00:00Z');
+  // The operation under test reads the real parent collection.
   setSystemTime(new Date('2026-11-20T00:00:00Z'));
-  p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'interview');
-  for (const s of arr(p.signoffs).map(obj)) { const hashes = selectAnswerHashes(dir, p, s); if (hashes !== undefined) s.answer_hashes = hashes; }
-  save(dir, p);
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   const signed = obj(arr(load(dir).signoffs).at(-1));
   const item = collectItems(load(dir), { collection }).find(i => i.id === 'bones')!;

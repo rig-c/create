@@ -551,10 +551,14 @@ The interview approves answers and delegations without `agent_decision`; plan
 approvals also bind the decisions their covered steps rest on.
 The writer captures every currently answered interview item, or the union of
 `rests_on` in its covered steps; an unanswered step basis refuses the write.
-An honestly empty set records `{}`. Later first answers are not omissions from
-an earlier interview: completeness checks include currently answered items
-whose local answer date is at or before signing (or has no readable date),
-while every stored binding is always checked for changes.
+An honestly empty set records `{}`. When every post item is N/A and there are
+no post steps, the user still signs post-interview with `steps: []` and bindings
+for every N/A post answer. Interview completeness requires a map,
+without comparing its keys to today's answered items or their dates.
+The latest live interview signature replaces the whole earlier interview map,
+so omitted unanswered items lose approval and earlier interview bindings are superseded.
+Plan-stage signatures supersede earlier bindings per item within the same stage,
+while completeness still follows each signature's own covered steps.
 Only live approvals are checked, using the same reopen and amendment liveness
 as other approvals. A changed or removed bound item refuses
 `SIGNOFF_ANSWERS_STALE`; an absent or incomplete map refuses
@@ -953,8 +957,9 @@ is the only order switch. A date does not establish which contract was used.
 `STAGE_ORDER_LEGACY` warning: its old rig guides are historical answers, never
 certification that they were asked after parts. No signature, checkpoint hash
 or old version is rewritten. To adopt, preserve the old rig guides whole in
-that question's `history[]`, ask fresh answers against accepted parts, and
-record the first human `signoff rigging-interview`. That writer records adoption
+that question's `history[]`, ask fresh answers against accepted parts, re-sign
+`interview` after adopting to approve the changed interview, and record the first
+human `signoff rigging-interview`. That writer records adoption
 and the live parts/structure context. Stage movement remains a separate human
 act, as for existing forward sign-offs. The filled legacy example is frozen in
 `templates/legacy-example-project.json`. Read under the current 2.16.0 pin it warns with that order warning plus

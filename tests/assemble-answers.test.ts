@@ -1,3 +1,4 @@
+import { resignAfterChange } from './fixtures.ts';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -25,7 +26,7 @@ function project(projectRule: string | undefined, ground?: Json, delegated = fal
 for (const ground of ['plain', 'busy']) {
   for (const delegated of [false, true]) {
     test(`visible records ${ground}, delegated=${delegated}`, () => {
-      const report = checkProject(project('visible', ground, delegated));
+      const report = checkProject(resignAfterChange(project('visible', ground, delegated)));
       expect(report.refusals).toEqual([]);
       expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
     });
@@ -43,7 +44,7 @@ test('visible config without a ground answer refuses through the CLI with a reme
 
 for (const rule of ['core', undefined]) {
   test(`config projection ${rule} adds no ground ask or refusal`, () => {
-    const report = checkProject(project(rule));
+    const report = checkProject(resignAfterChange(project(rule)));
     expect(report.refusals).toEqual([]);
     expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
@@ -63,13 +64,13 @@ test('projection question is required on new guides', () => {
     guide.at = PROJECTION_ASKS_SINCE;
     guide.asks = arr(guide.asks).filter((raw) => obj(raw).id !== 'projection');
   });
-  expect(checkProject(dir).refusals.map((f) => f.path)).toEqual(['interview.waypoints[assemble].guide.asks[projection]']);
+  expect(checkProject(dir).refusals.map((f) => f.path)).toEqual(['signoffs[0].answer_hashes[assemble]', 'signoffs[1].answer_hashes[assemble]', 'interview.waypoints[assemble].guide.asks[projection]']);
 });
 
 for (const at of ['2026-11-05T23:59:59Z', 'unreadable']) {
   test(`legacy visible guide gets warning instead of new refusals: ${at}`, () => {
     const dir = project('visible', undefined, false, at);
-    const report = checkProject(dir);
+    const report = checkProject(resignAfterChange(dir));
     expect(report.refusals).toEqual([]);
     expect(report.warnings.some((f) => f.code === 'GUIDE_ASKS_LEGACY')).toBe(true);
   });
@@ -99,7 +100,7 @@ test('config visible activates ground even while the recorded projection says co
 test('answered guide visible activates ground before a config is written', () => {
   const dir = project('visible');
   writeFileSync(join(dir, 'config.json'), '{}');
-  expect(checkProject(dir).refusals.map((f) => f.path)).toEqual(['interview.waypoints[assemble].guide.asks[ground]']);
+  expect(checkProject(dir).refusals.map((f) => f.path)).toEqual(['signoffs[0].answer_hashes[assemble]', 'signoffs[1].answer_hashes[assemble]', 'interview.waypoints[assemble].guide.asks[ground]']);
 });
 
 test('filled example remains clean and every recorded step hash matches stepHash', () => {
@@ -125,12 +126,12 @@ test('projection can be explicitly delegated beside a user guide', () => {
     obj(guide.value).ground = 'busy';
     arr(guide.asks).push({ id: 'ground', state: 'user' });
   });
-  expect(checkProject(dir).refusals).toEqual([]);
+  expect(checkProject(resignAfterChange(dir)).refusals).toEqual([]);
 });
 
 test('projection coverage cannot substitute an array for the scalar choice', () => {
   const dir = fixture((p) => {
     obj(obj(waypoint(p, 'assemble').guide).value).project = ['core'];
   });
-  expect(checkProject(dir).refusals.map((f) => f.path)).toEqual(['interview.waypoints[assemble].guide.asks[projection]']);
+  expect(checkProject(dir).refusals.map((f) => f.path)).toEqual(['signoffs[0].answer_hashes[assemble]', 'signoffs[1].answer_hashes[assemble]', 'interview.waypoints[assemble].guide.asks[projection]']);
 });

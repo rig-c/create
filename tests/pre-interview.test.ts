@@ -402,7 +402,7 @@ describe('lost pre-interview configs (#133)', () => {
 
   test('unknown producers with no config retain the main refusal', () => {
     const report = checkProject(migrated(scene));
-    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'CG_GATES_UNREAD', 'CG_GATES_UNREAD']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'CG_GATES_UNREAD', 'CG_GATES_UNREAD']);
     expect(report.ok).toBe(false);
   });
 
@@ -413,7 +413,7 @@ describe('lost pre-interview configs (#133)', () => {
       for (const v of arr(p.versions)) obj(v).config_lost = loss;
     });
     const report = checkProject(dir);
-    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE']);
     expect(report.ok).toBe(false);
     expect(report.warnings).toHaveLength(baseline.warnings.length + 2);
     for (const warning of baseline.warnings) expect(report.warnings).toContainEqual(warning);
@@ -428,7 +428,7 @@ describe('lost pre-interview configs (#133)', () => {
     });
     const report = checkProject(dir);
     expect(report.ok).toBe(false);
-    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'CG_GATES_UNREAD']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE', 'CG_GATES_UNREAD']);
     expect(report.warnings.some(f => f.code === 'CG_GATES_CONFIG_LOST')).toBe(true);
     expect(cli(['interview', '--check', '--json', dir], dir, env).code).toBe(1);
   });
@@ -441,7 +441,7 @@ describe('lost pre-interview configs (#133)', () => {
         obj(v).built_with = { '@rig-c/parts': '2.3.0' };
       }
     }));
-    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING']);
+    expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_STALE', 'SIGNOFF_ANSWERS_STALE']);
     expect(report.warnings.filter(f => f.code.startsWith('CG_')).map(f => f.code)).toEqual([
       'CG_GATES_CONFIG_LOST', 'CG_GATES_PREDATE', 'CG_GATES_CONFIG_LOST', 'CG_GATES_PREDATE',
     ]);

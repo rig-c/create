@@ -35,6 +35,8 @@ function setup(density?: number, reopen = true): string {
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${name}`, '{}');
   write(dir, 'words.txt', 'Approve this synthetic structure.\r\n');
   if (reopen) {
+    setSystemTime(new Date('2026-11-19T00:00:00.500Z'));
+    signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     setSystemTime(new Date('2026-11-19T00:00:01Z'));
     reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     setSystemTime(new Date('2026-11-19T00:00:02Z'));
@@ -164,14 +166,15 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
 });
 
 
-test('live legacy plan bases nulled during adoption refuse draft without writing', () => {
+test('live bound plan bases nulled during adoption refuse draft without writing', () => {
   const dir = setup(undefined, false);
   const before = readFileSync(join(dir, 'project.json'));
   let failure: unknown;
   try { draftRigCommand(['shape', dir, '--config', 'derived/drafts/shape/config.json', '--from', 'derived/drafts/shape/out', '--parts', 'derived/drafts/shape/input']); } catch (error) { failure = error; }
   expect(failure).toBeInstanceOf(Refusal);
-  expect((failure as Refusal).code).toBe('SIGNOFF_ANSWERS_MISSING');
-  expect((failure as Refusal).message).toContain('bones');
-  expect((failure as Refusal).message).toContain('constraints');
+  expect((failure as Refusal).code).toBe('SIGNOFF_ANSWERS_STALE');
+  const stale = checkProject(dir).refusals.filter(f => f.code === 'SIGNOFF_ANSWERS_STALE');
+  expect(stale.some(f => f.message.includes('bones'))).toBe(true);
+  expect(stale.some(f => f.message.includes('constraints'))).toBe(true);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

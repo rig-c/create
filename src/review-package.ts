@@ -3,7 +3,7 @@ import { DirectionError, objects as directionObjects, readDirection } from './di
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, openSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
@@ -14,6 +14,7 @@ import type { Json, JsonObject } from './templates.ts';
 
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 export const BUILD_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
+export const PART_FILE_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
 
 /** Compare declared identities even when regenerable package bytes are absent. */
 function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>, version: JsonObject, record: JsonObject): void {
@@ -41,6 +42,20 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   const packaged = asArray(record.files).find(f => isObject(f) && f.path === 'out/parts.json');
   if (isObject(manifest) && typeof manifest.sha256 === 'string' && isObject(packaged) && typeof packaged.sha256 === 'string' && manifest.sha256 !== packaged.sha256) {
     mismatch('REVIEW_PACKAGE_PARTS_MISMATCH', 'files[out/parts.json]', manifest.sha256, packaged.sha256);
+  }
+  if (!isObject(manifest) || typeof manifest.path !== 'string') return;
+  const legacy = !Number.isFinite(at) || at < Date.parse(PART_FILE_IDENTITY_SINCE);
+  for (const image of asArray(source.files)) {
+    if (!isObject(image) || typeof image.path !== 'string' || typeof image.sha256 !== 'string' || image === manifest) continue;
+    const name = posix.join('out', posix.relative(posix.dirname(manifest.path), image.path));
+    const file = asArray(record.files).find(f => isObject(f) && f.path === name);
+    const actual = isObject(file) && typeof file.sha256 === 'string' ? file.sha256 : 'missing';
+    if (actual === image.sha256) continue;
+    const field = `${path}.files[${name}]`;
+    (legacy ? ctx.warnings : ctx.refusals).push({
+      code: legacy ? 'REVIEW_PACKAGE_PART_FILE_LEGACY' : 'REVIEW_PACKAGE_PART_FILE_MISMATCH', path: field,
+      message: `${field}: package sha256 ${actual} differs from accepted part ${image.path} sha256 ${image.sha256}; preserve the package and record a new version from the reviewed part files`,
+    });
   }
 }
 const word = (s: string): string => `'${s.replaceAll("'", "'\\''")}'`;

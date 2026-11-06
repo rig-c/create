@@ -1,26 +1,15 @@
-import { bindFixtureAnswers, bindFixtureSignoffs } from './fixtures.ts';
+import { fixture as materializeExample } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { checkProject, type CheckReport } from '../src/check.ts';
-import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
+import type { Json, JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
-import { writePartsPackage } from './parts-package.ts';
 
 type Mutate = (project: JsonObject) => void;
 
 /** The filled example in an OS temp folder, mutated in place. */
 function fixture(mutate: Mutate = () => {}): string {
-  const dir = join(tempDir(), 'project');
-  mkdirSync(dir);
-  const project = readTemplate('legacy-example-project.json');
-  bindFixtureAnswers(project, dir);
-  mutate(project);
-  bindFixtureSignoffs(project);
-  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
-  writePartsPackage(dir);
-  return dir;
+  return materializeExample(mutate, 'legacy-example-project.json');
 }
 
 function obj(v: Json | undefined): JsonObject {

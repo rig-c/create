@@ -964,7 +964,8 @@ and the live parts/structure context. Stage movement remains a separate human
 act, as for existing forward sign-offs. The filled legacy example is frozen in
 `templates/legacy-example-project.json`. Read under the current 2.16.0 pin it warns with that order warning plus
 `QUESTION_SET_STALE`, because its frozen question set remains at 2.14.1, and it is refused by the build-identity gate
-(`REVIEW_PACKAGE_CONFIG_MISMATCH` and `REVIEW_PACKAGE_PARTS_MISMATCH` on v1 and v2): its versions, dated after
+(`REVIEW_PACKAGE_CONFIG_MISMATCH` and `REVIEW_PACKAGE_PARTS_MISMATCH` on v1 and v2, plus
+`REVIEW_PACKAGE_PART_FILE_MISMATCH` for each of three approved part images missing per version), because its versions, dated after
 `BUILD_IDENTITY_SINCE`, claim configs and parts their review packages do not carry. Its rig-review and direction-review signatures also postdate `SIGNOFF_TARGET_SINCE` and lack targets, so each refuses `SIGNOFF_TARGET_MISSING`. Its interview, two plan-approved and post-interview signatures also lack answer bindings and each refuses `SIGNOFF_ANSWERS_MISSING`. Its bytes stay frozen.
 The new `example-project.json` is a synthetic new-order narrative at 0/0.
 

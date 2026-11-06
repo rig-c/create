@@ -1,5 +1,5 @@
 import { resignAfterChange } from './fixtures.ts';
-import { bindFixtureAnswers, bindFixtureSignoffs } from './fixtures.ts';
+import { materializeFixture } from './fixtures.ts';
 import { STAGE_ORDER_LEGACY_FINDING } from '../src/check.ts';
 import { describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -12,7 +12,6 @@ import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
 import { rehashSignoffs, supersede } from './fixtures.ts';
-import { writePartsPackage } from './parts-package.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
 /** The section list @rig-c/parts 2.3.0 and 2.4.0 export (its `CONFIG_SECTIONS`), used by the fake parts sources planted below. */
@@ -37,16 +36,10 @@ type Mutate = (project: JsonObject) => void;
 
 /** A project folder in the OS temp dir holding the filled example, mutated in place. Nothing is copied into the repo. */
 function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json'): string {
-  const dir = join(tempDir(), 'project');
-  mkdirSync(dir);
-  const project = readTemplate(template);
-  if (template === 'project.json') obj(project.interview).order = { spec: 'rig-create/stage-order@1', adopted_at: '2026-11-05T00:00:00Z' };
-  bindFixtureAnswers(project, dir);
-  mutate(project);
-  bindFixtureSignoffs(project);
-  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
-  if (template === 'legacy-example-project.json') writePartsPackage(dir);
-  return dir;
+  return materializeFixture(join(tempDir(), 'project'), project => {
+    if (template === 'project.json') obj(project.interview).order = { spec: 'rig-create/stage-order@1', adopted_at: '2026-11-05T00:00:00Z' };
+    mutate(project);
+  }, template);
 }
 
 // Typed access into the record, so a mutation names the object it changes.
@@ -373,19 +366,16 @@ describe('collection members', () => {
   function member(collectionMotion: Json): string {
     const root = tempDir();
     const col = join(root, 'harbour');
-    mkdirSync(join(col, 'members', 'keeper'), { recursive: true });
+    mkdirSync(join(col, 'members'), { recursive: true });
     const collection = readTemplate('collection.json');
     collection.name = 'harbour';
     byId(arr(obj(collection.interview).waypoints), 'motion').guide = collectionMotion;
     writeFileSync(join(col, 'collection.json'), JSON.stringify(collection, null, 2));
-    const project = readTemplate('legacy-example-project.json');
     const dir = join(col, 'members', 'keeper');
-    bindFixtureAnswers(project, dir);
-    supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
-    bindFixtureSignoffs(project);
-    writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2));
-    writePartsPackage(dir);
-    return dir;
+    // The shared materializer creates the project directory and freezes packages before mutation.
+    return materializeFixture(dir, project => {
+      supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
+    }, 'legacy-example-project.json');
   }
 
   test('a legacy inherited answer resolves against the collection and passes', () => {

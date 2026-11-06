@@ -14,6 +14,7 @@ import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { REOPEN_HELP, reopenCommand } from './reopen.ts';
+import { AMEND_HELP, amendCommand } from './amend.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
@@ -39,6 +40,8 @@ Usage:
                                                     record a signature without moving the stage
   rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
                                                     record a human backward move without deleting history
+  rig-create amend <stage> --kind <kind> --target <id> --change <file> --by <who> [<project dir>]
+                                                    record a forward amendment and name lapsed approvals
   rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
                                                     record labelled draft artifacts without building or promoting
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
@@ -66,6 +69,8 @@ ${REVIEW_HELP}
 ${SIGNOFF_HELP}
 
 ${REOPEN_HELP}
+
+${AMEND_HELP}
 
 ${DRAFT_RIG_HELP}
 
@@ -137,6 +142,7 @@ const COMMANDS: Record<string, Command> = {
   review: reviewCommand,
   signoff: signoffCommand,
   reopen: reopenCommand,
+  amend: amendCommand,
   'draft-rig': draftRigCommand,
   correction: correctionCommand,
   direction: directionCommand,

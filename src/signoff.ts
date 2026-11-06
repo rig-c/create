@@ -188,7 +188,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   assertDirectionApproval(dir, project, stage);
   assertCorrectionApproval(dir, project, stage, signoff);
   project.signoffs.push(signoff);
-  if (hasStageOrder(project) || signoff.structure !== undefined) {
+  if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
     const first = checkProject(dir, project).refusals[0];
     if (first !== undefined) refuse(first.code, first.message);
   }

@@ -2,6 +2,7 @@ import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
 import { checkCorrections } from './corrections.ts';
+import { amendmentSummaries, collectAmendments, type AmendmentSummary } from './amend.ts';
 /**
  * `interview --check`: reads a project's `project.json` and reports, by name,
  * every place the record breaks the contract in docs/INTERVIEW.md and
@@ -131,6 +132,8 @@ export interface CheckReport {
   readonly provenance: ProvenanceSummary[];
   /** Per human bounced verdict: its items counted by cause, and the versions that answer it (docs/CHECKS.md § Polish feedback). */
   readonly feedback: FeedbackSummary[];
+  /** Present only on amended records, preserving the report shape of older projects. */
+  readonly amendments?: AmendmentSummary[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
 }
@@ -416,16 +419,16 @@ function postNotPassed(ctx: Ctx): boolean {
  * Where a paused project resumes, and what its checks are applied as: the
  * first stage closed by a sign-off that has none, or, before it, a `bar` stage
  * that names its steps (`parts`) while one of them in the plan is not `done`.
- * A `bar` stage that runs the rest of its phase (`rigging`, `post`) is not a
- * resume point, as before: its bar is not enforced by the check.
+ * Amendments also resume at unfinished rigging/post bars. Ordinary paused
+ * records retain their previous resume behavior.
  */
-function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean, newOrder = false): string {
+function firstUnsignedStage(signoffs: Signoff[], steps: Step[], predatesPartsReview: boolean, newOrder = false, amended = false, noPost = false): string {
   for (const s of newOrder ? STAGES : LEGACY_STAGES) {
+    if (amended && noPost && SKIPPED_WHEN_NO_POST.includes(s.id)) continue;
     // A project that predates parts-review resumes where it would have before the two stages existed.
     if (predatesPartsReview && (s.id === PARTS_REVIEW || s.id === 'parts')) continue;
-    if (s.closed_by === 'bar' && s.steps !== undefined) {
-      const own = s.steps;
-      if (steps.some((x) => own.includes(x.id) && (asString(x.record.status) ?? 'pending') !== 'done')) return s.id;
+    if (s.closed_by === 'bar' && (s.steps !== undefined || amended)) {
+      if (steps.some((x) => (amended ? stageOfStep(x.phase, x.id) === s.id : s.steps?.includes(x.id)) && (asString(x.record.status) ?? 'pending') !== 'done')) return s.id;
       continue;
     }
     if (s.closed_by === 'signoff' && !signoffs.some((x) => x.stage === s.id && x.checkpoint === null)) return s.id;
@@ -671,6 +674,7 @@ function checkPlan(ctx: Ctx): void {
 function checkStages(ctx: Ctx): void {
   const cur = effectiveIndex(ctx);
   const paused = ctx.stage === PAUSED_STAGE;
+  const signoffLimit = collectAmendments(ctx.project, []).length > 0 ? stageIndex(ctx.stage) : cur;
   const plan = isObject(ctx.project.plan) ? ctx.project.plan : {};
   const draftedAt = time(plan.drafted_at);
   const riggingApproval = latestSignoff(ctx, 'rigging-interview');
@@ -690,7 +694,7 @@ function checkStages(ctx: Ctx): void {
       ctx.refusals.push({ code: 'SIGNOFF_UNKNOWN_STAGE', path, message: `${path}: stage '${s.stage}' is not a stage (${STAGE_VALUES.join(', ')})` });
       continue;
     }
-    if (!paused && idx > cur) {
+    if (!paused && idx > signoffLimit) {
       ctx.refusals.push({ code: 'SIGNOFF_AHEAD_OF_STAGE', path, message: `${path}: signs '${s.stage}'${s.checkpoint === null ? '' : ` checkpoint '${s.checkpoint}'`}, which is later than the project's stage '${ctx.stage}'` });
     }
     if (s.checkpoint !== null) {
@@ -870,7 +874,12 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
       refusals.push({ code: 'SIGNOFF_UNKNOWN_CHECKPOINT', path, message: `${path}: historical checkpoint ${s.checkpoint} names no step in ${s.stage}; restore the original signature` });
     }
   }
-  const effectiveStage = stage === PAUSED_STAGE ? firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project)) : stage;
+  const amendments = collectAmendments(project, []);
+  const postItems = items.filter(i => i.kind === 'post');
+  const noPost = postItems.length > 0 && postItems.every(i => i.state.state === 'not_applicable');
+  const resumeStage = firstUnsignedStage(signoffs, steps, planApprovedAt !== null, hasStageOrder(project), amendments.length > 0, noPost);
+  const effectiveStage = stage === PAUSED_STAGE ? resumeStage
+    : amendments.length > 0 && stageIndex(resumeStage) < stageIndex(stage) ? resumeStage : stage;
   // Only a project already past `parts-review` when the stage arrived is exempt; one still at or before it goes through it.
   const predatesPartsReview = planApprovedAt !== null && stageIndex(effectiveStage) > stageIndex(PARTS_REVIEW) ? planApprovedAt : null;
   const ctx: Ctx = { dir, project, refusals, warnings, items, signoffs, steps, stage, effectiveStage, collection, predatesPartsReview };
@@ -922,6 +931,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
     invariants,
     provenance,
     feedback,
+    ...(amendments.length === 0 ? {} : { amendments: amendmentSummaries(project, amendments, reopens) }),
     refusals,
     warnings,
   };
@@ -940,6 +950,14 @@ export function formatReport(report: CheckReport): string {
   }
   lines.push(...formatProvenance(report.provenance));
   lines.push(...formatFeedback(report.feedback));
+  for (const amendment of report.amendments ?? []) {
+    lines.push(`  ${amendment.path} ${String(amendment.target.stage)} ${String(amendment.target.kind)} ${String(amendment.target.id)}`);
+    lines.push(`    lapsed (${amendment.lapsed.length})`);
+    for (const a of amendment.lapsed) lines.push(`      ${a.path} ${a.stage}${a.checkpoint === undefined ? '' : ` checkpoint ${a.checkpoint}`}: ${a.reason} (${a.gap})`);
+    lines.push(`    upstream live (${amendment.upstream.length})`);
+    for (const a of amendment.upstream) lines.push(`      ${a.path} ${a.stage}: ${a.reason}`);
+    lines.push(`    keep-by-binding (${amendment.keep_by_binding.length})`);
+  }
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);
   const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;

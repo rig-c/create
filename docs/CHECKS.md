@@ -624,7 +624,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -670,7 +670,7 @@ create-built rig versions. Post and pre-interview versions are exempt.
 
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |
-| `REVIEW_PACKAGE_MISSING` | a create-built rig has no package record, or its recorded package is absent | run the `rig-create review-package` command printed by the warning with the explicit frozen sources |
+| `REVIEW_PACKAGE_MISSING` | a create-built rig has no package record, or its recorded package is absent, leaving its figure mask unverified | run the `rig-create review-package` command printed by the warning with the explicit frozen sources |
 
 | Writer or checker finding | Fires when |
 | --- | --- |
@@ -776,6 +776,8 @@ supply readable configs and requirements files without inventing measured limits
 
 ## Busy-ground figure masks
 
+Before a version is packaged, the figure mask has no verdict; packaging and the packaged check bind it.
+
 `FIGURE_MASK_SINCE = 2026-11-06T00:00:00Z` applies to retained visible,
 busy configs. Masks come from an external named matte of the original painting
 at alpha ≥ 128, minus any foreground plane. Record the model, threshold and
@@ -795,6 +797,8 @@ plate-making fix; the default recipe above stays unchanged.
 | `FIGURE_MASK_MISSING` | busy visible retained config lacks a valid requirements figure-mask path and lowercase sha256 | declare `setup_painting.figure_mask` in the config-relative requirements file |
 | `FIGURE_MASK_CHANGED` | declared PNG is unreadable or its bytes differ from its declared sha256 | restore the PNG relative to requirements or update the declaration and derived record |
 | `FIGURE_MASK_UNRECORDED` | no prepared-input record binds that mask and hash with at least one source and operation | record with `derived add`, naming matte, threshold and foreground subtraction in the operation |
+| `FIGURE_MASK_INPUT_UNBOUND` | a present recorded package lacks the requirements or figure mask binding on or after `FIGURE_MASK_INPUTS_SINCE = 2026-11-06T00:00:00Z`, dated by version.at | preserve the package and record a new build with review-package binding both inputs |
+| `FIGURE_MASK_INPUTS_LEGACY` | WARN for those missing bindings before FIGURE_MASK_INPUTS_SINCE or with no readable date | preserve history and package both inputs on the next build |
 | `FIGURE_MASK_LEGACY` | WARN for these findings on a record before `FIGURE_MASK_SINCE` or without a readable date | preserve the earlier record and declare and record the mask for its next build |
 
 

@@ -1,4 +1,5 @@
 import { acceptedReviewVerdict } from './review.ts';
+import { checkFigureMask } from './figure-mask.ts';
 /** Review signatures bind accepted verdicts and the reviewed version's retained inputs. */
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -110,6 +111,9 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
   if (stage === 'rig-review' && version.pre_interview !== true) {
     const ctx = { dir, project: { ...project, versions: [{ ...version, pre_interview: false }] }, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkReviewPackages(ctx);
+    checkFigureMask(ctx);
+    const mask = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_'));
+    if (mask) refuse(mask.code, mask.message);
     if (ctx.refusals.length || ctx.warnings.some(w => w.code === 'REVIEW_PACKAGE_MISSING')) fail('review package is missing or differs from its recorded binding');
   }
   const errors: Finding[] = [];

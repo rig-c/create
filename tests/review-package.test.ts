@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -45,6 +45,24 @@ function checked(dir: string) {
 }
 
 describe('frozen review package', () => {
+  test('a declared mask with changed bytes refuses packaging before publication', () => {
+    const dir = fixture();
+    put(dir, 'frozen/config.json', JSON.stringify({ requirements: 'requirements.json' }));
+    put(dir, 'frozen/requirements.json', JSON.stringify({ setup_painting: { figure_mask: { path: 'figure.png', sha256: sha('declared mask') } } }));
+    put(dir, 'frozen/figure.png', 'different mask');
+    const before = readFileSync(join(dir, 'project.json'));
+    let firstMessage: string | undefined;
+    for (let retry = 0; retry < 2; retry++) {
+      let error: unknown;
+      try { write(dir); } catch (caught) { error = caught; }
+      expect(error).toBeInstanceOf(Refusal);
+      expect((error as Refusal).code).toBe('FIGURE_MASK_CHANGED');
+      firstMessage ??= (error as Refusal).message;
+      expect((error as Refusal).message).toBe(firstMessage);
+      expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+      expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+    }
+  });
   test('an unreadable verdict cannot silence a parts mismatch after acceptance', () => {
     const dir = exampleFixture(() => {}, 'example-project.json');
     roots.push(dirname(dir));
@@ -325,4 +343,42 @@ for (const legacy of [false, true]) test(`a frozen config input missing from inv
   expect((legacy ? result.warnings : result.refusals).map(f => f.code)).toEqual(['REVIEW_PACKAGE_INPUT_MISSING']);
   expect((legacy ? result.warnings : result.refusals)[0]?.message).toContain('inputs/requirements.json');
   expect(legacy ? result.refusals : result.warnings).toEqual([]);
+});
+
+for (const state of ['missing', 'directory', 'traversal', 'symlink']) {
+  test(`packaging refuses a ${state} mask without publishing or writing its record`, () => {
+    const dir = fixture();
+    const path = state === 'traversal' ? '../figure.png' : 'figure.png';
+    put(dir, 'frozen/config.json', JSON.stringify({ requirements: 'requirements.json' }));
+    put(dir, 'frozen/requirements.json', JSON.stringify({ setup_painting: { figure_mask: { path, sha256: sha('matte') } } }));
+    if (state === 'directory') mkdirSync(join(dir, 'frozen/figure.png'));
+    if (state === 'traversal') put(dir, 'figure.png', 'matte');
+    if (state === 'symlink') {
+      put(dir, 'frozen/original.png', 'matte');
+      symlinkSync(join(dir, 'frozen/original.png'), join(dir, 'frozen/figure.png'));
+    }
+    const before = readFileSync(join(dir, 'project.json'));
+    let first: string | undefined;
+    for (let retry = 0; retry < 2; retry++) {
+      let error: unknown;
+      try { write(dir); } catch (caught) { error = caught; }
+      expect(error).toBeInstanceOf(Refusal);
+      expect((error as Refusal).code).toBe(state === 'traversal' || state === 'symlink' ? 'REVIEW_PACKAGE_PATH_INVALID' : 'FIGURE_MASK_CHANGED');
+      first ??= (error as Refusal).message;
+      expect((error as Refusal).message).toBe(first);
+      expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+      expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+    }
+  });
+}
+
+test('a mask nested relative to requirements is retained at its declared locator', () => {
+  const dir = fixture();
+  put(dir, 'frozen/config.json', JSON.stringify({ requirements: 'inputs/requirements.json' }));
+  put(dir, 'frozen/inputs/requirements.json', JSON.stringify({ setup_painting: { figure_mask: { path: 'masks/figure.png', sha256: sha('matte') } } }));
+  put(dir, 'frozen/inputs/masks/figure.png', 'matte');
+  const record = write(dir);
+  expect((record.files as JsonObject[]).find(f => f.path === 'inputs/masks/figure.png')?.sha256).toBe(sha('matte'));
+  expect(readFileSync(join(dir, 'derived/review/v1/inputs/masks/figure.png'), 'utf8')).toBe('matte');
+  expect(checked(dir).refusals).toEqual([]);
 });

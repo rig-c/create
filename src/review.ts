@@ -1,4 +1,5 @@
 import { assertCorrectionApproval } from './correction-writers.ts';
+import { assertFigureMaskApproval } from './figure-mask.ts';
 /**
  * The two reviews and the hand-off between them (rig-c/create#8,
  * docs/PROJECT.md § Stages, § The rig review rests on a still frame,
@@ -306,6 +307,7 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
   }
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
+  assertFigureMaskApproval(dir, record, rig ?? undefined);
   assertCorrectionApproval(dir, record, RIG_REVIEW);
   const historyRefusals: ReviewCtx['refusals'] = draftVersionFindings(dir, record);
   checkPreInterview({ dir, project: record, refusals: historyRefusals, warnings: [] });

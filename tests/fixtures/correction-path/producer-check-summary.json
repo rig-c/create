@@ -1,0 +1,19 @@
+{
+            "schema": "rig-review-check-summary/1",
+            "pass": true,
+            "exitCode": 0,
+            "line": "check: PASS; 6 of 10 bar(s) measured, 4 skipped (BLINK_NO_HOLE, CHAIN_LAG, TIP_OVER_ROOT, STILL_REGIONS_DARK)",
+            "bars": {
+              "BREATH_VISIBLE": "PASS",
+              "BLINK_NO_HOLE": "SKIP",
+              "CHAIN_LAG": "SKIP",
+              "TIP_OVER_ROOT": "SKIP",
+              "STILL_REGIONS_DARK": "SKIP",
+              "TEXTURE_STRETCH": "PASS",
+              "ANIMATIONS_DO_NOT_FOLD": "PASS",
+              "RECOMPOSITE_HOLES": "SKIP",
+              "PART_SUPPORT_REPORT": "UNCLASSIFIED"
+            },
+            "gate": true,
+            "source": "remesh"
+          }

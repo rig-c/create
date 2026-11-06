@@ -105,3 +105,46 @@ for (const schema of ['rig-review-applied/4', 'rig-review-applied/5']) {
     refused(dir, 'resolve', 'CORRECTION_UNSUPPORTED_OUTCOME');
   });
 }
+
+// Byte-sliced producer summary, deep-equal to the source value at extraction.
+// Enclosing session sha256 4ef11e9be13300323e1513575a06b4deedea4433e2b90a0752a116245e404da1.
+const realShape: JsonObject = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/correction-path/producer-check-summary.json'), 'utf8'));
+test('producer-shaped mixed statuses resolve and retain coverage verbatim', () => {
+  const dir = fixture(applied => { applied.check = structuredClone(realShape); });
+  const feedback = readFileSync(join(dir, 'evidence/feedback.json'));
+  expect(command(dir, 'record').exitCode).toBe(0);
+  const result = command(dir, 'resolve');
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout.toString()).toContain('3 PASS bar(s) measured');
+  expect(result.stdout.toString()).toContain('RECOMPOSITE_HOLES=SKIP');
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  expect(project.corrections[0].closure.reasoning).toContain('PART_SUPPORT_REPORT=UNCLASSIFIED');
+  expect(readFileSync(join(dir, 'evidence/feedback.json'))).toEqual(feedback);
+  const ctx = { dir, project, refusals: [], warnings: [] };
+  checkCorrections(ctx);
+  expect(ctx).toMatchObject({ refusals: [], warnings: [] });
+});
+for (const status of ['WARN', 'CLEAR', 'REPORTED']) {
+  test(`producer ${status} is retained through resolution`, () => {
+    const summary = structuredClone(realShape);
+    (summary.bars as JsonObject).REPORT = status;
+    const dir = fixture(applied => { applied.check = summary; });
+    expect(command(dir, 'record').exitCode).toBe(0);
+    const result = command(dir, 'resolve');
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toContain(`REPORT=${status}`);
+  });
+}
+for (const [name, bars] of Object.entries({
+  fail: { gate: 'PASS', BROKEN: 'FAIL' },
+  unknown: { gate: 'PASS', UNKNOWN_BAR: 'NEW_STATUS' },
+  noPass: { EMPTY_BAR: 'SKIP', REPORT: 'UNCLASSIFIED' },
+  empty: {},
+  rewritten: { ...(realShape.bars as JsonObject), BLINK_NO_HOLE: 'PASS' },
+})) {
+  test(`producer summary ${name} refuses without writing`, () => {
+    const dir = fixture(applied => { applied.check = { ...realShape, bars: bars as JsonObject }; });
+    expect(command(dir, 'record').exitCode).toBe(0);
+    refused(dir, 'resolve', 'CORRECTION_APPLIED_INVALID');
+  });
+}

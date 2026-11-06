@@ -973,12 +973,18 @@ operations, with nonempty RFC 6901 pointers and the published non-path flag
 allowlist. The session is `rig-review-session/1`, the checked patch Apply is
 `rig-review-applied/2` and its summary is `rig-review-check-summary/1`. Source
 config, inspected model and handoff input hashes bind to the source. Summary
-`pass:true`, `exitCode:0`, `gate:true` and passing bars are required, and the
+`pass:true`, `exitCode:0`, `gate:true`, a nonempty line and at least one `PASS`
+bar are required. A named `FAIL` or a status outside parts 2.16.0's
+`PASS | FAIL | SKIP | WARN | CLEAR | REPORTED | UNCLASSIFIED` set refuses.
+A bar named skipped by the producer line cannot be `PASS` in the map.
+Report-only SKIPs may be absent from that line. All accepted statuses remain
+verbatim by name. Resolution reasoning and text output state the PASS count,
+every non-PASS name/status and the retained producer line. The
 outcome's retained compiled-model SHA must equal `applied.modelHash`. A built
 preview or unknown/failed check cannot claim checked completion. Optional
 published route/files/environment context is retained. Optional `stageInputHash`
 must be a 64-lowercase-hex SHA-256, accepted as recorded; create cannot re-derive it from the package.
-Summary `source` may be absent or `remesh`, `retune`, or `check`, under the same PASS gates. No patch application,
+Summary `source` may be absent or `remesh`, `retune`, or `check`, under the same producer-summary gates. No patch application,
 producer measurement, build or diff is recomputed by create.
 
 Identities are `{kind:"rig"|"post",n,config:{path,sha256},model:{path,sha256}}`,

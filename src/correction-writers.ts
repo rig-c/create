@@ -3,7 +3,7 @@ import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPostIdentity, valid
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
-import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionApprovalFindings, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, validateCorrectionIdentity, versionRecord } from './corrections.ts';
+import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -97,6 +97,7 @@ function command(args:string[]): {stdout:string;exit:number} {
   if(!correctionsAdopted(next))throw new CorrectionError('CORRECTION_CONTRACT_INVALID','adopt corrections explicitly first');
   const records=objects(next.corrections);
   let record:JsonObject;
+  let coverage = '';
   if(action==='record') {
     const stage=opts['--stage'];const path=opts['--path'];
     if(!opts['--id']||!stage||!CORRECTION_STAGES.includes(stage)||!['described','made'].includes(path??'')||!opts['--by'])usage('record requires id/path/stage/by');
@@ -143,7 +144,8 @@ function command(args:string[]): {stdout:string;exit:number} {
     if(artifact.kind==='description'&&(opts['--applied-feedback']||opts['--feedback-id']))usage('described closure takes no Apply flags');
     if(artifact.kind==='config-patch') {
       if(opts['--applied-feedback'])artifact.feedback={file:correctionBinding(dir,opts['--applied-feedback']),item_id:opts['--feedback-id'] as string};
-      const {item}=correctionApplied(dir,artifact);
+      const {item, applied}=correctionApplied(dir,artifact);
+      if (isObject(applied.check) && isObject(applied.check.bars)) coverage = correctionCheckCoverage(applied.check);
       // A preview's human words cannot silently change when an Apply is attached.
       if(record.verbatim!==item.summary)throw new CorrectionError('CORRECTION_APPLIED_INVALID','selected feedback summary differs from retained human correction');
       artifact.state='applied-and-checked';
@@ -153,10 +155,10 @@ function command(args:string[]): {stdout:string;exit:number} {
     if(direction){
       if(opts['--applied-feedback']||opts['--feedback-id'])usage('direction closure does not ingest review applied reports');
       artifact.result=(record.outcome as JsonObject).direction as JsonObject;artifact.state='applied-and-checked';validateDirectionOutcome(dir,next,record,artifact);
-    }record.closure={by:'agent',at,reasoning:readVerbatim(opts['--reasoning-file'])};
+    }record.closure={by:'agent',at,reasoning:readVerbatim(opts['--reasoning-file']) + (coverage ? `\n${coverage}` : '')};
   }
   save(dir,file,originalBytes,project,next);
-  return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged`,exit:0};
+  return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged${coverage ? `\n${coverage}` : ''}`,exit:0};
 }
 
 /** Public approval paths that do not run checkProject still share the correction validator. */

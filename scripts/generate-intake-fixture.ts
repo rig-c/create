@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Exact producer: node node_modules/@rig-c/parts/bin/rig-parts.cjs head-crop-preflight
  * --full <fresh>/full --canvas 20x10 --head-box '[5,0,15,5]'
  * Synthetic bytes only; no producer build or model run. */
@@ -5,8 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { encodePngBytes } from '../node_modules/@rig-c/parts/src/raster/png.ts';
 
-const [destination, flag] = process.argv.slice(2);
-if (!destination || (flag !== undefined && flag !== '--check')) throw Error('usage: generate-intake-fixture.ts <fresh> [--check]');
+const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-intake-fixture.ts <fresh> [--check]');
 const dir = resolve(destination);
 if (existsSync(dir)) throw Error('use a fresh directory');
 const parts = resolve(import.meta.dir,'../node_modules/@rig-c/parts');
@@ -23,6 +23,6 @@ writeFileSync(join(dir,'producer.stderr'),result.stderr);
 if(result.exitCode!==0)throw Error(result.stderr.toString());
 writeFileSync(join(dir,'preflight.json'),result.stdout);
 const target=resolve(import.meta.dir,'../tests/fixtures/intake/preflight.json');
-if(flag==='--check'){if(!readFileSync(target).equals(result.stdout))throw Error('intake preflight bytes differ');}
+if(check){if(!readFileSync(target).equals(result.stdout))throw Error('intake preflight bytes differ');}
 else{mkdirSync(resolve(target,'..'),{recursive:true});writeFileSync(target,result.stdout);}
 console.log('parts 2.16.0 CLI synthetic preflight reproduces byte for byte');

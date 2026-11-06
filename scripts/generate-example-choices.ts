@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 import { exampleTime } from './example-time.ts';
 /** Reproduce review's wire fixtures and negative controls through public record writers. */
 import { setSystemTime } from 'bun:test';
@@ -59,8 +60,8 @@ export function generateExampleChoices(dir:string): Record<string,string> {
   }finally{save(p);setSystemTime();}
 }
 if(import.meta.main){
-  const[destination,flag]=process.argv.slice(2);if(!destination||(flag!==undefined&&flag!=='--check'))throw Error('usage: generate-example-choices.ts <fresh dir> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-example-choices.ts <fresh dir> [--check]');
   const files=generateExampleChoices(resolve(destination));const root=join(import.meta.dir,'../templates');
-  for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(flag==='--check'){if(readFileSync(file,'utf8')!==bytes)throw Error(`${path}: choice fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}
+  for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(check){if(readFileSync(file,'utf8')!==bytes)throw Error(`${path}: choice fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}
   console.log('choice snapshots, public-writer answers and negative controls reproduce');
 }

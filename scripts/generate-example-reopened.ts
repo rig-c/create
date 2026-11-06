@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Retain only the public reopen writer's output; assets use the plain example materializer. */
 import { setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -32,8 +33,7 @@ export function writeExampleReopened(dir: string, check: boolean): void {
 }
 
 if (import.meta.main) {
-  const [destination, flag] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check')) throw new Error('usage: generate-example-reopened.ts <fresh dir> [--check]');
-  writeExampleReopened(resolve(destination), flag === '--check');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-example-reopened.ts <fresh dir> [--check]');
+  writeExampleReopened(resolve(destination), check);
   console.log('reopened example reproduces through the public reopen writer');
 }

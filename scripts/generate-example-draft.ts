@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Build the synthetic draft with the installed CPU producer, retaining every output byte. */
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -46,13 +47,12 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
 }
 
 if (import.meta.main) {
-  const [destination, flag] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check')) throw new Error('usage: generate-example-draft.ts <fresh dir> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-example-draft.ts <fresh dir> [--check]');
   const dir = resolve(destination);
   const files = generateExampleDraft(join(dir, 'draft'), generateExampleParts(join(dir, 'producer')));
   for (const [path, bytes] of Object.entries(files)) {
     const file = join(import.meta.dir, '../templates/example-draft', path);
-    if (flag === '--check') {
+    if (check) {
       if (!readFileSync(file).equals(bytes)) throw new Error(`${path}: producer draft differs`);
     } else {
       mkdirSync(dirname(file), { recursive: true });

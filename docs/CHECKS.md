@@ -933,3 +933,9 @@ any write, not a screening decision about the painting.
 | `INTAKE_REPORT_INVALID` | `intake.reports`: missing/changed raw bytes, unsupported spec, invalid binding/shape, copied fields or prediction; restore the retained report first, then append a corrected `intake-report` entry if needed. Also names invalid `intake`/`intake-report` CLI input; rejected writes leave project bytes identical. |
 | `INTAKE_CHOICE_PENDING` | `intake.choice`: only in `parts`, a HIT with no resolved choice bound to that report; adopt choices with `interview-options --adopt` first when not adopted, then record the person's explicit choice or finish their explicit delegation through the interview writers. Advisory, including Other pending. |
 | `INTAKE_CHOICE_INVALID` | `intake.choice`: malformed/stale local choice or shown set; retain and re-show report-bound options through the interview writers. Never an approval refusal. |
+
+## Generator CLI arguments
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `GENERATOR_ARGS_INVALID` | The named generator refuses the displayed argument (a destination starting with `-`, a missing destination, or any flag but `--check`) before writing its destination. Supply the destination shown in its unchanged usage line and only the optional `--check` flag. |

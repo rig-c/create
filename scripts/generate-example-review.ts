@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Generate example review_package records through the public command, using synthetic frozen inputs. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -32,8 +33,7 @@ export function generateExampleReview(dir: string): JsonObject[] {
 }
 
 if (import.meta.main) {
-  const [destination, flag] = process.argv.slice(2);
-  if (!destination || (flag !== undefined && flag !== '--check')) throw new Error('usage: bun scripts/generate-example-review.ts <fresh scratch project> [--check]');
+  const { destination, check } = generatorArgs(import.meta.file, 'usage: bun scripts/generate-example-review.ts <fresh scratch project> [--check]');
   const generated = generateExampleOrder(resolve(destination));
   const records = asArray(generated.project.versions).filter(v => isObject(v) && v.kind === 'rig').map(v => (v as JsonObject).review_package);
   const file = join(import.meta.dir, '../templates/example-project.json');
@@ -45,7 +45,7 @@ if (import.meta.main) {
     return block.replace(/      "review_package": \{[\s\S]*?\n      \},\n(?=      "outputs")/, '')
       .replace('      "outputs": [', `      "review_package": ${record},\n      "outputs": [`);
   }).join('');
-  if (flag === '--check') {
+  if (check) {
     if (after !== before) throw new Error('generated review records differ from the shipped example');
     console.log('example review records reproduce byte for byte');
   } else {

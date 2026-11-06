@@ -1,3 +1,4 @@
+import { generatorArgs } from './generator-args.ts';
 /** Reproduce a tiny authored take and made correction using only public writers. */
 import { setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -26,4 +27,4 @@ export function generateDirectionFixture(dir:string):Record<string,Buffer> {
   }finally{setSystemTime();}
 }
 import type { JsonObject } from '../src/templates.ts';
-if(import.meta.main){const[destination,flag]=process.argv.slice(2);if(!destination||(flag!==undefined&&flag!=='--check'))throw Error('usage: generate-direction-fixture.ts <fresh dir> [--check]');const files=generateDirectionFixture(resolve(destination));const root=join(import.meta.dir,'../templates/example-direction');for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(flag==='--check'){if(!readFileSync(file).equals(bytes))throw Error(`${path}: direction fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}console.log('synthetic direction and correction reproduce through writers');}
+if(import.meta.main){const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-direction-fixture.ts <fresh dir> [--check]');const files=generateDirectionFixture(resolve(destination));const root=join(import.meta.dir,'../templates/example-direction');for(const[path,bytes]of Object.entries(files)){const file=join(root,path);if(check){if(!readFileSync(file).equals(bytes))throw Error(`${path}: direction fixture differs`);}else{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,bytes);}}console.log('synthetic direction and correction reproduce through writers');}

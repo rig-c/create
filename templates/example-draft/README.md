@@ -12,3 +12,7 @@ Regenerate with `bun scripts/generate-example-order.ts <fresh-directory>`.
 `scripts/generate-example-draft.ts` builds the config and draft outputs and
 also accepts `<fresh-directory> --check` to reproduce their exact bytes.
 Regenerate the dependent choices, split captions and invariants afterward.
+
+The fixture events are ordered one second apart from the latest exported
+`*_SINCE` contract date in `src/`, with simultaneous events kept together.
+`scripts/example-time.ts` fixes this timeline without reading the clock.

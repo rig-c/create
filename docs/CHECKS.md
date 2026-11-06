@@ -872,7 +872,7 @@ or required reason. Shared delegations remain classified as delegated.
 
 ## Correction paths
 
-`CONFIG_INPUTS_SINCE = 2026-11-06T00:00:00Z` dates missing config-input bindings by `draft.at`, correction handoff omissions by `correction.at`, and applied-review omissions by the resulting version's `at`. Earlier omissions WARN with the same code. Honest named inputs are accepted in every era, and altered hashes always refuse. Preserve historical bytes and include every config-named input and its raw sha256 in the next draft or handoff.
+`CONFIG_INPUTS_SINCE = 2026-11-06T00:00:00Z` dates missing config-input bindings by `draft.at`, correction handoff omissions by `correction.at`, and applied-review omissions by the resulting version's `at`. Earlier omissions WARN with the same code. Honest named inputs are accepted in every era, and altered hashes always refuse. A missing frozen-package input binding uses the source version's `at`, with `REVIEW_PACKAGE_INPUT_MISSING` for package checks and the existing correction/applied-review code in those readers. An unavailable `configFileReferences` export names the installed parts version in a legacy WARN or a current named-input refusal. Configs naming no files keep their existing checks. Preserve historical bytes and include every config-named input and its raw sha256 in the next draft or handoff.
 
 `corrections_contract.schema = "rig-create/corrections@1"` is explicitly adopted
 with `correction --adopt`; it is independent of `interview.order` and dates do

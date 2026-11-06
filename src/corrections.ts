@@ -222,16 +222,25 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
     }
   };
   if (on.kind === 'rig') {
-    const pkg = versionRecord(project, on.n).review_package as JsonObject;
-    const inputs = reviewHandoffInputs(pkg, dir, Number(on.n));
-    const named = reviewConfigInputs(pkg, dir, Number(on.n));
+    const version = versionRecord(project, on.n);
+    const pkg = version.review_package as JsonObject;
+    const packageIssue = (reason: string, at: unknown): void => {
+      if (!configInputsLegacy(at)) fail('CORRECTION_APPLIED_INVALID', reason);
+      warnings.push(correctionFinding('CORRECTION_APPLIED_INVALID', path, reason));
+    };
+    const named = reviewConfigInputs(pkg, dir, Number(on.n), name => packageIssue(`config-named input ${name} is missing from source package`, version.at), error => packageIssue(error.message, record.at));
+    const inputs = reviewHandoffInputs(pkg, dir, Number(on.n), named);
     const files: JsonObject[] = bindings(handoff.files).map(f => ({ ...f, path: posix.normalize(`out/check/${String(f.path)}`) }));
-    requireNamed(named, files);
+    requireNamed(named.filter(f => hex(f.sha256)), files);
+    for (const input of named.filter(f => !hex(f.sha256))) if (files.some(f => f.path === input.path)) fail('CORRECTION_APPLIED_INVALID', `config-named input ${String(input.path)} has no frozen package hash`);
     const required = inputs.filter(f => !named.some(n => n.path === f.path));
     if (files.length !== handoff.files.length || !required.every(f => files.some(h => h.path === f.path && h.sha256 === f.sha256)) || !files.every(h => inputs.some(f => f.path === h.path && f.sha256 === h.sha256)) || new Set(files.map(f => f.path)).size !== files.length) fail('CORRECTION_APPLIED_INVALID', 'feedback input inventory differs from source package');
   } else if (on.kind === 'draft') {
     const draft = draftRecord(project, on.id);
-    const named = configInputBindings(dir, String((draft.config as JsonObject).path), true).map(input => {
+    const named = configInputBindings(dir, String((draft.config as JsonObject).path), true, error => {
+      if (!configInputsLegacy(record.at)) fail('CORRECTION_APPLIED_INVALID', error.message);
+      warnings.push(correctionFinding('CORRECTION_APPLIED_INVALID', path, error.message));
+    }).map(input => {
       const bound = bindings(draft.config_inputs).find(f => f.path === input.path);
       if (bound && input.sha256 === null) return bound;
       return input;

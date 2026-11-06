@@ -824,7 +824,7 @@ rig-create review-package 1 --config evidence/v1/config.json --from outputs/v1/o
 The source paths are explicit, project-relative inputs. The command copies the
 config unchanged and the build's `parts.json`, `parts/`, `rig/`, and
 `check/build/` into `derived/review/v1/`, with the config at `config.json` and
-the build files under `out/`. A declared adjacent JSON requirements file is copied beside the config and included in the frozen inventory. The source build must include `rig/rig.json`,
+the build files under `out/`. Every config-relative file named by the installed loader is copied at its relative path and included in the frozen inventory, including nested requirements, animations and a file-based control skeleton. The source build must include `rig/rig.json`,
 `rig/motion.json`, `rig/mesh_report.json` and
 `check/build/skeleton.model.json`. Copies preserve the package when the build
 directory is cleaned. Each copied file is hashed. The command writes no new

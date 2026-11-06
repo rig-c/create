@@ -36,6 +36,8 @@ function sample(kind: 'rig' | 'draft', state: 'honest' | 'absent' | 'altered', l
     p.stage = 'parts-review'; s.reviewedSource.handoff.files = [config, ...parts.files];
   }
   if (state !== 'absent') s.reviewedSource.handoff.files.push({ ...input, path: kind === 'rig' ? '../../requirements.json' : input.path, sha256: state === 'altered' ? '0'.repeat(64) : input.sha256 });
+  mkdirSync(join(dir, 'derived/review/v1'), { recursive: true });
+  writeFileSync(join(dir, 'derived/review/v1/config.json'), readFileSync(join(dir, 'evidence/source-config.json')));
   save('evidence/feedback.json', s); save('project.json', p);
   setSystemTime(new Date(legacy ? '2026-11-04T09:10:00Z' : '2026-11-06T09:10:00Z'));
   return { dir, load, save, record: () => correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', kind === 'rig' ? 'rig-review' : 'parts-review', '--by', 'user', ...(kind === 'rig' ? ['--version', '1'] : ['--draft', 'synthetic']), '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']) };
@@ -100,11 +102,18 @@ for (const legacy of [false, true]) test(`draft writer binds files and ${legacy 
   const refusals: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, p, refusals, warnings);
   expect((legacy ? warnings : refusals).map(f => f.code)).toEqual(['DRAFT_RIG_FILE', 'DRAFT_RIG_FILE', 'DRAFT_RIG_FILE']);
   expect((legacy ? refusals : warnings)).toEqual([]);
+  oldParts(dir);
+  const unavailableRefusals: Finding[] = []; const unavailableWarnings: Finding[] = [];
+  checkDrafts(dir, p, unavailableRefusals, unavailableWarnings);
+  expect((legacy ? unavailableWarnings : unavailableRefusals).map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect((legacy ? unavailableWarnings : unavailableRefusals)[0]?.message).toContain('@rig-c/parts 2.8.0');
+  expect(legacy ? unavailableRefusals : unavailableWarnings).toEqual([]);
 });
 
 for (const legacy of [false, true]) test(`unavailable unbound input cannot claim a null hash in ${legacy ? 'legacy' : 'current'} rig handoff`, () => {
   const f = sample('rig', 'honest', legacy);
   const project = f.load('project.json'); const feedback = f.load('evidence/feedback.json');
+  project.versions[0].at = legacy ? '2026-11-04T08:30:00Z' : '2026-11-06T08:30:00Z';
   project.versions[0].review_package.files.pop();
   rmSync(join(f.dir, 'evidence/requirements.json'));
   feedback.reviewedSource.handoff.files[1].sha256 = null;
@@ -116,4 +125,62 @@ for (const legacy of [false, true]) test(`unavailable unbound input cannot claim
   project.versions[1].review_origin.applied = feedback.feedback[0].context.applied;
   const ctx = { dir: f.dir, project, refusals: [] as Finding[], warnings: [] as Finding[] };
   checkAppliedReview(ctx); expect(ctx.refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
+});
+
+function oldParts(dir: string): void {
+  const root = join(dir, 'node_modules/@rig-c/parts');
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'package.json'), '{"name":"@rig-c/parts","version":"2.8.0","type":"module"}');
+  writeFileSync(join(root, 'src/config.ts'), 'export const CONFIG_SECTIONS = ["assemble"];');
+}
+for (const legacy of [false, true]) test(`older loader named inputs ${legacy ? 'warn' : 'refuse'} with its version`, () => {
+  const f = sample('rig', 'absent', legacy); oldParts(f.dir);
+  if (legacy) {
+    expect(f.record().exit).toBe(0);
+    const ctx = { dir: f.dir, project: f.load('project.json'), refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkCorrections(ctx); expect(ctx.refusals).toEqual([]);
+    expect(ctx.warnings.find(f => f.code === 'CORRECTION_APPLIED_INVALID')?.message).toContain('@rig-c/parts 2.8.0');
+  } else {
+    let error: { code?: string; message?: string } = {};
+    try { f.record(); } catch (caught) { error = caught as typeof error; }
+    expect(error.code).toBe('CORRECTION_APPLIED_INVALID'); expect(error.message).toContain('@rig-c/parts 2.8.0');
+  }
+  const p = f.load('project.json');
+  p.versions[1].at = legacy ? '2026-11-05T10:00:00Z' : '2026-11-06T10:00:00Z';
+  p.versions[1].review_origin.applied = f.load('evidence/feedback.json').feedback[0].context.applied;
+  p.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(join(f.dir, 'evidence/feedback.json')));
+  const ctx = { dir: f.dir, project: p, refusals: [] as Finding[], warnings: [] as Finding[] }; checkAppliedReview(ctx);
+  expect((legacy ? ctx.warnings : ctx.refusals).find(f => f.code === 'APPLIED_REVIEW_SOURCE')?.message).toContain('@rig-c/parts 2.8.0');
+  expect(legacy ? ctx.refusals : ctx.warnings).toEqual([]);
+});
+test('older loader and a config with no named files retain the original correction path', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'old-loader-no-files-')); roots.push(dir);
+  correctionFixture(dir, 'rig'); oldParts(dir); setSystemTime(new Date('2026-11-06T09:10:00Z'));
+  expect(configInputReferences(dir, { note: 'no files' })).toEqual([]);
+  expect(configInputReferences(dir, { generation: { control: { skeleton: 'stand_sides' } } })).toEqual([]);
+  expect(correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']).exit).toBe(0);
+  const ctx = { dir, project: JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')), refusals: [] as Finding[], warnings: [] as Finding[] };
+  checkCorrections(ctx); expect(ctx.refusals).toEqual([]); expect(ctx.warnings.map(f => f.code)).toEqual(['CORRECTION_OPEN']);
+});
+
+for (const legacy of [false, true]) test(`missing frozen rig input uses the source version era ${legacy ? 'legacy' : 'current'}`, () => {
+  const f = sample('rig', 'absent', legacy); const p = f.load('project.json');
+  p.versions[0].at = legacy ? '2026-11-04T08:30:00Z' : '2026-11-06T08:30:00Z';
+  p.versions[0].review_package.files.pop(); f.save('project.json', p);
+  if (legacy) {
+    expect(f.record().exit).toBe(0);
+    const ctx = { dir: f.dir, project: f.load('project.json'), refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkCorrections(ctx); expect(ctx.refusals).toEqual([]);
+    expect(ctx.warnings.find(f => f.code === 'CORRECTION_APPLIED_INVALID')?.message).toContain('requirements.json is missing from source package');
+  } else {
+    let error: { code?: string; message?: string } = {};
+    try { f.record(); } catch (caught) { error = caught as typeof error; }
+    expect(error.code).toBe('CORRECTION_APPLIED_INVALID'); expect(error.message).toContain('requirements.json is missing from source package');
+  }
+  p.versions[1].at = legacy ? '2026-11-04T10:00:00Z' : '2026-11-06T10:00:00Z';
+  p.versions[1].review_origin.applied = f.load('evidence/feedback.json').feedback[0].context.applied;
+  p.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(join(f.dir, 'evidence/feedback.json')));
+  const ctx = { dir: f.dir, project: p, refusals: [] as Finding[], warnings: [] as Finding[] }; checkAppliedReview(ctx);
+  expect((legacy ? ctx.warnings : ctx.refusals).find(f => f.code === 'APPLIED_REVIEW_SOURCE')?.message).toContain('requirements.json is missing from source package');
+  expect(legacy ? ctx.refusals : ctx.warnings).toEqual([]);
 });

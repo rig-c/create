@@ -132,3 +132,13 @@ test('installed review omitting a named input is refused for the current signed 
   expect(report.refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
   expect(report.warnings).toEqual([]);
 });
+
+test('edited live config leaves the frozen legacy applied-review findings unchanged', async () => {
+  const { dir, project } = await chain();
+  const before = checked(dir, project);
+  const config = obj(obj(version(project, 1).review_package).config);
+  writeFileSync(join(dir, String(config.path)), '{"note":"edited live config"}');
+  const after = checked(dir, project);
+  console.log('frozen-config-control', JSON.stringify({ before: before.refusals, after: after.refusals }));
+  expect(after).toEqual(before);
+});

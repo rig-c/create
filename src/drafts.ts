@@ -1,5 +1,5 @@
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
-import { configInputBindings, configInputReferences, configInputsLegacy } from './config-inputs.ts';
+import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -107,7 +107,10 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
           }
         }
       }
-    } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
+    } catch (error) {
+      if (error instanceof ConfigInputsUnavailable && configInputsLegacy(raw.at)) warnings.push({ code: 'DRAFT_RIG_FILE', path, message: `${path}: ${error.message}` });
+      else add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error));
+    }
     try {
       if (!draftFileUnavailable(dir, String(parts.path), root)) {
         const expected = new Map(asArray(parts.files).filter(binding).map(f => [String(f.path), f.sha256]));

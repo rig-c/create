@@ -76,12 +76,19 @@ export function checkAppliedReview(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'
     let inputs: ReturnType<typeof reviewHandoffInputs> = [];
     let named: ReturnType<typeof reviewConfigInputs> = [];
     try {
-      if (isObject(pkg)) { inputs = reviewHandoffInputs(pkg, ctx.dir, Number(source.n)); named = reviewConfigInputs(pkg, ctx.dir, Number(source.n)); }
+      if (isObject(pkg)) {
+        const issue = (reason: string, at: unknown): void => {
+          if (!configInputsLegacy(at)) throw new Error(reason);
+          ctx.warnings.push({ code: 'APPLIED_REVIEW_SOURCE', path, message: `${path}: ${reason}; preserve history and include the config inputs on the next build` });
+        };
+        named = reviewConfigInputs(pkg, ctx.dir, Number(source.n), name => issue(`config-named input ${name} is missing from source package`, source.at), error => issue(error.message, version.at));
+        inputs = reviewHandoffInputs(pkg, ctx.dir, Number(source.n), named);
+      }
     } catch (error) { push('APPLIED_REVIEW_SOURCE', `${error instanceof Error ? error.message : String(error)}; restore the source config and its named input bindings`); continue; }
     const handoffFiles = isObject(handoff) ? asArray(handoff.files) : [];
-    const missingNamed = named.filter(input => !handoffFiles.some(f => isObject(f) && typeof f.path === 'string' && posix.normalize(`out/check/${f.path}`) === input.path));
+    const missingNamed = named.filter(input => hex(input.sha256) && !handoffFiles.some(f => isObject(f) && typeof f.path === 'string' && posix.normalize(`out/check/${f.path}`) === input.path));
     if (missingNamed.length && configInputsLegacy(version.at)) ctx.warnings.push({ code: 'APPLIED_REVIEW_SOURCE', path, message: `${path}: legacy handoff omits config-named inputs ${missingNamed.map(f => f.path).join(', ')}; preserve history and include them in the next rebuild` });
-    const requiredInputs = configInputsLegacy(version.at) ? inputs.filter(f => !named.some(n => n.path === f.path)) : inputs;
+    const requiredInputs = inputs.filter(f => !named.some(n => n.path === f.path && (!hex(n.sha256) || configInputsLegacy(version.at))));
     const boundInputs = requiredInputs.every((input) => isObject(input) && handoffFiles.some((f) => isObject(f)
       && typeof f.path === 'string' && posix.normalize(`out/check/${f.path}`) === input.path && f.sha256 === input.sha256));
     if (!isObject(pkg) || !isObject(pkg.config) || !isObject(handoff?.config)

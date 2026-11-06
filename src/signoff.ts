@@ -1,3 +1,4 @@
+import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
@@ -161,6 +162,8 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     signoff.steps = ids;
     signoff.step_hashes = hashes;
   }
+  const answerHashes = selectAnswerHashes(dir, project, signoff);
+  if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
   if (stage === PARTS_REVIEW && (hasStageOrder(project) || opts['--structure-file'] !== undefined)) {
     signoff.draft_id = opts['--draft'] ?? null;
     const path = opts['--structure-file'];

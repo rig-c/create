@@ -41,7 +41,7 @@ function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.j
   const project = readTemplate(template);
   if (template === 'project.json') obj(project.interview).order = { spec: 'rig-create/stage-order@1', adopted_at: '2026-11-05T00:00:00Z' };
   mutate(project);
-  bindFixtureSignoffs(project);
+  bindFixtureSignoffs(project, dir);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   if (template === 'legacy-example-project.json') writePartsPackage(dir);
   return dir;
@@ -377,9 +377,9 @@ describe('collection members', () => {
     byId(arr(obj(collection.interview).waypoints), 'motion').guide = collectionMotion;
     writeFileSync(join(col, 'collection.json'), JSON.stringify(collection, null, 2));
     const project = readTemplate('legacy-example-project.json');
-    bindFixtureSignoffs(project);
     supersede(waypoint(project, 'motion'), 'guide', { basis: 'inherited', from: { collection: 'harbour', question: 'motion' }, by: 'interviewer', at: '2026-11-12T10:00:00Z' });
     const dir = join(col, 'members', 'keeper');
+    bindFixtureSignoffs(project, dir);
     writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2));
     writePartsPackage(dir);
     return dir;

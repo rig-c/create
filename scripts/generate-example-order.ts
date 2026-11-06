@@ -76,7 +76,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   }
   const words = join(dir, 'words.txt');
   const sign = (stage: string, at: string, flags: string[] = []): void => {
-    setSystemTime(new Date(exampleTime(at))); writeFileSync(words, ['rig-review', 'direction-review'].includes(stage)
+    setSystemTime(new Date(exampleTime(at))); writeFileSync(words, ['interview', 'post-interview', 'rig-review', 'direction-review'].includes(stage)
       ? String(arr(original.signoffs).map(obj).find(s => s.stage === stage)!.verbatim)
       : `Approve the synthetic ${stage} record.\n`);
     signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words, ...flags]); reload();
@@ -90,10 +90,10 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     p.inputs = [{path:'inputs/preparation-source.svg',sha256:sha256(source),bytes:source.length,origin:'synthetic source painting'}];
     interview.question_set = String(obj(readTemplate('project.json').interview).question_set);
     for (const item of arr(obj(interview.post).items).map(obj)) item.guide = null;
-    p.signoffs = arr(original.signoffs).filter(s => obj(s).stage === 'interview');
+    p.signoffs = [];
     for (const w of arr(interview.waypoints).map(obj)) if (['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) w.guide = null;
     for (const s of arr(obj(p.plan).steps).map(obj)) { s.status = 'pending'; if (s.id === 'assemble') s.rests_on = ['assemble']; }
-    save(); Object.assign(files,writeExampleChoices(dir,'interview')); reload(); sign('plan-approved', '2026-11-10T16:05:00Z');
+    save(); Object.assign(files,writeExampleChoices(dir,'interview')); reload(); sign('interview', '2026-11-10T14:20:00Z'); sign('plan-approved', '2026-11-10T16:05:00Z');
     p.stage = 'parts';
     for (const s of arr(obj(p.plan).steps).map(obj)) if (['seethrough', 'assemble'].includes(String(s.id))) s.status = 'done';
     arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'parts'));
@@ -143,7 +143,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
     for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
     save(); Object.assign(files,writeExampleChoices(dir,'post-interview')); reload();
-    arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'post-interview'));
+    save(); sign('post-interview', '2026-11-13T10:30:00Z');
     p.stage = original.stage as Json; p.versions = original.versions as Json;
     for (const s of arr(obj(p.plan).steps).map(obj)) s.status = 'done';
     p.stage = 'direction-review'; save();

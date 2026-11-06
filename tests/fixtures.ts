@@ -1,4 +1,6 @@
-import { asArray, isObject } from '../src/check.ts';
+import { Refusal } from '../src/refusal.ts';
+import { selectAnswerHashes } from '../src/signoff-answers.ts';
+import { answered, asArray, collectItems, isObject, loadCollection } from '../src/check.ts';
 import { acceptedReviewVerdict } from '../src/review.ts';
 import { outputsHash, reviewPackageHash } from '../src/signoff-target.ts';
 /**
@@ -38,7 +40,7 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   const project = readTemplate(template);
   mutate(project);
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
-  if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);
+  if (['legacy-example-project.json', 'example-project.json', 'example-reopened/project.json'].includes(template) && !rawLegacy) bindFixtureSignoffs(project, dir);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
@@ -91,10 +93,30 @@ export function rehashSignoffs(project: JsonObject): void {
     const hashes = obj(signoff.step_hashes);
     for (const id of Object.keys(hashes)) hashes[id] = stepHash(step(project, id));
   }
+  bindFixtureSignoffs(project);
 }
 
-/** Bind synthetic approvals after fixture setup, before any operation under test. */
-export function bindFixtureSignoffs(project: JsonObject): void {
+/** Bind synthetic approvals after fixture setup, before any operation under test; never used for raw history. */
+export function bindFixtureSignoffs(project: JsonObject, dir = '.'): void {
+  for (const signoff of asArray(project.signoffs).filter(isObject)) {
+    try {
+      const hashes = selectAnswerHashes(dir, project, signoff);
+      if (hashes !== undefined) {
+        if (signoff.stage === 'interview') {
+          const items = collectItems(project, { collection: loadCollection(dir) });
+          for (const id of Object.keys(hashes)) {
+            const item = items.find(item => item.id === id)!;
+            if (!answered(item.state) || (isObject(item.raw) && Date.parse(String(item.raw.at)) > Date.parse(String(signoff.at)))) delete hashes[id];
+          }
+        }
+        signoff.answer_hashes = hashes;
+      }
+    } catch (error) {
+      if (!(error instanceof Refusal) || error.code !== 'SIGNOFF_ANSWERS_UNANSWERED') throw error;
+      // Preserve the intentionally unanswered setup as an incomplete binding.
+      signoff.answer_hashes = {};
+    }
+  }
   const versions = asArray(project.versions);
   for (const signoff of asArray(project.signoffs).filter(isObject)) {
     if (signoff.target !== undefined || !['rig-review', 'direction-review'].includes(String(signoff.stage))) continue;

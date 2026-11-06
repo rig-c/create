@@ -16,7 +16,7 @@ function fixture(mutate: Mutate = () => {}): string {
   mkdirSync(dir);
   const project = readTemplate('legacy-example-project.json');
   mutate(project);
-  bindFixtureSignoffs(project);
+  bindFixtureSignoffs(project, dir);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   writePartsPackage(dir);
   return dir;

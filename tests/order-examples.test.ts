@@ -70,7 +70,7 @@ test('the shipped new-order example passes at zero refusals and warnings', () =>
 
 test('frozen pre-split example is refused by build-identity and missing review targets', () => {
   const report = checkProject(fixture(() => {}, 'legacy-example-project.json', {}, true));
-  expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
+  expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH']);
   expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const bytes = readFileSync(join(import.meta.dir, '../templates/legacy-example-project.json'));
   // Sealed original bytes from the pre-split main head, not a rewritten migration.

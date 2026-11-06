@@ -624,7 +624,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `SIGNOFF_TARGET_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -977,3 +977,14 @@ direction-review signature binds an accepted verdict and its version's reviewed 
 | `SIGNOFF_TARGET_STALE` | The version, operative human accepted verdict, package inventory, imported outputs or direction binding no longer resolves, or writer selection is ambiguous | Restore the reviewed inputs and select the accepted version with `--version` |
 | `SIGNOFF_TARGET_MISSING_LEGACY` | A pre-contract signature has no target | Preserve history and bind the next review signature |
 | `SIGNOFF_TARGET_STALE_LEGACY` | A pre-contract signature's target no longer resolves | Preserve history and bind the next review signature |
+
+## Answer revision approvals
+
+`SIGNOFF_ANSWERS_SINCE = 2026-11-06T00:00:00Z` dates missing bindings by the live signature's `at`.
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `SIGNOFF_ANSWERS_UNANSWERED` | The writer's covered `rests_on` item is absent, unanswered or unresolved | Answer the named item before signing |
+| `SIGNOFF_ANSWERS_MISSING` | A current-era live approval has no answer hash map or omits an expected item | Reopen and sign the named stage again |
+| `SIGNOFF_ANSWERS_MISSING_LEGACY` | A pre-contract live approval lacks a complete answer hash map | Preserve history and bind the next approval |
+| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs | Restore the intended answer, reopen and sign again |

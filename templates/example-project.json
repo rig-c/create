@@ -240,7 +240,19 @@
             "value": {
               "seed": "synthetic seed on the approved parts"
             }
-          }
+          },
+          "refusal_baseline": [
+            {
+              "code": "INTERVIEW_CHOICE_REQUIRED",
+              "path": "interview.waypoints[seethrough].guide",
+              "count": 1
+            },
+            {
+              "code": "INTERVIEW_CHOICE_REQUIRED",
+              "path": "interview.waypoints[assemble].guide",
+              "count": 1
+            }
+          ]
         },
         "history": [
           {

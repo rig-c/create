@@ -9,7 +9,7 @@ import { approvalStageOfGuide } from './stages.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
+import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, refusalBaseline, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const CHOICE_HELP = `interview-options <question> [<dir>] --file <retained project-relative JSON>
@@ -57,11 +57,15 @@ function run(action: () => string): string {
   try { return action(); } catch (e) { if (e instanceof ChoiceError) refuse(e.code, `interview: ${e.message}; retain the shown set and explicitly record each ask`); throw e; }
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
-function save(file: string, dir: string, original: JsonObject, candidate: JsonObject): void {
+function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, baseline: JsonObject[] = []): void {
   const before = checkProject(dir,original).refusals;
   const after = checkProject(dir,candidate).refusals;
   const counts = new Map<string,number>();
   for (const f of before) { const k = `${f.code}:${f.path}`; counts.set(k,(counts.get(k) ?? 0)+1); }
+  for (const f of baseline) {
+    const k = `${String(f.code)}:${String(f.path)}`;
+    counts.set(k,Math.max(counts.get(k) ?? 0,Number(f.count)));
+  }
   for (const f of after) { const k = `${f.code}:${f.path}`; const n = counts.get(k) ?? 0; if (!n) refuse(f.code,f.message); counts.set(k,n-1); }
   const tmp = join(dirname(file), `.interview-${process.pid}-${crypto.randomUUID()}.tmp`);
   writeFileSync(tmp,`${JSON.stringify(candidate,null,2)}\n`, { flag: 'wx' }); renameSync(tmp,file);
@@ -180,6 +184,15 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
     const findings = overrideFindings(answer, collection, item.path);
     if (findings.length) refuse(findings[0]!.code, findings[0]!.message);
   } else if (opts.one['--why-file']) usage('--why-file applies only to a member override');
+  if (result.autos.length || result.pending.length) {
+    const baseline = new Map<string,JsonObject>();
+    for (const f of checkProject(dir,project).refusals) {
+      const key = `${f.code}:${f.path}`; const entry = baseline.get(key);
+      if (entry) entry.count = Number(entry.count)+1;
+      else baseline.set(key,{code:f.code,path:f.path,count:1});
+    }
+    answer.refusal_baseline = [...baseline.values()];
+  }
   validateChoice(dir,next,item,answer);
   if (item.raw !== null && item.raw !== undefined) {
     const prior = [item.raw];
@@ -200,6 +213,8 @@ export function interviewDecisionCommand(args: string[]): string { return run(()
   const result = selection(set,item.raw.choice); const supplied = opts.many['--fragment'] ?? new Map<string,string>();
   if (!result.autos.length || supplied.size !== result.autos.length || [...supplied.keys()].some(k => !result.autos.includes(k))) usage('supply exactly the auto asks with --fragment');
   const fragments = result.autos.map(ask => ({ask,fragment:jsonFile(supplied.get(ask) as string)}));
+  const pending = isObject(item.raw.agent_decision) && equal(Object.keys(item.raw.agent_decision),['covers']);
+  const baseline = pending ? refusalBaseline(item.raw) : [];
   item.raw.agent_decision = {by:opts.one['--by'],at:new Date().toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
-  validateChoice(dir,next,item,item.raw); save(file,dir,project,next); return JSON.stringify(item.raw.agent_decision);
+  validateChoice(dir,next,item,item.raw); save(file,dir,project,next,baseline); return JSON.stringify(item.raw.agent_decision);
 }); }

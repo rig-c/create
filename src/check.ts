@@ -925,7 +925,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkPreInterview(ctx);
   checkReviews(ctx);
   checkReviewPackages(ctx);
-  refusals.push(...rigRegistrationFindings(dir, project));
+  refusals.push(...rigRegistrationFindings(dir, project, warnings));
   checkAppliedReview(ctx);
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);

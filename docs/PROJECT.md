@@ -721,6 +721,22 @@ be added when that producer interface lands. Current readers support
 `npm-lock-v3` only. Wrapper receipts and toolchain summary files supply no
 registration contract.
 
+Repeatable `--run-record <file>` binds at most one producer `run.json` per
+spec beside `--toolchain-lock`, recorded in the order given as
+`registration.runs: [{spec,source:{path,sha256,bytes}}]`. The dispatcher in
+`src/run-record.ts` accepts `rig-run/1` (`@rig-c/parts` `rig` or `assemble`) and
+`rigc-run/1` (`rig-c` `build`, with required `rig` and `motion` input roles and
+optional `manifest` and `cuts` sorted in that role order and UTF-16 code-unit
+path order), validating only the published keys, key order and types without
+re-running or recomputing producer measurements. `interview --check` re-reads
+each bound record and refuses a byte/SHA-256 mismatch
+(`RUN_RECORD_HASH_MISMATCH`), an unknown spec (`RUN_RECORD_SPEC_UNKNOWN`), a
+missing or malformed input role (`RUN_RECORD_ROLE_INVALID`) or a malformed
+shape (`RUN_RECORD_MALFORMED`). Lock-only `frozen-rig/1` versions without
+`registration.runs` WARN before `RUN_RECORD_SINCE = 2026-11-08T00:00:00Z` (by
+`registration.at`) and refuse from `RUN_RECORD_SINCE` onward under
+`RUN_RECORD_REQUIRED`.
+
 `at_source` is `{path,sha256,bytes,pointer}`. The nonempty RFC 6901 JSON pointer
 selects an explicit UTC ISO timestamp ending `Z` or `+00:00`, including fractional
 seconds. `at` preserves that exact string and `at_basis` is `"not-after"`.

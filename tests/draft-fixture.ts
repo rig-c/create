@@ -34,6 +34,7 @@ export function newOrderExampleFiles(): Record<string, string | Uint8Array> {
       if (entry.isDirectory()) collect(path,dest); else files[dest] = entry.name.endsWith('.png') ? readFileSync(path) : readFileSync(path,'utf8');
     }
   };
+  collect(join(import.meta.dir,'../templates/example-draft/inputs'),'inputs');
   collect(join(import.meta.dir,'../templates/example-draft/evidence'),'evidence');
   collect(join(import.meta.dir,'../templates/example-draft/derived'),'derived');
   collect(join(import.meta.dir,'../templates/example-draft/outputs'),'outputs');

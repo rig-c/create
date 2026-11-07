@@ -14,7 +14,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-rig-type.json",
-            "sha256": "0e697193a8cdf7acb5e171f565f3c90ee68519dfc6d8063aad5ad32ee329da09"
+            "sha256": "da59eea6af7edcdda93ea09ef4a85227dd66a836438ad8068d1081e428e47102"
           },
           "picks": [
             {
@@ -37,7 +37,7 @@
       },
       "options": {
         "path": "evidence/interview/example-rig-type.json",
-        "sha256": "0e697193a8cdf7acb5e171f565f3c90ee68519dfc6d8063aad5ad32ee329da09"
+        "sha256": "da59eea6af7edcdda93ea09ef4a85227dd66a836438ad8068d1081e428e47102"
       }
     },
     {
@@ -52,7 +52,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-reference.json",
-            "sha256": "8390ecd84d61d66d878174af4964c03a92d36f267b5dd4cb27036b83728bdde4"
+            "sha256": "4640256109c60ebd547caf26a329ac42659c9c94dc674d94ec35de38e842c573"
           },
           "picks": [
             {
@@ -75,7 +75,7 @@
       },
       "options": {
         "path": "evidence/interview/example-reference.json",
-        "sha256": "8390ecd84d61d66d878174af4964c03a92d36f267b5dd4cb27036b83728bdde4"
+        "sha256": "4640256109c60ebd547caf26a329ac42659c9c94dc674d94ec35de38e842c573"
       }
     },
     {
@@ -90,7 +90,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-seethrough.json",
-            "sha256": "b2a4e396732d506ac2a4c2aa9deebb310cd9f432b12928396978b4c09104322d"
+            "sha256": "233117a46a1b183f7915c851f188c30184a0893b56f29d1ca5215b3c358eaa34"
           },
           "picks": [
             {
@@ -182,7 +182,7 @@
       },
       "options": {
         "path": "evidence/interview/example-seethrough.json",
-        "sha256": "b2a4e396732d506ac2a4c2aa9deebb310cd9f432b12928396978b4c09104322d"
+        "sha256": "233117a46a1b183f7915c851f188c30184a0893b56f29d1ca5215b3c358eaa34"
       }
     },
     {
@@ -197,7 +197,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-assemble.json",
-            "sha256": "e96da667e3a6b752aaadd450790d726c1e7c6cc58420056265ce649467319ea0"
+            "sha256": "3abf1fc7e52b1cd2753974d7174500a745bb03f2bad13a946ba7d5d851769c2d"
           },
           "picks": [
             {
@@ -313,7 +313,7 @@
       },
       "options": {
         "path": "evidence/interview/example-assemble.json",
-        "sha256": "e96da667e3a6b752aaadd450790d726c1e7c6cc58420056265ce649467319ea0"
+        "sha256": "3abf1fc7e52b1cd2753974d7174500a745bb03f2bad13a946ba7d5d851769c2d"
       }
     },
     {
@@ -776,7 +776,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/other-pending.json",
-            "sha256": "35bbc6f296780a8c722fc6b19b1a848cb32fa84ddd04f70c065b6ed0900d51cb"
+            "sha256": "6ee5378ddbfeaefd4703d64fd11d44f0b45afd6c864121727cf76c6c406b08ea"
           },
           "picks": [
             {
@@ -813,7 +813,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/other-explicit.json",
-            "sha256": "00ce7aa5fb627b55545359835978c06c70978d3f2d18167c6d603b8e8ee41fd2"
+            "sha256": "95f016e0cc6a13ca966736a97b486f409af54c76742b78989892b1ffa9acd336"
           },
           "picks": [
             {
@@ -850,7 +850,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/constraint.json",
-            "sha256": "bced1561194ed41f3a4e982c3952ee0ac35d9792460d1fdd1633c8ffcd816033"
+            "sha256": "7c72c96fcc7f8d76d81ae94c309ab7b7039a8d1438e95bf28ace60b3c06940f9"
           },
           "picks": [
             {
@@ -977,7 +977,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/fullscreen.json",
-            "sha256": "6f5ae29f8a8496ac8035bc51d105604d92ab2e45c0062001e9c7fab776d7c620"
+            "sha256": "7bd00f7cfff27ad5415fb56d9b314a37b707712df76b26bdb7a3cc8efb1528ee"
           },
           "picks": [
             {
@@ -1019,7 +1019,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-rig-type.json",
-            "sha256": "0e697193a8cdf7acb5e171f565f3c90ee68519dfc6d8063aad5ad32ee329da09"
+            "sha256": "da59eea6af7edcdda93ea09ef4a85227dd66a836438ad8068d1081e428e47102"
           },
           "picks": [
             {

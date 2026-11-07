@@ -11,6 +11,10 @@
       {
         "path": "inputs/preparation-source.svg",
         "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
+      },
+      {
+        "path": "inputs/painting.png",
+        "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
       }
     ]
   },

@@ -23,10 +23,17 @@ import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 
+// Input registration is kept in its own CLI block.
+import { INPUT_HELP, inputCommand } from './inputs.ts';
+
+const INPUT_CLI = `  rig-create input add <path> [<dir>] --origin <words>
+                                                    register immutable raw source bytes
+`;
+
 const HELP = `rig-create — create and run a rig project
 
 Usage:
-  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
+${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
   rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
   rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
   rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
@@ -62,6 +69,8 @@ Usage:
 init:
   <dir>          an empty or missing folder; a non-empty one is refused
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
+
+${INPUT_HELP}
 
 ${INTERVIEW_HELP}
 
@@ -144,6 +153,7 @@ function initCommand(args: string[], now: number): string {
 
 /** Subcommands by name. */
 const COMMANDS: Record<string, Command> = {
+  input: inputCommand,
   init: initCommand,
   intake: intakeCommand,
   'intake-report': intakeReportCommand,

@@ -166,6 +166,14 @@ layered file saved beside the PNG.
 **Never a polygon in code or config, and never a per-pixel repair in code.**
 See-through stays the source for hidden surface.
 
+One exception covers step-4 plates only: a receipted generative plate pass from a
+package command is a source, not a repair. The parts plate command removes the
+figure from the background, or mattes the foreground, using a mask from a source
+(See-through figure layers or the declared figure mask). Its
+`rig-parts-plate-receipt/1` receipt records the painting, mask, model, every
+parameter, the GPU and the output by hash. Character parts and joints never take
+this route.
+
 Measured limits:
 
 - an anti-aliased edge that sits inward reads light on white; the outward shift

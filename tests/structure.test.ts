@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { draftRigCommand } from '../src/drafts.ts';
+import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA, latestPartsApproval } from '../src/structure.ts';
@@ -41,11 +42,11 @@ function setup(density?: number, reopen = true): string {
     reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     setSystemTime(new Date('2026-11-19T00:00:02Z'));
     signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
-    const p = read(dir); p.stage = 'parts';
-    for (const id of ['seethrough', 'assemble']) step(p, id).status = 'done';
-    save(dir, p); setSystemTime(new Date('2026-11-19T00:00:03Z'));
-    signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
-    p.signoffs = read(dir).signoffs; p.stage = 'parts-review'; save(dir, p);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+    advanceCommand(['parts', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    setSystemTime(new Date('2026-11-19T00:00:03Z'));
+    completeParts(dir);
+    advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     setSystemTime(new Date('2026-11-20T00:00:00Z'));
   }
   if (!reopen) return dir;
@@ -54,19 +55,27 @@ function setup(density?: number, reopen = true): string {
   write(dir, 'evidence/structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'shape', config: draft.config, entries: [{ path: '/meshes/torso', value: entry }] }));
   return dir;
 }
+function completeParts(dir: string): void {
+  for (const id of ['seethrough', 'assemble']) {
+    for (const status of ['in-progress', 'at-checkpoint']) stepStatusCommand([id, status, dir, '--by', 'agent']);
+    if (id === 'assemble') signoffCommand(['parts', dir, '--checkpoint', id, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    stepStatusCommand([id, 'done', dir, '--by', 'agent']);
+  }
+}
 function partsSign(dir: string, draft = 'shape', snapshot = 'evidence/structure.json'): void {
   signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--evidence', EXAMPLE_VERDICT,
     '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic',
     '--draft', draft, '--structure-file', snapshot]);
 }
 function freshRigInterview(dir: string, answerAt = '2026-11-21T00:00:00Z', approvalAt = '2026-11-22T00:00:00Z'): void {
-  const p = read(dir); p.stage = 'rigging-interview'; obj(p.plan).rigging_drafted_at = answerAt;
+  const p = read(dir); obj(p.plan).rigging_drafted_at = answerAt;
   const old = JSON.parse(readFileSync(join(import.meta.dir, '../templates/legacy-example-project.json'), 'utf8')) as JsonObject;
   for (const id of ['bones', 'meshes', 'constraints', 'motion']) {
     const guide = structuredClone(obj(waypoint(old, id).guide)); guide.at = answerAt; guide.verbatim = 'Fresh synthetic answer after viewing parts.';
     supersede(waypoint(p, id), 'guide', guide);
   }
   save(dir, p); setSystemTime(new Date(approvalAt));
+  advanceCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
 }
 
 test('human snapshot and rigging approval bind exact declarations without rewriting old signatures', () => {
@@ -78,7 +87,8 @@ test('human snapshot and rigging approval bind exact declarations without rewrit
   expect(signed.structure).toEqual(obj(arr(p.signoffs).at(-2)).structure);
   expect(Object.keys(obj(signed.step_hashes))).toEqual(['bones', 'meshes', 'constraints', 'motion']);
   expect(arr(p.signoffs).slice(0, before.length).map(s => sha(JSON.stringify(s)))).toEqual(before);
-  p.stage = 'rigging'; save(dir, p); expect(checkProject(dir).refusals).toEqual([]);
+  advanceCommand(['rigging', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  expect(checkProject(dir).refusals).toEqual([]);
 });
 
 test('missing snapshot, changed bytes, early guide and contradictory declaration refuse before write', () => {
@@ -133,7 +143,8 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
         meshes: [{ entry: 'torso', guide: 'meshes', quote: 'Fresh synthetic answer after viewing parts.', asks: ['bend'] }],
       } } };
   }
-  let p = read(dir); p.stage = 'rigging'; const v1 = production(1, 10, '2026-11-23T00:00:00Z'); arr(p.versions).push(v1); save(dir, p);
+  advanceCommand(['rigging', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  let p = read(dir); const v1 = production(1, 10, '2026-11-23T00:00:00Z'); arr(p.versions).push(v1); save(dir, p);
   expect(checkProject(dir).refusals).toEqual([]);
   const frozenV1 = JSON.stringify(v1);
   setSystemTime(new Date('2026-11-24T00:00:00Z'));
@@ -141,9 +152,8 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   p = read(dir);
   expect(latestPartsApproval(p)).toBeUndefined();
   expect(latestPartsApproval(p, Date.parse('2026-11-23T00:00:00Z'))?.draft_id).toBe('shape');
-  for (const id of ['seethrough', 'assemble']) step(p, id).status = 'done'; save(dir, p);
   setSystemTime(new Date('2026-11-24T01:00:00Z'));
-  signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  completeParts(dir);
   const root = 'derived/drafts/revised';
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: { density: 20 } } }));
   write(dir, `${root}/input/parts.json`, '{}'); write(dir, `${root}/input/parts/torso.png`, 'synthetic');
@@ -151,11 +161,13 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   draftRigCommand(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));
   write(dir, 'evidence/revised-structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'revised', config: draft.config, entries: [{ path: '/meshes/torso', value: { density: 20 } }] }));
-  p.stage = 'parts-review'; save(dir, p); setSystemTime(new Date('2026-11-25T00:00:00Z'));
+  setSystemTime(new Date('2026-11-25T00:00:00Z'));
+  advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
   partsSign(dir, 'revised', 'evidence/revised-structure.json');
   freshRigInterview(dir, '2026-11-26T00:00:00Z', '2026-11-27T00:00:00Z');
   expect(signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]).exit).toBe(0);
-  p = read(dir); p.stage = 'rigging'; arr(p.versions).push(production(2, 20, '2026-11-28T00:00:00Z')); save(dir, p);
+  advanceCommand(['rigging', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  p = read(dir); arr(p.versions).push(production(2, 20, '2026-11-28T00:00:00Z')); save(dir, p);
   expect(latestPartsApproval(p, Date.parse('2026-11-24T12:00:00Z'))).toBeUndefined();
   expect(latestPartsApproval(p, Date.parse('2026-11-28T00:00:00Z'))?.draft_id).toBe('revised');
   expect(JSON.stringify(arr(p.versions)[0])).toBe(frozenV1);

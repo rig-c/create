@@ -25,7 +25,13 @@
   },
   "expected_findings": {
     "refusals": [],
-    "warnings": []
+    "warnings": [
+      {
+        "code": "STAGE_SKIPPED",
+        "path": "stage",
+        "message": "stage: stage differs from its latest recorded move; parts is outside parts through parts-review authorized by signoffs[1]; use advance for the next authorized stage or reopen the unfinished stage"
+      }
+    ]
   },
   "project_sha256": "ab926ae8bfa6c48c5bda92f234ccdb80d4224baef9173272f35250f59d24e227",
   "files": [

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { Refusal } from '../src/refusal.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
 import { reopenCommand } from '../src/reopen.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { checkSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
@@ -18,13 +19,20 @@ const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'pro
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
 afterEach(() => setSystemTime());
 function setup(stage = 'rig-review'): string {
-  const dir = fixture(p => { p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== stage); });
+  const dir = stage === 'direction-review' ? fixture() : fixture(p => { p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== stage); });
   writeFileSync(join(dir, 'words.txt'), 'Approve this reviewed version.\n');
   setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  if (stage === 'direction-review') reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  setSystemTime(new Date('2026-11-20T00:00:01Z'));
   return dir;
 }
 function sign(dir: string, stage: string, version?: string): JsonObject {
-  return JSON.parse(signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--json', ...(version ? ['--version', version] : [])]).stdout);
+  const signature = JSON.parse(signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--json', ...(version ? ['--version', version] : [])]).stdout) as JsonObject;
+  if (stage === 'direction-review' && load(dir).stage === stage) {
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+    advanceCommand(['accepted', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  }
+  return signature;
 }
 function refused(dir: string, stage: string, version?: string, code = 'SIGNOFF_TARGET_STALE'): void {
   const before = readFileSync(join(dir, 'project.json'));

@@ -20,7 +20,13 @@
   },
   "expected_findings": {
     "refusals": [],
-    "warnings": []
+    "warnings": [
+      {
+        "code": "STAGE_SKIPPED",
+        "path": "stage",
+        "message": "stage: stage differs from its latest recorded move; rig-review is outside rigging through rig-review authorized by signoffs[4]; use advance for the next authorized stage or reopen the unfinished stage"
+      }
+    ]
   },
   "project_sha256": "72627c77e976b380a6d178e3e2d01969ed9888286b372713828b058e28682836",
   "files": [

@@ -4,11 +4,11 @@
   "question": "post_timing",
   "stage": "post-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-07T00:00:52.000Z",
+  "drafted_at": "2026-11-08T00:00:52.000Z",
   "context": {
     "kind": "rig",
     "rig_version": 2,
-    "signoff_at": "2026-11-07T00:00:51.000Z",
+    "signoff_at": "2026-11-08T00:00:51.000Z",
     "config": {
       "path": "evidence/v2/interview-config.json",
       "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
@@ -56,7 +56,7 @@
           "id": "keep",
           "kind": "value",
           "label": "Eight seconds, looping. The beam sweeps past once, near the end.",
-          "effect": "As answered on 2026-11-07T00:00:55.000Z in post-interview, chat",
+          "effect": "As answered on 2026-11-08T00:00:55.000Z in post-interview, chat",
           "fragment": {
             "seconds": 8,
             "loop": true,

@@ -87,7 +87,7 @@ test('Other with multiline Unicode and explicit fragment preserves text; unresol
   const w=working('reference');const words='첫 줄\nSecond line  \ne\u0301';writeFileSync(join(w.dir,'other.txt'),words);writeFileSync(join(w.dir,'fragment.json'),JSON.stringify('custom'));
   const other=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=other','--other',`reference=${join(w.dir,'other.txt')}`]));
   expect(other.value).toBeNull();expect(other.asks).toEqual([{id:'reference',state:'other-pending'}]);expect(other.choice.picks[0].other_text).toBe(words);
-  const before=readFileSync(join(w.dir,'project.json'));const p=load(w.dir);p.stage='plan-approved';save(w.dir,p);setSystemTime(new Date('2026-11-10T16:10:00Z'));const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
+  const before=readFileSync(join(w.dir,'project.json'));setSystemTime(new Date('2026-11-10T16:10:00Z'));const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
   expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'yes.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(snapshot);
   // A new tailored option preserves the pending record as history; its date is not rewritten.
   const next=structuredClone(w.set);next.id='resolved-reference';next.drafted_at='2026-11-10T14:12:00Z';obj(arr(obj(arr(next.asks)[0]).options)[0]).label=words;obj(arr(obj(arr(next.asks)[0]).options)[0]).fragment='custom';obj(arr(obj(arr(next.asks)[0]).options)[0]).effect=`As answered on ${String(other.at)} in review questionnaire`;
@@ -214,7 +214,8 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   const selected=JSON.parse(answer(w,picks));expect(selected.asks).toContainEqual({id:'ground',state:'delegated'});expect(checkProject(w.dir).refusals).toEqual([]);
   writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');setSystemTime(new Date('2026-11-10T16:10:00Z'));
   signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
-  const planned=load(w.dir);planned.stage='plan-approved';save(w.dir,planned);
+  expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+  advanceCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
   const beforeApproval=readFileSync(join(w.dir,'project.json'));
   expect(code(()=>signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('DELEGATION_UNDECIDED');
   expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);

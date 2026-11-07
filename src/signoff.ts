@@ -206,7 +206,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   const ownLag = signoff.checkpoint === null && frontier?.index === project.signoffs.length - 1;
   const candidateRefusals = checkProject(dir, project).refusals;
   const pendingOwnAdvance = (finding: Finding): boolean => ownLag && finding.code === 'STAGE_LAGGING';
-  const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f));
+  const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f));
   if (progress !== undefined) refuse(progress.code, progress.message);
   if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
     const path = `signoffs[${project.signoffs.length - 1}]`;

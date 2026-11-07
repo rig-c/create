@@ -4,7 +4,7 @@ import { collectReopens, liveSignoff } from './reopen.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 /** Dates the authorizing stage-level signature, including a signature earlier on landing day. */
-export const STAGE_PROGRESS_SINCE = '2026-11-07T00:00:00Z';
+export const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 
 /** Select the latest signature at the furthest still-live closing stage. */
 export function furthestStageSignoff(signoffs: Ctx['signoffs']): Ctx['signoffs'][number] | undefined {
@@ -53,15 +53,30 @@ export function stageWindow(ctx: Ctx): { minimum: string; maximum: string; signo
     signoff: latest === undefined ? null : `signoffs[${latest.index}]`, at: latest?.at ?? NaN };
 }
 
-export function checkStageProgress(ctx: Ctx): void {
+export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
   if (ctx.stage === PAUSED_STAGE || ctx.effectiveStage !== ctx.stage) return;
   const window = stageWindow(ctx);
   const current = stageIndex(ctx.stage);
-  const code = current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
-    : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
+  const frontier = furthestStageSignoff(ctx.signoffs);
+  const unreadable = ctx.signoffs.find(s => s.stage === frontier?.stage && s.checkpoint === null && !Number.isFinite(s.at));
+  if (unreadable !== undefined) {
+    ctx.refusals.push({ code: 'STAGE_SIGNOFF_DATE_INVALID', path: `signoffs[${unreadable.index}].at`, message: `signoffs[${unreadable.index}].at: frontier approval needs a readable date; restore its original date before advancing` });
+    return;
+  }
+  const contemporary = window.at >= Date.parse(STAGE_PROGRESS_SINCE);
+  const moves = [
+    ...asArray(ctx.project.advances).filter(isObject).map((record, index) => ({ record, advance: true, index })),
+    ...asArray(ctx.project.reopens).filter(isObject).map((record, index) => ({ record, advance: false, index })),
+  ].filter(move => move.record.from_stage !== move.record.stage && Number.isFinite(Date.parse(String(move.record.at))))
+    .sort((a, b) => Date.parse(String(b.record.at)) - Date.parse(String(a.record.at)) || Number(a.advance) - Number(b.advance) || b.index - a.index);
+  const latestMove = moves[0];
+  const movementMismatch = latestMove === undefined ? ctx.stage !== 'interview' : latestMove.record.stage !== ctx.stage;
+  const code = movementMismatch ? 'STAGE_SKIPPED'
+    : current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
+      : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
   if (code === null) return;
-  const finding = { code, path: 'stage', message: `stage: ${ctx.stage} is outside ${window.minimum} through ${window.maximum} authorized by ${window.signoff ?? 'the unsigned interview'}; use advance for the next authorized stage or reopen the unfinished stage` };
-  (window.at >= Date.parse(STAGE_PROGRESS_SINCE) ? ctx.refusals : ctx.warnings).push(finding);
+  const finding = { code, path: 'stage', message: `stage: ${movementMismatch ? 'stage differs from its latest recorded move; ' : ''}${ctx.stage} is outside ${window.minimum} through ${window.maximum} authorized by ${window.signoff ?? 'the unsigned interview'}; use advance for the next authorized stage or reopen the unfinished stage` };
+  (forwardWrite || contemporary || !Number.isFinite(window.at) ? ctx.refusals : ctx.warnings).push(finding);
 }
 
 /** Advances are history, separate from reopen cutoffs. Their reference must witness the recorded move. */
@@ -90,13 +105,29 @@ export function checkAdvances(ctx: Ctx): void {
     const historicalOrder = entry.order !== 'pre-parts' || Math.min(...firstPlan) < Date.parse(PARTS_REVIEW_SINCE);
     const signature = resolveSignoff(ctx.project, entry.signoff);
     const owner = order.slice(0, from + 1).filter(s => s.closed_by === 'signoff').at(-1)?.id;
-    if (entry.steps_before.some(s => !isObject(s) || typeof s.id !== 'string' || (s.status !== undefined && !STEP_STATUSES.includes(s.status as typeof STEP_STATUSES[number])))) push(path, 'steps_before must retain step ids and original statuses');
+    if (entry.steps_before.some(s => !isObject(s) || typeof s.id !== 'string' || !['rig', 'post'].includes(String(s.phase)) || (s.status !== undefined && !STEP_STATUSES.includes(s.status as typeof STEP_STATUSES[number])))) push(path, 'steps_before must retain step ids, phases and original statuses');
     if ((entry.by as string).trim() === '' || (entry.by as string).toLowerCase() === 'agent' || from < 0 || target <= from
       || !['legacy', 'split', 'pre-parts'].includes(String(entry.order)) || !historicalOrder
       || (target !== from + 1 && !noPost) || !isObject(signature) || signature.checkpoint !== null
       || typeof signature.by !== 'string' || signature.by.toLowerCase() === 'agent'
       || !(Date.parse(String(signature.at)) <= Date.parse(String(entry.at)))
       || signature.stage !== owner || authority === undefined || !matchesSignoff(entry.signoff, authority.record)) push(path, 'invalid human move or authorizing signature');
+  }
+}
+
+/** Snapshot bars remain historical facts even when the current plan is reopened or replaced. */
+export function checkAdvanceBars(ctx: Ctx): void {
+  for (const [index, entry] of asArray(ctx.project.advances).entries()) {
+    if (!isObject(entry) || !Array.isArray(entry.steps_before)) continue;
+    const order = entry.order === 'split' ? STAGES : LEGACY_STAGES;
+    const bar = order.find(s => s.id === entry.from_stage);
+    if (bar?.closed_by !== 'bar') continue;
+    const unfinished = entry.steps_before.some(raw => isObject(raw)
+      && (entry.order === 'pre-parts' ? raw.phase === bar.phase
+        : (raw.phase === 'rig' || raw.phase === 'post') && stageOfStep(raw.phase, String(raw.id)) === bar.id)
+      && raw.status !== 'done');
+    if (unfinished) ctx.refusals.push({ code: 'ADVANCE_MALFORMED', path: `advances[${index}].steps_before`,
+      message: `advances[${index}].steps_before: the execution stage had unfinished steps at the move; restore its original completed bar and use advance` });
   }
 }
 
@@ -132,7 +163,9 @@ export function checkStepStatusHistory(ctx: Ctx): void {
       if (entry.signoff === null) continue;
       const signature = resolveSignoff(ctx.project, entry.signoff);
       const allowed = [stageOfStep(step.phase, step.id)];
-      if (ctx.predatesPartsReview !== null) allowed.push(stageOfStep(step.phase, ''));
+      const legacyAtEvent = collectSignoffs(ctx.project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null
+        && s.at < Date.parse(PARTS_REVIEW_SINCE) && s.at <= Date.parse(String(entry.at)));
+      if (legacyAtEvent) allowed.push(stageOfStep(step.phase, ''));
       if (!isObject(signature) || signature.checkpoint !== step.id || !allowed.includes(String(signature.stage))
         || typeof signature.by !== 'string' || signature.by.toLowerCase() === 'agent'
         || !(Date.parse(String(signature.at)) <= Date.parse(String(entry.at)))) {

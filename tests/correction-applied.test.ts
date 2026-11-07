@@ -40,11 +40,16 @@ function command(dir: string, action: 'record' | 'resolve') {
   const args = action === 'record'
     ? ['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']
     : ['resolve', 'fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--version', '2'];
-  const clock = join(dir, 'clock.ts');
-  const at = action === 'record' ? '2026-11-04T09:10:00Z' : '2026-11-04T10:00:00Z';
-  writeFileSync(clock, `import { setSystemTime } from 'bun:test'; setSystemTime(new Date('${at}'));`);
-  setSystemTime(new Date(at));
-  return Bun.spawnSync([process.execPath, '--preload', clock, 'src/cli.ts', 'correction', ...args], { cwd: process.cwd() });
+  setSystemTime();
+  const result = Bun.spawnSync([process.execPath, 'src/cli.ts', 'correction', ...args], { cwd: process.cwd() });
+  if (action === 'record' && result.exitCode === 0) {
+    // The synthetic corrected build is declared after the current-clock request.
+    const file = join(dir, 'project.json');
+    const project = JSON.parse(readFileSync(file, 'utf8'));
+    project.versions[1].at = new Date().toISOString();
+    writeFileSync(file, JSON.stringify(project, null, 2) + '\n');
+  }
+  return result;
 }
 function refused(dir: string, action: 'record' | 'resolve', code: string) {
   const before = readFileSync(join(dir, 'project.json'));

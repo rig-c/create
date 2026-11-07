@@ -36,9 +36,9 @@ function options(args: string[], command: string): { positional: string[]; opts:
   return { positional, opts, json };
 }
 
-function save(dir: string, file: string, project: JsonObject): void {
+function save(dir: string, file: string, project: JsonObject, forwardWrite = false): void {
   project.stage_values = [...(hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES)];
-  const first = checkProject(dir, project).refusals[0];
+  const first = checkProject(dir, project, { forwardWrite }).refusals[0];
   if (first !== undefined) refuse(first.code, first.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
 }
@@ -50,6 +50,7 @@ export function advanceCommand(args: string[]): { stdout: string; exit: number }
   const { file, project } = readProject(dir);
   const reopens = collectReopens(project, []);
   const latest = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
+  if (latest !== undefined && !Number.isFinite(latest.at)) refuse('STAGE_SIGNOFF_DATE_INVALID', `signoffs[${latest.index}].at: frontier approval needs a readable date; restore its original date before advancing`);
   if (latest === undefined) refuse('ADVANCE_UNAUTHORIZED', 'stage: no live stage-level human signoff authorizes a move; sign the current stage first');
   const preParts = !hasStageOrder(project) && stageIndex(String(project.stage)) > stageIndex('parts-review')
     && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null && s.at < Date.parse(PARTS_REVIEW_SINCE));
@@ -57,12 +58,12 @@ export function advanceCommand(args: string[]): { stdout: string; exit: number }
   const entry: JsonObject = { stage: positional[0]!, from_stage: project.stage ?? null, by: opts['--by']!, at: new Date().toISOString(),
     post_not_passed: postNotPassed({ items: collectItems(project, { collection: loadCollection(dir) }) }),
     order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), verbatim: readVerbatim(opts['--verbatim-file'] ?? '-'), signoff: signoffIdentity(latest.record),
-    steps_before: steps.map(s => ({ id: s.id ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
+    steps_before: steps.map(s => ({ id: s.id ?? null, phase: s.phase ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   if (project.advances !== undefined && !Array.isArray(project.advances)) refuse('ADVANCE_MALFORMED', 'advances: must be a list; preserve existing history');
   project.advances = [...asArray(project.advances), entry];
   project.stage = entry.stage!;
-  save(dir, file, project);
+  save(dir, file, project, true);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `advance: ${String(entry.from_stage)} -> ${String(entry.stage)}`, exit: 0 };
 }
 

@@ -104,7 +104,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     p.signoffs = [];
     for (const w of arr(interview.waypoints).map(obj)) if (['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) w.guide = null;
     for (const s of arr(obj(p.plan).steps).map(obj)) { s.status = 'pending'; if (s.id === 'assemble') s.rests_on = ['assemble']; }
-    save(); Object.assign(files,writeExampleChoices(dir,'interview')); reload(); sign('interview', '2026-11-10T14:20:00Z'); sign('plan-approved', '2026-11-10T16:05:00Z');
+    p.stage = 'interview'; save(); Object.assign(files,writeExampleChoices(dir,'interview')); reload(); sign('interview', '2026-11-10T14:20:00Z'); sign('plan-approved', '2026-11-10T16:05:00Z');
     p.stage = 'parts';
     arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'parts'));
     save(); setSystemTime(new Date(String(arr(original.signoffs).map(obj).find(s => s.stage === 'parts')!.at)));

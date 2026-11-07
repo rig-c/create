@@ -1,4 +1,5 @@
-import { materializeFixture, arr, obj } from './fixtures.ts';
+import { materializeFixture, arr, obj, retimeFixture } from './fixtures.ts';
+import { PARTS_REVIEW_SINCE } from '../src/stages.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { afterEach, expect, setSystemTime, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -37,11 +38,17 @@ function approveParts(dir: string): void {
 /** Two stable source cohorts allow a reader control without forging a published package inventory. */
 function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = false): string {
   setSystemTime(new Date(at));
+  const preParts = Date.parse(at) < Date.parse(PARTS_REVIEW_SINCE);
   const dir = join(tempDir(), 'project');
   materializeFixture(dir, p => {
-    p.stage = 'parts-review'; p.versions = [];
+    p.stage = preParts ? 'rigging' : 'parts-review'; p.versions = [];
     p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts', 'rigging'].includes(String(obj(s).stage)));
     for (const raw of arr(obj(p.plan).steps)) if (obj(raw).phase === 'post') obj(raw).status = 'pending';
+    if (preParts) {
+      p.advances = [];
+      for (const raw of arr(p.signoffs)) if (obj(raw).stage === 'parts') obj(raw).stage = 'rigging';
+    }
+    retimeFixture(p, Date.parse(at));
   }, 'legacy-example-project.json');
   roots.push(dirname(dir));
   rmSync(join(dir, 'derived/review'), { recursive: true });
@@ -57,8 +64,10 @@ function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = 
   for (const name of ['rig', 'motion', 'mesh_report']) put(dir, `build/rig/${name}.json`, '{}\n');
   put(dir, 'build/check/build/skeleton.model.json', '{}\n');
   if (approval) {
-    approveParts(dir);
-    advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    if (!preParts) {
+      approveParts(dir);
+      advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    }
     advanceCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   }
   const registered = load(dir);

@@ -17,7 +17,7 @@ function withoutPost(signed: boolean): string {
     if (!signed) p.stage = 'post-interview';
     for (const item of arr(obj(obj(p.interview).post).items).map(obj)) supersede(item, 'guide', { not_applicable: true, because: 'No post work applies.', by: 'user', at: '2026-11-20T00:00:00Z' });
     obj(p.plan).steps = arr(obj(p.plan).steps).filter(s => obj(s).phase === 'rig');
-    p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'direction-review' && (signed || obj(s).stage !== 'post-interview'));
+    p.signoffs = arr(p.signoffs).filter(s => signed || !['direction-review', 'post-interview'].includes(String(obj(s).stage)));
   });
 }
 function words(dir: string): string { const file = join(dir, 'words.txt'); writeFileSync(file, 'Approve no post work.'); return file; }

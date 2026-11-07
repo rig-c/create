@@ -11,7 +11,7 @@ import { LEGACY_STAGE_VALUES, STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stag
 import { signoffIdentity, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, step } from './fixtures.ts';
+import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, retimeFixture, step } from './fixtures.ts';
 import { CLI, tempDir } from './helpers.ts';
 import { directionFixture } from './direction-fixture.ts';
 
@@ -52,7 +52,7 @@ test.each([false, true])('lag control becomes green only through advance, split=
   expect(after.stage).toBe('parts'); expect(codes(dir)).toEqual([]);
   expect(after.signoffs).toEqual(before.signoffs);
   expect(after.stage_values).toEqual([...(split ? STAGE_VALUES : LEGACY_STAGE_VALUES)]);
-  expect(obj(arr(after.advances)[0])).toMatchObject({ from_stage: 'plan-approved', stage: 'parts', by: 'owner',
+  expect(obj(arr(after.advances).at(-1))).toMatchObject({ from_stage: 'plan-approved', stage: 'parts', by: 'owner',
     at: '2026-11-20T00:00:00.000Z', verbatim: '\uFEFFMove the synthetic project.\r\n', source: 'synthetic approval', signoff: signoffIdentity(obj(arr(before.signoffs)[1])) });
 });
 
@@ -76,11 +76,14 @@ test('no live stage approval cannot authorize a move', () => {
   refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, 'plan-approved'));
 });
 
-test.each(['2026-11-06T23:59:59Z', 'unreadable'])('old lag warns while current-day lag refuses, %s', at => {
+test.each(['2026-11-06T23:59:59Z', 'unreadable'])('old lag warns while current-day or unreadable authority refuses, %s', at => {
   const dir = partsProject(); const p = read(dir);
   obj(arr(p.signoffs)[1]).at = at; obj(p.plan).drafted_at = null; save(dir, p);
-  expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
-  expect(codes(dir)).not.toContain('STAGE_LAGGING');
+  if (at === 'unreadable') expect(codes(dir)).toContain('STAGE_SIGNOFF_DATE_INVALID');
+  else {
+    expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
+    expect(codes(dir)).not.toContain('STAGE_LAGGING');
+  }
   obj(arr(p.signoffs)[1]).at = STAGE_PROGRESS_SINCE; save(dir, p);
   expect(codes(dir)).toContain('STAGE_LAGGING');
 });
@@ -95,12 +98,13 @@ test('legacy skip warns before the cutoff and refuses on the cutoff', () => {
 });
 
 test.each([false, true])('signoff then advance uses the public CLI and reconciles stale stage_values, split=%s', split => {
-  const dir = partsProject('plan-approved', split); const p = read(dir); p.signoffs = arr(p.signoffs).slice(0, 1); p.stage_values = ['interview']; save(dir, p);
+  setSystemTime();
+  const dir = partsProject('plan-approved', split); const p = read(dir);
+  p.signoffs = arr(p.signoffs).slice(0, 1); p.stage_values = ['interview'];
+  retimeFixture(p, Date.now()); save(dir, p);
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(codes(dir)).toEqual(['STAGE_LAGGING']);
-  const clock = join(dir, 'clock.ts');
-  writeFileSync(clock, "import { setSystemTime } from 'bun:test'; setSystemTime(new Date('2026-11-20T00:00:00Z'));\n");
-  const result = Bun.spawnSync([process.execPath, '--preload', clock, CLI, 'advance', 'parts', dir, '--by', 'owner', '--verbatim-file', words(dir), '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
+  const result = Bun.spawnSync([process.execPath, CLI, 'advance', 'parts', dir, '--by', 'owner', '--verbatim-file', words(dir), '--json'], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0); expect(result.stderr.toString()).toBe('');
   expect(JSON.parse(result.stdout.toString()).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
   expect(codes(dir)).toEqual([]); expect(checkProject(dir).warnings.map(f => f.code)).not.toContain('STAGE_VALUES_STALE');
@@ -129,7 +133,7 @@ test('a step without a checkpoint completes and then permits the bar-stage exit'
   }
   expect(obj(arr(step(read(dir), 'seethrough').status_history)[2]).signoff).toBeNull();
   advance(dir, 'parts-review'); expect(codes(dir)).toEqual([]);
-  expect(obj(arr(read(dir).advances)[0]).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
+  expect(obj(arr(read(dir).advances).at(-1)).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
 });
 
 test('status skip, reversal, wrong execution stage and an unrelated candidate refusal preserve bytes', () => {
@@ -197,7 +201,7 @@ test('pre-parts history keeps its rigging checkpoint and bar exit through the wr
   expect(codes(dir)).toEqual([]);
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint'); status(dir, 'assemble', 'done');
   advance(dir, 'rig-review'); expect(codes(dir)).toEqual([]);
-  expect(obj(arr(read(dir).advances)[0]).order).toBe('pre-parts');
+  expect(obj(arr(read(dir).advances).at(-1)).order).toBe('pre-parts');
 });
 
 test('no-post approval permits the explicit post-interview to accepted route', () => {
@@ -256,12 +260,12 @@ test('stable stage and checkpoint identities survive reordering and unrelated si
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'assemble', 'done');
-  const p = read(dir); const advanceIdentity = obj(arr(p.advances)[0]).signoff;
+  const p = read(dir); const advanceIdentity = obj(arr(p.advances).at(-1)).signoff;
   const checkpointIdentity = obj(arr(step(p, 'assemble').status_history)[2]).signoff;
   p.signoffs = [...arr(p.signoffs)].reverse();
   arr(p.signoffs).unshift({ stage: 'interview', checkpoint: null, by: 'owner', at: '2026-11-01T00:00:00Z', verbatim: 'Unrelated history' });
   save(dir, p); expect(codes(dir)).toEqual([]);
-  expect(obj(arr(read(dir).advances)[0]).signoff).toEqual(advanceIdentity);
+  expect(obj(arr(read(dir).advances).at(-1)).signoff).toEqual(advanceIdentity);
   expect(obj(arr(step(read(dir), 'assemble').status_history)[2]).signoff).toEqual(checkpointIdentity);
   p.signoffs = arr(p.signoffs).filter(raw => obj(raw).checkpoint !== 'assemble'); save(dir, p);
   expect(codes(dir)).toContain('STEP_STATUS_SIGNOFF');
@@ -276,6 +280,7 @@ test('synthetic setup cleanup removes only audit entries dependent on removed si
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'assemble', 'done');
   const p = read(dir);
+  p.advances = [arr(p.advances).at(-1)!];
   retainSignoffs(p, signature => signature.stage !== 'plan-approved');
   expect(p.advances).toEqual([]);
   expect(arr(step(p, 'assemble').status_history)).toHaveLength(3);
@@ -284,13 +289,17 @@ test('synthetic setup cleanup removes only audit entries dependent on removed si
 });
 
 test('step-status CLI records the same validated transition and JSON audit', () => {
+  setSystemTime();
   const dir = partsProject('parts');
-  const clock = join(dir, 'clock.ts');
-  writeFileSync(clock, "import { setSystemTime } from 'bun:test'; setSystemTime(new Date('2026-11-20T00:00:00Z'));\n");
-  const result = Bun.spawnSync([process.execPath, '--preload', clock, CLI, 'step-status', 'seethrough', 'in-progress', dir, '--by', 'agent', '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const p = read(dir); retimeFixture(p, Date.now()); save(dir, p);
+  const started = Date.now();
+  const result = Bun.spawnSync([process.execPath, CLI, 'step-status', 'seethrough', 'in-progress', dir, '--by', 'agent', '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const finished = Date.now();
   expect(result.stderr.toString()).toBe(''); expect(result.exitCode).toBe(0);
   const audit = JSON.parse(result.stdout.toString());
-  expect(audit).toEqual({ from_status: 'pending', status: 'in-progress', by: 'agent', at: '2026-11-20T00:00:00.000Z', checkpoint_required: false, signoff: null });
+  expect(audit).toEqual({ from_status: 'pending', status: 'in-progress', by: 'agent', at: audit.at, checkpoint_required: false, signoff: null });
+  expect(Date.parse(audit.at)).toBeGreaterThanOrEqual(started);
+  expect(Date.parse(audit.at)).toBeLessThanOrEqual(finished);
   expect(arr(step(read(dir), 'seethrough').status_history)).toEqual([audit]);
   expect(codes(dir)).toEqual([]);
 });
@@ -342,7 +351,8 @@ test('historical no-post advance survives reopened applicable post answers', () 
   });
   signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   advance(dir, 'accepted');
-  const oldAdvance = structuredClone(arr(read(dir).advances)[0]);
+  const oldAdvanceIndex = arr(read(dir).advances).length - 1;
+  const oldAdvance = structuredClone(arr(read(dir).advances)[oldAdvanceIndex]);
   setSystemTime(new Date('2026-11-21T00:00:00Z'));
   reopenCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   const draft = read(dir);
@@ -360,12 +370,12 @@ test('historical no-post advance survives reopened applicable post answers', () 
   refused(dir, 'ADVANCE_MALFORMED', () => advance(dir, 'accepted'));
   advance(dir, 'post');
   expect(codes(dir)).toEqual([]);
-  expect(arr(read(dir).advances)[0]).toEqual(oldAdvance);
+  expect(arr(read(dir).advances)[oldAdvanceIndex]).toEqual(oldAdvance);
   expect(obj(oldAdvance).post_not_passed).toBe(true);
   expect(obj(arr(read(dir).advances).at(-1)).post_not_passed).toBe(false);
   const malformed = read(dir);
   for (const invalid of [undefined, 'yes', false]) {
-    const entry = obj(arr(malformed.advances)[0]);
+    const entry = obj(arr(malformed.advances)[oldAdvanceIndex]);
     if (invalid === undefined) delete entry.post_not_passed; else entry.post_not_passed = invalid;
     save(dir, malformed); expect(codes(dir)).toContain('ADVANCE_MALFORMED');
   }

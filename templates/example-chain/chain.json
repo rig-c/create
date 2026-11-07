@@ -2549,6 +2549,12 @@
   ],
   "check": {
     "refusals": [],
-    "warnings": []
+    "warnings": [
+      {
+        "code": "STAGE_SKIPPED",
+        "path": "stage",
+        "message": "stage: stage differs from its latest recorded move; accepted is outside accepted through accepted authorized by signoffs[7]; use advance for the next authorized stage or reopen the unfinished stage"
+      }
+    ]
   }
 }

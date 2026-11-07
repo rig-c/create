@@ -1,6 +1,6 @@
 import { isSignoffIdentity, matchesSignoff } from '../src/stage-progress.ts';
 import { reopenCommand } from '../src/reopen.ts';
-import { approvalStageOfStep, hasStageOrder, LEGACY_STAGES, STAGES } from '../src/stages.ts';
+import { approvalStageOfStep, hasStageOrder, LEGACY_STAGES, STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { expect, setSystemTime } from 'bun:test';
 import { signoffCommand } from '../src/signoff.ts';
@@ -51,8 +51,14 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
     materializeLegacyPartPackages(dir, project, legacyFiles);
     files = { ...legacyFiles, ...suppliedFiles };
   }
+  if (template === 'legacy-example-project.json' && !rawLegacy && !buildingLegacyAdvances) project.advances = structuredClone(legacySetupAdvances());
   mutate(project);
-  if (!rawLegacy) retainSignoffs(project, () => true);
+  if (!rawLegacy) {
+    retainSignoffs(project, () => true);
+    if (template === 'legacy-example-project.json' && Array.isArray(project.advances)) {
+      project.advances = project.advances.filter(raw => !isObject(raw) || stageIndex(String(raw.stage)) <= stageIndex(String(project.stage)));
+    }
+  }
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
   if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
@@ -61,6 +67,57 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
     writeFileSync(join(dir, path), content);
   }
   return dir;
+}
+
+// Migrate the retained legacy test setup through the same forward writer as consumers.
+// Cache every original stage-level approval so later fixture pruning retains its own move.
+let buildingLegacyAdvances = false;
+let legacyAdvances: Json[] | undefined;
+function legacySetupAdvances(): Json[] {
+  if (legacyAdvances !== undefined) return legacyAdvances;
+  buildingLegacyAdvances = true;
+  const now = Date.now();
+  try {
+    const dir = fixture();
+    const file = join(dir, 'project.json');
+    const original = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    const words = join(dir, 'setup-approval.txt');
+    writeFileSync(words, 'Migrate the synthetic legacy stage setup through advance.');
+    const result: Json[] = [];
+    for (const target of LEGACY_STAGES.slice(1)) {
+      const from = LEGACY_STAGES[LEGACY_STAGES.indexOf(target) - 1]!;
+      const owner = LEGACY_STAGES.slice(0, LEGACY_STAGES.indexOf(target)).filter(s => s.closed_by === 'signoff').at(-1)!;
+      for (const approval of asArray(original.signoffs).filter(isObject).filter(s => s.stage === owner.id && s.checkpoint === null)) {
+        const project = structuredClone(original);
+        project.stage = from.id;
+        project.signoffs = asArray(project.signoffs).filter(isObject).filter(s => stageIndex(String(s.stage)) <= stageIndex(from.id)
+          && (s.stage !== owner.id || Date.parse(String(s.at)) <= Date.parse(String(approval.at))));
+        for (const raw of asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)) {
+          if ((raw.phase === 'rig' || raw.phase === 'post') && stageIndex(stageOfStep(raw.phase, String(raw.id))) >= stageIndex(target.id)) raw.status = 'pending';
+        }
+        const at = Math.max(...asArray(project.signoffs).filter(isObject).map(s => Date.parse(String(s.at)))) + LEGACY_STAGES.indexOf(target) + 1;
+        setSystemTime(new Date(at));
+        writeFileSync(file, JSON.stringify(project));
+        advanceCommand([target.id, dir, '--by', 'owner', '--verbatim-file', words]);
+        const advanced = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+        result.push(asArray(advanced.advances).at(-1)!);
+      }
+    }
+    legacyAdvances = result;
+    return result;
+  } finally { buildingLegacyAdvances = false; setSystemTime(new Date(now)); }
+}
+
+/** Retain synthetic event ordering and stable identities inside a specific creation cohort. */
+export function retimeFixture(project: JsonObject, before: number): void {
+  const timestamp = /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g;
+  const text = JSON.stringify(project);
+  const instants = [...new Set([...text.matchAll(timestamp)].map(match => Date.parse(match[0])))].sort((a, b) => a - b);
+  Object.assign(project, JSON.parse(text.replace(timestamp, value =>
+    new Date(before - (instants.length - instants.indexOf(Date.parse(value))) * 1000).toISOString())));
+  rehashSignoffs(project);
+  for (const raw of asArray(project.signoffs).filter(isObject)) delete raw.answer_hashes;
+  bindFixtureAnswers(project);
 }
 
 /** Pre-contract source records have no answer binding field, including before any mutation. */
@@ -110,7 +167,7 @@ export function retainSignoffs(project: JsonObject, keep: (signature: JsonObject
   project.signoffs = project.signoffs.filter(raw => !isObject(raw) || keep(raw));
   const signatures = project.signoffs.filter(isObject);
   const retained = (identity: Json | undefined): boolean => !isSignoffIdentity(identity)
-    || signatures.some(signature => matchesSignoff(identity, signature));
+    || signatures.some(signature => matchesSignoff(identity, signature) && typeof signature.by === 'string' && signature.by.toLowerCase() !== 'agent');
   if (Array.isArray(project.advances)) {
     project.advances = project.advances.filter(raw => !isObject(raw) || retained(raw.signoff));
     for (const entry of project.advances.filter(isObject)) {

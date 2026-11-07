@@ -28,7 +28,15 @@ test('raw legacy signatures remain targetless and report both new refusals', () 
   const dir = fixture(() => {}, 'legacy-example-project.json', {}, true);
   const p = load(dir);
   expect(arr(p.signoffs).map(obj).filter(s => s.target)).toEqual([]);
-  expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH']);
+  expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH']);
+});
+
+test('raw legacy frontier with an unreadable date reports STAGE_SIGNOFF_DATE_INVALID', () => {
+  const dir = fixture(p => {
+    obj(arr(p.signoffs).find(raw => obj(raw).stage === 'direction-review')).at = 'unreadable';
+  }, 'legacy-example-project.json', {}, true);
+  const report = checkProject(dir);
+  expect(report.refusals.map(f => [f.code, f.path])).toContainEqual(['STAGE_SIGNOFF_DATE_INVALID', 'signoffs[9].at']);
 });
 
 test('current review binds imported rig outputs and detects subsequent output drift', () => {

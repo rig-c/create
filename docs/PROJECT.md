@@ -116,6 +116,7 @@ allow `post-interview` to advance directly to `accepted`.
 `advances[]` retains `{ stage, from_stage, by, at, verbatim, source?,
 steps_before, signoff, signoffs_before, order, post_not_passed }`. The clock supplies `at`,
 the UTF-8 words are unchanged, and `signoff` is the stable `{ stage, checkpoint, at }` approval identity.
+`steps_before` retains each step id, required phase and original status so a historical bar exit still requires completed work after replanning.
 `signoffs_before` preserves the approval identities present at the move,
 including tied timestamps. Reordering signatures preserves these references. `order` retains `legacy`, `split` or `pre-parts` so later
 adoption preserves historical moves. `post_not_passed` captures whether every
@@ -128,9 +129,12 @@ the furthest closing stage supplies the frontier, using its latest signature
 by time and then array position. Reopen and amendment rules still invalidate
 approvals. An earlier re-signature leaves the later live stage target unchanged.
 
+From `STAGE_PROGRESS_SINCE`, stage must match the latest stage-changing advance or reopen (or the initial stage without either), and an advance retains the stable signature that authorized it at that time, so later same-stage re-signatures preserve that move.
+
 The checker pins both lag and skip from `STAGE_PROGRESS_SINCE`, dated by the
-authorizing stage-level signature. Earlier or unreadable dates WARN with the
-same codes. Signoff retains its existing conditional, scoped candidate checks.
+authorizing stage-level signature. Earlier readable dates WARN with the same codes. An unreadable frontier
+date refuses with `STAGE_SIGNOFF_DATE_INVALID`. New advance writes enforce
+lag and skip independently of signature age. Signoff retains its existing conditional, scoped candidate checks.
 Its additional progress guard rejects a pre-existing refusal-level lag and
 candidate progress refusals. It permits only the lag introduced by its own
 new frontier signature, awaiting the separate advance writer. Legacy WARN lag

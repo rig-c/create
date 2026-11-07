@@ -29,11 +29,13 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 ## The user's four steps
 
 1. **Parts and meshes**. Ask framing/source; review parts and a labelled draft's
-   mesh/chest structure. `parts-review --draft --structure-file` binds decisions.
+   mesh/chest structure. `signoff parts-review --draft --structure-file` binds decisions.
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
    against approved parts/structure; use interview-options/answer/decision.
 3. **Rig and animation**. Hand pass is rig-review's correction loop; keep feedback.
 4. **Direction**. Ask after rig acceptance; judge at direction-review.
+
+Use `advance <stage>`, `step-status <id>`.
 
 Drafts stay under `derived/drafts/<id>/`, never versions/handoff. Old records
 warn: preserve history and dates; adopt choices explicitly.

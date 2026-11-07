@@ -13,7 +13,8 @@ import { signoffCommand } from '../src/signoff.ts';
 import { STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step } from './fixtures.ts';
-import { CLI, cli, gitEnv } from './helpers.ts';
+import { generateExampleOrder } from '../scripts/generate-example-order.ts';
+import { CLI, cli, gitEnv, tempDir } from './helpers.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
@@ -79,8 +80,15 @@ describe('forward human amendments', () => {
   });
 
   test.each(STAGES.filter(s => s.id !== 'accepted').flatMap(s => ['legacy-example-project.json', 'example-project.json'].map(template => [s.id, template] as const)))('amend %s and reopen have equal liveness in %s', (stage, template) => {
-    const amendmentDir = fixture(() => {}, template);
-    const reopenDir = fixture(() => {}, template);
+    const source = (): string => {
+      if (stage !== 'rigging-interview' || template !== 'legacy-example-project.json') return fixture(() => {}, template);
+      const dir = join(tempDir(), 'adopted');
+      generateExampleOrder(dir);
+      setSystemTime(new Date('2026-11-20T00:00:00Z'));
+      return dir;
+    };
+    const amendmentDir = source();
+    const reopenDir = source();
     amend(amendmentDir, stage);
     reopenCommand([stage, reopenDir, '--by', 'owner', '--verbatim-file', words(reopenDir)]);
     const amended = read(amendmentDir);

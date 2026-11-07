@@ -97,6 +97,63 @@ so they are not asked about a rig that may still change. A rig change after
 `rig-review` means a new rig version and a new first review, and the post
 version built on the old rig is redone on the new one.
 
+### Recording forward progress
+
+```sh
+rig-create advance <stage> --by <who> --verbatim-file words.txt [<project dir>] [--json]
+rig-create step-status <step> <status> --by <who> [<project dir>] [--json]
+```
+
+`signoff` records approval, then `advance` records the human move. The stage
+level signature closes its named stage. `plan-approved` authorizes `parts`
+for both the split-interview order and the legacy order that includes parts.
+Only an already-passed pre-parts project keeps the historical route to rigging.
+The legacy order omits `rigging-interview`; explicit adoption adds it.
+A bar stage advances once every step it runs is done, using the preceding
+stage-level signature as authority. All post items marked not applicable
+allow `post-interview` to advance directly to `accepted`.
+
+`advances[]` retains `{ stage, from_stage, by, at, verbatim, source?,
+steps_before, signoff, signoffs_before, order, post_not_passed }`. The clock supplies `at`,
+the UTF-8 words are unchanged, and `signoff` is the stable `{ stage, checkpoint, at }` approval identity.
+`signoffs_before` preserves the approval identities present at the move,
+including tied timestamps. Reordering signatures preserves these references. `order` retains `legacy`, `split` or `pre-parts` so later
+adoption preserves historical moves. `post_not_passed` captures whether every
+post item was not applicable at the move. A historical post-interview to
+accepted skip reads this boolean snapshot, so reopening and later applicable
+post answers preserve the earlier authorized move. The current frontier still
+uses current post answers. Forward history grants no reopen cutoff.
+Earlier plan re-signatures do not revoke later approvals. Among live approvals,
+the furthest closing stage supplies the frontier, using its latest signature
+by time and then array position. Reopen and amendment rules still invalidate
+approvals. An earlier re-signature leaves the later live stage target unchanged.
+
+The checker pins both lag and skip from `STAGE_PROGRESS_SINCE`, dated by the
+authorizing stage-level signature. Earlier or unreadable dates WARN with the
+same codes. Signoff retains its existing conditional, scoped candidate checks.
+Its additional progress guard rejects a pre-existing refusal-level lag and
+candidate progress refusals. It permits only the lag introduced by its own
+new frontier signature, awaiting the separate advance writer. Legacy WARN lag
+remains permitted at signoff. A target can move only one ordered stage at a
+time, including a permitted bar exit or the declared no-post route.
+
+`step-status` runs in the step's execution stage and records one transition
+through `pending` (also the absent status), `in-progress`, `at-checkpoint`,
+then `done`. Each step's `status_history[]` retains
+`{ from_status, status, by, at, checkpoint_required, signoff }`.
+`checkpoint_required` snapshots the resolved boolean requirement at that event.
+History validates that snapshot when checking a done entry. Reopening and
+replanning a checkpoint preserve earlier completion history. The current
+writer still requires a live checkpoint signature whenever the current
+checkpoint is enabled. Its `signoff` uses the same stable
+identity object or null. A checkpointed `done` references
+the latest matching live human checkpoint signature. Other transitions have
+`signoff` null. Existing status-only history remains readable. Status and its
+history stay outside the signed plan hash. Reopen continues to reset steps.
+Both writers reconcile `stage_values` with the applicable order and run the
+same complete `checkProject` candidate validation before writing. Refused
+writes leave `project.json` byte-identical. Neither writer runs a producer.
+
 ### Reopening a passed stage
 
 ```sh

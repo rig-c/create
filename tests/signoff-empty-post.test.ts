@@ -3,6 +3,7 @@ import { afterEach, expect, setSystemTime, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
 import { reopenCommand } from '../src/reopen.ts';
 import { Refusal } from '../src/refusal.ts';
 import { signoffCommand } from '../src/signoff.ts';
@@ -13,6 +14,7 @@ afterEach(() => setSystemTime());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 function withoutPost(signed: boolean): string {
   return fixture(p => {
+    if (!signed) p.stage = 'post-interview';
     for (const item of arr(obj(obj(p.interview).post).items).map(obj)) supersede(item, 'guide', { not_applicable: true, because: 'No post work applies.', by: 'user', at: '2026-11-20T00:00:00Z' });
     obj(p.plan).steps = arr(obj(p.plan).steps).filter(s => obj(s).phase === 'rig');
     p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'direction-review' && (signed || obj(s).stage !== 'post-interview'));
@@ -25,6 +27,8 @@ test('the user approves an honestly empty post phase and every N/A post answer',
   setSystemTime(new Date('2030-01-01T00:00:00Z'));
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+  advanceCommand(['accepted', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   const p = load(dir), signed = obj(arr(p.signoffs).at(-1));
   expect(p.stage).toBe('accepted');
   expect(signed.steps).toEqual([]);
@@ -51,6 +55,8 @@ test('after N/A replacement, reopen moves to post-interview and its empty approv
   expect(load(dir).stage).toBe('post-interview');
   setSystemTime(new Date('2030-01-01T00:00:02Z'));
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+  advanceCommand(['accepted', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   expect(checkProject(dir).refusals).toEqual([]);
   expect(arr(load(dir).signoffs).slice(0, arr(original).length)).toEqual(original);
 });

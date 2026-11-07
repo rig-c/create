@@ -1,3 +1,4 @@
+import { checkAdvances, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
 import { checkSignoffTarget } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
@@ -905,6 +906,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkDrafts(dir, project, refusals, warnings);
   refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);
+  checkAdvances(ctx);
   checkAnswers(ctx);
   checkOverrides(project, collection, refusals, warnings);
   checkAskCoverage(ctx);
@@ -913,6 +915,8 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkPlan(ctx);
   warnings.push(...appearanceBarWarnings(project));
   checkStages(ctx);
+  checkStageProgress(ctx);
+  checkStepStatusHistory(ctx);
   checkPreInterview(ctx);
   checkReviews(ctx);
   checkReviewPackages(ctx);

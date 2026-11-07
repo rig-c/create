@@ -4,15 +4,15 @@
   "question": "bones",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-06T00:00:39.000Z",
+  "drafted_at": "2026-11-07T00:00:39.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-06T00:00:37.000Z",
+      "signoff_at": "2026-11-07T00:00:37.000Z",
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/parts-review.json",
-        "sha256": "e27c6c6d7e8861553c0bdbea3066801028229ad122204831d68c944adcd7cb94"
+        "sha256": "d7b7ca06b3b85ee0708c594ae35d2b48d35029b58f9ba1c5fe26999f0fceb840"
       }
     },
     "structure": {
@@ -63,7 +63,7 @@
           "id": "keep",
           "kind": "value",
           "label": "Synthetic bones answer after viewing the approved parts and structure.",
-          "effect": "As answered on 2026-11-06T00:00:38.000Z in interview, chat",
+          "effect": "As answered on 2026-11-07T00:00:38.000Z in interview, chat",
           "fragment": {
             "chains": "synthetic chains on the approved parts"
           },

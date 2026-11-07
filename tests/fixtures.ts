@@ -1,6 +1,8 @@
+import { isSignoffIdentity, matchesSignoff } from '../src/stage-progress.ts';
 import { reopenCommand } from '../src/reopen.ts';
-import { approvalStageOfStep, hasStageOrder } from '../src/stages.ts';
-import { setSystemTime } from 'bun:test';
+import { approvalStageOfStep, hasStageOrder, LEGACY_STAGES, STAGES } from '../src/stages.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
+import { expect, setSystemTime } from 'bun:test';
 import { signoffCommand } from '../src/signoff.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed } from '../src/check.ts';
@@ -50,6 +52,7 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
     files = { ...legacyFiles, ...suppliedFiles };
   }
   mutate(project);
+  if (!rawLegacy) retainSignoffs(project, () => true);
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
   if (template === 'legacy-example-project.json' && !rawLegacy) bindFixtureSignoffs(project);
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
@@ -99,6 +102,24 @@ export function supersede(record: JsonObject, field: 'guide' | 'answer', next: J
   const old = record[field];
   if (old !== null && old !== undefined) record.history = [...(Array.isArray(record.history) ? record.history : []), old];
   record[field] = next;
+}
+
+/** Synthetic setup removals also remove only the audit entries that rely on those approvals. */
+export function retainSignoffs(project: JsonObject, keep: (signature: JsonObject) => boolean): void {
+  if (!Array.isArray(project.signoffs)) return;
+  project.signoffs = project.signoffs.filter(raw => !isObject(raw) || keep(raw));
+  const signatures = project.signoffs.filter(isObject);
+  const retained = (identity: Json | undefined): boolean => !isSignoffIdentity(identity)
+    || signatures.some(signature => matchesSignoff(identity, signature));
+  if (Array.isArray(project.advances)) {
+    project.advances = project.advances.filter(raw => !isObject(raw) || retained(raw.signoff));
+    for (const entry of project.advances.filter(isObject)) {
+      if (Array.isArray(entry.signoffs_before)) entry.signoffs_before = entry.signoffs_before.filter(retained);
+    }
+  }
+  for (const step of asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)) {
+    if (Array.isArray(step.status_history)) step.status_history = step.status_history.filter(raw => !isObject(raw) || retained(raw.signoff));
+  }
 }
 
 /** Rebuild existing synthetic approval hashes after setup edits that precede the tested operation. */
@@ -189,6 +210,14 @@ export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z')
       }
       setSystemTime(new Date(at + tick++));
       signoffCommand([stage, dir, ...(ids.size ? ['--steps', [...ids].join(',')] : []), '--by', 'user', '--verbatim-file', words]);
+      const signed = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+      if (signed.stage === stage) {
+        expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+        const order = hasStageOrder(signed) ? STAGES : LEGACY_STAGES;
+        const noPost = stage === 'post-interview' && postNotPassed({ items: collectItems(signed, { collection: loadCollection(dir) }) });
+        const target = noPost ? 'accepted' : order[order.findIndex(s => s.id === stage) + 1]!.id;
+        advanceCommand([target, dir, '--by', 'user', '--verbatim-file', words]);
+      }
     }
   } finally { setSystemTime(new Date(clock)); }
   const after = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;

@@ -1,3 +1,4 @@
+import { retainSignoffs } from './fixtures.ts';
 import { expect, test, setSystemTime } from 'bun:test';
 import { approvalStageOfStep, approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, STAGE_ORDER_SPEC } from '../src/stages.ts';
 
@@ -21,7 +22,7 @@ test('source interview can finish with later rig guides and plan absent', () => 
   const dir = fixture(p => {
     obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-05T00:00:00Z' };
     p.stage_values = [...STAGE_VALUES]; p.stage = 'parts'; p.versions = [];
-    p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts'].includes(String(obj(s).stage)));
+    retainSignoffs(p, s => ['interview', 'plan-approved', 'parts'].includes(String(obj(s).stage)));
     obj(p.plan).steps = arr(obj(p.plan).steps).filter(s => ['seethrough', 'assemble'].includes(String(obj(s).id)));
     for (const id of ['bones', 'meshes', 'constraints', 'motion']) waypoint(p, id).guide = null;
     step(p, 'assemble').rests_on = ['assemble'];
@@ -38,7 +39,7 @@ test('early production execution cannot use a parts plan approval as rigging app
   const dir = fixture(p => {
     obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-05T00:00:00Z' };
     p.stage_values = [...STAGE_VALUES]; p.stage = 'parts'; p.versions = [];
-    p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts'].includes(String(obj(s).stage)));
+    retainSignoffs(p, s => ['interview', 'plan-approved', 'parts'].includes(String(obj(s).stage)));
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
     step(p, 'bones').status = 'done';
   });
@@ -60,7 +61,7 @@ test('delegated framing must be decided for the first approval and parts executi
     obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-19T00:00:00Z' };
     obj(p.interview).question_set = obj(readTemplate('project.json').interview).question_set;
     p.stage_values = [...STAGE_VALUES]; p.stage = 'plan-approved'; p.versions = [];
-    p.signoffs = arr(p.signoffs).filter(s => obj(s).stage === 'interview');
+    retainSignoffs(p, s => obj(s).stage === 'interview');
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
     framing(p, 'reference').answer = { delegated: true, by: 'owner', at: '2026-11-19T00:00:00Z', verbatim: 'auto' };
   });

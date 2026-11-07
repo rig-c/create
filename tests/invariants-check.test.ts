@@ -1,3 +1,4 @@
+import { retainSignoffs } from './fixtures.ts';
 import { expect, setSystemTime, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -96,7 +97,7 @@ test('actual answer writer changes the next derived report, with the previous re
   try {
     const dir = fixture(p => {
       p.stage = 'rigging-interview'; p.versions = [];
-      p.signoffs = arr(p.signoffs).filter(s => stageIndex(String(obj(s).stage)) < stageIndex('rigging-interview'));
+      retainSignoffs(p, s => stageIndex(String(obj(s).stage)) < stageIndex('rigging-interview'));
       for (const step of arr(obj(p.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
       for (const item of arr(obj(obj(p.interview).post).items).map(obj)) item.guide = null;
     }, 'example-project.json');

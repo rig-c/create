@@ -6,10 +6,11 @@
  * Verdicts are synthetic, written field for field as rig-review's parts view
  * writes them (tests/parts-package.ts).
  */
-import { describe, expect, test } from 'bun:test';
-import { mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { reopenCommand } from '../src/reopen.ts';
 import { checkProject, type CheckReport } from '../src/check.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
@@ -90,11 +91,13 @@ describe('green', () => {
   });
 
   test('a sign-off at parts-review, before rigging starts, is not read yet', () => {
-    const dir = fixture((p) => {
-      atRiggingStart(p);
-      p.stage = 'parts-review';
-      delete partsReviewSignoff(p).evidence;
-    });
+    const dir = fixture(atRiggingStart);
+    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    writeFileSync(join(dir, 'words.txt'), 'Revisit the synthetic parts.');
+    reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    delete partsReviewSignoff(p).evidence;
+    writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
     expect(checkProject(dir).refusals).toEqual([]);
   });
 });
@@ -326,3 +329,5 @@ describe('containment follows links: a symlink out of the project is an escape',
     expect(checkProject(dir).refusals).toEqual([]);
   });
 });
+
+afterEach(() => setSystemTime());

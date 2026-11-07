@@ -7,14 +7,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:04.000Z",
-        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-06T00:00:02.000Z in interview, chat",
+        "at": "2026-11-07T00:00:04.000Z",
+        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-07T00:00:02.000Z in interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-rig-type.json",
-            "sha256": "29d3bc531cfd558f05f832034472f5cbaec5d373a893b62b162166b01c34afb4"
+            "sha256": "ba798ef5cc9735c4d757a98b8ef65cd8e4ddcd7649bc89ba6c69955ee3645231"
           },
           "picks": [
             {
@@ -22,7 +22,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "A standing character, idle. She holds a lantern.",
-                "effect": "As answered on 2026-11-06T00:00:02.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:02.000Z in interview, chat"
               }
             }
           ]
@@ -37,7 +37,7 @@
       },
       "options": {
         "path": "evidence/interview/example-rig-type.json",
-        "sha256": "29d3bc531cfd558f05f832034472f5cbaec5d373a893b62b162166b01c34afb4"
+        "sha256": "ba798ef5cc9735c4d757a98b8ef65cd8e4ddcd7649bc89ba6c69955ee3645231"
       }
     },
     {
@@ -45,14 +45,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:04.000Z",
-        "verbatim": "None.\nAs answered on 2026-11-06T00:00:03.000Z in interview, chat",
+        "at": "2026-11-07T00:00:04.000Z",
+        "verbatim": "None.\nAs answered on 2026-11-07T00:00:03.000Z in interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-reference.json",
-            "sha256": "a3f3568617f406bdb68a5fc751b61dd105297014965e3e265eed0e880a8b9829"
+            "sha256": "29d53648d4307786330652dfd91b981e5acbf7b0c92d7b136637372e65d6e6b1"
           },
           "picks": [
             {
@@ -60,7 +60,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "None.",
-                "effect": "As answered on 2026-11-06T00:00:03.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:03.000Z in interview, chat"
               }
             }
           ]
@@ -75,7 +75,7 @@
       },
       "options": {
         "path": "evidence/interview/example-reference.json",
-        "sha256": "a3f3568617f406bdb68a5fc751b61dd105297014965e3e265eed0e880a8b9829"
+        "sha256": "29d53648d4307786330652dfd91b981e5acbf7b0c92d7b136637372e65d6e6b1"
       }
     },
     {
@@ -83,14 +83,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:04.000Z",
-        "verbatim": "auto\nAs answered on 2026-11-06T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
+        "at": "2026-11-07T00:00:04.000Z",
+        "verbatim": "auto\nAs answered on 2026-11-07T00:00:04.000Z in interview, chat\n\nKeep the proposed resolution\nUse the proposed resolution on the named synthetic parts.\n\nKeep the proposed head_crop\nUse the proposed head_crop on the named synthetic parts.\n\nLet the agent decide\nThe agent must record this decision before approval.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-seethrough.json",
-            "sha256": "6d9685b825f4d90e2eccdcd40c0cdcc671fe74cc75dd2acce2f0f25d69a48fa9"
+            "sha256": "ec2bbc1c499ae05f087ef7be6b316bab384de77e177a26626931ba787030869b"
           },
           "picks": [
             {
@@ -98,7 +98,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "auto",
-                "effect": "As answered on 2026-11-06T00:00:04.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:04.000Z in interview, chat"
               }
             },
             {
@@ -152,7 +152,7 @@
         },
         "agent_decision": {
           "by": "agent",
-          "at": "2026-11-06T00:00:05.000Z",
+          "at": "2026-11-07T00:00:05.000Z",
           "reasoning": "Retain the declared synthetic seed direction.",
           "covers": "seed",
           "fragments": [
@@ -187,7 +187,7 @@
       },
       "options": {
         "path": "evidence/interview/example-seethrough.json",
-        "sha256": "6d9685b825f4d90e2eccdcd40c0cdcc671fe74cc75dd2acce2f0f25d69a48fa9"
+        "sha256": "ec2bbc1c499ae05f087ef7be6b316bab384de77e177a26626931ba787030869b"
       }
     },
     {
@@ -195,14 +195,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:04.000Z",
-        "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-06T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
+        "at": "2026-11-07T00:00:04.000Z",
+        "verbatim": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.\nAs answered on 2026-11-07T00:00:06.000Z in interview, chat\n\nKeep the proposed ground\nUse the proposed ground on the named synthetic parts.\n\nKeep the proposed cut\nUse the proposed cut on the named synthetic parts.\n\nKeep the proposed emphasis\nUse the proposed emphasis on the named synthetic parts.\n\nKeep the proposed draw_order\nUse the proposed draw_order on the named synthetic parts.\n\nKeep the proposed authored\nUse the proposed authored on the named synthetic parts.\n\nKeep the proposed occluders\nUse the proposed occluders on the named synthetic parts.\n\nKeep the proposed outfits\nUse the proposed outfits on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-assemble.json",
-            "sha256": "f467cc87d1ef601d456286f81dbb58a5b6da8c8ceedf0c36bd19d3d3144b0d2b"
+            "sha256": "83bacabba10bf7dd50c6d02250172ef3658139f064b42f6fced065fbc82afd59"
           },
           "picks": [
             {
@@ -210,7 +210,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Standard cut, at the joints. Keep her face exactly as painted. The lantern is its own part. The rest is up to you. Use core projection.",
-                "effect": "As answered on 2026-11-06T00:00:06.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:06.000Z in interview, chat"
               }
             },
             {
@@ -318,7 +318,7 @@
       },
       "options": {
         "path": "evidence/interview/example-assemble.json",
-        "sha256": "f467cc87d1ef601d456286f81dbb58a5b6da8c8ceedf0c36bd19d3d3144b0d2b"
+        "sha256": "83bacabba10bf7dd50c6d02250172ef3658139f064b42f6fced065fbc82afd59"
       }
     },
     {
@@ -326,14 +326,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:41.000Z",
-        "verbatim": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-06T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
+        "at": "2026-11-07T00:00:41.000Z",
+        "verbatim": "Synthetic bones answer after viewing the approved parts and structure.\nAs answered on 2026-11-07T00:00:38.000Z in interview, chat\n\nKeep the proposed placement\nUse the proposed placement on the named synthetic parts.\n\nKeep the proposed length\nUse the proposed length on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-bones.json",
-            "sha256": "b7a7bc828016f99d9d6e027e9a4d6943452dc54ba7667207b56635fa7714154f"
+            "sha256": "c2e92cea8bfeab831e94ff8f1ff842a0a121f45649cdb84a1dfd115c07184e14"
           },
           "picks": [
             {
@@ -341,7 +341,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic bones answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-06T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -384,7 +384,7 @@
       },
       "options": {
         "path": "evidence/interview/example-bones.json",
-        "sha256": "b7a7bc828016f99d9d6e027e9a4d6943452dc54ba7667207b56635fa7714154f"
+        "sha256": "c2e92cea8bfeab831e94ff8f1ff842a0a121f45649cdb84a1dfd115c07184e14"
       }
     },
     {
@@ -392,14 +392,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:41.000Z",
-        "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-06T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
+        "at": "2026-11-07T00:00:41.000Z",
+        "verbatim": "Synthetic meshes answer after viewing the approved parts and structure.\nAs answered on 2026-11-07T00:00:38.000Z in interview, chat\n\nKeep the proposed rigid\nUse the proposed rigid on the named synthetic parts.\n\nKeep the proposed density\nUse the proposed density on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-meshes.json",
-            "sha256": "ea46a805fbb47849b8cda6b090da2319b0ec37acaef6c74cf07c52074408cac4"
+            "sha256": "0af82b8fc86a7fbf1f935eb8e85eb7fa55406fcfa51f90c06033b582e0617f2a"
           },
           "picks": [
             {
@@ -407,7 +407,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic meshes answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-06T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -450,7 +450,7 @@
       },
       "options": {
         "path": "evidence/interview/example-meshes.json",
-        "sha256": "ea46a805fbb47849b8cda6b090da2319b0ec37acaef6c74cf07c52074408cac4"
+        "sha256": "0af82b8fc86a7fbf1f935eb8e85eb7fa55406fcfa51f90c06033b582e0617f2a"
       }
     },
     {
@@ -458,14 +458,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:41.000Z",
-        "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-06T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
+        "at": "2026-11-07T00:00:41.000Z",
+        "verbatim": "Synthetic constraints answer after viewing the approved parts and structure.\nAs answered on 2026-11-07T00:00:38.000Z in interview, chat\n\nKeep the proposed strength\nUse the proposed strength on the named synthetic parts.\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed gravity\nUse the proposed gravity on the named synthetic parts.\n\nKeep the proposed stops\nUse the proposed stops on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-constraints.json",
-            "sha256": "70cb97ee9fe7f946aca753491f562cb92501704684a3b54b561dc6c74c4a688b"
+            "sha256": "fb6f3ba9a7efb44100384f0acbf847973f1660d409791c4343503a2df5003e39"
           },
           "picks": [
             {
@@ -473,7 +473,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic constraints answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-06T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -542,7 +542,7 @@
       },
       "options": {
         "path": "evidence/interview/example-constraints.json",
-        "sha256": "70cb97ee9fe7f946aca753491f562cb92501704684a3b54b561dc6c74c4a688b"
+        "sha256": "fb6f3ba9a7efb44100384f0acbf847973f1660d409791c4343503a2df5003e39"
       }
     },
     {
@@ -550,14 +550,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:41.000Z",
-        "verbatim": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-06T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
+        "at": "2026-11-07T00:00:41.000Z",
+        "verbatim": "Synthetic motion answer after viewing the approved parts and structure.\nAs answered on 2026-11-07T00:00:38.000Z in interview, chat\n\nKeep the proposed extent\nUse the proposed extent on the named synthetic parts.\n\nKeep the proposed speed\nUse the proposed speed on the named synthetic parts.\n\nKeep the proposed loop\nUse the proposed loop on the named synthetic parts.\n\nKeep the proposed blink\nUse the proposed blink on the named synthetic parts.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-motion.json",
-            "sha256": "511d6d60a41bb757e85bc853dcb9d9d63006d5147faa783a1e067a55bb62a0e8"
+            "sha256": "2ed7deba2253637065d703dda815e9ba3ff75f45fff87f36928fc67e848c0c82"
           },
           "picks": [
             {
@@ -565,7 +565,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Synthetic motion answer after viewing the approved parts and structure.",
-                "effect": "As answered on 2026-11-06T00:00:38.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:38.000Z in interview, chat"
               }
             },
             {
@@ -634,7 +634,7 @@
       },
       "options": {
         "path": "evidence/interview/example-motion.json",
-        "sha256": "511d6d60a41bb757e85bc853dcb9d9d63006d5147faa783a1e067a55bb62a0e8"
+        "sha256": "2ed7deba2253637065d703dda815e9ba3ff75f45fff87f36928fc67e848c0c82"
       }
     },
     {
@@ -642,14 +642,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:54.000Z",
-        "verbatim": "A slow push-in, no parallax.\nAs answered on 2026-11-06T00:00:53.000Z in post-interview, chat",
+        "at": "2026-11-07T00:00:54.000Z",
+        "verbatim": "A slow push-in, no parallax.\nAs answered on 2026-11-07T00:00:53.000Z in post-interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-camera-depth.json",
-            "sha256": "31b63ac4d6c08055f5d22b127b79ab418233ed2185bfc08ef3277ba16f8a3086"
+            "sha256": "6d04763e42dc4ec0bc348ea091e1b2fda4497c67c2332145b809d7a734d593f5"
           },
           "picks": [
             {
@@ -657,7 +657,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "A slow push-in, no parallax.",
-                "effect": "As answered on 2026-11-06T00:00:53.000Z in post-interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:53.000Z in post-interview, chat"
               }
             }
           ]
@@ -675,7 +675,7 @@
       },
       "options": {
         "path": "evidence/interview/example-camera-depth.json",
-        "sha256": "31b63ac4d6c08055f5d22b127b79ab418233ed2185bfc08ef3277ba16f8a3086"
+        "sha256": "6d04763e42dc4ec0bc348ea091e1b2fda4497c67c2332145b809d7a734d593f5"
       }
     },
     {
@@ -683,14 +683,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:54.000Z",
-        "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-06T00:00:55.000Z in post-interview, chat",
+        "at": "2026-11-07T00:00:54.000Z",
+        "verbatim": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-07T00:00:55.000Z in post-interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-post-timing.json",
-            "sha256": "f2d270ad4adf34fd291b66a71cab3b673092de4081d355d18ba432641e482e0c"
+            "sha256": "1591f70f7d04de8d86a43b0963d59d6916112e13229c8f6d9a3e4feee5f56be2"
           },
           "picks": [
             {
@@ -698,7 +698,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Eight seconds, looping. The beam sweeps past once, near the end.",
-                "effect": "As answered on 2026-11-06T00:00:55.000Z in post-interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:55.000Z in post-interview, chat"
               }
             }
           ]
@@ -722,7 +722,7 @@
       },
       "options": {
         "path": "evidence/interview/example-post-timing.json",
-        "sha256": "f2d270ad4adf34fd291b66a71cab3b673092de4081d355d18ba432641e482e0c"
+        "sha256": "1591f70f7d04de8d86a43b0963d59d6916112e13229c8f6d9a3e4feee5f56be2"
       }
     },
     {
@@ -730,14 +730,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:54.000Z",
-        "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-06T00:00:56.000Z in post-interview, chat",
+        "at": "2026-11-07T00:00:54.000Z",
+        "verbatim": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-07T00:00:56.000Z in post-interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-post-composition.json",
-            "sha256": "31c24172b95ba6834643bd4ce57f17b3394f236635dbae12cb7a2433da944560"
+            "sha256": "d5294f8a6b221eb3ded9983484def4dd957199a86bfdd3a610507c6caee441f8"
           },
           "picks": [
             {
@@ -745,7 +745,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
-                "effect": "As answered on 2026-11-06T00:00:56.000Z in post-interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:56.000Z in post-interview, chat"
               }
             }
           ]
@@ -763,7 +763,7 @@
       },
       "options": {
         "path": "evidence/interview/example-post-composition.json",
-        "sha256": "31c24172b95ba6834643bd4ce57f17b3394f236635dbae12cb7a2433da944560"
+        "sha256": "d5294f8a6b221eb3ded9983484def4dd957199a86bfdd3a610507c6caee441f8"
       }
     }
   ],
@@ -774,14 +774,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:10.000Z",
+        "at": "2026-11-07T00:00:10.000Z",
         "verbatim": "Other\nDescribe this decision.\n다른 방향\nKeep the final spaces.  \né",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/other-pending.json",
-            "sha256": "009065efd13205d0433c4fcc65c4db3d8026f5613355bc37d9399d1519baac72"
+            "sha256": "20bcfda100776055f69fb27ebdedb52dadf48db3a3d076bd541c20874dde4db0"
           },
           "picks": [
             {
@@ -811,14 +811,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:12.000Z",
+        "at": "2026-11-07T00:00:12.000Z",
         "verbatim": "Other\nDescribe this decision.\n다른 방향\nKeep the final spaces.  \né",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/other-explicit.json",
-            "sha256": "e588571ae418d852c656725d365e6dcf23bb78ae12eab5058a0b5ed274e8b17e"
+            "sha256": "b7916566a6a3f82c735a9ab921850f3910193249a20870ddef8e743dc3992ab9"
           },
           "picks": [
             {
@@ -848,14 +848,14 @@
       "allowed": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:14.000Z",
+        "at": "2026-11-07T00:00:14.000Z",
         "verbatim": "Alternative projection\nChoose a different projection.\n\nAlternative ground\nChoose a different ground.\n\nAlternative cut\nChoose a different cut.\n\nAlternative emphasis\nChoose a different emphasis.\n\nAlternative draw_order\nChoose a different draw_order.\n\nAlternative authored\nChoose a different authored.\n\nAlternative occluders\nChoose a different occluders.\n\nAlternative outfits\nChoose a different outfits.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/constraint.json",
-            "sha256": "a7be2068eb3641d54f922004e951a0588cb669e95dd723012f5c9062dcec7f8d"
+            "sha256": "a6f9c28ac66f6fd4171ece735fa007d64c50165a360d6a407b6641ae9f0ebae7"
           },
           "picks": [
             {
@@ -975,14 +975,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:16.000Z",
+        "at": "2026-11-07T00:00:16.000Z",
         "verbatim": "Alternative rig_type\nChoose a different rig_type.",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/fullscreen.json",
-            "sha256": "af9fbdaa6f19d03460ff16517e4bea1e3a4fe75fd175e2dff3d6edcd0764c6ac"
+            "sha256": "9c6b4cefaa5fc0f759eaec8fdc5db509f960d53cd79cc384c934f460e7764001"
           },
           "picks": [
             {
@@ -1017,14 +1017,14 @@
       "answer": {
         "delegated": false,
         "by": "user",
-        "at": "2026-11-06T00:00:04.000Z",
-        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-06T00:00:02.000Z in interview, chat",
+        "at": "2026-11-07T00:00:04.000Z",
+        "verbatim": "A standing character, idle. She holds a lantern.\nAs answered on 2026-11-07T00:00:02.000Z in interview, chat",
         "source": "review questionnaire",
         "choice": {
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-rig-type.json",
-            "sha256": "29d3bc531cfd558f05f832034472f5cbaec5d373a893b62b162166b01c34afb4"
+            "sha256": "ba798ef5cc9735c4d757a98b8ef65cd8e4ddcd7649bc89ba6c69955ee3645231"
           },
           "picks": [
             {
@@ -1032,7 +1032,7 @@
               "option_id": "keep",
               "shown": {
                 "label": "A standing character, idle. She holds a lantern.",
-                "effect": "As answered on 2026-11-06T00:00:02.000Z in interview, chat"
+                "effect": "As answered on 2026-11-07T00:00:02.000Z in interview, chat"
               }
             }
           ]

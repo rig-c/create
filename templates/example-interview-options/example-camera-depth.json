@@ -4,11 +4,11 @@
   "question": "camera_depth",
   "stage": "post-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-06T00:00:52.000Z",
+  "drafted_at": "2026-11-07T00:00:52.000Z",
   "context": {
     "kind": "rig",
     "rig_version": 2,
-    "signoff_at": "2026-11-06T00:00:51.000Z",
+    "signoff_at": "2026-11-07T00:00:51.000Z",
     "config": {
       "path": "evidence/v2/interview-config.json",
       "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
@@ -56,7 +56,7 @@
           "id": "keep",
           "kind": "value",
           "label": "A slow push-in, no parallax.",
-          "effect": "As answered on 2026-11-06T00:00:53.000Z in post-interview, chat",
+          "effect": "As answered on 2026-11-07T00:00:53.000Z in post-interview, chat",
           "fragment": {
             "camera": "push_in",
             "depth": false

@@ -1,13 +1,8 @@
-import { afterEach, beforeEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject, collectItems } from '../src/check.ts';
-import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
+import { collectItems } from '../src/check.ts';
 import { applicableAsks, optionContext, sha256 } from '../src/choices.ts';
-import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
-import { signoffCommand } from '../src/signoff.ts';
-import { reviewCommand } from '../src/feedback.ts';
-import { reopenCommand } from '../src/reopen.ts';
 import { Refusal } from '../src/refusal.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { LEGACY_STAGE_VALUES, STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
@@ -15,8 +10,9 @@ import { signoffIdentity, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts'
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, retimeFixture, step } from './fixtures.ts';
-import { CLI, tempDir } from './helpers.ts';
+import { clockedCli, tempDir } from './helpers.ts';
 import { directionFixture } from './direction-fixture.ts';
+import { checkProject, advanceCommand, stepStatusCommand, signoffCommand, reopenCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2) + '\n');
@@ -64,8 +60,8 @@ function interviewArrival(stage: string): string {
   return dir;
 }
 
-beforeEach(() => setSystemTime(new Date('2026-11-20T00:00:00Z')));
-afterEach(() => setSystemTime());
+beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
+afterEach(() => testClock.reset());
 
 test.each([
   ['rigging-interview', ['bones', 'meshes', 'constraints', 'motion'].map(id => `interview.waypoints[${id}].guide`)],
@@ -125,8 +121,8 @@ test.each([
     const current = read(dir);
     const item = collectItems(current, { collection: null }).find(item => item.id === id)!;
     const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/evidence/interview', `${id}.json`), 'utf8'));
-    set.id = `departure-${id}`; set.drafted_at = new Date().toISOString();
-    set.context = optionContext(current, stage, Date.now());
+    set.id = `departure-${id}`; set.drafted_at = testClock.iso();
+    set.context = optionContext(current, stage, testClock.now());
     const path = `evidence/interview/departure-${id}.json`;
     const bytes = JSON.stringify(set); writeFileSync(join(dir, path), bytes);
     interviewOptionsCommand([id, dir, '--file', path]);
@@ -196,14 +192,14 @@ test('legacy skip warns before the cutoff and refuses on the cutoff', () => {
 });
 
 test.each([false, true])('signoff then advance uses the public CLI and reconciles stale stage_values, split=%s', split => {
-  setSystemTime();
+  testClock.reset();
   const dir = partsProject('plan-approved', split); const p = read(dir);
   p.signoffs = arr(p.signoffs).slice(0, 1); p.stage_values = ['interview'];
-  retimeFixture(p, Date.now()); save(dir, p);
+  retimeFixture(p, testClock.now()); save(dir, p);
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
-  expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-  const result = Bun.spawnSync([process.execPath, CLI, 'advance', 'parts', dir, '--by', 'owner', '--verbatim-file', words(dir), '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  expect(codes(dir)).toContain('STAGE_LAGGING');
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'advance', 'parts', dir, '--by', 'owner', '--verbatim-file', words(dir), '--json'], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0); expect(result.stderr.toString()).toBe('');
   expect(JSON.parse(result.stdout.toString()).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
   expect(codes(dir)).toEqual([]); expect(checkProject(dir).warnings.map(f => f.code)).not.toContain('STAGE_VALUES_STALE');
@@ -250,7 +246,7 @@ test('a reopened checkpoint cannot authorize done and history remains readable a
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'assemble', 'done');
-  setSystemTime(new Date('2026-11-21T00:00:00Z'));
+  testClock.set(new Date('2026-11-21T00:00:00Z'));
   reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(codes(dir)).toEqual([]);
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
@@ -388,12 +384,12 @@ test('synthetic setup cleanup removes only audit entries dependent on removed si
 });
 
 test('step-status CLI records the same validated transition and JSON audit', () => {
-  setSystemTime();
+  testClock.reset();
   const dir = partsProject('parts');
-  const p = read(dir); retimeFixture(p, Date.now()); save(dir, p);
-  const started = Date.now();
-  const result = Bun.spawnSync([process.execPath, CLI, 'step-status', 'seethrough', 'in-progress', dir, '--by', 'agent', '--json'], { stdout: 'pipe', stderr: 'pipe' });
-  const finished = Date.now();
+  const p = read(dir); retimeFixture(p, testClock.now()); save(dir, p);
+  const started = testClock.now();
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'step-status', 'seethrough', 'in-progress', dir, '--by', 'agent', '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const finished = testClock.now();
   expect(result.stderr.toString()).toBe(''); expect(result.exitCode).toBe(0);
   const audit = JSON.parse(result.stdout.toString());
   expect(audit).toEqual({ from_status: 'pending', status: 'in-progress', by: 'agent', at: audit.at, checkpoint_required: false, signoff: null });
@@ -417,13 +413,13 @@ test.each([false, true])('historical checkpoint requirement survives reopen and 
   status(dir, 'seethrough', 'in-progress'); status(dir, 'seethrough', 'at-checkpoint'); status(dir, 'seethrough', 'done');
   const oldHistory = structuredClone(step(read(dir), 'seethrough').status_history);
   expect(obj(arr(oldHistory)[2]).signoff).toBeNull();
-  setSystemTime(new Date('2026-11-21T00:00:00Z'));
+  testClock.set(new Date('2026-11-21T00:00:00Z'));
   reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   const draft = read(dir);
   step(draft, 'seethrough').checkpoint = null;
   step(draft, 'seethrough').checkpoint_proposed = true;
   obj(draft.plan).drafted_at = '2026-11-21T00:01:00Z'; save(dir, draft);
-  setSystemTime(new Date('2026-11-21T00:02:00Z'));
+  testClock.set(new Date('2026-11-21T00:02:00Z'));
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(codes(dir)).toEqual(['STAGE_LAGGING']);
   advance(dir);
@@ -452,7 +448,7 @@ test('historical no-post advance survives reopened applicable post answers', () 
   advance(dir, 'accepted');
   const oldAdvanceIndex = arr(read(dir).advances).length - 1;
   const oldAdvance = structuredClone(arr(read(dir).advances)[oldAdvanceIndex]);
-  setSystemTime(new Date('2026-11-21T00:00:00Z'));
+  testClock.set(new Date('2026-11-21T00:00:00Z'));
   reopenCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   const draft = read(dir);
   const camera = obj(arr(obj(obj(draft.interview).post).items).find(raw => obj(raw).id === 'camera_depth'));
@@ -461,7 +457,7 @@ test('historical no-post advance survives reopened applicable post answers', () 
   const postStep = { id: 'camera', phase: 'post', order: 1, does: 'Author the camera move', produces: 'A direction document',
     rests_on: ['camera_depth'], bar: 'the direction keys validate', checkpoint_proposed: false, checkpoint: null, status: 'pending' };
   arr(obj(draft.plan).steps).push(postStep); save(dir, draft);
-  setSystemTime(new Date('2026-11-21T00:02:00Z'));
+  testClock.set(new Date('2026-11-21T00:02:00Z'));
   signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(codes(dir)).toEqual([]);
   signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
@@ -487,10 +483,10 @@ test('historical required checkpoint approval survives a later disabled checkpoi
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'assemble', 'done');
   const original = structuredClone(step(read(dir), 'assemble').status_history);
-  setSystemTime(new Date('2026-11-21T00:00:00Z'));
+  testClock.set(new Date('2026-11-21T00:00:00Z'));
   reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   const draft = read(dir); step(draft, 'assemble').checkpoint = null; step(draft, 'assemble').checkpoint_proposed = false; save(dir, draft);
-  setSystemTime(new Date('2026-11-21T00:01:00Z'));
+  testClock.set(new Date('2026-11-21T00:01:00Z'));
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   advance(dir);
   expect(codes(dir)).toEqual([]);

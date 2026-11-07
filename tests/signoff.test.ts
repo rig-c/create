@@ -1,15 +1,13 @@
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
-import { CLI, cli, gitEnv } from './helpers.ts';
+import { cli, clockedCli, gitEnv } from './helpers.ts';
+import { checkProject, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const words = '  좋아\r\n초안대로\n\n';
@@ -18,11 +16,11 @@ function input(dir: string): string {
   writeFileSync(file, words);
   return file;
 }
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 
 describe('signoff', () => {
   test('one command signs the filled plan, fills null checkpoints and passes the interview check', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture((p) => {
       p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'plan-approved');
       for (const raw of arr(obj(p.plan).steps)) {
@@ -63,7 +61,7 @@ describe('signoff', () => {
     const dir = fixture();
     const before = read(dir);
     const bytes = Buffer.from('\uFEFF' + words);
-    const result = Bun.spawnSync([process.execPath, CLI, 'signoff', 'interview', dir, '--by', 'user'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'signoff', 'interview', dir, '--by', 'user'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
     expect(result.exitCode).toBe(0);
     const p = read(dir);
     expect(p.plan).toEqual(before.plan);

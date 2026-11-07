@@ -2,10 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
 import { CG_BOUNDARY_ALLOWANCE } from '../src/cg-gates.ts';
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { type CheckReport } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { fixture, framing, obj, version, type Mutate } from './fixtures.ts';
+import { checkProject } from './clock.ts';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const json = (v: unknown): string => `${JSON.stringify(v, null, 2)}\n`;

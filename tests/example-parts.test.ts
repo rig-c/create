@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, posix } from 'node:path';
 import { generateExampleOrder } from '../scripts/generate-example-order.ts';
-import { checkProject, type Finding } from '../src/check.ts';
+import { type Finding } from '../src/check.ts';
 import { checkPartsVerdict } from '../src/parts-verdict.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sha256 } from '../src/choices.ts';
@@ -11,6 +11,7 @@ import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from './parts-package.ts';
 import { EXAMPLE_DRAFT } from './draft-fixture.ts';
 import { fixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 const load = createRequire(import.meta.url);
 const { decodePng } = load('@rig-c/core/plate') as {

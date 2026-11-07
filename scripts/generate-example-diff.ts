@@ -8,6 +8,7 @@ import { type JsonObject } from '../src/templates.ts';
 import { materializeFixture } from '../tests/fixtures.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from '../tests/diff-fixture.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, writePartsPackage } from '../tests/parts-package.ts';
+import { EXAMPLE_NOW } from './example-time.ts';
 
 export function generateExampleDiff(dir: string): { report: string; stack: Buffer; record: JsonObject } {
   if (existsSync(dir)) throw new Error('generation needs a fresh scratch directory');
@@ -22,7 +23,7 @@ export function generateExampleDiff(dir: string): { report: string; stack: Buffe
   writeFileSync(join(dir, 'words.txt'), 'the parts are clean, rig it');
   const flags = parsed.components.flatMap((c) => ['--component', `${c.id}=in-painting:the synthetic painting deliberately differs here`]);
   const signed = signoffCommand(['parts-review', dir, '--by', 'user', '--evidence', EXAMPLE_VERDICT,
-    '--diff-report', EXAMPLE_DIFF_REPORT, ...flags, '--verbatim-file', join(dir, 'words.txt'), '--json']);
+    '--diff-report', EXAMPLE_DIFF_REPORT, ...flags, '--verbatim-file', join(dir, 'words.txt'), '--json'], EXAMPLE_NOW);
   const record = (JSON.parse(signed.stdout) as { diff_map: JsonObject }).diff_map;
   return { report, stack, record };
 }

@@ -266,7 +266,7 @@ export function buildPins(dir: string, collection: JsonObject, selectors: string
 }
 
 /** Writes a new `versions[]` entry with pins and the hashed `outputs/v<N>/` files. */
-export function pinCollection(dirArg: string, changed: string | null, now = new Date(), selectors: string[] = []): { result: PinResult | null; refusals: Finding[]; dir: string } {
+export function pinCollection(dirArg: string, changed: string | null, now: Date, selectors: string[] = []): { result: PinResult | null; refusals: Finding[]; dir: string } {
   const dir = resolve(dirArg);
   const file = join(dir, 'collection.json');
   if (!existsSync(file)) refuse('COLLECTION_JSON_MISSING', `${file} does not exist; run in a collection folder or name one`);
@@ -560,9 +560,9 @@ export const COLLECTION_HELP = `collection:
                    refuse by member name a member rebuilt since the pins of the latest collection version with
                    outputs, and check the collection record (stage, sign-offs, answers, members[]) (docs/CHECKS.md)`;
 
-export function collectionCommand(args: string[]): CommandResult {
+export function collectionCommand(args: string[], now: number): CommandResult {
   const [first, ...rest] = args;
-  if (first === 'answer') return collectionAnswerCommand(rest);
+  if (first === 'answer') return collectionAnswerCommand(rest, now);
   if (first === 'pin') {
     let changed: string | null = null;
     const selectors: string[] = [];
@@ -581,7 +581,7 @@ export function collectionCommand(args: string[]): CommandResult {
       else positional.push(arg);
     }
     if (positional.length > 1) refuse('COLLECTION_USAGE', `collection pin takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
-    const { result, refusals, dir } = pinCollection(positional[0] ?? process.cwd(), changed, new Date(), selectors);
+    const { result, refusals, dir } = pinCollection(positional[0] ?? process.cwd(), changed, new Date(now), selectors);
     if (result === null) {
       const lines = [`collection pin: ${dir}`, ...refusals.map((r) => `  REFUSED ${r.code}: ${r.message}`), `not pinned: ${refusals.length} refusal${refusals.length === 1 ? '' : 's'}`];
       return { stdout: lines.join('\n'), exit: 1 };

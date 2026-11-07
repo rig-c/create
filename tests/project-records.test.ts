@@ -2,12 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
 import { AGENT_BOUNCE_SINCE } from '../src/stages.ts';
 import type { Json } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint, withCode } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));

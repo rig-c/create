@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { applyChainSeed, checkExampleChain, validateChainSteps, type ChainStep } from '../scripts/generate-example-chain.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
-import { checkProject } from '../src/check.ts';
 import { sha256 } from '../src/choices.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+import { checkProject, testClock } from './clock.ts';
+import { clockedCli } from './helpers.ts';
 
 const hash = 'a'.repeat(64);
 function receipt(): ChainStep[] {
@@ -120,7 +121,7 @@ test('the ordinary check rejects an invalid seeded value', () => {
     const project = readTemplate('project.json');
     project.stage = 'invented-stage';
     writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project)}\n`);
-    expect(() => checkExampleChain(dir)).toThrow('STAGE_UNKNOWN');
+    expect(() => checkExampleChain(dir, testClock.now())).toThrow('STAGE_UNKNOWN');
   } finally { rmSync(dir, { recursive: true }); }
 });
 
@@ -130,7 +131,7 @@ function readProject(): JsonObject {
 }
 
 test('the finished chain binds its own approved parts, package model and signed direction', () => {
-  const checked = checkExampleChain(shipped);
+  const checked = checkExampleChain(shipped, testClock.now());
   expect(checked.refusals).toEqual([]);
   expect(checked.warnings).toEqual([]);
   const project = readProject();
@@ -385,12 +386,12 @@ test.each(['1-parts-verdict', '2-rigging-answers', '3-rig-review', '4-direction-
       const args = step.command.slice(1);
       const hashIndex = args.indexOf('--sha256');
       if (hashIndex >= 0) args[hashIndex + 1] = sha256(readFileSync(join(dir, args[args.indexOf('--set') + 1]!)));
-      const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
       expect(result.stderr.toString()).toBe('');
       expect(result.exitCode).toBe(0);
     }
     const report = checkProject(dir);
-    const current = Date.now() >= Date.parse(STAGE_PROGRESS_SINCE);
+    const current = testClock.now() >= Date.parse(STAGE_PROGRESS_SINCE);
     expect(report.refusals.map(f => f.code)).toEqual(current ? ['STAGE_LAGGING'] : []);
     expect(report.warnings.map(f => f.code)).toEqual(current ? [] : ['STAGE_LAGGING']);
   } finally { rmSync(dir, { recursive: true }); }

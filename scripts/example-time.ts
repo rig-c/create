@@ -38,3 +38,6 @@ export function retimeExample<T>(value: T): T {
 
 /** A final event after the signed narrative, without changing any existing event index. */
 export const EXAMPLE_REOPEN_AT = new Date(EXAMPLE_ANCHOR + events.length * 1000).toISOString();
+
+/** The fixed "now" for tests and generators that act after the whole narrative: twelve hours after the latest contract date. */
+export const EXAMPLE_NOW = EXAMPLE_ANCHOR + 12 * 60 * 60 * 1000;

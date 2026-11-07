@@ -1,15 +1,17 @@
 /** Synthetic values in review's published applied/2 serializer shape, not producer measurements. */
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkCorrections, correctionHash } from '../src/corrections.ts';
+import { correctionHash } from '../src/corrections.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
+import { checkCorrections, TEST_NOW, testClock } from './clock.ts';
+import { clockedCli } from './helpers.ts';
 
 const roots: string[] = [];
 afterEach(() => {
-  setSystemTime();
+  testClock.reset();
   for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 function fixture(change: (applied: JsonObject) => void) {
@@ -40,13 +42,15 @@ function command(dir: string, action: 'record' | 'resolve') {
   const args = action === 'record'
     ? ['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']
     : ['resolve', 'fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--version', '2'];
-  setSystemTime();
-  const result = Bun.spawnSync([process.execPath, 'src/cli.ts', 'correction', ...args], { cwd: process.cwd() });
+  // Capture, the corrected build and closure happen one second apart, in that order.
+  testClock.set(TEST_NOW + (action === 'record' ? 0 : 2000));
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'correction', ...args], { cwd: process.cwd() });
   if (action === 'record' && result.exitCode === 0) {
-    // The synthetic corrected build is declared after the current-clock request.
+    // The synthetic corrected build is declared after the request.
     const file = join(dir, 'project.json');
     const project = JSON.parse(readFileSync(file, 'utf8'));
-    project.versions[1].at = new Date().toISOString();
+    testClock.set(TEST_NOW + 1000);
+    project.versions[1].at = testClock.iso();
     writeFileSync(file, JSON.stringify(project, null, 2) + '\n');
   }
   return result;

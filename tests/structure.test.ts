@@ -1,11 +1,7 @@
-import { expect, test, setSystemTime, afterEach } from 'bun:test';
+import { expect, test, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { draftRigCommand } from '../src/drafts.ts';
-import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA, latestPartsApproval } from '../src/structure.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -18,9 +14,9 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
 function write(dir: string, path: string, data: string): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), data); }
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 function setup(density?: number, reopen = true): string {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'parts-review'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
     obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-19T00:00:00Z' };
@@ -36,18 +32,18 @@ function setup(density?: number, reopen = true): string {
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${name}`, '{}');
   write(dir, 'words.txt', 'Approve this synthetic structure.\r\n');
   if (reopen) {
-    setSystemTime(new Date('2026-11-19T00:00:00.500Z'));
+    testClock.set(new Date('2026-11-19T00:00:00.500Z'));
     signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
-    setSystemTime(new Date('2026-11-19T00:00:01Z'));
+    testClock.set(new Date('2026-11-19T00:00:01Z'));
     reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
-    setSystemTime(new Date('2026-11-19T00:00:02Z'));
+    testClock.set(new Date('2026-11-19T00:00:02Z'));
     signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
     advanceCommand(['parts', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
-    setSystemTime(new Date('2026-11-19T00:00:03Z'));
+    testClock.set(new Date('2026-11-19T00:00:03Z'));
     completeParts(dir);
     advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
   }
   if (!reopen) return dir;
   draftRigCommand(['shape', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
@@ -74,7 +70,7 @@ function freshRigInterview(dir: string, answerAt = '2026-11-21T00:00:00Z', appro
     const guide = structuredClone(obj(waypoint(old, id).guide)); guide.at = answerAt; guide.verbatim = 'Fresh synthetic answer after viewing parts.';
     supersede(waypoint(p, id), 'guide', guide);
   }
-  save(dir, p); setSystemTime(new Date(approvalAt));
+  save(dir, p); testClock.set(new Date(approvalAt));
   advanceCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
 }
 
@@ -127,8 +123,7 @@ test.each([false, true])('structure writer refuses ignored storage, including a 
   try { partsSign(dir, 'shape', path); throw Error('expected refusal'); } catch (error) { expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_INVALID'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
-
-import { reopenCommand } from '../src/reopen.ts';
+import { checkProject, draftRigCommand, advanceCommand, stepStatusCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
 
 test('reopen and re-approved density preserve v1 and bind v2 to its own build-time structure', () => {
   const dir = setup(10); partsSign(dir); freshRigInterview(dir);
@@ -147,12 +142,12 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   let p = read(dir); const v1 = production(1, 10, '2026-11-23T00:00:00Z'); arr(p.versions).push(v1); save(dir, p);
   expect(checkProject(dir).refusals).toEqual([]);
   const frozenV1 = JSON.stringify(v1);
-  setSystemTime(new Date('2026-11-24T00:00:00Z'));
+  testClock.set(new Date('2026-11-24T00:00:00Z'));
   reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
   p = read(dir);
   expect(latestPartsApproval(p)).toBeUndefined();
   expect(latestPartsApproval(p, Date.parse('2026-11-23T00:00:00Z'))?.draft_id).toBe('shape');
-  setSystemTime(new Date('2026-11-24T01:00:00Z'));
+  testClock.set(new Date('2026-11-24T01:00:00Z'));
   completeParts(dir);
   const root = 'derived/drafts/revised';
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: { density: 20 } } }));
@@ -161,7 +156,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   draftRigCommand(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));
   write(dir, 'evidence/revised-structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'revised', config: draft.config, entries: [{ path: '/meshes/torso', value: { density: 20 } }] }));
-  setSystemTime(new Date('2026-11-25T00:00:00Z'));
+  testClock.set(new Date('2026-11-25T00:00:00Z'));
   advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
   partsSign(dir, 'revised', 'evidence/revised-structure.json');
   freshRigInterview(dir, '2026-11-26T00:00:00Z', '2026-11-27T00:00:00Z');

@@ -1,25 +1,20 @@
 import { materializeFixture, arr, obj, retimeFixture } from './fixtures.ts';
 import { PARTS_REVIEW_SINCE } from '../src/stages.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
-import { reviewCommand } from '../src/feedback.ts';
 import { Refusal } from '../src/refusal.ts';
-import { handoffCommand } from '../src/review.ts';
 import { checkReviewPackages, PART_FILE_IDENTITY_SINCE, reviewPackageCommand } from '../src/review-package.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
-import { tempDir } from './helpers.ts';
+import { clockedCli, tempDir } from './helpers.ts';
 import { partsPackage } from './parts-package.ts';
+import { advanceCommand, checkProject, reviewCommand, handoffCommand, signoffCommand, testClock } from './clock.ts';
 
 const roots: string[] = [];
 afterEach(() => {
-  setSystemTime();
+  testClock.reset();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true });
 });
 const sha = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -37,7 +32,7 @@ function approveParts(dir: string): void {
 }
 /** Two stable source cohorts allow a reader control without forging a published package inventory. */
 function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = false): string {
-  setSystemTime(new Date(at));
+  testClock.set(new Date(at));
   const preParts = Date.parse(at) < Date.parse(PARTS_REVIEW_SINCE);
   const dir = join(tempDir(), 'project');
   materializeFixture(dir, p => {
@@ -212,7 +207,7 @@ for (const artifact of ['parts/torso.png', 'parts.json']) for (const boundary of
   const args = boundary === 'acceptance'
     ? ['review', '1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']
     : ['handoff', dir, '--json'];
-  const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), ...args], { env: process.env });
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...args], { env: process.env });
   expect(result.exitCode).toBe(1);
   expect(result.stderr.toString()).toContain('REVIEW_PACKAGE_CHANGED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);

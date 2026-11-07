@@ -36,7 +36,7 @@ export const SIGNOFF_HELP = `signoff:
   Fills null checkpoints from checkpoint_proposed and hashes covered steps after filling.
   Existing checkpoints are preserved. Parts-review validates evidence and the map before recording.`;
 
-export function signoffCommand(args: string[]): { stdout: string; exit: number } {
+export function signoffCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
@@ -66,7 +66,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
-  const existingLag = checkProject(dir, project).refusals.find(f => f.code === 'STAGE_LAGGING');
+  const existingLag = checkProject(dir, project, { now }).refusals.find(f => f.code === 'STAGE_LAGGING');
   if (existingLag !== undefined) refuse(existingLag.code, existingLag.message);
   if (!Array.isArray(project.signoffs)) refuse('SIGNOFF_MALFORMED', 'signoffs must be a list');
   const checkpointId = opts['--checkpoint'];
@@ -145,7 +145,7 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     if (typeof value !== 'boolean') refuse('SIGNOFF_CHECKPOINT_INVALID', `${String(step.id)}: checkpoint needs a boolean user answer or a decided boolean delegation`);
   }
   const verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
-  const at = new Date().toISOString();
+  const at = new Date(now).toISOString();
   if (evidence !== undefined) {
     const refusals: Finding[] = [];
     const record = { evidence, at, ...(diffMap === undefined ? {} : { diff_map: diffMap }) };
@@ -196,15 +196,15 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
     if (!hasStageOrder(project)) project.interview.order = { spec: STAGE_ORDER_SPEC, adopted_at: at };
     project.stage_values = [...STAGE_VALUES];
   }
-  assertDirectionApproval(dir, project, stage);
-  assertCorrectionApproval(dir, project, stage, signoff);
+  assertDirectionApproval(dir, project, stage, now);
+  assertCorrectionApproval(dir, project, stage, now, signoff);
   const target = selectSignoffTarget(dir, project, stage, opts['--version']);
   if (target !== undefined) signoff.target = target;
   project.signoffs.push(signoff);
   const reopens = collectReopens(project, []);
   const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
   const ownLag = signoff.checkpoint === null && frontier?.index === project.signoffs.length - 1;
-  const candidateRefusals = checkProject(dir, project).refusals;
+  const candidateRefusals = checkProject(dir, project, { now }).refusals;
   const pendingOwnAdvance = (finding: Finding): boolean => ownLag && finding.code === 'STAGE_LAGGING';
   const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f));
   if (progress !== undefined) refuse(progress.code, progress.message);

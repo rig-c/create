@@ -154,7 +154,7 @@ export const DRAFT_RIG_HELP = `draft-rig:
   Standalone rig output requires --parts; only an unambiguous build root supplies it implicitly.
   Config/output association is declared, not measured reproducibility or producer provenance.`;
 
-export function draftRigCommand(args: string[]): { stdout: string; exit: number } {
+export function draftRigCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
@@ -194,13 +194,13 @@ export function draftRigCommand(args: string[]): { stdout: string; exit: number 
     if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
     const pkgFile = join(installed, 'package.json');
     const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { name: string; version: string };
-    record = { id, kind: 'draft-rig', at: new Date().toISOString(), producer: { name: pkg.name, version: pkg.version }, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
+    record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer: { name: pkg.name, version: pkg.version }, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
   } catch (error) { refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`); }
   if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
   project.drafts = [...asArray(project.drafts), record];
   const errors: Finding[] = [];
   checkDrafts(dir, project, errors);
-  const first = errors[0] ?? checkProject(dir, project).refusals[0];
+  const first = errors[0] ?? checkProject(dir, project, { now }).refusals[0];
   if (first !== undefined) refuse(first.code, first.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(record, null, 2) : `draft-rig: recorded ${id}; no production version created`, exit: 0 };

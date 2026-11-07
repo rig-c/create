@@ -1,20 +1,18 @@
-import { advanceCommand } from '../src/progress-writers.ts';
+
 import { retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject, collectItems, isObject, asArray } from '../src/check.ts';
+import { collectItems, isObject, asArray } from '../src/check.ts';
 import { CHOICE_SPEC, CHOICE_ORDER_SPEC, sha256, validateSet, assembleFragments, checkChoiceConstraints, type ChoiceError } from '../src/choices.ts';
-import { interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand } from '../src/choice-writers.ts';
 import { FRAMING_IDS } from '../src/waypoints.ts';
 import { GUIDE_INTERVIEW, hasStageOrder, stageIndex } from '../src/stages.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, obj, arr, waypoint, framing } from './fixtures.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 
-afterEach(()=>setSystemTime());
+afterEach(()=>testClock.reset());
 const load=(dir:string):JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
 const save=(dir:string,p:JsonObject):void=>writeFileSync(join(dir,'project.json'),JSON.stringify(p,null,2)+'\n');
 const current=(p:JsonObject,q:string)=>collectItems(p,{collection:null}).find(i=>i.id===q)!;
@@ -32,7 +30,7 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
   const set=JSON.parse(readFileSync(join(dir,String(original.path)),'utf8')) as JsonObject;
   set.id=`test-${question}`;set.drafted_at=source?'2026-11-10T14:10:00Z':'2026-11-11T11:20:00Z';
   const path=`evidence/interview/test-${question}.json`;const bytes=JSON.stringify(set,null,2)+'\n';writeFileSync(join(dir,path),bytes);
-  setSystemTime(new Date(source?'2026-11-10T14:11:00Z':'2026-11-11T11:21:00Z'));
+  testClock.set(new Date(source?'2026-11-10T14:11:00Z':'2026-11-11T11:21:00Z'));
   interviewOptionsCommand([question,dir,'--file',path]);
   return{dir,set,path,hash:sha256(Buffer.from(bytes))};
 }
@@ -68,14 +66,14 @@ test('missing/duplicate picks and unknown options refuse without changing projec
 });
 test('picks-file round trip equals flags byte for byte, including exact Unicode note',()=>{
   const a=working('reference'),b=working('reference');const note='끝 줄\n e\u0301  \n';writeFileSync(join(a.dir,'note.txt'),note);
-  const at=new Date().toISOString();const payload={schema:'rig-review/interview-picks@1',set:{path:b.path,sha256:b.hash},picks:[{ask:'reference',option_id:'keep'}],note,by:'user',at};
+  const at=new Date(testClock.now()).toISOString();const payload={schema:'rig-review/interview-picks@1',set:{path:b.path,sha256:b.hash},picks:[{ask:'reference',option_id:'keep'}],note,by:'user',at};
   writeFileSync(join(b.dir,'evidence/picks.json'),JSON.stringify(payload));
   const left=interviewAnswerCommand(['reference',a.dir,'--set',a.path,'--sha256',a.hash,'--by','user','--pick','reference=keep','--note-file',join(a.dir,'note.txt')]);
   const right=interviewAnswerCommand(['reference',b.dir,'--picks-file','evidence/picks.json']);
   expect(right).toBe(left);expect(obj(JSON.parse(right)).verbatim).toBe(String(obj(arr(obj(arr(b.set.asks)[0]).options)[0]).label)+'\n'+String(obj(arr(obj(arr(b.set.asks)[0]).options)[0]).effect)+'\n'+note);
 });
 test('picks-file stale sha, unknown keys, symlink traversal and exclusivity refuse byte-identically',()=>{
-  const w=working('reference');const payload:JsonObject={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:'0'.repeat(64)},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date().toISOString()};const path='evidence/picks.json';
+  const w=working('reference');const payload:JsonObject={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:'0'.repeat(64)},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date(testClock.now()).toISOString()};const path='evidence/picks.json';
   const before=readFileSync(join(w.dir,'project.json'));const ingest=()=>interviewAnswerCommand(['reference',w.dir,'--picks-file',path]);
   writeFileSync(join(w.dir,path),JSON.stringify(payload));expect(code(ingest)).toBe('INTERVIEW_OPTIONS_STALE');
   obj(payload.set).sha256=w.hash;payload.value='injected';writeFileSync(join(w.dir,path),JSON.stringify(payload));expect(code(ingest)).toBe('INTERVIEW_CHOICE_INVALID');delete payload.value;
@@ -87,11 +85,11 @@ test('Other with multiline Unicode and explicit fragment preserves text; unresol
   const w=working('reference');const words='첫 줄\nSecond line  \ne\u0301';writeFileSync(join(w.dir,'other.txt'),words);writeFileSync(join(w.dir,'fragment.json'),JSON.stringify('custom'));
   const other=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=other','--other',`reference=${join(w.dir,'other.txt')}`]));
   expect(other.value).toBeNull();expect(other.asks).toEqual([{id:'reference',state:'other-pending'}]);expect(other.choice.picks[0].other_text).toBe(words);
-  const before=readFileSync(join(w.dir,'project.json'));setSystemTime(new Date('2026-11-10T16:10:00Z'));const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
+  const before=readFileSync(join(w.dir,'project.json'));testClock.set(new Date('2026-11-10T16:10:00Z'));const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
   expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'yes.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(snapshot);
   // A new tailored option preserves the pending record as history; its date is not rewritten.
   const next=structuredClone(w.set);next.id='resolved-reference';next.drafted_at='2026-11-10T14:12:00Z';obj(arr(obj(arr(next.asks)[0]).options)[0]).label=words;obj(arr(obj(arr(next.asks)[0]).options)[0]).fragment='custom';obj(arr(obj(arr(next.asks)[0]).options)[0]).effect=`As answered on ${String(other.at)} in review questionnaire`;
-  const path='evidence/interview/resolved-reference.json';const bytes=JSON.stringify(next);writeFileSync(join(w.dir,path),bytes);setSystemTime(new Date('2026-11-10T14:13:00Z'));interviewOptionsCommand(['reference',w.dir,'--file',path]);
+  const path='evidence/interview/resolved-reference.json';const bytes=JSON.stringify(next);writeFileSync(join(w.dir,path),bytes);testClock.set(new Date('2026-11-10T14:13:00Z'));interviewOptionsCommand(['reference',w.dir,'--file',path]);
   const resolved=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',path,'--sha256',sha256(Buffer.from(bytes)),'--by','user','--pick','reference=keep']));expect(resolved.value).toBe('custom');expect(arr(current(load(w.dir),'reference').record.history)).toContainEqual(other);expect(before.length).toBeGreaterThan(0);
 });
 test('mixed auto needs exact ordered fragments/covers and blocks approval until decided',()=>{
@@ -122,7 +120,7 @@ test('changed context bytes, reopened context and unavailable viewed draft refus
 });
 test('future-dated unadopted answers stay legacy; explicit adoption preserves answer bytes',()=>{
   const dir=fixture(p=>{obj(obj(p.interview).order).spec='rig-create/stage-order@1';delete obj(obj(p.interview).order).choices_adopted_at;framing(p,'reference').answer={delegated:false,by:'user',at:'2026-11-22T00:00:00Z',verbatim:'None.',value:'none',source:'chat'};},'example-project.json');
-  const before=JSON.stringify(current(load(dir),'reference').raw);setSystemTime(new Date('2026-12-01T00:00:00Z'));interviewOptionsCommand(['--adopt',dir]);
+  const before=JSON.stringify(current(load(dir),'reference').raw);testClock.set(new Date('2026-12-01T00:00:00Z'));interviewOptionsCommand(['--adopt',dir]);
   expect(obj(obj(load(dir).interview).order).spec).toBe(CHOICE_ORDER_SPEC);expect(JSON.stringify(current(load(dir),'reference').raw)).toBe(before);resignAfterChange(dir);expect(checkProject(dir).refusals).toEqual([]);expect(checkProject(dir).warnings.map(f=>f.code)).toContain('CHOICE_ANSWERS_LEGACY');
 });
 
@@ -140,10 +138,8 @@ test('landed constrained Other is checked even when another constrained ask is s
   rewriteSet(w,s=>{const options=arr(obj(arr(s.asks)[1]).options);obj(options[1]).fragment={ground:'plain'};});
   expect(code(()=>checkChoiceConstraints(w.set,choice,new Map([['ground',{ground:'plain'}]])))).toBe('INTERVIEW_CHOICE_CONSTRAINT');
 });
-
-import { reopenCommand } from '../src/reopen.ts';
 test('a later reopen preserves the historical choice but refuses selecting its stale set again',()=>{
-  const w=working();answer(w);setSystemTime(new Date('2026-11-11T11:22:00Z'));writeFileSync(join(w.dir,'words.txt'),'Review parts again.');
+  const w=working();answer(w);testClock.set(new Date('2026-11-11T11:22:00Z'));writeFileSync(join(w.dir,'words.txt'),'Review parts again.');
   reopenCommand(['parts',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);expect(checkProject(w.dir).refusals).toEqual([]);
   const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>interviewOptionsCommand(['motion',w.dir,'--file',w.path]))).toBe('INTERVIEW_OPTIONS_STALE');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
 });
@@ -171,6 +167,7 @@ test('a mixed decision cannot overwrite a user fragment through merge',()=>{
 
 import { generateExampleChoices } from '../scripts/generate-example-choices.ts';
 import { tempDir } from './helpers.ts';
+import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
 test('the public-writer consumer fixture and raw option files reproduce exactly',()=>{
   const outputs=generateExampleChoices(join(tempDir(),'choice-generation'));
   for(const[path,bytes]of Object.entries(outputs))expect(readFileSync(join(import.meta.dir,'../templates',path),'utf8')).toBe(bytes);
@@ -193,7 +190,7 @@ test('pending Other is legal for rig_type and a projection-bearing guide until q
     const w=working(question);writeFileSync(join(w.dir,'words.txt'),'A different choice.');const ask=question==='assemble'?'cut':'rig_type';
     const flags=arr(w.set.asks).flatMap(a=>['--pick',`${String(obj(a).id)}=${obj(a).id===ask?'other':'keep'}`]);
     const selected=JSON.parse(interviewAnswerCommand([question,w.dir,'--set',w.path,'--sha256',w.hash,'--by','user',...flags,'--other',`${ask}=${join(w.dir,'words.txt')}`]));expect(selected.value).toBeNull();expect(checkProject(w.dir).refusals).toEqual([]);
-    setSystemTime(new Date('2026-11-10T16:10:00Z'));const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+    testClock.set(new Date('2026-11-10T16:10:00Z'));const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
   }
 });
 
@@ -212,7 +209,7 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   expect(checkProject(w.dir).refusals).toEqual([]);
   const picks=arr(w.set.asks).map(a=>`${String(obj(a).id)}=${obj(a).id==='projection'?'alternative':obj(a).id==='ground'?'auto':'keep'}`);
   const selected=JSON.parse(answer(w,picks));expect(selected.asks).toContainEqual({id:'ground',state:'delegated'});expect(checkProject(w.dir).refusals).toEqual([]);
-  writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');setSystemTime(new Date('2026-11-10T16:10:00Z'));
+  writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');testClock.set(new Date('2026-11-10T16:10:00Z'));
   signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
   expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
   advanceCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
@@ -252,13 +249,13 @@ test('OVERRIDE_REASON_MISSING writer guard refuses missing/blank reasons byte-id
 });
 test('override picks-file and fresh replacement require exact reasons, preserve the old collection reference and check at 0/0',()=>{
   const w=inheritedWorking();const parent=readFileSync(w.parentFile);
-  const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date().toISOString()};
+  const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date(testClock.now()).toISOString()};
   writeFileSync(join(w.dir,'evidence/picks.json'),JSON.stringify(payload));
   const selected=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--picks-file','evidence/picks.json','--why-file',w.reason]));
   expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:'2026-11-09T00:00:00Z'});expect(selected.why_verbatim).toBe(w.why);
   expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);expect(checkProject(w.dir).warnings).toEqual([]);
   const q=obj(arr(obj(w.parent.interview).framing)[0]);q.history=[q.answer as Json];q.answer={...obj(q.answer),at:'2026-11-10T14:12:00Z'};writeFileSync(w.parentFile,JSON.stringify(w.parent));const changedParent=readFileSync(w.parentFile);
-  setSystemTime(new Date('2026-11-10T14:13:00Z'));interviewOptionsCommand(['reference',w.dir,'--file',w.path]);
+  testClock.set(new Date('2026-11-10T14:13:00Z'));interviewOptionsCommand(['reference',w.dir,'--file',w.path]);
   const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>overrideAnswer(w))).toBe('OVERRIDE_REASON_MISSING');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
   writeFileSync(w.reason,'A newly stated reason.\n');const replacement=JSON.parse(overrideAnswer(w,['--why-file',w.reason]));
   expect(replacement.overrides).toEqual(selected.overrides);expect(replacement.why_verbatim).toBe('A newly stated reason.\n');expect(arr(framing(load(w.dir),'reference').history)).toContainEqual(selected);
@@ -290,7 +287,7 @@ for(const state of ['withdrawn','per-member'] as const)for(const input of ['flag
     let selected:JsonObject={};
     if(input==='flags')expect(code(()=>{selected=JSON.parse(overrideAnswer(w));})).toBe('NO_REFUSAL');
     else{
-      const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date().toISOString()};
+      const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date(testClock.now()).toISOString()};
       writeFileSync(join(w.dir,'evidence/picks.json'),JSON.stringify(payload));expect(code(()=>{selected=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--picks-file','evidence/picks.json']));})).toBe('NO_REFUSAL');
     }
     expect(selected.basis).toBe('own');expect(selected).not.toHaveProperty('overrides');expect(selected).not.toHaveProperty('why_verbatim');expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);

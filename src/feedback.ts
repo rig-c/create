@@ -345,7 +345,7 @@ export function readProject(dir: string): { file: string; project: JsonObject } 
 }
 
 /** Appends one verdict to `versions[v<n>].verdicts[]`, writes not-asked sentences into their guides, and saves project.json. Refuses before writing anything. */
-export function recordVerdict(projectDirArg: string, input: ReviewInput): Recorded {
+export function recordVerdict(projectDirArg: string, input: ReviewInput, now: number): Recorded {
   if (!isHuman(input.by)) refuse('REVIEW_NOT_HUMAN', 'review must name a human, not agent');
   if (input.at !== undefined && !Number.isFinite(Date.parse(input.at))) refuse('REVIEW_OPTION_INVALID', '--at needs a valid timestamp', USAGE_EXIT);
   const dir = resolve(projectDirArg);
@@ -442,7 +442,7 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
   }
 
   // Everything checked: write.
-  const at = input.at ?? new Date().toISOString();
+  const at = input.at ?? new Date(now).toISOString();
   const verdicts = Array.isArray(version.verdicts) ? version.verdicts : [];
   version.verdicts = verdicts;
   const verdict: JsonObject = {
@@ -470,9 +470,9 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput): Record
     additions.push({ by: input.by, at, verbatim: r.addition, value: input.values[r.id] ?? null, source: feedbackSource(input.version) });
     out.push({ ...r, addition: `${item.path}.additions[${additions.length - 1}]` });
   }
-  if (verdict.verdict === 'accepted') assertDirectionApproval(dir, project, String(verdict.review), input.version);
+  if (verdict.verdict === 'accepted') assertDirectionApproval(dir, project, String(verdict.review), now, input.version);
   if (verdict.verdict === 'accepted' && verdict.review === 'rig-review') assertFigureMaskApproval(dir, project, input.version);
-  if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review));
+  if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review), now);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
 }
@@ -512,7 +512,7 @@ function pair(flag: string, s: string | undefined): [string, string] {
   return [s.slice(0, eq), s.slice(eq + 1)];
 }
 
-export function reviewCommand(args: string[]): { stdout: string; exit: number } {
+export function reviewCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const items: ItemArg[] = [];
   const answersFeedback: { version: number; verdict: number }[] = [];
@@ -590,7 +590,7 @@ export function reviewCommand(args: string[]): { stdout: string; exit: number } 
     values,
     at: opts['--at'],
     answersFeedback,
-  });
+  }, now);
   if (json) return { stdout: JSON.stringify(r, null, 2), exit: 0 };
   const lines = [
     `review: recorded ${r.verdict_path} — ${String(r.verdict.verdict)} at ${String(r.verdict.review)} by ${String(r.verdict.by)}, ${String(r.verdict.at)}`,

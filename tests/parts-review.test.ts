@@ -6,11 +6,10 @@
  * existed, which is warned about and never given a sign-off nobody made.
  */
 import { describe, expect, test } from 'bun:test';
-
-import { checkProject } from '../src/check.ts';
 import { PARTS_REVIEW_SINCE, STAGE_VALUES, STAGES } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, codes, fixture, historicalFixture, obj, rehashSignoffs, step, withCode } from './fixtures.ts';
+import { checkProject } from './clock.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
 const LATER_RIG_STEPS = ['bones', 'meshes', 'constraints', 'motion'];

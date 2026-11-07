@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step, withCode } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
+import { checkProject, signoffCommand, testClock } from './clock.ts';
 
 function read(dir: string): JsonObject {
   return JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -23,11 +21,11 @@ function sign(dir: string, stage = 'plan-approved', ids?: string): void {
   if (ids !== undefined) args.push('--steps', ids);
   expect(signoffCommand(args).exit).toBe(0);
 }
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 
 describe('signed step contents', () => {
   test('the command signs, an edited bar refuses, and re-signing clears it', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture();
     sign(dir);
     expect(withCode(checkProject(dir), 'STEP_EDITED_AFTER_SIGNOFF')).toEqual([]);
@@ -37,14 +35,14 @@ describe('signed step contents', () => {
     expect(refusal[0]?.message).toContain('signoffs[10]');
     expect(refusal[0]?.message).toContain('sign again');
     expect(cli(['interview', '--check', dir], dir, gitEnv()).code).toBe(1);
-    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(new Date('2026-11-21T00:00:00Z'));
     sign(dir, 'plan-approved', 'bones');
     expect(checkProject(dir).ok).toBe(true);
     expect(cli(['interview', '--check', dir], dir, gitEnv()).code).toBe(0);
   });
 
   test('a pending signed step is checked before it runs', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture((p) => { step(p, 'bones').status = 'pending'; });
     sign(dir);
     edit(dir, (p) => { step(p, 'bones').does = 'Use a different joint layout.'; });
@@ -52,7 +50,7 @@ describe('signed step contents', () => {
   });
 
   test('a subset re-sign does not approve another edited step', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture();
     sign(dir);
     edit(dir, (p) => {
@@ -64,11 +62,11 @@ describe('signed step contents', () => {
   });
 
   test('the latest date wins over array position', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture();
     sign(dir);
     edit(dir, (p) => { step(p, 'bones').bar = 'New bar.'; });
-    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(new Date('2026-11-21T00:00:00Z'));
     sign(dir, 'plan-approved', 'bones');
     edit(dir, (p) => {
       const records = arr(p.signoffs);
@@ -78,7 +76,7 @@ describe('signed step contents', () => {
   });
 
   test('post steps read post approval hashes', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture();
     sign(dir, 'post-interview');
     edit(dir, (p) => { step(p, 'camera').bar = 'New camera bar.'; });
@@ -88,7 +86,7 @@ describe('signed step contents', () => {
   });
 
   test('execution status changes preserve approval', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture();
     sign(dir);
     edit(dir, (p) => { step(p, 'bones').status = 'in-progress'; });
@@ -107,7 +105,7 @@ describe('signed step contents', () => {
   });
 
   test('a newer legacy approval warns instead of falling back to an older hash', () => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture();
     sign(dir);
     edit(dir, (p) => { step(p, 'bones').bar = 'Changed bar.'; });
@@ -119,7 +117,7 @@ describe('signed step contents', () => {
   });
 
   test.each([null, {}, { bones: 42 }] as Json[])('a present malformed or incomplete hash record refuses', (hashes) => {
-    setSystemTime(new Date('2026-11-20T00:00:00Z'));
+    testClock.set(new Date('2026-11-20T00:00:00Z'));
     const dir = fixture();
     sign(dir, 'plan-approved', 'bones');
     edit(dir, (p) => { obj(arr(p.signoffs).at(-1)).step_hashes = hashes; });

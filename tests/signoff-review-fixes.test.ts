@@ -1,21 +1,20 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
 import { checkSignoffTarget } from '../src/signoff-target.ts';
-import { signoffCommand } from '../src/signoff.ts';
-import { checkProject } from '../src/check.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
+import { signoffCommand, checkProject, testClock } from './clock.ts';
 
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p, null, 2) + '\n');
 const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-interview.json'), 'utf8')) as { versions: JsonObject[] };
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 function setup(): string {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => { p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'rig-review'); });
   writeFileSync(join(dir, 'words.txt'), 'Approve this exact version.\n');
   return dir;

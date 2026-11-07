@@ -1,13 +1,12 @@
 import { expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { checkDrafts, draftRigCommand, draftVersionFindings } from '../src/drafts.ts';
-import { handoff } from '../src/review.ts';
+import { checkDrafts, draftVersionFindings } from '../src/drafts.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { checkProject, draftRigCommand, handoff } from './clock.ts';
 
 function write(dir: string, path: string, bytes = '{}'): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); }
 function draft(build = false): { dir: string; args: string[] } {

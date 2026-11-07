@@ -1,18 +1,18 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { correctionFixture } from './correction-fixture.ts';
-import { correctionCommand } from '../src/correction-writers.ts';
-import { checkCorrections, correctionHash } from '../src/corrections.ts';
+import { correctionHash } from '../src/corrections.ts';
 import { checkAppliedReview } from '../src/applied-review.ts';
 import { configInputReferences } from '../src/config-inputs.ts';
-import { checkDrafts, draftRigCommand } from '../src/drafts.ts';
+import { checkDrafts } from '../src/drafts.ts';
 import { fixture } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
+import { correctionCommand, checkCorrections, draftRigCommand, testClock } from './clock.ts';
 
 const roots: string[] = [];
-afterEach(() => { setSystemTime(); for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { testClock.reset(); for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function sample(kind: 'rig' | 'draft', state: 'honest' | 'absent' | 'altered', legacy: boolean) {
   const dir = mkdtempSync(join(tmpdir(), 'named-inputs-')); roots.push(dir); correctionFixture(dir, 'rig');
   const load = (path: string) => JSON.parse(readFileSync(join(dir, path), 'utf8'));
@@ -39,7 +39,7 @@ function sample(kind: 'rig' | 'draft', state: 'honest' | 'absent' | 'altered', l
   mkdirSync(join(dir, 'derived/review/v1'), { recursive: true });
   writeFileSync(join(dir, 'derived/review/v1/config.json'), readFileSync(join(dir, 'evidence/source-config.json')));
   save('evidence/feedback.json', s); save('project.json', p);
-  setSystemTime(new Date(legacy ? '2026-11-04T09:10:00Z' : '2026-11-06T09:10:00Z'));
+  testClock.set(new Date(legacy ? '2026-11-04T09:10:00Z' : '2026-11-06T09:10:00Z'));
   return { dir, load, save, record: () => correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', kind === 'rig' ? 'rig-review' : 'parts-review', '--by', 'user', ...(kind === 'rig' ? ['--version', '1'] : ['--draft', 'synthetic']), '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']) };
 }
 for (const kind of ['rig', 'draft'] as const) for (const legacy of [false, true]) for (const state of ['honest', 'absent', 'altered'] as const) {
@@ -68,7 +68,7 @@ for (const kind of ['rig', 'draft'] as const) for (const legacy of [false, true]
           writeFileSync(join(f.dir, 'evidence/after/skeleton.model.json'), readFileSync(join(f.dir, 'evidence/outcome.model.json')));
           project.drafts.push({ ...project.drafts[0], id: 'after', at: `${hour}T10:00:00Z`, files: [{ path: 'evidence/after/skeleton.model.json', sha256: correctionHash(readFileSync(join(f.dir, 'evidence/after/skeleton.model.json'))) }] });
         }
-        f.save('project.json', project); setSystemTime(new Date(`${hour}T11:00:00Z`));
+        f.save('project.json', project); testClock.set(new Date(`${hour}T11:00:00Z`));
         expect(correctionCommand(['resolve', 'fix', f.dir, '--by', 'agent', '--reasoning-file', join(f.dir, 'reasoning.txt'), ...(kind === 'rig' ? ['--version', '2'] : ['--draft', 'after'])]).exit).toBe(0);
         const closed = { dir: f.dir, project: f.load('project.json'), refusals: [] as Finding[], warnings: [] as Finding[] };
         checkCorrections(closed); expect(closed.refusals).toEqual([]); expect(closed.warnings).toEqual([]);
@@ -155,7 +155,7 @@ for (const legacy of [false, true]) test(`older loader named inputs ${legacy ? '
 });
 test('older loader and a config with no named files retain the original correction path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'old-loader-no-files-')); roots.push(dir);
-  correctionFixture(dir, 'rig'); oldParts(dir); setSystemTime(new Date('2026-11-06T09:10:00Z'));
+  correctionFixture(dir, 'rig'); oldParts(dir); testClock.set(new Date('2026-11-06T09:10:00Z'));
   expect(configInputReferences(dir, { note: 'no files' })).toEqual([]);
   expect(configInputReferences(dir, { generation: { control: { skeleton: 'stand_sides' } } })).toEqual([]);
   expect(correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']).exit).toBe(0);

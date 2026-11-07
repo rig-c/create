@@ -19,10 +19,9 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { appendFileSync, cpSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
+import { checkProject } from './clock.ts';
 
 const RELEASE = join(import.meta.dir, 'fixtures', 'rig-review-1.5.0');
 const VERDICT = 'evidence/parts-review.json';

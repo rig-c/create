@@ -1,8 +1,11 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { testClock } from './clock.ts';
 
 export const CLI = join(import.meta.dir, '..', 'src', 'cli.ts');
+/** The CLI process at the suite's current instant (tests/cli-at.ts): spawn `[process.execPath, ...clockedCli(), ...args]`. */
+export const clockedCli = (): string[] => [join(import.meta.dir, 'cli-at.ts'), testClock.iso()];
 
 /** A fresh folder under the OS temp dir — never inside the repo, whose node_modules would leak in. */
 export function tempDir(): string {
@@ -37,5 +40,5 @@ export function run(cmd: string[], cwd: string, env: Record<string, string>): Ru
 }
 
 export function cli(args: string[], cwd: string, env: Record<string, string>): Run {
-  return run([process.execPath, CLI, ...args], cwd, env);
+  return run([process.execPath, ...clockedCli(), ...args], cwd, env);
 }

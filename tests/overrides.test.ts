@@ -2,11 +2,11 @@ import { resignAfterChange } from './fixtures.ts';
 import { expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
 import { OVERRIDDEN_ANSWERS_SINCE } from '../src/overrides.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { fixture, framing, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 const source: JsonObject = { delegated: false, by: 'user', at: '2026-11-04T00:00:00Z', verbatim: 'Synthetic collection reference.', value: 'none' };
 function member(edit: (a: JsonObject) => void = () => {}, parentEdit: (c: JsonObject) => void = () => {}): string {

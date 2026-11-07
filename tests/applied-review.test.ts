@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { checkAppliedReview } from '../src/applied-review.ts';
-import { checkProject } from '../src/check.ts';
 import { type JsonObject } from '../src/templates.ts';
 import { fixture, obj, version } from './fixtures.ts';
 import { run } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });

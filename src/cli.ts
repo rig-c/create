@@ -92,8 +92,11 @@ ${REVIEW_PACKAGE_HELP}
 ${SPLIT_CAPTIONS_HELP}
 `;
 
-/** A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1). */
-type Command = (args: string[]) => string | CommandResult;
+/**
+ * A command prints what it returns; a string exits 0, a CommandResult chooses its exit code (a report with refusals exits 1).
+ * `now` is the instant the command runs at, which every written date and every "not in the future" check uses.
+ */
+type Command = (args: string[], now: number) => string | CommandResult;
 
 function version(): string {
   const pkg: unknown = JSON.parse(readFileSync(join(import.meta.dir, '..', 'package.json'), 'utf8'));
@@ -103,9 +106,9 @@ function version(): string {
   return 'unknown';
 }
 
-function initCommand(args: string[]): string {
+function initCommand(args: string[], now: number): string {
   if (args.includes('--collection') || args.includes('--member')) {
-    const made = collectionInitCommand(args);
+    const made = collectionInitCommand(args, now);
     if (made.installError !== null) {
       process.stdout.write(`${made.stdout}\n`);
       refuse('INIT_INSTALL_FAILED', `bun install failed in ${made.dir}; the collection and its first commit are in place. Run bun install there, then commit bun.lock.\n${made.installError}`);
@@ -123,7 +126,7 @@ function initCommand(args: string[]): string {
   if (positional.length > 1) {
     refuse('INIT_TOO_MANY_ARGUMENTS', `init takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   }
-  const result = initProject(positional[0] as string, { install });
+  const result = initProject(positional[0] as string, { install, now });
   if (result.installError !== null) {
     process.stdout.write(`${describeInit(result)}\n`);
     refuse(
@@ -160,7 +163,12 @@ const COMMANDS: Record<string, Command> = {
   'split-captions': splitCaptionsCommand,
 };
 
-export function main(argv: string[]): number {
+/**
+ * Run one command at `now` (ms since the epoch). The process entry below is the
+ * only place create reads the wall clock; tests and scripts pass a fixed instant
+ * (README.md "The clock").
+ */
+export function main(argv: string[], now: number): number {
   const [first, ...rest] = argv;
   try {
     if (first === undefined || first === '--help' || first === '-h' || first === 'help') {
@@ -175,7 +183,7 @@ export function main(argv: string[]): number {
     if (command === undefined) {
       refuse('UNKNOWN_COMMAND', `no command named ${first} (see rig-create --help)`, USAGE_EXIT);
     }
-    const result = command(rest);
+    const result = command(rest, now);
     if (typeof result === 'string') {
       process.stdout.write(`${result}\n`);
       return 0;
@@ -192,5 +200,5 @@ export function main(argv: string[]): number {
 }
 
 if (import.meta.main) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = main(process.argv.slice(2), Date.now());
 }

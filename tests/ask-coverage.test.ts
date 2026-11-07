@@ -1,9 +1,8 @@
 import { expect, test } from 'bun:test';
-import { checkProject } from '../src/check.ts';
-import { interviewCommand } from '../src/interview.ts';
 import { ASK_COVERAGE_SINCE } from '../src/ask-coverage.ts';
 import { WAYPOINT_ASKS } from '../src/waypoints.ts';
 import { arr, fixture, resignAfterChange, obj, waypoint, framing, citedSections } from './fixtures.ts';
+import { checkProject, interviewCommand } from './clock.ts';
 
 test('filled synthetic example covers every applicable ask without warnings', () => {
   const report = checkProject(fixture());

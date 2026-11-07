@@ -4,11 +4,11 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleTime, retimeExample } from '../scripts/example-time.ts';
 import { generateExampleOrder } from '../scripts/generate-example-order.ts';
-import { checkProject } from '../src/check.ts';
 import { EXAMPLE_DRAFT } from './draft-fixture.ts';
 import { fixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { readTemplate } from '../src/templates.ts';
+import { checkProject } from './clock.ts';
 
 test('signed build tools match the installed draft producers', () => {
   const installed = Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [name,

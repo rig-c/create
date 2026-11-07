@@ -5,15 +5,13 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repackageFixtureVersion } from './review-fixture.ts';
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { type CheckReport } from '../src/check.ts';
 import { FIGURE_MASK_SINCE } from '../src/figure-mask.ts';
-import { reviewCommand } from '../src/feedback.ts';
-import { handoff } from '../src/review.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { derivedCommand } from '../src/prepared-inputs.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, version, waypoint, type Mutate } from './fixtures.ts';
+import { checkProject, reviewCommand, handoff, signoffCommand } from './clock.ts';
 
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
 const json = (value: unknown) => `${JSON.stringify(value)}\n`;

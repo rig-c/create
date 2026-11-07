@@ -204,7 +204,7 @@ function startingAnswer(collection: JsonObject, collectionName: string, id: stri
  * collection.json has uncommitted changes, so that commit never carries
  * someone else's edit.
  */
-export function initMember(collectionArg: string, name: string, now = new Date()): MemberInitResult {
+export function initMember(collectionArg: string, name: string, now: Date): MemberInitResult {
   const collectionDir = resolve(collectionArg);
   if (!MEMBER_NAME_RE.test(name)) {
     refuse('INIT_MEMBER_NAME_INVALID', `member name ${JSON.stringify(name)} is not one folder name (letters, digits, '.', '_', '-'; not starting with '.', '_' or '-')`);
@@ -323,7 +323,7 @@ export function describeMemberInit(result: MemberInitResult): string {
  * member cannot be made outside `members/`, and "not a collection" is refused
  * on the folder the user named, before anything is written.
  */
-export function collectionInitCommand(args: string[]): { stdout: string; installError: string | null; dir: string } {
+export function collectionInitCommand(args: string[], now: number): { stdout: string; installError: string | null; dir: string } {
   let collection = false;
   let member = false;
   let install = true;
@@ -343,6 +343,6 @@ export function collectionInitCommand(args: string[]): { stdout: string; install
   }
   if (!install) refuse('UNKNOWN_OPTION', 'init --member does not take --no-install: a member installs nothing (the collection pins the packages)', USAGE_EXIT);
   if (positional.length !== 2) refuse('INIT_DIR_MISSING', 'init --member takes the collection folder and a member name: rig-create init --member <collection dir> <name>', USAGE_EXIT);
-  const result = initMember(positional[0] as string, positional[1] as string);
+  const result = initMember(positional[0] as string, positional[1] as string, new Date(now));
   return { stdout: describeMemberInit(result), installError: null, dir: result.dir };
 }

@@ -1,19 +1,18 @@
-import { afterEach, beforeEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { AMENDMENT_APPROVAL_GAPS, amendCommand, collectAmendments, keepByBinding } from '../src/amend.ts';
-import { checkProject, collectSignoffs, formatReport } from '../src/check.ts';
-import { correctionCommand } from '../src/correction-writers.ts';
+import { AMENDMENT_APPROVAL_GAPS, collectAmendments, keepByBinding } from '../src/amend.ts';
+import { collectSignoffs, formatReport } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
-import { collectReopens, liveSignoff, reopenCommand } from '../src/reopen.ts';
-import { handoff, readVersions } from '../src/review.ts';
-import { signoffCommand } from '../src/signoff.ts';
+import { collectReopens, liveSignoff } from '../src/reopen.ts';
+import { readVersions } from '../src/review.ts';
 import { STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, step } from './fixtures.ts';
-import { CLI, cli, gitEnv, tempDir } from './helpers.ts';
+import { CLI, cli, clockedCli, gitEnv, tempDir } from './helpers.ts';
+import { amendCommand, checkProject, correctionCommand, reopenCommand, handoff, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
@@ -38,8 +37,8 @@ const nonLive = (p: JsonObject): number[] => {
 };
 
 describe('forward human amendments', () => {
-  beforeEach(() => setSystemTime(new Date('2026-11-20T00:00:00Z')));
-  afterEach(() => setSystemTime());
+  beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
+  afterEach(() => testClock.reset());
 
   test('writer-built synthetic example names every lapsed approval and the live upstream list', () => {
     // The retained example and its assets are generated through the public writers.
@@ -144,7 +143,7 @@ describe('forward human amendments', () => {
     expect(formatReport(checkProject(dir))).toBe(formatReport(control));
     amend(dir, stage);
     if (resign) {
-      setSystemTime(new Date('2026-11-21T00:00:00Z'));
+      testClock.set(new Date('2026-11-21T00:00:00Z'));
       signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
     }
     const report = checkProject(dir);
@@ -160,7 +159,7 @@ describe('forward human amendments', () => {
     const dir = fixture();
     const before = read(dir);
     amend(dir, 'post-interview');
-    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(new Date('2026-11-21T00:00:00Z'));
     signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
     let p = read(dir);
     expect(checkProject(dir).effective_stage).toBe('post');
@@ -181,7 +180,7 @@ describe('forward human amendments', () => {
     const dir = fixture();
     amend(dir);
     const first = nonLive(read(dir));
-    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(new Date('2026-11-21T00:00:00Z'));
     amend(dir, 'post');
     expect(nonLive(read(dir))).toEqual(first);
     reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
@@ -191,7 +190,7 @@ describe('forward human amendments', () => {
   test('re-sign cannot revive an old rig or bypass candidate validation on an amended legacy project', () => {
     const dir = fixture();
     amend(dir, 'rig-review');
-    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(new Date('2026-11-21T00:00:00Z'));
     const before = readFileSync(join(dir, 'project.json'));
     refusal(() => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]), 'RIG_VERSION_UNACCEPTED');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -219,7 +218,7 @@ describe('forward human amendments', () => {
   test('the retained stage permits a new pending correction while its approval is lapsed', () => {
     const dir = fixture(() => {}, 'example-project.json');
     amend(dir, 'rig-review');
-    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(new Date('2026-11-21T00:00:00Z'));
     correctionCommand(['--adopt', dir]);
     correctionCommand(['record', dir, '--id', 'panel-fix', '--path', 'described', '--stage', 'rig-review', '--version', '2', '--by', 'owner', '--verbatim-file', words(dir)]);
     expect(checkProject(dir).refusals).toEqual([]);
@@ -286,9 +285,8 @@ describe('forward human amendments', () => {
     const dir = fixture();
     writeFileSync(join(dir, 'replacement.svg'), '<svg/>');
     const bytes = Buffer.from('\uFEFFSynthetic CLI correction.\r\n');
-    const written = Bun.spawnSync([process.execPath, '-e',
-      'import {setSystemTime} from "bun:test"; setSystemTime(new Date("2026-11-20T00:00:00Z")); const {main}=await import(process.argv[1]); process.exit(main(process.argv.slice(2)));',
-      CLI, 'amend', 'parts', dir, '--kind', 'part', '--target', 'panel', '--change', 'replacement.svg', '--by', 'owner', '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
+    const written = Bun.spawnSync([process.execPath, ...clockedCli(),
+      'amend', 'parts', dir, '--kind', 'part', '--target', 'panel', '--change', 'replacement.svg', '--by', 'owner', '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
     expect(written.exitCode).toBe(0);
     expect(Buffer.from(obj(arr(read(dir).amendments)[0]).verbatim as string)).toEqual(bytes);
     expect(JSON.parse(written.stdout.toString())).toEqual(arr(read(dir).amendments)[0]);

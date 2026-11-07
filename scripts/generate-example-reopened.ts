@@ -1,6 +1,5 @@
 import { generatorArgs } from './generator-args.ts';
 /** Retain only the public reopen writer's output; assets use the plain example materializer. */
-import { setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { reopenCommand } from '../src/reopen.ts';
@@ -12,13 +11,8 @@ export function generateExampleReopened(dir: string): Buffer {
   materializeFixture(dir);
   const words = join(dir, 'reopen-words.txt');
   writeFileSync(words, 'Reopen the synthetic parts for correction.\n');
-  try {
-    setSystemTime(new Date(EXAMPLE_REOPEN_AT));
-    reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words]);
-    return readFileSync(join(dir, 'project.json'));
-  } finally {
-    setSystemTime();
-  }
+  reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words], Date.parse(EXAMPLE_REOPEN_AT));
+  return readFileSync(join(dir, 'project.json'));
 }
 
 export function writeExampleReopened(dir: string, check: boolean): void {

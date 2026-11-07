@@ -1,16 +1,13 @@
 import { createHash } from 'node:crypto';
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
-import { reopenCommand } from '../src/reopen.ts';
 import { Refusal } from '../src/refusal.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, supersede } from './fixtures.ts';
+import { checkProject, advanceCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 function withoutPost(signed: boolean): string {
   return fixture(p => {
@@ -24,7 +21,7 @@ function words(dir: string): string { const file = join(dir, 'words.txt'); write
 
 test('the user approves an honestly empty post phase and every N/A post answer', () => {
   const dir = withoutPost(false);
-  setSystemTime(new Date('2030-01-01T00:00:00Z'));
+  testClock.set(new Date('2030-01-01T00:00:00Z'));
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
@@ -48,12 +45,12 @@ test('the user approves an honestly empty post phase and every N/A post answer',
 test('after N/A replacement, reopen moves to post-interview and its empty approval completes', () => {
   const dir = withoutPost(true);
   const original = arr(load(dir).signoffs);
-  setSystemTime(new Date('2030-01-01T00:00:00Z'));
+  testClock.set(new Date('2030-01-01T00:00:00Z'));
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
-  setSystemTime(new Date('2030-01-01T00:00:01Z'));
+  testClock.set(new Date('2030-01-01T00:00:01Z'));
   reopenCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   expect(load(dir).stage).toBe('post-interview');
-  setSystemTime(new Date('2030-01-01T00:00:02Z'));
+  testClock.set(new Date('2030-01-01T00:00:02Z'));
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
   advanceCommand(['accepted', dir, '--by', 'user', '--verbatim-file', words(dir)]);

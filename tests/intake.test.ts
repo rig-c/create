@@ -1,27 +1,24 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject, collectItems } from '../src/check.ts';
-import { interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from '../src/choice-writers.ts';
-import { intakeCommand, intakeReportCommand, intakeWarnings, intakeItem, intakeContext } from '../src/intake.ts';
+import { collectItems } from '../src/check.ts';
+import { intakeCommand, intakeWarnings, intakeItem, intakeContext } from '../src/intake.ts';
 import { OPTIONS_SPEC, sha256 } from '../src/choices.ts';
-import { signoffCommand } from '../src/signoff.ts';
-import { handoff } from '../src/review.ts';
-import { recordVerdict } from '../src/feedback.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { fixture, obj, arr, retainSignoffs } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
+import { checkProject, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
 
 const raw = readFileSync(join(import.meta.dir,'fixtures/intake/preflight.json'));
 const load=(dir:string):JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
 const save=(dir:string,p:JsonObject)=>writeFileSync(join(dir,'project.json'),JSON.stringify(p,null,2)+'\n');
 const codes=(dir:string)=>intakeWarnings(dir,load(dir)).map(w=>w.code);
-afterEach(()=>setSystemTime());
+afterEach(()=>testClock.reset());
 function outcome(action:()=>unknown):string { try {action();return 'OK';}catch(e){if(e instanceof Refusal)return e.code;throw e;} }
 function setup(hit=true) {
-  setSystemTime(new Date('2026-11-20T10:00:00Z'));
+  testClock.set(new Date('2026-11-20T10:00:00Z'));
   const dir=fixture(p=>{p.stage='parts';},'example-project.json');
   const report=JSON.parse(raw.toString()) as JsonObject;
   if(!hit)obj(obj(arr(report.layers)[0]).sides).left_px=0;
@@ -32,7 +29,7 @@ function setup(hit=true) {
   return {dir,args};
 }
 function offer(dir:string) {
-  const p=load(dir);const set:JsonObject={schema:OPTIONS_SPEC,id:'crop-choice',question:'intake_suitability',stage:'parts',drafted_by:'agent',drafted_at:new Date().toISOString(),context:intakeContext(p,Date.now()),assembly:{rule:'single'},asks:[{id:'intake_suitability',prompt:'How do you want to continue?',options:[{id:'proceed',kind:'value',label:'Proceed',effect:'Keep the painting',fragment:'proceed',recommended:true,reason:'Advice only'},{id:'another',kind:'value',label:'Choose another',effect:'Record intent to choose another',fragment:'choose-another',recommended:false},{id:'other',kind:'other',label:'Other',effect:'Record exact words',recommended:false},{id:'auto',kind:'auto',label:'Delegate',effect:'Agent decides explicitly',recommended:false}]}]};
+  const p=load(dir);const set:JsonObject={schema:OPTIONS_SPEC,id:'crop-choice',question:'intake_suitability',stage:'parts',drafted_by:'agent',drafted_at:new Date(testClock.now()).toISOString(),context:intakeContext(p,testClock.now()),assembly:{rule:'single'},asks:[{id:'intake_suitability',prompt:'How do you want to continue?',options:[{id:'proceed',kind:'value',label:'Proceed',effect:'Keep the painting',fragment:'proceed',recommended:true,reason:'Advice only'},{id:'another',kind:'value',label:'Choose another',effect:'Record intent to choose another',fragment:'choose-another',recommended:false},{id:'other',kind:'other',label:'Other',effect:'Record exact words',recommended:false},{id:'auto',kind:'auto',label:'Delegate',effect:'Agent decides explicitly',recommended:false}]}]};
   const bytes=JSON.stringify(set);writeFileSync(join(dir,'evidence/intake-options.json'),bytes);interviewOptionsCommand(['intake_suitability',dir,'--file','evidence/intake-options.json']);return sha256(Buffer.from(bytes));
 }
 function choose(dir:string,state:string) {
@@ -103,7 +100,7 @@ test('sha/spec/geometry and instrument mismatches warn; a symlink is not retaine
   const {dir,args}=setup();symlinkSync(join(dir,'evidence/intake.json'),join(dir,'evidence/link.json'));const before=readFileSync(join(dir,'project.json'));args[args.indexOf('--id')+1]='next';args[args.indexOf('--report')+1]='evidence/link.json';expect(outcome(()=>intakeReportCommand(args))).toBe('INTAKE_REPORT_INVALID');expect(readFileSync(join(dir,'project.json'))).toEqual(before);
 });
 test('report replacement requires fresh context; prior human choice cannot resolve a new HIT',()=>{
-  const {dir,args}=setup();choose(dir,'proceed');setSystemTime(new Date('2026-11-20T10:01:00Z'));args[args.indexOf('--id')+1]='new-report';intakeReportCommand(args);expect(codes(dir)).toContain('INTAKE_CHOICE_PENDING');expect(codes(dir)).not.toContain('INTAKE_CHOICE_INVALID');
+  const {dir,args}=setup();choose(dir,'proceed');testClock.set(new Date('2026-11-20T10:01:00Z'));args[args.indexOf('--id')+1]='new-report';intakeReportCommand(args);expect(codes(dir)).toContain('INTAKE_CHOICE_PENDING');expect(codes(dir)).not.toContain('INTAKE_CHOICE_INVALID');
   expect(outcome(()=>interviewOptionsCommand(['intake_suitability',dir,'--file','evidence/intake-options.json']))).toBe('INTERVIEW_OPTIONS_STALE');
 });
 test('intake is only offered in parts; later approval does not make Other pending invalid',()=>{
@@ -121,7 +118,7 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>{
       const candidate=load(dir);
       retainSignoffs(candidate,s=>s.stage!=='parts-review');save(dir,candidate);
-      setSystemTime(new Date(String(arr(p.signoffs).map(obj).find(s=>s.stage==='parts-review')!.at)));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--evidence',EXAMPLE_VERDICT,'--diff-report',EXAMPLE_DIFF_REPORT,'--component','p10-n3=in-painting:synthetic source','--component','p1000-n3=in-painting:synthetic source','--draft','example','--structure-file','evidence/structure-decisions.json']);},
+      testClock.set(new Date(String(arr(p.signoffs).map(obj).find(s=>s.stage==='parts-review')!.at)));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--evidence',EXAMPLE_VERDICT,'--diff-report',EXAMPLE_DIFF_REPORT,'--component','p10-n3=in-painting:synthetic source','--component','p1000-n3=in-painting:synthetic source','--draft','example','--structure-file','evidence/structure-decisions.json']);},
     ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),

@@ -6,17 +6,18 @@
  * Verdicts are synthetic, written field for field as rig-review's parts view
  * writes them (tests/parts-package.ts).
  */
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { type CheckReport } from '../src/check.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { arr, fixture, historicalFixture, obj, rehashSignoffs, step, type Mutate } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, asciiPartImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
+import { checkProject, testClock } from './clock.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
 const LATER_RIG_STEPS = ['bones', 'meshes', 'constraints', 'motion'];
@@ -326,4 +327,4 @@ describe('containment follows links: a symlink out of the project is an escape',
   });
 });
 
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());

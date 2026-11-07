@@ -1,5 +1,4 @@
 /** A synthetic lifecycle with declared inputs and writer-produced create records. */
-import { setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -152,9 +151,9 @@ export function validateChainSteps(steps: ChainStep[]): void {
   }
 }
 
-/** The finished record, including seeded declarations, passes the ordinary project checker. */
-export function checkExampleChain(dir: string): ReturnType<typeof checkProject> {
-  const report = checkProject(dir);
+/** The finished record, including seeded declarations, passes the ordinary project checker at `now`. */
+export function checkExampleChain(dir: string, now: number): ReturnType<typeof checkProject> {
+  const report = checkProject(dir, undefined, { now });
   if (report.refusals.length) throw new Error(JSON.stringify(report.refusals));
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   for (const input of asArray(project.inputs).filter(isObject)) {
@@ -176,8 +175,10 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     checkpoints.push({ stage, name, chain_step: steps.length, files: chainFiles(dir), awaits, act });
   };
   const originalCwd = process.cwd();
+  // Each writer runs at its own synthetic instant, one second after the last.
   let clock = Date.parse('2026-11-06T01:00:00Z');
-  const tick = (): void => { setSystemTime(new Date(clock)); clock += 1000; };
+  let now = clock;
+  const tick = (): void => { now = clock; clock += 1000; };
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const write = (path: string, bytes: string | Uint8Array): void => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
@@ -201,7 +202,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     process.stdout.write = capture;
     process.stderr.write = capture;
     let exit: number;
-    try { exit = main(args); } finally { process.stdout.write = stdout; process.stderr.write = stderr; }
+    try { exit = main(args, now); } finally { process.stdout.write = stdout; process.stderr.write = stderr; }
     if (exit !== 0) throw new Error(`${args.join(' ')}: exit ${exit}\n${output}`);
     const ready = pending.filter(index => matchesCommand(['rig-create', ...args], steps[index]!.seed!.first_consumer_command));
     const consumes = ready.map(index => {
@@ -268,7 +269,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       };
       const value = values[item.id] ?? {};
       const set: JsonObject = { schema: OPTIONS_SPEC, id: `chain-${item.id}`, question: item.id, stage: phase,
-        drafted_by: 'agent', drafted_at: new Date().toISOString(), context: optionContext(project, phase, Date.now()),
+        drafted_by: 'agent', drafted_at: new Date(now).toISOString(), context: optionContext(project, phase, now),
         assembly: { rule: item.kind === 'waypoint' ? 'merge' : 'single' },
         asks: asks.map((ask): JsonObject => ({ id: ask, prompt: `Choose ${ask} for the synthetic plate.`, options: [
           { id: 'keep', kind: 'value', label: `Use the synthetic ${ask}`, effect: 'Keep the declared geometric example.',
@@ -330,7 +331,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     const partsDir = `${draftRoot}/input`;
     checkpoint(1, '1-parts-verdict', 'Export the synthetic review-tool parts verdict, then approve the parts',
       ['evidence/parts-review.json', 'signoffs[stage=parts-review]', 'project.stage']);
-    const verdict = partsPackage({ input, partsDir, verdict: 'evidence/parts-review.json', edit: v => { v.updatedAt = new Date().toISOString(); } });
+    const verdict = partsPackage({ input, partsDir, verdict: 'evidence/parts-review.json', edit: v => { v.updatedAt = new Date(now).toISOString(); } });
     write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
     producer('synthetic review-tool parts verdict (tests/parts-package.ts)', ['partsPackage', 'tests/parts-package.ts'],
       { 'evidence/parts-review.json': readFileSync(join(dir, 'evidence/parts-review.json')) });
@@ -370,7 +371,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       const answer = item.raw as JsonObject;
       sections[name] = [{ entry: name, guide, quote: answer.verbatim as string, asks: asArray(answer.asks).filter(isObject).map(ask => ask.id) }];
     }
-    const version: JsonObject = { n: 1, kind: 'rig', rig_version: null, at: new Date().toISOString(), built_by: 'agent',
+    const version: JsonObject = { n: 1, kind: 'rig', rig_version: null, at: new Date(now).toISOString(), built_by: 'agent',
       built_with: Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [name, JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version as string])),
       changed: 'Build the synthetic approved parts.', outputs: [{ ...binding('outputs/v1/out/check/build/skeleton.model.json'), bytes: built['out/check/build/skeleton.model.json']!.length }],
       evidence: [{ kind: 'still', ...binding('evidence/setup.png'), camera: 'fixed', frame: 'setup' }],
@@ -411,7 +412,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     sign('direction-review', ['--version', '2']);
     advance('accepted'); writer(['interview', '--check', '--json']);
     writer(['split-captions', '--config', 'evidence/split-config.json'], 'evidence/captions.json');
-    const checked = checkExampleChain(dir);
+    const checked = checkExampleChain(dir, now);
     validateChainSteps(steps);
     json('chain.json', { claim: 'Create stage moves, signoffs, rig/post review verdicts, packages and authored direction use public writers. The parts verdict is a synthetic review-tool export. Input declarations are seeds.',
       seed_kinds: [
@@ -443,7 +444,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
         if (step.command[1] === 'interview-options' || step.command[1] === 'direction' && step.command[2] === 'check') return 'agent';
         return 'human';
       });
-      const report = checkProject(join(dir, 'checkpoints', saved.name));
+      const report = checkProject(join(dir, 'checkpoints', saved.name), undefined, { now });
       json(`checkpoints/${saved.name}.json`, { schema: 'rig-create/example-checkpoint@1', stage: saved.stage, name: saved.name,
         chain_step: saved.chain_step, pending: { act: saved.act, commands, command_roles, awaits: saved.awaits },
         expected_findings: { refusals: report.refusals, warnings: report.warnings },
@@ -458,7 +459,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       + 'checkpoints/ contains frozen prefix projects and adjacent pending-act declarations. Stage 1 precedes the synthetic review-tool parts verdict export. Stage 2 precedes the first rigging answer and still needs later option sets to be agent-drafted in declared steps before registration by public writers. Pending answers use the SHA-256 of the file drafted during the walk. Stage 3 precedes rig review. Stage 4 precedes the declared agent-authored direction input and direction write. Pending stage moves use advance with the existing authorizing signoffs. Every file authored or copied for a later writer has a declared producer step with output hashes. The chain_step indices are zero-based. Stage 2 has four expected INTERVIEW_INCOMPLETE findings for its unanswered rigging guides. Every prefix has zero warnings and records its stage moves in advances[]. tests/example-chain.test.ts checks these states.\n\n'
       + 'Reproduce with `bun scripts/generate-example-chain.ts <fresh-dir> --check` from the create repository.\n');
     return chainFiles(dir);
-  } finally { process.chdir(originalCwd); setSystemTime(); }
+  } finally { process.chdir(originalCwd); }
 }
 
 if (import.meta.main) {

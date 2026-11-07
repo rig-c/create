@@ -1,9 +1,10 @@
 import { fixture as materializeExample } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { type CheckReport } from '../src/check.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 type Mutate = (project: JsonObject) => void;
 

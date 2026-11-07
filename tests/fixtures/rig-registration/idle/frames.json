@@ -1,0 +1,41 @@
+{
+  "spec": "rigc-frames/1",
+  "pinned": {
+    "by": "--viewport",
+    "outside": [
+      {
+        "set": "idle",
+        "slot": "rectangle",
+        "frames": [
+          1
+        ]
+      }
+    ]
+  },
+  "background": [
+    232,
+    232,
+    232,
+    255
+  ],
+  "viewport": {
+    "x": -8,
+    "y": 0,
+    "width": 16,
+    "height": 20,
+    "scale": 1.6,
+    "pixelWidth": 26,
+    "pixelHeight": 32
+  },
+  "sets": [
+    {
+      "dir": "idle@4fps",
+      "animation": "idle",
+      "fps": 4,
+      "sampled": 2,
+      "written": 2,
+      "stride": 1,
+      "duration": 0.25
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+rectangle.png
+size: 8, 16
+filter: Linear, Linear
+pma: false
+rectangle
+bounds: 0, 0, 8, 16
+offsets: 0, 0, 8, 16
+rotate: 0

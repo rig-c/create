@@ -216,6 +216,15 @@ export const REVIEW_PACKAGE_HELP = `review-package <n> [<project dir>] --config 
   Source paths are relative to the project and must stay inside it. Run the open command there.`;
 
 export function reviewPackageCommand(args: string[]): { stdout: string; exit: number } {
+  return packageCommand(args);
+}
+
+/** Prepare the normal package against a candidate, without publishing project.json. */
+export function prepareRigReviewPackage(args: string[], project: JsonObject): void {
+  packageCommand(args, project);
+}
+
+function packageCommand(args: string[], candidate?: JsonObject): { stdout: string; exit: number } {
   const positional: string[] = [];
   const options: Record<string, string> = {};
   let json = false;
@@ -241,7 +250,7 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
     const original = readFileSync(projectFile, 'utf8');
     const read = readJsonObject(projectFile);
     if (!read.ok) refuse('PROJECT_JSON_INVALID', read.error);
-    const project = read.value;
+    const project = candidate ?? read.value;
     if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'review-package reads rig-create/project@0');
     const version = asArray(project.versions).find((v) => isObject(v) && v.n === n);
     if (!isObject(version)) refuse('REVIEW_PACKAGE_VERSION_UNKNOWN', `no version ${n}`);
@@ -275,6 +284,21 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
         return { path, source: file, bytes: readFileSync(file) };
       });
     } catch (error) { if (error instanceof Refusal) throw error; refuse('REVIEW_PACKAGE_INPUT_INVALID', `versions[v${n}].review_package.config: ${error instanceof Error ? error.message : String(error)}`); }
+    // Registered builds retain adapter-relocated runtime inputs as well as the
+    // loader's three config-file declarations. Preserve them on regeneration.
+    if (isObject(version.registration) && version.registration.kind === 'frozen-rig/1') {
+      const prefix = `${relative(dir, dirname(config)).split(sep).join('/')}/inputs/`;
+      for (const binding of asArray(version.registration.files)) {
+        if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(prefix)) continue;
+        const file = source(binding.path);
+        const bytes = readFileSync(file);
+        if (hash(bytes) !== binding.sha256) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${binding.path}: registered runtime input changed`);
+        const path = relative(dirname(config), file).split(sep).join('/');
+        const existing = named.find(input => input.path === path);
+        if (existing && !existing.bytes.equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${path}: runtime input collides with a named input`);
+        if (!existing) named.push({ path, source: file, bytes });
+      }
+    }
     const configObject = JSON.parse(configBytes.toString()) as JsonObject;
     if (typeof configObject.requirements === 'string') {
       const requirementsPath = relative(dirname(config), resolve(dirname(config), configObject.requirements)).split(sep).join('/');
@@ -364,6 +388,10 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
       }
       if (readFileSync(projectFile, 'utf8') !== original) refuse('REVIEW_PACKAGE_RECORD_CHANGED', 'project.json changed during copying; retry from the current record');
       version.review_package = record;
+      if (candidate !== undefined) {
+        published = false;
+        return { stdout: JSON.stringify(record), exit: 0 };
+      }
       const pending = join(scratch, 'project.json');
       mkdirSync(scratch, { recursive: true });
       writeFileSync(pending, `${JSON.stringify(project, null, 2)}\n`);

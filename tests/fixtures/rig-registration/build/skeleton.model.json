@@ -1,0 +1,177 @@
+{
+  "spec": "rigc-compiled/3",
+  "referenceScale": 100,
+  "stage": {
+    "x": -4,
+    "y": 0,
+    "width": 8,
+    "height": 16
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "body",
+      "parent": "root",
+      "y": 8
+    }
+  ],
+  "slots": [
+    {
+      "name": "rectangle",
+      "bone": "body",
+      "setup": "rectangle"
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "bones": [],
+      "constraints": {
+        "ik": [],
+        "transform": [],
+        "path": [],
+        "physics": [],
+        "slider": []
+      },
+      "attachments": {
+        "rectangle": {
+          "rectangle": {
+            "kind": "region",
+            "width": 8,
+            "height": 16,
+            "atlas": {
+              "width": 8,
+              "height": 16,
+              "offsetX": 0,
+              "offsetY": 0,
+              "originalWidth": 8,
+              "originalHeight": 16
+            }
+          }
+        }
+      }
+    }
+  ],
+  "constraints": [],
+  "events": [],
+  "animations": [
+    {
+      "name": "idle",
+      "duration": 0.25,
+      "bones": [
+        {
+          "name": "body",
+          "timelines": [
+            {
+              "name": "rotate",
+              "keys": [
+                {
+                  "time": 0,
+                  "value": 0
+                },
+                {
+                  "time": 0.25,
+                  "value": 1
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "slots": [],
+      "constraints": {
+        "ik": [],
+        "transform": [],
+        "path": [],
+        "physics": [],
+        "slider": []
+      },
+      "attachments": [],
+      "drawOrder": [],
+      "events": []
+    }
+  ],
+  "editorOrder": {
+    "skins": [
+      {
+        "name": "default",
+        "slots": [
+          "rectangle"
+        ]
+      }
+    ],
+    "animations": [
+      "idle"
+    ]
+  },
+  "images": [
+    {
+      "region": "rectangle",
+      "page": "../rig/images/rectangle.png",
+      "width": 8,
+      "height": 16,
+      "hasAlpha": true,
+      "isBase": false
+    }
+  ],
+  "pageGrids": [],
+  "droppedStates": [],
+  "absentParts": [],
+  "meshBones": [],
+  "meshes": [],
+  "physics": [],
+  "deformTransforms": [],
+  "trackDerivations": [],
+  "rig": {
+    "archetype": "synthetic-rectangle",
+    "axisBone": null,
+    "axisSubtree": [],
+    "detached": [],
+    "slotOrder": [
+      "rectangle"
+    ],
+    "meshKinds": {},
+    "meshDeclaredBones": {},
+    "meshSoftBones": {},
+    "deformMayFold": [],
+    "consumerDrivenMix": [],
+    "idleDrivesMeshes": null,
+    "axes": [],
+    "basePlates": [],
+    "meshSlotBudget": null,
+    "meshTriangleBudget": null,
+    "contactDepth": null,
+    "capContainmentCeiling": null,
+    "massBone": null,
+    "inwardUnit": null
+  },
+  "pages": [
+    {
+      "name": "rectangle.png",
+      "width": 8,
+      "height": 16,
+      "pma": false,
+      "scale": null,
+      "regions": [
+        {
+          "name": "rectangle",
+          "x": 0,
+          "y": 0,
+          "width": 8,
+          "height": 16,
+          "offsetX": 0,
+          "offsetY": 0,
+          "originalWidth": 8,
+          "originalHeight": 16,
+          "degrees": 0,
+          "index": 0
+        }
+      ]
+    }
+  ],
+  "spine": {
+    "sha256": "13870ad50dd9a83b54cf145b5e0d8d10ddcd5602f6efad64873100b17935b466"
+  }
+}

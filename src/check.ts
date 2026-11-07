@@ -46,6 +46,7 @@ import { checkPartsVerdict } from './parts-verdict.ts';
 import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
+import { rigRegistrationFindings } from './rig-version.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import {
   PARTS_REVIEW,
@@ -920,6 +921,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkPreInterview(ctx);
   checkReviews(ctx);
   checkReviewPackages(ctx);
+  refusals.push(...rigRegistrationFindings(dir, project));
   checkAppliedReview(ctx);
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);

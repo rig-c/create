@@ -19,6 +19,7 @@ import { AMEND_HELP, amendCommand } from './amend.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
+import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 
@@ -51,6 +52,8 @@ Usage:
                                                     record labelled draft artifacts without building or promoting
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
                                                     copy producer inputs and record the review open command
+  rig-create rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <dir> …
+                                                    register frozen producer output with declared source bindings
   rig-create split-captions [<project dir|project.json>] [--config <file>]
                                                     generate caption data from the config and split.parts
   rig-create --help                                 show this help
@@ -88,6 +91,8 @@ ${DIRECTION_HELP}
 ${DERIVED_HELP}
 
 ${REVIEW_PACKAGE_HELP}
+
+${RIG_VERSION_HELP}
 
 ${SPLIT_CAPTIONS_HELP}
 `;
@@ -145,6 +150,7 @@ const COMMANDS: Record<string, Command> = {
   'interview-decision': interviewDecisionCommand,
   handoff: handoffCommand,
   'review-package': reviewPackageCommand,
+  'rig-version': rigVersionCommand,
   collection: collectionCommand,
   review: reviewCommand,
   signoff: signoffCommand,

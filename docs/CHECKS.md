@@ -1047,3 +1047,33 @@ changes and post applicability changes after reopen preserve the original
 authorization. Missing or non-boolean snapshots are malformed. Current done
 writes still require a live human checkpoint signature, and current stage
 checks still use current post applicability.
+
+## Frozen rig registration
+
+`rig-version` records explicitly declared toolchain and dated-source bindings.
+These codes apply only to the new writer and versions carrying `registration`.
+The existing template records carry no such field. This additive contract adds
+no SINCE constant. `interview --check` uses the same registration validator.
+
+| Code | Fires when | Remedy |
+| --- | --- | --- |
+| `RIG_REGISTRATION_USAGE` | required arguments are absent, repeated or malformed | supply the next version and the inputs shown by rig-version help |
+| `RIG_REGISTRATION_BUSY` | another registration holds the project lock | finish that registration before retrying |
+| `RIG_REGISTRATION_INVALID` | the version number or registration/source-kind record is malformed | restore the retained record and register the next numbered rig |
+| `RIG_REGISTRATION_EXISTS` | a destination already holds frozen files | preserve those files and choose the next unused version |
+| `RIG_REGISTRATION_PATH_INVALID` | an input escapes containment, traverses a symlink or collides with different bytes | retain regular source inputs with distinct contained destinations |
+| `RIG_REGISTRATION_FILE_INVALID` | a required input, producer report/manifest, complete output inventory or copied totals is missing, changed or malformed | restore the exact frozen inputs and producer reports before registration |
+| `RIG_REGISTRATION_SOURCE_CHANGED` | source or project bytes change during copying | freeze the inputs and retry against the current project |
+| `RIG_TOOLCHAIN_LOCK_INVALID` | the declared lock is absent, unreadable, differs from its hash, has lockfileVersion other than 3 or lacks either package version | retain the original npm v3 lock with both producer package entries |
+| `RIG_TOOLCHAIN_MISMATCH` | built_with disagrees with the retained lock's two package versions | restore the declared lock and matching version values |
+| `RIG_AT_SOURCE_INVALID` | the cited record/pointer lacks a valid UTC instant, differs from at or is later than registration | explicitly cite a retained dated record's UTC timestamp through --at-source and --at-pointer |
+| `RIG_BUILD_BEFORE_REOPEN` | the cited not-after instant is at or before a reopen covering rig-review at registration | register a later frozen build with an explicit retained date citation |
+| `RIG_PATH_ADAPTER_INVALID` | the adapter lacks distinct at/before/after mappings | retain the recorded adapter with unique config locations |
+| `RIG_RUNTIME_PATH_UNRESOLVED` | an absolute config input lacks an exact adapter mapping, or a figure mask escapes the retained config directory | retain the recorded runtime mapping and contained named inputs |
+| `RIG_IDLE_MANIFEST_MISSING` | idle evidence lacks the public render's frames.json | render through public rigc render and supply its output directory |
+
+The date citation declares a completion bound and the npm lock declares the
+run-to-toolchain association. Producer-owned run stamps are tracked in
+parts#1165 and core#1718. Acceptance and forward stage moves retain their
+existing review/signoff and advance contracts. See
+[the registration procedure](PROJECT.md#registering-a-frozen-rig-build).

@@ -40,15 +40,15 @@
       "stage": "plan-approved",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:15.000Z",
+      "at": "2026-11-06T01:00:16.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "steps": [
         "seethrough",
         "assemble"
       ],
       "step_hashes": {
-        "seethrough": "fdf6400c8a260dcee08e138c9c2125eb4f2f793ae89423baa6734dd0a0b7d648",
-        "assemble": "8c94740b2572230f118460bb1150c93190b43714cde0721a61ec099c6e34da63"
+        "seethrough": "e9ef85c8a64c77245272e44a4b88a8c948d671b08e20fe7a565808857636270c",
+        "assemble": "381fdf23fcec385e6c5d4031ead639b01c22b799b4bc9baf2fc905348f223bb6"
       },
       "answer_hashes": {
         "seethrough": "6bdef051023b59650b8339d366b26562b98b7ecd099089692e4ffca28fce0306",
@@ -59,7 +59,7 @@
       "stage": "parts",
       "checkpoint": "assemble",
       "by": "user",
-      "at": "2026-11-06T01:00:16.000Z",
+      "at": "2026-11-06T01:00:18.000Z",
       "verbatim": "Approve this synthetic geometric example.\n"
     }
   ],
@@ -524,7 +524,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:15.000Z",
+          "at": "2026-11-06T01:00:16.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -544,7 +544,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:15.000Z",
+          "at": "2026-11-06T01:00:16.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": true
         },
@@ -664,11 +664,124 @@
   "versions": [],
   "archive": null,
   "notes": [],
+  "advances": [
+    {
+      "stage": "plan-approved",
+      "from_stage": "interview",
+      "by": "user",
+      "at": "2026-11-06T01:00:15.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "interview",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:14.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "parts",
+      "from_stage": "plan-approved",
+      "by": "user",
+      "at": "2026-11-06T01:00:17.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:16.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "plan-approved",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:16.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
   "drafts": [
     {
       "id": "chain",
       "kind": "draft-rig",
-      "at": "2026-11-06T01:00:17.000Z",
+      "at": "2026-11-06T01:00:19.000Z",
       "producer": {
         "name": "@rig-c/parts",
         "version": "2.16.0"

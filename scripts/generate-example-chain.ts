@@ -35,7 +35,7 @@ export interface ChainStep {
   };
 }
 
-const seedField = /^(project\.stage|plan\.steps(?:\[[a-z_-]+\](?:\.status)?)?|split\.parts|versions\[\]|inputs\[\])$/;
+const seedField = /^(plan\.steps(?:\[[a-z_-]+\](?:\.status)?)?|split\.parts|versions\[\]|inputs\[\])$/;
 const bindingFields = new Set(['signoffs', 'step_hashes', 'answer_hashes', 'review_package', 'direction', 'diff_map', 'accepted_parts', 'structure', 'choice']);
 
 function containsBinding(value: Json): boolean {
@@ -233,7 +233,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     steps.push(entry); pending.push(steps.length - 1);
     json('project.json', project);
   };
-  const stage = (value: string, consumer: string[]): void => seed('project.stage', value, 'docs/PROJECT.md:528,966', consumer, p => { p.stage = value; });
+  const advance = (value: string): void => writer(['advance', value, '--by', 'user', '--verbatim-file', 'evidence/approval.txt']);
   const status = (ids: string[], consumer: string[]): void => {
     for (const id of ids) seed(`plan.steps[${id}].status`, 'done', 'docs/PROJECT.md:81,84', consumer, p => {
       const step = asArray((p.plan as JsonObject).steps).filter(isObject).find(s => s.id === id)!;
@@ -313,8 +313,8 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     const split = manifest.parts.map(part => ({ name: part.name, label: 'rigid', note: 'Synthetic geometric block.' }));
     seed('split.parts', split, 'docs/PROJECT.md:399,756', ['split-captions'], p => { (p.split as JsonObject).parts = split; });
     choices('interview'); sign('interview');
-    stage('plan-approved', ['signoff', 'plan-approved']); sign('plan-approved');
-    stage('parts', ['signoff', 'parts']); status(['seethrough', 'assemble'], ['signoff', 'parts']);
+    advance('plan-approved'); sign('plan-approved');
+    advance('parts'); status(['seethrough', 'assemble'], ['signoff', 'parts']);
     sign('parts', ['--checkpoint', 'assemble']);
     const draft = generateExampleMeshDraft(join(scratch, 'draft-producer'), input);
     producer('labelled draft producer', ['generateExampleMeshDraft', '../draft-producer', 'same generated parts'], draft);
@@ -344,11 +344,11 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     producer('assembly difference report', ['rig-parts', 'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png',
       '--parts', 'assembled/rig/parts.json', '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'], { 'evidence/diff-components.json': reportBytes });
     const diffReport = JSON.parse(reportBytes.toString()) as { stack: { sha256: string }; painting: { sha256: string }; components: { id: string }[] };
-    stage('parts-review', ['signoff', 'parts-review']);
+    advance('parts-review');
     sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure.json', '--evidence', 'evidence/parts-review.json', '--diff-report', 'evidence/diff-components.json',
       ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`])]);
-    stage('rigging-interview', ['interview-options', 'bones']); choices('rigging-interview'); sign('rigging-interview');
-    stage('rigging', ['interview', '--check']); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
+    advance('rigging-interview'); choices('rigging-interview'); sign('rigging-interview');
+    advance('rigging'); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
     writer(['interview', '--check', '--json']);
     const built = generateExampleMeshDraft(join(scratch, 'rig-producer'), input);
     producer('production rig and compiled model', ['generateExampleMeshDraft', '../rig-producer', 'same approved parts'], built);
@@ -377,10 +377,10 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       verdicts: [], answers_feedback: [], review_origin: null, provenance: { config: binding('evidence/v1/config.json'), sections } };
     seed('versions[]', version, 'docs/PROJECT.md:580,595', ['review-package', '1'], p => { p.versions = [...asArray(p.versions), version]; });
     writer(['review-package', '1', '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out']);
-    stage('rig-review', ['review', '1']);
+    advance('rig-review');
     writer(['review', '1', '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', 'evidence/approval.txt', '--source', 'synthetic example']);
     sign('rig-review', ['--version', '1']);
-    stage('post-interview', ['interview-options', 'camera_depth']);
+    advance('post-interview');
     for (const [index, id] of ['camera', 'timing', 'composition'].entries()) {
       const step: JsonObject = { id, phase: 'post', order: ids.length + index + 1, does: `Execute synthetic ${id}`,
         produces: `Synthetic ${id} output`, rests_on: [{ camera: 'camera_depth', timing: 'post_timing', composition: 'post_composition' }[id]!],
@@ -390,7 +390,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       });
     }
     choices('post-interview'); sign('post-interview');
-    stage('post', ['direction', '--adopt']); status(['camera', 'timing', 'composition'], ['direction', '--adopt']);
+    advance('post'); status(['camera', 'timing', 'composition'], ['direction', '--adopt']);
     writer(['direction', '--adopt']);
     checkpoint(4, '4-direction-post', 'Author the direction post and approve its review',
       ['evidence/direction-input.json', 'versions[n=2]', 'signoffs[stage=direction-review]', 'project.stage']);
@@ -406,16 +406,15 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       citations: { camera: cite('camera_depth'), timing: cite('post_timing') } });
     writer(['direction', 'write', '2', '--file', 'evidence/direction-input.json', '--rig', '1']);
     writer(['direction', 'check', '2', '--json']);
-    stage('direction-review', ['review', '2']);
+    advance('direction-review');
     writer(['review', '2', '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--verbatim-file', 'evidence/approval.txt', '--source', 'synthetic example']);
     sign('direction-review', ['--version', '2']);
-    stage('accepted', ['interview', '--check']); writer(['interview', '--check', '--json']);
+    advance('accepted'); writer(['interview', '--check', '--json']);
     writer(['split-captions', '--config', 'evidence/split-config.json'], 'evidence/captions.json');
     const checked = checkExampleChain(dir);
     validateChainSteps(steps);
-    json('chain.json', { claim: 'Create signoffs, rig/post review verdicts, packages and authored direction use public writers. The parts verdict is a synthetic review-tool export. Input declarations are seeds.',
+    json('chain.json', { claim: 'Create stage moves, signoffs, rig/post review verdicts, packages and authored direction use public writers. The parts verdict is a synthetic review-tool export. Input declarations are seeds.',
       seed_kinds: [
-        { kind: 'forward project.stage', fields: ['project.stage'] },
         { kind: 'plan.steps (setup and status progress)', fields: ['plan.steps', 'split.parts'] },
         { kind: 'rig version declaration', fields: ['versions[]'] },
         { kind: 'source inventory', fields: ['inputs[]'] },
@@ -454,9 +453,9 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     write('README.md', '# Synthetic bound chain\n\n'
       + 'The geometric painting and parts come from generateExampleParts. The labelled draft and production model come from generateExampleMeshDraft on those exact parts, with a producer-made torso mesh.\n\n'
       + 'The setup still is the assembly recomposite, retained as synthetic setup evidence. The example demonstrates record binding. Rendered motion and camera behaviour require separate producer validation.\n\n'
-      + 'The public create CLI writes signoffs, rig/post review verdicts, the review package and authored direction. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.\n\n'
-      + 'Four seed kinds cover forward stages, plan.steps (setup and status progress) with split.parts, the rig version declaration and source inventory. Each seed declares its consuming command and records that command’s step index in chain.json.\n\n'
-      + 'checkpoints/ contains frozen prefix projects and adjacent pending-act declarations. Stage 1 precedes the synthetic review-tool parts verdict export. Stage 2 precedes the first rigging answer and still needs later option sets to be agent-drafted in declared steps before registration by public writers. Pending answers use the SHA-256 of the file drafted during the walk. Stage 3 precedes rig review. Stage 4 precedes the declared agent-authored direction input and direction write. In-window stage seeds remain explicit pending steps. Every file authored or copied for a later writer has a declared producer step with output hashes. The chain_step indices are zero-based. Stage 2 has four expected INTERVIEW_INCOMPLETE findings for its unanswered rigging guides. Every prefix retains one STAGE_SKIPPED warning for its pre-contract stage seeds. tests/example-chain.test.ts checks these states.\n\n'
+      + 'The public create CLI writes stage moves, signoffs, rig/post review verdicts, the review package and authored direction. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.\n\n'
+      + 'Three seed kinds cover plan.steps (setup and status progress) with split.parts, the rig version declaration and source inventory. Each seed declares its consuming command and records that command’s step index in chain.json.\n\n'
+      + 'checkpoints/ contains frozen prefix projects and adjacent pending-act declarations. Stage 1 precedes the synthetic review-tool parts verdict export. Stage 2 precedes the first rigging answer and still needs later option sets to be agent-drafted in declared steps before registration by public writers. Pending answers use the SHA-256 of the file drafted during the walk. Stage 3 precedes rig review. Stage 4 precedes the declared agent-authored direction input and direction write. Pending stage moves use advance with the existing authorizing signoffs. Every file authored or copied for a later writer has a declared producer step with output hashes. The chain_step indices are zero-based. Stage 2 has four expected INTERVIEW_INCOMPLETE findings for its unanswered rigging guides. Every prefix has zero warnings and records its stage moves in advances[]. tests/example-chain.test.ts checks these states.\n\n'
       + 'Reproduce with `bun scripts/generate-example-chain.ts <fresh-dir> --check` from the create repository.\n');
     return chainFiles(dir);
   } finally { process.chdir(originalCwd); setSystemTime(); }

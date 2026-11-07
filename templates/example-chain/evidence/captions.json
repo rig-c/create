@@ -3,7 +3,7 @@
   "inputs": {
     "project": {
       "path": "project.json",
-      "sha256": "454980db67c65b95ced5e55c476bf4e584df7fe991ac7deacfe4ead23330a5fd"
+      "sha256": "cf6311a1eb6c97ce844ee11179431daaad20fcbbddf75bcfe641ed72efe11744"
     },
     "config": {
       "path": "evidence/split-config.json",

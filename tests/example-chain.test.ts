@@ -1,12 +1,13 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { applyChainSeed, checkExampleChain, validateChainSteps, type ChainStep } from '../scripts/generate-example-chain.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { checkProject } from '../src/check.ts';
 import { sha256 } from '../src/choices.ts';
 import { stepHash } from '../src/step-hash.ts';
+import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 
 const hash = 'a'.repeat(64);
 function receipt(): ChainStep[] {
@@ -29,13 +30,13 @@ test('a declared seed precedes its own binding consumer', () => {
 test('the real generator seed path rejects a mislabelled apply before changing the source record', () => {
   const project = readTemplate('project.json');
   const original = structuredClone(project);
-  expect(() => applyChainSeed(project, 'project.stage', 'parts', candidate => {
-    candidate.stage = 'parts';
+  expect(() => applyChainSeed(project, 'inputs[]', [], candidate => {
+    candidate.inputs = [];
     (candidate.signoffs as JsonObject[]).push({ stage: 'interview', by: 'user' });
   })).toThrow('seed changes a path outside its declared field');
   expect(project).toEqual(original);
-  expect(() => applyChainSeed(project, 'project.stage', 'parts', candidate => {
-    candidate.stage = 'rigging';
+  expect(() => applyChainSeed(project, 'inputs[]', [], candidate => {
+    candidate.inputs = ['different inventory'];
   })).toThrow('written subtree differs from declared value');
   (project.plan as JsonObject).steps = [{ id: 'assemble', status: 'pending' }];
   const renamed = { id: 'camera', status: 'pending' };
@@ -104,6 +105,15 @@ test('a seed cannot set a binding record, including one nested in an allowed dec
   expect(() => validateChainSteps(steps)).toThrow('seeded binding field');
 });
 
+test('stage seeds are refused by the mutation path and receipt validator', () => {
+  const project = readTemplate('project.json');
+  expect(() => applyChainSeed(project, 'project.stage', 'parts', candidate => { candidate.stage = 'parts'; })).toThrow('unsupported seed kind');
+  const steps = receipt();
+  steps[0]!.seed!.field = 'project.stage';
+  steps[0]!.seed!.value = 'parts';
+  expect(() => validateChainSteps(steps)).toThrow('unsupported seed kind');
+});
+
 test('the ordinary check rejects an invalid seeded value', () => {
   const dir = mkdtempSync(join(tmpdir(), 'chain-invalid-'));
   try {
@@ -122,7 +132,7 @@ function readProject(): JsonObject {
 test('the finished chain binds its own approved parts, package model and signed direction', () => {
   const checked = checkExampleChain(shipped);
   expect(checked.refusals).toEqual([]);
-  expect(checked.warnings.map(f => [f.code, f.path])).toEqual([['STAGE_SKIPPED', 'stage']]);
+  expect(checked.warnings).toEqual([]);
   const project = readProject();
   const versions = project.versions as JsonObject[];
   const rig = versions[0]!;
@@ -149,7 +159,13 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(41);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(51);
+  const moves = project.advances as JsonObject[];
+  const stages = ['plan-approved', 'parts', 'parts-review', 'rigging-interview', 'rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'];
+  expect(moves.map(move => move.stage)).toEqual(stages);
+  expect(receipt.steps.filter(step => step.command[1] === 'advance').map(step => step.command)).toEqual(
+    stages.map(stage => ['rig-create', 'advance', stage, '--by', 'user', '--verbatim-file', 'evidence/approval.txt']));
+  expect(receipt.steps.some(step => step.seed?.field === 'project.stage')).toBe(false);
   expect(receipt.steps.every(step => step.exit === 0)).toBe(true);
   expect(receipt.steps.some(step => step.command.join(' ') === 'rig-create direction check 2 --json')).toBe(true);
   const split = receipt.steps.find(step => step.seed?.field === 'split.parts')!;
@@ -250,7 +266,7 @@ test.each([
   const report = checkProject(root);
   expect(report.stage).toBe(projectStage);
   expect(report.refusals).toHaveLength(count);
-  expect(report.warnings.map(f => [f.code, f.path])).toEqual([['STAGE_SKIPPED', 'stage']]);
+  expect(report.warnings).toEqual([]);
   expect(declaration.expected_findings).toEqual({ refusals: report.refusals, warnings: report.warnings });
   expect(declaration.pending.commands[0].split(' --sha256 ')[0]).toBe(chain.steps[index]!.command.join(' ').split(' --sha256 ')[0]!);
   expect(declaration.pending.command_roles).toHaveLength(declaration.pending.commands.length);
@@ -260,7 +276,7 @@ test.each([
   expect(signoffs.some(signoff => signoff.stage === awaited)).toBe(false);
   if (stage === 1) {
     expect(declaration.files.some(file => file.path === 'evidence/parts-review.json')).toBe(false);
-    expect(declaration.pending.command_roles).toEqual(['producer', 'producer', 'seed', 'human']);
+    expect(declaration.pending.command_roles).toEqual(['producer', 'producer', 'human', 'human']);
   }
   if (stage === 2) {
     expect(report.refusals.map(finding => [finding.code, finding.path])).toEqual(
@@ -270,13 +286,13 @@ test.each([
   if (stage === 3) expect((project.versions as JsonObject[])[0]!.verdicts).toEqual([]);
   if (stage === 1 || stage === 4) {
     expect(declaration.pending.awaits).toContain('project.stage');
-    expect(declaration.pending.commands).toContain(`seed project.stage "${stage === 1 ? 'parts-review' : 'direction-review'}"`);
+    expect(declaration.pending.commands).toContain(`rig-create advance ${stage === 1 ? 'parts-review' : 'direction-review'} --by user --verbatim-file evidence/approval.txt`);
   }
   if (stage === 4) {
     expect((project.versions as JsonObject[]).some(version => version.kind === 'post')).toBe(false);
     expect(declaration.files.some(file => file.path === 'evidence/direction-input.json')).toBe(false);
     expect(declaration.pending.commands[0]).toBe('agent draft evidence/direction-input.json');
-    expect(declaration.pending.command_roles).toEqual(['agent', 'human', 'agent', 'seed', 'human', 'human']);
+    expect(declaration.pending.command_roles).toEqual(['agent', 'human', 'agent', 'human', 'human', 'human']);
   }
 });
 
@@ -347,3 +363,35 @@ test('pending rigging answers use available drafted files and run-time hashes', 
     }
   }
 });
+
+test.each(['1-parts-verdict', '2-rigging-answers', '3-rig-review', '4-direction-post'])('%s pending writers succeed at the real clock with retained producer inputs', name => {
+  const dir = mkdtempSync(join(tmpdir(), 'chain-pending-'));
+  const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints', `${name}.json`), 'utf8')) as CheckpointDeclaration;
+  const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };
+  const acts = chain.steps.slice(declaration.chain_step, declaration.chain_step + declaration.pending.commands.length);
+  try {
+    cpSync(join(shipped, 'checkpoints', name), dir, { recursive: true });
+    for (const step of acts) {
+      if (step.kind === 'producer') {
+        for (const [path, hash] of Object.entries(step.outputs!)) {
+          const bytes = readFileSync(join(shipped, path));
+          expect(sha256(bytes)).toBe(hash);
+          mkdirSync(dirname(join(dir, path)), { recursive: true });
+          writeFileSync(join(dir, path), bytes);
+        }
+        continue;
+      }
+      expect(step.kind).toBe('writer');
+      const args = step.command.slice(1);
+      const hashIndex = args.indexOf('--sha256');
+      if (hashIndex >= 0) args[hashIndex + 1] = sha256(readFileSync(join(dir, args[args.indexOf('--set') + 1]!)));
+      const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      expect(result.stderr.toString()).toBe('');
+      expect(result.exitCode).toBe(0);
+    }
+    const report = checkProject(dir);
+    const current = Date.now() >= Date.parse(STAGE_PROGRESS_SINCE);
+    expect(report.refusals.map(f => f.code)).toEqual(current ? ['STAGE_LAGGING'] : []);
+    expect(report.warnings.map(f => f.code)).toEqual(current ? [] : ['STAGE_LAGGING']);
+  } finally { rmSync(dir, { recursive: true }); }
+}, 30_000);

@@ -206,9 +206,14 @@ function progress(dir: string): { refusals: string[]; warnings: string[] } {
   const pick = (findings: { code: string }[]): string[] => findings.map(f => f.code).filter(code => PROGRESS.includes(code));
   return { refusals: pick(report.refusals), warnings: pick(report.warnings) };
 }
-function checkpoint(name: string): string {
+function checkpoint(name: string, handMove = false): string {
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', name), dir, { recursive: true });
+  if (handMove) {
+    // Plant the legacy hand move independently of the writer-generated checkpoint.
+    const project = read(dir); delete project.advances;
+    writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
+  }
   return dir;
 }
 function hand(dir: string, stage: string): void {
@@ -227,7 +232,7 @@ test.each([
   ['2026-11-08T00:05:00Z', ['STAGE_LAGGING'], ['STAGE_SKIPPED']],
   ['2026-11-20T00:00:00Z', ['STAGE_LAGGING'], ['STAGE_SKIPPED']],
 ])('review a pre-contract hand move warns through a later frontier sign-off at %s', (at, refusals, warnings) => {
-  const dir = checkpoint('3-rig-review');
+  const dir = checkpoint('3-rig-review', true);
   setSystemTime(new Date(at));
   expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
   acceptRigReview(dir, at);
@@ -236,7 +241,7 @@ test.each([
 });
 
 test('review the advance after a pre-contract hand move records it and clears the mismatch', () => {
-  const dir = checkpoint('4-direction-post');
+  const dir = checkpoint('4-direction-post', true);
   setSystemTime(new Date('2026-11-20T00:00:00Z'));
   expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
   advance(dir, 'direction-review');
@@ -245,7 +250,7 @@ test('review the advance after a pre-contract hand move records it and clears th
 });
 
 test.each(['interview', 'plan-approved'])('review a post-contract sign-off of earlier %s keeps a pre-contract hand move a warning', stage => {
-  const dir = checkpoint('3-rig-review');
+  const dir = checkpoint('3-rig-review', true);
   setSystemTime(new Date('2026-11-20T00:00:00Z'));
   sign(dir, stage);
   expect(arr(read(dir).signoffs).map(s => obj(s).stage).at(-1)).toBe(stage);

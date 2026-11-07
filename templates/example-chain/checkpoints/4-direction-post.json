@@ -34,7 +34,7 @@
       {
         "code": "STAGE_SKIPPED",
         "path": "stage",
-        "message": "stage: stage differs from its latest recorded move; post is outside post through direction-review authorized by signoffs[6]; use advance for the next authorized stage or reopen the unfinished stage"
+        "message": "stage: post differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
       }
     ]
   },

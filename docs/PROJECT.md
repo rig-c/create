@@ -129,7 +129,7 @@ the furthest closing stage supplies the frontier, using its latest signature
 by time and then array position. Reopen and amendment rules still invalidate
 approvals. An earlier re-signature leaves the later live stage target unchanged.
 
-From `STAGE_PROGRESS_SINCE`, stage must match the latest stage-changing advance or reopen (or the initial stage without either), and an advance retains the stable signature that authorized it at that time, so later same-stage re-signatures preserve that move.
+From `STAGE_PROGRESS_SINCE`, stage must match the latest stage-changing advance or reopen (or the initial stage without either). A mismatch is dated by the later of that move and the latest live signature at the furthest stage before the current one, so a hand move made before the contract stays a WARN after later sign-offs. An advance retains the stable signature that authorized it at that time, so later same-stage re-signatures preserve that move.
 
 The checker pins both lag and skip from `STAGE_PROGRESS_SINCE`, dated by the
 authorizing stage-level signature. Earlier readable dates WARN with the same codes. An unreadable frontier

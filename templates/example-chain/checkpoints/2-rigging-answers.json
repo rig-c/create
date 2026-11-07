@@ -66,7 +66,7 @@
       {
         "code": "STAGE_SKIPPED",
         "path": "stage",
-        "message": "stage: stage differs from its latest recorded move; rigging-interview is outside rigging-interview through rigging-interview authorized by signoffs[3]; use advance for the next authorized stage or reopen the unfinished stage"
+        "message": "stage: rigging-interview differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
       }
     ]
   },

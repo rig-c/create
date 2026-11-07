@@ -29,7 +29,7 @@
       {
         "code": "STAGE_SKIPPED",
         "path": "stage",
-        "message": "stage: stage differs from its latest recorded move; parts is outside parts through parts-review authorized by signoffs[1]; use advance for the next authorized stage or reopen the unfinished stage"
+        "message": "stage: parts differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
       }
     ]
   },

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
 import { reopenCommand } from '../src/reopen.ts';
+import { reviewCommand } from '../src/feedback.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { Refusal } from '../src/refusal.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
@@ -154,7 +155,7 @@ test('review latest reopen is green and a different hand-set stage is refused', 
   expect(codes(dir)).toEqual([]);
   const p = read(dir); p.stage = 'rig-review';
   writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
-  expect(codes(dir)).toEqual(['STAGE_SKIPPED']);
+  expect(codes(dir)).toEqual(['STAGE_SKIPPED', 'STAGE_LAGGING']);
 });
 
 test('review an advance whose authority was dead at its event is refused', () => {
@@ -197,4 +198,80 @@ test('review the delayed landing boundary warns the day before and refuses on la
   const p = read(dir); obj(arr(p.signoffs)[1]).at = STAGE_PROGRESS_SINCE;
   writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   expect(codes(dir)).toContain('STAGE_LAGGING');
+});
+
+const PROGRESS = ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED'];
+function progress(dir: string): { refusals: string[]; warnings: string[] } {
+  const report = checkProject(dir);
+  const pick = (findings: { code: string }[]): string[] => findings.map(f => f.code).filter(code => PROGRESS.includes(code));
+  return { refusals: pick(report.refusals), warnings: pick(report.warnings) };
+}
+function checkpoint(name: string): string {
+  const dir = join(tempDir(), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', name), dir, { recursive: true });
+  return dir;
+}
+function hand(dir: string, stage: string): void {
+  const p = read(dir); p.stage = stage; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+}
+function acceptRigReview(dir: string, at: string): void {
+  setSystemTime(new Date(at));
+  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
+    '--verbatim-file', join(dir, 'evidence/approval.txt'), '--source', 'synthetic example']);
+  setSystemTime(new Date(Date.parse(at) + 60_000));
+  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words(dir), '--version', '1']);
+}
+
+test.each([
+  ['2026-11-07T12:00:00Z', [], ['STAGE_SKIPPED', 'STAGE_LAGGING']],
+  ['2026-11-08T00:05:00Z', ['STAGE_LAGGING'], ['STAGE_SKIPPED']],
+  ['2026-11-20T00:00:00Z', ['STAGE_LAGGING'], ['STAGE_SKIPPED']],
+])('review a pre-contract hand move warns through a later frontier sign-off at %s', (at, refusals, warnings) => {
+  const dir = checkpoint('3-rig-review');
+  setSystemTime(new Date(at));
+  expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
+  acceptRigReview(dir, at);
+  expect(arr(read(dir).signoffs).map(s => obj(s).stage).at(-1)).toBe('rig-review');
+  expect(progress(dir)).toEqual({ refusals, warnings });
+});
+
+test('review the advance after a pre-contract hand move records it and clears the mismatch', () => {
+  const dir = checkpoint('4-direction-post');
+  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
+  advance(dir, 'direction-review');
+  expect(obj(arr(read(dir).advances).at(-1)).stage).toBe('direction-review');
+  expect(progress(dir)).toEqual({ refusals: [], warnings: [] });
+});
+
+test.each(['interview', 'plan-approved'])('review a post-contract sign-off of earlier %s keeps a pre-contract hand move a warning', stage => {
+  const dir = checkpoint('3-rig-review');
+  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  sign(dir, stage);
+  expect(arr(read(dir).signoffs).map(s => obj(s).stage).at(-1)).toBe(stage);
+  expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
+});
+
+test('review a hand move after a post-contract arrival sign-off is refused', () => {
+  const dir = checkpoint('3-rig-review');
+  acceptRigReview(dir, '2026-11-20T00:00:00Z');
+  hand(dir, 'post-interview');
+  expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: [] });
+});
+
+test('review a hand move after a post-contract advance is refused although its arrival sign-off is older', () => {
+  const dir = riggingProject();
+  sign(dir, 'rigging-interview');
+  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  advance(dir, 'rigging');
+  hand(dir, 'rig-review');
+  expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: ['STAGE_SKIPPED'] });
+});
+
+test('review a hand move after a post-contract reopen is refused although its arrival sign-off is older', () => {
+  const dir = checkpoint('3-rig-review');
+  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  reopenCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  hand(dir, 'rig-review');
+  expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: ['STAGE_SKIPPED'] });
 });

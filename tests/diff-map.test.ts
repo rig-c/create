@@ -188,7 +188,7 @@ test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
   expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DIFF_MAP_PREDATES', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
 });
 test('an old sign-off with a map is checked fully', () => {
-  only(project((s) => { s.at = '2026-11-05T00:00:00Z'; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
+  only(project((s, p) => { s.at = '2026-11-05T00:00:00Z'; p.advances = []; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
 });
 test('a pre-stage legacy project still validates a map it carries while rigging', () => {
   const dir = project((s) => { obj(arr(obj(s.diff_map).components)[0]).why = ''; }, 'normal', true);

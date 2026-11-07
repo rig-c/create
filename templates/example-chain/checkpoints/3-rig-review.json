@@ -24,7 +24,7 @@
       {
         "code": "STAGE_SKIPPED",
         "path": "stage",
-        "message": "stage: stage differs from its latest recorded move; rig-review is outside rigging through rig-review authorized by signoffs[4]; use advance for the next authorized stage or reopen the unfinished stage"
+        "message": "stage: rig-review differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
       }
     ]
   },

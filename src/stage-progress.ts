@@ -63,20 +63,32 @@ export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
     ctx.refusals.push({ code: 'STAGE_SIGNOFF_DATE_INVALID', path: `signoffs[${unreadable.index}].at`, message: `signoffs[${unreadable.index}].at: frontier approval needs a readable date; restore its original date before advancing` });
     return;
   }
-  const contemporary = window.at >= Date.parse(STAGE_PROGRESS_SINCE);
+  const since = Date.parse(STAGE_PROGRESS_SINCE);
   const moves = [
     ...asArray(ctx.project.advances).filter(isObject).map((record, index) => ({ record, advance: true, index })),
     ...asArray(ctx.project.reopens).filter(isObject).map((record, index) => ({ record, advance: false, index })),
   ].filter(move => move.record.from_stage !== move.record.stage && Number.isFinite(Date.parse(String(move.record.at))))
     .sort((a, b) => Date.parse(String(b.record.at)) - Date.parse(String(a.record.at)) || Number(a.advance) - Number(b.advance) || b.index - a.index);
   const latestMove = moves[0];
-  const movementMismatch = latestMove === undefined ? ctx.stage !== 'interview' : latestMove.record.stage !== ctx.stage;
-  const code = movementMismatch ? 'STAGE_SKIPPED'
-    : current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
-      : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
+  if (latestMove === undefined ? ctx.stage !== 'interview' : latestMove.record.stage !== ctx.stage) {
+    // The unrecorded move is no older than the latest recorded move and the stage's arrival authority:
+    // the latest live stage-level signature at the furthest stage before the current one.
+    const earlier = ctx.signoffs.filter(s => s.checkpoint === null && stageIndex(s.stage) >= 0 && stageIndex(s.stage) < current);
+    const arrivalStage = Math.max(...earlier.map(s => stageIndex(s.stage)));
+    const arrival = earlier.filter(s => stageIndex(s.stage) === arrivalStage);
+    const dates = [
+      ...(latestMove === undefined ? [] : [Date.parse(String(latestMove.record.at))]),
+      ...(arrival.length === 0 ? [] : [arrival.every(s => Number.isFinite(s.at)) ? Math.max(...arrival.map(s => s.at)) : NaN]),
+    ];
+    const movedAt = dates.length === 0 ? NaN : Math.max(...dates);
+    const finding = { code: 'STAGE_SKIPPED', path: 'stage', message: `stage: ${ctx.stage} differs from its latest recorded move (${latestMove === undefined ? 'none' : String(latestMove.record.stage)}); use advance for the next authorized stage or reopen the unfinished stage` };
+    (forwardWrite || !(movedAt < since) ? ctx.refusals : ctx.warnings).push(finding);
+  }
+  const code = current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
+    : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
   if (code === null) return;
-  const finding = { code, path: 'stage', message: `stage: ${movementMismatch ? 'stage differs from its latest recorded move; ' : ''}${ctx.stage} is outside ${window.minimum} through ${window.maximum} authorized by ${window.signoff ?? 'the unsigned interview'}; use advance for the next authorized stage or reopen the unfinished stage` };
-  (forwardWrite || contemporary || !Number.isFinite(window.at) ? ctx.refusals : ctx.warnings).push(finding);
+  const finding = { code, path: 'stage', message: `stage: ${ctx.stage} is outside ${window.minimum} through ${window.maximum} authorized by ${window.signoff ?? 'the unsigned interview'}; use advance for the next authorized stage or reopen the unfinished stage` };
+  (forwardWrite || window.at >= since || !Number.isFinite(window.at) ? ctx.refusals : ctx.warnings).push(finding);
 }
 
 /** Advances are history, separate from reopen cutoffs. Their reference must witness the recorded move. */

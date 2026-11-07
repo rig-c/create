@@ -1,6 +1,6 @@
 # Frozen synthetic render
 
-A public eight-by-sixteen rectangle was built and rendered on the ordinary Nova
+A public eight-by-sixteen rectangle was built and rendered on a remote build
 pool with @rig-c/core 3.4.1. The npm lock declares core 3.4.1 and parts 2.23.4.
 Parts was installed and did not produce the rectangle rig. Registration declares
 the toolchain association. It does not attest a producer run stamp.

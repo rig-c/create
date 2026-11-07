@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { rigRegistrationFindings, rigVersionCommand } from '../src/rig-version.ts';
@@ -78,6 +78,8 @@ describe('frozen rig registration', () => {
     ['unresolved absolute path', 'RIG_RUNTIME_PATH_UNRESOLVED', (dir: string) => put(dir, 'source/config.json', { requirements: '/foreign/requirements.json' })],
     ['Windows absolute path', 'RIG_RUNTIME_PATH_UNRESOLVED', (dir: string) => put(dir, 'source/config.json', { requirements: 'C:\\foreign\\requirements.json' })],
     ['output symlink', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => symlinkSync(join(dir, 'source/config.json'), join(dir, 'source/rig/link.json'))],
+    ['symlinked lock', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => { renameSync(join(dir, 'source/package-lock.json'), join(dir, 'source/real-lock.json')); symlinkSync(join(dir, 'source/real-lock.json'), join(dir, 'source/package-lock.json')); }],
+    ['symlinked date record', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => { renameSync(join(dir, 'source/at-source.json'), join(dir, 'source/real-at.json')); symlinkSync(join(dir, 'source/real-at.json'), join(dir, 'source/at-source.json')); }],
   ])('%s refuses by code and leaves project byte-identical', (_name, code, mutate) => {
     const { dir, args } = setup();
     mutate(dir);
@@ -99,7 +101,7 @@ describe('frozen rig registration', () => {
 
   test('resolves an exact adapter and copies relative named inputs into the retained config directory', () => {
     const { dir, args, load } = setup();
-    put(dir, 'source/requirements.json', {});
+    put(dir, 'source/requirements.json', { setup_painting: { required: true } });
     put(dir, 'source/config.json', { key: 'synthetic', requirements: '/runtime/requirements.json' });
     put(dir, 'source/adapter.json', [{ at: '.requirements', before: join(dir, 'source/requirements.json'), after: '/runtime/requirements.json' }]);
     rigVersionCommand(args);
@@ -107,7 +109,7 @@ describe('frozen rig registration', () => {
     const version = (load().versions as JsonObject[])[0]!;
     const config = JSON.parse(readFileSync(join(dir, String(obj(obj(version.provenance).config).path)), 'utf8'));
     expect(config.requirements).toBe('inputs/requirements');
-    expect(readFileSync(join(dir, 'derived/review/v1/inputs/requirements'), 'utf8')).toBe('{}\n');
+    expect(readFileSync(join(dir, 'derived/review/v1/inputs/requirements'), 'utf8')).toBe('{"setup_painting":{"required":true}}\n');
   });
 
   test.each(['built_with', 'at_source', 'outputs', 'config_source', 'copied', 'added-frame'])('check observes planted %s drift through the shared validator', field => {
@@ -191,7 +193,8 @@ describe('frozen rig registration', () => {
       take: [{ run: 'full', tags: ['piece'], run_dir: 'donor', st_input: 'donor/source.png' }],
       editor_receipts: { receipts: [{ file: 'donor/source.png' }] },
     } });
-    rigVersionCommand(args);
+    put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    rigVersionCommand([...args, '--citations', 'source/citations.json']);
     const version = (load().versions as JsonObject[])[0]!;
     const before = version.review_package;
     expect(readFileSync(join(dir, 'derived/review/v1/inputs/assemble/take/0/run_dir/layers.json'), 'utf8')).toBe('{"layers":[]}\n');
@@ -210,5 +213,33 @@ describe('frozen rig registration', () => {
     refused(args, 'RIG_REGISTRATION_FILE_INVALID');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
     expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+  });
+
+  test.each([
+    ['an uncited config section', 'SECTION_UNCITED', { key: 'synthetic', requirements: 'requirements.json', bones: {} }, null],
+    ['a misspelt cited section', 'SECTION_UNKNOWN', { key: 'synthetic', requirements: 'requirements.json' }, { bonez: [] }],
+  ])('the full check refuses %s before recording', (_name, code, config, citations) => {
+    const { dir, args } = setup();
+    put(dir, 'source/config.json', config);
+    if (citations) { put(dir, 'source/citations.json', citations); args.push('--citations', 'source/citations.json'); }
+    expect(checkProject(dir).refusals).toEqual([]);
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(args, code);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
+    expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+  });
+
+  test('a pre-existing unrelated refusal does not block a valid registration', () => {
+    const { dir, args, load } = setup();
+    const project = load();
+    project.stage = 'no-such-stage';
+    put(dir, 'project.json', project);
+    const planted = checkProject(dir).refusals.map(f => f.code);
+    expect(planted.length).toBeGreaterThan(0);
+    rigVersionCommand(args);
+    expect((load().versions as JsonObject[]).length).toBe(1);
+    expect(checkProject(dir).refusals.map(f => f.code)).toEqual(planted);
   });
 });

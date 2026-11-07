@@ -761,8 +761,8 @@ producer measurements.
 Optional `--citations` reads an agent-authored map of the existing
 `provenance.sections` shape. The writer retains that map and binds the adapted
 config under `provenance.config`. Omission records an empty section map. The
-existing provenance checks still require citations for every applicable config
-section before the project can pass its stage check.
+writer runs the full check on the candidate record and refuses any refusal it
+adds, so every applicable config section needs its citation at registration.
 
 `registration.kind` is `"frozen-rig/1"`. The registration validator is shared
 with `interview --check` and opts in only versions carrying `registration`.

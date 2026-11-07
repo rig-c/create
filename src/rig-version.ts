@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { asArray, isObject, type Finding } from './check.ts';
+import { asArray, checkProject, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { readProject } from './feedback.ts';
@@ -236,7 +236,9 @@ export function rigVersionCommand(args: string[]): { stdout: string; exit: numbe
     // Validate the toolchain lock before creating retained directories.
     let versions: JsonObject;
     try { versions = lockVersions(JSON.parse(sourceBytes(options['--toolchain-lock']!).toString())); }
-    catch (error) { return fail('RIG_TOOLCHAIN_LOCK_INVALID', `versions[v${n}].built_with`, String(error)); }
+    catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_TOOLCHAIN_LOCK_INVALID', `versions[v${n}].built_with`, String(error)); }
+    // Pre-existing refusals stay the project's; the candidate may not add a new one.
+    const baseline = checkProject(dir, project).refusals;
     created.push(join(dir, evidence), join(dir, out));
     mkdirSync(join(dir, evidence), { recursive: true });
     const toolchain = input('--toolchain-lock', 'package-lock.json');
@@ -245,7 +247,7 @@ export function rigVersionCommand(args: string[]): { stdout: string; exit: numbe
     try {
       atSource = { ...input('--at-source', 'at-source.json'), pointer: options['--at-pointer']! };
       at = pointerValue(JSON.parse(bytesAt(dir, atSource).toString()), atSource.pointer);
-    } catch (error) { return fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, String(error)); }
+    } catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, String(error)); }
     if (!utcDate(at)) fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, 'the cited pointer needs a valid UTC timestamp');
     const adapterBinding = input('--path-adapter', 'path-adapter.json');
     let adapter: JsonObject[];
@@ -342,6 +344,15 @@ export function rigVersionCommand(args: string[]): { stdout: string; exit: numbe
     if (problem) refuse(problem.code, problem.message);
     created.push(join(dir, pkg));
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate);
+    // The record must pass the same check as every other writer's before it is renamed into place.
+    const counts = new Map<string, number>();
+    for (const f of baseline) counts.set(`${f.code}:${f.path}`, (counts.get(`${f.code}:${f.path}`) ?? 0) + 1);
+    for (const f of checkProject(dir, candidate).refusals) {
+      const key = `${f.code}:${f.path}`;
+      const left = counts.get(key) ?? 0;
+      if (!left) refuse(f.code, f.message);
+      counts.set(key, left - 1);
+    }
     for (const [path, names] of sourceDirectories) if (!isDeepStrictEqual(readdirSync(path).sort(), names)) fail('RIG_REGISTRATION_SOURCE_CHANGED', path, 'source directory changed during registration');
     for (const source of sources) if (!readFileSync(source.source).equals(source.bytes)) fail('RIG_REGISTRATION_SOURCE_CHANGED', source.source, 'source changed during registration');
     if (!readFileSync(file).equals(original)) fail('RIG_REGISTRATION_SOURCE_CHANGED', 'project.json', 'record changed during registration');

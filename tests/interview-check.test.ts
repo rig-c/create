@@ -284,6 +284,7 @@ describe('a stage moved without a human sign-off', () => {
   test('when every post item is not applicable, post and direction-review need no sign-off', () => {
     const report = checkProject(
       resignAfterChange(fixture((p) => {
+        p.stage = 'post-interview';
         for (const item of arr(obj(obj(p.interview).post).items).map(obj)) {
           supersede(item, 'guide', { not_applicable: true, because: 'composition belongs to the collection', by: 'interviewer', at: '2026-11-13T10:00:00Z' });
         }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { Refusal } from '../src/refusal.ts';
+import { reopenCommand } from '../src/reopen.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { checkSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -114,7 +115,8 @@ test('missing target is refused at boundary, with exactly one warning for a lega
 
 test('live target removes default candidate, while reopening makes it selectable', () => {
   const dir = setup(); sign(dir, 'rig-review'); refused(dir, 'rig-review');
-  const p = load(dir); p.reopens = [{ stage: 'rig-review', from_stage: 'accepted', by: 'user', at: '2026-11-21T00:00:00Z', verbatim: 'Review again', steps_before: [] }]; save(dir, p);
+  setSystemTime(new Date('2026-11-21T00:00:00Z'));
+  reopenCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   setSystemTime(new Date('2026-11-22T00:00:00Z'));
   expect(obj(sign(dir, 'rig-review').target).version).toBe(2);
 });

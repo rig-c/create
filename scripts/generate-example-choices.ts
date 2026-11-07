@@ -22,8 +22,8 @@ export function generateExampleChoices(dir:string): Record<string,string> {
   const load=():JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
   const item=(project:JsonObject,q:string)=>collectItems(project,{collection:null}).find(i=>i.id===q)!;
   const save=(project:JsonObject):void=>writeFileSync(join(dir,'project.json'),JSON.stringify(project,null,2)+'\n');
-  const source=structuredClone(p);source.stage='interview';source.signoffs=[];source.versions=[];
-  for(const s of objects(obj(source.plan).steps))s.status='pending';
+  const source=structuredClone(p);source.stage='interview';source.signoffs=[];source.versions=[];source.advances=[];
+  for(const s of objects(obj(source.plan).steps)){s.status='pending';delete s.status_history;}
   for(const i of collectItems(source,{collection:null}))if(i.kind==='post'||['bones','meshes','constraints','motion'].includes(i.id))i.record.guide=null;
   save(source);
   const keep=(q:string,id:string,minute:string):{path:string;sha256:string;set:JsonObject}=>{

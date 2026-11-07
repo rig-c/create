@@ -4,7 +4,7 @@
   "question": "rig_type",
   "stage": "interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-06T00:00:02.000Z",
+  "drafted_at": "2026-11-07T00:00:02.000Z",
   "context": {
     "kind": "inputs",
     "files": [
@@ -23,7 +23,7 @@
           "id": "keep",
           "kind": "value",
           "label": "A standing character, idle. She holds a lantern.",
-          "effect": "As answered on 2026-11-06T00:00:02.000Z in interview, chat",
+          "effect": "As answered on 2026-11-07T00:00:02.000Z in interview, chat",
           "fragment": "character.idle",
           "recommended": true,
           "reason": "Preserves the stated synthetic direction and the accepted structure."

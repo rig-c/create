@@ -1,3 +1,5 @@
+import { advanceCommand } from '../src/progress-writers.ts';
+import { retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, setSystemTime, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
@@ -21,7 +23,7 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
   const source=['rig_type','reference','assemble','seethrough'].includes(question);
   const dir=fixture(p=>{
     p.stage=source?'interview':'rigging-interview';p.versions=[];
-    p.signoffs=arr(p.signoffs).filter(s=>stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
+    retainSignoffs(p, s => stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
     for(const s of arr(obj(p.plan).steps).map(obj))if(source||!['seethrough','assemble'].includes(String(s.id)))s.status='pending';
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
     if(source)for(const id of ['bones','meshes','constraints','motion'])waypoint(p,id).guide=null;
@@ -221,7 +223,10 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   const decide=()=>interviewDecisionCommand(['assemble',w.dir,'--by','agent','--reasoning-file',join(w.dir,'reason.txt'),'--fragment',`ground=${fragment}`]);
   expect(code(decide)).toBe('ASSEMBLE_GROUND_UNANSWERED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);
   writeFileSync(fragment,JSON.stringify({ground}));expect(JSON.parse(decide()).value).toEqual({ground});expect(checkProject(w.dir).refusals).toEqual([]);
-  signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);expect(checkProject(w.dir).refusals).toEqual([]);
+  signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
+  expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+  advanceCommand(['parts',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
+  expect(checkProject(w.dir).refusals).toEqual([]);
 });
 
 function inheritedWorking(): ReturnType<typeof working> & {parentFile:string; parent:JsonObject; why:string; reason:string} {

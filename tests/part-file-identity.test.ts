@@ -1,3 +1,5 @@
+import { materializeFixture, arr, obj } from './fixtures.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
 import { afterEach, expect, setSystemTime, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -35,8 +37,14 @@ function approveParts(dir: string): void {
 /** Two stable source cohorts allow a reader control without forging a published package inventory. */
 function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = false): string {
   setSystemTime(new Date(at));
-  const dir = tempDir();
-  roots.push(dir);
+  const dir = join(tempDir(), 'project');
+  materializeFixture(dir, p => {
+    p.stage = 'parts-review'; p.versions = [];
+    p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts', 'rigging'].includes(String(obj(s).stage)));
+    for (const raw of arr(obj(p.plan).steps)) if (obj(raw).phase === 'post') obj(raw).status = 'pending';
+  }, 'legacy-example-project.json');
+  roots.push(dirname(dir));
+  rmSync(join(dir, 'derived/review'), { recursive: true });
   const approved = partsPackage({ partsDir: 'reviewed', verdict: 'evidence/parts-review.json', edit: verdict => { verdict.updatedAt = at; } });
   for (const [path, bytes] of Object.entries(approved.files)) put(dir, path, bytes);
   put(dir, 'words.txt', 'Approve these synthetic retained inputs.\n');
@@ -48,9 +56,11 @@ function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = 
   if (differentBuild) put(dir, 'build/parts/torso.png', 'distinct synthetic build torso\n');
   for (const name of ['rig', 'motion', 'mesh_report']) put(dir, `build/rig/${name}.json`, '{}\n');
   put(dir, 'build/check/build/skeleton.model.json', '{}\n');
-  const project: JsonObject = { schema: 'rig-create/project@0', stage: 'rig-review', signoffs: [], versions: [] };
-  put(dir, 'project.json', JSON.stringify(project));
-  if (approval) approveParts(dir);
+  if (approval) {
+    approveParts(dir);
+    advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    advanceCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  }
   const registered = load(dir);
   registered.versions = [{ n: 1, kind: 'rig', at, rig_version: null, built_by: 'agent',
     built_with: { '@rig-c/parts': '2.16.0', '@rig-c/core': '3.2.1' },

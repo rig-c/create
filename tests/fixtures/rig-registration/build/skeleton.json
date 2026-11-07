@@ -1,0 +1,55 @@
+{
+  "skeleton": {
+    "spine": "4.3.13",
+    "x": -4.000001,
+    "y": 0,
+    "width": 8.000001,
+    "height": 16,
+    "images": "../build/"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "body",
+      "parent": "root",
+      "y": 8
+    }
+  ],
+  "slots": [
+    {
+      "name": "rectangle",
+      "bone": "body",
+      "attachment": "rectangle"
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "attachments": {
+        "rectangle": {
+          "rectangle": {
+            "width": 8,
+            "height": 16
+          }
+        }
+      }
+    }
+  ],
+  "animations": {
+    "idle": {
+      "bones": {
+        "body": {
+          "rotate": [
+            {},
+            {
+              "time": 0.25,
+              "value": 1
+            }
+          ]
+        }
+      }
+    }
+  }
+}

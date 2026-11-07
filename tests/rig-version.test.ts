@@ -1,0 +1,214 @@
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { checkProject } from '../src/check.ts';
+import { rigRegistrationFindings, rigVersionCommand } from '../src/rig-version.ts';
+import { reviewPackageCommand } from '../src/review-package.ts';
+import { Refusal } from '../src/refusal.ts';
+import type { JsonObject } from '../src/templates.ts';
+import { fixture, obj } from './fixtures.ts';
+import { CLI, run } from './helpers.ts';
+
+const roots: string[] = [];
+const frozen = join(import.meta.dir, 'fixtures/rig-registration');
+afterEach(() => { setSystemTime(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
+function put(dir: string, path: string, value: unknown): void {
+  mkdirSync(dirname(join(dir, path)), { recursive: true });
+  writeFileSync(join(dir, path), typeof value === 'string' ? value : `${JSON.stringify(value)}\n`);
+}
+function setup() {
+  const dir = fixture(project => { project.stage = 'interview'; project.signoffs = []; project.versions = []; project.reopens = []; for (const step of obj(project.plan).steps as JsonObject[]) step.status = 'pending'; });
+  roots.push(dirname(dir));
+  setSystemTime(new Date('2026-11-08T00:00:00Z'));
+  for (const path of ['outputs', 'derived/review']) rmSync(join(dir, path), { recursive: true, force: true });
+  cpSync(frozen, join(dir, 'source'), { recursive: true });
+  put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json' });
+  put(dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: { required: true } });
+  put(dir, 'source/adapter.json', []);
+  put(dir, 'source/parts/parts.json', { parts: [{ name: 'rectangle', x: 0, y: 0, w: 8, h: 16 }] });
+  mkdirSync(join(dir, 'source/parts/parts'), { recursive: true });
+  cpSync(join(dir, 'source/rig/images/rectangle.png'), join(dir, 'source/parts/parts/rectangle.png'));
+  const args = ['1', dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle',
+    '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json',
+    '--toolchain-lock', 'source/package-lock.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant', '--json'];
+  const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  return { dir, args, load };
+}
+
+function refused(args: string[], code: string): void {
+  let caught: unknown;
+  try { rigVersionCommand(args); } catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(Refusal);
+  expect((caught as Refusal).code).toBe(code);
+}
+
+describe('frozen rig registration', () => {
+  test('public CLI records real producer frames, declared tools, cited date and unchanged stage', () => {
+    const { dir, args, load } = setup();
+    expect(checkProject(dir).refusals).toEqual([]);
+    const before = load();
+    const result = run([process.execPath, CLI, 'rig-version', ...args], dir, process.env as Record<string, string>);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+    const version = JSON.parse(result.stdout) as JsonObject;
+    expect(version.built_with).toEqual({ '@rig-c/parts': '2.23.4', '@rig-c/core': '3.4.1' });
+    expect(version.at).toBe(JSON.parse(readFileSync(join(frozen, 'at-source.json'), 'utf8')).finished_at);
+    expect(version.at_basis).toBe('not-after');
+    expect(obj(version.registration).at).not.toBe(version.at);
+    expect(version.verdicts).toEqual([]);
+    expect(load().stage).toBe(before.stage);
+    expect(load().signoffs).toEqual(before.signoffs);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    expect(readFileSync(join(dir, 'outputs/v1/out/check/build/skeleton.model.json'))).toEqual(readFileSync(join(frozen, 'build/skeleton.model.json')));
+    expect(readFileSync(join(dir, 'outputs/v1/idle/frames.json'))).toEqual(readFileSync(join(frozen, 'idle/frames.json')));
+    const review = run([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/review/src/cli.ts'), 'check', join(dir, 'derived/review/v1/out')], dir, process.env as Record<string, string>);
+    expect(review.code).toBe(0);
+    rmSync(join(dir, 'source'), { recursive: true });
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test.each([
+    ['missing idle manifest', 'RIG_IDLE_MANIFEST_MISSING', (dir: string) => rmSync(join(dir, 'source/idle/frames.json'))],
+    ['missing lock', 'RIG_TOOLCHAIN_LOCK_INVALID', (dir: string) => rmSync(join(dir, 'source/package-lock.json'))],
+    ['wrong lock version', 'RIG_TOOLCHAIN_LOCK_INVALID', (dir: string) => put(dir, 'source/package-lock.json', { lockfileVersion: 2 })],
+    ['missing package', 'RIG_TOOLCHAIN_LOCK_INVALID', (dir: string) => put(dir, 'source/package-lock.json', { lockfileVersion: 3, packages: {} })],
+    ['missing date record', 'RIG_AT_SOURCE_INVALID', (dir: string) => rmSync(join(dir, 'source/at-source.json'))],
+    ['unresolved absolute path', 'RIG_RUNTIME_PATH_UNRESOLVED', (dir: string) => put(dir, 'source/config.json', { requirements: '/foreign/requirements.json' })],
+    ['Windows absolute path', 'RIG_RUNTIME_PATH_UNRESOLVED', (dir: string) => put(dir, 'source/config.json', { requirements: 'C:\\foreign\\requirements.json' })],
+    ['output symlink', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => symlinkSync(join(dir, 'source/config.json'), join(dir, 'source/rig/link.json'))],
+  ])('%s refuses by code and leaves project byte-identical', (_name, code, mutate) => {
+    const { dir, args } = setup();
+    mutate(dir);
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(args, code);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
+    expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+  });
+
+  test.each(['pending 1', '2026-02-30T00:00:00Z', '2026-11-06', '2026-11-06T20:44:42', '2026-11-06T20:44:42+09:00', '2026-11-06T24:00:00Z'])('refuses invalid/non-UTC date %s', at => {
+    const { dir, args } = setup();
+    put(dir, 'source/at-source.json', { finished_at: at });
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(args, 'RIG_AT_SOURCE_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+
+  test('resolves an exact adapter and copies relative named inputs into the retained config directory', () => {
+    const { dir, args, load } = setup();
+    put(dir, 'source/requirements.json', {});
+    put(dir, 'source/config.json', { key: 'synthetic', requirements: '/runtime/requirements.json' });
+    put(dir, 'source/adapter.json', [{ at: '.requirements', before: join(dir, 'source/requirements.json'), after: '/runtime/requirements.json' }]);
+    rigVersionCommand(args);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    const version = (load().versions as JsonObject[])[0]!;
+    const config = JSON.parse(readFileSync(join(dir, String(obj(obj(version.provenance).config).path)), 'utf8'));
+    expect(config.requirements).toBe('inputs/requirements');
+    expect(readFileSync(join(dir, 'derived/review/v1/inputs/requirements'), 'utf8')).toBe('{}\n');
+  });
+
+  test.each(['built_with', 'at_source', 'outputs', 'config_source', 'copied', 'added-frame'])('check observes planted %s drift through the shared validator', field => {
+    const { dir, args, load } = setup();
+    rigVersionCommand(args);
+    const project = load();
+    const version = (project.versions as JsonObject[])[0]!;
+    if (field === 'built_with') obj(version.built_with)['@rig-c/core'] = '0.0.0';
+    if (field === 'at_source') obj(version.at_source).pointer = '/missing';
+    if (field === 'outputs') writeFileSync(join(dir, 'outputs/v1/idle/idle@4fps/f0000.png'), 'changed bytes');
+    if (field === 'config_source') obj(obj(version.registration).config_source).sha256 = 'a'.repeat(64);
+    if (field === 'copied') obj(obj(version.registration).copied).files = 1;
+    if (field === 'added-frame') writeFileSync(join(dir, 'outputs/v1/idle/idle@4fps/f9999.png'), 'new frame');
+    const code = field === 'built_with' ? 'RIG_TOOLCHAIN_MISMATCH' : field === 'at_source' ? 'RIG_AT_SOURCE_INVALID' : 'RIG_REGISTRATION_FILE_INVALID';
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain(code);
+    expect(checkProject(dir, project).refusals.map(f => f.code)).toContain(code);
+  });
+
+  test('a reopen before registration refuses the cited old bound, but a later reopen preserves history', () => {
+    const { dir, args, load } = setup();
+    const project = load();
+    project.reopens = [{ stage: 'interview', from_stage: 'rig-review', by: 'user', at: '2026-11-07T07:47:00Z', verbatim: 'Reopen', steps_before: [] }];
+    put(dir, 'project.json', project);
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(args, 'RIG_BUILD_BEFORE_REOPEN');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    project.reopens = [];
+    put(dir, 'project.json', project);
+    rigVersionCommand(args);
+    const registered = load();
+    registered.reopens = [{ stage: 'interview', from_stage: 'rig-review', by: 'user', at: '2099-01-01T00:00:00Z', verbatim: 'Reopen later', steps_before: [] }];
+    expect(rigRegistrationFindings(dir, registered)).toEqual([]);
+  });
+
+  test('missing producer files and invalid compile spec roll back the copied package and version', () => {
+    const { dir, args } = setup();
+    put(dir, 'source/compile-report.json', { spec: 'unknown', gates: [] });
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(args, 'RIG_REGISTRATION_FILE_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+  });
+
+  test('a declared built_with disagreement is RED before another registration writes', () => {
+    const { dir, args, load } = setup();
+    rigVersionCommand(args);
+    const project = load();
+    obj((project.versions as JsonObject[])[0]!.built_with)['@rig-c/core'] = '0.0.0';
+    put(dir, 'project.json', project);
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(['2', ...args.slice(1)], 'RIG_TOOLCHAIN_MISMATCH');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v2'))).toBe(false);
+  });
+
+  test('accepts explicitly cited UTC microseconds and an escaped JSON pointer', () => {
+    const { dir, args, load } = setup();
+    put(dir, 'source/at-source.json', { 'event/date': { '~at': '2026-11-06T20:44:42.081669+00:00' } });
+    args[args.indexOf('--at-pointer') + 1] = '/event~1date/~0at';
+    rigVersionCommand(args);
+    expect((load().versions as JsonObject[])[0]!.at).toBe('2026-11-06T20:44:42.081669+00:00');
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test('copies and binds a requirements-relative figure mask with its existing producer hash', () => {
+    const { dir, args, load } = setup();
+    const mask = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+    const hash = new Bun.CryptoHasher('sha256').update(mask).digest('hex');
+    put(dir, 'source/requirements.json', { setup_painting: { required: true, figure_mask: { path: 'mask.png', sha256: hash } } });
+    writeFileSync(join(dir, 'source/mask.png'), mask);
+    rigVersionCommand(args);
+    expect(readFileSync(join(dir, 'derived/review/v1/mask.png'))).toEqual(mask);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test('relative donor directories and editor files survive package regeneration', () => {
+    const { dir, args, load } = setup();
+    put(dir, 'source/donor/layers.json', { layers: [] });
+    put(dir, 'source/donor/source.png', 'synthetic source input');
+    put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', assemble: {
+      take: [{ run: 'full', tags: ['piece'], run_dir: 'donor', st_input: 'donor/source.png' }],
+      editor_receipts: { receipts: [{ file: 'donor/source.png' }] },
+    } });
+    rigVersionCommand(args);
+    const version = (load().versions as JsonObject[])[0]!;
+    const before = version.review_package;
+    expect(readFileSync(join(dir, 'derived/review/v1/inputs/assemble/take/0/run_dir/layers.json'), 'utf8')).toBe('{"layers":[]}\n');
+    rmSync(join(dir, 'derived/review/v1'), { recursive: true });
+    reviewPackageCommand(['1', dir, '--config', String(obj(obj(version.provenance).config).path), '--from', 'outputs/v1/out']);
+    expect((load().versions as JsonObject[])[0]!.review_package).toEqual(before);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test.each(['rig/rig.json', 'rig/motion.json', 'build/skeleton.model.json'])('refuses unsupported producer spec in %s before recording', path => {
+    const { dir, args } = setup();
+    const source = JSON.parse(readFileSync(join(dir, 'source', path), 'utf8'));
+    source.spec = 'unsupported/1';
+    put(dir, `source/${path}`, source);
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(args, 'RIG_REGISTRATION_FILE_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+  });
+});

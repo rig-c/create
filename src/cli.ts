@@ -23,6 +23,7 @@ import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
 import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
+import { VERSION_HELP, versionCommand } from './config-lost.ts';
 
 // Input registration is kept in its own CLI block.
 import { INPUT_HELP, inputCommand } from './inputs.ts';
@@ -66,6 +67,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     register frozen producer output with declared source bindings
   rig-create split-captions [<project dir|project.json>] [--config <file>]
                                                     generate caption data from the config and split.parts
+  rig-create version config-lost <n> --note <text> --source <text> [<dir>]
+                                                    record a pre-interview version's lost build config
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
@@ -109,6 +112,8 @@ ${REVIEW_PACKAGE_HELP}
 ${RIG_VERSION_HELP}
 
 ${SPLIT_CAPTIONS_HELP}
+
+${VERSION_HELP}
 `;
 
 /**
@@ -183,6 +188,7 @@ const COMMANDS: Record<string, Command> = {
 
   derived: derivedCommand,
   'split-captions': splitCaptionsCommand,
+  version: versionCommand,
 };
 
 /**

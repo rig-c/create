@@ -928,7 +928,8 @@ perform the following migration on its own decision record.
    `built_with`; never infer it from neighbouring versions. Restore the build
    config and its provenance binding if it survived. Otherwise declare
    `config_lost: { note, source }` explaining the loss and its source; this
-   version cannot authorize post work.
+   version cannot authorize post work. `rig-create version config-lost <n> --note <text> --source <text>`
+   writes this declaration.
    Restore each frozen output and record its actual `path`, `sha256` and
    `bytes`. When none survived, declare `outputs: []` and `outputs_lost`
    with the known loss in `note` and its record in `source`. Check that all

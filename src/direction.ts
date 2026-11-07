@@ -1,3 +1,4 @@
+import { SceneError, readScene, validateSceneCurrent } from './scene.ts';
 import { fixedNotApplicableCamera } from './direction-citation.ts';
 /** Create owns these authored camera/timing bytes. No renderer or external producer runs here. */
 import { createHash } from 'node:crypto';
@@ -15,6 +16,9 @@ import { structurePathIsIgnored } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const DIRECTION_SPEC = 'rig-create/direction@1';
+export const DIRECTION_SCENE_SPEC = 'rig-create/direction@2';
+/** Landing day at 00:00Z; earlier direction@1 posts WARN. */
+export const DIRECTION_SCENE_SINCE = '2026-11-08T00:00:00Z';
 export const DIRECTION_CONTRACT = 'rig-create/direction-contract@1';
 export const DIRECTION_PATCH_SPEC = 'rig-review-direction-patch/1';
 export const DIRECTION_CORRECTION_SPEC = 'rig-create/correction@2';
@@ -67,7 +71,9 @@ export function directionContract(project: JsonObject, now: number): JsonObject 
 }
 export function validateDirectionShape(doc: JsonObject, path = 'direction'): void {
   const bad = (why: string): never => directionFail('DIRECTION_SCHEMA', path, why);
-  if (!closed(doc, ['schema','rig','take','camera','timing','citations']) || doc.schema !== DIRECTION_SPEC) bad('expected closed direction@1');
+  const scene = doc.schema === DIRECTION_SCENE_SPEC;
+  if (!closed(doc, ['schema','rig','take','camera','timing','citations', ...(scene ? ['scene'] : [])]) || ![DIRECTION_SPEC, DIRECTION_SCENE_SPEC].includes(String(doc.schema))) bad('expected closed direction@1 or direction@2');
+  if (scene && (!closed(doc.scene, ['n', 'path', 'sha256']) || !positiveInt(doc.scene.n) || typeof doc.scene.path !== 'string' || !hex(doc.scene.sha256))) bad('scene requires n, path and raw-byte sha256');
   if (!closed(doc.rig, ['version','model']) || !positiveInt(doc.rig.version) || !closed(doc.rig.model,['path','sha256']) || typeof doc.rig.model.path !== 'string' || !hex(doc.rig.model.sha256)) bad('rig needs version and model file binding');
   if (!closed(doc.take,['duration','loop']) || !finite(doc.take.duration) || doc.take.duration <= 0 || typeof doc.take.loop !== 'boolean') bad('take duration must be positive finite seconds and loop boolean');
   const duration = (doc.take as JsonObject).duration as number;
@@ -142,6 +148,24 @@ export function validateDirectionRig(dir: string, project: JsonObject, doc: Json
   const source = versions.rigs.find(r => r.n === binding.version);
   if (!source?.accepted || current && (accepted?.n !== binding.version || versions.rigs.some(r => r.live && r.n > Number(binding.version)))) directionFail('DIRECTION_RIG_STALE','direction.rig','current authoring requires latest accepted live rig');
 }
+/** Currentness is shared with scene authoring; historical documents retain their seals. */
+export function validateDirectionScene(dir: string, project: JsonObject, doc: JsonObject, current = false, snapshots?: Map<string, Buffer>): void {
+  if (doc.schema !== DIRECTION_SCENE_SPEC) return;
+  try {
+    const reference = doc.scene as JsonObject;
+    const scene = readScene(dir, project, reference, snapshots);
+    const rig = doc.rig as JsonObject;
+    const sceneRig = scene.rig as JsonObject;
+    if (rig.version !== sceneRig.version || !equal(rig.model, sceneRig.model)) directionFail('DIRECTION_SCENE_MISMATCH', 'direction.scene', 'direction rig and model must equal the scene rig and model');
+    validateSceneCurrent(project, sceneRig, current, reference);
+  } catch (error) {
+    if (error instanceof SceneError) directionFail(error.code, error.path, error.message);
+    throw error;
+  }
+}
+export function requireDirectionScene(doc: JsonObject, at: number, path: string): void {
+  if (at >= Date.parse(DIRECTION_SCENE_SINCE) && doc.schema !== DIRECTION_SCENE_SPEC) directionFail('DIRECTION_SCENE_REQUIRED', path, 'run scene write and bind that scene in a direction@2 document');
+}
 export function readDirection(dir: string, project: JsonObject, n: Json | undefined, current = false): JsonObject {
   const v = directionVersion(project,n); const prov = v.provenance;
   if (v.kind !== 'post') directionFail('DIRECTION_VERSION',`versions[v${String(n)}]`,'direction belongs to a post version');
@@ -152,10 +176,12 @@ export function readDirection(dir: string, project: JsonObject, n: Json | undefi
   if (!equal(prov.config,binding) || !objects(v.outputs).some(o=>equal(o,binding))) directionFail('DIRECTION_VERSION',`versions[v${String(n)}].provenance`,'config and declared output must bind the direction document');
   if ((doc.rig as JsonObject).version !== v.rig_version) directionFail('DIRECTION_RIG_STALE',`versions[v${String(n)}].rig_version`,'document and post bind different rigs');
   if (!isObject(prov.sections) || !['camera','timing'].every(section => {const entries=objects((prov.sections as JsonObject)[section]);return entries.length === 1 && equal(entries[0],{entry:section,...((doc.citations as JsonObject)[section] as JsonObject)});})) directionFail('DIRECTION_CITATION',`versions[v${String(n)}].provenance.sections`,'version citations must match authored document citations');
+  requireDirectionScene(doc, Date.parse(String(v.at)), `versions[v${String(n)}].provenance.direction`);
+  validateDirectionScene(dir, project, doc, current);
   validateDirectionRig(dir,project,doc,current); validateDirectionCitations(dir,project,doc,current);
   return doc;
 }
-export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Finding[]}, now: number, selected?: number, currentOverride?: boolean): void {
+export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Finding[];warnings?:Finding[]}, now: number, selected?: number, currentOverride?: boolean): void {
   try {
     const contract = directionContract(ctx.project, now);
     const posts = objects(ctx.project.versions).filter(v=>v.kind==='post');
@@ -164,8 +190,13 @@ export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Fin
     for (const v of posts) {
       if (selected !== undefined && v.n !== selected) continue;
       const explicit = isObject(v.provenance) && v.provenance.direction !== undefined;
-      if (!explicit && (!contract || (contract.grandfathered_posts as Json[]).includes(v.n as number))) continue;
-      try { readDirection(ctx.dir,ctx.project,v.n,currentOverride ?? v.n===latest); }
+      if (contract && (contract.grandfathered_posts as Json[]).includes(v.n as number)) continue;
+      if (!explicit && !contract && Date.parse(String(v.at)) < Date.parse(DIRECTION_SCENE_SINCE)) continue;
+      try {
+        if (!explicit && Date.parse(String(v.at)) >= Date.parse(DIRECTION_SCENE_SINCE)) directionFail('DIRECTION_SCENE_REQUIRED', `versions[v${String(v.n)}].provenance.direction`, 'run scene write and retain a direction@2 document');
+        const doc = readDirection(ctx.dir,ctx.project,v.n,currentOverride ?? v.n===latest);
+        if (doc.schema === DIRECTION_SPEC) ctx.warnings?.push({code:'DIRECTION_SCENE_REQUIRED',path:`versions[v${String(v.n)}].provenance.direction`,message:`versions[v${String(v.n)}].provenance.direction: historical direction@1 predates ${DIRECTION_SCENE_SINCE}; run scene write and author direction@2 for the next post`});
+      }
       catch(e) { if (!(e instanceof DirectionError)) throw e; ctx.refusals.push(directionFinding(e)); }
     }
   } catch(e) { if (!(e instanceof DirectionError)) throw e; ctx.refusals.push(directionFinding(e)); }
@@ -179,10 +210,11 @@ export function assertDirectionApproval(dir:string,project:JsonObject,stage:stri
 }
 export function directionPostIdentity(dir:string,project:JsonObject,n:Json|undefined):JsonObject {
   const doc=readDirection(dir,project,n);const v=directionVersion(project,n);const prov=v.provenance as JsonObject;
-  return {kind:'post',n:n as number,config:prov.config as JsonObject,model:(doc.rig as JsonObject).model as JsonObject,direction:prov.direction as JsonObject};
+  const scene = doc.scene as JsonObject | undefined;
+  return {kind:'post',n:n as number,config:prov.config as JsonObject,model:(doc.rig as JsonObject).model as JsonObject,direction:prov.direction as JsonObject,...(scene ? {scene:{path:scene.path!,sha256:scene.sha256!}} : {})};
 }
 export function validateDirectionIdentity(dir:string,project:JsonObject,identity:JsonObject):void {
-  if(!closed(identity,['kind','n','config','model','direction']) || identity.kind!=='post' || !equal(identity,directionPostIdentity(dir,project,identity.n)))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.identity','expected exact bound direction post identity');
+  if(!closed(identity,['kind','n','config','model','direction'],['scene']) || identity.kind!=='post' || !equal(identity,directionPostIdentity(dir,project,identity.n)))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.identity','expected exact bound direction post identity');
 }
 export function patchDirection(project:JsonObject,source:JsonObject,patch:JsonObject):JsonObject {
   if(!closed(patch,['schema','source_post','rig_model_sha256','direction_sha256','replace']) || patch.schema!==DIRECTION_PATCH_SPEC || !positiveInt(patch.source_post) || !hex(patch.rig_model_sha256) || !hex(patch.direction_sha256) || !closed(patch.replace,[],['camera','timing','take']) || Object.keys(patch.replace).length===0)directionFail('DIRECTION_PATCH','direction.patch','expected closed direction-patch/1 and typed whole replacements');
@@ -205,5 +237,5 @@ export function validateDirectionOutcome(dir:string,project:JsonObject,record:Js
   if(!isObject(record.outcome) || artifact.state!=='applied-and-checked')directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.outcome','closure requires a checked direction result');
   validateDirectionIdentity(dir,project,record.outcome);
   const outcome=record.outcome;const v=directionVersion(project,outcome.n);const origin=v.direction_origin;
-  if(Number(outcome.n)<=Number(record.on.n) || !equal(outcome.model,record.on.model) || !equal(artifact.result,outcome.direction) || equal(record.on.direction,outcome.direction) || !closed(origin,['source_post','patch','result']) || origin.source_post!==record.on.n || !equal(origin.patch,artifact.patch) || !equal(origin.result,artifact.result) || !equal(readDirection(dir,project,outcome.n),expected))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.outcome','result must be produced from this exact patch/base on the same rig');
+  if(Number(outcome.n)<=Number(record.on.n) || !equal(outcome.scene,record.on.scene) || !equal(outcome.model,record.on.model) || !equal(artifact.result,outcome.direction) || equal(record.on.direction,outcome.direction) || !closed(origin,['source_post','patch','result']) || origin.source_post!==record.on.n || !equal(origin.patch,artifact.patch) || !equal(origin.result,artifact.result) || !equal(readDirection(dir,project,outcome.n),expected))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.outcome','result must be produced from this exact patch/base on the same rig');
 }

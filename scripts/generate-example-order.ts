@@ -1,4 +1,9 @@
 import { inputCommand } from '../src/inputs.ts';
+import { directionCommand } from '../src/direction-writers.ts';
+import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
+import { sceneCommand } from '../src/scene-writers.ts';
+import { currentScene, sceneReference } from '../src/scene.ts';
+import { splitCaptions } from '../src/split-captions.ts';
 import { generatorArgs } from './generator-args.ts';
 import { writeExampleReopened } from './generate-example-reopened.ts';
 import { exampleTime, retimeExample } from './example-time.ts';
@@ -163,13 +168,50 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   finish('rig', ['bones', 'meshes', 'constraints', 'motion']);
   advanceCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
   sign('rig-review', '2026-11-13T09:15:00Z', ['--version', '2']);
-  p.versions = original.versions as Json;
+  p.versions = arr(original.versions).filter(v => obj(v).kind === 'rig');
   obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
   for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
   save(); Object.assign(files,writeExampleChoices(dir,'post-interview',clock)); reload();
   advanceCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
   save(); sign('post-interview', '2026-11-13T10:30:00Z');
-  p.versions = original.versions as Json; save();
+  // The plate bytes are producer-generated and registered through input add.
+  const background = 'evidence/scene-background.png';
+  files[background] = input['parts/background.png']!; write(background, files[background]!);
+  save(); inputCommand(['add', background, dir, '--origin', 'synthetic producer background plate'], clock.now); reload();
+  const cite = (id: string): JsonObject => {
+    const item = arr(obj(obj(p.interview).post).items).map(obj).find(item => item.id === id)!;
+    return { guide: id, asks: [id], quote: obj(item.guide).verbatim! };
+  };
+  const citationsPath = 'evidence/scene-citations.json';
+  files[citationsPath] = `${JSON.stringify({ background: cite('post_composition') }, null, 2)}\n`; write(citationsPath, files[citationsPath]!);
+  save();
+  sceneCommand(['write', '--rig', '2', '--background', background, '--citations-file', citationsPath, '--by', 'user', dir], clock.now); reload();
+  const historicalPost = structuredClone(arr(original.versions).map(obj).find(version => version.kind === 'post')!);
+  historicalPost.verdicts = [];
+  p.versions = [...arr(p.versions), historicalPost];
+  clock.now = Date.parse(String(historicalPost.at)); save();
+  directionCommand(['--adopt', dir], clock.now); reload();
+  const scene = currentScene(p)!;
+  files[String(scene.path)] = readFileSync(join(dir, String(scene.path)));
+  const model = `derived/review/v2/out/check/build/skeleton.model.json`;
+  for (const originalPost of arr(original.versions).map(obj).filter(version => version.kind === 'post' && version.n !== historicalPost.n)) {
+    const n = Number(originalPost.n);
+    const doc: JsonObject = { schema: DIRECTION_SCENE_SPEC, scene: sceneReference(scene), rig: { version: 2, model: { path: model, sha256: sha256(readFileSync(join(dir, model))) } },
+      take: { duration: 8, loop: true }, camera: { space: 'rig-world-y-up', keys: [{ time: 0, box: { x: n === 3 ? -64 : -60, y: 0, width: n === 3 ? 128 : 120, height: n === 3 ? 128 : 120 }, easing: 'linear' }] },
+      timing: { keys: [{ time: 0, source_time: 0, easing: 'linear' }, { time: 8, source_time: 8, easing: 'hold' }] },
+      citations: { camera: cite('camera_depth'), timing: cite('post_timing') } };
+    const path = `evidence/direction-input-v${n}.json`;
+    files[path] = `${JSON.stringify(doc, null, 2)}\n`; write(path, files[path]!);
+    clock.now = Date.parse(String(originalPost.at));
+    directionCommand(['write', String(n), dir, '--file', path, '--rig', '2'], clock.now); reload();
+    files[`evidence/direction/v${n}.json`] = readFileSync(join(dir, `evidence/direction/v${n}.json`));
+    save();
+  }
+  for (const originalPost of arr(original.versions).map(obj).filter(version => version.kind === 'post')) {
+    const version = arr(p.versions).map(obj).find(version => version.n === originalPost.n)!;
+    for (const key of ['changed', 'evidence', 'verdicts', 'answers_feedback', 'review_origin']) if (originalPost[key] !== undefined) version[key] = originalPost[key]!;
+  }
+  save();
   clock.now = Date.parse(exampleTime('2026-11-15T11:00:00Z'));
   finish('post');
   advanceCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
@@ -202,7 +244,7 @@ if (import.meta.main) {
   const generated = generateExampleOrder(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
-  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'derived', 'versions', 'advances']) text = replaceValue(text, key, generated.project[key] as Json);
+  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'derived', 'versions', 'advances', 'scenes', 'direction_contract']) text = replaceValue(text, key, generated.project[key] as Json);
   text = text.replace(/("proposed_at":\s*)"([^"]+)"/, (_match, prefix: string, at: string) => `${prefix}${JSON.stringify(exampleTime(at))}`);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
   const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };
@@ -214,6 +256,10 @@ if (import.meta.main) {
     if (check) { if (!readFileSync(join(root, path)).equals(Buffer.from(bytes))) throw new Error(`${path}: generated order differs`); }
     else { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), bytes); }
   }
+  const captions = `${JSON.stringify(splitCaptions(join(root, 'example-project.json'), join(root, 'example-split/config.json')), null, 2)}\n`;
+  const captionsFile = join(root, 'example-split/captions.json');
+  if (check) { if (readFileSync(captionsFile, 'utf8') !== captions) throw new Error('example captions differ'); }
+  else writeFileSync(captionsFile, captions);
   writeExampleReopened(join(resolve(destination), 'reopened'), check);
   console.log('new-order example and draft identities reproduce through the writers; 0 refusals, 0 warnings');
 }

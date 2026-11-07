@@ -5,7 +5,7 @@ import { Refusal } from '../src/refusal.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { tempDir } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, step } from './fixtures.ts';
+import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
 import { checkProject, advanceCommand, stepStatusCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
@@ -86,6 +86,7 @@ test('review a hand-set authorized next stage still needs the matching advance',
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
+    retimeFixture(p, Date.parse('2026-11-16T00:00:00Z'));
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
   });
   const p = read(dir); p.advances = []; p.stage = 'parts'; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));

@@ -2536,6 +2536,12 @@
   ],
   "check": {
     "refusals": [],
-    "warnings": []
+    "warnings": [
+      {
+        "code": "DIRECTION_SCENE_REQUIRED",
+        "path": "versions[v2].provenance.direction",
+        "message": "versions[v2].provenance.direction: historical direction@1 predates 2026-11-08T00:00:00Z; run scene write and author direction@2 for the next post"
+      }
+    ]
   }
 }

@@ -1,3 +1,4 @@
+import { DIRECTION_SCENE_SINCE } from '../src/direction.ts';
 import { isSignoffIdentity, matchesSignoff } from '../src/stage-progress.ts';
 import { approvalStageOfStep, hasStageOrder, LEGACY_STAGES, STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import { expect } from 'bun:test';
@@ -44,6 +45,8 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
   const project = readTemplate(template);
+  // Keep the synthetic legacy cohort before scene adoption. Preserve the sealed raw template.
+  if (template === 'legacy-example-project.json' && !rawLegacy) retimeFixture(project, Date.parse(DIRECTION_SCENE_SINCE), false);
   if (['legacy-example-project.json', 'example-project.json', 'example-reopened/project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
   if (legacyFiles && !rawLegacy && bindAnswers) {
     materializeLegacyPartPackages(dir, project, legacyFiles);
@@ -107,7 +110,7 @@ function legacySetupAdvances(): Json[] {
 }
 
 /** Retain synthetic event ordering and stable identities inside a specific creation cohort. */
-export function retimeFixture(project: JsonObject, before: number): void {
+export function retimeFixture(project: JsonObject, before: number, bindAnswers = true): void {
   const timestamp = /\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g;
   const text = JSON.stringify(project);
   const instants = [...new Set([...text.matchAll(timestamp)].map(match => Date.parse(match[0])))].sort((a, b) => a - b);
@@ -115,7 +118,7 @@ export function retimeFixture(project: JsonObject, before: number): void {
     new Date(before - (instants.length - instants.indexOf(Date.parse(value))) * 1000).toISOString())));
   rehashSignoffs(project);
   for (const raw of asArray(project.signoffs).filter(isObject)) delete raw.answer_hashes;
-  bindFixtureAnswers(project);
+  if (bindAnswers) bindFixtureAnswers(project);
 }
 
 /** Pre-contract source records have no answer binding field, including before any mutation. */

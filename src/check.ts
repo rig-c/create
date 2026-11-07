@@ -4,6 +4,7 @@ import { checkSignoffTarget } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
 import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
+import { checkScenes } from './scene.ts';
 import { checkCorrections } from './corrections.ts';
 import { amendmentSummaries, collectAmendments, type AmendmentSummary } from './amend.ts';
 /**
@@ -938,6 +939,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkInputs(ctx);
   checkChoices(ctx);
   checkCorrections(ctx, options.now);
+  checkScenes(ctx);
   checkDirections(ctx, options.now);
   warnings.push(...intakeWarnings(dir, project));
 

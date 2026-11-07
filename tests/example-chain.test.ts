@@ -133,7 +133,7 @@ function readProject(): JsonObject {
 test('the finished chain binds its own approved parts, package model and signed direction', () => {
   const checked = checkExampleChain(shipped, testClock.now());
   expect(checked.refusals).toEqual([]);
-  expect(checked.warnings).toEqual([]);
+  expect(checked.warnings.map(f => [f.code, f.path])).toEqual([['DIRECTION_SCENE_REQUIRED', 'versions[v2].provenance.direction']]);
   const project = readProject();
   const versions = project.versions as JsonObject[];
   const rig = versions[0]!;

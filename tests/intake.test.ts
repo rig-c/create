@@ -1,3 +1,4 @@
+import { stageIndex } from '../src/stages.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -117,13 +118,33 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>signoffCommand(['rigging-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>{
       const candidate=load(dir);
-      retainSignoffs(candidate,s=>s.stage!=='parts-review');save(dir,candidate);
+      candidate.stage='parts-review';
+      candidate.versions=[];
+      candidate.scenes=[];
+      delete candidate.direction_contract;
+      for(const raw of arr(obj(obj(candidate.interview).post).items)){const item=obj(raw);item.guide=null;item.history=[];}
+      for(const raw of arr(obj(candidate.interview).waypoints)){const item=obj(raw);if(['bones','meshes','constraints','motion'].includes(String(item.id))){item.guide=null;item.history=[];}}
+      retainSignoffs(candidate,s=>stageIndex(String(s.stage))<stageIndex('parts-review'));
+      for(const raw of arr(obj(candidate.plan).steps)) {
+        const step=obj(raw);
+        if(step.phase==='post'||!['seethrough','assemble'].includes(String(step.id)))step.status='pending';
+      }
+      save(dir,candidate);
       testClock.set(new Date(String(arr(p.signoffs).map(obj).find(s=>s.stage==='parts-review')!.at)));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--evidence',EXAMPLE_VERDICT,'--diff-report',EXAMPLE_DIFF_REPORT,'--component','p10-n3=in-painting:synthetic source','--component','p1000-n3=in-painting:synthetic source','--draft','example','--structure-file','evidence/structure-decisions.json']);},
     ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>handoff(dir,null),
   ];
-  for(const action of actions){save(dir,p);const without=outcome(action);expect(without).toBe('OK');save(dir,{...p,intake:intake!});const withIntake=outcome(action);expect(withIntake).toBe(without);}
+  for(const action of actions){
+    testClock.set(new Date('2026-11-20T10:00:00Z'));
+    save(dir,p);
+    const without=outcome(action);
+    expect(without).toBe('OK');
+    testClock.set(new Date('2026-11-20T10:00:00Z'));
+    save(dir,{...p,intake:intake!});
+    const withIntake=outcome(action);
+    expect(withIntake).toBe(without);
+  }
   save(dir,p);const before=checkProject(dir).refusals;save(dir,{...p,intake:intake!});expect(checkProject(dir).refusals).toEqual(before);
 });

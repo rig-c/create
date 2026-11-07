@@ -1,3 +1,4 @@
+import { SceneError, currentScene, sceneReference } from './scene.ts';
 import { humanReviewVerdicts } from './review.ts';
 import { intakeContext } from './intake.ts';
 /** Per-ask proposals and human selections. No producer is run or measurement derived here. */
@@ -152,6 +153,13 @@ export function optionContext(project: JsonObject, stage: string, at: number): J
     if (!approval || !draft || date(draft.at) > at || !isObject(approval.evidence) || !isObject(approval.structure) || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', 'review and retain parts/structure before drafting rigging options');
     return { kind: 'parts', accepted_parts: { signoff_at: approval.at as Json, evidence: approval.evidence }, structure: approval.structure, draft_id: draft.id as Json, parts: draft.parts };
   }
+  try {
+    const scene = currentScene(project, at);
+    if (scene) return { kind: 'scene', scene: sceneReference(scene) };
+  } catch (error) {
+    if (error instanceof SceneError) fail('INTERVIEW_OPTIONS_STALE', error.message);
+    throw error;
+  }
   const signoff = collectSignoffs(project, []).filter(s => s.stage === 'rig-review' && s.checkpoint === null && s.at <= at && liveSignoff(reopens, s.stage, s.at)).sort((a,b) => b.at - a.at)[0];
   const rigs = objects(project.versions).filter(v => v.kind === 'rig' && date(v.at) <= at && liveSignoff(reopens, 'rig-review', date(v.at)))
     .filter(v => { const verdicts = humanReviewVerdicts(v.verdicts, 'rig-review').map(v => v.record).filter(d => date(d.at) <= at); return verdicts.at(-1)?.verdict === 'accepted'; }).sort((a,b) => Number(b.n) - Number(a.n));
@@ -179,17 +187,22 @@ function verifyBinding(dir: string, binding: Json, fresh: boolean): void {
 export function validateContext(dir: string, project: JsonObject, set: JsonObject, at: number, fresh = false): void {
   const drafted = date(set.drafted_at);
   if (!Number.isFinite(at) || drafted > at) fail('INTERVIEW_OPTIONS_STALE','selection must follow drafting; redraft against current accepted inputs');
+  const contextProject = isObject(set.context) && set.context.kind === 'rig' ? { ...project, scenes: [] } : project;
   if (isObject(set.context) && set.context.kind === 'inputs' && !fresh) {
     // Inputs are append-only and older declarations need not carry their own clock.
     // A later additional input must not rewrite which immutable input an earlier person saw.
     const declared = objects(project.inputs);
     if (!Array.isArray(set.context.files) || !set.context.files.length || set.context.files.some(f => !isObject(f) || !declared.some(d => d.path === f.path && d.sha256 === f.sha256 && (d.at === undefined || date(d.at) <= drafted)))) fail('INTERVIEW_OPTIONS_STALE','shown source identity is no longer declared; restore the original inputs');
-  } else if (!equal(optionContext(project, String(set.stage), drafted), set.context) || !equal(optionContext(project, String(set.stage), at), set.context)) fail('INTERVIEW_OPTIONS_STALE', 'options no longer match the live context; redraft against current accepted inputs');
+  } else if (!equal(optionContext(contextProject, String(set.stage), drafted), set.context) || !equal(optionContext(contextProject, String(set.stage), at), set.context)) fail('INTERVIEW_OPTIONS_STALE', 'options no longer match the live context; redraft against current accepted inputs');
   if (collectReopens(project, []).some(r => r.at > drafted && r.at <= at && stageIndex(r.stage) <= stageIndex(String(set.stage)))) fail('INTERVIEW_OPTIONS_STALE', 'context was reopened after drafting; redraft the option set');
   const context = set.context as JsonObject;
   const files: Json[] = [...(context.kind === 'inputs' ? asArray(context.files) : isObject(context.parts) ? asArray(context.parts.files) : [])];
   if (context.kind === 'parts') files.push(context.structure as Json, (context.accepted_parts as JsonObject).evidence as Json);
   if (context.kind === 'rig') files.push(context.config as Json);
+  if (context.kind === 'scene') {
+    if (!isObject(context.scene)) fail('INTERVIEW_OPTIONS_STALE', 'retain the scene reference');
+    files.push({ path: context.scene.path as Json, sha256: context.scene.sha256 as Json });
+  }
   if (context.kind === 'intake') files.push(context.report as Json);
   for (const file of files) verifyBinding(dir, file, fresh);
 }

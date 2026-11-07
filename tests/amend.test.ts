@@ -10,9 +10,9 @@ import { collectReopens, liveSignoff } from '../src/reopen.ts';
 import { readVersions } from '../src/review.ts';
 import { STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj, step } from './fixtures.ts';
+import { arr, fixture, obj, retimeFixture, step } from './fixtures.ts';
 import { CLI, cli, clockedCli, gitEnv, tempDir } from './helpers.ts';
-import { amendCommand, checkProject, correctionCommand, reopenCommand, handoff, signoffCommand, testClock } from './clock.ts';
+import { amendCommand, checkProject, correctionCommand, directionCommand, reopenCommand, handoff, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
@@ -81,6 +81,10 @@ describe('forward human amendments', () => {
     const amendmentDir = fixture(() => {}, template);
     const reopenDir = fixture(() => {}, template);
     if (stage === 'rigging-interview' && template === 'legacy-example-project.json') {
+      const modern = read(reopenDir);
+      retimeFixture(modern, Date.parse('2026-11-16T00:00:00Z'));
+      save(reopenDir, modern);
+      directionCommand(['--adopt', reopenDir]);
       const before = readFileSync(join(reopenDir, 'project.json'));
       refusal(() => reopenCommand([stage, reopenDir, '--by', 'owner', '--verbatim-file', words(reopenDir)]), 'STAGE_LAGGING');
       expect(readFileSync(join(reopenDir, 'project.json'))).toEqual(before);

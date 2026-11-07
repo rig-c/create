@@ -78,7 +78,10 @@ describe('post on an unaccepted rig', () => {
   });
 
   test('a post version built before its rig was accepted is refused', () => {
-    const r = checkProject(fixture((p) => (version(p, 3).at = '2026-11-13T08:00:00Z')));
+    const r = checkProject(fixture((p) => {
+      const acceptedAt = String(obj(arr(version(p, 2).verdicts)[0]).at);
+      version(p, 3).at = new Date(Date.parse(acceptedAt) - 1000).toISOString();
+    }));
     expect(withCode(r, 'POST_ON_UNACCEPTED_RIG').map((f) => f.path)).toEqual(['versions[v3].rig_version']);
   });
 

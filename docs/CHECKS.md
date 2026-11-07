@@ -323,6 +323,17 @@ Exit `1`. Each names its object in `path`.
 | `OVERRIDE_REASON_MISSING` | an overridden member answer has missing, non-string or blank `why_verbatim` | ask why this member differs and record the exact user text with `interview-answer --why-file` |
 | `DELEGATION_UNDECIDED` | a delegated item (framing, waypoint, step checkpoint) has no `agent_decision`, and the sign-off approving the plan it belongs to exists (`plan-approved` for rig items, `post-interview` for post items) | the agent writes its decision and reasoning, and the plan is signed again seeing it |
 | `PLAN_EMPTY` | `plan-approved` is signed and `plan.steps` is empty | draft the steps, then sign |
+| `PLAN_REPLACED_INVALID` | optional `plan.replaced` is not a list, or an entry lacks a previous step with id/phase, nonempty drafter or ISO date | restore the original full previous step and metadata |
+| `PLAN_REPLACED_HASH` | an archived `sha256` differs from the existing `stepHash(entry.step)` | restore the retained step and its original hash |
+| `PLAN_REPLACED_ACTION` | a history action is neither `revised` nor `removed` | retain the writer's original action |
+| `PLAN_REPLACED_ORDER` | a history entry predates an earlier entry | preserve append order and restore the recorded dates |
+| `PLAN_REPLACED_DUPLICATE` | two entries share `step.id` and `at` | retain unique history identities and retry with the current clock |
+| `PLAN_REPLACED_SIGNOFF` | a reopened signature's hash for a replaced id matches neither current nor valid history, or the latest live covering signature matches only history | restore the signed step and history; reopen a live approval before replanning |
+| `PLAN_OPTION_INVALID` | plan CLI arguments are missing, repeated or malformed (exit 2) | use plan add, revise or remove with the documented fields and drafter |
+| `PLAN_STEP_INVALID` | plan writer sees no steps list, a duplicate add id or no unique revise/remove target | restore the plan and use the appropriate action and id |
+| `PLAN_STEP_SIGNED` | revise/remove targets a step bound by a live covering plan signature | reopen its approving stage before replanning |
+| `PLAN_STEP_DONE` | revise targets completed work, including completion retained by reopen, or add reuses its archived id | remove the completed step and add a new id |
+| `PLAN_WRITE_CONFLICT` | another plan write holds the project lock, or project bytes change during validation | finish or recover the active writer, reload the project and retry |
 | `STEP_MALFORMED` | a step has no string `id`, a `phase` other than `rig` / `post`, or an id used twice | fix the step |
 | `STEP_NO_BASIS` | a step's `rests_on` is empty | name the answers it is built on; a step never rests on nothing — ask for the sentence first |
 | `STEP_BASIS_UNKNOWN` | `rests_on` names an id that is no framing, waypoint or post item | name an answer id, or add an `x_` prompt at the waypoint it belongs to |

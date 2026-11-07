@@ -68,6 +68,7 @@ import {
 import type { Json, JsonObject } from './templates.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { stepHash } from './step-hash.ts';
+import { collectPlanReplaced, checkReplacedSignoffs } from './plan-history.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 
 export const PROJECT_SCHEMA = 'rig-create/project@0';
@@ -872,15 +873,17 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   for (const s of historySignoffs) checkSignoffTarget(dir, project, s.record, `signoffs[${s.index}]`, refusals, warnings);
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const steps = collectSteps(project, refusals);
+  const replaced = collectPlanReplaced(project, refusals);
+  checkReplacedSignoffs(project, replaced, refusals);
+  const previousSteps = collectSteps({ plan: { steps: replaced.map(entry => entry.step) } }, []);
   const items = collectItems(project, { collection });
   const planApprovedAt = planApprovedBeforePartsReview(historySignoffs);
   // Superseded signatures grant no authority, but malformed checkpoint history is still reported.
   for (const s of historySignoffs) {
     if (liveSignoff(reopens, s.stage, s.at) || s.checkpoint === null) continue;
-    const step = steps.find(step => step.id === s.checkpoint);
-    const ownStage = step === undefined ? null : stageOfStep(step.phase, step.id);
-    const legacyStage = step === undefined ? null : stageOfStep(step.phase, '');
-    if (step === undefined || (s.stage !== ownStage && !(planApprovedAt !== null && s.stage === legacyStage))) {
+    const found = [...steps, ...previousSteps].some(step => step.id === s.checkpoint
+      && (s.stage === stageOfStep(step.phase, step.id) || (planApprovedAt !== null && s.stage === stageOfStep(step.phase, ''))));
+    if (!found) {
       const path = `signoffs[${s.index}]`;
       refusals.push({ code: 'SIGNOFF_UNKNOWN_CHECKPOINT', path, message: `${path}: historical checkpoint ${s.checkpoint} names no step in ${s.stage}; restore the original signature` });
     }

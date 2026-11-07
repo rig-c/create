@@ -17,6 +17,7 @@ import { PROGRESS_HELP, advanceCommand, stepStatusCommand } from './progress-wri
 import { REOPEN_HELP, reopenCommand } from './reopen.ts';
 import { AMEND_HELP, amendCommand } from './amend.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
+import { PLAN_HELP, planCommand } from './plan-writers.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
 import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
@@ -47,6 +48,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record what a person said about a shown version, word for word
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
+  rig-create plan add|revise|remove <id> --by <drafter> [<project dir>]
+                                                    draft steps and retain replaced definitions
   rig-create advance <stage> --by <who> [--verbatim-file <file>] [<project dir>]
                                                     move to the next stage authorized by a live signoff
   rig-create step-status <step> <status> --by <who> [<project dir>]
@@ -84,6 +87,8 @@ ${COLLECTION_HELP}
 ${REVIEW_HELP}
 
 ${SIGNOFF_HELP}
+
+${PLAN_HELP}
 
 ${PROGRESS_HELP}
 
@@ -167,6 +172,7 @@ const COMMANDS: Record<string, Command> = {
   collection: collectionCommand,
   review: reviewCommand,
   signoff: signoffCommand,
+  plan: planCommand,
   reopen: reopenCommand,
   advance: advanceCommand,
   'step-status': stepStatusCommand,

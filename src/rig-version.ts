@@ -1,6 +1,7 @@
 /** Register frozen bytes. Toolchain association and the not-after date are declarations. */
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, checkProject, isObject, type Finding } from './check.ts';
@@ -217,11 +218,14 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       }
       if (existsSync(join(dir, target))) fail('RIG_REGISTRATION_EXISTS', target, 'preserve the existing destination');
     }
+    const systemRoots = [resolve(tmpdir()), '/tmp', '/var', dirname(resolve(positional[1] ?? process.cwd())), dirname(dir)];
+    const isSystemAncestor = (candidate: string): boolean =>
+      systemRoots.some(root => root === candidate || root.startsWith(`${candidate}${sep}`));
     const sourceBytes = (path: string): Buffer => {
       const absolutePath = resolve(dir, path);
-      // Check every ancestor, including external frozen source trees.
+      // Check every ancestor inside the source tree, excluding system ancestors above it.
       let current = absolutePath;
-      while (dirname(current) !== current) {
+      while (dirname(current) !== current && (current === absolutePath || !isSystemAncestor(current))) {
         if (lstatSync(current).isSymbolicLink()) fail('RIG_REGISTRATION_PATH_INVALID', path, 'source symlinks are unsupported');
         current = dirname(current);
       }

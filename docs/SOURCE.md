@@ -202,10 +202,16 @@ is at least as good on every figure measured, the guide value wins.
 
 ## Mixed sources
 
-A layer the plan does not use can still count as cover in its run's depth order.
-When a plan mixes runs or layers, unlist the unused layer from the run (in the
-wrapper form, its `layers.json` entry) rather than leaving it in.
+When a plan mixes runs (`full` and `head`), keep every run's manifest
+(`layers.json`) entries listed, including the entries the plan does not take from
+that run. Do not unlist the other run's copies of those regions.
 
-- **Why**: an unused layer still in the run changes what counts as hidden behind
-  it, and the parts taken from that run change with it.
-- *Source*: pilot measurement, 2026-11-03.
+- **Why**: an entry that no planned part takes still holds depth ownership
+  (`pixelOwners`) in its run, which stops a neighbouring planned part from
+  claiming its pixels. Measured on a pilot (`full` + `head`, same layer PNGs byte
+  for byte), unlisting the unused entries changed 12 of 24 planned parts (`face`
+  5,424 px, `hair_back` 2,679 px, `neck` 1,575 px, `hair_front` 402 px, and 8
+  parts under 100 px) and baked the face and eyes into the back hair, hair
+  strands into the face, and the chin line into the neck; with the entries kept
+  listed, all three were clean.
+- *Source*: pilot measurement, 2026-11-07.

@@ -4,6 +4,38 @@ This file is for agents that work on or review this repository. What the
 package does is in [README.md](README.md), and the refusal catalogue is in
 [docs/CHECKS.md](docs/CHECKS.md).
 
+## Standing goal: the four-step user cycle
+
+Read this before choosing work. It ranks every issue in this repository.
+
+1. **The goal.** The user takes a project through four steps: parts and
+   meshes, the rigging interview, rig and animation, then direction (the
+   agent guide, "The user's four steps"). The goal is done when a project
+   passes all four on the tools alone:
+   - every record is written by create's writers, with no hand edit of
+     `project.json`;
+   - `check` exits 0 at every stage boundary;
+   - the user accepts the result at direction-review.
+2. **create owns the cycle end to end.** create says what the cycle needs
+   from parts, review and core. When a project hits a gap in another
+   package, file the issue in that package's repository, name the step it
+   blocks, and follow it until it lands. Don't work around the gap here.
+3. **Every human act goes through the review tool.** That covers parts
+   verdicts, interview picks, corrections and review verdicts. create
+   ingests what the tool exports, through its writers. Each of these is a
+   **bypass**:
+   - a question asked in chat;
+   - an answer typed into a record;
+   - a stage moved by hand.
+
+   A bypass is recorded as a finding and gets an issue. It never counts as
+   done, even when `check` passes.
+4. **Pilot projects exist to exercise the cycle.** A pilot that stalls is a
+   measurement of the tools. Fix the tool, not the pilot.
+5. **Queue rule.** Every open issue is either on the cycle's path or off it.
+   Off-path work waits until the on-path queue is empty, or until the issue
+   is moved onto the path with a reason.
+
 ## Code Review Rules
 
 Review a pull request against its issue's change list and against the rules

@@ -18,11 +18,13 @@ import { PROGRESS_HELP, advanceCommand, stepStatusCommand } from './progress-wri
 import { REOPEN_HELP, reopenCommand } from './reopen.ts';
 import { AMEND_HELP, amendCommand } from './amend.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
+import { PLAN_HELP, planCommand } from './plan-writers.ts';
 import { HANDOFF_HELP, handoffCommand } from './review.ts';
 import { REVIEW_PACKAGE_HELP, reviewPackageCommand } from './review-package.ts';
 import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
+import { VERSION_HELP, versionCommand } from './config-lost.ts';
 
 // Input registration is kept in its own CLI block.
 import { INPUT_HELP, inputCommand } from './inputs.ts';
@@ -49,6 +51,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record what a person said about a shown version, word for word
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
+  rig-create plan add|revise|remove <id> --by <drafter> [<project dir>]
+                                                    draft steps and retain replaced definitions
   rig-create advance <stage> --by <who> [--verbatim-file <file>] [<project dir>]
                                                     move to the next stage authorized by a live signoff
   rig-create step-status <step> <status> --by <who> [<project dir>]
@@ -65,6 +69,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     register frozen producer output with declared source bindings
   rig-create split-captions [<project dir|project.json>] [--config <file>]
                                                     generate caption data from the config and split.parts
+  rig-create version config-lost <n> --note <text> --source <text> [<dir>]
+                                                    record a pre-interview version's lost build config
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
@@ -87,6 +93,8 @@ ${REVIEW_HELP}
 
 ${SIGNOFF_HELP}
 
+${PLAN_HELP}
+
 ${PROGRESS_HELP}
 
 ${REOPEN_HELP}
@@ -108,6 +116,8 @@ ${REVIEW_PACKAGE_HELP}
 ${RIG_VERSION_HELP}
 
 ${SPLIT_CAPTIONS_HELP}
+
+${VERSION_HELP}
 `;
 
 /**
@@ -171,6 +181,7 @@ const COMMANDS: Record<string, Command> = {
   collection: collectionCommand,
   review: reviewCommand,
   signoff: signoffCommand,
+  plan: planCommand,
   reopen: reopenCommand,
   advance: advanceCommand,
   'step-status': stepStatusCommand,
@@ -182,6 +193,7 @@ const COMMANDS: Record<string, Command> = {
 
   derived: derivedCommand,
   'split-captions': splitCaptionsCommand,
+  version: versionCommand,
 };
 
 /**

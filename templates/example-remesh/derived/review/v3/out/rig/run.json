@@ -2,7 +2,7 @@
  "spec": "rig-run/1",
  "package": {
   "name": "@rig-c/parts",
-  "version": "2.33.0"
+  "version": "2.34.0"
  },
  "command": "rig",
  "started_at": "2026-11-08T00:01:09.000Z",

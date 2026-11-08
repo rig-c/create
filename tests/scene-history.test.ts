@@ -11,6 +11,7 @@ import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { fixture, materializeFixture } from './fixtures.ts';
 import { sceneFixture } from './scene-fixture.ts';
 import { checkProject, directionCommand, reopenCommand, sceneCommand, testClock } from './clock.ts';
+import { PARTS_REVIEW_LAPSES } from './fixtures.ts';
 
 afterEach(() => testClock.reset());
 function scenes(dir: string, project: JsonObject): Finding[] {
@@ -28,7 +29,7 @@ test('signed ruling: reopening the filled example with a scene passes check thro
   const after = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   expect(after.scenes).toEqual(before.scenes);
   expect(checkProject(dir).refusals).toEqual([]);
-  expect(checkProject(dir).warnings).toEqual([]);
+  expect(checkProject(dir).warnings.map(f => [f.code, f.path])).toEqual(PARTS_REVIEW_LAPSES);
 });
 
 test('signed ruling: a tampered historical scene refuses SCENE_FILE_CHANGED', () => {

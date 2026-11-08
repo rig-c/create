@@ -9,7 +9,7 @@ import { collectReopens, liveSignoff } from '../src/reopen.ts';
 import { stageIndex } from '../src/stages.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
-import { arr, fixture, obj } from './fixtures.ts';
+import { arr, fixture, obj, PARTS_REVIEW_LAPSES } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { checkProject, correctionCommand, draftRigCommand, testClock } from './clock.ts';
 
@@ -29,7 +29,8 @@ test('reopened example retains history and supersedes exactly the parts-review s
   const dir = fixture(() => {}, 'example-reopened/project.json'); roots.push(join(dir, '..'));
   const plain = readTemplate('example-project.json'); const reopened = load(dir);
   expect(checkProject(plainDir)).toMatchObject({ refusals: [], warnings: [] });
-  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+  expect(checkProject(dir)).toMatchObject({ refusals: [] });
+  expect(checkProject(dir).warnings.map(f => [f.code, f.path])).toEqual(PARTS_REVIEW_LAPSES);
   const reopens = collectReopens(reopened, []);
   expect(reopens).toHaveLength(1);
   expect(reopened.stage).toBe('parts-review');
@@ -73,7 +74,7 @@ test('a parts-review made correction records and resolves against the reopened e
   expect(correctionCommand(['record', dir, '--id', 'example-fix', '--path', 'made', '--stage', 'parts-review', '--by', 'user', '--draft', 'example', '--feedback-file', 'evidence/correction-session.json', '--item', 'synthetic-apply']).exit).toBe(0);
   const record = obj(arr(load(dir).corrections)[0]);
   expect(validateCorrectionIdentity(dir, load(dir), record.on, 'parts-review')).toEqual(obj(record.on));
-  expect(checkProject(dir).warnings.map(finding => finding.code)).toEqual(['CORRECTION_OPEN']);
+  expect(checkProject(dir).warnings.map(finding => finding.code)).toEqual(['CORRECTION_OPEN', ...PARTS_REVIEW_LAPSES.map(([code]) => code)]);
   cpSync(join(dir, 'derived/drafts/example'), join(dir, 'derived/drafts/corrected'), { recursive: true });
   const modelBytes = readFileSync(join(controlDir, 'evidence/outcome.model.json'));
   writeFileSync(join(dir, String(model.path).replace('/example/', '/corrected/')), modelBytes);
@@ -85,5 +86,6 @@ test('a parts-review made correction records and resolves against the reopened e
   const closed = obj(arr(load(dir).corrections)[0]);
   expect(validateCorrectionIdentity(dir, load(dir), closed.outcome, 'parts-review')).toEqual(obj(closed.outcome));
   expect(obj(closed.artifact).state).toBe('applied-and-checked');
-  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+  expect(checkProject(dir)).toMatchObject({ refusals: [] });
+  expect(checkProject(dir).warnings.map(f => [f.code, f.path])).toEqual(PARTS_REVIEW_LAPSES);
 });

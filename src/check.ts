@@ -69,6 +69,7 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
+import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { stepHash } from './step-hash.ts';
 import { collectPlanReplaced, checkReplacedSignoffs } from './plan-history.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
@@ -964,6 +965,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkScenes(ctx);
   checkDirections(ctx, options.now);
   warnings.push(...intakeWarnings(dir, project));
+  warnings.push(...reopenLapseWarnings(project));
 
   return {
     ok: refusals.length === 0,

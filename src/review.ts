@@ -27,7 +27,7 @@ import { join, resolve } from 'node:path';
 import { draftVersionFindings } from './drafts.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { collectReopens, liveSignoff, reopenTime, type Reopen } from './reopen.ts';
+import { collectReopens, liveSignoff, reopenIndex, reopenTime, type Reopen } from './reopen.ts';
 import { PAUSED_STAGE, RIG_REVIEW, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -208,7 +208,7 @@ function lapsedAcceptance(project: JsonObject, versions: Versions): string | nul
   const when = new Date(cutoff.at).toISOString();
   // collectReopens appends amendment cutoffs, which carry their amendments[] index.
   const amendment = 'index' in cutoff && typeof cutoff.index === 'number' ? cutoff.index : -1;
-  const reopen = asArray(project.reopens).findIndex(r => isObject(r) && r.stage === cutoff.stage && Date.parse(asString(r.at) ?? '') === cutoff.at);
+  const reopen = reopenIndex(project, cutoff);
   const by = amendment >= 0 ? `the amendment at ${when} (amendments[${amendment}])`
     : `the reopen to ${cutoff.stage} at ${when} (reopens[${reopen}])`;
   return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; register a new rig version with rig-create rig-version <n> and accept it with rig-create review <n> --verdict accepted --review rig-review`;

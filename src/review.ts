@@ -214,6 +214,18 @@ function lapsedAcceptance(project: JsonObject, versions: Versions): string | nul
   return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; register a new rig version with rig-create rig-version <n> and accept it with rig-create review <n> --verdict accepted --review rig-review`;
 }
 
+/**
+ * A rig-review signature never rests on a lapsed acceptance (rig-c/create#243): refused before the write when no live
+ * rig version is accepted and a reopen or amendment made the accepted one history. With no acceptance at all, the
+ * target selection refuses (SIGNOFF_TARGET_STALE).
+ */
+export function assertRigReviewSignable(project: JsonObject, path: string): void {
+  const versions = readVersions(project);
+  if (latestAccepted(versions) !== null) return;
+  const lapsed = lapsedAcceptance(project, versions);
+  if (lapsed !== null) refuse('RIG_VERSION_UNACCEPTED', `${path}: rig-review would be signed on a lapsed acceptance: ${lapsed}, then sign rig-review`);
+}
+
 /** Why a post version's `rig_version` is not an accepted rig, or `null` when it is. */
 function postBasisProblem(post: PostVersion, versions: Versions): string | null {
   const rv = post.rigVersion;

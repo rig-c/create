@@ -14,7 +14,8 @@ import { checkStructure, riggingContext, structurePathIsIgnored } from './struct
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, STAGE_ORDER_SPEC, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, RIG_REVIEW, STAGE_ORDER_SPEC, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
+import { assertRigReviewSignable } from './review.ts';
 import { furthestStageSignoff } from './stage-progress.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { stepHash } from './step-hash.ts';
@@ -188,6 +189,7 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
   }
   assertDirectionApproval(dir, project, stage, now);
   assertCorrectionApproval(dir, project, stage, now, signoff);
+  if (stage === RIG_REVIEW) assertRigReviewSignable(project, `signoffs[${project.signoffs.length}]`);
   const target = selectSignoffTarget(dir, project, stage, opts['--version']);
   if (target !== undefined) signoff.target = target;
   project.signoffs.push(signoff);

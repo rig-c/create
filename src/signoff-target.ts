@@ -1,4 +1,4 @@
-import { acceptedReviewVerdict } from './review.ts';
+import { acceptedReviewVerdict, readVersions } from './review.ts';
 import { checkFigureMask } from './figure-mask.ts';
 /** Review signatures bind accepted verdicts and the reviewed version's retained inputs. */
 import { createHash } from 'node:crypto';
@@ -90,8 +90,10 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
   const reopens = collectReopens(project, []);
   const signed = collectSignoffs(project, []).filter(s => s.stage === stage && liveSignoff(reopens, stage, s.at));
   const versions = asArray(project.versions);
+  // A rig a reopen or amendment made history is no candidate (rig-c/create#243).
+  const history = stage === 'rig-review' ? new Set(readVersions(project).rigs.filter(r => !r.live).map(r => r.n)) : new Set<number>();
   const candidates = versions.filter((v): v is JsonObject => isObject(v) && v.kind === kinds[stage]
-    && acceptedReviewVerdict(v, stage) >= 0
+    && acceptedReviewVerdict(v, stage) >= 0 && !history.has(v.n as number)
     && !signed.some(s => isObject(s.record.target) && s.record.target.version === v.n));
   const fail = (reason: string): never => refuse('SIGNOFF_TARGET_STALE', `signoffs[${asArray(project.signoffs).length}].target: ${reason}; candidates [${candidates.map(v => String(v.n)).join(', ')}]; select an accepted version with --version and restore its reviewed inputs`);
   let version: JsonObject;
@@ -103,6 +105,7 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     if (!/^[1-9][0-9]*$/.test(requested) || matches.length !== 1 || matches[0]?.kind !== kinds[stage]) fail('requested version does not exist uniquely with this stage kind');
     version = matches[0]!;
   }
+  if (history.has(version.n as number)) fail('rig version is history since a reopen or amendment of rig-review or an earlier stage');
   const verdictIndex = acceptedReviewVerdict(version, stage);
   if (verdictIndex < 0) fail('version has no accepted verdict');
   let target: JsonObject;

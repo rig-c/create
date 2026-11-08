@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "@rig-c/parts": "2.16.0",
-    "@rig-c/review": "2.4.4",
+    "@rig-c/review": "2.4.5",
     "@types/bun": "^1.3.0",
     "eslint": "^10.11.0",
     "typescript": "^5.9.3",

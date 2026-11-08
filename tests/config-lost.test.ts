@@ -219,4 +219,30 @@ describe('version config-lost writer (#171)', () => {
     expect((error as Refusal).code).toBe('STAGE_UNKNOWN');
     expect(readFileSync(file)).toEqual(before);
   });
+
+  test('#221: CG_GATES_UNREAD names version config-lost only on a version the writer accepts', () => {
+    const dir = migratedCg();
+    const unread = checkProject(dir).refusals.filter((f) => f.code === 'CG_GATES_UNREAD');
+    expect(unread.map((f) => f.path)).toEqual(['versions[v1].provenance.config']);
+    expect(unread[0]?.message).toContain('rig-create version config-lost 1 --note <text> --source <text>');
+    // Following the named remedy clears the finding.
+    versionCommand(['config-lost', '1', '--note', LOSS.note, '--source', LOSS.source, dir]);
+    expect(codes(checkProject(dir))).not.toContain('CG_GATES_UNREAD');
+
+    // A provenance.config without a path is refused by the writer (CONFIG_LOST_HAS_CONFIG), so the remedy does not name it.
+    const kept = migratedCg((p) => {
+      version(p, 1).provenance = { config: { sha256: 'a'.repeat(64) } };
+    });
+    const pathless = checkProject(kept).refusals.filter((f) => f.code === 'CG_GATES_UNREAD');
+    expect(pathless.map((f) => f.path)).toEqual(['versions[v1].provenance.config']);
+    expect(pathless[0]?.message).not.toContain('config-lost');
+    const before = readFileSync(join(kept, 'project.json'));
+    try {
+      versionCommand(['config-lost', '1', '--note', LOSS.note, '--source', LOSS.source, kept]);
+      throw new Error('expected CONFIG_LOST_HAS_CONFIG');
+    } catch (error) {
+      expect((error as Refusal).code).toBe('CONFIG_LOST_HAS_CONFIG');
+    }
+    expect(readFileSync(join(kept, 'project.json'))).toEqual(before);
+  });
 });

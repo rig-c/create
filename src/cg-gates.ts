@@ -144,7 +144,10 @@ export function checkCgGates(ctx: Ctx): void {
     const configPath = asString(config.path);
     const at = `${label}.provenance.config`;
     if (configPath === null) {
-      ctx.refusals.push({ code: 'CG_GATES_UNREAD', path: at, message: `${at}: no path; a CG version's gates are read from the config it was built from — keep it under the project and record its path and sha256` });
+      // A migrated pre-interview version without provenance.config is what `version config-lost` accepts (src/config-lost.ts).
+      const lost = v.pre_interview === true && (prov.config === null || prov.config === undefined)
+        ? `; if this pre-interview version's config did not survive, record the loss with rig-create version config-lost ${String(v.n)} --note <text> --source <text>` : '';
+      ctx.refusals.push({ code: 'CG_GATES_UNREAD', path: at, message: `${at}: no path; a CG version's gates are read from the config it was built from — keep it under the project and record its path and sha256${lost}` });
       return;
     }
     const configSha = asString(config.sha256);

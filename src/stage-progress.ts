@@ -1,5 +1,5 @@
 import { asArray, asString, collectSignoffs, isObject, postNotPassed, type Ctx, type Finding } from './check.ts';
-import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, SKIPPED_WHEN_NO_POST, STAGES, hasStageOrder, stageIndex, stageOfStep } from './stages.ts';
+import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, SKIPPED_WHEN_NO_POST, STAGES, hasStageOrder, stageIndex, stageOfStep, type StageSpec } from './stages.ts';
 import { collectAmendments } from './amend.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -99,6 +99,18 @@ export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
   (forwardWrite || window.at >= since || !Number.isFinite(window.at) ? ctx.refusals : ctx.warnings).push(finding);
 }
 
+/** The stage order an advance entry's `order` names. */
+export function advanceOrder(order: Json | undefined): readonly StageSpec[] {
+  return order === 'pre-parts' ? LEGACY_STAGES.filter(s => !['parts', 'parts-review'].includes(s.id))
+    : order === 'legacy' ? LEGACY_STAGES : STAGES;
+}
+
+/** The signed stage whose stage-level signoff authorizes a move from `from`: itself, or the last signed stage before a bar stage. */
+export function moveOwner(order: readonly StageSpec[], from: Json | undefined): string | undefined {
+  const index = order.findIndex(s => s.id === from);
+  return index < 0 ? undefined : order.slice(0, index + 1).filter(s => s.closed_by === 'signoff').at(-1)?.id;
+}
+
 /** Advances are history, separate from reopen cutoffs. Their reference must witness the recorded move. */
 export function checkAdvances(ctx: Ctx): void {
   const push = (path: string, why: string): void => {
@@ -113,8 +125,7 @@ export function checkAdvances(ctx: Ctx): void {
       || !isSignoffIdentity(entry.signoff) || !Array.isArray(entry.signoffs_before)
       || !entry.signoffs_before.every(isSignoffIdentity)
       || !Array.isArray(entry.steps_before)) { push(path, 'needs reopen-shaped fields and stable signoff identities'); continue; }
-    const order = entry.order === 'pre-parts' ? LEGACY_STAGES.filter(s => !['parts', 'parts-review'].includes(s.id))
-      : entry.order === 'legacy' ? LEGACY_STAGES : STAGES;
+    const order = advanceOrder(entry.order);
     const from = order.findIndex(s => s.id === entry.from_stage);
     const target = order.findIndex(s => s.id === entry.stage);
     const noPost = entry.from_stage === 'post-interview' && entry.stage === 'accepted' && entry.post_not_passed === true;
@@ -124,7 +135,7 @@ export function checkAdvances(ctx: Ctx): void {
     const firstPlan = collectSignoffs(ctx.project, []).filter(s => s.stage === 'plan-approved' && s.checkpoint === null).map(s => s.at);
     const historicalOrder = entry.order !== 'pre-parts' || Math.min(...firstPlan) < Date.parse(PARTS_REVIEW_SINCE);
     const signature = resolveSignoff(ctx.project, entry.signoff);
-    const owner = order.slice(0, from + 1).filter(s => s.closed_by === 'signoff').at(-1)?.id;
+    const owner = moveOwner(order, entry.from_stage);
     if (entry.steps_before.some(s => !isObject(s) || typeof s.id !== 'string' || !['rig', 'post'].includes(String(s.phase)) || (s.status !== undefined && !STEP_STATUSES.includes(s.status as typeof STEP_STATUSES[number])))) push(path, 'steps_before must retain step ids, phases and original statuses');
     if ((entry.by as string).trim() === '' || (entry.by as string).toLowerCase() === 'agent' || from < 0 || target <= from
       || !['legacy', 'split', 'pre-parts'].includes(String(entry.order)) || !historicalOrder

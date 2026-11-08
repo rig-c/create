@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed } from './check.ts';
+import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readVerbatim } from './record-input.ts';
@@ -8,7 +8,7 @@ import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
 import { collectAmendments } from './amend.ts';
 import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
-import { furthestStageSignoff, isSignoffIdentity, signoffIdentity, statusTransitionFinding } from './stage-progress.ts';
+import { advanceOrder, furthestStageSignoff, isSignoffIdentity, moveOwner, signoffIdentity, statusTransitionFinding, STEP_STATUSES } from './stage-progress.ts';
 import { isPartsCheckMove, partsCheckLines, partsCheckRecord } from './parts-check.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -68,8 +68,9 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
   if (positional.length < 1 || positional.length > 2) refuse('PROGRESS_OPTION_INVALID', 'stage: advance needs a target and optional project directory; see help', USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
-  const reopens = collectReopens(project, []);
-  const latest = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
+  const history: Finding[] = [];
+  const reopens = collectReopens(project, history);
+  const latest = furthestStageSignoff(collectSignoffs(project, history).filter(s => liveSignoff(reopens, s.stage, s.at)));
   if (latest !== undefined && !Number.isFinite(latest.at)) refuse('STAGE_SIGNOFF_DATE_INVALID', `signoffs[${latest.index}].at: frontier approval needs a readable date; restore its original date before advancing`);
   if (latest === undefined) refuse('ADVANCE_UNAUTHORIZED', 'stage: no live stage-level human signoff authorizes a move; sign the current stage first');
   const preParts = !hasStageOrder(project) && stageIndex(String(project.stage)) > stageIndex('parts-review')
@@ -80,6 +81,13 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
     order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), verbatim: readVerbatim(opts['--verbatim-file'] ?? '-'), signoff: signoffIdentity(latest.record),
     steps_before: steps.map(s => ({ id: s.id ?? null, phase: s.phase ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
+  // A live signature at an earlier stage is not this move's authority; name the stage to sign, not the candidate.
+  // A malformed signoff or reopen may be that signature, so the candidate check names it instead.
+  const order = advanceOrder(entry.order);
+  const owner = moveOwner(order, entry.from_stage);
+  if (history.length === 0 && owner !== undefined && order.findIndex(s => s.id === latest.stage) < order.findIndex(s => s.id === owner)) {
+    refuse('ADVANCE_UNAUTHORIZED', `stage: no live ${owner} signoff authorizes the move from ${String(entry.from_stage)}; the latest live stage signoff is ${latest.stage} (signoffs[${latest.index}]); record rig-create signoff ${owner} first, then advance`);
+  }
   if (project.advances !== undefined && !Array.isArray(project.advances)) refuse('ADVANCE_MALFORMED', 'advances: must be a list; preserve existing history');
   const checkPath = `advances[${asArray(project.advances).length}].parts_check`;
   const report = opts['--parts-check'];
@@ -127,6 +135,13 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   const enabled = checkpoint.state === 'user' ? checkpoint.answer.value === true
     : checkpoint.state === 'delegated' && isObject(checkpoint.answer.agent_decision) && checkpoint.answer.agent_decision.value === true;
   const entry: JsonObject = { from_status: step.status ?? 'pending', status: positional[1]!, by: opts['--by']!, at: new Date(now).toISOString(), checkpoint_required: enabled, signoff: null };
+  const from = STEP_STATUSES.indexOf(entry.from_status as typeof STEP_STATUSES[number]);
+  if (from >= 0 && STEP_STATUSES.indexOf(entry.status as typeof STEP_STATUSES[number]) !== from + 1) {
+    const next = STEP_STATUSES[from + 1];
+    refuse('STEP_STATUS_TRANSITION', next === undefined
+      ? `plan.steps[${positional[0]}].status: ${String(entry.from_status)} is the last status, so ${String(entry.status)} cannot follow it; to run the step again record rig-create reopen ${stage}`
+      : `plan.steps[${positional[0]}].status: ${String(entry.status)} cannot follow ${String(entry.from_status)}; statuses move one at a time through ${STEP_STATUSES.join(' → ')}, so record rig-create step-status ${String(step.id)} ${next} next`);
+  }
   const invalid = statusTransitionFinding(entry, `plan.steps[${positional[0]}].status_history`);
   if (invalid !== null) refuse(invalid.code, invalid.message);
   if (entry.status === 'done' && enabled) {

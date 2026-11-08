@@ -22,7 +22,7 @@ export function partsActReceipt(project: JsonObject, act: PartsVerdictAct): Json
 }
 
 /** File hashes are checked as declared. No enumeration or producer measurement. */
-export function assertPartsActSource(root: string, project: JsonObject, act: PartsVerdictAct): void {
+export function assertPartsActSource(root: string, project: JsonObject, act: PartsVerdictAct, options: { comparePlan?: boolean } = {}): void {
   let draft: JsonObject;
   try { draft = publishedDraft(project, act.source.selector.id); }
   catch { return fail('reviewed draft is absent or ambiguous'); }
@@ -49,7 +49,7 @@ export function assertPartsActSource(root: string, project: JsonObject, act: Par
     check(act.source.model);
   }
   if (act.source.direction) check(act.source.direction);
-  if (act.source.plan) {
+  if (act.source.plan && options.comparePlan !== false) {
     const steps = object(project.plan) && Array.isArray(project.plan.steps) ? project.plan.steps : [];
     if (!isDeepStrictEqual(act.source.plan.steps, steps.map(step => ({ id: object(step) ? step.id : null, hash: object(step) ? stepHash(step) : null })))) fail('displayed plan changed');
   }
@@ -81,7 +81,8 @@ export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash:
   if (!receipt || receipt.kind !== 'parts-verdict' || receipt.sha256 !== evidenceHash || receipt.bytes !== bytes.toString('utf8')) {
     refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json.review_acts: parts evidence has no matching recorded receipt; ingest it with parts-review --from-review');
   }
-  assertPartsActSource(root, project, act);
+  // Later plan approvals can fill checkpoints without changing the reviewed draft.
+  assertPartsActSource(root, project, act, { comparePlan: false });
   if (partsActDraftHash(project, act) !== receipt.version_hash) fail('recorded draft entry changed');
   if (act.value.verdict !== 'approved') refuse('PARTS_VERDICT_NOT_APPROVED', 'signoffs.parts-review.evidence: semantic verdict is not approved; review the corrected draft and record a separate approval');
   return join(root, act.source.parts.manifest.path);

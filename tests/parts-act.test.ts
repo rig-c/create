@@ -9,7 +9,12 @@ import type { JobOwnerHost } from '@rig-c/review/job-host';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { partsEnumerator } from '../src/job-publication.ts';
 import { jobHash, jobHostStateRoot, pendingPublications } from '../src/job-outbox.ts';
-import { checkProject } from '../src/check.ts';
+import { checkProject, collectItems } from '../src/check.ts';
+import { optionContext } from '../src/choices.ts';
+import { interviewOptionsCommand, interviewAnswerCommand } from '../src/choice-writers.ts';
+import { interviewStageOfGuide } from '../src/stages.ts';
+import { stepHash } from '../src/step-hash.ts';
+import { planCommand } from '../src/plan-writers.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
@@ -262,4 +267,58 @@ test('competing human value flags refuse without record mutation', async () => {
   const result = await cli(root, ['parts-review', '--from-review', act.actId, '--verdict', 'approved']);
   expect(result.exit).toBe(2); expect(result.stderr).toContain('PARTS_REVIEW_OPTION_INVALID:');
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+});
+
+function answerRiggingInterview(root: string): void {
+  advanceCommand(['rigging-interview', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt')], Date.now());
+  const items = collectItems(read(root), { collection: null })
+    .filter(item => interviewStageOfGuide(item.id, item.kind === 'post', true) === 'rigging-interview');
+  for (const item of items) {
+    const now = Date.now();
+    const path = `evidence/interview/${item.id}.json`;
+    const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain', path), 'utf8')) as JsonObject;
+    set.context = optionContext(read(root), 'rigging-interview', now, root);
+    set.drafted_at = new Date(now).toISOString();
+    writeFileSync(join(root, path), `${JSON.stringify(set, null, 2)}\n`);
+    interviewOptionsCommand([item.id, root, '--file', path], now);
+    const asks = set.asks as JsonObject[];
+    interviewAnswerCommand([item.id, root, '--set', path, '--sha256', jobHash(readFileSync(join(root, path))), '--by', 'user',
+      ...asks.flatMap(ask => ['--pick', `${ask.id}=keep`])], now);
+  }
+}
+
+test('retained parts approval survives real rigging signoff checkpoint changes and still rejects changed images', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  const result = await cli(root, ['parts-review', '--from-review', act.actId, '--json']);
+  expect(result.exit).toBe(0);
+  const evidence = JSON.parse(result.stdout).evidence.path;
+  prepareSignoff(root, evidence);
+  sign(root, evidence);
+  answerRiggingInterview(root);
+  const steps = (read(root).plan as JsonObject).steps as JsonObject[];
+  const before = steps.find(step => step.id === 'bones')!;
+  expect(before.checkpoint).toBeNull();
+  const hash = stepHash(before);
+  signoffCommand(['rigging-interview', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt')], Date.now());
+  const after = ((read(root).plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'bones')!;
+  expect(after.checkpoint).not.toBeNull();
+  expect(stepHash(after)).not.toBe(hash);
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
+  const image = act.source.parts!.images.find(row => row.role === 'part')!;
+  writeFileSync(join(root, 'derived/drafts/chain/input', image.path), Buffer.from('synthetic changed image'));
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toContain('REVIEW_ACT_SOURCE_STALE');
+});
+
+test('changed plan still refuses first ingest and replay before deduplication', async () => {
+  for (const replay of [false, true]) {
+    const { root, host } = await bound();
+    const act = await submit(root, host);
+    if (replay) expect((await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
+    planCommand(['revise', 'bones', root, '--by', 'agent', '--bar', 'The revised synthetic bone plan meets its declared bar.'], Date.now());
+    const before = readFileSync(join(root, 'project.json'));
+    const result = await cli(root, ['parts-review', '--from-review', act.actId]);
+    expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  }
 });

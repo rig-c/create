@@ -245,6 +245,11 @@ or changes-requested act can be retained, while the separate approval writer
 refuses it with `PARTS_VERDICT_NOT_APPROVED`. Recording evidence leaves signoff
 and stage progression to those explicit writes.
 
+At check, structure-snapshot and signoff, retained parts approval checks its draft
+bindings independently of later plan changes, including checkpoint decisions.
+The full plan comparison still applies at ingest and replay. Draft publications
+declare no direction document, so their acts have `source.direction: null`.
+
 Every ingest and replay checks the draft selection, Parts manifest/images,
 config and config inputs, retained outputs, package revision and any declared
 model/plan/direction identities before deduplication. Package revision is the

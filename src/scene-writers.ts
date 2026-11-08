@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { checkProject, isObject, type Finding } from './check.ts';
 import { closed, directionHash } from './direction.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { countFindings, newFindings } from './refusal-baseline.ts';
+import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { SCENE_SPEC, SceneError, checkScenes, plateRegistration, pngDimensions, sceneBytes, sceneEntries, sceneFail, scenePath, sceneRig, validateScene } from './scene.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -87,7 +87,7 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
     const bytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
     const entry = { n, path: scenePath(n), sha256: directionHash(bytes), at: new Date(now).toISOString(), by: opts['--by']! };
     const next = { ...project, scenes: [...entries, entry] };
-    const baseline = countFindings(checkProject(dir, project, { now }).refusals);
+    const baseline = baselineOf(checkProject(dir, project, { now }));
     for (const part of ['evidence', 'scene']) {
       const parent = part === 'evidence' ? join(dir, part) : join(dir, 'evidence', part);
       if (existsSync(parent)) {

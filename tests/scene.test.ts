@@ -224,3 +224,10 @@ test('uniform scaling uses relative 1e-9 tolerance', () => {
   plant(f, doc => { const rect = (doc.plates as JsonObject[])[0]!.rect as JsonObject; rect.width = Number(rect.height) * (1 + 2e-9); });
   expect(findings(f).map(value => value.code)).toEqual(['SCENE_PLACEMENT_INVALID']);
 });
+
+test('the scene writer is refused on a record whose stage check stopped early', () => {
+  const f = sceneFixture();
+  f.save({ ...f.load(), stage: 'no-such-stage' });
+  expect(checkProject(f.dir).refusals.map(value => value.code)).toEqual(['STAGE_UNKNOWN']);
+  reject(f, 'STAGE_UNKNOWN', () => f.writeScene());
+});

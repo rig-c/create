@@ -110,7 +110,10 @@ pre-checks are unchanged (`signoff` still refuses a carried lag, and a carried
 `GUIDE_CHANGED_UNSIGNED` on a step it covers), and `check` still reports every
 carried refusal.
 `advance` still needs 0 refusals: it is the stage boundary. A check that stops
-early (`SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`) gives no baseline.
+early (an unreadable record, `SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`) read nothing
+after that point, so it gives no baseline to any writer above: each one refuses
+on such a record, and a pending answer's stored `refusal_baseline` does not
+stand in for it.
 
 ### Recording forward progress
 

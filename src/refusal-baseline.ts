@@ -5,9 +5,9 @@
  * in the record. A candidate refusal is new when the baseline does not cover it: findings match
  * by code and path, counting multiplicity, so the same code at a different path is new. Removing
  * a carried refusal is always allowed. A check that stopped early (an unreadable record, schema or
- * stage) validated nothing, so it supplies no baseline. `advance` does not use this: it still needs
- * 0 refusals. The writers that kept a baseline before this rule (choices, corrections, direction,
- * plan, scene, rig-version) count their baseline with `countFindings`, stopped-early check included.
+ * stage) validated nothing after that point, so it supplies no baseline to any writer: every writer
+ * takes its baseline through `baselineOf` or `carriedRefusals`, and a stored pending-answer baseline
+ * does not stand in for a stopped-early check. `advance` does not use this: it still needs 0 refusals.
  */
 import { checkProject, type CheckReport, type Finding } from './check.ts';
 import type { JsonObject } from './templates.ts';
@@ -23,9 +23,14 @@ export function countFindings(findings: Iterable<Pick<Finding, 'code' | 'path'>>
   return counts;
 }
 
+/** A check stops early on an unreadable record, an unknown schema or an unknown stage, and reads nothing after it. */
+export function stoppedEarly(report: CheckReport): boolean {
+  return report.stage === null;
+}
+
 /** The baseline a check report supplies: its refusals counted by code and path, or none when the check stopped early. */
 export function baselineOf(report: CheckReport): Map<string, number> {
-  return report.stage === null ? new Map() : countFindings(report.refusals);
+  return stoppedEarly(report) ? new Map() : countFindings(report.refusals);
 }
 
 /** The baseline of a record as read, at write time. */

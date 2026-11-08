@@ -8,7 +8,7 @@ import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { countFindings, newFindings } from './refusal-baseline.ts';
+import { baselineOf, newFindings } from './refusal-baseline.ts';
 import type { JsonObject } from './templates.ts';
 
 export const CORRECTION_HELP = `correction --adopt [<dir>]
@@ -64,7 +64,7 @@ function localValidation(dir: string, project: JsonObject, now: number): Finding
 /** Like choice ingestion, tolerate unrelated pre-existing holes but never a new finding or this record's own invalidity. */
 function save(dir: string, file: string, beforeBytes: string, original: JsonObject, next: JsonObject, now: number): void {
   const own = localValidation(dir,next,now)[0]; if (own) refuse(own.code,own.message);
-  const fresh = newFindings(countFindings(checkProject(dir,original,{now}).refusals),checkProject(dir,next,{now}).refusals)[0];
+  const fresh = newFindings(baselineOf(checkProject(dir,original,{now})),checkProject(dir,next,{now}).refusals)[0];
   if (fresh) refuse(fresh.code,fresh.message);
   // Refuse concurrent record replacement rather than overwriting another writer.
   if (correctionBytes(dir,'project.json').toString('utf8') !== beforeBytes) refuse('CORRECTION_SOURCE','project.json: changed during capture; retry against the current record');

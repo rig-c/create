@@ -9,7 +9,7 @@ import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { readProject } from './feedback.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
-import { countFindings, newFindings } from './refusal-baseline.ts';
+import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
@@ -269,7 +269,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       return fail('RUN_RECORD_REQUIRED', `versions[v${n}].registration.runs`, 'version registered from the npm lock alone; retain producer run.json records with --run-record');
     }
     // Pre-existing refusals stay the project's; the candidate may not add a new one.
-    const baseline = countFindings(checkProject(dir, project, { now }).refusals);
+    const baseline = baselineOf(checkProject(dir, project, { now }));
     created.push(join(dir, evidence), join(dir, out));
     mkdirSync(join(dir, evidence), { recursive: true });
     const toolchain = input('--toolchain-lock', 'package-lock.json');

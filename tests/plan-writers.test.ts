@@ -358,3 +358,10 @@ test('competing plan writes refuse byte-identically and successful writes releas
   unchanged(dir, 'STEP_BASIS_UNKNOWN', () => write(dir, 'revise', 'camera', ['--rests-on', 'unknown']));
   expect(readdirSync(dir).filter(name => name.startsWith('.plan'))).toEqual([]);
 });
+
+test('the plan writer is refused on a record whose stage check stopped early', () => {
+  const dir = draft();
+  const project = read(dir); project.stage = 'no-such-stage'; save(dir, project);
+  expect(codes(dir)).toEqual(['STAGE_UNKNOWN']);
+  unchanged(dir, 'STAGE_UNKNOWN', () => planCommand(['add', 'camera', dir, '--by', 'agent', ...fields]));
+});

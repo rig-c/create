@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { checkProject } from '../src/check.ts';
 import { stageIndex } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { checkProject } from './clock.ts';
 import { arr, bindFixtureAnswers, codes, fixture, framing, obj, retainSignoffs, version, type Mutate } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
 

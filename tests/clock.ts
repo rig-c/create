@@ -8,6 +8,7 @@
 import * as check from '../src/check.ts';
 import * as choiceWriters from '../src/choice-writers.ts';
 import * as collectionWriters from '../src/collection.ts';
+import * as configLost from '../src/config-lost.ts';
 import * as correctionWriters from '../src/correction-writers.ts';
 import * as corrections from '../src/corrections.ts';
 import * as direction from '../src/direction.ts';
@@ -79,3 +80,4 @@ export const reviewCommand = at(feedback.reviewCommand);
 export const rigVersionCommand = at(rigVersion.rigVersionCommand);
 export const signoffCommand = at(signoff.signoffCommand);
 export const stepStatusCommand = at(progress.stepStatusCommand);
+export const versionCommand = at(configLost.versionCommand);

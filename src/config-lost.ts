@@ -15,7 +15,7 @@ function usage(why: string): never {
   refuse('CONFIG_LOST_USAGE', `version config-lost: ${why}; ${VERSION_HELP}`, USAGE_EXIT);
 }
 
-export function versionCommand(args: string[]): { stdout: string; exit: number } {
+export function versionCommand(args: string[], now: number): { stdout: string; exit: number } {
   if (args[0] !== 'config-lost') usage('expected subcommand config-lost');
   const positional: string[] = [];
   const opts: Record<string, string> = {};
@@ -68,7 +68,7 @@ export function versionCommand(args: string[]): { stdout: string; exit: number }
   const target = asArray(next.versions).find((v): v is JsonObject => isObject(v) && v.n === n)!;
   const loss: JsonObject = { note, source };
   target.config_lost = loss;
-  save(file, dir, project, next);
+  save(file, dir, project, next, now);
   return {
     stdout: json ? JSON.stringify(loss, null, 2) : `version config-lost: recorded ${label}.config_lost (${source}); stage unchanged`,
     exit: 0,

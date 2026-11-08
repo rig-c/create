@@ -2102,3 +2102,53 @@ The field inventory used synthetic declared applied/2 through Review's
 browserless session PUT. Producer Apply was outside this inventory. The inventory confirmed
 `patch`, `patchSha256`, `configHash`, `modelHash`, `check` and `files` survive
 `feedback --format json`.
+
+## Model-free record publication
+
+`readRecordPublished({root, record, result, phase})` in `job-publication.ts`
+implements create's local boundary for review#561 CP1. `record` binds the
+literal `project.json` path and its raw-byte `sha256`. `result` is either
+`{kind: 'option-set', questionId, setId}` or `{kind: 'plan'}`. Reader `phase`
+is `'inventory' | 'retained'`. The optional second argument is the check
+instant in epoch milliseconds, defaulting to the current clock.
+
+The return value has exactly `{label, inputs, files, plan, subjects}`. An
+option context has `plan: null` and exactly the requested
+`{kind: 'interview-picks', questionId, setId}` subject. A plan context has
+ordered `{id, hash}` step identities and eligible
+`{kind: 'checkpoint', checkpointId}` or `{kind: 'signoff', stage}` subjects.
+Subject key order follows these declarations. Identifiers must fit the
+review record-id domain of 1–128 ASCII letters, digits, dots, underscores
+and hyphens, starting with a letter or digit. The reader identity is
+`rig-create/publication-reader/2`. Installed review 2.5.0 retains its
+package-only result types.
+
+Eligibility comes from the one `checkProject` call with `readOnly: true`.
+Its effective stage must match the requested option set's stage. Plan
+signoffs are offered only for an unsigned effective `plan-approved`,
+`rigging-interview` or `post-interview` stage that closes by signoff.
+Checkpoint subjects require an enabled at-checkpoint step in the effective
+execution stage. An empty subject list permits plan inspection. Warnings
+remain eligible, and publication HOLEs refuse publication.
+
+`inputs` projects every declared input to `{path, sha256}` in project-input
+order and rehashes its bytes. `files` seals the record, inputs and selected
+option/context evidence. Plans include current answer evidence for every
+displayed step's declared basis and retained parts/structure approval
+evidence. Signoff eligibility uses the existing answer-selection and
+rigging-context readers. Plan step hashes use `stepHash`.
+
+Every path is literal and project-relative. Duplicate declarations within
+a list and conflicting hashes for a path refuse. Identical references share
+one file row. The file list is unique by path and sorted by JavaScript
+string comparison. Both phases verify closure bytes before the official
+check and write nothing, create no lock and perform no intent recovery.
+Default `checkProject` calls keep their existing recovery behavior.
+
+After its seals pass, a retained-root check refusal produces
+`JOB_RECORD_CLOSURE_INCOMPLETE`, carrying structured `details` containing
+only the check's finding codes and record paths. Historical choice files
+can lie outside a selected option's closure. This limitation keeps
+finalization blocked until the complete check-read closure contract lands.
+Collection members with external collection evidence refuse with
+`JOB_RECORD_COLLECTION_EXTERNAL` until that closure has a signed binding.

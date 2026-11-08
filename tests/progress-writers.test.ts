@@ -6,7 +6,7 @@ import { applicableAsks, optionContext, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { LEGACY_STAGE_VALUES, STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
-import { signoffIdentity, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+import { PROGRESS_HISTORY_SINCE, signoffIdentity, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, retimeFixture, step } from './fixtures.ts';
@@ -504,4 +504,73 @@ test('historical status entries require an explicit boolean checkpoint snapshot'
     if (invalid === undefined) delete entry.checkpoint_required; else entry.checkpoint_required = invalid;
     save(dir, malformed); expect(codes(dir)).toContain('STEP_STATUS_TRANSITION');
   }
+});
+
+const warned = (dir: string): string[] => checkProject(dir).warnings.map(f => f.code);
+const linkage = (dir: string, list: 'refusals' | 'warnings' = 'refusals'): string[][] => checkProject(dir)[list]
+  .filter(f => f.code.endsWith('_UNLINKED')).map(f => [f.code, f.path]);
+const entry = (from: string, to: string, at: string): JsonObject => ({ from_status: from, status: to, by: 'agent', at, checkpoint_required: false, signoff: null });
+
+test('writer-made status and advance history links through same-clock reopen resets', () => {
+  const dir = partsProject(); advance(dir);
+  status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
+  signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
+  status(dir, 'assemble', 'done');
+  reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  status(dir, 'assemble', 'in-progress');
+  expect(codes(dir)).toEqual([]);
+  expect(linkage(dir, 'warnings')).toEqual([]);
+});
+
+test('a planted status gap is refused, and step-status keeps the bytes', () => {
+  const dir = partsProject('parts');
+  status(dir, 'assemble', 'in-progress');
+  const gap = read(dir); step(gap, 'assemble').status = 'at-checkpoint'; save(dir, gap);
+  expect(linkage(dir)).toEqual([['STEP_STATUS_UNLINKED', 'plan.steps[assemble].status']]);
+  refused(dir, 'STEP_STATUS_UNLINKED', () => status(dir, 'seethrough', 'in-progress'));
+  // The writer reads the hand-set status, so its next entry carries the gap into history.
+  const hidden = read(dir); arr(step(hidden, 'assemble').status_history).push(entry('at-checkpoint', 'done', '2026-11-20T00:00:00Z'));
+  step(hidden, 'assemble').status = 'done'; save(dir, hidden);
+  expect(linkage(dir)).toEqual([['STEP_STATUS_UNLINKED', 'plan.steps[assemble].status_history[1]']]);
+});
+
+test.each(['2026-11-20T00:00:00Z', '2026-11-20T00:05:00Z'])('a reordered status entry is refused, second entry at %s', second => {
+  const dir = partsProject('parts'); const p = read(dir);
+  step(p, 'assemble').status_history = [entry('in-progress', 'at-checkpoint', second), entry('pending', 'in-progress', '2026-11-20T00:00:00Z')];
+  step(p, 'assemble').status = 'at-checkpoint'; save(dir, p);
+  expect(linkage(dir).map(([, path]) => path)).toContain('plan.steps[assemble].status_history[0]');
+  expect(linkage(dir).map(([, path]) => path)).toContain('plan.steps[assemble].status_history[1]');
+});
+
+test('a planted advance gap and a reordered advance are refused', () => {
+  const dir = partsProject('parts'); const p = read(dir);
+  const recorded = structuredClone(arr(p.advances));
+  expect(recorded.map(raw => [obj(raw).from_stage, obj(raw).stage])).toEqual([['interview', 'plan-approved'], ['plan-approved', 'parts']]);
+  p.advances = [recorded[1]!]; save(dir, p);
+  expect(linkage(dir)).toEqual([['STAGE_MOVE_UNLINKED', 'advances[0]']]);
+  p.advances = [recorded[1]!, recorded[0]!]; save(dir, p);
+  expect(linkage(dir)).toEqual([['STAGE_MOVE_UNLINKED', 'advances[1]']]);
+  p.advances = recorded; save(dir, p);
+  expect(codes(dir)).toEqual([]);
+});
+
+test('a link break warns when its latest preceding event predates PROGRESS_HISTORY_SINCE and refuses from it', () => {
+  testClock.reset();
+  const dir = partsProject('parts'); const p = read(dir);
+  retimeFixture(p, Date.parse('2026-11-07T12:00:00Z'));
+  const recorded = structuredClone(arr(p.advances));
+  p.advances = [recorded[1]!];
+  step(p, 'assemble').status_history = [entry('pending', 'in-progress', '2026-11-07T13:00:00Z')];
+  step(p, 'assemble').status = 'at-checkpoint'; save(dir, p);
+  expect(linkage(dir)).toEqual([]);
+  expect(linkage(dir, 'warnings')).toEqual([['STAGE_MOVE_UNLINKED', 'advances[0]'], ['STEP_STATUS_UNLINKED', 'plan.steps[assemble].status']]);
+  step(p, 'assemble').status_history = [entry('pending', 'in-progress', PROGRESS_HISTORY_SINCE)]; save(dir, p);
+  expect(linkage(dir)).toEqual([['STEP_STATUS_UNLINKED', 'plan.steps[assemble].status']]);
+});
+
+test('a reopen cannot absorb a hand stage move, and keeps the bytes', () => {
+  const dir = partsProject(); advance(dir);
+  const p = read(dir); p.stage = 'parts-review'; save(dir, p);
+  expect(codes(dir)).toContain('STAGE_SKIPPED');
+  refused(dir, 'STAGE_MOVE_UNLINKED', () => reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
 });

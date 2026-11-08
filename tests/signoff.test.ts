@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj, step } from './fixtures.ts';
+import { arr, fixture, obj, step, withdrawSignature } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { cli, clockedCli, gitEnv } from './helpers.ts';
@@ -21,8 +21,8 @@ afterEach(() => testClock.reset());
 describe('signoff', () => {
   test('one command signs the filled plan, fills null checkpoints and passes the interview check', () => {
     testClock.set(new Date('2026-11-20T00:00:00Z'));
+    // The recorded plan approvals stay: they authorized recorded moves. The new signature supersedes them.
     const dir = fixture((p) => {
-      p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'plan-approved');
       for (const raw of arr(obj(p.plan).steps)) {
         const s = obj(raw);
         if (s.phase === 'rig' && s.id !== 'constraints') s.checkpoint = null;
@@ -116,7 +116,8 @@ test('step hash pinned vector, recursive ordering and status exclusion', () => {
 
 describe('parts-review evidence and execution checkpoints', () => {
   test('records the approved verdict hash and clears the check without hand edits', () => {
-    const dir = fixture((p) => { p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'parts-review'); });
+    const dir = fixture();
+    testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
     expect(checkProject(dir).refusals.map((r) => r.code)).toContain('PARTS_REVIEW_UNSIGNED');
     const result = cli(['signoff', 'parts-review', '--by', 'user', '--evidence', join(dir, EXAMPLE_VERDICT), '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic painting', '--component', 'p1000-n3=in-painting:synthetic painting', '--verbatim-file', input(dir)], dir, gitEnv());
     expect(result).toMatchObject({ code: 0, stderr: '' });

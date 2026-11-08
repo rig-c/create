@@ -21,7 +21,7 @@ function voidingReopen(project: JsonObject, events: readonly Reopen[], stage: st
 }
 
 function signoffRemedy(stage: string, checkpoint: string | null): string {
-  if (checkpoint !== null) return `ask the person to approve checkpoint ${checkpoint} again in the review tool and record it with rig-create signoff ${stage} --steps ${checkpoint}`;
+  if (checkpoint !== null) return `ask the person to approve checkpoint ${checkpoint} again in the review tool and record it with rig-create signoff ${stage} --checkpoint ${checkpoint}`;
   if (stage === PARTS_REVIEW) return 'ask the person to review the parts again in the review tool and record the verdict with rig-create signoff parts-review --evidence <verdict> --diff-report <report>';
   if (stage === RIG_REVIEW || stage === DIRECTION_REVIEW) return `ask the person to accept a live version again at ${stage} in the review tool, record it with rig-create review <n> --verdict accepted --review ${stage}, and sign with rig-create signoff ${stage}`;
   return `ask the person to sign ${stage} again in the review tool and record it with rig-create signoff ${stage}`;

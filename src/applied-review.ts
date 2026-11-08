@@ -1,7 +1,6 @@
+import { retainedReviewRead, reviewReadLegacy, ReviewReadError } from './review-read.ts';
 import { configInputsLegacy } from './config-inputs.ts';
 /** A retained review Apply and the create version made from it (create#65). */
-import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep, posix } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -10,7 +9,6 @@ import { asArray, isObject, type Ctx } from './check.ts';
 import { reviewConfigInputs, reviewHandoffInputs } from './review-package.ts';
 
 export const APPLIED_REVIEW_SINCE = '2026-11-06T00:00:00Z';
-const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const inside = (root: string, path: string): boolean => {
   const rel = relative(root, path);
@@ -33,6 +31,10 @@ export function checkAppliedReview(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'
       continue;
     }
     if (record === null) continue;
+    if (isObject(record) && record.review_read === undefined && reviewReadLegacy(version.at)) {
+      ctx.warnings.push({ code: 'REVIEW_READ_LEGACY', path, message: `${path}: historical applied review has no CLI response receipt; preserve history and query new results through rig-review feedback --format json` });
+      continue;
+    }
     if (!isObject(record) || !isObject(record.feedback) || typeof record.feedback.path !== 'string'
       || isAbsolute(record.feedback.path) || !inside(resolve(ctx.dir), resolve(ctx.dir, record.feedback.path))
       || !hex(record.feedback.sha256) || !Number.isSafeInteger(record.source_version)
@@ -50,16 +52,9 @@ export function checkAppliedReview(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'
     }
     let feedback: Json;
     try {
-      const file = resolve(ctx.dir, record.feedback.path);
-      if (!inside(realpathSync(ctx.dir), realpathSync(file))) throw new Error('feedback resolves outside the project');
-      const bytes = readFileSync(file);
-      if (hash(bytes) !== record.feedback.sha256) {
-        push('APPLIED_REVIEW_HASH', 'feedback bytes differ from their recorded sha256');
-        continue;
-      }
-      feedback = JSON.parse(bytes.toString('utf8'));
+      feedback = retainedReviewRead(ctx.dir,record.review_read,record.feedback);
     } catch (error) {
-      push('APPLIED_REVIEW_FILE', error instanceof Error ? error.message : String(error));
+      push(error instanceof ReviewReadError ? error.code : 'APPLIED_REVIEW_FILE', error instanceof Error ? error.message : String(error));
       continue;
     }
     if (!isObject(feedback) || feedback.schema !== 'rig-review-session/1' || !isObject(feedback.reviewedSource)

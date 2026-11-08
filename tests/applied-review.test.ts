@@ -1,3 +1,4 @@
+import { readReview } from '../src/review-read.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,7 +53,8 @@ async function chain(template = 'legacy-example-project.json'): Promise<{ dir: s
   const feedback = JSON.parse(exported.stdout);
   expect(feedback.feedback[0].context.applied).toEqual(applied);
   writeFileSync(join(dir, 'evidence/applied-feedback.json'), exported.stdout);
-  version(project, 2).review_origin = { feedback: { path: 'evidence/applied-feedback.json', sha256: sha(exported.stdout) }, source_version: 1, feedback_id: 'apply-1', applied };
+  const read=readReview(dir,'synthetic-review',()=>({stdout:Buffer.from(exported.stdout),stderr:'',exitCode:0,tool:{name:'@rig-c/review',version:'2.5.0'}}));
+  version(project, 2).review_origin = { feedback: read.file, review_read: read.receipt, source_version: 1, feedback_id: 'apply-1', applied };
   return { dir, project };
 }
 
@@ -65,8 +67,8 @@ test('installed rig-review writes feedback that resolves to the recorded next ve
 });
 
 for (const [name, code, mutate] of [
-  ['feedback hash', 'APPLIED_REVIEW_HASH', (r: JsonObject) => { obj(r.feedback).sha256 = '0'.repeat(64); }],
-  ['missing feedback', 'APPLIED_REVIEW_FILE', (r: JsonObject) => { obj(r.feedback).path = 'evidence/missing.json'; }],
+  ['feedback hash', 'REVIEW_READ_INVALID', (r: JsonObject) => { obj(r.feedback).sha256 = '0'.repeat(64); }],
+  ['missing feedback', 'REVIEW_READ_INVALID', (r: JsonObject) => { obj(r.feedback).path = 'evidence/missing.json'; }],
   ['unknown source', 'APPLIED_REVIEW_SOURCE', (r: JsonObject) => { r.source_version = 99; }],
   ['self source', 'APPLIED_REVIEW_SOURCE', (r: JsonObject) => { r.source_version = 2; }],
   ['missing applied item', 'APPLIED_REVIEW_RESULT', (r: JsonObject) => { r.feedback_id = 'missing'; }],
@@ -103,7 +105,7 @@ test('manual builds declare null, old missing declarations only warn', () => {
 });
 
 for (const [name, code, mutate] of [
-  ['export schema', 'APPLIED_REVIEW_FILE', (f: JsonObject) => { f.schema = 'other'; }],
+  ['export schema', 'REVIEW_READ_INVALID', (f: JsonObject) => { f.schema = 'other'; }],
   ['inspected model', 'APPLIED_REVIEW_SOURCE', (f: JsonObject) => { obj(obj(f.reviewedSource).rig).sha256 = 'e'.repeat(64); }],
   ['handoff input', 'APPLIED_REVIEW_SOURCE', (f: JsonObject) => { obj((obj(obj(f.reviewedSource).handoff).files as JsonObject[])[0]).sha256 = 'f'.repeat(64); }],
   ['omitted handoff input', 'APPLIED_REVIEW_SOURCE', (f: JsonObject) => { const h = obj(obj(f.reviewedSource).handoff); h.files = (h.files as JsonObject[]).filter((e) => !String(e.path).endsWith('interview-requirements.json')); }],
@@ -117,8 +119,10 @@ for (const [name, code, mutate] of [
     const feedback = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
     mutate(feedback);
     const bytes = JSON.stringify(feedback);
-    writeFileSync(file, bytes);
-    obj(record.feedback).sha256 = sha(bytes);
+    const binding={path:`evidence/review-reads/${sha(bytes)}.json`,sha256:sha(bytes)};
+    writeFileSync(join(dir,binding.path),bytes);
+    record.feedback=binding;
+    obj(record.review_read).stdout=binding;
     const refusals = checked(dir, project).refusals;
     expect(refusals.map((f) => f.code)).toContain(code);
     if (name === 'omitted handoff input') expect(refusals[0]?.message).toContain('interview-requirements.json');

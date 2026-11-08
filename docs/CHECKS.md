@@ -1054,13 +1054,16 @@ amendment grants no authority. A completed bar permits its next review.
 | `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage (on an amended project, outside both the retained stage and the effective stage the work resumes at), or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage, or on an amended project re-sign the lapsed approvals and finish the earlier bars, and use pending, in-progress, at-checkpoint, done in order |
 | `STEP_STATUS_SIGNOFF` | retained status history has a missing or mismatched checkpoint signature reference | retain its matching human checkpoint signoff and record done through step-status |
 | `STAGE_MOVE_UNLINKED` | an advance or reopen's `from_stage` is not the stage the previous recorded move (by time) left, starting from `interview` (`paused` links to either side), or an `advances[]` entry is dated before an earlier one | preserve the history; record each later move through advance or reopen |
-| `STEP_STATUS_UNLINKED` | a `status_history[]` entry's `from_status` is not the previous entry's `status` (`pending` for the first, or after a reopen or amendment that reset the step), an entry is dated before the one before it, or the step's `status` is not the last recorded status | preserve the history; record transitions through step-status, or reopen the step's stage to reset it |
+| `STEP_STATUS_UNLINKED` | a `status_history[]` entry's `from_status` is not the previous entry's `status` (`pending` for the first, or after a reopen or amendment that reset the step), an entry is dated before the one before it, or the step's `status` is not the last recorded status | preserve the history; record transitions through step-status (a reopen copies a hand-set status into `steps_before`, where `REOPEN_STEP_UNLINKED` reports it) |
+| `REOPEN_STEP_UNLINKED` | a `reopens[]` entry's `steps_before[]` status (`pending` when omitted) is not the status the step's `status_history[]` chain held at the reopen's `at`; steps with no history, a malformed entry or reordered entries are not judged, and an entry tied with the reopen may fall on either side | restore the status the reopen recorded; before reopening, return a hand-set status to its last recorded one and record moves through step-status |
 
 `PROGRESS_HISTORY_SINCE = 2026-11-08T00:00:00Z` dates each link break by the
 latest recorded event the unrecorded move must follow: the previous move or
 status entry, a reopen or amendment that reset the step, the advance into the
 step's execution stage, and for a stage move the latest stage-level signature
-at the furthest stage before its `from_stage`. A reordered entry is dated by the
+at the furthest stage before its `from_stage`. A `steps_before` mismatch is
+dated by those events up to the reopen, not by the reopen itself, because the
+reopen writer copies the current, possibly hand-set status. A reordered entry is dated by the
 later of the two entries. Breaks dated from the cutoff refuse; earlier ones,
 and breaks with no preceding dated event, WARN with the same code. A later
 writer entry therefore does not turn an older hand move into a refusal. A

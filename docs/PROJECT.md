@@ -168,8 +168,10 @@ history stay outside the signed plan hash. Reopen continues to reset steps.
 History must link: each advance or reopen leaves from the stage the previous
 move reached (starting at `interview`), and each status entry starts from the
 previous entry's status, or `pending` first and after a reopen or amendment
-reset; the last entry matches `status`. Breaks are `STAGE_MOVE_UNLINKED` and
-`STEP_STATUS_UNLINKED`, dated by `PROGRESS_HISTORY_SINCE` (CHECKS.md).
+reset; the last entry matches `status`. A reopen's `steps_before` holds each
+step's chained status at the reopen. Breaks are `STAGE_MOVE_UNLINKED`,
+`STEP_STATUS_UNLINKED` and `REOPEN_STEP_UNLINKED`, dated by
+`PROGRESS_HISTORY_SINCE` (CHECKS.md).
 Both writers reconcile `stage_values` with the applicable order and run the
 same complete `checkProject` candidate validation before writing. Refused
 writes leave `project.json` byte-identical. Neither writer runs a producer.

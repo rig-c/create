@@ -12,7 +12,7 @@ import { STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, retimeFixture, step } from './fixtures.ts';
 import { CLI, cli, clockedCli, gitEnv, tempDir } from './helpers.ts';
-import { amendCommand, checkProject, correctionCommand, directionCommand, reopenCommand, handoff, signoffCommand, testClock } from './clock.ts';
+import { amendCommand, checkProject, correctionCommand, directionCommand, reopenCommand, handoff, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
@@ -165,13 +165,15 @@ describe('forward human amendments', () => {
     amend(dir, 'post-interview');
     testClock.set(new Date('2026-11-21T00:00:00Z'));
     signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-    let p = read(dir);
     expect(checkProject(dir).effective_stage).toBe('post');
-    for (const raw of arr(obj(p.plan).steps)) if (obj(raw).phase === 'post') obj(raw).status = 'done';
-    save(dir, p);
+    // The reset post steps are redone through step-status at the effective stage.
+    for (const raw of arr(obj(read(dir).plan).steps)) {
+      const id = String(obj(raw).id);
+      if (obj(raw).phase === 'post') for (const status of ['in-progress', 'at-checkpoint', 'done']) stepStatusCommand([id, status, dir, '--by', 'agent']);
+    }
     expect(checkProject(dir).effective_stage).toBe('direction-review');
     signoffCommand(['direction-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-    p = read(dir);
+    const p = read(dir);
     expect(p.stage).toBe(before.stage);
     expect(arr(p.signoffs).slice(0, arr(before.signoffs).length)).toEqual(arr(before.signoffs));
     expect(arr(p.signoffs).slice(arr(before.signoffs).length).map(s => obj(s).stage)).toEqual(['post-interview', 'direction-review']);

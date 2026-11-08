@@ -11,16 +11,16 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
-import { checkPartsVerdict, partsVerdictDraftFinding, partsVerdictEvidence } from './parts-verdict.ts';
+import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { retainedJson, STRUCTURE_SCHEMA, structurePathIsIgnored, validateStructureSnapshot } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const STRUCTURE_SNAPSHOT_HELP = `structure-snapshot:
-  [<project dir>] --draft <id> --verdict <path> --out <path>
+  [<project dir>] --draft <id> --out <path>
   Write ${STRUCTURE_SCHEMA} from the recorded draft <id>: one entry per
   meshes.<part> of its config, copied exactly, or entries:[] without meshes.
-  --verdict is the approved parts verdict file, read as parts-review reads it.
+  The latest recorded parts-review API receipt for --draft must approve it.
   --out is project-relative and outside ignored roots, for example evidence/.
   Writes only --out; an existing --out with the same bytes is left as it is.
   Pass the same --draft and --out to signoff parts-review --structure-file.`;
@@ -59,11 +59,12 @@ function outTarget(dir: string, out: string): string {
 }
 
 export function structureSnapshotCommand(args: string[]): { stdout: string; exit: number } {
+  if (args.some(arg => arg === '--verdict' || arg.startsWith('--verdict='))) refuse('PARTS_VERDICT_FILE_ROUTE_REMOVED', 'project.json.drafts: --verdict was removed; record the API response with parts-review and select it with --draft', USAGE_EXIT);
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
-    if (['--draft', '--verdict', '--out'].includes(arg)) {
+    if (['--draft', '--out'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '' || value.startsWith('--')) refuse('STRUCTURE_SNAPSHOT_USAGE', `structure-snapshot: ${arg} needs one non-empty value; ${STRUCTURE_SNAPSHOT_HELP}`, USAGE_EXIT);
       opts[arg] = value;
@@ -71,9 +72,8 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
     else positional.push(arg);
   }
   const draftId = opts['--draft'];
-  const verdict = opts['--verdict'];
   const out = opts['--out'];
-  if (positional.length > 1 || draftId === undefined || verdict === undefined || out === undefined) refuse('STRUCTURE_SNAPSHOT_USAGE', `structure-snapshot: needs --draft, --verdict and --out and at most one project folder; ${STRUCTURE_SNAPSHOT_HELP}`, USAGE_EXIT);
+  if (positional.length > 1 || draftId === undefined || out === undefined) refuse('STRUCTURE_SNAPSHOT_USAGE', `structure-snapshot: needs --draft and --out and at most one project folder; ${STRUCTURE_SNAPSHOT_HELP}`, USAGE_EXIT);
   const dir = resolve(positional[0] ?? process.cwd());
   const { project } = readProject(dir);
   const file = outTarget(dir, out);
@@ -86,14 +86,7 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
     refuse('STRUCTURE_SNAPSHOT_CONFIG_CHANGED', `drafts[${index}].config: ${error instanceof Error ? error.message : String(error)}; the snapshot copies the config the draft recorded, so restore those bytes, or record the changed config as a new draft with draft-rig and review it`);
   }
 
-  // The verdict is read by the parts-review sign-off's own reader; only an approved one gives a snapshot.
-  const refusals: Finding[] = [];
-  const evidence = partsVerdictEvidence(dir, verdict);
-  checkPartsVerdict(dir, { evidence }, 'structure-snapshot', refusals, project);
-  if (refusals[0] !== undefined) refuse(refusals[0].code, refusals[0].message);
-  // ...and it reviews this draft's parts (rig-c/create#236).
-  const bound = partsVerdictDraftFinding(dir, project, evidence, draftId, `structure-snapshot --draft ${draftId}`);
-  if (bound !== null) refuse(bound.code, bound.message);
+  recordedPartsVerdict(dir, project, draftId);
 
   const meshes = config.meshes;
   if (meshes !== undefined && !isObject(meshes)) refuse('STRUCTURE_DECISIONS_INVALID', `drafts[${index}].config meshes: expected an object of part declarations; review the labelled draft, retain its exact structure decisions, and sign again`);

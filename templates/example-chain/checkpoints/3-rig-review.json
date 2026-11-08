@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 3,
   "name": "3-rig-review",
-  "chain_step": 60,
+  "chain_step": 61,
   "pending": {
     "act": "Review and approve the rig",
     "commands": [
@@ -22,7 +22,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "c165638ccd975174c42a4d57f9c06cbaeb0880b5c8d33def6b95590f97c9b08b",
+  "project_sha256": "f684042b5a4d918f3f72e557d54be649b0de9c808b32f96919ad6502139e839d",
   "files": [
     {
       "path": ".gitignore",
@@ -30,7 +30,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "868b38637dfb9f35efa249242a7936d7ae7c7351dce9e03d11a548d5707a9b89"
+      "sha256": "d9640659654a6c304ebe7f4086c8dd7381170ed015f5a044a2aa9fe0504ad786"
     },
     {
       "path": "CLAUDE.md",
@@ -254,19 +254,19 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "9d3291e7fb96b394c9dc188cd7a6557c04955fcf676e062eb4c76412f4acc969"
+      "sha256": "2f6f7ff81f70469688f3263235ba5626d047701e4dd39d2f5d9274e61098d7ae"
     },
     {
       "path": "evidence/interview/constraints.json",
-      "sha256": "203bb3223f83c27c4831883df49fd1f35323ae9b38114d5e411f5819715122a1"
+      "sha256": "8d101beb358a9bcbc9a1b714990d713c21a99d508a892585c56c22c5ae833743"
     },
     {
       "path": "evidence/interview/meshes.json",
-      "sha256": "2a57ec1bc769568efadfdab7f2768c2351db7ba8d6768b347a93d2ce3afabd8d"
+      "sha256": "293e3abd9c547acc367f54278ceee4e14a636c68763d26bd14bde35f0fc28ea4"
     },
     {
       "path": "evidence/interview/motion.json",
-      "sha256": "478b238075094cf57ba99c231aebf680d0df5cb941e3ce8fa80c734044ae0272"
+      "sha256": "c104f03902bdefe59c2a211faffb54cafa31ebc767d0cf5d53f64356979aaa83"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -286,7 +286,11 @@
     },
     {
       "path": "evidence/parts-review.json",
-      "sha256": "6ff1c1c1e438b9fa864e0530567aad6de155ecfd719567ccb073e0c51616f063"
+      "sha256": "dd83cb30576b3e7c94860cde0104df895526c766b1baf0eb5a723c00f768a79c"
+    },
+    {
+      "path": "evidence/review-reads/8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9.json",
+      "sha256": "8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9"
     },
     {
       "path": "evidence/setup.png",
@@ -414,7 +418,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "c165638ccd975174c42a4d57f9c06cbaeb0880b5c8d33def6b95590f97c9b08b"
+      "sha256": "f684042b5a4d918f3f72e557d54be649b0de9c808b32f96919ad6502139e839d"
     }
   ]
 }

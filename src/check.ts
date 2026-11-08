@@ -1,4 +1,4 @@
-import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE } from './parts-verdict-record.ts';
+import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
 import { reviewActFindings } from './review-act.ts';
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
@@ -49,7 +49,6 @@ import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkDiffMap } from './diff-map.ts';
-import { checkPartsVerdict, PARTS_VERDICT_DRAFT_SINCE, partsVerdictDraftFinding } from './parts-verdict.ts';
 import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
@@ -757,7 +756,7 @@ const PARTS_REVIEW_REMEDY =
  * Once rigging has started (the stage is past `parts-review`, or a rigging
  * step is past `pending`) and until a rig version is accepted at rig-review
  * (while the stage is at most `rigging`, or no rig version is accepted yet),
- * the latest `parts-review` sign-off is read for the verdict it rests on (rig-c/create#51, src/parts-verdict.ts). An in-flight
+ * the latest `parts-review` sign-off binds its retained API response (src/parts-verdict-record.ts). An in-flight
  * project keeps the warning above and is not asked for one.
  */
 function checkPartsStages(ctx: Ctx): void {
@@ -801,22 +800,21 @@ function checkPartsReviewEvidence(ctx: Ctx): void {
   const latest = latestSignoff(ctx, PARTS_REVIEW);
   if (riggingStarted && gating && latest !== undefined) {
     const at = `signoffs[${latest.index}]`;
-    const partsFile = checkPartsVerdict(ctx.dir, latest.record, at, ctx.refusals, ctx.project);
+    let partsFile: string | undefined;
+    if (!recordedPartsFinding(ctx.dir, ctx.project, latest.record, at)) partsFile = recordedPartsVerdict(ctx.dir, ctx.project, latest.record.draft_id, latest.record.evidence, { requireAvailable: false }).partsFile;
     checkDiffMap(ctx.dir, latest.record, at, partsFile, ctx.refusals, ctx.warnings);
   }
 }
 
 /**
- * Every `parts-review` sign-off carrying `draft_id`, reopened ones included, rests on a verdict of that
- * draft's parts (rig-c/create#236, src/parts-verdict.ts): refused from
- * `PARTS_VERDICT_DRAFT_SINCE` or without a readable date, a WARN before it.
+ * Every parts-review signature, reopened ones included, binds a retained API receipt.
+ * Legacy saved-file bindings WARN without opening their files.
  */
 function checkPartsVerdictDrafts(ctx: Ctx, history: readonly Signoff[]): void {
-  const since = Date.parse(PARTS_VERDICT_DRAFT_SINCE);
   for (const s of history) {
-    if (s.stage !== PARTS_REVIEW || s.record.draft_id === undefined) continue;
-    const finding = partsVerdictDraftFinding(ctx.dir, ctx.project, s.record.evidence, s.record.draft_id, `signoffs[${s.index}].draft_id`);
-    if (finding !== null) (s.at < since ? ctx.warnings : ctx.refusals).push(finding);
+    if (s.stage !== PARTS_REVIEW) continue;
+    const finding = recordedPartsFinding(ctx.dir, ctx.project, s.record, `signoffs[${s.index}]`);
+    if (finding) (finding.code === 'PARTS_VERDICT_FILE_LEGACY' ? ctx.warnings : ctx.refusals).push(finding);
   }
 }
 

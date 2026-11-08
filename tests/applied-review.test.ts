@@ -63,7 +63,7 @@ test('installed rig-review writes feedback that resolves to the recorded next ve
   expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   expect(checkProject(dir).refusals).toEqual([]);
-  expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
 });
 
 for (const [name, code, mutate] of [

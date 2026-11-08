@@ -308,7 +308,7 @@ describe('delegated feedback names its ask', () => {
   test('missing ask warns, while a legacy guide gets no new feedback finding', () => {
     const r = checkProject(resignAfterChange(verdict(null, false)));
     expect(r.refusals).toEqual([]);
-    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'FEEDBACK_ASK_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'FEEDBACK_ASK_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
     const legacy = checkProject(resignAfterChange(verdict(null, false, (p) => {
       const guide = obj(waypoint(p, 'meshes').guide);
       delete guide.asks;
@@ -318,7 +318,7 @@ describe('delegated feedback names its ask', () => {
       }
     })));
     expect(legacy.refusals).toEqual([]);
-    expect(legacy.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(legacy.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a verdict against the historical delegation survives a user re-answer', () => {

@@ -1,3 +1,4 @@
+import { partsReviewCommand } from '../src/parts-review.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -84,14 +85,14 @@ async function submit(root: string, host: JobOwnerHost, verdict: JobVerdict = 'a
     return result.value;
 }
 
-function prepareSignoff(root: string, evidence: string): void {
-  structureSnapshotCommand([root, '--draft', 'chain', '--verdict', evidence, '--out', 'evidence/structure.json']);
+function prepareSignoff(root: string, _evidence: string): void {
+  structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure.json']);
   advanceCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'),
     '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
 }
-function sign(root: string, evidence: string): void {
+function sign(root: string, _evidence: string): void {
   signoffCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'), '--draft', 'chain',
-    '--structure-file', 'evidence/structure.json', '--evidence', evidence, '--diff-report', 'evidence/diff-components.json'], Date.now());
+    '--structure-file', 'evidence/structure.json', '--diff-report', 'evidence/diff-components.json'], Date.now());
 }
 
 test('bound draft publishes its rows, ingests independent evidence and then signs explicitly', async () => {
@@ -124,6 +125,8 @@ test('legacy owner-shaped producer verdict retains the structure and signoff gat
   expect(source.files.some(file => file.path.endsWith('rig.json'))).toBe(true);
   await saveVerdict(pkg, { status: 'approved', parts: Object.fromEntries(pkg.items.map(item => [item.name,
     { outcome: 'clean', ...(item.mesh ? { mesh: { outcome: 'clean' } } : {}) }])) });
+  partsReviewCommand([root, '--draft', 'chain', '--from-review-cli', '--by', 'user', '--', 'derived/drafts/chain/input',
+    '--rig', 'derived/drafts/chain/out/rig.json', '--mesh-report', 'derived/drafts/chain/out/mesh_report.json', '--painting', 'derived/drafts/chain/input/painting_in_rig.png', '--verdict', 'evidence/owner-verdict.json'], Date.now());
   prepareSignoff(root, 'evidence/owner-verdict.json');
   sign(root, 'evidence/owner-verdict.json');
   expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);

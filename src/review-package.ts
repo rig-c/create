@@ -1,3 +1,4 @@
+import { recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { configInputReferences, configInputsLegacy, type ConfigInputsWarning } from './config-inputs.ts';
 import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
@@ -7,7 +8,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:p
 import { isDeepStrictEqual } from 'node:util';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
-import { draftVersionFindings } from './drafts.ts';
+import { draftFileUnavailable, draftVersionFindings } from './drafts.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
 import { latestPartsApproval, retainedJson } from './structure.ts';
@@ -32,22 +33,32 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   }
   const approval = latestPartsApproval(ctx.project, Number.isFinite(at) ? at : Infinity);
   if (!approval) return;
-  let verdict: JsonObject;
-  try { verdict = retainedJson(ctx.dir, approval.evidence); } catch (error) {
-    const evidence = isObject(approval.evidence) ? approval.evidence : {};
-    findings.push({ code: 'REVIEW_PACKAGE_PARTS_UNREAD', path: `${path}.files[out/parts.json]`, message: `${path}.files[out/parts.json]: cannot resolve the accepted parts manifest from verdict ${String(evidence.path)} (${error instanceof Error ? error.message : String(error)}); restore the retained verdict bytes matching signoffs[].evidence.sha256 before checking or packaging this version` });
+  const approvalPath = `signoffs[${asArray(ctx.project.signoffs).indexOf(approval)}]`;
+  const finding = recordedPartsFinding(ctx.dir, ctx.project, approval, approvalPath);
+  if (finding) {
+    if (finding.code === 'PARTS_VERDICT_FILE_LEGACY') {
+      if (!ctx.warnings.some(existing => existing.code === finding.code && existing.path === finding.path)) ctx.warnings.push(finding);
+    } else findings.push({ code: 'REVIEW_PACKAGE_PARTS_UNREAD', path: `${path}.files[out/parts.json]`,
+      message: `${path}.files[out/parts.json]: accepted parts receipt is unavailable (${finding.code}); restore its recorded API response and selected draft before packaging this version` });
     return;
   }
-  const source = isObject(verdict.source) ? verdict.source : {};
-  const manifest = asArray(source.files).find(f => isObject(f) && typeof f.path === 'string' && f.path.split('/').at(-1) === 'parts.json');
+  recordedPartsVerdict(ctx.dir, ctx.project, approval.draft_id, approval.evidence, { requireAvailable: false });
+  const draft = asArray(ctx.project.drafts).find(draft => isObject(draft) && draft.id === approval.draft_id) as JsonObject;
+  const parts = draft.parts as JsonObject;
+  const files = asArray(parts.files).filter(isObject);
+  const manifest = files.find(file => file.path === `${parts.path}/parts.json`);
   const packaged = asArray(record.files).find(f => isObject(f) && f.path === 'out/parts.json');
   if (isObject(manifest) && typeof manifest.sha256 === 'string' && isObject(packaged) && typeof packaged.sha256 === 'string' && manifest.sha256 !== packaged.sha256) {
     mismatch('REVIEW_PACKAGE_PARTS_MISMATCH', 'files[out/parts.json]', manifest.sha256, packaged.sha256);
   }
   if (!isObject(manifest) || typeof manifest.path !== 'string') return;
   const legacy = !Number.isFinite(at) || at < Date.parse(PART_FILE_IDENTITY_SINCE);
-  for (const image of asArray(source.files)) {
-    if (!isObject(image) || typeof image.path !== 'string' || typeof image.sha256 !== 'string' || image === manifest) continue;
+  if (draftFileUnavailable(ctx.dir, manifest.path, `derived/drafts/${String(draft.id)}`)) return;
+  const declaration = retainedJson(ctx.dir, manifest);
+  const painting = isObject(declaration.painting_in_rig) && typeof declaration.painting_in_rig.path === 'string'
+    ? posix.join(String(parts.path), declaration.painting_in_rig.path) : undefined;
+  for (const image of files) {
+    if (!isObject(image) || typeof image.path !== 'string' || typeof image.sha256 !== 'string' || image === manifest || image.path === painting) continue;
     const name = posix.join('out', posix.relative(posix.dirname(manifest.path), image.path));
     const file = asArray(record.files).find(f => isObject(f) && f.path === name);
     const actual = isObject(file) && typeof file.sha256 === 'string' ? file.sha256 : 'missing';

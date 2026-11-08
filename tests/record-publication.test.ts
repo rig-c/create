@@ -292,7 +292,7 @@ function retained(input: RecordPublicationRequest): RecordPublicationRequest {
   return { ...input, root, phase: 'retained' };
 }
 
-test('retained check exposes its four unsealed historical choice dependencies by code and path', () => {
+test('retained check exposes unsealed historical choices and the parts response by code and path', () => {
   const { root } = pending();
   const input = retained(request(root));
   const before = snapshot(input.root);
@@ -303,6 +303,7 @@ test('retained check exposes its four unsealed historical choice dependencies by
     throw Error('retained reader did not refuse');
   } catch (error) {
     expect(error).toMatchObject({ code: 'JOB_RECORD_CLOSURE_INCOMPLETE', details: [
+      { code: 'JOB_PUBLICATION_INVALID', path: 'review_acts[0]' },
       { code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.framing[rig_type].answer' },
       { code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.framing[reference].answer' },
       { code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.waypoints[seethrough].guide' },
@@ -331,6 +332,11 @@ test('inventory and retained contexts agree when all check dependencies are seal
     const choice = item.state.answer.choice;
     if (!choice || typeof choice !== 'object' || Array.isArray(choice)) continue;
     const binding = obj(choice.set);
+    project.inputs.push({ ...project.inputs[0], path: binding.path, sha256: binding.sha256, bytes: readFileSync(join(root, String(binding.path))).length });
+  }
+  for (const receipt of project.review_acts ?? []) {
+    if (receipt.schema !== 'rig-create/parts-verdict-cli@1') continue;
+    const binding = obj(receipt.evidence);
     project.inputs.push({ ...project.inputs[0], path: binding.path, sha256: binding.sha256, bytes: readFileSync(join(root, String(binding.path))).length });
   }
   save(root, project);

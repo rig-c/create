@@ -1,3 +1,4 @@
+import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { expect, test, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA, latestPartsApproval } from '../src/structure.ts';
 import { Refusal } from '../src/refusal.ts';
 import { arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './fixtures.ts';
-import { EXAMPLE_VERDICT, writeReviewedInput } from './parts-package.ts';
+import { writeReviewedInput } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -30,7 +31,7 @@ function setup(density?: number, reopen = true): string {
   const entry = density === undefined ? { contour: { bust: { alpha: 0.5 } } } : { density };
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: entry } }));
   writeReviewedInput(dir, root);
-  write(dir, `${root}/input/recomposite_rig.png`, 'synthetic stack bytes');
+  writeFileSync(join(dir, `${root}/input/recomposite_rig.png`), readFileSync(join(dir, 'derived/parts/rig/recomposite_rig.png')));
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${name}`, '{}');
   write(dir, 'words.txt', 'Approve this synthetic structure.\r\n');
   if (reopen) {
@@ -49,6 +50,7 @@ function setup(density?: number, reopen = true): string {
   }
   if (!reopen) return dir;
   draftRigCommand(['shape', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
+  recordPartsReceipt(dir, 'shape', testClock.now());
   const draft = obj(arr(read(dir).drafts)[0]);
   write(dir, 'evidence/structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'shape', config: draft.config, entries: [{ path: '/meshes/torso', value: entry }] }));
   return dir;
@@ -61,7 +63,7 @@ function completeParts(dir: string): void {
   }
 }
 function partsSign(dir: string, draft = 'shape', snapshot = 'evidence/structure.json'): void {
-  signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--evidence', EXAMPLE_VERDICT,
+  signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'),
     '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic',
     '--draft', draft, '--structure-file', snapshot]);
 }
@@ -91,7 +93,7 @@ test('human snapshot and rigging approval bind exact declarations without rewrit
 
 test('missing snapshot, changed bytes, early guide and contradictory declaration refuse before write', () => {
   const dir = setup(); const before = readFileSync(join(dir, 'project.json'));
-  try { signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--evidence', EXAMPLE_VERDICT, '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic']); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('STRUCTURE_DECISIONS_MISSING'); }
+  try { signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape', '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic']); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('STRUCTURE_DECISIONS_MISSING'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   partsSign(dir); freshRigInterview(dir);
   const p = read(dir); obj(waypoint(p, 'bones').guide).at = '2026-11-19T00:00:00Z'; save(dir, p);
@@ -154,13 +156,14 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   const root = 'derived/drafts/revised';
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: { density: 20 } } }));
   writeReviewedInput(dir, root);
-  write(dir, `${root}/input/recomposite_rig.png`, 'synthetic stack bytes');
+  writeFileSync(join(dir, `${root}/input/recomposite_rig.png`), readFileSync(join(dir, 'derived/parts/rig/recomposite_rig.png')));
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${file}`, '{}');
   draftRigCommand(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));
   write(dir, 'evidence/revised-structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'revised', config: draft.config, entries: [{ path: '/meshes/torso', value: { density: 20 } }] }));
   testClock.set(new Date('2026-11-25T00:00:00Z'));
   advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), ...withPartsCheck(dir)]);
+  recordPartsReceipt(dir, 'revised', testClock.now());
   partsSign(dir, 'revised', 'evidence/revised-structure.json');
   freshRigInterview(dir, '2026-11-26T00:00:00Z', '2026-11-27T00:00:00Z');
   expect(signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]).exit).toBe(0);

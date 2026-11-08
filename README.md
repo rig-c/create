@@ -53,7 +53,9 @@ here track what moves in, in order.
 
 ```sh
 rig-create signoff plan-approved --by user --verbatim-file approval.txt <project dir>
-rig-create signoff parts-review --by user --evidence evidence/parts-review.json --verbatim-file approval.txt <project dir>
+rig-create parts-review <project dir> --draft <id> --from-review-cli --by user -- <rig-review parts arguments>
+rig-create structure-snapshot <project dir> --draft <id> --out evidence/structure-decisions.json
+rig-create signoff parts-review --by user --draft <id> --structure-file evidence/structure-decisions.json --diff-report <report> --triage-file <triage> --verbatim-file approval.txt <project dir>
 rig-create signoff rigging --checkpoint constraints --by user --verbatim-file approval.txt <project dir>
 rig-create signoff post-interview --by user --steps camera,timing --verbatim-file - <project dir>
 rig-create review 2 --verdict accepted --by user --review rig-review --source note --verbatim-file feedback.txt --at 2026-11-04T12:00:00Z --answers-feedback 1:0 <project dir>

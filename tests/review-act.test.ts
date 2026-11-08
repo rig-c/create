@@ -31,6 +31,11 @@ function temporary(prefix: string): string {
 function projectAt(root: string): JsonObject { return JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')); }
 function putProject(root: string, value: JsonObject): void { writeFileSync(join(root, 'project.json'), `${JSON.stringify(value, null, 2)}\n`); }
 
+function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
+  return (project.review_acts as JsonObject[]).filter(entry => entry.schema === 'rig-create/review-act@1'
+    && typeof entry.bytes === 'string' && JSON.parse(entry.bytes).kind === 'review-verdict');
+}
+
 async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved') {
   const root = temporary('create-act-project-');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
@@ -133,7 +138,7 @@ test('producer-bound rig verdict fetch commits once, preserves words, and unchan
   expect(first.stderr).toBe(''); expect(first.exit).toBe(0);
   const bytes = readFileSync(join(root, 'project.json'));
   const project = projectAt(root);
-  const receipt = (project.review_acts as JsonObject[])[0];
+  const receipt = reviewVerdictReceipts(project)[0]!;
   expect(JSON.parse(String(receipt.bytes))).toEqual(act);
   expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
   const verdict = ((project.versions as JsonObject[])[0].verdicts as JsonObject[]).at(-1)!;
@@ -211,7 +216,7 @@ test('check detects tampered ledger bytes, verdict, duplicate identity and malfo
   const { root, act } = await published();
   expect((await command(root, act.actId)).exit).toBe(0);
   const project = projectAt(root);
-  const entry = (project.review_acts as JsonObject[])[0];
+  const entry = reviewVerdictReceipts(project)[0]!;
   entry.sha256 = '0'.repeat(64);
   expect(checkProject(root, project, { now: Date.now() }).refusals.map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
   entry.sha256 = jobHash(String(entry.bytes));
@@ -326,7 +331,7 @@ test('concurrent consumers keep one verdict and retry reports the same receipt',
   const before = readFileSync(join(root, 'project.json'));
   expect((await command(root, act.actId)).exit).toBe(0);
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
-  expect((projectAt(root).review_acts as JsonObject[]).length).toBe(1);
+  expect(reviewVerdictReceipts(projectAt(root)).length).toBe(1);
 });
 
 test('host-attested delegate and empty or whitespace-only words survive the public writer', async () => {
@@ -336,7 +341,7 @@ test('host-attested delegate and empty or whitespace-only words survive the publ
     expect(result.exit).toBe(0);
     const verdict = JSON.parse(result.stdout).verdict;
     expect(verdict.by).toBe('delegate'); expect(verdict.verbatim).toBe(words);
-    const receipt = (projectAt(root).review_acts as JsonObject[])[0];
+    const receipt = reviewVerdictReceipts(projectAt(root))[0]!;
     expect(JSON.parse(String(receipt.bytes)).authority.reviewer).toEqual({ id: 'synthetic-reviewer', role: 'delegate' });
   }
 });
@@ -354,7 +359,7 @@ test('changes-requested records a bounced verdict with exact words and the norma
   const project = projectAt(root);
   expect(project.stage).toBe(before.stage);
   expect(project.signoffs).toEqual(before.signoffs);
-  const receipt = (project.review_acts as JsonObject[])[0];
+  const receipt = reviewVerdictReceipts(project)[0]!;
   expect(JSON.parse(String(receipt.bytes))).toEqual(act);
   expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
   expect(reviewActFindings(project)).toEqual([]);
@@ -403,7 +408,7 @@ test('API retains exact raw act bytes and PNG and binds both hashes', async () =
     const result = await command(root, act.actId);
     expect(result.exit).toBe(0);
     const project = projectAt(root);
-    const receipt = (project.review_acts as JsonObject[])[0];
+    const receipt = reviewVerdictReceipts(project)[0]!;
     expect(receipt.bytes).toBe(raw);
     expect(receipt.sha256).toBe(jobHash(raw));
     expect(readFileSync(join(root, `evidence/v1/${jobHash(raw)}.act.json`), 'utf8')).toBe(raw);

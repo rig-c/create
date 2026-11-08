@@ -44,7 +44,7 @@ describe('human stage reopen', () => {
       for (const [id, hash] of Object.entries(obj(signed.step_hashes))) expect(stepHash(step(p, id))).toBe(hash as string);
     }
     expect(codes(dir)).toEqual([]);
-    expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY',
+    expect(checkProject(dir).warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY',
       ...Array<string>(5).fill('REOPEN_SIGNOFF_LAPSED'), 'REOPEN_VERDICT_LAPSED', 'REOPEN_VERDICT_LAPSED']);
     step(p, 'bones').status = 'done'; save(dir, p);
     expect(codes(dir)).toContain('PARTS_REVIEW_UNSIGNED');

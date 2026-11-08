@@ -194,3 +194,12 @@ test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')(
   },
   300_000,
 );
+
+
+test('parts approval instructions consume recorded API receipts', () => {
+  const guide = renderAgentGuide();
+  expect(guide).toContain('`parts-review` records its Review API response');
+  expect(guide).toContain('structure-snapshot --draft <id> --out <f>');
+  expect(guide).toContain('signoff parts-review --draft <id> --structure-file <f>');
+  expect(guide).not.toContain('structure-snapshot --draft <id> --verdict');
+});

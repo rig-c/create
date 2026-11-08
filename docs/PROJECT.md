@@ -1242,6 +1242,9 @@ rig-create signoff parts-review --by <who> --evidence <path> --diff-report <path
 The recorder reads existing output; it runs no producer or review command.
 It appends `drafts[]` with `{ id, kind: "draft-rig", at, producer: {name,version},
 config: {path,sha256}, parts: {path,files:[{path,sha256}]}, files:[{path,sha256}] }`.
+`parts.files` binds `parts.json`, `parts/*` and the raster `parts.json` itself
+declares under `painting_in_rig`; an undeclared file is not bound, and a draft
+recorded before the declared raster was bound warns `DRAFT_DECLARED_FILE_UNBOUND`.
 All files must resolve under `derived/drafts/<id>/`. Standalone `rig --out`
 requires explicit `--parts`; only an unambiguous build root containing
 `parts.json`, `parts/` and `rig/` supplies those inputs implicitly. Ambiguous
@@ -1642,7 +1645,9 @@ no authored camera capability; camera requests in the direction documents are
 unsupported playback requests, not evidence of camera rendering or Apply.
 The installed core-only build reports `A00_ROUNDTRIP_PARSE` as SKIP; this is
 not a spine-core round-trip or a rendered-take claim. Recompute every recorded
-file hash with `bun scripts/check-direction-fixture-hashes.ts`.
+file hash with `bun scripts/check-direction-fixture-hashes.ts`; entries of a
+producer run stamp (`rigc-run/1`, `rig-run/1`) resolve against the stamp's own
+directory.
 The main filled project remains the separate zero-refusal/zero-warning example.
 
 ## Advisory intake reports

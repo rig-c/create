@@ -39,8 +39,20 @@ function inventory(dir: string, path: string, root: string): JsonObject[] {
   return files;
 }
 
-function partsInventory(dir: string, path: string, root: string): JsonObject[] {
-  return inventory(dir, path, root).filter(f => f.path === `${path}/parts.json` || String(f.path).startsWith(`${path}/parts/`));
+/** The raster parts.json itself declares under painting_in_rig, read from the producer's record and never inferred. */
+function declaredPainting(dir: string, path: string, root: string, files: JsonObject[]): string | null {
+  if (!files.some(f => f.path === `${path}/parts.json`)) return null;
+  let manifest: Json;
+  try { manifest = JSON.parse(readFileSync(fileAt(dir, `${path}/parts.json`, root), 'utf8')) as Json; } catch { return null; }
+  const painting = isObject(manifest) ? manifest.painting_in_rig : undefined;
+  return isObject(painting) && typeof painting.path === 'string' ? `${path}/${painting.path}` : null;
+}
+
+/** parts.json, parts/* and the declared painting; an undeclared or missing file is not carried. */
+function partsInventory(dir: string, path: string, root: string): { files: JsonObject[]; painting: string | null } {
+  const all = inventory(dir, path, root);
+  const painting = declaredPainting(dir, path, root, all);
+  return { files: all.filter(f => f.path === `${path}/parts.json` || String(f.path).startsWith(`${path}/parts/`) || f.path === painting), painting };
 }
 
 function binding(v: Json | undefined): v is JsonObject {
@@ -114,7 +126,12 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     try {
       if (!draftFileUnavailable(dir, String(parts.path), root)) {
         const expected = new Map(asArray(parts.files).filter(binding).map(f => [String(f.path), f.sha256]));
-        for (const actual of partsInventory(dir, String(parts.path), root)) {
+        const { files, painting } = partsInventory(dir, String(parts.path), root);
+        for (const actual of files) {
+          if (painting !== null && actual.path === painting && !expected.has(painting)) {
+            warnings.push({ code: 'DRAFT_DECLARED_FILE_UNBOUND', path: `${path}.parts.files`, message: `${path}.parts.files: parts.json declares ${painting} under painting_in_rig but the draft does not bind it; rebuild the draft and record it again with draft-rig` });
+            continue;
+          }
           if (expected.get(String(actual.path)) !== actual.sha256) throw new Error(`parts inventory changed at ${String(actual.path)}`);
         }
       }
@@ -183,7 +200,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     if (build === standalone) throw new Error('ambiguous or missing build/standalone rig layout');
     if (standalone && !opts['--parts']) throw new Error('standalone rig output needs --parts');
     const parts = opts['--parts'] ?? from;
-    const partsFiles = partsInventory(dir, parts, root);
+    const partsFiles = partsInventory(dir, parts, root).files;
     const rigPrefix = build ? `${from}/rig` : from;
     for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
     const configFile = fileAt(dir, opts['--config'], root);

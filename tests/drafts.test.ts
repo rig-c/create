@@ -7,6 +7,7 @@ import { fixture, arr, obj } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, draftRigCommand, handoff } from './clock.ts';
+import { retainedPartsFiles } from './draft-fixture.ts';
 
 function write(dir: string, path: string, bytes = '{}'): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); }
 function draft(build = false): { dir: string; args: string[] } {
@@ -74,4 +75,42 @@ test('an unavailable config does not mask a present changed draft output', () =>
   const report = checkProject(dir);
   expect(report.refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
   expect(report.warnings.map(f => f.code)).toContain('DRAFT_RIG_UNAVAILABLE');
+});
+
+test.each([false, true])('a declared painting_in_rig is bound and copied with the parts, build=%s', build => {
+  const { dir, args } = draft(build); const parts = `derived/drafts/sample/${build ? 'out' : 'inputs'}`;
+  write(dir, `${parts}/parts.json`, JSON.stringify({ painting_in_rig: { path: 'painting_in_rig.png', sha256: 'a'.repeat(64), resample: 'lanczos3-rgb-opaque' } }));
+  write(dir, `${parts}/painting_in_rig.png`, 'synthetic painting bytes');
+  write(dir, `${parts}/undeclared.png`, 'not declared by parts.json');
+  const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  expect(arr(obj(record.parts).files).map(f => obj(f).path).sort()).toEqual([`${parts}/painting_in_rig.png`, `${parts}/parts.json`, `${parts}/parts/synthetic.png`]);
+  expect(checkProject(dir).refusals).toEqual([]);
+  expect(checkProject(dir).warnings.map(f => f.code)).not.toContain('DRAFT_DECLARED_FILE_UNBOUND');
+  write(dir, `${parts}/painting_in_rig.png`, 'changed painting bytes');
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
+  const helper = retainedPartsFiles(join(dir, parts));
+  expect(Object.keys(helper).sort()).toEqual(['painting_in_rig.png', 'parts.json', 'parts/synthetic.png']);
+  expect(Buffer.from(helper['painting_in_rig.png']!).toString()).toBe('changed painting bytes');
+});
+
+test('a declared painting_in_rig that is absent is left out like a missing part file', () => {
+  const { dir, args } = draft();
+  write(dir, 'derived/drafts/sample/inputs/parts.json', JSON.stringify({ painting_in_rig: { path: 'painting_in_rig.png' } }));
+  const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  expect(arr(obj(record.parts).files).map(f => obj(f).path).sort()).toEqual(['derived/drafts/sample/inputs/parts.json', 'derived/drafts/sample/inputs/parts/synthetic.png']);
+  expect(checkProject(dir).refusals).toEqual([]);
+});
+
+test('a draft recorded before the painting was carried warns by name and is not refused', () => {
+  const { dir, args } = draft();
+  write(dir, 'derived/drafts/sample/inputs/parts.json', JSON.stringify({ painting_in_rig: { path: 'painting_in_rig.png' } }));
+  write(dir, 'derived/drafts/sample/inputs/painting_in_rig.png', 'synthetic painting bytes');
+  draftRigCommand(args);
+  const p = read(dir); const parts = obj(obj(arr(p.drafts)[0]).parts);
+  parts.files = arr(parts.files).filter(f => !String(obj(f).path).endsWith('/painting_in_rig.png'));
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.filter(f => f.code === 'DRAFT_DECLARED_FILE_UNBOUND').map(f => f.path)).toEqual(['drafts[0].parts.files']);
+  expect(report.warnings.find(f => f.code === 'DRAFT_DECLARED_FILE_UNBOUND')!.message).toContain('derived/drafts/sample/inputs/painting_in_rig.png');
 });

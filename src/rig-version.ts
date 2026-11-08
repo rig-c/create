@@ -165,7 +165,7 @@ export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <di
 
 interface SourceFile { source: string; bytes: Buffer }
 
-export function rigVersionCommand(args: string[]): { stdout: string; exit: number } {
+export function rigVersionCommand(args: string[], now: number): { stdout: string; exit: number } {
   const positional: string[] = [];
   const options: Record<string, string> = {};
   const flags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by', '--citations'];
@@ -238,7 +238,7 @@ export function rigVersionCommand(args: string[]): { stdout: string; exit: numbe
     try { versions = lockVersions(JSON.parse(sourceBytes(options['--toolchain-lock']!).toString())); }
     catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_TOOLCHAIN_LOCK_INVALID', `versions[v${n}].built_with`, String(error)); }
     // Pre-existing refusals stay the project's; the candidate may not add a new one.
-    const baseline = checkProject(dir, project).refusals;
+    const baseline = checkProject(dir, project, { now }).refusals;
     created.push(join(dir, evidence), join(dir, out));
     mkdirSync(join(dir, evidence), { recursive: true });
     const toolchain = input('--toolchain-lock', 'package-lock.json');
@@ -336,7 +336,7 @@ export function rigVersionCommand(args: string[]): { stdout: string; exit: numbe
     const version: JsonObject = { n, kind: 'rig', rig_version: null, at, at_basis: 'not-after', at_source: atSource,
       built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: [], review_origin: null,
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections },
-      registration: { kind: 'frozen-rig/1', at: new Date().toISOString(), toolchain: { kind: 'npm-lock-v3', source: toolchain },
+      registration: { kind: 'frozen-rig/1', at: new Date(now).toISOString(), toolchain: { kind: 'npm-lock-v3', source: toolchain },
         files: retained, config_source: configSource, path_adapter: adapterBinding, idle, compile,
         copied: { files: outputFiles.length, bytes: outputFiles.reduce((total, f) => total + Number(f.bytes), 0) } } };
     const candidate = { ...project, versions: [...project.versions, version] };
@@ -347,7 +347,7 @@ export function rigVersionCommand(args: string[]): { stdout: string; exit: numbe
     // The record must pass the same check as every other writer's before it is renamed into place.
     const counts = new Map<string, number>();
     for (const f of baseline) counts.set(`${f.code}:${f.path}`, (counts.get(`${f.code}:${f.path}`) ?? 0) + 1);
-    for (const f of checkProject(dir, candidate).refusals) {
+    for (const f of checkProject(dir, candidate, { now }).refusals) {
       const key = `${f.code}:${f.path}`;
       const left = counts.get(key) ?? 0;
       if (!left) refuse(f.code, f.message);

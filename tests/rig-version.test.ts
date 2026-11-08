@@ -1,17 +1,17 @@
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { rigRegistrationFindings, rigVersionCommand } from '../src/rig-version.ts';
+import { rigRegistrationFindings } from '../src/rig-version.ts';
+import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { fixture, obj } from './fixtures.ts';
-import { CLI, run } from './helpers.ts';
+import { clockedCli, run } from './helpers.ts';
 
 const roots: string[] = [];
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
-afterEach(() => { setSystemTime(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { testClock.reset(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function put(dir: string, path: string, value: unknown): void {
   mkdirSync(dirname(join(dir, path)), { recursive: true });
@@ -20,7 +20,7 @@ function put(dir: string, path: string, value: unknown): void {
 function setup() {
   const dir = fixture(project => { project.stage = 'interview'; project.signoffs = []; project.versions = []; project.reopens = []; for (const step of obj(project.plan).steps as JsonObject[]) step.status = 'pending'; });
   roots.push(dirname(dir));
-  setSystemTime(new Date('2026-11-08T00:00:00Z'));
+  testClock.set(new Date('2026-11-08T00:00:00Z'));
   for (const path of ['outputs', 'derived/review']) rmSync(join(dir, path), { recursive: true, force: true });
   cpSync(frozen, join(dir, 'source'), { recursive: true });
   put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json' });
@@ -48,7 +48,7 @@ describe('frozen rig registration', () => {
     const { dir, args, load } = setup();
     expect(checkProject(dir).refusals).toEqual([]);
     const before = load();
-    const result = run([process.execPath, CLI, 'rig-version', ...args], dir, process.env as Record<string, string>);
+    const result = run([process.execPath, ...clockedCli(), 'rig-version', ...args], dir, process.env as Record<string, string>);
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
     const version = JSON.parse(result.stdout) as JsonObject;

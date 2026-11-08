@@ -13,6 +13,8 @@ import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
 import { realpathSync } from 'node:fs';
 import { interviewAnswerCommand as rawInterviewAnswer } from '../src/choice-writers.ts';
 import { decodeReviewResponse, fetchReviewAct, reviewActFindings } from '../src/review-act.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
+import { PARTS_CLI_RECEIPT, partsReadFindings } from '../src/parts-verdict-record.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, obj, arr, waypoint, framing } from './fixtures.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
@@ -187,6 +189,27 @@ test('job selections preserve Other text and delegate authority and replay histo
   const before=readFileSync(join(w.dir,'project.json'));expect(reviewAnswer(w,payload,[],delegate)).toBe(first);
   expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);expect(reviewActFindings(load(w.dir))).toEqual([]);
 });
+test('merged ledger records picks after a parts CLI receipt and runs the picks branch',()=>{
+  const w=working('reference');const root=realpathSync(w.dir);
+  const draft=obj(arr(load(root).drafts)[0]);const parts=obj(draft.parts);
+  const value={schema:'rig-review-parts-verdict/2',tool:{name:'@rig-c/review',version:'2.5.0'},
+    source:{sha256:'a'.repeat(64),files:arr(parts.files).map(raw=>({sha256:obj(raw).sha256,path:'opaque/frame'}))},
+    status:'approved',parts:{'synthetic part':{outcome:'clean',note:''}}};
+  const recorded=partsReviewCommand([root,'--draft',String(draft.id),'--from-review-cli','--by','user','--json','--','opaque/input','--verdict','never-created.json'],testClock.now(),{
+    runCli:()=>({stdout:Buffer.from(JSON.stringify(value)),exit:0}),
+  });
+  expect(recorded.exit).toBe(0);expect(obj(arr(load(root).review_acts)[0]).schema).toBe(PARTS_CLI_RECEIPT);
+  expect(partsReadFindings(root,load(root))).toEqual([]);
+  const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
+  reviewAnswer(w,payload);const project=load(root);
+  expect(arr(project.review_acts)).toHaveLength(2);expect(reviewActFindings(project)).toEqual([]);
+  expect(partsReadFindings(root,project)).toEqual([]);
+  obj(arr(project.review_acts)[1]).question='missing';
+  const findings=reviewActFindings(project);
+  expect(findings.map(f=>f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  expect(findings[0].path).toBe('review_acts[1]');expect(findings[0].message).toContain('recorded interview answer differs');
+});
+
 test('Other with multiline Unicode and explicit fragment preserves text; unresolved Other is pending until a fresh explicit pick',()=>{
   const w=working('reference');const words='첫 줄\nSecond line  \ne\u0301';writeFileSync(join(w.dir,'other.txt'),words);writeFileSync(join(w.dir,'fragment.json'),JSON.stringify('custom'));
   const other=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=other','--other',`reference=${join(w.dir,'other.txt')}`]));

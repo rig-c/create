@@ -9,6 +9,7 @@ import { publicationFile } from './job-publication.ts';
 import { jobHash } from './job-outbox.ts';
 import { decodeReviewAct, reviewActFindings } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
+import { ReviewReadError, storedReviewRead } from './review-read.ts';
 import type { Finding } from './check.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -35,6 +36,16 @@ export function decodePartsRead(bytes: Buffer): JsonObject {
     }
   }
   return value;
+}
+
+/** Bind a parts receipt's stdout through the shared stored-read validator, keeping this route's codes. */
+function partsStdout(root: string, evidence: JsonObject, path: string): Buffer {
+  try { return storedReviewRead(root, evidence); }
+  catch (error) {
+    if (!(error instanceof ReviewReadError)) throw error;
+    if (error.reason === 'unavailable') return refuse('JOB_PUBLICATION_INVALID', `project.json: ${String(evidence.path)} must be a regular source without symlinks; restore its retained bytes`);
+    return fail('PARTS_VERDICT_RECEIPT_INVALID', `${path}.evidence ${error.reason === 'changed' ? 'bytes changed' : error.why}`);
+  }
 }
 
 export function partsVerdictNames(verdict: JsonObject): { flagged: string[]; noted: string[] } {
@@ -99,9 +110,7 @@ export function partsReadFindings(root: string, project: JsonObject): Finding[] 
       }
       assertPartsCliArgs(entry.argv as string[]);
       const evidence = entry.evidence as JsonObject;
-      const bytes = publicationFile(realpathSync(root), String(evidence.path));
-      if (jobHash(bytes) !== evidence.sha256) fail('PARTS_VERDICT_RECEIPT_INVALID', `${path}.evidence bytes changed`);
-      const verdict = decodePartsRead(bytes);
+      const verdict = decodePartsRead(partsStdout(root, evidence, path));
       const names = partsVerdictNames(verdict);
       if (entry.status !== verdict.status || !isDeepStrictEqual(entry.tool, verdict.tool)
         || !isDeepStrictEqual(entry.flagged, names.flagged) || !isDeepStrictEqual(entry.noted, names.noted)) {
@@ -170,7 +179,8 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
   const invalid = [...reviewActFindings(project), ...partsReadFindings(root, project), ...partsActFindings(root, project)][0];
   if (invalid) refuse(invalid.code, invalid.message);
   const binding = receipt.evidence;
-  const bytes = publicationFile(realpathSync(root), String(binding.path));
+  const bytes = receipt.schema === PARTS_CLI_RECEIPT ? partsStdout(root, binding, 'signoffs.parts-review')
+    : publicationFile(realpathSync(root), String(binding.path));
   let partsFile: string;
   const spec = receipt.schema === PARTS_CLI_RECEIPT ? PARTS_CLI_RECEIPT : 'rig-review/act@2';
   if (evidence !== undefined && (!object(evidence) || evidence.kind !== 'parts-verdict'

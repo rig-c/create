@@ -39,7 +39,7 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `PARTS_REVIEW_OPTION_INVALID` | `project.json.review_acts` received missing, duplicate or competing parts-review options. Use `parts-review --from-review <actId>` and submit human values through Review. |
 | `PARTS_REVIEW_EVIDENCE_CONFLICT` | The deterministic semantic evidence path contains different bytes or unsafe filesystem entries. Preserve that evidence and restore the original act before retrying. Refusal preserves the project record. |
 | `PARTS_REVIEW_CLI_ARGUMENT_INVALID` | `review_acts.argv` contains an absolute or escaping argument, or overrides create's JSON format. Pass literal project-relative arguments after `--`. |
-| `PARTS_REVIEW_CLI_FAILED` | The review CLI failed or could not run. The message retains its exit code and diagnostic line. Restore the saved verdict and repeat its original display arguments. |
+| `PARTS_REVIEW_CLI_FAILED` | The review CLI failed or could not run, or the Review it ran has no `@rig-c/review` name and version. The message retains its exit code and diagnostic line. Restore the saved verdict and repeat its original display arguments. |
 | `PARTS_REVIEW_CLI_INVALID` | CLI stdout is not supported UTF-8 verdict JSON with status, tool, source hashes and per-part outcomes and notes. Query a supported review CLI. |
 | `PARTS_VERDICT_RECEIPT_INVALID` | A CLI receipt's metadata, retained response hash or copied fields differ, its draft/parts manifest binding is unavailable, or it repeats a receipt. Restore the exact retained response and draft record. |
 | `PARTS_VERDICT_LATEST_NOT_APPROVED` | The draft's latest parts receipt, from either CLI or act, requests changes. Record a newer approved verdict before signing. The writer always refuses; check refuses signatures from `PARTS_VERDICT_LATEST_SINCE = 2026-11-08T00:00:00Z` and WARNs earlier ones. |
@@ -826,7 +826,6 @@ chain and its source is the immediately preceding version of the same kind.
 | `APPLIED_REVIEW_MISSING` | a version dated on or after `APPLIED_REVIEW_SINCE` omits the origin declaration |
 | `APPLIED_REVIEW_MALFORMED` | the declaration lacks its file path/hash, source, item id or applied result |
 | `APPLIED_REVIEW_FILE` | the retained file is unavailable, escapes the project or is not a single-build feedback export |
-| `APPLIED_REVIEW_HASH` | the retained feedback bytes differ from their recorded hash |
 | `APPLIED_REVIEW_SOURCE` | the source is missing, ambiguous or skipped, or the feedback inputs differ from its package |
 | `APPLIED_REVIEW_RESULT` | the selected feedback item is missing or repeated, or its applied result differs |
 

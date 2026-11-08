@@ -1,3 +1,4 @@
+import { reviewStdout } from './review-read-fixture.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
@@ -338,7 +339,7 @@ test('CLI and act receipts share current-verdict ordering', async () => {
   const response = { schema: 'rig-review-parts-verdict/2', status: 'approved', tool: { name: '@rig-c/review', version: '2.5.0' },
     source: { sha256: 'a'.repeat(64), files: (draft.parts as JsonObject).files }, parts: { torso: { outcome: 'clean', note: '' } } };
   partsReviewCommand([root, '--draft', 'chain', '--from-review-cli', '--by', 'user', '--', 'opaque', '--verdict', 'opaque.json'], Date.now(), {
-    runCli: () => ({ stdout: Buffer.from(JSON.stringify(response)), exit: 0 }),
+    runCli: reviewStdout(JSON.stringify(response)),
   });
   expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')).toBeUndefined();
   expect((await cli(root, ['parts-review', '--from-review', nextRejected.actId])).exit).toBe(0);

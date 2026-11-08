@@ -1,9 +1,11 @@
 import { testClock } from './clock.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readReview, retainedReviewRead, ReviewReadError, type ReviewReadRunner } from '../src/review-read.ts';
+import { readReview, retainedReviewRead, ReviewReadError, storedReviewRead, type ReviewReadRunner } from '../src/review-read.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
+import { partsReadFindings } from '../src/parts-verdict-record.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
 import { checkCorrections } from '../src/corrections.ts';
 import { checkAppliedReview } from '../src/applied-review.ts';
@@ -121,4 +123,54 @@ test('repeated reads reuse immutable stdout and remove staging files', () => {
     const second = readReview(dir, 'synthetic-review', syntheticReviewRunner);
     expect(second.file).toEqual(first.file);
     expect(readdirSync(join(dir, 'evidence/review-reads'))).toEqual([`${String(first.file.sha256)}.json`]);
+});
+
+test('parts and feedback reads share one spawn path and one stored-read validator, keeping each route\'s codes', () => {
+    const feedbackDir = fixture();
+    const partsDir = realpathSync(mkdtempSync(join(tmpdir(), 'review-read-parts-')));
+    roots.push(partsDir);
+    cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), partsDir, { recursive: true });
+    const load = (dir: string) => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const draft = (load(partsDir).drafts as JsonObject[])[0]!;
+    const verdict = Buffer.from(JSON.stringify({ schema: 'rig-review-parts-verdict/2', status: 'approved', tool: { name: '@rig-c/review', version: '2.5.0' },
+        source: { sha256: 'a'.repeat(64), files: ((draft.parts as JsonObject).files as JsonObject[]).map(file => ({ sha256: file.sha256 })) },
+        parts: { synthetic: { outcome: 'clean', note: '' } } }));
+    const calls: string[][] = [];
+    let tool = { name: '@rig-c/review', version: '2.5.0' };
+    const runner: ReviewReadRunner = (dir, argv) => {
+        calls.push(argv);
+        return { stdout: argv[1] === 'parts' ? verdict : readFileSync(join(dir, 'evidence/feedback.json')), stderr: '', exitCode: 0, tool };
+    };
+    const parts = () => partsReviewCommand([partsDir, '--draft', String(draft.id), '--from-review-cli', '--by', 'user', '--json', '--', 'synthetic-review'], now, { runCli: runner });
+    // A wrong tool identity is refused by the shared spawn path on both routes, before anything is stored.
+    tool = { name: 'other-tool', version: '1.0.0' };
+    refused(feedbackDir, 'REVIEW_READ_INVALID', () => capture(feedbackDir, runner));
+    refused(partsDir, 'PARTS_REVIEW_CLI_FAILED', parts);
+    tool = { name: '@rig-c/review', version: '2.5.0' };
+    capture(feedbackDir, runner);
+    const partsReceipt = JSON.parse(parts().stdout) as JsonObject;
+    expect(calls.map(argv => argv.slice(0, 2))).toEqual([['rig-review', 'feedback'], ['rig-review', 'parts'], ['rig-review', 'feedback'], ['rig-review', 'parts']]);
+    expect(calls.every(argv => argv.slice(-2).join(' ') === '--format json')).toBe(true);
+    const feedbackRead = ((load(feedbackDir).corrections as JsonObject[])[0]!.artifact as JsonObject).review_read as JsonObject;
+    const bindings: [string, JsonObject][] = [[feedbackDir, feedbackRead.stdout as JsonObject], [partsDir, partsReceipt.evidence as JsonObject]];
+    for (const [dir, binding] of bindings)
+        expect(storedReviewRead(dir, binding).equals(readFileSync(join(dir, String(binding.path))))).toBe(true);
+    const feedbackCodes = () => { const ctx = { dir: feedbackDir, project: load(feedbackDir), refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] }; checkCorrections(ctx, now); return ctx.refusals.map(row => row.code); };
+    const partsCodes = () => partsReadFindings(partsDir, load(partsDir)).map(row => row.code);
+    expect(feedbackCodes()).toEqual([]);
+    expect(partsCodes()).toEqual([]);
+    // Tampered stored stdout: the one validator reports `changed`, and each route keeps the code it used before.
+    for (const [dir, binding] of bindings) {
+        writeFileSync(join(dir, String(binding.path)), '{}');
+        let reason = '';
+        try { storedReviewRead(dir, binding); } catch (error) { reason = (error as ReviewReadError).reason; }
+        expect(reason).toBe('changed');
+    }
+    expect(feedbackCodes()).toEqual(['REVIEW_READ_INVALID']);
+    expect(partsCodes()).toEqual(['PARTS_VERDICT_RECEIPT_INVALID']);
+    // A missing stored stdout also keeps each route's earlier code.
+    for (const [dir, binding] of bindings)
+        rmSync(join(dir, String(binding.path)));
+    expect(feedbackCodes()).toEqual(['REVIEW_READ_INVALID']);
+    expect(partsCodes()).toEqual(['JOB_PUBLICATION_INVALID']);
 });

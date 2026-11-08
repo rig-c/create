@@ -60,9 +60,9 @@ export function validateRunRecord(bytes: Buffer, path: string): { spec: RunSpec;
   if (!isObject(pkg) || !isDeepStrictEqual(Object.keys(pkg), ['name', 'version'])) {
     fail('RUN_RECORD_MALFORMED', `${path}.package`, 'package must have keys name, version in that order');
   }
-  const expectedName = spec === 'rig-run/1' ? '@rig-c/parts' : 'rig-c';
-  if (pkg.name !== expectedName || typeof pkg.version !== 'string' || !pkg.version.trim()) {
-    fail('RUN_RECORD_MALFORMED', `${path}.package`, `expected package.name ${JSON.stringify(expectedName)} and a nonempty version`);
+  const expectedNames = spec === 'rig-run/1' ? ['@rig-c/parts'] : ['@rig-c/core', 'rig-c'];
+  if (!expectedNames.includes(String(pkg.name)) || typeof pkg.version !== 'string' || !pkg.version.trim()) {
+    fail('RUN_RECORD_MALFORMED', `${path}.package`, `expected package.name ${expectedNames.map(name => JSON.stringify(name)).join(' or ')} and a nonempty version`);
   }
   if (spec === 'rig-run/1' ? (parsed.command !== 'rig' && parsed.command !== 'assemble') : parsed.command !== 'build') {
     fail('RUN_RECORD_MALFORMED', `${path}.command`, `invalid ${spec} command ${JSON.stringify(parsed.command ?? null)}`);

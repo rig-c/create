@@ -124,10 +124,20 @@ describe('feedback answered by the next version (interview --check)', () => {
   });
 });
 
+// Review input controls start before a review sign-off. A later bounce on a
+// signed acceptance must now refuse the newly invalid sign-off target.
+function reviewFixture(edit?: (project: JsonObject) => void, rigOnly = false): string {
+  return fixture(project => {
+    project.signoffs = [];
+    if (rigOnly) { project.versions = arr(project.versions).filter(v => obj(v).kind === 'rig'); project.stage = 'rig-review'; }
+    edit?.(project);
+  });
+}
+
 describe('rig-create review records a verdict', () => {
   test('verbatim byte for byte, answer_was derived, a not-asked item lands in the guide, stage unchanged', () => {
     const words = 'The beam is “too fast” — and the gulls?  None. 灯台は残して.\n';
-    const dir = fixture();
+    const dir = reviewFixture();
     const before = read(dir);
     const r = recordVerdict(
       dir,
@@ -159,7 +169,7 @@ describe('rig-create review records a verdict', () => {
   });
 
   test('a delegated item derives delegated; naming it a user answer is refused by name and nothing is written', () => {
-    const dir = fixture();
+    const dir = reviewFixture(undefined, true);
     const before = readFileSync(join(dir, 'project.json'), 'utf8');
     const e = refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'seethrough', answerWas: 'user' }] })));
     expect(e.code).toBe('FEEDBACK_ITEM_CONTRADICTS');
@@ -170,13 +180,13 @@ describe('rig-create review records a verdict', () => {
   });
 
   test('a user sentence is not a delegation; a sentence that left part open must be named', () => {
-    const dir = fixture((p) => {
+    const dir = reviewFixture((p) => {
       const guide = obj(waypoint(p, 'bones').guide);
       guide.verbatim = 'A chain down the scarf, one in each coat tail, one in her hair tail. Place the bones along each named part for its full length.';
       guide.value = { chains: ['scarf', 'coat_tail_l', 'coat_tail_r', 'hair_tail'], placement: 'along each named part', length: 'full part length' };
       guide.asks = [{ id: 'chains', state: 'user' }, { id: 'placement', state: 'user' }, { id: 'length', state: 'user' }];
       delete guide.agent_decision;
-    });
+    }, true);
     expect(refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'bones', answerWas: 'delegated' }] }))).code).toBe('FEEDBACK_ITEM_CONTRADICTS');
     expect(refusalOf(() => recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'assemble', answerWas: null }] }))).code).toBe('FEEDBACK_ITEM_AMBIGUOUS');
     const ok = recordVerdict(dir, base({ version: 2, review: 'rig-review', items: [{ id: 'assemble', answerWas: 'delegated' }] }));
@@ -185,26 +195,26 @@ describe('rig-create review records a verdict', () => {
 
   test('partially delegated bones and meshes accept explicitly named delegated feedback', () => {
     for (const id of ['bones', 'meshes']) {
-      const result = recordVerdict(fixture(), base({ version: 2, review: 'rig-review', items: [{ id, answerWas: 'delegated' }] }));
+      const result = recordVerdict(reviewFixture(undefined, true), base({ version: 2, review: 'rig-review', items: [{ id, answerWas: 'delegated' }] }));
       expect(result.items[0]).toMatchObject({ id, answer_was: 'delegated', how: 'named' });
     }
   });
 
   test('unknown items, a review of the wrong kind and a quote not in the words are refused', () => {
-    const dir = fixture();
+    const dir = reviewFixture();
     expect(refusalOf(() => recordVerdict(dir, base({ items: [{ id: 'x_gulls', answerWas: 'not-asked' }] }))).code).toBe('FEEDBACK_ITEM_UNKNOWN');
     expect(refusalOf(() => recordVerdict(dir, base({ review: 'rig-review' }))).code).toBe('REVIEW_WRONG_KIND');
     expect(refusalOf(() => recordVerdict(dir, base({ version: 9 }))).code).toBe('REVIEW_VERSION_UNKNOWN');
     expect(
       refusalOf(() => recordVerdict(dir, base({ items: [{ id: 'post_timing', answerWas: 'not-asked' }], quotes: { post_timing: 'slower' } }))).code,
     ).toBe('FEEDBACK_QUOTE_NOT_IN_VERBATIM');
-    expect(refusalOf(() => recordVerdict(fixture((p) => (waypoint(p, 'motion').guide = null)), base({ version: 2, review: 'rig-review', items: [{ id: 'motion', answerWas: null }] }))).code).toBe(
+    expect(refusalOf(() => recordVerdict(reviewFixture((p) => (waypoint(p, 'motion').guide = null)), base({ version: 2, review: 'rig-review', items: [{ id: 'motion', answerWas: null }] }))).code).toBe(
       'FEEDBACK_ITEM_SILENT',
     );
   });
 
   test('the CLI prints what it recorded and exits 0; a contradiction exits 1 with the code', () => {
-    const dir = fixture();
+    const dir = reviewFixture();
     const env = gitEnv();
     const ok = cli(
       ['review', 'v4', dir, '--verdict', 'provisional', '--by', 'user', '--review', 'direction-review', '--verbatim', 'hold on', '--source', 'chat', '--item', 'post_timing'],
@@ -236,7 +246,7 @@ function byPost(p: JsonObject, id: string): JsonObject {
 
 describe('review record input options', () => {
   test('file preserves bytes, --at is verbatim, and answering references are recorded', () => {
-    const dir = fixture();
+    const dir = reviewFixture();
     const file = join(dir, 'words.txt');
     const text = '\uFEFF  좋아\r\n\n';
     writeFileSync(file, text);

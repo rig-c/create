@@ -225,7 +225,7 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
     }],
     ['swapped package keys', partsRunRecord({ package: { version: '2.27.1', name: '@rig-c/parts' } })],
     ['wrong package name for parts', partsRunRecord({ package: { name: 'rig-c', version: '2.27.1' } })],
-    ['wrong package name for core', coreRunRecord({ package: { name: '@rig-c/core', version: '3.5.0' } })],
+    ['wrong package name for core', coreRunRecord({ package: { name: '@rig-c/parts', version: '3.5.0' } })],
     ['wrong command for parts', partsRunRecord({ command: 'build' })],
     ['wrong command for core', coreRunRecord({ command: 'rig' })],
     ['non-millisecond timestamp', partsRunRecord({ started_at: '2026-11-07T00:00:00Z' })],
@@ -290,4 +290,10 @@ describe('producer run records (rig-run/1 and rigc-run/1)', () => {
     expect(postWarnings).toEqual([]);
     expect(checkProject(beforeSince.dir, preProject).refusals.map(f => f.code)).toContain('RUN_RECORD_REQUIRED');
   });
+});
+
+
+test.each(['@rig-c/core', 'rig-c'])('core producer run accepts its published package name %s', name => {
+  const raw = Buffer.from(JSON.stringify(coreRunRecord({ package: { name, version: '3.6.0' } })));
+  expect(validateRunRecord(raw, 'versions[v1].registration.runs[0]').spec).toBe('rigc-run/1');
 });

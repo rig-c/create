@@ -104,7 +104,7 @@ refusal the record as read did not already carry. The baseline is that check at
 write time and is never stored. Findings match by code and path with
 multiplicity, so a carried code at a new path is new, and the refusal names only
 the new code. `reopen`, `signoff`, `step-status`, `pause`, `resume`, `amend` and
-`draft-rig` follow this rule; the interview, plan, scene, direction, correction,
+`draft-rig` and `review` follow this rule; the interview, plan, scene, direction, correction,
 `rig-version` and `version config-lost` writers already did. Each writer's own
 pre-checks are unchanged (`signoff` still refuses a carried lag, and a carried
 `GUIDE_CHANGED_UNSIGNED` on a step it covers), and `check` still reports every
@@ -537,7 +537,13 @@ That acceptance rests on a **still-frame record** in the same version's
 | `what` | what it shows, in words |
 
 This repository does not render the still: rig-c/core and rig-c/review render,
-the agent records the file here. An acceptance with no such record is refused
+the `review <version> --from-review-file <act.json>` writer ingests the
+raw export and its `<sha256>.png` sibling (or `--from-review <actId>` fetches
+both from the live job). The writer preserves the act bytes under
+`evidence/v<N>/`, binds them in `review_acts` by sha256 and verifies the PNG
+before recording it. Missing or mismatched PNGs refuse without changing
+`project.json`. Numeric frames record the animation name in `what`;
+no new record field or dated contract is introduced. An acceptance with no such record is refused
 (`RIG_ACCEPTED_WITHOUT_STILL`, [CHECKS.md](CHECKS.md)); a bounce needs none to
 be recorded, though what it rested on still goes in `evidence/`.
 
@@ -871,7 +877,7 @@ Repeatable `--run-record <file>` binds at most one producer `run.json` per
 spec beside `--toolchain-lock`, recorded in the order given as
 `registration.runs: [{spec,source:{path,sha256,bytes}}]`. The dispatcher in
 `src/run-record.ts` accepts `rig-run/1` (`@rig-c/parts` `rig` or `assemble`) and
-`rigc-run/1` (`rig-c` `build`, with required `rig` and `motion` input roles and
+`rigc-run/1` (`@rig-c/core` or its `rig-c` alias, `build`, with required `rig` and `motion` input roles and
 optional `manifest` and `cuts` sorted in that role order and UTF-16 code-unit
 path order), validating only the published keys, key order and types without
 re-running or recomputing producer measurements. `interview --check` re-reads

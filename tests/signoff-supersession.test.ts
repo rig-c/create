@@ -14,13 +14,29 @@ function sign(dir: string, stage: string, steps?: string): void {
   signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words, ...(steps ? ['--steps', steps] : [])]);
 }
 
-test('feedback additions can be approved by partial rigging and post re-signatures', () => {
+test('review refuses newly stale approval hashes without changing project bytes', () => {
   const dir = fixture(p => { delete p.direction_contract; }, 'example-project.json', {}, true);
   testClock.set(new Date('2026-11-19T00:00:00Z'));
   directionCommand(['--adopt', dir]);
+  const before = readFileSync(join(dir, 'project.json'));
+  expect(() => reviewCommand(['4', dir, '--review', 'direction-review', '--verdict', 'provisional', '--by', 'user', '--source', 'chat',
+    '--at', '2026-11-20T00:00:00Z', '--verbatim', 'Add a slower pause and hold the camera.', '--item', 'motion:not-asked', '--item', 'camera_depth:not-asked']))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE' }));
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('preexisting feedback additions can be approved by partial rigging and post re-signatures', () => {
+  const dir = fixture(p => {
+    delete p.direction_contract;
+    const motion = obj(waypoint(p, 'motion').guide);
+    const post = arr(obj(obj(p.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!;
+    for (const guide of [motion, obj(post.guide)]) guide.additions = [...arr(guide.additions ?? []), {
+      by: 'user', at: '2026-11-20T00:00:00Z', verbatim: 'Add a slower pause and hold the camera.', value: null, source: 'polish feedback, v4',
+    }];
+  }, 'example-project.json', {}, true);
+  testClock.set(new Date('2026-11-19T00:00:00Z'));
+  directionCommand(['--adopt', dir]);
   const original = arr(load(dir).signoffs);
-  reviewCommand(['4', dir, '--review', 'direction-review', '--verdict', 'provisional', '--by', 'user', '--source', 'chat',
-    '--at', '2026-11-20T00:00:00Z', '--verbatim', 'Add a slower pause and hold the camera.', '--item', 'motion:not-asked', '--item', 'camera_depth:not-asked']);
   const changed = checkProject(dir);
   expect(changed.refusals.map(f => f.code)).toContain('SIGNOFF_ANSWERS_STALE');
   expect(changed.refusals.filter(f => f.code === 'GUIDE_CHANGED_UNSIGNED').map(f => f.path)).toEqual([

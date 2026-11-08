@@ -102,13 +102,12 @@ publishing. The future Review reuse-only attach option (to be filed) will
 replace this single attachment boundary.
 
 Cross-process subscription delivery uses a **30-second server wait cycle**.
-Scheduling, transport and rendering add elapsed time. Review 2.4.6 defines
-`jobWaitLimitMs = 30_000` in `src/job-api.ts` line 11 and reads durable events
-after the timer in `src/job-session.ts` lines 475–498. Its local notification
-function is at line 286. The window's previous/new label notice is implemented
-in `web/job-session.ts` lines 1711–1712.
+Scheduling, transport and rendering add elapsed time. Review 2.5.0 defines
+`jobWaitLimitMs = 30_000` in `src/job-api.ts` and reads durable events
+after the timer in `src/job-session.ts`. The window's previous/new label
+notice is implemented in `web/job-session.ts`.
 
-Review 2.4.6 refuses records containing answered scene-context choices or
+Review 2.5.0 refuses records containing answered scene-context choices or
 reader diagnostics with `JOB_RECORD_INCOMPLETE` before this reader runs.
 Those publications remain pending until review#555 supplies its contract.
 
@@ -124,7 +123,8 @@ host callbacks. It opens no host and carries no producer storage file. The grant
 travels in Authorization, and the private process transport uses stdin/stdout.
 Human-value and feedback flags are exclusive with `--from-review`.
 
-The shared reader checks `rig-review/job-api@2`, `rig-review/act@2`, and the
+The shared reader checks `rig-review/job-api@2` for semantic API responses,
+`rig-review/act@2` for historical acts and `rig-review/act@3` for rig stills, and the
 act's Parts enumerator version against `>=2.25.0 <3.0.0`. API@1 and act@1 are
 refused without migration. Rig/post `review-verdict` and draft `parts-verdict` use their respective writers.
 Interview picks, signoff and checkpoint ingestion await their follow-up cards. Image-review has no create version writer mapping. Described
@@ -134,7 +134,7 @@ correction and mesh-edit retain Review's reserved status.
 vocabulary `accepted`, `bounced` and `provisional`. Host-attested owner maps to
 `by: user`, and delegate maps to `by: delegate`. The complete reviewer identity,
 authority, original words, time and source remain in the immutable act receipt.
-A verdict records only a verdict. Signoff and stage advance require their own
+Verdict ingestion records its verdict and bound still. Signoff and stage advance require their own
 separate writer invocations.
 
 ### Source checks and replay
@@ -159,10 +159,18 @@ named warning. This warning describes the skipped first-ingest version-entry
 comparison. It grants no exemption from the explicit source checks.
 
 The versioned record's `review_acts[]` stores `rig-create/review-act@1` receipts
-keyed by `(jobId, actId)`. Each retains the API's semantic act encoded once with
-`JSON.stringify` as a `bytes` string, SHA-256 of those exact UTF-8 bytes, the
-version and verdict index, and the pre-append version-entry hash. This encoding
-is explicit and does not claim to be Review's private storage serialization.
+keyed by `(jobId, actId)`. Review verdicts retain the exact raw export bytes as
+`bytes`, their SHA-256, the version and verdict index, the pre-append
+version-entry hash and the exact still entries added by ingestion. Historical
+semantic-API receipts keep their original encoding. No act has a self-hash.
+
+For rig act@3, `review --from-review <actId>` fetches raw act bytes and the
+PNG with the consumer grant. Alternatively, `--from-review-file <act.json>`
+ingests the raw `fetch-act` stdout saved verbatim beside its `<sha256>.png`.
+The writer verifies the PNG hash, retains both files under `evidence/v<N>/`,
+and records the displayed still first in `evidence[]`. Numeric frames name
+the animation in `what`. Create never renders or reconstructs these pixels.
+A missing or mismatched PNG refuses `REVIEW_ACT_STILL_INVALID` before writing.
 The result and receipt are validated with the checker, fsynced and atomically
 replaced together. Refusal preserves project.json bytes. `check` validates the
 receipt hash, immutable act and linked verdict, including words and authority.
@@ -170,12 +178,11 @@ Historical receipts are checked against retained evidence, independently of
 whether their sources are still current.
 
 An unchanged replay reports the existing verdict without rewriting the record.
-Replay discounts verdicts appended after its recorded verdict index when
-comparing the pre-append version-entry hash. Other original version fields and
+Replay discounts verdicts and exact still entries appended by ingestion after
+its recorded verdict index when comparing the pre-append version-entry hash. Other original version fields and
 prior verdicts remain covered. Source changes refuse `REVIEW_ACT_SOURCE_STALE`
 with the recorded verdict untouched. This implements create#182's C4 ruling
-against the installed dedupe-first order in Review 2.4.6 `src/job-contract.ts`
-lines 574–576. C4's source-check requirement is recorded in create#182's
+against the installed dedupe-first order in Review 2.5.0 `src/job-contract.ts`. C4's source-check requirement is recorded in create#182's
 “C4 act-side checks” ruling and review#501. [Create ruling](https://github.com/rig-c/create/issues/182), [Review C4](https://github.com/rig-c/review/issues/501).
 
 ### Isolation evidence and legacy inputs

@@ -6,7 +6,7 @@
       "name": "@rig-c/create",
       "dependencies": {
         "@rig-c/parts": "2.30.1",
-        "@rig-c/review": "2.4.6",
+        "@rig-c/review": "2.5.0",
       },
       "devDependencies": {
         "@types/bun": "^1.3.0",
@@ -79,7 +79,7 @@
 
     "@rig-c/play": ["@rig-c/play@1.23.0", "", {}, "sha512-IvDpgLfWV8HtoSQ6wELvaQ5zrzNdvBEKbdO8OUUxK/47RXVbLIyp2At1iRtrJmZKbd2L5OpSFNrn4sGsGBcOyw=="],
 
-    "@rig-c/review": ["@rig-c/review@2.4.6", "", { "dependencies": { "@napi-rs/canvas": "1.0.11", "@rig-c/play": "1.23.0", "@types/pngjs": "6.0.5", "pngjs": "7.0.0" }, "bin": { "rig-review": "src/entry.ts" } }, "sha512-ucyEn7bGr/h5JRl8vBRbWtytV/7Tx4pPSJ4R6ZQI5tDzbP5lzD+RHfe+0APRCFVnXVfTbR24RiIMvXM+dIfW2g=="],
+    "@rig-c/review": ["@rig-c/review@2.5.0", "", { "dependencies": { "@napi-rs/canvas": "1.0.11", "@rig-c/play": "1.23.0", "@types/pngjs": "6.0.5", "pngjs": "7.0.0" }, "bin": { "rig-review": "src/entry.ts" } }, "sha512-hCff1UTe3xc0cECG7K2p0O0QSegyNBsVKFtqleLnH0z5UIYpqQb9Afx9qKoFPTbzQxH7GnaL/BJd9CT0dB8xUQ=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

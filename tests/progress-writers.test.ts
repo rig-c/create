@@ -600,8 +600,20 @@ test('a rig acceptance lapsed by a reopen is named with the reopen, not reported
   cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
   reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   testClock.set(new Date('2026-11-20T00:01:00Z'));
-  signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  // #243: the writer refuses to sign rig-review on the lapsed acceptance and names it.
+  const signature = refused(dir, 'RIG_VERSION_UNACCEPTED', () => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
+  expect(signature).toStartWith(`signoffs[${arr(read(dir).signoffs).length}]: `);
+  // A signature recorded before #243 is not refused at rig-review; advance and handoff still stop on it.
+  const reviewed = read(dir);
+  const earlier = arr(reviewed.signoffs).map(obj).find(s => s.stage === 'rig-review')!;
+  const carried = codes(dir);
+  arr(reviewed.signoffs).push({ ...earlier, by: 'owner', at: '2026-11-20T00:01:00.000Z', verbatim: 'Sign the synthetic rig.' });
+  save(dir, reviewed);
+  // Only the pending advance a stage signature always leaves; no rig refusal at rig-review.
+  expect(codes(dir)).toEqual([...carried, 'STAGE_LAGGING']);
+  expect(checkProject(dir).warnings.map(f => f.code)).not.toContain('RIG_VERSION_UNACCEPTED');
   for (const message of [
+    signature,
     refused(dir, 'RIG_VERSION_UNACCEPTED', () => advance(dir, 'post-interview')),
     refused(dir, 'RIG_VERSION_UNACCEPTED', () => handoff(dir, null)),
   ]) {

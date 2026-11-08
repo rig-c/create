@@ -1810,6 +1810,13 @@ Without it, exactly one candidate must exist. Candidates are versions of the
 review's kind with an accepted verdict and no live same-stage signature
 already targeting them. A refusal lists candidates without a recency preference.
 An explicit version must exist with the right kind and an accepted verdict.
+A rig version that a reopen or amendment of `rig-review` or an earlier stage
+made history is no candidate. When that leaves no live rig version accepted,
+`signoff rig-review` refuses before it writes (`RIG_VERSION_UNACCEPTED`),
+naming the lapsed acceptance and its `reopens[]` or `amendments[]` entry;
+register a new rig version and accept it first. A signature recorded before
+this refusal existed is not refused at `rig-review`: `advance` and `handoff`
+stop on it with the same code.
 
 Each signature records `target.version` and `target.verdict`, the literal
 `versions[i].verdicts[j]` path of the accepted verdict. A rig review adds

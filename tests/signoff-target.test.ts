@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
 import { checkSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
@@ -118,12 +118,23 @@ test('missing target is refused at boundary, with exactly one warning for a lega
   expect(warnings.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING_LEGACY']);
 });
 
-test('live target removes default candidate, while reopening makes it selectable', () => {
+test('live target removes default candidate; after a reopen only a rig accepted since is selectable', () => {
   const dir = setup(); sign(dir, 'rig-review'); refused(dir, 'rig-review');
   testClock.set(new Date('2026-11-21T00:00:00Z'));
   reopenCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   testClock.set(new Date('2026-11-22T00:00:00Z'));
-  expect(obj(sign(dir, 'rig-review').target).version).toBe(2);
+  // #243: the reopen made v2's acceptance history, so no live rig is accepted.
+  refused(dir, 'rig-review', undefined, 'RIG_VERSION_UNACCEPTED');
+  refused(dir, 'rig-review', '2', 'RIG_VERSION_UNACCEPTED');
+  // A rig built and accepted after the reopen (synthetic copy of v2's retained package).
+  const p = load(dir); const v2 = structuredClone(obj(arr(p.versions)[1]));
+  cpSync(join(dir, 'derived/review/v2'), join(dir, 'derived/review/v5'), { recursive: true });
+  arr(p.versions).push({ ...v2, n: 5, at: '2026-11-21T12:00:00.000Z', review_package: { ...obj(v2.review_package), open: "rig-review open 'derived/review/v5/out'" },
+    verdicts: [{ review: 'rig-review', verdict: 'accepted', by: 'user', at: '2026-11-21T13:00:00.000Z', verbatim: 'Accept the new rig.', on_items: [] }] });
+  save(dir, p);
+  // The history rig is no candidate even with --version, and the live accepted one is the default.
+  refused(dir, 'rig-review', '2');
+  expect(obj(sign(dir, 'rig-review').target).version).toBe(5);
 });
 
 test('post config drift is stale and source locations are excluded from package content', () => {

@@ -616,6 +616,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_STEP_INVALID` | coverage is empty, ids are missing or repeated, or a requested step is outside the stage's phase (malformed `--steps` exits 2) |
 | `SIGNOFF_CHECKPOINT_INVALID` | a covered step has no boolean `checkpoint_proposed`, an undecided delegation or no boolean checkpoint answer; `--checkpoint` also refuses a missing, ambiguous, disabled or wrong-stage step |
+| `RIG_VERSION_UNACCEPTED` | `signoff rig-review` while no live rig version has an accepted rig-review verdict because a reopen or amendment made the accepted one history; the message names that verdict and the `reopens[]` or `amendments[]` entry. Register a new rig version (`rig-version <n>`), accept it (`review <n> --verdict accepted --review rig-review`), then sign. A rig made history is no `--version` target either, and a project with no acceptance at all is refused by the target selection (`SIGNOFF_TARGET_STALE`) |
 | `UNKNOWN_OPTION` | an unsupported option, including `signoff --at` (exit 2) |
 | `VERBATIM_UNREADABLE` | a verbatim file or stdin cannot be read |
 | `VERBATIM_INVALID_UTF8` | the input cannot round-trip as UTF-8 through JSON (exit 2) |

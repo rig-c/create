@@ -1,0 +1,1 @@
+{"spec": "rigc-rig/1", "name": "synthetic-rectangle", "images": "images", "skeleton": {"x": -4, "y": 0, "width": 8, "height": 16}, "bones": [{"name": "root"}, {"name": "body", "parent": "root", "y": 8}], "slots": [{"name": "rectangle", "bone": "body", "attachment": "rectangle"}], "skins": {"default": {"rectangle": {"rectangle": {"image": "rectangle.png"}}}}, "constraints": []}

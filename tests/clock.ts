@@ -21,6 +21,7 @@ import * as pins from '../src/pins-check.ts';
 import * as progress from '../src/progress-writers.ts';
 import * as reopen from '../src/reopen.ts';
 import * as review from '../src/review.ts';
+import * as rigVersion from '../src/rig-version.ts';
 import * as signoff from '../src/signoff.ts';
 import * as cli from '../src/cli.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -71,5 +72,6 @@ export const interviewOptionsCommand = at(choiceWriters.interviewOptionsCommand)
 export const main = at(cli.main);
 export const reopenCommand = at(reopen.reopenCommand);
 export const reviewCommand = at(feedback.reviewCommand);
+export const rigVersionCommand = at(rigVersion.rigVersionCommand);
 export const signoffCommand = at(signoff.signoffCommand);
 export const stepStatusCommand = at(progress.stepStatusCommand);

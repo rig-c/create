@@ -689,6 +689,96 @@ Guides without per-ask coverage gain no finding when these fields are absent.
 want to see — it holds a place and is replaced, never a basis for moving a
 stage.
 
+### Registering a frozen rig build
+
+Use `rig-version` to bring separately located frozen producer outputs into one
+numbered version. This is a registration operation. Build, registration and
+acceptance have separate dates and writers.
+
+```sh
+rig-create rig-version 3 . \
+  --parts frozen/assembly/rig --rig frozen/out/rig --build frozen/out/build \
+  --idle frozen/render --config frozen/config.json \
+  --path-adapter frozen/path-adapter.json --compile-report frozen/build-report.json \
+  --toolchain-lock frozen/package-lock.json \
+  --at-source frozen/dated-record.json --at-pointer /finished_at --by agent \
+  --citations frozen/section-citations.json
+```
+
+Source arguments resolve against the project directory. Absolute arguments may
+name external frozen inputs. The writer retains copies under
+`evidence/v<N>/registration/` and binds their exact bytes by SHA-256. The project
+record refers to those retained paths, including the lock and cited date record.
+
+`built_with` comes from the declared npm v3 lock's
+`packages["node_modules/@rig-c/parts"].version` and corresponding core entry.
+`registration.toolchain` is `{kind:"npm-lock-v3",source:{path,sha256,bytes}}`.
+The `--toolchain-lock` argument explicitly declares the run-to-toolchain
+association. This declaration establishes which frozen lock the registrant
+selected. Producer-owned run attestation, including versions, start/finish and
+output hashes, is tracked in parts#1165 and core#1718. A future source kind can
+be added when that producer interface lands. Current readers support
+`npm-lock-v3` only. Wrapper receipts and toolchain summary files supply no
+registration contract.
+
+`at_source` is `{path,sha256,bytes,pointer}`. The nonempty RFC 6901 JSON pointer
+selects an explicit UTC ISO timestamp ending `Z` or `+00:00`, including fractional
+seconds. `at` preserves that exact string and `at_basis` is `"not-after"`.
+The registrant declares that the build had finished by that cited instant.
+The clock supplies `registration.at`. A cited bound at or before a reopen
+covering `rig-review`, as of registration, refuses the write. A later bound is
+admitted with its retained citation for review. A reopen after registration
+preserves the historical record and the existing liveness rules supersede it.
+Acceptance dates remain on verdicts written through the review and signoff flow.
+
+The copied rig, motion and model use producer specs `rigc-rig/1`,
+`rigc-motion/1` and `rigc-compiled/3`. The producer's compile document must
+be a successful `build-report/1`. Idle
+evidence is a public `rigc render` directory with `frames.json`, spec
+`rigc-frames/1`, and an `idle` set. The writer binds that manifest and every
+copied frame and diagnostic file. It preserves the producer's fps, viewport,
+skin and preroll declarations, including optional-field absence. A directory
+containing only images and a wrapper receipt needs a public producer re-render.
+
+The copied output layout is `outputs/v<N>/out/parts.json`, `out/parts/`,
+`out/rig/`, `out/check/build/` and `outputs/v<N>/idle/`. Every copied output
+gets its actual `path`, `sha256` and `bytes` in `versions[].outputs`.
+`registration.copied` records file and byte totals. Sources are rechecked after
+copying, and the copy is byte-verified before registration. The normal
+`review-package` materializer then creates `derived/review/v<N>/`, using the
+same accepted-parts and config identity checks as its standalone command.
+
+The retained original config and adapter are bound as `registration.config_source`
+and `registration.path_adapter`. Each absolute config value requires an exact
+adapter row `{at:".section.field",before,after}` matching its runtime `after`
+value. The writer copies the recorded `before` input and writes a contained
+relative reference in the retained config. Config-named relative inputs and a
+requirements-relative figure mask are retained too. Missing mappings, escaping
+references, symlinks and colliding inputs refuse. Producer outputs retain their
+original bytes. Packaging relocates the config's named inputs without rerunning
+producer measurements.
+
+Optional `--citations` reads an agent-authored map of the existing
+`provenance.sections` shape. The writer retains that map and binds the adapted
+config under `provenance.config`. Omission records an empty section map. The
+writer runs the full check on the candidate record and refuses any refusal it
+adds, so every applicable config section needs its citation at registration.
+
+`registration.kind` is `"frozen-rig/1"`. The registration validator is shared
+with `interview --check` and opts in only versions carrying `registration`.
+Existing versions keep their contract, so this additive writer adds no SINCE
+constant. The writer validates its registration and normal package identity,
+checks that project bytes are unchanged during copying, then atomically records
+the new version. A refused write preserves project bytes and removes its newly
+created outputs, retained inputs and review package. Retry uses the same next
+number after a refusal. A successful version remains frozen.
+
+Registration leaves stage, signoffs and verdicts intact. The human review uses
+the emitted review package, existing review/signoff writers record the result,
+and `advance` performs the authorized forward move. The synthetic public-render
+fixture and its producer commands are documented in
+[tests/fixtures/rig-registration](../tests/fixtures/rig-registration/README.md).
+
 ### Migrating work done before the interview
 
 Keep `kind: "rig"` or `"post"` and add `pre_interview: true`. The flag records

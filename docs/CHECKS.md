@@ -835,6 +835,7 @@ is create-owned artifact identity, not producer provenance or reproducibility.
 | `RIG_GUIDE_BEFORE_PARTS` | claimed new rigging answers are undated, earlier than the accepted parts, or later than approval | preserve old answers in history and ask fresh against approved parts |
 | `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout or missing standalone parts inputs | retain one labelled output with explicit parts inputs |
 | `DRAFT_RIG_FILE` | a config-named input lacks a config_inputs binding (WARN before CONFIG_INPUTS_SINCE), or a present draft artifact is unreadable, changed, unexpected or escapes its root | restore its frozen config, parts and output files |
+| `DRAFT_DECLARED_FILE_UNBOUND` | WARN at any date: a present file that the draft's `parts.json` declares under `painting_in_rig` is not bound in `drafts[].parts.files` | rebuild the draft and record it again with `draft-rig`; the old record is kept |
 | `DRAFT_RIG_UNAVAILABLE` | WARN: declared regenerable draft artifacts are absent under the ignored draft root | restore the named recorded bytes before inspecting or rebuilding the draft; retained structure snapshots still verify |
 | `DRAFT_RIG_AS_VERSION` | draft role/identity/reserved paths are offered as a numbered version, review, package or handoff | build an independently authorised production rig |
 | `STRUCTURE_DECISIONS_MISSING` | new-order parts approval lacks its draft or explicit structure snapshot | supply --draft and --structure-file, including entries:[] when unchanged |

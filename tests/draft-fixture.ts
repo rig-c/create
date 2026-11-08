@@ -3,10 +3,17 @@ import { join } from 'node:path';
 /** Materialize the retained synthetic draft separately from the review controls. */
 
 export const EXAMPLE_DRAFT = 'derived/drafts/example';
+
+/** parts.json, parts/* and the painting parts.json declares under painting_in_rig; nothing undeclared. */
+export function retainedPartsFiles(root: string): Record<string, Uint8Array> {
+  const manifest = JSON.parse(readFileSync(join(root, 'parts.json'), 'utf8')) as { painting_in_rig?: { path?: unknown } };
+  const painting = typeof manifest.painting_in_rig?.path === 'string' ? [manifest.painting_in_rig.path] : [];
+  return Object.fromEntries(['parts.json', ...painting, ...readdirSync(join(root, 'parts')).map(name => `parts/${name}`)].map(path => [path, readFileSync(join(root, path))]));
+}
 export function exampleDraftFiles(input?: Record<string, Uint8Array>, output?: Record<string, Uint8Array>): Record<string, string | Uint8Array> {
   const files: Record<string, string | Uint8Array> = {};
   const root = join(import.meta.dir, '../templates/example-draft/input');
-  const parts = input ?? Object.fromEntries(['parts.json', ...readdirSync(join(root, 'parts')).map(name => `parts/${name}`)].map(path => [path, readFileSync(join(root, path))]));
+  const parts = input ?? retainedPartsFiles(root);
   for (const [path, content] of Object.entries(parts)) files[`${EXAMPLE_DRAFT}/input/${path}`] = content;
   const collect = (path: string): void => {
     for (const entry of readdirSync(join(root, '..', path), { withFileTypes: true })) {

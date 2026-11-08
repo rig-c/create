@@ -62,6 +62,7 @@ test('an amended pre-parts project cannot run a parts step in rigging through th
 });
 
 // A legacy record without advances keeps its retained approvals as the date of its unrecorded move after amend voids them.
+// On the cutoff the refusal is carried, so amend records the change and check keeps reporting it.
 test.each([
   ['before', 'warns', false],
   ['on', 'refuses', true],
@@ -82,9 +83,8 @@ test.each([
     return;
   }
   expect(before.refusals.map(f => `${f.code}@${f.path}`)).toEqual(['STAGE_SKIPPED@stage']);
-  const bytes = readFileSync(join(dir, 'project.json'));
-  try { amend(dir, 'interview'); throw new Error('expected refusal'); } catch (error) {
-    expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe('STAGE_SKIPPED');
-  }
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
+  amend(dir, 'interview');
+  const after = checkProject(dir);
+  expect([after.stage, after.effective_stage]).toEqual(['accepted', 'interview']);
+  expect(after.refusals.map(f => `${f.code}@${f.path}`)).toEqual(['STAGE_SKIPPED@stage']);
 });

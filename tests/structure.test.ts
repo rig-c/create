@@ -173,15 +173,13 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
 });
 
 
-test('live bound plan bases nulled during adoption refuse draft without writing', () => {
+test('live bound plan bases nulled during adoption stay refused by check; the carried refusal does not block a draft', () => {
   const dir = setup(undefined, false);
-  const before = readFileSync(join(dir, 'project.json'));
-  let failure: unknown;
-  try { draftRigCommand(['shape', dir, '--config', 'derived/drafts/shape/config.json', '--from', 'derived/drafts/shape/out', '--parts', 'derived/drafts/shape/input']); } catch (error) { failure = error; }
-  expect(failure).toBeInstanceOf(Refusal);
-  expect((failure as Refusal).code).toBe('SIGNOFF_ANSWERS_STALE');
+  const carried = checkProject(dir).refusals.filter(f => f.code === 'SIGNOFF_ANSWERS_STALE').map(f => f.path);
+  draftRigCommand(['shape', dir, '--config', 'derived/drafts/shape/config.json', '--from', 'derived/drafts/shape/out', '--parts', 'derived/drafts/shape/input']);
+  expect(arr(read(dir).drafts).map(d => obj(d).id)).toContain('shape');
   const stale = checkProject(dir).refusals.filter(f => f.code === 'SIGNOFF_ANSWERS_STALE');
+  expect(stale.map(f => f.path)).toEqual(carried);
   expect(stale.some(f => f.message.includes('bones'))).toBe(true);
   expect(stale.some(f => f.message.includes('constraints'))).toBe(true);
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

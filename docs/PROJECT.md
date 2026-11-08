@@ -97,6 +97,21 @@ so they are not asked about a rig that may still change. A rig change after
 `rig-review` means a new rig version and a new first review, and the post
 version built on the old rig is redone on the new one.
 
+### Refusals a record already carries
+
+A writer validates its whole candidate with `checkProject` and refuses only a
+refusal the record as read did not already carry. The baseline is that check at
+write time and is never stored. Findings match by code and path with
+multiplicity, so a carried code at a new path is new, and the refusal names only
+the new code. `reopen`, `signoff`, `step-status`, `pause`, `resume`, `amend` and
+`draft-rig` follow this rule; the interview, plan, scene, direction, correction,
+`rig-version` and `version config-lost` writers already did. Each writer's own
+pre-checks are unchanged (`signoff` still refuses a carried lag, and a carried
+`GUIDE_CHANGED_UNSIGNED` on a step it covers), and `check` still reports every
+carried refusal.
+`advance` still needs 0 refusals: it is the stage boundary. A check that stops
+early (`SCHEMA_UNKNOWN`, `STAGE_UNKNOWN`) gives no baseline.
+
 ### Recording forward progress
 
 ```sh
@@ -141,7 +156,7 @@ authorizing stage-level signature. Earlier readable dates WARN with the same cod
 date refuses with `STAGE_SIGNOFF_DATE_INVALID`. New advance writes enforce
 lag and skip independently of signature age. Signoff retains its existing conditional, scoped candidate checks.
 Its additional progress guard rejects a pre-existing refusal-level lag and
-candidate progress refusals. It permits only the lag introduced by its own
+new candidate progress refusals. It permits only the lag introduced by its own
 new frontier signature, awaiting the separate advance writer. Legacy WARN lag
 remains permitted at signoff. A target can move only one ordered stage at a
 time, including a permitted bar exit or the declared no-post route.

@@ -13,6 +13,7 @@ import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
 import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, STAGE_ORDER_SPEC, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
 import { furthestStageSignoff } from './stage-progress.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -66,7 +67,9 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
-  const existingLag = checkProject(dir, project, { now }).refusals.find(f => f.code === 'STAGE_LAGGING');
+  // The record as read: its refusals are the baseline the candidate is judged against below.
+  const asRead = checkProject(dir, project, { now });
+  const existingLag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');
   if (existingLag !== undefined) refuse(existingLag.code, existingLag.message);
   if (!Array.isArray(project.signoffs)) refuse('SIGNOFF_MALFORMED', 'signoffs must be a list');
   const checkpointId = opts['--checkpoint'];
@@ -205,16 +208,19 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
   const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
   const ownLag = signoff.checkpoint === null && frontier?.index === project.signoffs.length - 1;
   const candidateRefusals = checkProject(dir, project, { now }).refusals;
+  // Refusals the record already carried do not block the signature (docs/PROJECT.md); a new one does.
+  const fresh = new Set(newFindings(baselineOf(asRead), candidateRefusals));
   const pendingOwnAdvance = (finding: Finding): boolean => ownLag && finding.code === 'STAGE_LAGGING';
-  const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f));
+  const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f) && fresh.has(f));
   if (progress !== undefined) refuse(progress.code, progress.message);
   if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
     const path = `signoffs[${project.signoffs.length - 1}]`;
     const first = candidateRefusals.find(f => {
       if (pendingOwnAdvance(f)) return false;
       if (f.code.startsWith('SIGNOFF_ANSWERS_')) return f.path.startsWith(`${path}.`);
+      // A covered step this signature leaves unapproved is its own failure, even when the record carried it.
       if (f.code === 'GUIDE_CHANGED_UNSIGNED') return covered.some(step => f.path === `plan.steps[${String(step.id)}]`);
-      return true;
+      return fresh.has(f);
     });
     if (first !== undefined) refuse(first.code, first.message);
   }

@@ -206,9 +206,11 @@ describe('forward human amendments', () => {
     step(p, 'assemble').rests_on = [];
     save(dir, p);
     const invalid = readFileSync(join(dir, 'project.json'));
-    refusal(() => signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]), 'STEP_NO_BASIS');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(invalid);
     expect(before.equals(invalid)).toBe(false);
+    // A carried STEP_NO_BASIS no longer blocks the signature; the old rig stays unrevived.
+    signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STEP_NO_BASIS');
+    expect(readVersions(read(dir)).rigs.every(v => !v.live)).toBe(true);
   });
 
   test('no amendment leaves record bytes and report JSON/text unchanged', () => {
@@ -281,10 +283,11 @@ describe('forward human amendments', () => {
     writeFileSync(join(dir, 'words.txt'), Buffer.from([255]));
     refusal(() => amendCommand([...args, '--change', 'words.txt']), 'VERBATIM_INVALID_UTF8');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    // A carried candidate refusal does not block the amendment, and check still reports it.
     const p = read(dir); step(p, 'assemble').rests_on = []; save(dir, p);
-    const invalid = readFileSync(join(dir, 'project.json'));
-    refusal(() => amend(dir), 'STEP_NO_BASIS');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(invalid);
+    amend(dir);
+    expect(arr(read(dir).amendments)).toHaveLength(1);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STEP_NO_BASIS');
   });
 
   test('CLI exposes the writer and refuses a caller-supplied clock', () => {

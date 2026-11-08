@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { asArray, asString, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
+import { asArray, asString, collectSignoffs, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { newRefusals } from './refusal-baseline.ts';
 import { liveSignoff, type Reopen } from './reopen.ts';
 import { stageIndex, stageOfStep } from './stages.ts';
 import type { JsonObject } from './templates.ts';
@@ -154,6 +155,7 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
   }
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
+  const before = structuredClone(project);
   const errors: Finding[] = [];
   collectAmendments(project, errors);
   if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
@@ -183,7 +185,7 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     if (isObject(raw) && typeof raw.id === 'string' && (raw.phase === 'rig' || raw.phase === 'post')
       && stageIndex(stageOfStep(raw.phase, raw.id)) >= stageIndex(positional[0] as string)) raw.status = 'pending';
   }
-  const rejected = checkProject(dir, project, { now }).refusals[0];
+  const rejected = newRefusals(dir, before, project, { now })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `amend: ${String(positional[0])} ${String(opts['--target'])} by ${String(entry.by)} at ${String(entry.at)}; stage retained`, exit: 0 };

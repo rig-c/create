@@ -5,6 +5,7 @@ import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
 import { collectAmendments } from './amend.ts';
 import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
 import { furthestStageSignoff, isSignoffIdentity, signoffIdentity, statusTransitionFinding } from './stage-progress.ts';
@@ -38,22 +39,23 @@ function options(args: string[], command: string): { positional: string[]; opts:
   return { positional, opts, json };
 }
 
-function save(dir: string, file: string, project: JsonObject, now: number, forwardWrite = false): void {
+/**
+ * Validate the complete candidate, then write. `advance` passes no baseline: a stage boundary needs 0 refusals
+ * (only the arrival's own INTERVIEW_INCOMPLETE is allowed). `step-status` passes the record as read, and only a
+ * refusal that record did not already carry blocks its write.
+ */
+function save(dir: string, file: string, project: JsonObject, now: number, forwardWrite = false, before?: JsonObject): void {
   project.stage_values = [...(hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES)];
-  const incomplete = new Map<string, number>();
+  const allowed = before === undefined ? new Map<string, number>() : carriedRefusals(dir, before, { now, forwardWrite });
   if (forwardWrite && ['rigging-interview', 'post-interview'].includes(String(project.stage))) {
     for (const item of collectItems(project, { collection: loadCollection(dir) })) {
       if (item.state.state !== 'silent' || interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) !== project.stage) continue;
-      const key = `INTERVIEW_INCOMPLETE:${item.path}`;
-      incomplete.set(key, (incomplete.get(key) ?? 0) + 1);
+      const key = findingKey({ code: 'INTERVIEW_INCOMPLETE', path: item.path });
+      allowed.set(key, (allowed.get(key) ?? 0) + 1);
     }
   }
-  for (const finding of checkProject(dir, project, { now, forwardWrite }).refusals) {
-    const key = `${finding.code}:${finding.path}`;
-    const remaining = incomplete.get(key) ?? 0;
-    if (!remaining) refuse(finding.code, finding.message);
-    incomplete.set(key, remaining - 1);
-  }
+  const first = newFindings(allowed, checkProject(dir, project, { now, forwardWrite }).refusals)[0];
+  if (first !== undefined) refuse(first.code, first.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
 }
 
@@ -86,6 +88,7 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   if (positional.length < 2 || positional.length > 3) refuse('PROGRESS_OPTION_INVALID', 'plan.steps: step-status needs step, status and optional project directory; see help', USAGE_EXIT);
   const dir = resolve(positional[2] ?? process.cwd());
   const { file, project } = readProject(dir);
+  const before = structuredClone(project);
   const matches = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter((s): s is JsonObject => isObject(s) && s.id === positional[0]);
   const step = matches[0];
   if (matches.length !== 1 || step === undefined || (step.phase !== 'rig' && step.phase !== 'post')) refuse('STEP_STATUS_TRANSITION', `plan.steps[${positional[0]}]: no unique executable step; restore the plan before step-status`);
@@ -116,6 +119,6 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   if (step.status_history !== undefined && !Array.isArray(step.status_history)) refuse('STEP_STATUS_TRANSITION', `plan.steps[${positional[0]}].status_history: must be a list; preserve existing history`);
   step.status_history = [...asArray(step.status_history), entry];
   step.status = entry.status!;
-  save(dir, file, project, now);
+  save(dir, file, project, now, false, before);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `step-status: ${positional[0]} ${String(entry.status)}`, exit: 0 };
 }

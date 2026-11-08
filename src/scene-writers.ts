@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { checkProject, isObject, type Finding } from './check.ts';
 import { closed, directionHash } from './direction.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { countFindings, newFindings } from './refusal-baseline.ts';
 import { SCENE_SPEC, SceneError, checkScenes, plateRegistration, pngDimensions, sceneBytes, sceneEntries, sceneFail, scenePath, sceneRig, validateScene } from './scene.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -86,11 +87,7 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
     const bytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
     const entry = { n, path: scenePath(n), sha256: directionHash(bytes), at: new Date(now).toISOString(), by: opts['--by']! };
     const next = { ...project, scenes: [...entries, entry] };
-    const baseline = new Map<string, number>();
-    for (const finding of checkProject(dir, project, { now }).refusals) {
-      const key = `${finding.code}:${finding.path}`;
-      baseline.set(key, (baseline.get(key) ?? 0) + 1);
-    }
+    const baseline = countFindings(checkProject(dir, project, { now }).refusals);
     for (const part of ['evidence', 'scene']) {
       const parent = part === 'evidence' ? join(dir, part) : join(dir, 'evidence', part);
       if (existsSync(parent)) {
@@ -104,12 +101,8 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
     const own: { dir: string; project: JsonObject; refusals: Finding[] } = { dir, project: next, refusals: [] };
     checkScenes(own);
     if (own.refusals[0]) sceneFail(own.refusals[0].code, own.refusals[0].path, own.refusals[0].message);
-    for (const finding of checkProject(dir, next, { now }).refusals) {
-      const key = `${finding.code}:${finding.path}`;
-      const count = baseline.get(key) ?? 0;
-      if (!count) sceneFail(finding.code, finding.path, finding.message);
-      baseline.set(key, count - 1);
-    }
+    const fresh = newFindings(baseline, checkProject(dir, next, { now }).refusals)[0];
+    if (fresh) sceneFail(fresh.code, fresh.path, fresh.message);
     hooks.beforeCommit?.();
     if (collectionRoot && collection && !sceneBytes(collectionRoot, 'collection.json', 'SCENE_MALFORMED').equals(collection)) sceneFail('SCENE_MALFORMED', 'collection.json', 'inherited citation changed during publication');
     for (const [path, expected] of snapshots) {

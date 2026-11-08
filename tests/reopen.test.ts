@@ -180,11 +180,12 @@ describe('human stage reopen', () => {
     expect(codes(dir)).toContain('REOPEN_NOT_PASSED');
   });
 
-  test('full candidate refusals prevent every write, including resets and append', () => {
+  test('a candidate refusal the record already carries does not block the reopen, and check still reports it', () => {
     const dir = fixture(p => { step(p, 'assemble').rests_on = []; });
-    const before = readFileSync(join(dir, 'project.json'));
-    refusal(() => reopen(dir), 'STEP_NO_BASIS');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(codes(dir)).toContain('STEP_NO_BASIS');
+    reopen(dir);
+    expect(read(dir).stage).toBe('parts');
+    expect(codes(dir)).toContain('STEP_NO_BASIS');
   });
 
   test('CLI stdin and help; user clock and repeated arguments are refused', () => {

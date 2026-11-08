@@ -1,9 +1,10 @@
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { asArray, checkProject, collectSignoffs, isObject } from './check.ts';
+import { asArray, collectSignoffs, isObject } from './check.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { newRefusals } from './refusal-baseline.ts';
 import { signoffIdentity } from './stage-progress.ts';
 import { PAUSED_STAGE, stageIndex } from './stages.ts';
 import type { JsonObject } from './templates.ts';
@@ -70,11 +71,14 @@ function options(args: string[], command: 'pause' | 'resume'): { positional: str
   return { positional, opts, json };
 }
 
-/** Validate the complete candidate with the check, then replace project.json in one rename; a refusal writes nothing. */
+/**
+ * Validate the complete candidate with the check, then replace project.json in one rename; a refusal writes nothing.
+ * Refusals the record already carries do not block the write; a new one does.
+ */
 function commit(dir: string, file: string, project: JsonObject, entry: JsonObject, stage: string, now: number): void {
   if (project.pauses !== undefined && !Array.isArray(project.pauses)) refuse('PAUSE_MALFORMED', 'pauses: must be a list; preserve existing history');
   const candidate: JsonObject = { ...project, pauses: [...asArray(project.pauses), entry], stage };
-  const rejected = checkProject(dir, candidate, { now }).refusals[0];
+  const rejected = newRefusals(dir, project, candidate, { now })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   const tmp = join(dirname(file), `.pause-${process.pid}-${crypto.randomUUID()}.tmp`);
   try { writeFileSync(tmp, `${JSON.stringify(candidate, null, 2)}\n`, { flag: 'wx' }); renameSync(tmp, file); }

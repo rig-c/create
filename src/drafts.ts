@@ -3,10 +3,11 @@ import { ConfigInputsUnavailable, configInputBindings, configInputReferences, co
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { asArray, checkProject, isObject, type Finding } from './check.ts';
+import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { locateParts } from './parts-sections.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { newRefusals } from './refusal-baseline.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -189,6 +190,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
   if (!id || !idPattern.test(id) || positional.length > 2 || !opts['--config'] || !opts['--from']) refuse('DRAFT_RIG_USAGE', DRAFT_RIG_HELP, USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
+  const before = structuredClone(project);
   const root = `derived/drafts/${id}`;
   let record: JsonObject;
   try {
@@ -217,7 +219,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
   project.drafts = [...asArray(project.drafts), record];
   const errors: Finding[] = [];
   checkDrafts(dir, project, errors);
-  const first = errors[0] ?? checkProject(dir, project, { now }).refusals[0];
+  const first = errors[0] ?? newRefusals(dir, before, project, { now })[0];
   if (first !== undefined) refuse(first.code, first.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(record, null, 2) : `draft-rig: recorded ${id}; no production version created`, exit: 0 };

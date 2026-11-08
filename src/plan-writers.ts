@@ -5,6 +5,7 @@ import { asArray, checkProject, collectSignoffs, isObject } from './check.ts';
 import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { countFindings, newFindings } from './refusal-baseline.ts';
 import { approvalStageOfStep, hasStageOrder } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
@@ -117,18 +118,9 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     }
     if (ownerships.has('rigging-interview')) plan.rigging_drafted_at = at;
 
-    // Count code/path pairs, including repeated refusals at the same path.
-    const counts = new Map<string, number>();
-    for (const finding of checkProject(dir, project, { now }).refusals) {
-      const key = JSON.stringify([finding.code, finding.path]);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    for (const finding of checkProject(dir, next, { now }).refusals) {
-      const key = JSON.stringify([finding.code, finding.path]);
-      const count = counts.get(key) ?? 0;
-      if (count === 0) refuse(finding.code, finding.message);
-      counts.set(key, count - 1);
-    }
+    // Refusals the record already carries stay; a new code/path pair, or one more copy of a carried one, refuses.
+    const fresh = newFindings(countFindings(checkProject(dir, project, { now }).refusals), checkProject(dir, next, { now }).refusals)[0];
+    if (fresh !== undefined) refuse(fresh.code, fresh.message);
     const temporary = join(dirname(file), `.plan-${process.pid}-${crypto.randomUUID()}.tmp`);
     try {
       writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });

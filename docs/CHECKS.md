@@ -637,7 +637,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE` and `SCENE_CONTEXT_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE` and `PARTS_CHECK_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1050,7 +1050,7 @@ amendment grants no authority. A completed bar permits its next review.
 | `STAGE_SIGNOFF_DATE_INVALID` | the live frontier approval has an unreadable date | restore its original readable date before advancing |
 | `ADVANCE_UNAUTHORIZED` | advance has no live stage-level human approval | sign the current stage before advancing |
 | `ADVANCE_MALFORMED` | advances history lacks the human move, adjacent target, boolean event-time post_not_passed snapshot, required steps_before phases and completed bars, or matching event-time live authorizing signoff | retain the original move and matching `{stage,checkpoint,at}` signature through advance |
-| `PROGRESS_OPTION_INVALID` | advance, step-status, pause or resume arguments are missing, repeated or malformed | supply the target or step/status and --by once |
+| `PROGRESS_OPTION_INVALID` | advance, step-status, pause or resume arguments are missing, repeated or malformed, or advance's `--parts-check` and `--parts` are not given together or are given on a move other than `parts` → `parts-review` | supply the target or step/status and --by once, and both parts-check flags only on that move |
 | `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage (on an amended project, outside both the retained stage and the effective stage the work resumes at), or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage, or on an amended project re-sign the lapsed approvals and finish the earlier bars, and use pending, in-progress, at-checkpoint, done in order |
 | `STEP_STATUS_SIGNOFF` | retained status history has a missing or mismatched checkpoint signature reference | retain its matching human checkpoint signoff and record done through step-status |
 | `STAGE_MOVE_UNLINKED` | an advance or reopen's `from_stage` is not the stage the previous recorded move (by time) left, starting from `interview` (`paused` links to either side), or an `advances[]` entry is dated before an earlier one | preserve the history; record each later move through advance or reopen |
@@ -1087,6 +1087,38 @@ changes and post applicability changes after reopen preserve the original
 authorization. Missing or non-boolean snapshots are malformed. Current done
 writes still require a live human checkpoint signature, and current stage
 checks still use current post applicability.
+
+### Parts-stage check at the parts → parts-review move
+
+The move from `parts` to `parts-review` binds the report of `rig-parts
+check-parts`, spec `rig-parts-parts-check/1` (`@rig-c/parts`
+docs/STABILITY.md § Parts-stage integrity report). `advance parts-review
+--parts-check <report> --parts <assembled dir>` takes both paths
+project-relative; the report is retained the way the parts verdict is, and the
+assembled root is the one the report was run on. The entry gains a closed
+`parts_check { path, sha256, spec, parts, exit_code, holes, reported }`:
+`sha256` binds the report bytes, and `exit_code`, `holes` and `reported` are
+copied from the report, never computed. At the write the check refuses a
+missing, unreadable or malformed report, a non-zero `exit_code`, a non-empty
+`refusals`, and a stale report: an `inputs` row read with a sha256 the file
+under `--parts` no longer has, a `missing` or `unreadable` row, an `absent`
+row whose file now exists, or a file under the root that no row names. Later
+checks keep the shape and the retained bytes; parts change on purpose after
+the move, so staleness is judged only at it. Each HOLE row is printed as its
+own named line in the `advance` output and stored on the entry; a HOLE neither
+passes nor blocks. `reported` rows are printed and stored, never refused.
+`PARTS_CHECK_SINCE = 2026-11-08T00:00:00Z` dates a missing report by the
+advance's `at`: from the date it refuses, earlier it WARNs. The move being
+written always needs the report.
+
+| Code | Fires when | Remedy |
+| --- | --- | --- |
+| `PARTS_CHECK_MISSING` | a `parts` → `parts-review` advance has no `advances[].parts_check`: refused on the move being written and from `PARTS_CHECK_SINCE`, a WARN before it | run `rig-parts check-parts --parts <assembled dir> --out <dir>`, retain `parts-check.json` under the project and advance with `--parts-check` and `--parts`; preserve an earlier move |
+| `PARTS_CHECK_UNREAD` | `advances[].parts_check.path` is not a literal project-relative path, leaves the project (also through a link), is written under an ignored root, is not a regular file, or is not a JSON object | retain the producer's report under the project, for example in `evidence/`, and advance with it |
+| `PARTS_CHECK_INVALID` | `advances[].parts_check` is not the closed object, its `parts` root is not a literal project-relative path, the report's spec, stage, key order or rows are not `rig-parts-parts-check/1`, the copied `spec`, `exit_code`, `holes` or `reported` differ from the report, or the object is on a move other than `parts` → `parts-review` | record the report through advance |
+| `PARTS_CHECK_CHANGED` | the retained report no longer hashes to `advances[].parts_check.sha256` | restore the retained report bytes; a new check is recorded by a new move |
+| `PARTS_CHECK_FAILED` | the bound report records a non-zero `exit_code` or any `refusals` row | fix the refused parts, rerun `rig-parts check-parts` and advance with the passing report |
+| `PARTS_CHECK_STALE` | at the move, the report's `inputs` do not match the files under `advances[].parts_check.parts` | rerun `rig-parts check-parts` on the parts as they are now and advance with that report |
 
 ### Pausing and resuming
 

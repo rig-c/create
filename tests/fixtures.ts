@@ -19,7 +19,8 @@ import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
-import { newOrderExampleFiles } from './draft-fixture.ts';
+import { EXAMPLE_PARTS_CHECK, newOrderExampleFiles } from './draft-fixture.ts';
+import { partsCheckBytes, withPartsCheck } from './parts-check-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
 import { alignLegacyBuilds, materializeLegacyPartPackages, reviewExampleFiles } from './review-fixture.ts';
 import { reopenCommand, advanceCommand, signoffCommand, checkProject, testClock } from './clock.ts';
@@ -40,7 +41,7 @@ export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-pr
 export function materializeFixture(dir: string, mutate: Mutate = () => {}, template = 'example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false, bindAnswers = true): string {
   const suppliedFiles = files;
   const legacyFiles = template === 'legacy-example-project.json'
-    ? { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files } : null;
+    ? { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, [EXAMPLE_PARTS_CHECK]: partsCheckBytes() } : null;
   if (legacyFiles) files = { ...legacyFiles, ...suppliedFiles };
   if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
@@ -112,7 +113,7 @@ function legacySetupAdvances(): Json[] {
         const at = Math.max(...asArray(project.signoffs).filter(isObject).map(s => Date.parse(String(s.at)))) + LEGACY_STAGES.indexOf(target) + 1;
         testClock.set(new Date(at));
         writeFileSync(file, JSON.stringify(project));
-        advanceCommand([target.id, dir, '--by', 'owner', '--verbatim-file', words]);
+        advanceCommand([target.id, dir, '--by', 'owner', '--verbatim-file', words, ...(target.id === 'parts-review' ? withPartsCheck(dir) : [])]);
         const advanced = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
         result.push(asArray(advanced.advances).at(-1)!);
       }

@@ -1,4 +1,5 @@
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
+import { checkPartsChecks } from './parts-check.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
 import { checkSignoffTarget } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
@@ -929,6 +930,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkStepStatusHistory(ctx);
   checkProgressLinkage(ctx);
   checkPauses(ctx);
+  checkPartsChecks(ctx, options.forwardWrite);
   checkPreInterview(ctx);
   checkReviews(ctx);
   checkReviewPackages(ctx);

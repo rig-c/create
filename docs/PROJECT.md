@@ -119,6 +119,7 @@ stand in for it.
 
 ```sh
 rig-create advance <stage> --by <who> --verbatim-file words.txt [<project dir>] [--json]
+rig-create advance parts-review --by <who> --verbatim-file words.txt --parts-check evidence/parts-check.json --parts <assembled dir>
 rig-create step-status <step> <status> --by <who> [<project dir>] [--json]
 ```
 
@@ -136,8 +137,20 @@ interview's silent-item `INTERVIEW_INCOMPLETE` findings, counted by code and
 item path, so its answers can be recorded there. The ordinary check still
 reports them, and approval or departure requires the answers.
 
+The move from `parts` to `parts-review` also takes `--parts-check <report>
+--parts <assembled dir>`, both project-relative: the `parts-check.json` that
+`rig-parts check-parts` wrote for the assembled parts, retained in the project
+the way the parts verdict is, and the root it was run on. Both are required on
+that move and refused on any other. The report must pass (`exit_code` 0, no
+`refusals`) and match the parts on disk at the move. Its HOLE rows, defect
+classes parts cannot measure yet, are printed one named line each and stored;
+a HOLE is not a pass and does not block (CHECKS.md § Parts-stage check at the
+parts → parts-review move).
+
 `advances[]` retains `{ stage, from_stage, by, at, verbatim, source?,
-steps_before, signoff, signoffs_before, order, post_not_passed }`. The clock supplies `at`,
+steps_before, signoff, signoffs_before, order, post_not_passed, parts_check? }`,
+with `parts_check { path, sha256, spec, parts, exit_code, holes, reported }` on
+a `parts` → `parts-review` move, copied from the report and bound by its sha256. The clock supplies `at`,
 the UTF-8 words are unchanged, and `signoff` is the stable `{ stage, checkpoint, at }` approval identity.
 `steps_before` retains each step id, required phase and original status so a historical bar exit still requires completed work after replanning.
 `signoffs_before` preserves the approval identities present at the move,
@@ -364,7 +377,10 @@ assembled parts before `rigging` starts.
   parts, recorded as `assemble`'s bar met (`status: "done"`). Coverage under
   occluders joins this bar from rig-c/parts#998 once it ships; until then the
   bar is the parts check as it is. A project past `parts` with one of its steps
-  not `done` is refused (`PARTS_BAR_UNMET`).
+  not `done` is refused (`PARTS_BAR_UNMET`). The move to `parts-review` binds
+  the passing `rig-parts check-parts` report for the assembled parts
+  (`advances[].parts_check`, § Recording forward progress); its HOLE lines
+  reach the person at `parts-review` and are recorded on the move.
 - **`parts-review` ends on a human sign-off**, `{ "stage": "parts-review",
   "checkpoint": null }`, given in rig-review's parts view. Without it the stage
   does not move to `rigging`, and no `rigging` step runs

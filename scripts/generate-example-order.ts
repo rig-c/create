@@ -8,7 +8,7 @@ import { generatorArgs } from './generator-args.ts';
 import { writeExampleReopened } from './generate-example-reopened.ts';
 import { exampleTime, retimeExample } from './example-time.ts';
 import { generateExampleDraft } from './generate-example-draft.ts';
-import { generateExampleParts } from './generate-example-parts.ts';
+import { checkExampleParts, generateExampleParts } from './generate-example-parts.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
 /** Reproduce the new-order example's declarations through public writers on synthetic dated input. */
 import { writeExampleChoices } from './example-choices.ts';
@@ -24,7 +24,7 @@ import { STAGES, STAGE_VALUES } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { exampleDraftFiles, EXAMPLE_DRAFT } from '../tests/draft-fixture.ts';
+import { exampleDraftFiles, EXAMPLE_DRAFT, EXAMPLE_PARTS_CHECK } from '../tests/draft-fixture.ts';
 import { partsPackage, EXAMPLE_VERDICT } from '../tests/parts-package.ts';
 import { preparedExampleFiles } from '../tests/prepared-fixture.ts';
 import { reviewExampleFiles } from '../tests/review-fixture.ts';
@@ -128,7 +128,10 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const draft = obj(arr(p.drafts)[0]);
   files['evidence/structure-decisions.json'] = `${JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'example', config: draft.config, entries: [] }, null, 2)}\n`;
   write('evidence/structure-decisions.json', files['evidence/structure-decisions.json'] as string);
-  advanceCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
+  // The producer's parts-stage check on the retained assembled root, bound by the advance.
+  files[EXAMPLE_PARTS_CHECK] = checkExampleParts(join(dir, `${EXAMPLE_DRAFT}/input`), join(dir, 'parts-check-producer'));
+  write(EXAMPLE_PARTS_CHECK, files[EXAMPLE_PARTS_CHECK]!);
+  advanceCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words, '--parts-check', EXAMPLE_PARTS_CHECK, '--parts', `${EXAMPLE_DRAFT}/input`], clock.now); reload();
   sign('parts-review', '2026-11-11T10:20:00Z', ['--evidence', EXAMPLE_VERDICT, '--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
     '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);

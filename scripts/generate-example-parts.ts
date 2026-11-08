@@ -50,6 +50,18 @@ export function generateExampleParts(dir: string): Record<string, Buffer> {
   return files;
 }
 
+/**
+ * The parts-stage check the producer runs on an assembled root (`rig-parts check-parts`), with the same
+ * SOURCE_DATE_EPOCH as assemble. Returns the report bytes; the report must record a pass.
+ */
+export function checkExampleParts(partsDir: string, outDir: string): Buffer {
+  const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
+    'check-parts', '--parts', partsDir, '--out', outDir],
+  { env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH }, stdout: 'pipe', stderr: 'pipe' });
+  if (result.exitCode !== 0) throw new Error(`check-parts exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
+  return readFileSync(join(outDir, 'parts-check.json'));
+}
+
 if (import.meta.main) {
   const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-example-parts.ts <fresh dir> [--check]');
   const files = generateExampleParts(resolve(destination));

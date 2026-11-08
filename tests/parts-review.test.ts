@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { preparePartsApproval } from './parts-receipt-fixture.ts';
+import { PARTS_VERDICT_RECEIPT_SINCE } from '../src/parts-verdict-record.ts';
 /**
  * The parts are made and reviewed before any rig is built (rig-c/create#48):
  * `plan-approved` → `parts` (closed by its bar) → `parts-review` (closed by a
@@ -8,8 +12,18 @@
 import { describe, expect, test } from 'bun:test';
 import { PARTS_REVIEW_SINCE, STAGE_VALUES, STAGES } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, codes, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture, step, withCode } from './fixtures.ts';
-import { checkProject } from './clock.ts';
+import { arr, codes, fixture as baseFixture, historicalFixture, obj, rehashSignoffs, retimeFixture, step, withCode } from './fixtures.ts';
+import { checkProject, testClock } from './clock.ts';
+
+function fixture(mutate: (project: JsonObject) => void): string {
+  const dir = baseFixture(mutate);
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  if (arr(project.signoffs).some(raw => obj(raw).stage === 'parts-review'
+    && Date.parse(String(obj(raw).at)) >= Date.parse(PARTS_VERDICT_RECEIPT_SINCE))) {
+    preparePartsApproval(dir, testClock.now());
+  }
+  return dir;
+}
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
 const LATER_RIG_STEPS = ['bones', 'meshes', 'constraints', 'motion'];
@@ -71,7 +85,7 @@ describe('plan-approved → parts → parts-review → rigging', () => {
   test('green: parts done and a person signed parts-review, rigging starts with nothing refused', () => {
     const report = checkProject(fixture(atRiggingStart));
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a project at plan-approved advances to parts: the parts steps run there, nothing refused', () => {
@@ -221,7 +235,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'STAGE_MOVE_UNLINKED', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {

@@ -336,7 +336,8 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
     producer('synthetic review-tool parts verdict (tests/parts-package.ts)', ['partsPackage', 'tests/parts-package.ts'],
       { 'evidence/parts-review.json': readFileSync(join(dir, 'evidence/parts-review.json')) });
-    writer(['structure-snapshot', '--draft', 'chain', '--verdict', 'evidence/parts-review.json', '--out', 'evidence/structure.json'], 'evidence/structure.json', false);
+    writer(['parts-review', '--draft', 'chain', '--from-review-cli', '--by', 'user', '--', partsDir, '--verdict', 'evidence/parts-review.json']);
+    writer(['structure-snapshot', '--draft', 'chain', '--out', 'evidence/structure.json'], 'evidence/structure.json', false);
     const diff = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
       'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png', '--parts', 'assembled/rig/parts.json',
       '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'],
@@ -348,7 +349,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       '--parts', 'assembled/rig/parts.json', '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'], { 'evidence/diff-components.json': reportBytes });
     const diffReport = JSON.parse(reportBytes.toString()) as { stack: { sha256: string }; painting: { sha256: string }; components: { id: string }[] };
     advance('parts-review', ['--parts-check', 'evidence/parts-check.json', '--parts', partsDir]);
-    sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure.json', '--evidence', 'evidence/parts-review.json', '--diff-report', 'evidence/diff-components.json',
+    sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure.json', '--diff-report', 'evidence/diff-components.json',
       ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`])]);
     advance('rigging-interview'); choices('rigging-interview'); sign('rigging-interview');
     advance('rigging'); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
@@ -448,7 +449,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
         if (step.kind === 'seed') return 'seed';
         if (step.authored_by === 'agent') return 'agent';
         if (step.kind === 'producer') return 'producer';
-        if (step.command[1] === 'interview-options' || step.command[1] === 'structure-snapshot' || step.command[1] === 'direction' && step.command[2] === 'check') return 'agent';
+        if (step.command[1] === 'parts-review' || step.command[1] === 'interview-options' || step.command[1] === 'structure-snapshot' || step.command[1] === 'direction' && step.command[2] === 'check') return 'agent';
         return 'human';
       });
       const report = checkProject(join(dir, 'checkpoints', saved.name), undefined, { now });

@@ -1,3 +1,4 @@
+import { partsReviewCommand } from '../src/parts-review.ts';
 import { inputCommand } from '../src/inputs.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
@@ -128,13 +129,18 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   clock.now = Date.parse(exampleTime('2026-11-11T10:00:00Z'));
   draftRigCommand(['example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`], clock.now); reload();
   // The structure snapshot is the writer's: every meshes declaration of the draft the approved verdict covers.
-  structureSnapshotCommand([dir, '--draft', 'example', '--verdict', EXAMPLE_VERDICT, '--out', 'evidence/structure-decisions.json']);
+  const receipt = JSON.parse(partsReviewCommand([dir, '--draft', 'example', '--from-review-cli', '--by', 'user', '--json', '--', EXAMPLE_PARTS_DIR,
+    '--verdict', EXAMPLE_VERDICT], clock.now).stdout) as JsonObject;
+  reload();
+  const responsePath = String(obj(receipt.evidence).path);
+  files[responsePath] = readFileSync(join(dir, responsePath));
+  structureSnapshotCommand([dir, '--draft', 'example', '--out', 'evidence/structure-decisions.json']);
   files['evidence/structure-decisions.json'] = readFileSync(join(dir, 'evidence/structure-decisions.json'));
   // The producer's parts-stage check on the retained assembled root, bound by the advance.
   files[EXAMPLE_PARTS_CHECK] = checkExampleParts(join(dir, `${EXAMPLE_DRAFT}/input`), join(dir, 'parts-check-producer'));
   write(EXAMPLE_PARTS_CHECK, files[EXAMPLE_PARTS_CHECK]!);
   advanceCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words, '--parts-check', EXAMPLE_PARTS_CHECK, '--parts', `${EXAMPLE_DRAFT}/input`], clock.now); reload();
-  sign('parts-review', '2026-11-11T10:20:00Z', ['--evidence', EXAMPLE_VERDICT, '--diff-report', EXAMPLE_DIFF_REPORT,
+  sign('parts-review', '2026-11-11T10:20:00Z', ['--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
     '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);
   obj(p.plan).rigging_drafted_at = exampleTime('2026-11-11T11:05:00Z');
@@ -249,7 +255,7 @@ if (import.meta.main) {
   const generated = generateExampleOrder(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
-  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'derived', 'versions', 'advances', 'scenes', 'direction_contract']) text = replaceValue(text, key, generated.project[key] as Json);
+  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'derived', 'versions', 'review_acts', 'advances', 'scenes', 'direction_contract']) text = replaceValue(text, key, generated.project[key] as Json);
   text = text.replace(/("proposed_at":\s*)"([^"]+)"/, (_match, prefix: string, at: string) => `${prefix}${JSON.stringify(exampleTime(at))}`);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
   const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };

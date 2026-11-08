@@ -1,4 +1,4 @@
-import { latestPartsVerdictFinding } from './parts-verdict-record.ts';
+import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { assertDirectionApproval } from './direction.ts';
@@ -11,7 +11,6 @@ import { asArray, checkProject, classify, collectItems, collectSignoffs, isObjec
 import { expandDiffTriage, readDiffTriage } from './diff-classes.ts';
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
-import { checkPartsVerdict, partsVerdictDraftFinding, partsVerdictEvidence } from './parts-verdict.ts';
 import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -30,8 +29,7 @@ export const SIGNOFF_HELP = `signoff:
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
   --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
   --checkpoint <id>       sign an enabled checkpoint in this execution stage
-  --evidence <path>       required on parts-review, the approved parts verdict file
-  --draft <id>            labelled draft approved at parts-review
+  --draft <id>            labelled draft with a recorded parts-review API receipt
   --structure-file <path> retained structure decisions snapshot
   --diff-report <path>    parts-review difference report, required from 2026-11-06
   --triage-file <file>    JSON class/component decisions from diff-classes (parts-review only)
@@ -42,6 +40,7 @@ export const SIGNOFF_HELP = `signoff:
   Existing checkpoints are preserved. Parts-review validates evidence and the map before recording.`;
 
 export function signoffCommand(args: string[], now: number): { stdout: string; exit: number } {
+  if (args.some(arg => arg === '--evidence' || arg.startsWith('--evidence='))) refuse('PARTS_VERDICT_FILE_ROUTE_REMOVED', 'project.json.signoffs.evidence: --evidence was removed; record the API response with parts-review and select it with --draft', USAGE_EXIT);
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
@@ -57,7 +56,7 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
       const id = value.slice(0, eq);
       if (components.some((c) => c.id === id)) refuse('SIGNOFF_OPTION_INVALID', `duplicate component ${id}`, USAGE_EXIT);
       components.push({ id, status: value.slice(eq + 1, colon), why: value.slice(colon + 1) });
-    } else if (['--version', '--draft', '--structure-file', '--diff-report', '--triage-file', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
+    } else if (['--version', '--draft', '--structure-file', '--diff-report', '--triage-file', '--by', '--verbatim-file', '--steps', '--checkpoint'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -95,9 +94,7 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
       : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
     if (on !== true) refuse('SIGNOFF_CHECKPOINT_INVALID', `${checkpointId}: checkpoint must be enabled before it can be signed`);
   }
-  if ((stage === PARTS_REVIEW) !== (opts['--evidence'] !== undefined)) {
-    refuse('SIGNOFF_OPTION_INVALID', '--evidence is required on parts-review and only accepted there', USAGE_EXIT);
-  }
+  if (stage === PARTS_REVIEW && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
   if ((opts['--diff-report'] !== undefined || opts['--triage-file'] !== undefined || components.length > 0) && stage !== PARTS_REVIEW) {
     refuse('SIGNOFF_OPTION_INVALID', '--diff-report, --triage-file and --component are only accepted on parts-review', USAGE_EXIT);
   }
@@ -121,9 +118,9 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
     }
   }
   let evidence: JsonObject | undefined;
-  if (opts['--evidence'] !== undefined) evidence = partsVerdictEvidence(dir, opts['--evidence']);
+  const recorded = stage === PARTS_REVIEW ? recordedPartsVerdict(dir, project, opts['--draft']) : undefined;
+  evidence = recorded?.evidence;
   if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
-  if ((opts['--draft'] === undefined) !== (opts['--structure-file'] === undefined)) refuse('SIGNOFF_OPTION_INVALID', 'parts-review requires --draft and --structure-file together', USAGE_EXIT);
   const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
   if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved, rigging-interview or post-interview', USAGE_EXIT);
   const requested = opts['--steps']?.split(',');
@@ -152,11 +149,7 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
   if (evidence !== undefined) {
     const refusals: Finding[] = [];
     const record = { evidence, at, ...(diffMap === undefined ? {} : { diff_map: diffMap }) };
-    const partsFile = checkPartsVerdict(dir, record, `signoffs[${project.signoffs.length}]`, refusals, project);
-    checkDiffMap(dir, record, `signoffs[${project.signoffs.length}]`, partsFile, refusals, []);
-    // The verdict reviews the parts of the draft it approves (rig-c/create#236).
-    const bound = refusals.length === 0 ? partsVerdictDraftFinding(dir, project, evidence, opts['--draft'], `signoffs[${project.signoffs.length}].draft_id`) : null;
-    if (bound !== null) refusals.push(bound);
+    checkDiffMap(dir, record, `signoffs[${project.signoffs.length}]`, recorded?.partsFile, refusals, []);
     const first = refusals[0];
     if (first !== undefined) refuse(first.code, first.message);
   }

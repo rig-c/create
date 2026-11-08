@@ -1,5 +1,5 @@
 import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
-/** Typed semantic evidence. Legacy verdict documents retain their own reader. */
+/** Typed semantic evidence retained by the parts-review API route. */
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
@@ -66,7 +66,9 @@ export function partsActFindings(root: string, project: JsonObject): { code: str
     if (!object(entry) || entry.kind !== 'parts-verdict' || entry.schema === PARTS_CLI_RECEIPT) return [];
     const path = `review_acts[${index}].evidence`;
     try {
-      if (!object(entry.evidence) || typeof entry.evidence.path !== 'string') throw Error();
+      if (entry.schema !== 'rig-create/review-act@1' || typeof entry.jobId !== 'string' || typeof entry.actId !== 'string'
+        || !object(entry.evidence) || entry.evidence.path !== `evidence/review-acts/${jobHash(JSON.stringify([entry.jobId, entry.actId]))}.json`
+        || entry.evidence.sha256 !== entry.sha256) throw Error();
       const bytes = publicationFile(root, entry.evidence.path);
       if (jobHash(bytes) !== entry.sha256 || bytes.toString('utf8') !== entry.bytes) throw Error();
       decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');

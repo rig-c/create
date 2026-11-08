@@ -128,7 +128,7 @@ describe('a full-screen scene (CG) rig version', () => {
     }));
     expect(cg(report)).toEqual([]);
     expect(report.warnings.map((w) => `${w.code} ${w.path}`)).toEqual([
-      'QUESTION_SET_STALE interview.question_set',
+      'QUESTION_SET_STALE interview.question_set', 'PARTS_VERDICT_FILE_LEGACY signoffs[3].evidence',
       'CG_GATES_PREDATE versions[v1].built_with',
       'CG_GATES_PREDATE versions[v2].built_with',
       'STAGE_ORDER_LEGACY interview.order',

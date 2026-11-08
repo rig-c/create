@@ -54,11 +54,11 @@ describe('a verdict written by rig-review@1.5.0', () => {
     expect(checkProject(project()).refusals).toEqual([]);
   });
 
-  test('a one-byte change to a part is PARTS_VERDICT_SOURCE_CHANGED', () => {
+  test('legacy saved-file bindings WARN without reopening their source files', () => {
     const dir = project();
     appendFileSync(join(dir, 'derived/parts/rig/parts/torso.png'), Buffer.from([0]));
     const report = checkProject(dir);
-    expect(report.refusals.map((f) => f.code)).toEqual(['PARTS_VERDICT_SOURCE_CHANGED']);
-    expect(report.refusals[0]?.message).toContain('parts/torso.png');
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings.map(f => f.code)).toContain('PARTS_VERDICT_FILE_LEGACY');
   });
 });

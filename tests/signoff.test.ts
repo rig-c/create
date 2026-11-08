@@ -116,17 +116,18 @@ test('step hash pinned vector, recursive ordering and status exclusion', () => {
 
 describe('parts-review evidence and execution checkpoints', () => {
   test('records the approved verdict hash and clears the check without hand edits', () => {
-    const dir = fixture();
+    const dir = fixture(() => {}, 'example-project.json');
     testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
     expect(checkProject(dir).refusals.map((r) => r.code)).toContain('PARTS_REVIEW_UNSIGNED');
-    const result = cli(['signoff', 'parts-review', '--by', 'user', '--evidence', join(dir, EXAMPLE_VERDICT), '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic painting', '--component', 'p1000-n3=in-painting:synthetic painting', '--verbatim-file', input(dir)], dir, gitEnv());
+    const result = cli(['signoff', 'parts-review', '--by', 'user', '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json', '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic painting', '--component', 'p1000-n3=in-painting:synthetic painting', '--verbatim-file', input(dir)], dir, gitEnv());
     expect(result).toMatchObject({ code: 0, stderr: '' });
     const signed = obj(arr(read(dir).signoffs).at(-1));
-    expect(signed.evidence).toEqual({ kind: 'parts-verdict', path: EXAMPLE_VERDICT, sha256: new Bun.CryptoHasher('sha256').update(readFileSync(join(dir, EXAMPLE_VERDICT))).digest('hex') });
+    expect(signed.evidence).toEqual({ ...obj(obj(arr(read(dir).review_acts)[0]).evidence), spec: 'rig-create/parts-verdict-cli@1' });
+    testClock.reset();
     expect(cli(['interview', '--check', '--json'], dir, gitEnv()).code).toBe(0);
   });
 
-  test.each(['unapproved', 'malformed', 'stale'])('refuses %s evidence before writing', (kind) => {
+  test.each(['unapproved', 'malformed', 'stale'])('removed file route refuses %s evidence before reading or writing', (kind) => {
     const dir = fixture();
     const file = join(dir, EXAMPLE_VERDICT);
     const verdict = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -138,15 +139,15 @@ describe('parts-review evidence and execution checkpoints', () => {
     }
     const before = readFileSync(join(dir, 'project.json'));
     const r = cli(['signoff', 'parts-review', '--by', 'user', '--evidence', EXAMPLE_VERDICT, '--verbatim-file', input(dir)], dir, gitEnv());
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain(kind === 'unapproved' ? 'PARTS_VERDICT_NOT_APPROVED' : kind === 'malformed' ? 'PARTS_VERDICT_UNREAD' : 'PARTS_VERDICT_SOURCE_CHANGED');
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('PARTS_VERDICT_FILE_ROUTE_REMOVED');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
 
   test('evidence is required only at parts-review', () => {
     const dir = fixture();
     const before = readFileSync(join(dir, 'project.json'));
-    expect(cli(['signoff', 'parts-review', '--by', 'user'], dir, gitEnv()).code).toBe(2);
+    expect(cli(['signoff', 'parts-review', '--by', 'user'], dir, gitEnv()).stderr).toContain('PARTS_VERDICT_RECEIPT_REQUIRED');
     expect(cli(['signoff', 'rig-review', '--by', 'user', '--evidence', EXAMPLE_VERDICT], dir, gitEnv()).code).toBe(2);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });

@@ -130,9 +130,9 @@ test('stale, invalid, duplicate and conflicting job selections refuse byte-ident
 test('job receipt binds API bytes and supports identical replay',()=>{
   const w=working('reference');const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
   const answer=reviewAnswer(w,payload);const before=readFileSync(join(w.dir,'project.json'));
-  const receipt=obj(arr(load(w.dir).review_acts)[0]);expect(receipt.sha256).toBe(sha256(Buffer.from(String(receipt.bytes))));
+  const receipt=obj(arr(load(w.dir).review_acts).find(entry=>obj(entry).kind==='interview-picks'));expect(receipt.sha256).toBe(sha256(Buffer.from(String(receipt.bytes))));
   expect(reviewActFindings(load(w.dir))).toEqual([]);
-  const changed=load(w.dir);obj(arr(changed.review_acts)[0]).question='missing';
+  const changed=load(w.dir);obj(arr(changed.review_acts).find(entry=>obj(entry).kind==='interview-picks')).question='missing';
   expect(reviewActFindings(changed).map(f=>f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
   expect(reviewAnswer(w,payload)).toBe(answer);expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
   payload.note='changed';expect(code(()=>reviewAnswer(w,payload))).toBe('REVIEW_ACT_REPLAY_CONFLICT');
@@ -140,7 +140,7 @@ test('job receipt binds API bytes and supports identical replay',()=>{
 });
 test('interview transport consumes the JSON job API response through its fetch adapter',async()=>{
   const w=working('reference');const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
-  reviewAnswer(w,payload);const receipt=obj(arr(load(w.dir).review_acts)[0]);const act=JSON.parse(String(receipt.bytes));
+  reviewAnswer(w,payload);const receipt=obj(arr(load(w.dir).review_acts).find(entry=>obj(entry).kind==='interview-picks'));const act=JSON.parse(String(receipt.bytes));
   const calls:string[]=[];
   const adapter=(async(input: string | URL | Request, init?:RequestInit)=>{
     calls.push(String(input));const request=JSON.parse(String(init?.body));
@@ -172,7 +172,7 @@ test('malformed API acts preserve the interview record',()=>{
 test('interview ledger validates optional intake answers through the same branch',()=>{
   const w=working('reference');const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
   const answer=JSON.parse(reviewAnswer(w,payload));const project=load(w.dir);
-  const receipt=obj(arr(project.review_acts)[0]);const act=JSON.parse(String(receipt.bytes));
+  const receipt=obj(arr(project.review_acts).find(entry=>obj(entry).kind==='interview-picks'));const act=JSON.parse(String(receipt.bytes));
   act.value.questionId='intake_suitability';receipt.question='intake_suitability';
   receipt.bytes=JSON.stringify(act);receipt.sha256=sha256(Buffer.from(String(receipt.bytes)));
   project.intake={choice:{answer}};expect(reviewActFindings(project)).toEqual([]);
@@ -202,12 +202,12 @@ test('merged ledger records picks after a parts CLI receipt and runs the picks b
   expect(partsReadFindings(root,load(root))).toEqual([]);
   const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
   reviewAnswer(w,payload);const project=load(root);
-  expect(arr(project.review_acts)).toHaveLength(2);expect(reviewActFindings(project)).toEqual([]);
+  expect(arr(project.review_acts)).toHaveLength(3);expect(reviewActFindings(project)).toEqual([]);
   expect(partsReadFindings(root,project)).toEqual([]);
-  obj(arr(project.review_acts)[1]).question='missing';
+  obj(arr(project.review_acts).find(entry=>obj(entry).kind==='interview-picks')).question='missing';
   const findings=reviewActFindings(project);
   expect(findings.map(f=>f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
-  expect(findings[0].path).toBe('review_acts[1]');expect(findings[0].message).toContain('recorded interview answer differs');
+  expect(findings[0].path).toBe('review_acts[2]');expect(findings[0].message).toContain('recorded interview answer differs');
 });
 
 test('Other with multiline Unicode and explicit fragment preserves text; unresolved Other is pending until a fresh explicit pick',()=>{

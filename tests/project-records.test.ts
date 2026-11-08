@@ -16,7 +16,7 @@ describe('prepared inputs recorded after external work', () => {
   test('the filled example verifies both shipped files and its agent bounce', () => {
     const r = checkProject(fixture());
     expect(r.refusals).toEqual([]);
-    expect(r.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(r.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('derived add appends source, result, operation and both measured hashes through the CLI', () => {

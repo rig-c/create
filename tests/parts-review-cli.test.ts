@@ -1,3 +1,4 @@
+import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { checkProject } from '../src/check.ts';
-import { partsReadFindings, latestPartsVerdictFinding, PARTS_CLI_RECEIPT } from '../src/parts-verdict-record.ts';
+import { partsReadFindings, latestPartsVerdictFinding, PARTS_CLI_RECEIPT, recordedPartsVerdict, recordedPartsFinding, PARTS_VERDICT_RECEIPT_SINCE } from '../src/parts-verdict-record.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { Refusal } from '../src/refusal.ts';
 import { jobHash } from '../src/job-outbox.ts';
@@ -157,7 +158,7 @@ test('latest changes-requested receipt blocks the signoff writer before it write
   const root = fixture();
   record(root, response(root, 'changes-requested'));
   refuses(root, 'PARTS_VERDICT_LATEST_NOT_APPROVED', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain',
-    '--structure-file', 'evidence/structure.json', '--evidence', 'evidence/unused.json', '--verbatim-file', 'unused'], EXAMPLE_NOW));
+    '--structure-file', 'evidence/structure.json', '--verbatim-file', 'unused'], EXAMPLE_NOW));
 });
 
 test('current signatures refuse a latest changes request while earlier signatures warn', () => {
@@ -186,4 +187,87 @@ test('checker rejects an overridden format retained in argv', () => {
   const project = read(root);
   (project.review_acts as JsonObject[])[0]!.argv = ['opaque', '--format=json'];
   expect(partsReadFindings(root, project).map(f => f.code)).toEqual(['PARTS_REVIEW_CLI_ARGUMENT_INVALID']);
+});
+
+for (const flag of ['--evidence', '--evidence=unread.json']) {
+  test(`signoff rejects removed ${flag} with exit 2 before writing`, () => {
+    const root = fixture();
+    const before = readFileSync(join(root, 'project.json'));
+    let error: unknown;
+    try { signoffCommand(['parts-review', root, flag, 'unread.json'], EXAMPLE_NOW); }
+    catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('PARTS_VERDICT_FILE_ROUTE_REMOVED');
+    expect((error as Refusal).exitCode).toBe(2);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  });
+}
+
+for (const flag of ['--verdict', '--verdict=unread.json']) {
+  test(`snapshot rejects removed ${flag} with exit 2 before writing`, () => {
+    const root = fixture();
+    const before = readFileSync(join(root, 'project.json'));
+    let error: unknown;
+    try { structureSnapshotCommand([root, '--draft', 'chain', flag, 'unread.json', '--out', 'evidence/new/structure.json']); }
+    catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('PARTS_VERDICT_FILE_ROUTE_REMOVED');
+    expect((error as Refusal).exitCode).toBe(2);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    expect(existsSync(join(root, 'evidence/new'))).toBe(false);
+  });
+}
+
+test('receipt consumers select the latest response and retain a historical approved binding', () => {
+  const root = fixture();
+  record(root, response(root));
+  const approved = recordedPartsVerdict(root, read(root), 'chain');
+  expect(approved.evidence.spec).toBe(PARTS_CLI_RECEIPT);
+  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-api.json']).exit).toBe(0);
+  record(root, response(root, 'pending'));
+  refuses(root, 'PARTS_VERDICT_NOT_APPROVED', () => structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/missing.json']));
+  expect(existsSync(join(root, 'evidence/missing.json'))).toBe(false);
+  expect(recordedPartsFinding(root, read(root), { draft_id: 'chain', at: new Date(EXAMPLE_NOW).toISOString(), evidence: approved.evidence }, 'signoffs[0]')).toBeUndefined();
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => recordedPartsVerdict(root, read(root), 'chain', { ...approved.evidence, spec: 'unknown/1' }));
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => recordedPartsVerdict(root, read(root), 'chain', { ...approved.evidence, sha256: '0'.repeat(64) }));
+  expect(recordedPartsFinding(root, read(root), { draft_id: 'chain', at: '2026-11-07T00:00:00Z', evidence: { ...approved.evidence, sha256: '0'.repeat(64) } }, 'signoffs[0]')?.code).toBe('PARTS_VERDICT_RECEIPT_INVALID');
+});
+
+for (const at of [new Date(Date.parse(PARTS_VERDICT_RECEIPT_SINCE) - 1).toISOString(), PARTS_VERDICT_RECEIPT_SINCE]) {
+  test(`saved-file history at ${at} is dated without reading its file`, () => {
+    const root = fixture();
+    const project = read(root);
+    const signoff = { stage: 'parts-review', checkpoint: null, draft_id: 'chain', by: 'user', at, verbatim: 'Synthetic approval.',
+      evidence: { kind: 'parts-verdict', path: 'never-created.json', sha256: 'a'.repeat(64) } };
+    (project.signoffs as JsonObject[]).push(signoff);
+    const before = readFileSync(join(root, 'project.json'));
+    const report = checkProject(root, project, { now: EXAMPLE_NOW });
+    if (at === PARTS_VERDICT_RECEIPT_SINCE) expect(report.refusals.map(f => f.code)).toContain('PARTS_VERDICT_RECEIPT_REQUIRED');
+    else {
+      expect(report.warnings.map(f => f.code)).toContain('PARTS_VERDICT_FILE_LEGACY');
+      expect(report.refusals.map(f => f.code)).not.toContain('PARTS_VERDICT_RECEIPT_REQUIRED');
+    }
+    expect(existsSync(join(root, 'never-created.json'))).toBe(false);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  });
+}
+
+test('historical receipt checking warns when ignored draft bytes are unavailable', () => {
+  const root = fixture();
+  record(root, response(root));
+  const selected = recordedPartsVerdict(root, read(root), 'chain');
+  rmSync(join(root, 'derived/drafts/chain/input'), { recursive: true });
+  expect(recordedPartsFinding(root, read(root), { draft_id: 'chain', at: new Date(EXAMPLE_NOW).toISOString(), evidence: selected.evidence }, 'signoffs[0]')).toBeUndefined();
+  const report = checkProject(root, undefined, { now: EXAMPLE_NOW });
+  expect(report.warnings.map(f => f.code)).toContain('DRAFT_RIG_UNAVAILABLE');
+  expect(report.refusals.map(f => f.code)).not.toContain('PARTS_VERDICT_RECEIPT_INVALID');
+});
+
+test('new snapshot and signoff writers require the ignored draft source bytes', () => {
+  const root = fixture();
+  record(root, response(root));
+  rmSync(join(root, 'derived/drafts/chain/input'), { recursive: true });
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/unwritten.json']));
+  expect(existsSync(join(root, 'evidence/unwritten.json'))).toBe(false);
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain', '--structure-file', 'evidence/unwritten.json'], EXAMPLE_NOW));
 });

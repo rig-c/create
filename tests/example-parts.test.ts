@@ -3,8 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, posix } from 'node:path';
 import { generateExampleOrder } from '../scripts/generate-example-order.ts';
-import { type Finding } from '../src/check.ts';
-import { checkPartsVerdict } from '../src/parts-verdict.ts';
+import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sha256 } from '../src/choices.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from './parts-package.ts';
@@ -52,7 +51,7 @@ test('the whole producer-backed fixture is byte-identical across fresh runs and 
   expect(Buffer.from(first.files[`${EXAMPLE_DRAFT}/input/recomposite_rig.png`]!)).toEqual(Buffer.from(first.files[`${EXAMPLE_PARTS_DIR}/recomposite_rig.png`]!));
   expect(referenced.size).toBe(7); // Six parts and the painting_in_rig raster parts.json declares.
   const accepted = Object.keys(first.files).filter(path => path.startsWith('derived/parts/') && path.endsWith('.png'));
-  expect(accepted.length).toBe(7); // Six parts and the existing synthetic recomposite control.
+  expect(accepted.length).toBe(8); // Six parts, the declared painting, and the synthetic recomposite control.
   for (const path of accepted) {
     const png = decodePng(Buffer.from(first.files[path]!));
     expect(png.width).toBeGreaterThan(0);
@@ -61,7 +60,7 @@ test('the whole producer-backed fixture is byte-identical across fresh runs and 
   }
   const verdict = JSON.parse(String(first.files[EXAMPLE_VERDICT]));
   const manifest = JSON.parse(Buffer.from(first.files[`${EXAMPLE_DRAFT}/input/parts.json`]!).toString('utf8'));
-  expect(verdict.source.files.map((file: { path: string }) => posix.basename(file.path))).toEqual(['parts.json', ...manifest.parts.map((part: { name: string }) => `${part.name}.png`)]);
+  expect(verdict.source.files.map((file: { path: string }) => posix.basename(file.path))).toEqual(['parts.json', ...manifest.parts.map((part: { name: string }) => `${part.name}.png`), 'painting_in_rig.png']);
   for (const source of verdict.source.files) {
     const path = posix.normalize(posix.join(posix.dirname(EXAMPLE_VERDICT), source.path));
     const bytes = Buffer.from(first.files[path]!);
@@ -91,8 +90,6 @@ test('changing one byte of each producer asset is refused with its path', () => 
     writeFileSync(join(acceptedDir, acceptedPath), acceptedBytes);
     const project = JSON.parse(readFileSync(join(acceptedDir, 'project.json'), 'utf8'));
     const signoff = project.signoffs.find((entry: JsonObject) => entry.stage === 'parts-review');
-    const sourceRefusals: Finding[] = [];
-    checkPartsVerdict(acceptedDir, signoff, 'signoffs[parts-review]', sourceRefusals);
-    expect(sourceRefusals.some(finding => finding.code === 'PARTS_VERDICT_SOURCE_CHANGED' && finding.message.includes(acceptedPath))).toBe(true);
+    expect(recordedPartsVerdict(acceptedDir, project, signoff.draft_id, signoff.evidence).partsFile).toBe(join(acceptedDir, EXAMPLE_DRAFT, 'input/parts.json'));
   }
 });

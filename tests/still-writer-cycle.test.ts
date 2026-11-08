@@ -6,7 +6,6 @@ import { randomUUID } from 'node:crypto';
 import { startJobHost } from '@rig-c/review/job-host';
 import { fixture, arr, obj } from './fixtures.ts';
 import { EXAMPLE_DRAFT } from './draft-fixture.ts';
-import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash } from '../src/job-outbox.ts';
@@ -52,7 +51,7 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
   try {
     put('approval.txt', 'Approve this synthetic geometric example.\n');
     command(['draft-rig', 'example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`], draftAt);
-    command(['signoff', 'parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'approval.txt'), '--evidence', EXAMPLE_VERDICT,
+    command(['signoff', 'parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'approval.txt'),
       '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here',
       '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here', '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json'], partsAt);
     const now = EXAMPLE_ANCHOR + 300_000;

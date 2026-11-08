@@ -1,3 +1,4 @@
+import { preparePartsApproval } from './parts-receipt-fixture.ts';
 import { materializeFixture, arr, obj, retimeFixture } from './fixtures.ts';
 import { PARTS_REVIEW_SINCE } from '../src/stages.ts';
 import { afterEach, expect, test } from 'bun:test';
@@ -26,9 +27,19 @@ function load(dir: string): JsonObject {
   return JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 }
 function approveParts(dir: string): void {
+  const flags = preparePartsApproval(dir, testClock.now(), 'reviewed');
+  // Negative consumer tests restore a separately recorded version population
+  // after approval so they can plant disagreements the forward writer refuses.
+  const original = load(dir);
+  const versions = original.versions;
+  original.versions = [];
+  put(dir, 'project.json', JSON.stringify(original));
   signoffCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt'),
-    '--evidence', 'evidence/parts-review.json', '--diff-report', EXAMPLE_DIFF_REPORT,
+    ...flags, '--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:synthetic source', '--component', 'p1000-n3=in-painting:synthetic source']);
+  const approved = load(dir);
+  approved.versions = versions!;
+  put(dir, 'project.json', JSON.stringify(approved));
 }
 /** Two stable source cohorts allow a reader control without forging a published package inventory. */
 function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = false): string {
@@ -307,5 +318,17 @@ test('a date-only cutoff day enforces part identity at UTC midnight', () => {
   put(dir, 'build/parts/torso.png', 'distinct cutoff-day torso\n');
   const before = readFileSync(join(dir, 'project.json'));
   expect(refusal(() => packageRig(dir)).code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('opaque CLI source paths still refuse a planted accepted image mismatch', () => {
+  const dir = setup();
+  const receipt = (load(dir).review_acts as JsonObject[]).find(receipt => receipt.schema === 'rig-create/parts-verdict-cli@1')!;
+  const response = JSON.parse(readFileSync(join(dir, String((receipt.evidence as JsonObject).path)), 'utf8')) as JsonObject;
+  expect(((response.source as JsonObject).files as JsonObject[]).every(file => file.path === undefined)).toBe(true);
+  put(dir, 'build/parts/torso.png', 'synthetic mismatched accepted image');
+  const before = readFileSync(join(dir, 'project.json'));
+  const error = refusal(() => packageRig(dir));
+  expect(error.code).toBe('REVIEW_PACKAGE_PART_FILE_MISMATCH');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

@@ -62,9 +62,9 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
   const verdictDir = posix.dirname(verdictPath);
   // No input preserves the frozen legacy-example-project.json verdict and its ASCII source bindings.
   const input = options.input ?? { 'parts.json': partsJson(), ...Object.fromEntries(PART_NAMES.map(name => [`parts/${name}.png`, asciiPartImage(name)])) };
-  const manifest = JSON.parse(Buffer.from(input['parts.json']!).toString('utf8')) as { parts: { name: string }[] };
+  const manifest = JSON.parse(Buffer.from(input['parts.json']!).toString('utf8')) as { parts: { name: string }[]; painting_in_rig?: { path: string } };
   const names = manifest.parts.map(part => part.name);
-  const paths = ['parts.json', ...names.map(name => `parts/${name}.png`)];
+  const paths = ['parts.json', ...names.map(name => `parts/${name}.png`), ...(manifest.painting_in_rig ? [manifest.painting_in_rig.path] : [])];
   const files: Record<string, string | Uint8Array> = Object.fromEntries(paths.map(path => [posix.join(partsDir, path), input[path]!]));
   const source = Object.entries(files).map(([path, content]) => ({
     path: posix.relative(verdictDir, path),

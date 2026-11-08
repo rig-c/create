@@ -149,8 +149,17 @@ test('the finished chain binds its own approved parts, package model and signed 
   const verdict = JSON.parse(readFileSync(join(shipped, 'evidence/parts-review.json'), 'utf8')) as {
     source: { files: { path: string; sha256: string }[] };
   };
-  expect(verdict.source.files).toHaveLength(7);
-  for (const source of verdict.source.files) {
+  expect(verdict.source.files).toHaveLength(8);
+  const manifest = JSON.parse(readFileSync(join(shipped, 'derived/drafts/chain/input/parts.json'), 'utf8')) as {
+    painting_in_rig: { path: string; sha256: string };
+  };
+  const painting = verdict.source.files.filter(source => source.path.split('/input/')[1] === manifest.painting_in_rig.path);
+  expect(painting).toHaveLength(1);
+  expect(painting[0]!.sha256).toBe(manifest.painting_in_rig.sha256);
+  expect(sha256(readFileSync(join(shipped, 'evidence', painting[0]!.path)))).toBe(painting[0]!.sha256);
+  const partSources = verdict.source.files.filter(source => source !== painting[0]);
+  expect(partSources).toHaveLength(7);
+  for (const source of partSources) {
     const suffix = source.path.split('/input/')[1]!;
     const packaged = files.find(file => file.path === `out/${suffix}`)!;
     expect(packaged.sha256).toBe(source.sha256);
@@ -160,7 +169,7 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(55);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(56);
   expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/painting.png')).toBe(true);
   expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/background.png')).toBe(true);
   expect(receipt.steps.some(step => step.seed?.field === 'inputs[]')).toBe(false);
@@ -261,9 +270,9 @@ function fileInventory(dir: string, prefix = ''): Record<string, string> {
 
 test.each([
   ['1-parts-verdict', 1, 30, 'parts', 0],
-  ['2-rigging-answers', 2, 38, 'rigging-interview', 4],
-  ['3-rig-review', 3, 60, 'rig-review', 0],
-  ['4-direction-post', 4, 81, 'post', 0],
+  ['2-rigging-answers', 2, 39, 'rigging-interview', 4],
+  ['3-rig-review', 3, 61, 'rig-review', 0],
+  ['4-direction-post', 4, 82, 'post', 0],
 ] as const)('checkpoint %s preserves its complete prefix and pending state', (name, stage, index, projectStage, count) => {
   const root = join(shipped, 'checkpoints', name);
   const declaration = JSON.parse(readFileSync(`${root}.json`, 'utf8')) as CheckpointDeclaration;
@@ -292,7 +301,7 @@ test.each([
   if (stage === 1) {
     expect(declaration.files.some(file => file.path === 'evidence/parts-review.json')).toBe(false);
     expect(declaration.files.some(file => file.path === 'evidence/structure.json')).toBe(false);
-    expect(declaration.pending.command_roles).toEqual(['producer', 'agent', 'producer', 'human', 'human']);
+    expect(declaration.pending.command_roles).toEqual(['producer', 'agent', 'agent', 'producer', 'human', 'human']);
   }
   if (stage === 2) {
     expect(report.refusals.map(finding => [finding.code, finding.path])).toEqual(

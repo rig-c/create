@@ -2163,3 +2163,33 @@ can lie outside a selected option's closure. This limitation keeps
 finalization blocked until the complete check-read closure contract lands.
 Collection members with external collection evidence refuse with
 `JOB_RECORD_COLLECTION_EXTERNAL` until that closure has a signed binding.
+
+
+## Parts-review receipt selection (create#267)
+
+This section supersedes earlier saved-verdict command examples and evidence
+requirements in this document.
+
+`signoff parts-review --draft <id>` and `structure-snapshot --draft <id>`
+select the latest parts-verdict receipt for that draft in `review_acts` ledger
+order. Both CLI-read and act receipts participate. The response retained by
+`parts-review` is hash-bound and validated through the same reader in the
+writers and check. The signoff retains its selected response binding and spec.
+A later response does not replace that historical binding. The existing latest
+changes-requested gate still applies. The removed `--evidence` and `--verdict`
+flags exit 2 with `PARTS_VERDICT_FILE_ROUTE_REMOVED` before writing.
+
+Signatures before `PARTS_VERDICT_RECEIPT_SINCE` retain their legacy file
+bindings and WARN with `PARTS_VERDICT_FILE_LEGACY`. Check never opens their
+review-saved files. New signatures require a recorded API receipt.
+
+The downstream review-package identity gate uses the selected draft's manifest
+and image bindings. Opaque CLI source paths cannot suppress this comparison.
+A mismatched accepted image retains `REVIEW_PACKAGE_PART_FILE_MISMATCH`.
+Historical saved-file approvals WARN and skip this unavailable comparison.
+
+Historical response checks keep the existing `DRAFT_RIG_UNAVAILABLE` warning
+when ignored draft artifacts cannot be read. The retained API response remains
+hash- and spec-checked. New writers require the source bytes before recording.
+The examples query the pinned Review CLI, so a Review pin bump regenerates
+these responses and their dependent example bindings.

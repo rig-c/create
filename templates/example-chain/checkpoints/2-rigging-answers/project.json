@@ -66,12 +66,13 @@
       "stage": "parts-review",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:23.000Z",
+      "at": "2026-11-06T01:00:24.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/parts-review.json",
-        "sha256": "6ff1c1c1e438b9fa864e0530567aad6de155ecfd719567ccb073e0c51616f063"
+        "path": "evidence/review-reads/8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9.json",
+        "sha256": "8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9",
+        "spec": "rig-create/parts-verdict-cli@1"
       },
       "diff_map": {
         "report": {
@@ -423,7 +424,7 @@
         "history": [],
         "pending_options": {
           "path": "evidence/interview/bones.json",
-          "sha256": "9d3291e7fb96b394c9dc188cd7a6557c04955fcf676e062eb4c76412f4acc969"
+          "sha256": "2f6f7ff81f70469688f3263235ba5626d047701e4dd39d2f5d9274e61098d7ae"
         }
       },
       {
@@ -809,7 +810,7 @@
       "stage": "parts-review",
       "from_stage": "parts",
       "by": "user",
-      "at": "2026-11-06T01:00:22.000Z",
+      "at": "2026-11-06T01:00:23.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -930,7 +931,7 @@
       "stage": "rigging-interview",
       "from_stage": "parts-review",
       "by": "user",
-      "at": "2026-11-06T01:00:24.000Z",
+      "at": "2026-11-06T01:00:25.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -952,14 +953,14 @@
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:23.000Z"
+          "at": "2026-11-06T01:00:24.000Z"
         }
       ],
       "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "parts-review",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:23.000Z"
+        "at": "2026-11-06T01:00:24.000Z"
       },
       "steps_before": [
         {
@@ -1113,6 +1114,33 @@
           "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
         }
       ]
+    }
+  ],
+  "review_acts": [
+    {
+      "schema": "rig-create/parts-verdict-cli@1",
+      "kind": "parts-verdict",
+      "draft_id": "chain",
+      "evidence": {
+        "kind": "parts-verdict",
+        "path": "evidence/review-reads/8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9.json",
+        "sha256": "8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9"
+      },
+      "route": "cli",
+      "argv": [
+        "derived/drafts/chain/input",
+        "--verdict",
+        "evidence/parts-review.json"
+      ],
+      "tool": {
+        "name": "@rig-c/review",
+        "version": "0.0.0-synthetic"
+      },
+      "status": "approved",
+      "flagged": [],
+      "noted": [],
+      "by": "user",
+      "at": "2026-11-06T01:00:21.000Z"
     }
   ]
 }

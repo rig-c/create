@@ -1,3 +1,4 @@
+import { preparePartsApproval } from './parts-receipt-fixture.ts';
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -6,12 +7,13 @@ import { dirname, join } from 'node:path';
 import { generateExampleDiff } from '../scripts/generate-example-diff.ts';
 import { deriveDiffClasses, expandDiffTriage, diffClassesCommand } from '../src/diff-classes.ts';
 import { DIFF_MAP_SINCE } from '../src/diff-map.ts';
-import { sourceSha256 } from '../src/parts-verdict.ts';
+import { diffStackCandidates } from '../src/diff-map.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
 import { arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
-import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from './parts-package.ts';
+const EXAMPLE_PARTS_DIR = 'derived/drafts/receipt-fixture/input/rig';
+const RECEIPT_FLAGS = ['--draft', 'receipt-fixture', '--structure-file', 'evidence/receipt-fixture-structure.json'];
 import { checkProject, reopenCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -36,13 +38,15 @@ function rigging(p: JsonObject): void {
 function project(edit: (s: JsonObject, project: JsonObject) => void = () => {}, name = 'normal', historical = false): string {
   const report = reports[name];
   const materialize = historical ? historicalFixture : fixture;
-  return materialize((p) => {
+  const dir = materialize((p) => {
     rigging(p);
     const s = signoff(p);
     s.diff_map = { report: { path: EXAMPLE_DIFF_REPORT, sha256: sha(report) },
       components: (JSON.parse(report) as { components: { id: string }[] }).components.map((c) => ({ id: c.id, status: 'left', why: 'the synthetic difference is accepted' })) };
     edit(s, p);
   }, 'legacy-example-project.json', { [EXAMPLE_DIFF_REPORT]: report });
+  preparePartsApproval(dir, testClock.now());
+  return dir;
 }
 function componentFlags(dir: string): string[] {
   const report = JSON.parse(readFileSync(join(dir, EXAMPLE_DIFF_REPORT), 'utf8')) as { components: { id: string }[] };
@@ -50,7 +54,7 @@ function componentFlags(dir: string): string[] {
 }
 function writer(dir: string, flags = componentFlags(dir)) {
   writeFileSync(join(dir, 'words.txt'), 'reviewed the synthetic assembly');
-  return cli(['signoff', 'parts-review', '--by', 'user', '--evidence', EXAMPLE_VERDICT,
+  return cli(['signoff', 'parts-review', '--by', 'user', ...RECEIPT_FLAGS,
     '--diff-report', EXAMPLE_DIFF_REPORT, ...flags, '--verbatim-file', join(dir, 'words.txt'), '--json'], dir, gitEnv());
 }
 function only(dir: string, code: string): string {
@@ -88,7 +92,7 @@ describe('B0 normal writer and both producer layouts', () => {
     advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
   test('a zero-component producer report needs no component flags', () => {
     const dir = project(() => {}, 'empty');
@@ -156,28 +160,17 @@ test('neither stack candidate names both paths', () => {
   const dir = project(); rmSync(join(dir, EXAMPLE_PARTS_DIR, 'recomposite_rig.png'));
   const message = only(dir, 'DIFF_MAP_STACK_MISMATCH');
   expect(message).toContain(`${EXAMPLE_PARTS_DIR}/recomposite_rig.png`);
-  expect(message).toContain('derived/parts/render/recomposite_rig.png');
+  expect(message).toContain('derived/drafts/receipt-fixture/input/render/recomposite_rig.png');
 });
 test('both stack candidates are ambiguous', () => {
   const dir = project();
-  const alternate = join(dir, 'derived/parts/render/recomposite_rig.png');
+  const alternate = join(dir, 'derived/drafts/receipt-fixture/input/render/recomposite_rig.png');
   mkdirSync(dirname(alternate), { recursive: true });
   writeFileSync(alternate, readFileSync(join(dir, EXAMPLE_PARTS_DIR, 'recomposite_rig.png')));
   expect(only(dir, 'DIFF_MAP_STACK_MISMATCH')).toContain('ambiguous');
 });
 test('a directory not named rig has only the build candidate', () => {
-  const dir = project();
-  const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-  const verdict = JSON.parse(readFileSync(join(dir, EXAMPLE_VERDICT), 'utf8')) as JsonObject;
-  // Rename all reviewed paths and rebind the synthetic verdict.
-  for (const raw of arr(obj(verdict.source).files)) obj(raw).path = String(obj(raw).path).replace('/rig/', '/build/');
-  obj(verdict.source).sha256 = sourceSha256(arr(obj(verdict.source).files) as { path: string; sha256: string }[]);
-  const text = JSON.stringify(verdict);
-  writeFileSync(join(dir, EXAMPLE_VERDICT), text);
-  obj(signoff(p).evidence).sha256 = sha(text);
-  writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
-  renameSync(join(dir, EXAMPLE_PARTS_DIR), join(dir, 'derived/parts/build'));
-  expect(checkProject(dir).refusals).toEqual([]);
+  expect(diffStackCandidates('/synthetic/build/parts.json')).toEqual(['/synthetic/build/recomposite_rig.png']);
 });
 test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
   const dir = project((s, p) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; p.stage = 'parts-review'; p.advances = []; });
@@ -185,7 +178,7 @@ test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
   advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   const report = checkProject(dir);
   expect(report.refusals).toEqual([]);
-  expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DIFF_MAP_PREDATES', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'DIFF_MAP_PREDATES', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
 });
 test('an old sign-off with a map is checked fully', () => {
   only(project((s, p) => { s.at = '2026-11-05T00:00:00Z'; p.advances = []; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
@@ -220,7 +213,7 @@ test('report symlinks cannot leave the project', () => {
 });
 test('B5 example has no findings and generation reproduces all shipped bytes', () => {
   const report = checkProject(fixture());
-  expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const generated = generateExampleDiff(join(tempDir(), 'generated'));
   expect(generated.report).toBe(reports.normal);
   const p = JSON.parse(readFileSync(join(fixture(), 'project.json'), 'utf8')) as JsonObject;
@@ -238,7 +231,7 @@ describe('writer usage and cutoff', () => {
     const dir = project(); writeFileSync(join(dir, 'words.txt'), 'reviewed');
     const before = readFileSync(join(dir, 'project.json'));
     try {
-      signoffCommand([...flags, dir, '--by', 'user', ...(flags[0] === 'parts-review' ? ['--evidence', EXAMPLE_VERDICT] : []), '--verbatim-file', join(dir, 'words.txt')]);
+      signoffCommand([...flags, dir, '--by', 'user', ...(flags[0] === 'parts-review' ? RECEIPT_FLAGS : []), '--verbatim-file', join(dir, 'words.txt')]);
       throw new Error('writer accepted invalid options');
     } catch (error) { expect((error as { code: string }).code).toBe('SIGNOFF_OPTION_INVALID'); }
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -248,7 +241,7 @@ describe('writer usage and cutoff', () => {
     const dir = project(); writeFileSync(join(dir, 'words.txt'), 'reviewed');
     const before = readFileSync(join(dir, 'project.json'));
     try {
-      signoffCommand(['parts-review', dir, '--by', 'user', '--evidence', EXAMPLE_VERDICT, '--verbatim-file', join(dir, 'words.txt')]);
+      signoffCommand(['parts-review', dir, '--by', 'user', ...RECEIPT_FLAGS, '--verbatim-file', join(dir, 'words.txt')]);
       throw new Error('writer accepted a missing map');
     } catch (error) { expect((error as { code: string }).code).toBe('DIFF_MAP_MISSING'); }
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);

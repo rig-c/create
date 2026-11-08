@@ -70,8 +70,9 @@
       "verbatim": "Approve the synthetic parts-review record.\n",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/parts-review.json",
-        "sha256": "54a88efc06c8a1741fa46bd97b3f00b26ebc1e4c6a170e8bc04ad5e85d2862a6"
+        "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
+        "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+        "spec": "rig-create/parts-verdict-cli@1"
       },
       "diff_map": {
         "report": {
@@ -116,19 +117,20 @@
         "motion": "83938c19a41f9f52ea83971dcb34760c5ce1fbe7e61a2b99129f182e50338add"
       },
       "answer_hashes": {
-        "bones": "7c29831039f4e9dd3e58dbbe8c5d2100c149f13a8a2184ab7c86599b12465fcb",
-        "meshes": "f477f2e44f95b806628bb8d1458baac1703c4f242698686268f658bf0368aa98",
+        "bones": "27504e1183c796855342742df17763dc26180e57afc61da06bb64d7fc68cb018",
+        "meshes": "226f5d3bc062573c54bb54e85cceafb59aaa02270db5ba34ed06469815b4c9d1",
         "assemble": "9585a4ccbcd8fca140fba7d12468f34f8d3321dda108cb12f0d3b88a729cc1b6",
-        "constraints": "6ac3044c3545ec3661e380e58658fdb61e918d7a21eb6bed81484cf1d418c8f7",
-        "motion": "a3afbb8d15c4a7ff53ea9c639bfc7c96c409c38261861295007661d1fcec613d",
+        "constraints": "e923eef2936b5dc967d11678da21d1b5e8956148fb4755daf71bf25d9c7c954c",
+        "motion": "eb8ab0724caae087503fbe30217bcfd3d7adcc841a2de237e0693b81a4271109",
         "rig_type": "c6336c4c4cf0275f72a3b078b6f9641396159511f633d76198292abc2cbfd58c"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-08T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/parts-review.json",
-          "sha256": "54a88efc06c8a1741fa46bd97b3f00b26ebc1e4c6a170e8bc04ad5e85d2862a6"
+          "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
+          "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+          "spec": "rig-create/parts-verdict-cli@1"
         }
       },
       "structure": {
@@ -151,15 +153,16 @@
         "constraints": "79c3a1af5871d75c61fafed54292631238cb1526b586237a26d47164fd3082a8"
       },
       "answer_hashes": {
-        "bones": "7c29831039f4e9dd3e58dbbe8c5d2100c149f13a8a2184ab7c86599b12465fcb",
-        "constraints": "6ac3044c3545ec3661e380e58658fdb61e918d7a21eb6bed81484cf1d418c8f7"
+        "bones": "27504e1183c796855342742df17763dc26180e57afc61da06bb64d7fc68cb018",
+        "constraints": "e923eef2936b5dc967d11678da21d1b5e8956148fb4755daf71bf25d9c7c954c"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-08T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/parts-review.json",
-          "sha256": "54a88efc06c8a1741fa46bd97b3f00b26ebc1e4c6a170e8bc04ad5e85d2862a6"
+          "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
+          "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+          "spec": "rig-create/parts-verdict-cli@1"
         }
       },
       "structure": {
@@ -215,7 +218,7 @@
       "answer_hashes": {
         "camera_depth": "d75b83ff8ac70182738f5f3d611b555c0194942f2137e2e9ce6bb55c97e71f14",
         "post_timing": "aaac0e2f85452f82cb051392fb58c68e427f2d0dcce556ff68ff3dd70f384031",
-        "motion": "a3afbb8d15c4a7ff53ea9c639bfc7c96c409c38261861295007661d1fcec613d",
+        "motion": "eb8ab0724caae087503fbe30217bcfd3d7adcc841a2de237e0693b81a4271109",
         "post_composition": "95ba975d38054eff1f985656375df83f71be789ab2ebdee221464fbb0170a2db"
       }
     },
@@ -770,7 +773,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-bones.json",
-              "sha256": "8316df78f13e6c2e24e307bae27f37f5c11c1659db6db70b5f273d4b22270772"
+              "sha256": "d676aded0234b33d05e0c4af477f3b304905be50cd43b7965f63bac71581364f"
             },
             "picks": [
               {
@@ -966,7 +969,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-meshes.json",
-              "sha256": "53cf4981c43a539e827771f6174b4c4cf4578f00a2c4adbfb13227e98494e0ec"
+              "sha256": "3d137cc5f74a213653f7ff778f966f795bdfe0d17b901067fa0403745108f687"
             },
             "picks": [
               {
@@ -1123,7 +1126,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-constraints.json",
-              "sha256": "a24c487850c36bbe1b2db38986177d7c20ddab66a0586e4474461b13c1872732"
+              "sha256": "f4028061e49cf29d0acfb3a99b985d8ff1d61024578f2e8a1c6d368e1cb4be6f"
             },
             "picks": [
               {
@@ -1369,7 +1372,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-motion.json",
-              "sha256": "f500c3a034ebdbb3e2d76cc7aaf7a4ec8753e0ee8b48afa81754d0413b0adac8"
+              "sha256": "995376f4163023fa68b66856cfb0a994212bd67d78c9b0e5bbacea5b83edca83"
             },
             "picks": [
               {
@@ -1742,8 +1745,9 @@
         "signoff_at": "2026-11-08T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/parts-review.json",
-          "sha256": "54a88efc06c8a1741fa46bd97b3f00b26ebc1e4c6a170e8bc04ad5e85d2862a6"
+          "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
+          "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+          "spec": "rig-create/parts-verdict-cli@1"
         }
       },
       "structure": {
@@ -3339,6 +3343,33 @@
           "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
         }
       ]
+    }
+  ],
+  "review_acts": [
+    {
+      "schema": "rig-create/parts-verdict-cli@1",
+      "kind": "parts-verdict",
+      "draft_id": "example",
+      "evidence": {
+        "kind": "parts-verdict",
+        "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
+        "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2"
+      },
+      "route": "cli",
+      "argv": [
+        "derived/parts/rig",
+        "--verdict",
+        "evidence/parts-review.json"
+      ],
+      "tool": {
+        "name": "@rig-c/review",
+        "version": "0.0.0-synthetic"
+      },
+      "status": "approved",
+      "flagged": [],
+      "noted": [],
+      "by": "user",
+      "at": "2026-11-08T00:00:35.000Z"
     }
   ],
   "advances": [

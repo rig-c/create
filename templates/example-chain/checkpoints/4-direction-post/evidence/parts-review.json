@@ -6,7 +6,7 @@
     "version": "0.0.0-synthetic"
   },
   "source": {
-    "sha256": "042cfac20536f0e8255fc4e431804dfedb4d0dd2c9bb3061a6b39b1273e0b885",
+    "sha256": "4675a18dcc1eb4d3244a33182fb5f3b6934ec3bf4d59c280041ae6bae990a230",
     "files": [
       {
         "path": "../derived/drafts/chain/input/parts.json",
@@ -42,6 +42,11 @@
         "path": "../derived/drafts/chain/input/parts/eye_l.png",
         "bytes": 76,
         "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+      },
+      {
+        "path": "../derived/drafts/chain/input/painting_in_rig.png",
+        "bytes": 421,
+        "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
       }
     ],
     "flags": []

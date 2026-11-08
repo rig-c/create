@@ -82,6 +82,11 @@ export function reopenTime(reopens: readonly Reopen[], stage: string): number {
   return Math.max(-Infinity, ...reopens.filter(r => stageIndex(r.stage) <= stageIndex(stage)).map(r => r.at));
 }
 
+/** The `reopens[]` index of a validated reopen, matched by its stage and time. */
+export function reopenIndex(project: JsonObject, reopen: Reopen): number {
+  return asArray(project.reopens).findIndex(r => isObject(r) && r.stage === reopen.stage && Date.parse(asString(r.at) ?? '') === reopen.at);
+}
+
 export function liveSignoff(reopens: readonly Reopen[], stage: string, at: number): boolean {
   const since = reopenTime(reopens, stage);
   return since === -Infinity || at > since;

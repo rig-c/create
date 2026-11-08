@@ -493,6 +493,8 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `PARTS_REVIEW_PREDATES_STAGE` | the project passed `plan-approved` (its first sign-off dated before 2026-11-04) before `parts` and `parts-review` existed, is past `parts-review`, and has no `parts-review` sign-off; the message names the project | nothing is assumed: no sign-off is written for it. A person may still review the parts and sign `parts-review`, which clears it ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
 | `CG_GATES_CONFIG_LOST` | a CG rig has a valid pre-interview `config_lost` declaration and no config; may accompany `CG_GATES_PREDATE` | preserve its loss note and source; build and accept a new rig with its retained config before post work |
 | `CG_GATES_PREDATE` | a CG project's `rig` version was built with `@rig-c/parts` older than 2.4.0, before the CG gates existed (§ CG gates) | nothing for that version; the next CG version declares the gates |
+| `REOPEN_SIGNOFF_LAPSED` | a human sign-off (stage or checkpoint) is history because of a `reopens[]` entry, and no live sign-off of the same stage and checkpoint exists; one per approval, at its latest lapsed record, naming the reopen (§ Reopening stages) | the person approves it again in the review tool and `signoff` records it (with `--checkpoint <id>` for a checkpoint, `--evidence` and `--diff-report` for parts-review) |
+| `REOPEN_VERDICT_LAPSED` | the latest human rig-review or direction-review acceptance is history because of a `reopens[]` entry, and no live acceptance of that review exists; the message names the verdict and the reopen | review a live version in the review tool and record the acceptance with `review <n> --verdict accepted`; a lapsed rig needs a new rig version (`rig-version`) first |
 
 ## Collections
 
@@ -565,6 +567,12 @@ not live; they cannot satisfy `STAGE_UNSIGNED`, `PARTS_REVIEW_UNSIGNED`,
 a historical rig is `POST_ON_SUPERSEDED_RIG`; the hand-off requires a newly
 built and accepted rig, using its existing named refusals. Historical rig
 acceptances remain recorded, and an unaffected rig survives a post-only reopen.
+
+The check lists what a reopen voided and nothing has restored yet, as WARNs:
+`REOPEN_SIGNOFF_LAPSED` and `REOPEN_VERDICT_LAPSED` (§ Warnings). Liveness is
+the same cutoff the gates above read. A reopen is legitimate, so the list refuses
+nothing and carries no contract date. Approvals voided only by an amendment are
+listed by the report's `amendments[].lapsed` instead (§ Forward amendments).
 
 ## Forward amendments
 

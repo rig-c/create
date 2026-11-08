@@ -28,6 +28,16 @@ import { reopenCommand, advanceCommand, signoffCommand, checkProject, testClock 
 export type Mutate = (project: JsonObject) => void;
 
 /**
+ * What a reopen of the filled example to parts-review voids (#220), as [code, path]: the latest
+ * sign-off of each approval from parts-review on, and the rig-review and direction-review acceptances.
+ */
+export const PARTS_REVIEW_LAPSES: string[][] = [
+  ...['signoffs[3]', 'signoffs[5]', 'signoffs[7]', 'signoffs[8]', 'signoffs[9]', 'signoffs[10]'].map(path => ['REOPEN_SIGNOFF_LAPSED', path]),
+  ['REOPEN_VERDICT_LAPSED', 'versions[v2].verdicts[0]'],
+  ['REOPEN_VERDICT_LAPSED', 'versions[v4].verdicts[0]'],
+];
+
+/**
  * A project folder holding `template` (default: the filled example) after
  * `mutate`; `files` are written under it (path → content). The filled example
  * also gets the assembled parts and the approved verdict its parts-review

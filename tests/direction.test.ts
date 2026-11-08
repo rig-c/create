@@ -16,6 +16,8 @@ import { tempDir } from './helpers.ts';
 import { checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, reopenCommand, advanceCommand, directionCommand, recordVerdict, handoff, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());
+/** A reopen of the filled example to post or post-interview voids its direction-review sign-off and acceptance (#220). */
+const POST_LAPSES=[['REOPEN_SIGNOFF_LAPSED','signoffs[10]'],['REOPEN_VERDICT_LAPSED','versions[v4].verdicts[0]']];
 function setup(){const dir=join(tempDir(),'tiny');const f=directionFixture(dir);return{dir,...f};}
 function write(dir:string,n=2){return directionCommand(['write',String(n),dir,'--file','evidence/input.json','--rig','1']);}
 function refuses(code:string,fn:()=>unknown){try{fn();throw Error(`expected ${code}`);}catch(e){expect((e as {code:string}).code).toBe(code);}}
@@ -97,7 +99,7 @@ test('current per-ask Other with fragment and auto decided pass; their pending c
   }
 });
 
-test('authored document integrates into filled project at 0/0 and packaging cannot rebind its model',async()=>{
+test('authored document integrates into filled project with no refusals and packaging cannot rebind its model',async()=>{
   const {fixture}=await import('./fixtures.ts');const {collectItems}=await import('../src/check.ts');
   const dir=fixture(()=>{},'example-project.json');
   testClock.set(new Date('2026-11-21T08:00:00Z'));
@@ -109,7 +111,7 @@ test('authored document integrates into filled project at 0/0 and packaging cann
   doc.schema=DIRECTION_SCENE_SPEC;doc.scene=sceneReference(currentScene(p)!);
   const items=collectItems(p,{collection:null});for(const[section,id]of [['camera','camera_depth'],['timing','post_timing']]){const item=items.find(i=>i.id===id)!;(doc.citations as JsonObject)[section!]={guide:id!,asks:[id!],quote:(item.raw as JsonObject).verbatim as string};}
   writeFileSync(join(dir,'evidence/input-direction.json'),JSON.stringify(doc));directionCommand(['write','5',dir,'--file','evidence/input-direction.json','--rig','2']);
-  const report=checkProject(dir);expect(report.refusals).toEqual([]);expect(report.warnings).toEqual([]);
+  const report=checkProject(dir);expect(report.refusals).toEqual([]);expect(report.warnings.map(w=>[w.code,w.path])).toEqual(POST_LAPSES);
   expect(reviewPackageCommand(['2',dir,'--config','evidence/v2/review-config.json','--from','outputs/v2/out']).exit).toBe(0);
   writeFileSync(join(dir,'outputs/v2/out/check/build/skeleton.model.json'),'changed compiled input');const before=readFileSync(join(dir,'project.json'));refuses('DIRECTION_RIG_STALE',()=>reviewPackageCommand(['2',dir,'--config','evidence/v2/review-config.json','--from','outputs/v2/out']));expect(readFileSync(join(dir,'project.json'))).toEqual(before);
 });
@@ -142,7 +144,7 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   const input=join(dir,'evidence/input-direction.json');writeFileSync(input,JSON.stringify(doc));
   expect(directionCommand(['write','5',dir,'--file','evidence/input-direction.json','--rig','2']).exit).toBe(0);
   expect(existsSync(join(dir,'evidence/direction/v5.json'))).toBe(true);
-  const report=checkProject(dir);expect(report.refusals).toEqual([]);expect(report.ok).toBe(true);expect(report.warnings).toEqual([]);
+  const report=checkProject(dir);expect(report.refusals).toEqual([]);expect(report.ok).toBe(true);expect(report.warnings.map(w=>[w.code,w.path])).toEqual(POST_LAPSES);
   const original=readFileSync(join(dir,'project.json'));
   ((doc.camera as JsonObject).keys as JsonObject[]).push({time:4,box:{x:0,y:0,width:10,height:10},easing:'hold'});writeFileSync(input,JSON.stringify(doc));
   refuses('DIRECTION_CITATION',()=>directionCommand(['write','6',dir,'--file','evidence/input-direction.json','--rig','2']));

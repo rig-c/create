@@ -62,7 +62,10 @@ afterEach(() => testClock.reset());
 const NOW = Date.parse('2026-11-20T00:00:00Z');
 const SINCE = Date.parse(PROGRESS_HISTORY_SINCE);
 
-test('writer-only round trip on the generated example: reopen, step-status chain, reopen, check with no findings', () => {
+/** What a reopen to post voids on the filled example (#220): the direction-review sign-off and acceptance. */
+const POST_LAPSES = [['REOPEN_SIGNOFF_LAPSED', 'signoffs[10]'], ['REOPEN_VERDICT_LAPSED', 'versions[v4].verdicts[0]']];
+
+test('writer-only round trip on the generated example: reopen, step-status chain, reopen, check lists only the lapsed approvals', () => {
   const dir = fixture(() => {}, 'example-project.json');
   expect(read(dir).stage).toBe('accepted');
   expect(findings(dir, 'refusals')).toEqual([]);
@@ -70,14 +73,14 @@ test('writer-only round trip on the generated example: reopen, step-status chain
   at(NOW); reopen(dir, 'post');
   expect(before(read(dir), 'camera').status).toBe('done');
   expect(findings(dir, 'refusals')).toEqual([]);
-  expect(findings(dir, 'warnings')).toEqual([]);
+  expect(findings(dir, 'warnings')).toEqual(POST_LAPSES);
   status(dir, 'camera', 'in-progress'); status(dir, 'camera', 'at-checkpoint'); status(dir, 'timing', 'in-progress');
   reopen(dir, 'post');
   const project = read(dir);
   expect([before(project, 'camera', 1).status, before(project, 'timing', 1).status, before(project, 'composition', 1).status])
     .toEqual(['at-checkpoint', 'in-progress', 'pending']);
   expect(findings(dir, 'refusals')).toEqual([]);
-  expect(findings(dir, 'warnings')).toEqual([]);
+  expect(findings(dir, 'warnings')).toEqual(POST_LAPSES);
 });
 
 test('a planted steps_before status on an example-chain prefix is refused at its record path', () => {

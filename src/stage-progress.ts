@@ -1,10 +1,14 @@
 import { asArray, asString, collectSignoffs, isObject, postNotPassed, type Ctx, type Finding } from './check.ts';
 import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, SKIPPED_WHEN_NO_POST, STAGES, hasStageOrder, stageIndex, stageOfStep } from './stages.ts';
+import { collectAmendments } from './amend.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 /** Dates the authorizing stage-level signature, including a signature earlier on landing day. */
 export const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
+
+/** Dates a history link break by the earliest recorded event the unrecorded move must follow. */
+export const PROGRESS_HISTORY_SINCE = '2026-11-08T00:00:00Z';
 
 /** Select the latest signature at the furthest still-live closing stage. */
 export function furthestStageSignoff(signoffs: Ctx['signoffs']): Ctx['signoffs'][number] | undefined {
@@ -54,12 +58,13 @@ export function stageWindow(ctx: Ctx): { minimum: string; maximum: string; signo
 }
 
 export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
-  if (ctx.stage === PAUSED_STAGE || ctx.effectiveStage !== ctx.stage) return;
-  const window = stageWindow(ctx);
+  if (ctx.stage === PAUSED_STAGE) return;
+  // Amend retains the stored stage while its approvals lapse, so only the recorded-move check applies (PROJECT.md).
+  const amended = ctx.effectiveStage !== ctx.stage;
   const current = stageIndex(ctx.stage);
   const frontier = furthestStageSignoff(ctx.signoffs);
   const unreadable = ctx.signoffs.find(s => s.stage === frontier?.stage && s.checkpoint === null && !Number.isFinite(s.at));
-  if (unreadable !== undefined) {
+  if (!amended && unreadable !== undefined) {
     ctx.refusals.push({ code: 'STAGE_SIGNOFF_DATE_INVALID', path: `signoffs[${unreadable.index}].at`, message: `signoffs[${unreadable.index}].at: frontier approval needs a readable date; restore its original date before advancing` });
     return;
   }
@@ -72,8 +77,9 @@ export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
   const latestMove = moves[0];
   if (latestMove === undefined ? ctx.stage !== 'interview' : latestMove.record.stage !== ctx.stage) {
     // The unrecorded move is no older than the latest recorded move and the stage's arrival authority:
-    // the latest live stage-level signature at the furthest stage before the current one.
-    const earlier = ctx.signoffs.filter(s => s.checkpoint === null && stageIndex(s.stage) >= 0 && stageIndex(s.stage) < current);
+    // the latest stage-level signature at the furthest stage before the current one. It is live, or on an
+    // amended project retained, since amend voids the approvals that dated the arrival.
+    const earlier = (amended ? collectSignoffs(ctx.project, []) : ctx.signoffs).filter(s => s.checkpoint === null && stageIndex(s.stage) >= 0 && stageIndex(s.stage) < current);
     const arrivalStage = Math.max(...earlier.map(s => stageIndex(s.stage)));
     const arrival = earlier.filter(s => stageIndex(s.stage) === arrivalStage);
     const dates = [
@@ -84,6 +90,8 @@ export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
     const finding = { code: 'STAGE_SKIPPED', path: 'stage', message: `stage: ${ctx.stage} differs from its latest recorded move (${latestMove === undefined ? 'none' : String(latestMove.record.stage)}); use advance for the next authorized stage or reopen the unfinished stage` };
     (forwardWrite || !(movedAt < since) ? ctx.refusals : ctx.warnings).push(finding);
   }
+  if (amended) return;
+  const window = stageWindow(ctx);
   const code = current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
     : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
   if (code === null) return;
@@ -183,6 +191,97 @@ export function checkStepStatusHistory(ctx: Ctx): void {
         || !(Date.parse(String(signature.at)) <= Date.parse(String(entry.at)))) {
         ctx.refusals.push({ code: 'STEP_STATUS_SIGNOFF', path: entryPath, message: `${entryPath}: checkpoint reference does not authorize this step at this time; retain the matching human checkpoint signature` });
       }
+    }
+  }
+}
+
+const eventTime = (value: Json | undefined): number => Date.parse(String(value));
+
+/**
+ * Advances and reopens must chain from the initial stage, and each step's status_history must chain from
+ * pending through reopen and amendment resets to its current status. A break is dated by the latest recorded
+ * event the unrecorded move must follow, so a later writer entry does not turn an older hand move into a refusal.
+ */
+export function checkProgressLinkage(ctx: Ctx): void {
+  const since = Date.parse(PROGRESS_HISTORY_SINCE);
+  const push = (code: string, path: string, why: string, after: number): void => {
+    (after >= since ? ctx.refusals : ctx.warnings).push({ code, path,
+      message: `${path}: ${why}; preserve the history and record the move through ${code === 'STAGE_MOVE_UNLINKED' ? 'advance or reopen' : 'step-status, or reopen its stage to reset it'}` });
+  };
+  const signatures = collectSignoffs(ctx.project, []).filter(s => s.checkpoint === null && Number.isFinite(s.at) && stageIndex(s.stage) >= 0);
+  type Move = { record: JsonObject; path: string; advance: boolean; index: number };
+  const moves = [
+    ...asArray(ctx.project.advances).map((record, index) => ({ record, path: `advances[${index}]`, advance: true, index })),
+    ...asArray(ctx.project.reopens).map((record, index) => ({ record, path: `reopens[${index}]`, advance: false, index })),
+  ].filter((move): move is Move => isObject(move.record) && typeof move.record.stage === 'string'
+    && typeof move.record.from_stage === 'string' && Number.isFinite(eventTime(move.record.at)));
+
+  let latestAdvance = -Infinity;
+  for (const move of moves.filter(m => m.advance)) {
+    const at = eventTime(move.record.at);
+    if (at < latestAdvance) push('STAGE_MOVE_UNLINKED', move.path, 'is dated before an earlier advances[] entry', latestAdvance);
+    latestAdvance = Math.max(latestAdvance, at);
+  }
+  // Time order; on a tie, prefer the move that links, then advances before reopens as checkStageProgress does.
+  const queue = [...moves].sort((a, b) => eventTime(a.record.at) - eventTime(b.record.at) || Number(b.advance) - Number(a.advance) || a.index - b.index);
+  let stage = 'interview';
+  let previous = -Infinity;
+  const links = (move: Move): boolean => move.record.from_stage === stage || move.record.from_stage === PAUSED_STAGE;
+  while (queue.length > 0) {
+    const at = eventTime(queue[0]!.record.at);
+    const tied = queue.filter(m => eventTime(m.record.at) === at);
+    const move = tied.find(links) ?? tied[0]!;
+    queue.splice(queue.indexOf(move), 1);
+    if (!links(move)) {
+      const from = stageIndex(String(move.record.from_stage));
+      const before = signatures.filter(s => stageIndex(s.stage) < from && s.at <= at);
+      const furthest = Math.max(...before.map(s => stageIndex(s.stage)));
+      const arrival = Math.max(-Infinity, ...before.filter(s => stageIndex(s.stage) === furthest).map(s => s.at));
+      push('STAGE_MOVE_UNLINKED', move.path, `from_stage ${String(move.record.from_stage)} does not follow ${stage}, the stage its previous recorded move left`, Math.max(previous, arrival));
+    }
+    stage = String(move.record.stage);
+    previous = at;
+  }
+
+  const legacy = collectSignoffs(ctx.project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null && s.at < Date.parse(PARTS_REVIEW_SINCE));
+  const amendments = collectAmendments(ctx.project, []);
+  for (const step of ctx.steps) {
+    const history = step.record.status_history;
+    if (!Array.isArray(history) || history.length === 0
+      || history.some(raw => statusTransitionFinding(isObject(raw) ? raw : {}, '') !== null)) continue;
+    const executes = [stageOfStep(step.phase, step.id), ...(legacy ? [stageOfStep(step.phase, '')] : [])];
+    const resets = [
+      ...asArray(ctx.project.reopens).filter(isObject).filter(r => Array.isArray(r.steps_before)
+        ? r.steps_before.some(s => isObject(s) && s.id === step.id)
+        : stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(String(r.stage))).map(r => eventTime(r.at)),
+      ...amendments.filter(a => stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(a.stage)).map(a => a.at),
+    ].filter(Number.isFinite);
+    const arrivals = moves.filter(m => m.advance && executes.includes(String(m.record.stage))).map(m => eventTime(m.record.at));
+    const after = (until: number, previous: number): number => Math.max(previous, ...[...resets, ...arrivals].filter(t => t <= until));
+    // A reset strictly between two entries forces pending; one tied with an entry may fall on either side.
+    const reset = (possible: Set<string>, from: number, to: number): Set<string> => {
+      const between = resets.filter(r => r >= from && r <= to);
+      if (between.some(r => r > from && r < to)) return new Set(['pending']);
+      return between.length > 0 ? new Set([...possible, 'pending']) : possible;
+    };
+    let possible = new Set(['pending']);
+    let previous = -Infinity;
+    for (const [index, raw] of history.entries()) {
+      const entry = raw as JsonObject;
+      const path = `${step.path}.status_history[${index}]`;
+      const at = eventTime(entry.at);
+      if (at < previous) push('STEP_STATUS_UNLINKED', path, `is dated before status_history[${index - 1}]`, previous);
+      else {
+        possible = reset(possible, previous, at);
+        if (!possible.has(String(entry.from_status))) push('STEP_STATUS_UNLINKED', path, `from_status ${String(entry.from_status)} does not follow ${[...possible].join(' or ')}, the status before it`, after(at, previous));
+      }
+      possible = new Set([String(entry.status)]);
+      previous = Math.max(previous, at);
+    }
+    possible = reset(possible, previous, Infinity);
+    const current = step.record.status === undefined ? 'pending' : step.record.status;
+    if (typeof current === 'string' && STEP_STATUSES.includes(current as typeof STEP_STATUSES[number]) && !possible.has(current)) {
+      push('STEP_STATUS_UNLINKED', `${step.path}.status`, `${current} is not the status its last status_history entry recorded (${[...possible].join(' or ')})`, after(Infinity, previous));
     }
   }
 }

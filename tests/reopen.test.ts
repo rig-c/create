@@ -85,7 +85,7 @@ describe('human stage reopen', () => {
     const dir = fixture(); reopen(dir);
     const p = read(dir);
     arr(p.signoffs).push({ stage: 'parts-review', by: 'owner', at: '2026-11-21T00:00:00Z', verbatim: 'yes', checkpoint: null });
-    p.stage = 'rigging';
+    // The stage stays where the first reopen left it: a hand move would leave the second reopen unlinked.
     for (const id of ['seethrough', 'assemble']) step(p, id).status = 'done';
     arr(p.signoffs).push({ stage: 'parts', checkpoint: 'assemble', by: 'owner', at: '2026-11-21T00:00:00Z', verbatim: 'yes' });
     save(dir, p);

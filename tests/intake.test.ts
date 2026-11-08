@@ -1,4 +1,3 @@
-import { stageIndex } from '../src/stages.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,10 +6,10 @@ import { intakeCommand, intakeWarnings, intakeItem, intakeContext } from '../src
 import { OPTIONS_SPEC, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { fixture, obj, arr, retainSignoffs } from './fixtures.ts';
+import { fixture, obj, arr } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
-import { checkProject, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
+import { checkProject, reopenCommand, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
 
 const raw = readFileSync(join(import.meta.dir,'fixtures/intake/preflight.json'));
 const load=(dir:string):JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
@@ -117,20 +116,10 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>signoffCommand(['plan-approved',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>signoffCommand(['rigging-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>{
-      const candidate=load(dir);
-      candidate.stage='parts-review';
-      candidate.versions=[];
-      candidate.scenes=[];
-      delete candidate.direction_contract;
-      for(const raw of arr(obj(obj(candidate.interview).post).items)){const item=obj(raw);item.guide=null;item.history=[];}
-      for(const raw of arr(obj(candidate.interview).waypoints)){const item=obj(raw);if(['bones','meshes','constraints','motion'].includes(String(item.id))){item.guide=null;item.history=[];}}
-      retainSignoffs(candidate,s=>stageIndex(String(s.stage))<stageIndex('parts-review'));
-      for(const raw of arr(obj(candidate.plan).steps)) {
-        const step=obj(raw);
-        if(step.phase==='post'||!['seethrough','assemble'].includes(String(step.id)))step.status='pending';
-      }
-      save(dir,candidate);
-      testClock.set(new Date(String(arr(p.signoffs).map(obj).find(s=>s.stage==='parts-review')!.at)));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--evidence',EXAMPLE_VERDICT,'--diff-report',EXAMPLE_DIFF_REPORT,'--component','p10-n3=in-painting:synthetic source','--component','p1000-n3=in-painting:synthetic source','--draft','example','--structure-file','evidence/structure-decisions.json']);},
+      // Reopen through the writer: it moves the stage back and resets later steps, and the later approvals,
+      // versions, scenes and direction stay as superseded history, so no hand rewind is needed.
+      reopenCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+      testClock.set(new Date('2026-11-20T10:00:01Z'));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--evidence',EXAMPLE_VERDICT,'--diff-report',EXAMPLE_DIFF_REPORT,'--component','p10-n3=in-painting:synthetic source','--component','p1000-n3=in-painting:synthetic source','--draft','example','--structure-file','evidence/structure-decisions.json']);},
     ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),

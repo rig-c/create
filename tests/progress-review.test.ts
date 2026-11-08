@@ -89,9 +89,12 @@ test('review a hand-set authorized next stage still needs the matching advance',
     retimeFixture(p, Date.parse('2026-11-16T00:00:00Z'));
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
   });
-  const p = read(dir); p.advances = []; p.stage = 'parts'; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+  const p = read(dir); const recorded = p.advances; p.advances = []; p.stage = 'parts'; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   expect(codes(dir)).toEqual(['STAGE_SKIPPED']);
+  // The next advance cannot absorb the unrecorded move into plan-approved.
   p.stage = 'plan-approved'; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+  unchangedRefusal(dir, 'STAGE_MOVE_UNLINKED', () => advance(dir, 'parts'));
+  p.advances = recorded; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   advance(dir, 'parts'); expect(codes(dir)).toEqual([]);
 });
 

@@ -56,8 +56,18 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   mutate(project);
   if (!rawLegacy) {
     retainSignoffs(project, () => true);
+    trimStatusHistory(project);
     if (template === 'legacy-example-project.json' && Array.isArray(project.advances)) {
       project.advances = project.advances.filter(raw => !isObject(raw) || stageIndex(String(raw.stage)) <= stageIndex(String(project.stage)));
+      // Re-signatures each cache a move; keep the earliest surviving move per transition so the history links.
+      const seen = new Set<string>();
+      project.advances = project.advances.filter(raw => {
+        if (!isObject(raw)) return true;
+        const key = `${String(raw.from_stage)}>${String(raw.stage)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     }
   }
   if (template === 'legacy-example-project.json' && !rawLegacy) alignLegacyBuilds(project, files);
@@ -85,12 +95,15 @@ function legacySetupAdvances(): Json[] {
     const words = join(dir, 'setup-approval.txt');
     writeFileSync(words, 'Migrate the synthetic legacy stage setup through advance.');
     const result: Json[] = [];
+    // One move per transition forms the chain each later move links to.
+    const chain: Json[] = [];
     for (const target of LEGACY_STAGES.slice(1)) {
       const from = LEGACY_STAGES[LEGACY_STAGES.indexOf(target) - 1]!;
       const owner = LEGACY_STAGES.slice(0, LEGACY_STAGES.indexOf(target)).filter(s => s.closed_by === 'signoff').at(-1)!;
       for (const approval of asArray(original.signoffs).filter(isObject).filter(s => s.stage === owner.id && s.checkpoint === null)) {
         const project = structuredClone(original);
         project.stage = from.id;
+        project.advances = structuredClone(chain);
         project.signoffs = asArray(project.signoffs).filter(isObject).filter(s => stageIndex(String(s.stage)) <= stageIndex(from.id)
           && (s.stage !== owner.id || Date.parse(String(s.at)) <= Date.parse(String(approval.at))));
         for (const raw of asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)) {
@@ -103,6 +116,8 @@ function legacySetupAdvances(): Json[] {
         const advanced = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
         result.push(asArray(advanced.advances).at(-1)!);
       }
+      const first = result.find(raw => isObject(raw) && raw.stage === target.id);
+      if (first !== undefined) chain.push(first);
     }
     legacyAdvances = result;
     return result;
@@ -177,6 +192,48 @@ export function retainSignoffs(project: JsonObject, keep: (signature: JsonObject
   }
   for (const step of asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)) {
     if (Array.isArray(step.status_history)) step.status_history = step.status_history.filter(raw => !isObject(raw) || retained(raw.signoff));
+  }
+}
+
+/**
+ * Withdraw a stage's stage-level signatures for a writer to record again. Each one's `at` and every stable identity
+ * naming it are re-expressed as the clock writes them, so re-signing at the returned instant restores the identity
+ * its recorded moves name instead of leaving them unlinked.
+ */
+export function withdrawSignature(dir: string, stage: string): string {
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const withdrawn = asArray(project.signoffs).filter(isObject).filter(s => s.stage === stage && (s.checkpoint ?? null) === null);
+  const identities = [
+    ...asArray(project.advances).filter(isObject).flatMap(entry => [entry.signoff, ...asArray(entry.signoffs_before)]),
+    ...asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject).flatMap(step => asArray(step.status_history).filter(isObject).map(entry => entry.signoff)),
+  ].filter(isObject);
+  for (const signature of withdrawn) {
+    const at = new Date(String(signature.at)).toISOString();
+    for (const identity of identities.filter(identity => matchesSignoff(identity, signature))) identity.at = at;
+    signature.at = at;
+  }
+  project.signoffs = asArray(project.signoffs).filter(s => !withdrawn.includes(s as JsonObject));
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  return String(withdrawn[0]?.at);
+}
+
+/**
+ * A setup that hand-resets a step never ran its later transitions: drop history past the current status.
+ * A recorded reopen or amendment reset after the last entry is history, not a setup edit, and keeps it.
+ */
+export function trimStatusHistory(project: JsonObject): void {
+  for (const step of asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)) {
+    if (!Array.isArray(step.status_history) || (step.phase !== 'rig' && step.phase !== 'post')) continue;
+    const current = step.status ?? 'pending';
+    const last = Date.parse(String(obj(step.status_history.at(-1) ?? {}).at));
+    const stage = stageIndex(stageOfStep(step.phase, String(step.id)));
+    const reset = [
+      ...asArray(project.reopens).filter(isObject).filter(r => asArray(r.steps_before).some(s => isObject(s) && s.id === step.id)),
+      ...asArray(project.amendments).filter(isObject).filter(a => isObject(a.target) && stage >= stageIndex(String(a.target.stage))),
+    ].some(event => Date.parse(String(event.at)) >= last);
+    if (current === 'pending' && reset) continue;
+    while (step.status_history.length > 0 && !(isObject(step.status_history.at(-1)) && obj(step.status_history.at(-1)).status === current)) step.status_history.pop();
   }
 }
 

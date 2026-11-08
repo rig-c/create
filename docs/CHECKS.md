@@ -636,7 +636,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE` and `RUN_RECORD_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE` and `PROGRESS_HISTORY_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1050,6 +1050,19 @@ amendment grants no authority. A completed bar permits its next review.
 | `PROGRESS_OPTION_INVALID` | advance or step-status arguments are missing, repeated or malformed | supply the target or step/status and --by once |
 | `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage, or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage and use pending, in-progress, at-checkpoint, done in order |
 | `STEP_STATUS_SIGNOFF` | retained status history has a missing or mismatched checkpoint signature reference | retain its matching human checkpoint signoff and record done through step-status |
+| `STAGE_MOVE_UNLINKED` | an advance or reopen's `from_stage` is not the stage the previous recorded move (by time) left, starting from `interview` (`paused` links to either side), or an `advances[]` entry is dated before an earlier one | preserve the history; record each later move through advance or reopen |
+| `STEP_STATUS_UNLINKED` | a `status_history[]` entry's `from_status` is not the previous entry's `status` (`pending` for the first, or after a reopen or amendment that reset the step), an entry is dated before the one before it, or the step's `status` is not the last recorded status | preserve the history; record transitions through step-status, or reopen the step's stage to reset it |
+
+`PROGRESS_HISTORY_SINCE = 2026-11-08T00:00:00Z` dates each link break by the
+latest recorded event the unrecorded move must follow: the previous move or
+status entry, a reopen or amendment that reset the step, the advance into the
+step's execution stage, and for a stage move the latest stage-level signature
+at the furthest stage before its `from_stage`. A reordered entry is dated by the
+later of the two entries. Breaks dated from the cutoff refuse; earlier ones,
+and breaks with no preceding dated event, WARN with the same code. A later
+writer entry therefore does not turn an older hand move into a refusal. A
+reset tied in time with an entry may fall on either side of it. The latest
+move must still equal `stage` (`STAGE_SKIPPED`).
 
 `CHECKPOINT_UNSIGNED` also refuses a step-status done without its live human
 checkpoint approval. A new advance refuses lag and skip even for legacy signatures. Both progress writers reconcile stage_values, validate

@@ -6,7 +6,7 @@ import { Refusal } from '../src/refusal.ts';
 import { checkSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
-import { arr, fixture, obj } from './fixtures.ts';
+import { arr, fixture, obj, withdrawSignature } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { checkProject, directionCommand, advanceCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
@@ -15,11 +15,12 @@ const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'pro
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
 afterEach(() => testClock.reset());
 function setup(stage = 'rig-review'): string {
-  const dir = stage === 'direction-review' ? fixture() : fixture(p => { p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== stage); });
+  const dir = fixture();
   writeFileSync(join(dir, 'words.txt'), 'Approve this reviewed version.\n');
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   if (stage === 'direction-review') reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
-  testClock.set(new Date('2026-11-20T00:00:01Z'));
+  // A withdrawn approval is signed again at its own instant, so the move it authorized stays linked.
+  testClock.set(new Date(stage === 'direction-review' ? '2026-11-20T00:00:01Z' : withdrawSignature(dir, stage)));
   return dir;
 }
 function sign(dir: string, stage: string, version?: string): JsonObject {

@@ -1,0 +1,127 @@
+{
+  "schema": "rig-create/example-checkpoint@1",
+  "stage": 0,
+  "name": "0a-interview-options",
+  "chain_step": 8,
+  "pending": {
+    "act": "Choose the interview answers, draft the plan and sign the interview",
+    "commands": [
+      "rig-create interview-answer rig_type --set evidence/interview/rig_type.json --sha256 <sha256 of evidence/interview/rig_type.json> --by user --pick rig_type=keep",
+      "agent draft evidence/interview/reference.json",
+      "rig-create interview-options reference --file evidence/interview/reference.json",
+      "rig-create interview-answer reference --set evidence/interview/reference.json --sha256 <sha256 of evidence/interview/reference.json> --by user --pick reference=keep",
+      "agent draft evidence/interview/seethrough.json",
+      "rig-create interview-options seethrough --file evidence/interview/seethrough.json",
+      "rig-create interview-answer seethrough --set evidence/interview/seethrough.json --sha256 <sha256 of evidence/interview/seethrough.json> --by user --pick layers=keep --pick resolution=keep --pick head_crop=keep --pick seed=keep",
+      "agent draft evidence/interview/assemble.json",
+      "rig-create interview-options assemble --file evidence/interview/assemble.json",
+      "rig-create interview-answer assemble --set evidence/interview/assemble.json --sha256 <sha256 of evidence/interview/assemble.json> --by user --pick projection=keep --pick cut=keep --pick emphasis=keep --pick draw_order=keep --pick authored=keep --pick occluders=keep --pick outfits=keep",
+      "rig-create plan add seethrough --by agent --phase rig --order 1 --does Execute synthetic seethrough --produces Synthetic seethrough output --rests-on seethrough --bar The synthetic output matches its declared input. --checkpoint-proposed false",
+      "rig-create plan add assemble --by agent --phase rig --order 2 --does Execute synthetic assemble --produces Synthetic assemble output --rests-on assemble --bar The synthetic output matches its declared input. --checkpoint-proposed true",
+      "rig-create plan add bones --by agent --phase rig --order 3 --does Execute synthetic bones --produces Synthetic bones output --rests-on bones --bar The synthetic output matches its declared input. --checkpoint-proposed false",
+      "rig-create plan add meshes --by agent --phase rig --order 4 --does Execute synthetic meshes --produces Synthetic meshes output --rests-on meshes --bar The synthetic output matches its declared input. --checkpoint-proposed false",
+      "rig-create plan add constraints --by agent --phase rig --order 5 --does Execute synthetic constraints --produces Synthetic constraints output --rests-on constraints --bar The synthetic output matches its declared input. --checkpoint-proposed false",
+      "rig-create plan add motion --by agent --phase rig --order 6 --does Execute synthetic motion --produces Synthetic motion output --rests-on motion --bar The synthetic output matches its declared input. --checkpoint-proposed false",
+      "rig-create signoff interview --by user --verbatim-file evidence/approval.txt"
+    ],
+    "command_roles": [
+      "human",
+      "agent",
+      "agent",
+      "human",
+      "agent",
+      "agent",
+      "human",
+      "agent",
+      "agent",
+      "human",
+      "agent",
+      "agent",
+      "agent",
+      "agent",
+      "agent",
+      "agent",
+      "human"
+    ],
+    "awaits": [
+      "interview.framing[rig_type].answer",
+      "interview.framing[reference].answer",
+      "interview.waypoints[seethrough].guide",
+      "interview.waypoints[assemble].guide",
+      "plan.steps",
+      "signoffs[stage=interview]"
+    ]
+  },
+  "expected_findings": {
+    "refusals": [
+      {
+        "code": "INTERVIEW_INCOMPLETE",
+        "path": "interview.framing[rig_type].answer",
+        "message": "interview.framing[rig_type].answer: not answered yet; the interview is incomplete"
+      },
+      {
+        "code": "INTERVIEW_INCOMPLETE",
+        "path": "interview.framing[reference].answer",
+        "message": "interview.framing[reference].answer: not answered yet; the interview is incomplete"
+      },
+      {
+        "code": "INTERVIEW_INCOMPLETE",
+        "path": "interview.waypoints[seethrough].guide",
+        "message": "interview.waypoints[seethrough].guide: not answered yet; the interview is incomplete"
+      },
+      {
+        "code": "INTERVIEW_INCOMPLETE",
+        "path": "interview.waypoints[assemble].guide",
+        "message": "interview.waypoints[assemble].guide: not answered yet; the interview is incomplete"
+      }
+    ],
+    "warnings": []
+  },
+  "project_sha256": "902e4405e4d5ffb8c5039287a04c3018b8aa9bfe723f2acd4895ce01615da2eb",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "58c9530777d5b5503615514bc2545fd25df42143f211572872dfa984c3c64d99"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "d9640659654a6c304ebe7f4086c8dd7381170ed015f5a044a2aa9fe0504ad786"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "4f21b640d3591d6fc8614b18f1cef324097184c735bdd845562ef214a523612a"
+    },
+    {
+      "path": "evidence/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/approval.txt",
+      "sha256": "e05bbdcecef4e5783efa2415eea975b0abdbf4454bf9143d5fb650c0c513eb83"
+    },
+    {
+      "path": "evidence/interview/rig_type.json",
+      "sha256": "be6ce065cede003d5df3dc2d1392b403e7bec174a90182afe7280e7b926bc931"
+    },
+    {
+      "path": "evidence/split-config.json",
+      "sha256": "09894c45fb493a697713d2055cbd294b0cb2c9c28cf9d2cda41334d8f1904100"
+    },
+    {
+      "path": "inputs/painting.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+    },
+    {
+      "path": "inputs/references/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "package.json",
+      "sha256": "d3ec766c347c65a78941f322fa3814829685fe2a4cc5cf8fbff23157fe00fd9f"
+    },
+    {
+      "path": "project.json",
+      "sha256": "902e4405e4d5ffb8c5039287a04c3018b8aa9bfe723f2acd4895ce01615da2eb"
+    }
+  ]
+}

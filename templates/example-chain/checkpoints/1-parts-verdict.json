@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 1,
   "name": "1-parts-verdict",
-  "chain_step": 30,
+  "chain_step": 39,
   "pending": {
     "act": "Export the synthetic review-tool parts verdict, then approve the parts",
     "commands": [
@@ -32,7 +32,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "3953fb519f920d5f9a83064b4f93e92d98e3e815504cc68a1f752cb698e3ac55",
+  "project_sha256": "e3770af97f7c6f0f2f3d58c28ee4d44c4eb6ea151139689cf49a97cef61def8e",
   "files": [
     {
       "path": ".gitignore",
@@ -196,7 +196,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "3953fb519f920d5f9a83064b4f93e92d98e3e815504cc68a1f752cb698e3ac55"
+      "sha256": "e3770af97f7c6f0f2f3d58c28ee4d44c4eb6ea151139689cf49a97cef61def8e"
     }
   ]
 }

@@ -160,7 +160,7 @@ export function checkExampleChain(dir: string, now: number): ReturnType<typeof c
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   for (const input of asArray(project.inputs).filter(isObject)) {
     const bytes = readFileSync(join(dir, String(input.path)));
-    if (input.sha256 !== sha256(bytes) || input.bytes !== bytes.length) throw new Error('seeded source inventory differs from its file');
+    if (input.sha256 !== sha256(bytes) || input.bytes !== bytes.length) throw new Error('registered source inventory differs from its file');
   }
   return report;
 }
@@ -423,7 +423,6 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       seed_kinds: [
         { kind: 'plan.steps (setup and status progress)', fields: ['plan.steps', 'split.parts'] },
         { kind: 'rig version declaration', fields: ['versions[]'] },
-        { kind: 'source inventory', fields: ['inputs[]'] },
       ],
       index_base: 0, stack_equals_painting: diffReport.stack.sha256 === diffReport.painting.sha256,
       checkpoints: checkpoints.map(({ stage, name, chain_step }) => ({ stage, name, chain_step })),

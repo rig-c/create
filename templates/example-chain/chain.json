@@ -13,12 +13,6 @@
       "fields": [
         "versions[]"
       ]
-    },
-    {
-      "kind": "source inventory",
-      "fields": [
-        "inputs[]"
-      ]
     }
   ],
   "index_base": 0,

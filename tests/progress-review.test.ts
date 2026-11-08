@@ -1,16 +1,12 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
-import { reopenCommand } from '../src/reopen.ts';
-import { reviewCommand } from '../src/feedback.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { Refusal } from '../src/refusal.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { tempDir } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, step } from './fixtures.ts';
+import { checkProject, advanceCommand, stepStatusCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const codes = (dir: string): string[] => checkProject(dir).refusals.map(f => f.code);
@@ -32,10 +28,10 @@ function unchangedRefusal(dir: string, code: string, action: () => void): void {
   catch (error) { expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe(code); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 }
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 
 function riggingProject(empty = false): string {
-  setSystemTime(new Date('2026-11-06T23:59:00Z'));
+  testClock.set(new Date('2026-11-06T23:59:00Z'));
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
   reopenCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
@@ -45,7 +41,7 @@ function riggingProject(empty = false): string {
     for (const raw of arr(obj(p.interview).waypoints)) if (['bones', 'meshes', 'constraints', 'motion'].includes(String(obj(raw).id))) obj(raw).guide = { not_applicable: true, because: 'No rigging work applies.', by: 'owner', at: '2026-11-06T23:59:00Z' };
     writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   }
-  setSystemTime(new Date('2026-11-06T23:59:01Z'));
+  testClock.set(new Date('2026-11-06T23:59:01Z'));
   return dir;
 }
 
@@ -58,12 +54,12 @@ test('review a new writer cannot bypass unfinished rigging with a legacy frontie
   const dir = riggingProject();
   sign(dir, 'rigging-interview'); advance(dir, 'rigging');
   expect(step(read(dir), 'bones').status).toBe('pending');
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   unchangedRefusal(dir, 'STAGE_SKIPPED', () => advance(dir, 'rig-review'));
 });
 
 test.each(['plan-approved', 'interview'])('review pre-parts checkpoint history survives upstream reopen %s', stage => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     Object.assign(p, JSON.parse(JSON.stringify(p).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g,
       value => new Date(Date.parse(value) - 30 * 86_400_000).toISOString())));
@@ -75,7 +71,7 @@ test.each(['plan-approved', 'interview'])('review pre-parts checkpoint history s
   });
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint'); status(dir, 'assemble', 'done');
   const history = structuredClone(step(read(dir), 'assemble').status_history);
-  setSystemTime(new Date('2026-11-21T00:00:00Z'));
+  testClock.set(new Date('2026-11-21T00:00:00Z'));
   reopenCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(codes(dir)).toEqual([]);
   expect(step(read(dir), 'assemble').status_history).toEqual(history);
@@ -87,7 +83,7 @@ test.each(['plan-approved', 'interview'])('review pre-parts checkpoint history s
 
 
 test('review a hand-set authorized next stage still needs the matching advance', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
@@ -120,7 +116,7 @@ test('review an absent frontier date retains the existing malformed-signoff refu
 });
 
 test('review an unreadable competing frontier signature cannot hide behind a readable one', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
     arr(p.signoffs).push({ ...obj(arr(p.signoffs)[1]), at: 'unreadable' });
@@ -133,10 +129,10 @@ test('review an unreadable competing frontier signature cannot hide behind a rea
 test('review a new writer cannot bypass unfinished post with a legacy frontier', () => {
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), dir, { recursive: true });
-  setSystemTime(new Date('2026-11-06T23:59:00Z'));
+  testClock.set(new Date('2026-11-06T23:59:00Z'));
   reopenCommand(['post', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(step(read(dir), 'camera').status).toBe('pending');
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   unchangedRefusal(dir, 'STAGE_SKIPPED', () => advance(dir, 'direction-review'));
 });
 
@@ -149,7 +145,7 @@ test('review a fresh project remains green at the initial stage', () => {
 });
 
 test('review latest reopen is green and a different hand-set stage is refused', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(() => {}, 'example-project.json');
   reopenCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(codes(dir)).toEqual([]);
@@ -159,7 +155,7 @@ test('review latest reopen is green and a different hand-set stage is refused', 
 });
 
 test('review an advance whose authority was dead at its event is refused', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'plan-approved'; p.versions = []; p.signoffs = arr(p.signoffs).slice(0, 2);
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
@@ -172,7 +168,7 @@ test('review an advance whose authority was dead at its event is refused', () =>
 });
 
 test('review advance snapshots require phases and retain completed historical bars', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(() => {}, 'example-project.json');
   const original = read(dir);
   const index = arr(original.advances).findIndex(raw => obj(raw).from_stage === 'parts');
@@ -220,10 +216,10 @@ function hand(dir: string, stage: string): void {
   const p = read(dir); p.stage = stage; writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
 }
 function acceptRigReview(dir: string, at: string): void {
-  setSystemTime(new Date(at));
+  testClock.set(new Date(at));
   reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review',
     '--verbatim-file', join(dir, 'evidence/approval.txt'), '--source', 'synthetic example']);
-  setSystemTime(new Date(Date.parse(at) + 60_000));
+  testClock.set(new Date(Date.parse(at) + 60_000));
   signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words(dir), '--version', '1']);
 }
 
@@ -233,7 +229,7 @@ test.each([
   ['2026-11-20T00:00:00Z', ['STAGE_LAGGING'], ['STAGE_SKIPPED']],
 ])('review a pre-contract hand move warns through a later frontier sign-off at %s', (at, refusals, warnings) => {
   const dir = checkpoint('3-rig-review', true);
-  setSystemTime(new Date(at));
+  testClock.set(new Date(at));
   expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
   acceptRigReview(dir, at);
   expect(arr(read(dir).signoffs).map(s => obj(s).stage).at(-1)).toBe('rig-review');
@@ -242,7 +238,7 @@ test.each([
 
 test('review the advance after a pre-contract hand move records it and clears the mismatch', () => {
   const dir = checkpoint('4-direction-post', true);
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
   advance(dir, 'direction-review');
   expect(obj(arr(read(dir).advances).at(-1)).stage).toBe('direction-review');
@@ -251,7 +247,7 @@ test('review the advance after a pre-contract hand move records it and clears th
 
 test.each(['interview', 'plan-approved'])('review a post-contract sign-off of earlier %s keeps a pre-contract hand move a warning', stage => {
   const dir = checkpoint('3-rig-review', true);
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   sign(dir, stage);
   expect(arr(read(dir).signoffs).map(s => obj(s).stage).at(-1)).toBe(stage);
   expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
@@ -267,7 +263,7 @@ test('review a hand move after a post-contract arrival sign-off is refused', () 
 test('review a hand move after a post-contract advance is refused although its arrival sign-off is older', () => {
   const dir = riggingProject();
   sign(dir, 'rigging-interview');
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   advance(dir, 'rigging');
   hand(dir, 'rig-review');
   expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: ['STAGE_SKIPPED'] });
@@ -275,7 +271,7 @@ test('review a hand move after a post-contract advance is refused although its a
 
 test('review a hand move after a post-contract reopen is refused although its arrival sign-off is older', () => {
   const dir = checkpoint('3-rig-review');
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   reopenCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   hand(dir, 'rig-review');
   expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: ['STAGE_SKIPPED'] });

@@ -1,19 +1,15 @@
 /** Closed schema adoption using unedited producer-written verdicts, never a sibling checkout. */
-import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { appendFileSync, cpSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
 import { checkPartsVerdict, sourceSha256 } from '../src/parts-verdict.ts';
-import { reopenCommand } from '../src/reopen.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
 import { Refusal } from '../src/refusal.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { checkProject, reopenCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
 
 const variants = [
   { name: '/1 unchanged release', folder: 'rig-review-1.5.0', file: 'parts-review.json', schema: 'rig-review-parts-verdict/1', comments: undefined },
@@ -26,9 +22,9 @@ const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'pro
 const write = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p, null, 2) + '\n');
 const signoff = (p: JsonObject): JsonObject => obj(arr(p.signoffs).find(s => obj(s).stage === 'parts-review'));
 
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 function project(v: Variant): string {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'rigging'; p.versions = [];
     p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts', 'parts-review'].includes(String(obj(s).stage)) && !Array.isArray(obj(s).steps));
@@ -84,7 +80,7 @@ for (const v of variants) describe(v.name, () => {
     expect(errors).toEqual([]);
     writeFileSync(join(dir, 'reopen.txt'), 'Revisit the synthetic parts approval.');
     reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'reopen.txt')]);
-    setSystemTime(new Date('2026-11-20T00:00:01Z'));
+    testClock.set(new Date('2026-11-20T00:00:01Z'));
     record(dir, v);
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
     advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'reopen.txt')]);

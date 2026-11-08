@@ -2,13 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
 import { PRE_INTERVIEW_VERDICTS } from '../src/pre-interview.ts';
 import { latestAccepted, readVersions } from '../src/review.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, codes, fixture, framing, obj, version, withCode, type Mutate } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-interview.json'), 'utf8')) as {
   versions: JsonObject[];

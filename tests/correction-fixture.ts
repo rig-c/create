@@ -1,11 +1,10 @@
-/** Synthetic shape-only checked Apply: no producer gate was run for these bytes. */
-import { setSystemTime } from 'bun:test';
+
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { correctionCommand } from '../src/correction-writers.ts';
 import { correctionHash } from '../src/corrections.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
+import { correctionCommand, testClock } from './clock.ts';
 
 export function correctionFixture(dir:string,kind:'post'|'rig'|'parts'='post'): {project:JsonObject;files:Record<string,string>;args:string[];outcome:string[]} {
   const files:Record<string,string>={
@@ -51,7 +50,7 @@ export function correctionFixture(dir:string,kind:'post'|'rig'|'parts'='post'): 
   }
   mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'project.json'),JSON.stringify(p,null,2)+'\n');
   for(const[path,bytes]of Object.entries(files)){mkdirSync(dirname(join(dir,path)),{recursive:true});writeFileSync(join(dir,path),path.endsWith('.png')?Buffer.from(bytes,'base64'):bytes);}
-  setSystemTime(new Date('2026-11-04T09:00:00.000Z'));
+  testClock.set(new Date('2026-11-04T09:00:00.000Z'));
   correctionCommand(['--adopt',dir]);
   return{project:JSON.parse(readFileSync(join(dir,'project.json'),'utf8')),files,args,outcome};
 }

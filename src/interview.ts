@@ -22,7 +22,7 @@ export const INTERVIEW_HELP = `interview:
                    runs the collection check (see collection --check)
   --json           print the report as JSON (ok, stage, parts, derived, provenance[], feedback[], refusals[], warnings[])`;
 
-export function interviewCommand(args: string[]): CommandResult {
+export function interviewCommand(args: string[], now: number): CommandResult {
   let check = false;
   let json = false;
   const positional: string[] = [];
@@ -43,7 +43,7 @@ export function interviewCommand(args: string[]): CommandResult {
     const report = checkCollection(collectionDir);
     return { stdout: json ? JSON.stringify(report, null, 2) : formatCollectionReport(report), exit: report.ok ? 0 : 1 };
   }
-  const report = checkProject(target);
+  const report = checkProject(target, undefined, { now });
   return {
     stdout: json ? JSON.stringify(report, null, 2) : [formatReport(report),
       ...(report.invariants === null ? [] : [`invariants: ${report.invariants.entries.length} entries, ${report.invariants.gaps.length} gaps (translated from the guide; not a rig check)`]),

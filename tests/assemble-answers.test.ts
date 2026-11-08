@@ -5,11 +5,10 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { PROJECTION_ASKS_SINCE } from '../src/assemble-answers.ts';
-import { checkProject } from '../src/check.ts';
-import { interviewCommand } from '../src/interview.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json } from '../src/templates.ts';
 import { arr, fixture, obj, version, waypoint } from './fixtures.ts';
+import { checkProject, interviewCommand } from './clock.ts';
 
 function project(projectRule: string | undefined, ground?: Json, delegated = false, at = PROJECTION_ASKS_SINCE): string {
   return fixture((p) => {

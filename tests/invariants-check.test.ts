@@ -1,16 +1,15 @@
 import { retainSignoffs } from './fixtures.ts';
-import { expect, setSystemTime, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject, type CheckReport } from '../src/check.ts';
-import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
+import { type CheckReport } from '../src/check.ts';
 import { sha256 } from '../src/choices.ts';
-import { interviewCommand } from '../src/interview.ts';
 import { INVARIANTS_SPEC, translateInvariants } from '../src/invariants.ts';
 import { stageIndex } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
-import { CLI, tempDir } from './helpers.ts';
+import { clockedCli, tempDir } from './helpers.ts';
+import { checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewCommand, testClock } from './clock.ts';
 
 /** Shared unchanged by the normal example and disabled report-shape control. */
 function expectExampleShape(report: CheckReport): void {
@@ -44,7 +43,7 @@ test('spawned piped CLI drains the filled example JSON beyond 64 KiB', () => {
     'sys.stderr.buffer.write(result.stderr)',
     'sys.exit(result.returncode)',
   ].join('\n');
-  const result = Bun.spawnSync(['python3', '-c', pipe, process.execPath, CLI, 'interview', '--check', dir, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync(['python3', '-c', pipe, process.execPath, ...clockedCli(), 'interview', '--check', dir, '--json'], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0);
   expect(result.stderr.byteLength).toBe(0);
   // Also identifies an exact-prefix truncation in the disabled immediate-exit control.
@@ -114,7 +113,7 @@ test('actual answer writer changes the next derived report, with the previous re
     writeFileSync(join(dir, setPath), bytes);
     writeFileSync(join(dir, 'other.txt'), 'Allow a deliberate page fold.');
     writeFileSync(join(dir, 'fragment.json'), JSON.stringify({ deformMayFold: [{ slot: 'page', why: 'deliberate fold' }] }));
-    setSystemTime(new Date('2026-11-11T11:21:00Z'));
+    testClock.set(new Date('2026-11-11T11:21:00Z'));
     interviewOptionsCommand(['motion', dir, '--file', setPath]);
     interviewAnswerCommand(['motion', dir, '--set', setPath, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user',
       ...arr(set.asks).flatMap(a => ['--pick', `${String(obj(a).id)}=${obj(a).id === 'tracks' ? 'other' : 'keep'}`]),
@@ -126,5 +125,5 @@ test('actual answer writer changes the next derived report, with the previous re
     expect(after.invariants).not.toEqual(before.invariants);
     expect(JSON.stringify(before.invariants)).toBe(snapshot);
     expect(load()).not.toHaveProperty('invariants');
-  } finally { setSystemTime(); }
+  } finally { testClock.reset(); }
 });

@@ -121,7 +121,7 @@ export const INTAKE_HELP = `intake-report [<dir>] --id <id> --report <retained r
   Record a parts head-crop preflight without running a producer. Offers optional intake_suitability in parts.
 intake [<dir>]
   Show advisory counts and choice state; never refuse approval. This cannot save the first full run.`;
-export function intakeReportCommand(args: string[]): string {
+export function intakeReportCommand(args: string[], now: number): string {
   const opts: Record<string,string> = {}; const positional: string[] = [];
   for (let i=0;i<args.length;i++) {
     const arg = args[i] as string;
@@ -141,7 +141,7 @@ export function intakeReportCommand(args: string[]): string {
     const binding: JsonObject = {path:opts['--report'] as string,sha256:opts['--sha256'] as string};
     const measurement = readIntakeReport(dir,binding);
     for (const k of ['spec','head_box','source_canvas','run_canvas']) binding[k] = measurement[k] as Json;
-    reports.push({id:opts['--id'] as string,report:binding,parts_version:opts['--parts-version'] as string,measurement,prediction:intakeHit(measurement)?'hit':'no-hit',by:opts['--by'] as string,at:new Date().toISOString(),...(opts['--supersedes']?{supersedes:opts['--supersedes']}:{})});
+    reports.push({id:opts['--id'] as string,report:binding,parts_version:opts['--parts-version'] as string,measurement,prediction:intakeHit(measurement)?'hit':'no-hit',by:opts['--by'] as string,at:new Date(now).toISOString(),...(opts['--supersedes']?{supersedes:opts['--supersedes']}:{})});
     const errors = intakeWarnings(dir,next).filter(w => w.code === 'INTAKE_REPORT_INVALID');
     if (errors.length) invalid(errors[0]?.message ?? 'invalid report');
     const tmp = join(dirname(file),`.intake-${crypto.randomUUID()}.tmp`);

@@ -295,7 +295,7 @@ export interface Handoff {
  * The hand-off: the one rig version post work may run on, or a named refusal.
  * With `rig`, also refuses when that is not the version.
  */
-export function handoff(projectDirArg: string, rig: number | null): Handoff {
+export function handoff(projectDirArg: string, rig: number | null, now: number): Handoff {
   const dir = resolve(projectDirArg);
   const file = join(dir, 'project.json');
   if (!existsSync(file)) refuse('PROJECT_JSON_MISSING', `${file} does not exist; run in a project folder or name one`);
@@ -307,7 +307,7 @@ export function handoff(projectDirArg: string, rig: number | null): Handoff {
   }
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
-  assertCorrectionApproval(dir, record, RIG_REVIEW);
+  assertCorrectionApproval(dir, record, RIG_REVIEW, now);
   const historyRefusals: ReviewCtx['refusals'] = draftVersionFindings(dir, record);
   checkPreInterview({ dir, project: record, refusals: historyRefusals, warnings: [] });
   const first = historyRefusals[0];
@@ -362,7 +362,7 @@ export const HANDOFF_HELP = `handoff:
   Post-production tooling runs this first. Exit 0 prints the accepted rig version; exit 1 is a named refusal
   (RIG_REVIEW_UNSIGNED, RIG_VERSION_UNACCEPTED, RIG_ACCEPTED_WITHOUT_STILL, POST_ON_UNACCEPTED_RIG, POST_ON_SUPERSEDED_RIG).`;
 
-export function handoffCommand(args: string[]): { stdout: string; exit: number } {
+export function handoffCommand(args: string[], now: number): { stdout: string; exit: number } {
   let json = false;
   let rig: number | null = null;
   const positional: string[] = [];
@@ -378,7 +378,7 @@ export function handoffCommand(args: string[]): { stdout: string; exit: number }
     else positional.push(arg);
   }
   if (positional.length > 1) refuse('HANDOFF_TOO_MANY_ARGUMENTS', `handoff takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
-  const h = handoff(positional[0] ?? process.cwd(), rig);
+  const h = handoff(positional[0] ?? process.cwd(), rig, now);
   if (json) return { stdout: JSON.stringify(h, null, 2), exit: 0 };
   return {
     stdout: [

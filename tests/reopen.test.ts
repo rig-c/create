@@ -1,14 +1,15 @@
-import { describe, expect, test, beforeEach, afterEach, setSystemTime } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject, collectSignoffs } from '../src/check.ts';
-import { collectReopens, liveSignoff, reopenCommand } from '../src/reopen.ts';
-import { handoff, readVersions, latestAccepted } from '../src/review.ts';
+import { collectSignoffs } from '../src/check.ts';
+import { collectReopens, liveSignoff } from '../src/reopen.ts';
+import { readVersions, latestAccepted } from '../src/review.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj, step, version } from './fixtures.ts';
-import { cli, gitEnv, CLI } from './helpers.ts';
+import { cli, clockedCli, gitEnv } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { checkProject, reopenCommand, handoff, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p, null, 2));
@@ -20,8 +21,8 @@ function refusal(fn: () => unknown, code: string): void {
 }
 
 describe('human stage reopen', () => {
-  beforeEach(() => setSystemTime(new Date('2026-11-20T00:00:00Z')));
-  afterEach(() => setSystemTime());
+  beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
+  afterEach(() => testClock.reset());
 
   test('one write moves the stage, snapshots then resets statuses, and preserves history and plan hashes', () => {
     const dir = fixture(p => { p.stage = 'post'; p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'direction-review'); });
@@ -88,7 +89,7 @@ describe('human stage reopen', () => {
     for (const id of ['seethrough', 'assemble']) step(p, id).status = 'done';
     arr(p.signoffs).push({ stage: 'parts', checkpoint: 'assemble', by: 'owner', at: '2026-11-21T00:00:00Z', verbatim: 'yes' });
     save(dir, p);
-    setSystemTime(new Date('2026-11-22T00:00:00Z')); reopen(dir, 'parts-review');
+    testClock.set(new Date('2026-11-22T00:00:00Z')); reopen(dir, 'parts-review');
     const r = read(dir); const reopens = collectReopens(r, []);
     const live = collectSignoffs(r, []).filter(s => liveSignoff(reopens, s.stage, s.at));
     expect(live.some(s => s.stage === 'parts-review')).toBe(false);
@@ -163,7 +164,7 @@ describe('human stage reopen', () => {
       for (const s of arr(obj(p.plan).steps)) if (obj(s).phase === 'post') obj(s).status = 'pending';
     });
     reopen(dir, 'rigging');
-    setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(new Date('2026-11-21T00:00:00Z'));
     reopen(dir, 'parts');
     const p = read(dir);
     expect(arr(p.reopens).map(r => obj(r).from_stage)).toEqual(['rigging', 'rigging']);
@@ -188,9 +189,8 @@ describe('human stage reopen', () => {
 
   test('CLI stdin and help; user clock and repeated arguments are refused', () => {
     const dir = fixture(); const bytes = Buffer.from('\uFEFFSynthetic words\r\n');
-    const result = Bun.spawnSync([process.execPath, '-e',
-      'import {setSystemTime} from "bun:test"; setSystemTime(new Date("2026-11-20T00:00:00Z")); const {main} = await import(process.argv[1]); process.exit(main(process.argv.slice(2)));',
-      CLI, 'reopen', 'parts', dir, '--by', 'owner', '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
+    const result = Bun.spawnSync([process.execPath, ...clockedCli(),
+      'reopen', 'parts', dir, '--by', 'owner', '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
     expect(result.exitCode).toBe(0);
     expect(Buffer.from(obj(arr(read(dir).reopens)[0]).verbatim as string)).toEqual(bytes);
     expect(cli(['--help'], dir, gitEnv()).stdout).toContain('rig-create reopen');

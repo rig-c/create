@@ -1,11 +1,8 @@
 import { isSignoffIdentity, matchesSignoff } from '../src/stage-progress.ts';
-import { reopenCommand } from '../src/reopen.ts';
 import { approvalStageOfStep, hasStageOrder, LEGACY_STAGES, STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
-import { expect, setSystemTime } from 'bun:test';
-import { signoffCommand } from '../src/signoff.ts';
+import { expect } from 'bun:test';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
-import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed } from '../src/check.ts';
+import { asArray, collectItems, isObject, loadCollection, postNotPassed } from '../src/check.ts';
 import { acceptedReviewVerdict } from '../src/review.ts';
 import { outputsHash, reviewPackageHash } from '../src/signoff-target.ts';
 /**
@@ -24,6 +21,7 @@ import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { newOrderExampleFiles } from './draft-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
 import { alignLegacyBuilds, materializeLegacyPartPackages, reviewExampleFiles } from './review-fixture.ts';
+import { reopenCommand, advanceCommand, signoffCommand, checkProject, testClock } from './clock.ts';
 
 export type Mutate = (project: JsonObject) => void;
 
@@ -76,7 +74,7 @@ let legacyAdvances: Json[] | undefined;
 function legacySetupAdvances(): Json[] {
   if (legacyAdvances !== undefined) return legacyAdvances;
   buildingLegacyAdvances = true;
-  const now = Date.now();
+  const now = testClock.now();
   try {
     const dir = fixture();
     const file = join(dir, 'project.json');
@@ -96,7 +94,7 @@ function legacySetupAdvances(): Json[] {
           if ((raw.phase === 'rig' || raw.phase === 'post') && stageIndex(stageOfStep(raw.phase, String(raw.id))) >= stageIndex(target.id)) raw.status = 'pending';
         }
         const at = Math.max(...asArray(project.signoffs).filter(isObject).map(s => Date.parse(String(s.at)))) + LEGACY_STAGES.indexOf(target) + 1;
-        setSystemTime(new Date(at));
+        testClock.set(new Date(at));
         writeFileSync(file, JSON.stringify(project));
         advanceCommand([target.id, dir, '--by', 'owner', '--verbatim-file', words]);
         const advanced = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -105,7 +103,7 @@ function legacySetupAdvances(): Json[] {
     }
     legacyAdvances = result;
     return result;
-  } finally { buildingLegacyAdvances = false; setSystemTime(new Date(now)); }
+  } finally { buildingLegacyAdvances = false; testClock.set(new Date(now)); }
 }
 
 /** Retain synthetic event ordering and stable identities inside a specific creation cohort. */
@@ -249,23 +247,23 @@ export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z')
   if (dates.some(date => date >= at)) throw new Error('Synthetic re-approval clock must follow every existing dated record');
   const words = join(dir, 'reapproval.txt');
   writeFileSync(words, 'Approve the changed synthetic answers at this new event.\n');
-  const clock = Date.now();
+  const clock = testClock.now();
   try {
-    setSystemTime(new Date(at));
+    testClock.set(new Date(at));
     signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words]);
     let tick = 1;
     for (const stage of ['plan-approved', 'rigging-interview', 'post-interview']) {
       const ids = affected.get(stage);
       if (!ids) continue;
       if (!ids.size && stage !== 'post-interview') {
-        setSystemTime(new Date(at + tick++));
+        testClock.set(new Date(at + tick++));
         reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', words]);
         const phase = stage === 'post-interview' ? 'post' : 'rig';
         for (const step of steps) {
           if (step.phase === phase && approvalStageOfStep(phase, String(step.id), hasStageOrder(before)) === stage) ids.add(String(step.id));
         }
       }
-      setSystemTime(new Date(at + tick++));
+      testClock.set(new Date(at + tick++));
       signoffCommand([stage, dir, ...(ids.size ? ['--steps', [...ids].join(',')] : []), '--by', 'user', '--verbatim-file', words]);
       const signed = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
       if (signed.stage === stage) {
@@ -276,7 +274,7 @@ export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z')
         advanceCommand([target, dir, '--by', 'user', '--verbatim-file', words]);
       }
     }
-  } finally { setSystemTime(new Date(clock)); }
+  } finally { testClock.set(new Date(clock)); }
   const after = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
   if (JSON.stringify(asArray(after.signoffs).slice(0, asArray(before.signoffs).length)) !== JSON.stringify(before.signoffs)) throw new Error('Re-approval rewrote historical signatures');
   return dir;

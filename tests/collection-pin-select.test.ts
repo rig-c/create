@@ -2,11 +2,12 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateCollectionPinFixture } from '../scripts/generate-collection-pin-fixture.ts';
-import { checkCollection, collectionCommand, sha256File } from '../src/pins-check.ts';
+import { checkCollection, sha256File } from '../src/pins-check.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, obj } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { collectionCommand } from './clock.ts';
 
 function fixture(): string {
   const dir = join(tempDir(), 'collection');

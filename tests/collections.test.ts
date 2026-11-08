@@ -2,12 +2,11 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
 import { COLLECTION_STAGE_VALUES } from '../src/collection.ts';
 import { checkCollection } from '../src/pins-check.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, run, tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 const ENV = gitEnv({ name: 'Test User', email: 'test@example.com' });
 

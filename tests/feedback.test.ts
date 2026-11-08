@@ -2,13 +2,12 @@ import { resignAfterChange } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
-import { recordVerdict, type ReviewInput } from '../src/feedback.ts';
+import { type ReviewInput } from '../src/feedback.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, codes, fixture, obj, version, waypoint, withCode } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
+import { checkProject, recordVerdict } from './clock.ts';
 
 const warned = (dir: string, code: string) => checkProject(dir).warnings.filter((w) => w.code === code);
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;

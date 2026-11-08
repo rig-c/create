@@ -57,16 +57,16 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
   validateCorrectionIdentity(dir,project,value,stage);
   return structuredClone(value);
 }
-function localValidation(dir: string, project: JsonObject): Finding[] {
-  const refusals: Finding[] = []; checkCorrections({dir,project,refusals,warnings:[]}); return refusals;
+function localValidation(dir: string, project: JsonObject, now: number): Finding[] {
+  const refusals: Finding[] = []; checkCorrections({dir,project,refusals,warnings:[]},now); return refusals;
 }
 /** Like choice ingestion, tolerate unrelated pre-existing holes but never a new finding or this record's own invalidity. */
-function save(dir: string, file: string, beforeBytes: string, original: JsonObject, next: JsonObject): void {
-  const own = localValidation(dir,next)[0]; if (own) refuse(own.code,own.message);
-  const baseline = checkProject(dir,original).refusals;
+function save(dir: string, file: string, beforeBytes: string, original: JsonObject, next: JsonObject, now: number): void {
+  const own = localValidation(dir,next,now)[0]; if (own) refuse(own.code,own.message);
+  const baseline = checkProject(dir,original,{now}).refusals;
   const counts = new Map<string,number>();
   for (const f of baseline) { const k=`${f.code}:${f.path}`; counts.set(k,(counts.get(k)??0)+1); }
-  for (const f of checkProject(dir,next).refusals) { const k=`${f.code}:${f.path}`;const n=counts.get(k)??0;if (!n) refuse(f.code,f.message);counts.set(k,n-1); }
+  for (const f of checkProject(dir,next,{now}).refusals) { const k=`${f.code}:${f.path}`;const n=counts.get(k)??0;if (!n) refuse(f.code,f.message);counts.set(k,n-1); }
   // Refuse concurrent record replacement rather than overwriting another writer.
   if (correctionBytes(dir,'project.json').toString('utf8') !== beforeBytes) refuse('CORRECTION_SOURCE','project.json: changed during capture; retry against the current record');
   const tmp = join(dirname(file),`.correction-${process.pid}-${crypto.randomUUID()}.tmp`);
@@ -77,23 +77,23 @@ function openStage(project: JsonObject, stage: string): void {
   const reopens=collectReopens(project,[]);
   if (collectSignoffs(project,[]).some(s=>s.stage===stage&&s.checkpoint===null&&liveSignoff(reopens,stage,s.at)) || objects(project.versions).some(v=>objects(v.verdicts).some(d=>d.review===stage&&d.verdict==='accepted'&&liveSignoff(reopens,stage,Date.parse(String(d.at)))))) throw new CorrectionError('CORRECTION_SOURCE',`approval for ${stage} is still live; reopen before changing its corrections`);
 }
-export function correctionCommand(args: string[]): {stdout:string;exit:number} {
-  try { return command(args); } catch(e) { if(e instanceof DirectionError) refuse(e.code,e.message); if(e instanceof CorrectionError) { const f=correctionFinding(e.code,'corrections',e.message);refuse(f.code,f.message); } throw e; }
+export function correctionCommand(args: string[], now: number): {stdout:string;exit:number} {
+  try { return command(args,now); } catch(e) { if(e instanceof DirectionError) refuse(e.code,e.message); if(e instanceof CorrectionError) { const f=correctionFinding(e.code,'corrections',e.message);refuse(f.code,f.message); } throw e; }
 }
-function command(args:string[]): {stdout:string;exit:number} {
+function command(args:string[],now:number): {stdout:string;exit:number} {
   const action=args[0];const opts:Record<string,string>={};const positional:string[]=[];let json=false;
   const allowed=action==='record'?[...common,'--id','--path','--stage','--verbatim-file','--source','--resolves','--patch-file','--direction-patch-file','--feedback-file','--item']:action==='resolve'?[...common,'--reasoning-file','--applied-feedback','--feedback-id']:[];
   for(let i=1;i<args.length;i++) {const arg=args[i] as string;if(arg==='--json'){if(json)usage('duplicate --json');json=true;}else if(allowed.includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`${arg} requires one value`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
   if(!['--adopt','record','resolve'].includes(action??'')||positional.length>(action==='resolve'?2:1))usage('invalid action or directory count');
   if(action==='resolve'&&!positional[0])usage('resolve requires correction id');
-  const dir=resolve(positional[action==='resolve'?1:0]??process.cwd());const {file,project}=readProject(dir);const originalBytes=correctionBytes(dir,'project.json').toString('utf8');const next=structuredClone(project);const at=new Date().toISOString();
+  const dir=resolve(positional[action==='resolve'?1:0]??process.cwd());const {file,project}=readProject(dir);const originalBytes=correctionBytes(dir,'project.json').toString('utf8');const next=structuredClone(project);const at=new Date(now).toISOString();
   if(action==='--adopt') {
     if (next.corrections_contract !== undefined) {
-      const invalid=localValidation(dir,next)[0];if(invalid)refuse(invalid.code,invalid.message);
+      const invalid=localValidation(dir,next,now)[0];if(invalid)refuse(invalid.code,invalid.message);
       if(correctionsAdopted(next))return{stdout:'correction: already adopted; original adoption preserved',exit:0};
     }
     next.corrections_contract={schema:CORRECTIONS_SPEC,adopted_at:at};next.corrections=next.corrections??[];
-    save(dir,file,originalBytes,project,next);return{stdout:json?JSON.stringify(next.corrections_contract):'correction: adopted; historical records preserved',exit:0};
+    save(dir,file,originalBytes,project,next,now);return{stdout:json?JSON.stringify(next.corrections_contract):'correction: adopted; historical records preserved',exit:0};
   }
   if(!correctionsAdopted(next))throw new CorrectionError('CORRECTION_CONTRACT_INVALID','adopt corrections explicitly first');
   const records=objects(next.corrections);
@@ -177,11 +177,11 @@ function command(args:string[]): {stdout:string;exit:number} {
       artifact.result=(record.outcome as JsonObject).direction as JsonObject;artifact.state='applied-and-checked';validateDirectionOutcome(dir,next,record,artifact);
     }record.closure={by:'agent',at,reasoning:readVerbatim(opts['--reasoning-file']) + (coverage ? `\n${coverage}` : '')};
   }
-  save(dir,file,originalBytes,project,next);
+  save(dir,file,originalBytes,project,next,now);
   return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged${coverage ? `\n${coverage}` : ''}`,exit:0};
 }
 
 /** Public approval paths that do not run checkProject still share the correction validator. */
-export function assertCorrectionApproval(dir:string,project:JsonObject,stage:string,signoff?:JsonObject):void {
-  const invalid=localValidation(dir,project)[0]??correctionApprovalFindings(project,stage,signoff)[0];if(invalid)refuse(invalid.code,invalid.message);
+export function assertCorrectionApproval(dir:string,project:JsonObject,stage:string,now:number,signoff?:JsonObject):void {
+  const invalid=localValidation(dir,project,now)[0]??correctionApprovalFindings(project,stage,signoff)[0];if(invalid)refuse(invalid.code,invalid.message);
 }

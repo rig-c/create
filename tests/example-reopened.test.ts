@@ -1,23 +1,22 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateExampleReopened } from '../scripts/generate-example-reopened.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
-import { checkProject, collectSignoffs } from '../src/check.ts';
-import { correctionCommand } from '../src/correction-writers.ts';
+import { collectSignoffs } from '../src/check.ts';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
-import { draftRigCommand } from '../src/drafts.ts';
 import { collectReopens, liveSignoff } from '../src/reopen.ts';
 import { stageIndex } from '../src/stages.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { checkProject, correctionCommand, draftRigCommand, testClock } from './clock.ts';
 
 const roots: string[] = [];
 function scratch(): string { const dir = tempDir(); roots.push(dir); return dir; }
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-afterEach(() => { setSystemTime(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { testClock.reset(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 test('two public-writer generations match the shipped reopened record byte for byte', () => {
   const first = generateExampleReopened(join(scratch(), 'first'));
@@ -70,7 +69,7 @@ test('a parts-review made correction records and resolves against the reopened e
     handoff: { config: source.config!, files: [source.config!, ...arr(source.config_inputs), ...arr(obj(source.parts).files), ...arr(source.files)], missing: [] } };
   writeFileSync(join(dir, 'evidence/correction-session.json'), JSON.stringify(feedback));
   const at = Date.parse(EXAMPLE_REOPEN_AT);
-  setSystemTime(new Date(at + 1000));
+  testClock.set(new Date(at + 1000));
   expect(correctionCommand(['record', dir, '--id', 'example-fix', '--path', 'made', '--stage', 'parts-review', '--by', 'user', '--draft', 'example', '--feedback-file', 'evidence/correction-session.json', '--item', 'synthetic-apply']).exit).toBe(0);
   const record = obj(arr(load(dir).corrections)[0]);
   expect(validateCorrectionIdentity(dir, load(dir), record.on, 'parts-review')).toEqual(obj(record.on));
@@ -78,10 +77,10 @@ test('a parts-review made correction records and resolves against the reopened e
   cpSync(join(dir, 'derived/drafts/example'), join(dir, 'derived/drafts/corrected'), { recursive: true });
   const modelBytes = readFileSync(join(controlDir, 'evidence/outcome.model.json'));
   writeFileSync(join(dir, String(model.path).replace('/example/', '/corrected/')), modelBytes);
-  setSystemTime(new Date(at + 2000));
+  testClock.set(new Date(at + 2000));
   draftRigCommand(['corrected', dir, '--config', 'derived/drafts/corrected/config.json', '--from', 'derived/drafts/corrected/out', '--parts', 'derived/drafts/corrected/input']);
   writeFileSync(join(dir, 'reasoning.txt'), 'Declare the synthetic corrected draft.');
-  setSystemTime(new Date(at + 3000));
+  testClock.set(new Date(at + 3000));
   expect(correctionCommand(['resolve', 'example-fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--draft', 'corrected']).exit).toBe(0);
   const closed = obj(arr(load(dir).corrections)[0]);
   expect(validateCorrectionIdentity(dir, load(dir), closed.outcome, 'parts-review')).toEqual(obj(closed.outcome));

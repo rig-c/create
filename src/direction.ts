@@ -55,10 +55,10 @@ export function directionVersion(project: JsonObject, n: Json | undefined): Json
   if (!positiveInt(n) || found.length !== 1) directionFail('DIRECTION_VERSION', 'versions', 'post version must exist uniquely');
   return found[0] as JsonObject;
 }
-export function directionContract(project: JsonObject): JsonObject | null {
+export function directionContract(project: JsonObject, now: number): JsonObject | null {
   const value = project.direction_contract;
   if (value === undefined) return null;
-  if (!closed(value, ['schema', 'adopted_at', 'grandfathered_posts']) || value.schema !== DIRECTION_CONTRACT || typeof value.adopted_at !== 'string' || !/Z$/.test(value.adopted_at) || !Number.isFinite(Date.parse(value.adopted_at)) || Date.parse(value.adopted_at) > Date.now() || !Array.isArray(value.grandfathered_posts) || value.grandfathered_posts.some((n,i,a) => !positiveInt(n) || i > 0 && Number(a[i-1]) >= Number(n))) directionFail('DIRECTION_CONTRACT_INVALID', 'direction_contract', 'invalid explicit adoption');
+  if (!closed(value, ['schema', 'adopted_at', 'grandfathered_posts']) || value.schema !== DIRECTION_CONTRACT || typeof value.adopted_at !== 'string' || !/Z$/.test(value.adopted_at) || !Number.isFinite(Date.parse(value.adopted_at)) || Date.parse(value.adopted_at) > now || !Array.isArray(value.grandfathered_posts) || value.grandfathered_posts.some((n,i,a) => !positiveInt(n) || i > 0 && Number(a[i-1]) >= Number(n))) directionFail('DIRECTION_CONTRACT_INVALID', 'direction_contract', 'invalid explicit adoption');
   for (const n of value.grandfathered_posts as Json[]) {
     const v = objects(project.versions).filter(v => v.n === n);
     if (v.length !== 1 || v[0]?.kind !== 'post' || typeof v[0].at !== 'string' || Date.parse(v[0].at) > Date.parse(String(value.adopted_at))) directionFail('DIRECTION_CONTRACT_INVALID', 'direction_contract.grandfathered_posts', 'grandfathered posts must be existing pre-adoption posts');
@@ -155,9 +155,9 @@ export function readDirection(dir: string, project: JsonObject, n: Json | undefi
   validateDirectionRig(dir,project,doc,current); validateDirectionCitations(dir,project,doc,current);
   return doc;
 }
-export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Finding[]}, selected?: number, currentOverride?: boolean): void {
+export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Finding[]}, now: number, selected?: number, currentOverride?: boolean): void {
   try {
-    const contract = directionContract(ctx.project);
+    const contract = directionContract(ctx.project, now);
     const posts = objects(ctx.project.versions).filter(v=>v.kind==='post');
     const reopens = collectReopens(ctx.project,[]);
     const latest = Math.max(0,...posts.filter(v=>liveSignoff(reopens,'post',Date.parse(String(v.at)))).map(v=>Number(v.n)));
@@ -170,10 +170,10 @@ export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Fin
     }
   } catch(e) { if (!(e instanceof DirectionError)) throw e; ctx.refusals.push(directionFinding(e)); }
 }
-export function assertDirectionApproval(dir:string,project:JsonObject,stage:string,n?:number):void {
+export function assertDirectionApproval(dir:string,project:JsonObject,stage:string,now:number,n?:number):void {
   if(stage!=='direction-review')return;
   const latestPost=Math.max(0,...objects(project.versions).filter(v=>v.kind==='post' && liveSignoff(collectReopens(project,[]),'post',Date.parse(String(v.at)))).map(v=>Number(v.n)));
-  const refusals:Finding[]=[];checkDirections({dir,project,refusals},n??latestPost,true);
+  const refusals:Finding[]=[];checkDirections({dir,project,refusals},now,n??latestPost,true);
   const first=refusals[0];if(first)refuse(first.code,first.message);
   if(n!==undefined){const latest=Math.max(0,...objects(project.versions).filter(v=>v.kind==='post' && liveSignoff(collectReopens(project,[]),'post',Date.parse(String(v.at)))).map(v=>Number(v.n)));if(n!==latest && (project.direction_contract!==undefined || objects(project.versions).some(v=>isObject(v.provenance)&&v.provenance.direction!==undefined)))refuse('DIRECTION_VERSION','versions: accept only the current post version; select the current post');}
 }

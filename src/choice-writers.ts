@@ -57,9 +57,9 @@ function run(action: () => string): string {
   try { return action(); } catch (e) { if (e instanceof ChoiceError) refuse(e.code, `interview: ${e.message}; retain the shown set and explicitly record each ask`); throw e; }
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
-function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, baseline: JsonObject[] = []): void {
-  const before = checkProject(dir,original).refusals;
-  const after = checkProject(dir,candidate).refusals;
+function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = []): void {
+  const before = checkProject(dir,original,{now}).refusals;
+  const after = checkProject(dir,candidate,{now}).refusals;
   const counts = new Map<string,number>();
   for (const f of before) { const k = `${f.code}:${f.path}`; counts.set(k,(counts.get(k) ?? 0)+1); }
   for (const f of baseline) {
@@ -85,7 +85,7 @@ function checkNewAnswer(dir: string, project: JsonObject, item: Item): void {
   }
 }
 
-export function interviewOptionsCommand(args: string[]): string { return run(() => {
+export function interviewOptionsCommand(args: string[], now: number): string { return run(() => {
   const opts = parse(args,['--file','--adopt']);
   if (opts.adopt) {
     if (opts.positional.length > 1 || Object.keys(opts.one).length) usage('--adopt takes only a project folder');
@@ -93,15 +93,15 @@ export function interviewOptionsCommand(args: string[]): string { return run(() 
     const interview = isObject(next.interview) ? next.interview : null;
     if (!interview || !isObject(interview.order) || !['rig-create/stage-order@1', CHOICE_ORDER_SPEC].includes(String(interview.order.spec))) refuse('INTERVIEW_CHOICE_INVALID','interview.order: first adopt the split stage order with a fresh parts/rigging interview; then adopt choices');
     if (interview.order.spec === CHOICE_ORDER_SPEC) return 'interview: choices already adopted; original dates preserved';
-    interview.order = {...interview.order,spec:CHOICE_ORDER_SPEC,choices_adopted_at:new Date().toISOString()};
-    save(file,dir,project,next); return 'interview: choices adopted; earlier answers preserved';
+    interview.order = {...interview.order,spec:CHOICE_ORDER_SPEC,choices_adopted_at:new Date(now).toISOString()};
+    save(file,dir,project,next,now); return 'interview: choices adopted; earlier answers preserved';
   }
   if (opts.positional.length > 2 || !opts.one['--file']) usage('question and --file required');
   const dir = resolve(opts.positional[1] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
   const item = itemAt(next,dir,opts.positional[0]); const path = opts.one['--file'];
   let binding: JsonObject;
   try { binding = {path,sha256:sha256(readFileSync(literalFile(dir,path)))}; } catch (e) { throw new ChoiceError('INTERVIEW_OPTIONS_FILE',String(e)); }
-  const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,Date.now(),true);
+  const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
   if (choiceAdoption(next) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
   // A retained path/id may never be reused with a different hash, even after answer replacement.
   for (const other of [...collectItems(next,{collection:loadCollection(dir)}), ...(item.path === 'intake.choice.answer' ? [item] : [])]) {
@@ -112,10 +112,10 @@ export function interviewOptionsCommand(args: string[]): string { return run(() 
       if (retained.id === set.id && !equal(old,binding)) refuse('INTERVIEW_OPTIONS_FILE',`${item.path}: option id is already retained; use a new id/path for a redraft`);
     }
   }
-  item.record.pending_options = binding; save(file,dir,project,next); return JSON.stringify(binding);
+  item.record.pending_options = binding; save(file,dir,project,next,now); return JSON.stringify(binding);
 }); }
 
-export function interviewAnswerCommand(args: string[]): string { return run(() => {
+export function interviewAnswerCommand(args: string[], now: number): string { return run(() => {
   const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--picks-file','--why-file'],['--pick','--other','--other-fragment']);
   if (opts.positional.length > 2 || (!opts.one['--picks-file'] && (!opts.one['--set'] || !opts.one['--sha256'] || !opts.one['--by']))) usage('question and --picks-file, or --set/--sha256/--by required');
   const dir = resolve(opts.positional[1] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
@@ -127,7 +127,7 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
       const parsed: Json = JSON.parse(readFileSync(literalFile(dir,opts.one['--picks-file']),'utf8'));
       if (!isObject(parsed) || Object.keys(parsed).some(k => !['schema','set','picks','note','by','at'].includes(k)) || parsed.schema !== 'rig-review/interview-picks@1'
         || !isObject(parsed.set) || Object.keys(parsed.set).some(k => !['path','sha256'].includes(k)) || typeof parsed.set.path !== 'string' || typeof parsed.set.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(parsed.set.sha256)
-        || !Array.isArray(parsed.picks) || parsed.by !== 'user' || typeof parsed.at !== 'string' || !Number.isFinite(Date.parse(parsed.at)) || Date.parse(parsed.at) > Date.now()
+        || !Array.isArray(parsed.picks) || parsed.by !== 'user' || typeof parsed.at !== 'string' || !Number.isFinite(Date.parse(parsed.at)) || Date.parse(parsed.at) > now
         || (parsed.note !== undefined && typeof parsed.note !== 'string') || parsed.picks.some(p => !isObject(p) || Object.keys(p).some(k => !['ask','option_id','other_text'].includes(k)) || typeof p.ask !== 'string' || typeof p.option_id !== 'string' || (p.other_text !== undefined && typeof p.other_text !== 'string'))) throw Error('invalid picks payload fields');
       literalFile(dir,parsed.set.path);
       payload = parsed;
@@ -139,7 +139,7 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
   if (payload && ((opts.one['--set'] && opts.one['--set'] !== binding.path) || (opts.one['--sha256'] && opts.one['--sha256'] !== binding.sha256))) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: picks file set differs from the displayed set; refresh the questionnaire`);
   if (payload && opts.one['--by'] && opts.one['--by'] !== payload.by) usage('--by differs from picks file human identity');
   if (!equal(registered,binding)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: displayed set is not the registered pending set; register/refresh the shown options`);
-  const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,Date.now(),true);
+  const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
   const offered = asArray(set.asks).filter(isObject);
   const filePicks = payload ? (payload.picks as Json[]).filter(isObject) : null;
   const selected = filePicks ? new Map(filePicks.map(p => [String(p.ask),String(p.option_id)])) : opts.many['--pick'] ?? new Map<string,string>();
@@ -163,7 +163,7 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
   if (payload?.note !== undefined) choice.note = payload.note;
   else if (opts.one['--note-file']) choice.note = readText(opts.one['--note-file']);
   const result = selection(set,choice);
-  const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date().toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
+  const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date(now).toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
   if (result.value !== undefined) answer.value = result.value;
   if (result.autos.length) answer.agent_decision = {covers:result.autos.join(',')};
   if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? (item.state.state === 'silent' ? 'own' : 'overridden') : item.raw.basis;
@@ -186,7 +186,7 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
   } else if (opts.one['--why-file']) usage('--why-file applies only to a member override');
   if (result.autos.length || result.pending.length) {
     const baseline = new Map<string,JsonObject>();
-    for (const f of checkProject(dir,project).refusals) {
+    for (const f of checkProject(dir,project,{now}).refusals) {
       const key = `${f.code}:${f.path}`; const entry = baseline.get(key);
       if (entry) entry.count = Number(entry.count)+1;
       else baseline.set(key,{code:f.code,path:f.path,count:1});
@@ -200,21 +200,21 @@ export function interviewAnswerCommand(args: string[]): string { return run(() =
     item.record.history = [...asArray(item.record.history),...prior];
   }
   item.record[item.kind === 'framing' ? 'answer' : 'guide'] = answer; delete item.record.pending_options;
-  save(file,dir,project,next); return JSON.stringify(answer);
+  save(file,dir,project,next,now); return JSON.stringify(answer);
 }); }
 
-export function interviewDecisionCommand(args: string[]): string { return run(() => {
+export function interviewDecisionCommand(args: string[], now: number): string { return run(() => {
   const opts = parse(args,['--by','--reasoning-file'],['--fragment']);
   if (opts.positional.length > 2 || !opts.one['--by'] || !opts.one['--reasoning-file']) usage('question, --by and --reasoning-file required');
   const dir = resolve(opts.positional[1] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
   const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);
   if (!isObject(item.raw) || !isObject(item.raw.choice)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: explicitly choose auto before writing a decision`);
-  const {set} = optionFile(dir,item.raw.choice.set); validateContext(dir,next,set,Date.now(),true);
+  const {set} = optionFile(dir,item.raw.choice.set); validateContext(dir,next,set,now,true);
   const result = selection(set,item.raw.choice); const supplied = opts.many['--fragment'] ?? new Map<string,string>();
   if (!result.autos.length || supplied.size !== result.autos.length || [...supplied.keys()].some(k => !result.autos.includes(k))) usage('supply exactly the auto asks with --fragment');
   const fragments = result.autos.map(ask => ({ask,fragment:jsonFile(supplied.get(ask) as string)}));
   const pending = isObject(item.raw.agent_decision) && equal(Object.keys(item.raw.agent_decision),['covers']);
   const baseline = pending ? refusalBaseline(item.raw) : [];
-  item.raw.agent_decision = {by:opts.one['--by'],at:new Date().toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
-  validateChoice(dir,next,item,item.raw); save(file,dir,project,next,baseline); return JSON.stringify(item.raw.agent_decision);
+  item.raw.agent_decision = {by:opts.one['--by'],at:new Date(now).toISOString(),reasoning:readText(opts.one['--reasoning-file']),covers:result.autos.join(','),fragments,value:assembleFragments(String((set.assembly as JsonObject).rule),fragments.map(f=>f.fragment))};
+  validateChoice(dir,next,item,item.raw); save(file,dir,project,next,now,baseline); return JSON.stringify(item.raw.agent_decision);
 }); }

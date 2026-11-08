@@ -1,5 +1,5 @@
 import { retainSignoffs } from './fixtures.ts';
-import { describe, expect, setSystemTime, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,10 +8,9 @@ import { translateInvariants, type InvariantsDocument } from '../src/invariants.
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { generateInvariantsExample } from '../scripts/generate-invariants-example.ts';
 import { tempDir } from './helpers.ts';
-import { checkProject } from '../src/check.ts';
-import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
 import { stageIndex } from '../src/stages.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
+import { checkProject, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
 const sha = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 const answer = (value: Json, verbatim = 'Keep the stated direction.'): JsonObject => ({ delegated: false, value, verbatim });
@@ -131,7 +130,7 @@ function writtenMotion(otherPending = false): InvariantsDocument {
     writeFileSync(join(dir, 'other.txt'), 'Allow this deliberate page fold.\n');
     const fragment = { deformMayFold: [{ slot: 'page', why: 'deliberate page fold' }] };
     writeFileSync(join(dir, 'fragment.json'), JSON.stringify(fragment));
-    setSystemTime(new Date('2026-11-11T11:21:00Z'));
+    testClock.set(new Date('2026-11-11T11:21:00Z'));
     interviewOptionsCommand(['motion', dir, '--file', setPath]);
     const picks = arr(set.asks).flatMap(a => ['--pick', `${String(obj(a).id)}=${obj(a).id === 'tracks' || (otherPending && obj(a).id === 'extent') ? 'other' : 'keep'}`]);
     interviewAnswerCommand(['motion', dir, '--set', setPath, '--sha256', sha(bytes), '--by', 'user', ...picks,
@@ -142,7 +141,7 @@ function writtenMotion(otherPending = false): InvariantsDocument {
     const checked = checkProject(dir);
     expect(checked.ok).toBe(true); expect(checked.refusals).toEqual([]);
     return translateInvariants(p);
-  } finally { setSystemTime(); }
+  } finally { testClock.reset(); }
 }
 
 test('writer Other deformMayFold translates exactly once, including with a pending Other sibling', () => {

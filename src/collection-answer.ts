@@ -40,7 +40,7 @@ function valueSpans(bytes: string): Map<string, [number, number]> {
   return spans;
 }
 
-export function collectionAnswerCommand(args: string[]): CommandResult {
+export function collectionAnswerCommand(args: string[], now: number): CommandResult {
   const positional: string[] = [];
   const flags: Record<string, string> = {};
   const allowed = ['--by', '--value-file', '--defer-until', '--reason-file'];
@@ -82,7 +82,7 @@ export function collectionAnswerCommand(args: string[]): CommandResult {
   const question = questions[index];
   if (!isObject(question) || !('answer' in question)) refuse('ANSWER_MALFORMED', `interview.questions[${positional[0]}].answer: choose an existing collection-scope question in collection.json`);
   const path = `interview.questions[${positional[0]}].answer`;
-  const at = new Date().toISOString();
+  const at = new Date(now).toISOString();
   let answer: Json;
   try {
     answer = flags['--value-file']

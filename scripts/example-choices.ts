@@ -1,6 +1,5 @@
 import { exampleTime } from './example-time.ts';
 /** Synthetic authoring inputs; public writers alone construct the selected answer records. */
-import { setSystemTime } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectItems, isObject, asArray } from '../src/check.ts';
@@ -9,7 +8,8 @@ import { interviewAnswerCommand, interviewDecisionCommand, interviewOptionsComma
 import { interviewStageOfGuide } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 
-export function writeExampleChoices(dir: string, stage: string): Record<string,string> {
+/** Each writer runs at its declared example instant; `clock.now` is left at the last one, as the next writer's start. */
+export function writeExampleChoices(dir: string, stage: string, clock: { now: number }): Record<string,string> {
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
   const records = collectItems(load(),{collection:null}).filter(i=>interviewStageOfGuide(i.id,i.kind==='post',true)===stage);
   const day = stage === 'interview' ? '2026-11-10T14:' : stage === 'rigging-interview' ? '2026-11-11T11:' : '2026-11-13T10:';
@@ -38,23 +38,23 @@ export function writeExampleChoices(dir: string, stage: string): Record<string,s
     if(item.id==='assemble') set.constraints=[{asks:['projection','ground'],allowed:[['keep','keep'],['alternative','keep'],['alternative','alternative']]}];
     const path = `evidence/interview/${String(set.id)}.json`;
     const bytes = `${JSON.stringify(set,null,2)}\n`; writeFileSync(join(dir,path),bytes);files[path]=bytes;
-    setSystemTime(new Date(exampleTime(`${day}02:00Z`)));
-    interviewOptionsCommand([item.id,dir,'--file',path]);
+    clock.now = Date.parse(exampleTime(`${day}02:00Z`));
+    interviewOptionsCommand([item.id,dir,'--file',path],clock.now);
     const binding = JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
     const registered = collectItems(binding,{collection:null}).find(i=>i.id===item.id)?.record.pending_options as JsonObject;
     const flags = names.flatMap(name=>['--pick',`${name}=${item.id==='seethrough'&&name==='seed'?'auto':'keep'}`]);
-    setSystemTime(new Date(exampleTime(`${day}03:00Z`)));
+    clock.now = Date.parse(exampleTime(`${day}03:00Z`));
     if(item.id==='reference') {
       const picksPath = 'evidence/interview/example-picks.json';
-      const payload = `${JSON.stringify({schema:'rig-review/interview-picks@1',set:registered,picks:[{ask:item.id,option_id:'keep'}],by:'user',at:new Date().toISOString()},null,2)}\n`;
+      const payload = `${JSON.stringify({schema:'rig-review/interview-picks@1',set:registered,picks:[{ask:item.id,option_id:'keep'}],by:'user',at:new Date(clock.now).toISOString()},null,2)}\n`;
       writeFileSync(join(dir,picksPath),payload); files[picksPath]=payload;
-      interviewAnswerCommand([item.id,dir,'--picks-file',picksPath]);
-    } else interviewAnswerCommand([item.id,dir,'--set',path,'--sha256',String(registered.sha256),'--by','user',...flags]);
+      interviewAnswerCommand([item.id,dir,'--picks-file',picksPath],clock.now);
+    } else interviewAnswerCommand([item.id,dir,'--set',path,'--sha256',String(registered.sha256),'--by','user',...flags],clock.now);
     if(item.id==='seethrough') {
       const fragment = join(dir,'seed-fragment.json'); const reasoning = join(dir,'reasoning.txt');
       writeFileSync(fragment,JSON.stringify(fragments.get('seed')));writeFileSync(reasoning,'Retain the declared synthetic seed direction.');
-      setSystemTime(new Date(exampleTime(`${day}04:00Z`)));
-      interviewDecisionCommand([item.id,dir,'--by','agent','--fragment',`seed=${fragment}`,'--reasoning-file',reasoning]);
+      clock.now = Date.parse(exampleTime(`${day}04:00Z`));
+      interviewDecisionCommand([item.id,dir,'--by','agent','--fragment',`seed=${fragment}`,'--reasoning-file',reasoning],clock.now);
     }
   }
   return files;

@@ -1,29 +1,25 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { directionCommand } from '../src/direction-writers.ts';
 import { Refusal } from '../src/refusal.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
-import { reopenCommand } from '../src/reopen.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { checkSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { checkProject, directionCommand, advanceCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
 const hash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 function setup(stage = 'rig-review'): string {
   const dir = stage === 'direction-review' ? fixture() : fixture(p => { p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== stage); });
   writeFileSync(join(dir, 'words.txt'), 'Approve this reviewed version.\n');
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   if (stage === 'direction-review') reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
-  setSystemTime(new Date('2026-11-20T00:00:01Z'));
+  testClock.set(new Date('2026-11-20T00:00:01Z'));
   return dir;
 }
 function sign(dir: string, stage: string, version?: string): JsonObject {
@@ -58,7 +54,7 @@ test.each([undefined, '2'])('adopted post writer binds document bytes, version %
   const dir = join(tempDir(), 'authored'); const f = directionFixture(dir);
   directionCommand(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1']);
   const p = f.load(); obj(arr(p.versions)[1]).verdicts = [{ review: 'direction-review', verdict: 'accepted', by: 'user', at: SIGNOFF_TARGET_SINCE, verbatim: 'Accept' }]; f.save(p);
-  setSystemTime(new Date(SIGNOFF_TARGET_SINCE));
+  testClock.set(new Date(SIGNOFF_TARGET_SINCE));
   const result = sign(dir, 'direction-review', version);
   expect(obj(obj(result.target).direction)).toEqual({ path: 'evidence/direction/v2.json', sha256: hash(readFileSync(join(dir, 'evidence/direction/v2.json'))) });
 });
@@ -123,9 +119,9 @@ test('missing target is refused at boundary, with exactly one warning for a lega
 
 test('live target removes default candidate, while reopening makes it selectable', () => {
   const dir = setup(); sign(dir, 'rig-review'); refused(dir, 'rig-review');
-  setSystemTime(new Date('2026-11-21T00:00:00Z'));
+  testClock.set(new Date('2026-11-21T00:00:00Z'));
   reopenCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
-  setSystemTime(new Date('2026-11-22T00:00:00Z'));
+  testClock.set(new Date('2026-11-22T00:00:00Z'));
   expect(obj(sign(dir, 'rig-review').target).version).toBe(2);
 });
 

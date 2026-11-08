@@ -302,11 +302,11 @@ export function correctionApprovalFindings(project: JsonObject, stage: string, s
   }
   return out;
 }
-export function checkCorrections(ctx: { dir: string; project: JsonObject; refusals: Finding[]; warnings: Finding[] }): void {
+export function checkCorrections(ctx: { dir: string; project: JsonObject; refusals: Finding[]; warnings: Finding[] }, now: number): void {
   const { dir, project, refusals, warnings } = ctx;
   const contract = project.corrections_contract;
   if (contract === undefined) warnings.push(correctionFinding('CORRECTION_PATH_LEGACY', 'corrections_contract', 'correction paths are not adopted; adopt explicitly without rewriting history'));
-  else if (!isObject(contract) || !closed(contract, ['schema', 'adopted_at']) || contract.schema !== CORRECTIONS_SPEC || !Number.isFinite(date(contract.adopted_at)) || date(contract.adopted_at) > Date.now()) refusals.push(correctionFinding('CORRECTION_CONTRACT_INVALID', 'corrections_contract', 'invalid explicit adoption'));
+  else if (!isObject(contract) || !closed(contract, ['schema', 'adopted_at']) || contract.schema !== CORRECTIONS_SPEC || !Number.isFinite(date(contract.adopted_at)) || date(contract.adopted_at) > now) refusals.push(correctionFinding('CORRECTION_CONTRACT_INVALID', 'corrections_contract', 'invalid explicit adoption'));
   if (project.corrections === undefined) { if (contract !== undefined) refusals.push(correctionFinding('CORRECTION_MALFORMED', 'corrections', 'adopted contract needs an explicit list')); return; }
   if (!Array.isArray(project.corrections)) { refusals.push(correctionFinding('CORRECTION_MALFORMED', 'corrections', 'expected list')); return; }
   if (!correctionsAdopted(project) && project.corrections.length) refusals.push(correctionFinding('CORRECTION_CONTRACT_INVALID', 'corrections_contract', 'records require explicit adoption'));
@@ -314,7 +314,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
   for (const [index, raw] of project.corrections.entries()) {
     const path = `corrections[${index}]`;
     try {
-      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || !text(raw.by) || raw.by.toLowerCase() === 'agent' || !Number.isFinite(date(raw.at)) || date(raw.at) > Date.now() || !text(raw.verbatim) || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
+      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || !text(raw.by) || raw.by.toLowerCase() === 'agent' || !Number.isFinite(date(raw.at)) || date(raw.at) > now || !text(raw.verbatim) || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
       const record = raw as JsonObject;
       if (record.resolves !== null) {
         const prior = seen.get(String(record.resolves));
@@ -367,7 +367,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
         let outcome: JsonObject;
         try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
         const closure = record.closure;
-        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > Date.now() || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? (record.path === 'described' || sameHash(on.model,outcome.model)) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
+        if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > now || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? (record.path === 'described' || sameHash(on.model,outcome.model)) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
         if (record.path === 'made' && on.kind === 'rig' && outcome.kind === 'rig') {
           const target = versionRecord(project, outcome.n); const { applied } = correctionApplied(dir, art);
           const origin = target.review_origin;

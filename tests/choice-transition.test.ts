@@ -1,14 +1,13 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
-import { interviewAnswerCommand, interviewDecisionCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
 import { sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, framing, obj, waypoint } from './fixtures.ts';
+import { checkProject, interviewAnswerCommand, interviewDecisionCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 
 function transition(value: string) {
   let setPath = '';
@@ -33,7 +32,7 @@ function transition(value: string) {
   const path = 'evidence/interview/transition-rig-type.json';
   const bytes = JSON.stringify(set, null, 2) + '\n';
   writeFileSync(join(dir, path), bytes);
-  setSystemTime(new Date('2026-11-10T14:11:00Z'));
+  testClock.set(new Date('2026-11-10T14:11:00Z'));
   interviewOptionsCommand(['rig_type', dir, '--file', path]);
   interviewAnswerCommand(['rig_type', dir, '--set', path, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user', '--pick', `rig_type=${value === 'character.idle' ? 'keep' : 'alternative'}`]);
   interviewOptionsCommand(['rig_type', dir, '--file', path]);

@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { type CheckReport } from '../src/check.ts';
 import type { Json } from '../src/templates.ts';
 import { fixture, obj, resignAfterChange, waypoint, type Mutate } from './fixtures.ts';
+import { checkProject } from './clock.ts';
 
 const BUST_CODES = new Set(['BUST_EXCLUSION_UNREASONED', 'BUST_VALUE_UNKNOWN']);
 const bust = (r: CheckReport): string[] => r.refusals.filter((f) => BUST_CODES.has(f.code)).map((f) => `${f.code} ${f.path}`);

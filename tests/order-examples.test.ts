@@ -2,11 +2,11 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { fixture } from './fixtures.ts';
-import { CLI } from './helpers.ts';
+import { clockedCli } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 test('all generated example events satisfy every source contract date within two minutes', () => {
   const src = join(import.meta.dir, '../src');
@@ -37,7 +37,7 @@ test('the public writer reopens the signed example at the real clock and keeps i
   const dir = fixture(() => {}, 'example-project.json');
   const before = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   writeFileSync(join(dir, 'words.txt'), 'Reopen the synthetic parts for correction.');
-  const result = Bun.spawnSync([process.execPath, CLI, 'reopen', 'parts-review', dir,
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'reopen', 'parts-review', dir,
     '--by', 'reviewer', '--verbatim-file', join(dir, 'words.txt')], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.stderr.toString()).toBe('');
   expect(result.exitCode).toBe(0);

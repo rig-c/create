@@ -1,20 +1,17 @@
-import { afterEach, beforeAll, describe, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { generateExampleDiff } from '../scripts/generate-example-diff.ts';
-import { checkProject } from '../src/check.ts';
 import { DIFF_MAP_SINCE } from '../src/diff-map.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
-import { reopenCommand } from '../src/reopen.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
 import { arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from './parts-package.ts';
+import { checkProject, reopenCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const reports: Record<string, string> = {};
@@ -24,7 +21,7 @@ beforeAll(() => {
     ['floor', 3, 40, false, false], ['threshold', 2, 41, false, false], ['empty', 2, 40, false, true],
   ] as const) reports[name] = generateDiffFixture(join(tempDir(), name), floor, threshold, other, identical);
 });
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 
 function signoff(p: JsonObject): JsonObject {
   return arr(p.signoffs).map(obj).filter((s) => s.stage === 'parts-review').at(-1)!;
@@ -73,12 +70,13 @@ describe('B0 normal writer and both producer layouts', () => {
   test.each(['build', 'assemble'])('%s permits rigging with every component listed', (layout) => {
     const dir = project();
     const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-    setSystemTime();
-    retimeFixture(p, Date.now());
+    testClock.reset();
+    retimeFixture(p, testClock.now());
     writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
     writeFileSync(join(dir, 'words.txt'), 'Revisit the synthetic parts.');
     reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
     if (layout === 'assemble') moveToAssemble(dir);
+    testClock.set(testClock.now() + 1000);
     const result = writer(dir);
     expect(result.code).toBe(0);
     const signed = JSON.parse(result.stdout) as JsonObject;
@@ -245,7 +243,7 @@ describe('writer usage and cutoff', () => {
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
   test('from the cutoff the writer requires the report and preserves the file', () => {
-    setSystemTime(new Date(DIFF_MAP_SINCE));
+    testClock.set(new Date(DIFF_MAP_SINCE));
     const dir = project(); writeFileSync(join(dir, 'words.txt'), 'reviewed');
     const before = readFileSync(join(dir, 'project.json'));
     try {

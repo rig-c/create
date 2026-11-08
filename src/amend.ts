@@ -133,7 +133,7 @@ export const AMEND_HELP = `amend:
   The clock supplies at. The owning stage and every later approval lapse.
   Upstream steps keep their state. keep-by-binding ships empty.`;
 
-export function amendCommand(args: string[]): { stdout: string; exit: number } {
+export function amendCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   const files: string[] = [];
@@ -159,7 +159,7 @@ export function amendCommand(args: string[]): { stdout: string; exit: number } {
   if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
   const entry: JsonObject = {
     target: { stage: positional[0] as string, kind: opts['--kind'], id: opts['--target'] },
-    by: opts['--by'], at: new Date().toISOString(), verbatim: '', changes: [],
+    by: opts['--by'], at: new Date(now).toISOString(), verbatim: '', changes: [],
   };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   // Check signer and target before reading stdin or any input file.
@@ -183,7 +183,7 @@ export function amendCommand(args: string[]): { stdout: string; exit: number } {
     if (isObject(raw) && typeof raw.id === 'string' && (raw.phase === 'rig' || raw.phase === 'post')
       && stageIndex(stageOfStep(raw.phase, raw.id)) >= stageIndex(positional[0] as string)) raw.status = 'pending';
   }
-  const rejected = checkProject(dir, project).refusals[0];
+  const rejected = checkProject(dir, project, { now }).refusals[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `amend: ${String(positional[0])} ${String(opts['--target'])} by ${String(entry.by)} at ${String(entry.at)}; stage retained`, exit: 0 };

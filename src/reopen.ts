@@ -94,7 +94,7 @@ export const REOPEN_HELP = `reopen:
   --json                  print the reopen record
   The clock supplies at; sign-offs and versions remain history.`;
 
-export function reopenCommand(args: string[]): { stdout: string; exit: number } {
+export function reopenCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
@@ -116,7 +116,7 @@ export function reopenCommand(args: string[]): { stdout: string; exit: number } 
   }
   const affected = steps.filter((s): s is JsonObject => isObject(s)
     && stageIndex(stageOfStep(s.phase as 'rig' | 'post', s.id as string)) >= stageIndex(positional[0] as string));
-  const entry: JsonObject = { from_stage: project.stage ?? null, steps_before: affected.map(s => ({ id: s.id as string, ...(s.status === undefined ? {} : { status: s.status }) })), stage: positional[0] as string, by: opts['--by'], at: new Date().toISOString(), verbatim: '' };
+  const entry: JsonObject = { from_stage: project.stage ?? null, steps_before: affected.map(s => ({ id: s.id as string, ...(s.status === undefined ? {} : { status: s.status }) })), stage: positional[0] as string, by: opts['--by'], at: new Date(now).toISOString(), verbatim: '' };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   const refusals: Finding[] = [];
   // Validate against the original reached stage before moving it backwards.
@@ -129,7 +129,7 @@ export function reopenCommand(args: string[]): { stdout: string; exit: number } 
   for (const step of affected) step.status = 'pending';
   project.reopens = candidate.reopens;
   project.stage = entry.stage;
-  const checked = checkProject(resolve(positional[1] ?? process.cwd()), project);
+  const checked = checkProject(resolve(positional[1] ?? process.cwd()), project, { now });
   const rejected = checked.refusals[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);

@@ -21,6 +21,8 @@ export const FALLBACK_IDENTITY = { name: 'rig-create', email: 'rig-create@localh
 
 export interface InitOptions {
   install: boolean;
+  /** The instant the record's adoption dates carry (ms since the epoch). */
+  now: number;
 }
 
 export interface InitResult {
@@ -62,13 +64,14 @@ export function checkTarget(dir: string): void {
   }
 }
 
-function writeProjectJson(dir: string, name: string): void {
+function writeProjectJson(dir: string, name: string, now: number): void {
   const record = readTemplate('project.json');
   record.name = name;
-  record.corrections_contract = { schema: 'rig-create/corrections@1', adopted_at: new Date().toISOString() };
+  const at = new Date(now).toISOString();
+  record.corrections_contract = { schema: 'rig-create/corrections@1', adopted_at: at };
   record.corrections = [];
   const interview = record.interview as import('./templates.ts').JsonObject;
-  interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: new Date().toISOString(), choices_adopted_at: new Date().toISOString() };
+  interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: at, choices_adopted_at: at };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
 }
 
@@ -101,7 +104,7 @@ export function initProject(target: string, options: InitOptions): InitResult {
   mkdirSync(dir, { recursive: true });
   const written: string[] = [];
 
-  writeProjectJson(dir, name);
+  writeProjectJson(dir, name, options.now);
   written.push('project.json');
   writePackageJson(dir, name);
   written.push('package.json');

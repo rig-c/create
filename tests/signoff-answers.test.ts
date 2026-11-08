@@ -1,19 +1,18 @@
-import { amendCommand } from '../src/amend.ts';
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+
+import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { answered, checkProject, collectItems, type Ctx, type Item } from '../src/check.ts';
+import { answered, collectItems, type Ctx, type Item } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
-import { reopenCommand } from '../src/reopen.ts';
 import { answerRevisionHash, checkSignoffAnswers, selectAnswerHashes, SIGNOFF_ANSWERS_SINCE } from '../src/signoff-answers.ts';
-import { signoffCommand } from '../src/signoff.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, fixture, materializeFixture, obj, resignAfterChange, step, waypoint } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p, null, 2) + '\n');
 function words(dir: string): string { const path = join(dir, 'approval.txt'); writeFileSync(path, 'Approve the synthetic answer revisions.\n'); return path; }
@@ -32,7 +31,7 @@ function expected(item: Item, stage: string): string {
 }
 
 test.each(['interview', 'plan-approved', 'rigging-interview', 'post-interview'])('%s writer binds independently computed answer envelopes', stage => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(() => {}, 'example-project.json');
   const before = load(dir);
   signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words(dir)]);
@@ -98,7 +97,7 @@ test('later first answers are not missing from the earlier interview', () => {
 
 test('lapsed approvals never report changed answer bindings', () => {
   const dir = fixture(() => {}, 'example-project.json');
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   reopenCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   const p = load(dir); obj(waypoint(p, 'assemble').guide).verbatim = 'DISTINCT lapsed answer';
   expect(findings(dir, p)).toEqual([]);
@@ -115,7 +114,7 @@ test('inheritance binds both resolved content and reference identity', () => {
   writeFileSync(join(root, 'collection.json'), JSON.stringify(collection));
   resignAfterChange(dir, '2026-11-19T00:00:00Z');
   // The operation under test reads the real parent collection.
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   const signed = obj(arr(load(dir).signoffs).at(-1));
   const item = collectItems(load(dir), { collection }).find(i => i.id === 'bones')!;
@@ -160,7 +159,7 @@ test('empty imported interview has an honestly complete empty binding', () => {
 
 test('amendment liveness suppresses stale downstream bindings and keeps no approvals by binding', () => {
   const dir = fixture(() => {}, 'example-project.json');
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
   writeFileSync(join(dir, 'replacement.json'), '{"synthetic":"DISTINCT amendment"}');
   amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', 'bones', '--change', 'replacement.json', '--by', 'user', '--verbatim-file', words(dir)]);
   const p = load(dir); obj(waypoint(p, 'bones').guide).verbatim = 'DISTINCT lapsed rigging answer';

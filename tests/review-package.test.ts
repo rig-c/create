@@ -3,15 +3,14 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-
-import { checkProject } from '../src/check.ts';
 import { checkReviewPackages, reviewPackageCommand, reviewConfigInputs } from '../src/review-package.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { generateExampleReview } from '../scripts/generate-example-review.ts';
 import { fixture as exampleFixture, obj, version } from './fixtures.ts';
 import { reviewExampleFiles } from './review-fixture.ts';
-import { CLI, run } from './helpers.ts';
+import { clockedCli, run } from './helpers.ts';
 import { Refusal } from '../src/refusal.ts';
+import { checkProject } from './clock.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -196,7 +195,7 @@ describe('frozen review package', () => {
   });
   test('normal CLI writes a package whose installed feedback resolves the config hash', () => {
     const dir = fixture();
-    const made = run([process.execPath, CLI, 'review-package', '1', dir, '--config', 'frozen/config.json', '--from', 'build', '--json'], dir, { ...process.env } as Record<string, string>);
+    const made = run([process.execPath, ...clockedCli(), 'review-package', '1', dir, '--config', 'frozen/config.json', '--from', 'build', '--json'], dir, { ...process.env } as Record<string, string>);
     expect(made.code).toBe(0);
     const record = JSON.parse(made.stdout);
     expect(record.config.sha256).toBe(sha(config));

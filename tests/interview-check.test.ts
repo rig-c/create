@@ -6,13 +6,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
-import { APPEARANCE_IN_MOTION_PHRASES, appearanceBarWarnings, checkProject, type CheckReport } from '../src/check.ts';
+import { APPEARANCE_IN_MOTION_PHRASES, appearanceBarWarnings, type CheckReport } from '../src/check.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
 import { rehashSignoffs, supersede } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 /** The section list @rig-c/parts 2.3.0 and 2.4.0 export (its `CONFIG_SECTIONS`), used by the fake parts sources planted below. */
 const PARTS_SECTIONS = [

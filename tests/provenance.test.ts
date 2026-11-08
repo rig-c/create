@@ -5,10 +5,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { repackageFixtureVersion } from './review-fixture.ts';
-import { checkProject } from '../src/check.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { citedSections, codes, fixture, obj, supersede, version, waypoint, withCode } from './fixtures.ts';
+import { checkProject } from './clock.ts';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 

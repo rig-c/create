@@ -808,8 +808,11 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
 
 // ---------------------------------------------------------------------- entry
 
-/** With a candidate record, validate the would-be write against the same project files without writing it. */
-export function checkProject(projectDirArg: string, candidate?: JsonObject, options: { forwardWrite?: boolean } = {}): CheckReport {
+/**
+ * With a candidate record, validate the would-be write against the same project files without writing it.
+ * `options.now` is the instant the check runs at (ms since the epoch); see README.md "The clock".
+ */
+export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean }): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
@@ -930,8 +933,8 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject, opti
   checkMeshesBust(ctx);
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkChoices(ctx);
-  checkCorrections(ctx);
-  checkDirections(ctx);
+  checkCorrections(ctx, options.now);
+  checkDirections(ctx, options.now);
   warnings.push(...intakeWarnings(dir, project));
 
   return {

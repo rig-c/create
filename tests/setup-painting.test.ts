@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { checkProject, type CheckReport } from '../src/check.ts';
+import { type CheckReport } from '../src/check.ts';
 import { SETUP_PAINTING_SINCE } from '../src/setup-painting.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { fixture, framing, obj, version, type Mutate } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
+import { checkProject } from './clock.ts';
 
 const json = (value: unknown): string => `${JSON.stringify(value)}\n`;
 const sha = (text: string): string => createHash('sha256').update(text).digest('hex');

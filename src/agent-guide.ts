@@ -125,6 +125,7 @@ export const CREATE_DOCS: readonly CreateDoc[] = [
 export const RESUME_LINK = { path: 'docs/PROJECT.md', anchor: 'how-an-agent-resumes-a-project' } as const;
 export const DERIVED_LINK = { path: 'docs/INTERVIEW.md', anchor: 'derived-answers' } as const;
 export const GATES_LINK = { path: 'docs/CRAFT.md', anchor: 'for-the-gates-not-the-interview' } as const;
+export const DRAFTS_LINK = { path: 'docs/PROJECT.md', anchor: 'labelled-draft-rigs-and-structure-decisions' } as const;
 export const STAGES_LINK = { path: 'docs/PROJECT.md', anchor: 'stages' } as const;
 export const LIFETIME_LINK = { path: 'docs/PROJECT.md', anchor: 'data-is-split-by-lifetime' } as const;
 export const INTAKE_LINK = { path: 'docs/PROJECT.md', anchor: 'advisory-intake-reports' } as const;
@@ -200,6 +201,7 @@ export function renderAgentGuide(): string {
     INTERVIEW_CHECK: INTERVIEW_CHECK_LINE,
     DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
     GATES_LINK: `[CRAFT.md G8](${createDocUrl(GATES_LINK.path, GATES_LINK.anchor)})`,
+    DRAFTS_LINK: `[PROJECT.md § Labelled draft rigs](${createDocUrl(DRAFTS_LINK.path, DRAFTS_LINK.anchor)})`,
     STAGES_LINK: `[PROJECT.md § Stages](${createDocUrl(STAGES_LINK.path, STAGES_LINK.anchor)})`,
     LIFETIME_LINK: `[PROJECT.md § Data is split by lifetime](${createDocUrl(LIFETIME_LINK.path, LIFETIME_LINK.anchor)})`,
     INTAKE_LINK: `[PROJECT.md § Advisory intake reports](${createDocUrl(INTAKE_LINK.path, INTAKE_LINK.anchor)})`,

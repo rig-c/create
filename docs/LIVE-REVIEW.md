@@ -33,6 +33,7 @@ HOLE visible.
 
 | Writer | Published result | Review subject |
 | --- | --- | --- |
+| `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector and `parts-verdict` |
 | `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review` |
 | `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and `review-verdict` for `direction-review` |
 
@@ -125,9 +126,8 @@ Human-value and feedback flags are exclusive with `--from-review`.
 
 The shared reader checks `rig-review/job-api@2`, `rig-review/act@2`, and the
 act's Parts enumerator version against `>=2.25.0 <3.0.0`. API@1 and act@1 are
-refused without migration. This card consumes rig/post `review-verdict` only.
-Interview picks, signoff, checkpoint and parts verdict ingestion await their
-follow-up cards. Image-review has no create version writer mapping. Described
+refused without migration. Rig/post `review-verdict` and draft `parts-verdict` use their respective writers.
+Interview picks, signoff and checkpoint ingestion await their follow-up cards. Image-review has no create version writer mapping. Described
 correction and mesh-edit retain Review's reserved status.
 
 `approved`, `changes-requested` and `pending` map to the existing verdict
@@ -190,3 +190,74 @@ path test establishes the accepted consumer access boundary.
 `--picks-file`, `--verbatim-file`, parts `--evidence`, and reshaped feedback JSON
 remain available for legacy/history workflows. The current semantic verdict
 path uses `--from-review` and preserves the fetched act directly.
+
+## Parts drafts and independent verdicts
+
+```sh
+rig-create draft-rig <id> <project> --config <config> --from <output> --parts <parts>
+rig-create parts-review <project> --from-review <actId> --json
+```
+
+Bound draft registration holds the #184 shared lock through intent, atomic
+record commit and publication acknowledgment. Its durable identity is the exact
+`drafts[id]` entry, hashed by `publicationVersionHash` with the existing
+serialization. A rebuild receives a new draft ID. Failed publication retains
+its original intent and retries through `job reconcile`. Unbound registration
+continues to record the existing draft inventory.
+
+The writer publishes `review-draft-<id>.json` with a labelled draft title, an
+entry-hash revision, the recorded compiled model when available, declared image
+references, and read-only rig/motion/mesh-report artifacts. Standalone output
+without a compiled model uses Review's optional-model manifest form. The host
+reader supplies the draft selector and `parts-verdict` subject, part IDs and the
+exact C4 Parts enumeration over the recorded draft input. Config, config inputs
+and retained outputs are sealed as publication files. Producer bytes are read
+and hash-bound. Publication performs no build or producer measurement.
+
+`parts-review` uses the shared API@2/act@2 reader and writer-owned fetch grant.
+It records all three verdict values and each part/mesh outcome and note exactly.
+The human words, host-attested reviewer, authority, time and original source
+remain inside the complete act. The JSON result reports the role mapping and
+its explicit evidence path. It appends a `kind: parts-verdict` receipt in
+`review_acts[]`, with draft ID, the pinned draft-entry hash and evidence identity.
+The evidence file under `evidence/review-acts/` is the same immutable act encoding
+and SHA-256 as the ledger bytes.
+
+The semantic evidence branch reads act@2 directly. The legacy
+`rig-review-parts-verdict/1` and `/2` approval, source, draft-match, structure and
+difference gates continue through their existing branches. A semantic approval
+must cover the selected draft's manifest and part membership. Its published
+config, config inputs and mesh/output identities remain bound to that draft,
+with all C4 image hashes checked. These retain the parts/draft and mesh-output
+binding obligations of create#236 and #245. The semantic form carries its actual
+C4 inventory and draft receipt, without synthesizing a legacy `source.files`
+report or interpreting mesh geometry.
+
+Use the returned evidence explicitly in the separate writers.
+
+```sh
+rig-create structure-snapshot <project> --draft <id> --verdict <returned-path> --out evidence/structure.json
+rig-create signoff parts-review <project> --draft <id> --evidence <returned-path> --structure-file evidence/structure.json --diff-report <report> --by <human> --verbatim-file <words>
+```
+
+The existing difference component options still apply to the report. A pending
+or changes-requested act can be retained, while the separate approval writer
+refuses it with `PARTS_VERDICT_NOT_APPROVED`. Recording evidence leaves signoff
+and stage progression to those explicit writes.
+
+Every ingest and replay checks the draft selection, Parts manifest/images,
+config and config inputs, retained outputs, package revision and any declared
+model/plan/direction identities before deduplication. Package revision is the
+create-owned draft-entry hash. A changed config, part or draft entry refuses
+`REVIEW_ACT_SOURCE_STALE`. `sourceHash` remains producer provenance, and
+`projectHash` stays publication provenance across unrelated record writes.
+First ingest also joins `publicationId` to the private acknowledged receipt.
+An absent receipt emits `REVIEW_ACT_VERSION_UNVERIFIED` while the explicit
+bindings remain enforced and the current draft-entry hash is pinned.
+
+Evidence is exclusively created, fsynced with its directory, and then linked by
+an atomic project commit. If a process dies between staging and record commit,
+an identical retry reuses the staged file and commits once. Different bytes at
+the deterministic `(jobId, actId)` path refuse
+`PARTS_REVIEW_EVIDENCE_CONFLICT`. A failed invocation removes only evidence it
+created and has not committed. Existing evidence is preserved.

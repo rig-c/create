@@ -89,7 +89,7 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
   // The verdict is read by the parts-review sign-off's own reader; only an approved one gives a snapshot.
   const refusals: Finding[] = [];
   const evidence = partsVerdictEvidence(dir, verdict);
-  checkPartsVerdict(dir, { evidence }, 'structure-snapshot', refusals);
+  checkPartsVerdict(dir, { evidence }, 'structure-snapshot', refusals, project);
   if (refusals[0] !== undefined) refuse(refusals[0].code, refusals[0].message);
   // ...and it reviews this draft's parts (rig-c/create#236).
   const bound = partsVerdictDraftFinding(dir, project, evidence, draftId, `structure-snapshot --draft ${draftId}`);

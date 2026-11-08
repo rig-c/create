@@ -1,3 +1,4 @@
+import { partsActFindings } from './parts-act.ts';
 import { reviewActFindings } from './review-act.ts';
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
@@ -799,7 +800,7 @@ function checkPartsReviewEvidence(ctx: Ctx): void {
   const latest = latestSignoff(ctx, PARTS_REVIEW);
   if (riggingStarted && gating && latest !== undefined) {
     const at = `signoffs[${latest.index}]`;
-    const partsFile = checkPartsVerdict(ctx.dir, latest.record, at, ctx.refusals);
+    const partsFile = checkPartsVerdict(ctx.dir, latest.record, at, ctx.refusals, ctx.project);
     checkDiffMap(ctx.dir, latest.record, at, partsFile, ctx.refusals, ctx.warnings);
   }
 }
@@ -960,7 +961,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkAppliedReview(ctx);
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);
-  refusals.push(...reviewActFindings(project));
+  refusals.push(...reviewActFindings(project), ...partsActFindings(dir, project));
   checkCgGates(ctx);
   checkSetupPainting(ctx);
   checkFigureMask(ctx);

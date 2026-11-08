@@ -10,6 +10,7 @@ import { Refusal, refuse } from './refusal.ts';
 import { stepHash } from './step-hash.ts';
 import type { Json, JsonObject } from './templates.ts';
 
+export type PartsVerdictAct = Extract<JobAct, { kind: 'parts-verdict' }>;
 export type ReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
 export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string }
 const object = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -21,7 +22,10 @@ function failure(code: string, detail: string): never {
 }
 
 /** Also used by check on the retained, explicitly encoded act bytes. */
-export function decodeReviewAct(bytes: string): ReviewVerdictAct {
+export function decodeReviewAct(bytes: string): ReviewVerdictAct;
+export function decodeReviewAct(bytes: string, kind: 'parts-verdict'): PartsVerdictAct;
+export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict'): ReviewVerdictAct | PartsVerdictAct;
+export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' = 'review-verdict'): ReviewVerdictAct | PartsVerdictAct {
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
@@ -32,7 +36,7 @@ export function decodeReviewAct(bytes: string): ReviewVerdictAct {
   // Only stable releases in the frozen range are accepted. Prereleases are outside it.
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
   if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || Number(match[1]) !== 2 || Number(match[2]) < 25) failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <3.0.0`);
-  if (act.kind !== 'review-verdict') failure('REVIEW_ACT_KIND_MISMATCH', `kind ${String(act.kind)} is not supported by the rig/post verdict writer`);
+  if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${String(act.kind)} does not match ${kind}`);
   const authority = act.authority;
   const reviewer = object(authority) ? authority.reviewer : null;
   const value = act.value;
@@ -44,6 +48,29 @@ export function decodeReviewAct(bytes: string): ReviewVerdictAct {
     || !object(source.package) || !id(source.package.id) || typeof source.package.revision !== 'string'
     || !object(value) || typeof value.words !== 'string' || !['pending', 'approved', 'changes-requested'].includes(String(value.verdict))) {
     failure('REVIEW_ACT_INVALID', 'act identity, authority, source or verdict is malformed');
+  }
+  if (kind === 'parts-verdict') {
+    const selector = source.selector;
+    if (!object(selector) || selector.kind !== 'draft' || !id(selector.id) || !object(parts) || !file(parts.manifest)
+      || !Array.isArray(parts.images) || parts.images.some(row => !file(row) || typeof row.role !== 'string')
+      || source.model !== null && !file(source.model) || source.direction !== null && !file(source.direction)
+      || source.plan !== null && (!object(source.plan) || !Array.isArray(source.plan.steps)
+        || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))
+      || !Array.isArray(value.parts) || !value.parts.length) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed');
+    const rows = value.parts as JsonObject[];
+    const ids = new Set<string>();
+    for (const row of rows) {
+      if (!object(row) || !id(row.partId) || ids.has(row.partId)) failure('REVIEW_ACT_INVALID', 'part identities are invalid or duplicated');
+      ids.add(row.partId);
+      for (const outcome of [row.part, row.mesh]) {
+        if (!object(outcome) || !['pending', 'clean', 'flagged'].includes(String(outcome.outcome)) || typeof outcome.note !== 'string'
+          || outcome.outcome === 'flagged' && !outcome.note.trim()) failure('REVIEW_ACT_INVALID', 'part or mesh outcome is malformed');
+      }
+    }
+    const outcomes = rows.flatMap(row => [(row.part as JsonObject).outcome, (row.mesh as JsonObject).outcome]);
+    if (value.verdict === 'approved' && outcomes.some(outcome => outcome !== 'clean')
+      || value.verdict === 'changes-requested' && !outcomes.includes('flagged')) failure('REVIEW_ACT_INVALID', 'parts verdict contradicts its outcomes');
+    return act as unknown as PartsVerdictAct;
   }
   if (source.subject === 'image-set' || value.stage === 'image-review') failure('REVIEW_ACT_KIND_MISMATCH', 'image-review has no rig/post writer mapping');
   const selector = source.selector;
@@ -60,7 +87,7 @@ export function decodeReviewAct(bytes: string): ReviewVerdictAct {
   return act as unknown as ReviewVerdictAct;
 }
 
-export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string): FetchedReviewAct {
+export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: 'review-verdict' | 'parts-verdict' = 'review-verdict'): { act: ReviewVerdictAct | PartsVerdictAct; bytes: string } {
   let response: JsonObject;
   try { const parsed: unknown = JSON.parse(text); if (!object(parsed)) throw Error(); response = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'Review response is not JSON'); }
@@ -70,7 +97,7 @@ export function decodeReviewResponse(text: string, jobId: string, actId: string,
   // The API exposes a semantic value, not a producer storage file. Retain this
   // encoding once, and hash its exact UTF-8 bytes without reconstructing reports.
   const bytes = JSON.stringify(response.value);
-  const act = decodeReviewAct(bytes);
+  const act = decodeReviewAct(bytes, kind);
   if (act.jobId !== jobId || act.actId !== actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
   return { act, bytes };
 }
@@ -80,6 +107,7 @@ export interface ReviewActTransport {
   jobId: string;
   actId: string;
   fetchCapability: string;
+  kind?: 'parts-verdict';
 }
 
 /** Only the route and fetch grant leave the binding reader. Never attach a host. */
@@ -96,7 +124,7 @@ export function reviewActTransport(root: string, actId: string): ReviewActTransp
   return { origin: origin.origin, jobId: binding.jobId, actId, fetchCapability: binding.fetchCapability };
 }
 
-export async function fetchReviewAct(transport: ReviewActTransport): Promise<FetchedReviewAct> {
+export async function fetchReviewAct(transport: ReviewActTransport): Promise<{ act: ReviewVerdictAct | PartsVerdictAct; bytes: string }> {
   const requestId = randomUUID();
   let text: string;
   try {
@@ -107,7 +135,7 @@ export async function fetchReviewAct(transport: ReviewActTransport): Promise<Fet
     });
     text = await response.text();
   } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
-  return decodeReviewResponse(text, transport.jobId, transport.actId, requestId);
+  return decodeReviewResponse(text, transport.jobId, transport.actId, requestId, transport.kind ?? 'review-verdict');
 }
 
 /** Exact #184 identity, discounting only verdicts appended after this receipt. */
@@ -126,7 +154,7 @@ export function reviewActVersionHash(project: JsonObject, act: ReviewVerdictAct,
 function previousPublicationVerdict(project: JsonObject, act: ReviewVerdictAct): number | undefined {
   if (!Array.isArray(project.review_acts)) return undefined;
   const receipts = project.review_acts.filter(object).filter(entry => {
-    if (entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
+    if (entry.kind === 'parts-verdict' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
     return decodeReviewAct(entry.bytes).publicationId === act.publicationId;
   });
   return receipts.length ? Math.min(...receipts.map(entry => Number(entry.verdict))) : undefined;
@@ -203,13 +231,17 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
     const path = `review_acts[${index}]`;
     try {
       if (!object(entry) || entry.schema !== 'rig-create/review-act@1' || typeof entry.bytes !== 'string'
-        || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)
-        || !Number.isSafeInteger(entry.verdict) || Number(entry.verdict) < 0) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
-      const act = decodeReviewAct(entry.bytes);
-      if (entry.jobId !== act.jobId || entry.actId !== act.actId || entry.version !== ('version' in act.source.selector! ? act.source.selector.version : null)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
+        || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
+      const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : 'review-verdict');
+      if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
       const key = JSON.stringify([act.jobId, act.actId]);
       if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
       seen.add(key);
+      if (act.kind === 'parts-verdict') {
+        if (entry.draft_id !== act.source.selector.id || !file(entry.evidence) || entry.evidence.sha256 !== entry.sha256) failure('REVIEW_ACT_LEDGER_INVALID', 'parts receipt target differs from its act');
+        return;
+      }
+      if (!Number.isSafeInteger(entry.verdict) || Number(entry.verdict) < 0 || entry.version !== ('version' in act.source.selector! ? act.source.selector.version : null)) failure('REVIEW_ACT_LEDGER_INVALID', 'verdict receipt target is invalid');
       const target = JSON.stringify([entry.version, entry.verdict]);
       if (targets.has(target)) failure('REVIEW_ACT_LEDGER_INVALID', 'multiple receipts point to one verdict');
       targets.add(target);

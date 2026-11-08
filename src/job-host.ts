@@ -4,7 +4,7 @@ import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobReviewerB
 import { checkProject } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from './job-publication.ts';
+import { currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
@@ -84,8 +84,9 @@ export async function publishPending(entry: PendingPublication, requested?: JobI
     const currentHash = jobHash(bytes);
     if (currentHash !== entry.recordHash) { entry.recordHash = currentHash; delete entry.generation; }
     const project = JSON.parse(bytes.toString('utf8'));
-    if (!entry.result.selector || entry.result.selector.kind === 'draft') refuse('JOB_PUBLICATION_INVALID', 'project.json: only rig/post results can be reconciled');
-    prepareLiveManifest(entry.root, project, entry.result.selector.version);
+    if (!entry.result.selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: a result selector is required for reconciliation');
+    if (entry.result.selector.kind === 'draft') prepareDraftManifest(entry.root, project, entry.result.selector.id);
+    else prepareLiveManifest(entry.root, project, entry.result.selector.version);
     await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result });
     entry.generation ??= host.session.status().generation;
     entry.phase = 'pending';

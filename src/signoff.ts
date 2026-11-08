@@ -137,7 +137,7 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
   if (evidence !== undefined) {
     const refusals: Finding[] = [];
     const record = { evidence, at, ...(diffMap === undefined ? {} : { diff_map: diffMap }) };
-    const partsFile = checkPartsVerdict(dir, record, `signoffs[${project.signoffs.length}]`, refusals);
+    const partsFile = checkPartsVerdict(dir, record, `signoffs[${project.signoffs.length}]`, refusals, project);
     checkDiffMap(dir, record, `signoffs[${project.signoffs.length}]`, partsFile, refusals, []);
     // The verdict reviews the parts of the draft it approves (rig-c/create#236).
     const bound = refusals.length === 0 ? partsVerdictDraftFinding(dir, project, evidence, opts['--draft'], `signoffs[${project.signoffs.length}].draft_id`) : null;

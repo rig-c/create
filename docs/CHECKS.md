@@ -11,7 +11,8 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | Code | Finding and remedy |
 | --- | --- |
 | `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. Restore its bound host and sources, then run `job reconcile` before another participating write or close. |
-| `JOB_HOST_REUSE_MISMATCH` | The private binding's host tuple or incarnation differs. The pending receipt names the field and both values. Restore the original host configuration before reconciling. |
+| `JOB_HOST_ATTACH_REFUSED` | Strict reuse-only attach to the bound live host was refused. The pending receipt names the host `reason` and `phase` (including `incarnation-missing` on `record` or `probe`). Reopen or restore the bound live host before reconciling. |
+| `JOB_HOST_REUSE_MISMATCH` | The private binding's host tuple or `listenerIncarnation` (`jobId`, `origin`, `listenerIncarnation`, `root`, `stateDir`, `fingerprint`, `reviewer.id`, `reviewer.role`, `readerId`, `bindingId`, `partsEnumeratorId`, `partsEnumeratorVersion`, `apiSchema`, `actSchema`, `port`) differs. The pending receipt names the `field` and both `expected` and `actual` values. Restore the original host configuration before reconciling. |
 | `JOB_PUBLICATION_STALE` | The pending version entry is missing or has a different entry hash. Restore that retained version and its files before reconciling. Later surrounding-record changes do not invalidate it. The check preserves the receipt and names the HOLE. |
 | `JOB_PUBLICATION_INVALID` | A result, selector or retained file differs from the writer's recorded rig/post. Restore its declared package and direction bytes. |
 | `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed/unavailable, or a job command has invalid arguments. Restore effective private ignores and the writer-owned binding through `job open`. |

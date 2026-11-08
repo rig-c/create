@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { rigRegistrationFindings } from '../src/rig-version.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
@@ -93,6 +94,7 @@ describe('frozen rig registration', () => {
     ['unresolved absolute path', 'RIG_RUNTIME_PATH_UNRESOLVED', (dir: string) => put(dir, 'source/config.json', { requirements: '/foreign/requirements.json' })],
     ['Windows absolute path', 'RIG_RUNTIME_PATH_UNRESOLVED', (dir: string) => put(dir, 'source/config.json', { requirements: 'C:\\foreign\\requirements.json' })],
     ['output symlink', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => symlinkSync(join(dir, 'source/config.json'), join(dir, 'source/rig/link.json'))],
+    ['symlinked directory', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => { mkdirSync(join(dir, 'source/real-sub')); symlinkSync(join(dir, 'source/real-sub'), join(dir, 'source/rig/linked-sub')); }],
     ['symlinked lock', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => { renameSync(join(dir, 'source/package-lock.json'), join(dir, 'source/real-lock.json')); symlinkSync(join(dir, 'source/real-lock.json'), join(dir, 'source/package-lock.json')); }],
     ['symlinked date record', 'RIG_REGISTRATION_PATH_INVALID', (dir: string) => { renameSync(join(dir, 'source/at-source.json'), join(dir, 'source/real-at.json')); symlinkSync(join(dir, 'source/real-at.json'), join(dir, 'source/at-source.json')); }],
   ])('%s refuses by code and leaves project byte-identical', (_name, code, mutate) => {
@@ -104,6 +106,48 @@ describe('frozen rig registration', () => {
     expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
     expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
     expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+  });
+
+  test('registers external frozen sources under os.tmpdir() while refusing symlinked files and directories inside the source tree', () => {
+    const { dir, load } = setup();
+    const savedTmp = process.env.TMPDIR;
+    if (savedTmp?.startsWith(process.cwd())) delete process.env.TMPDIR;
+    const realTmp = os.tmpdir();
+    if (savedTmp !== undefined) process.env.TMPDIR = savedTmp;
+    const external = mkdtempSync(join(realTmp, 'rig-version-ext-'));
+    roots.push(external);
+    const src = join(external, 'source');
+    renameSync(join(dir, 'source'), src);
+    const extArgs = ['1', dir, '--parts', join(src, 'parts'), '--rig', join(src, 'rig'), '--build', join(src, 'build'), '--idle', join(src, 'idle'),
+      '--config', join(src, 'config.json'), '--path-adapter', join(src, 'adapter.json'), '--compile-report', join(src, 'compile-report.json'),
+      '--toolchain-lock', join(src, 'package-lock.json'), '--run-record', join(src, 'run.json'), '--at-source', join(src, 'at-source.json'), '--at-pointer', '/finished_at', '--by', 'registrant', '--json'];
+    const before = readFileSync(join(dir, 'project.json'));
+
+    symlinkSync(join(src, 'config.json'), join(src, 'rig/linked-file.json'));
+    refused(extArgs, 'RIG_REGISTRATION_PATH_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+    rmSync(join(src, 'rig/linked-file.json'));
+
+    mkdirSync(join(external, 'real-dir'));
+    writeFileSync(join(external, 'real-dir/extra.json'), '{}\n');
+    symlinkSync(join(external, 'real-dir'), join(src, 'rig/linked-dir'));
+    refused(extArgs, 'RIG_REGISTRATION_PATH_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+    rmSync(join(src, 'rig/linked-dir'));
+
+    symlinkSync(join(external, 'real-dir'), join(src, 'linked-lock-dir'));
+    cpSync(join(src, 'package-lock.json'), join(external, 'real-dir/package-lock.json'));
+    const lockViaSymlinkDir = [...extArgs];
+    lockViaSymlinkDir[lockViaSymlinkDir.indexOf('--toolchain-lock') + 1] = join(src, 'linked-lock-dir/package-lock.json');
+    refused(lockViaSymlinkDir, 'RIG_REGISTRATION_PATH_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    rmSync(join(src, 'linked-lock-dir'));
+
+    expect(rigVersionCommand(extArgs).exit).toBe(0);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
   });
 
   test.each(['pending 1', '2026-02-30T00:00:00Z', '2026-11-06', '2026-11-06T20:44:42', '2026-11-06T20:44:42+09:00', '2026-11-06T24:00:00Z'])('refuses invalid/non-UTC date %s', at => {

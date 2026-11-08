@@ -133,7 +133,7 @@ function readProject(): JsonObject {
 test('the finished chain binds its own approved parts, package model and signed direction', () => {
   const checked = checkExampleChain(shipped, testClock.now());
   expect(checked.refusals).toEqual([]);
-  expect(checked.warnings.map(f => [f.code, f.path])).toEqual([['DIRECTION_SCENE_REQUIRED', 'versions[v2].provenance.direction']]);
+  expect(checked.warnings).toEqual([]);
   const project = readProject();
   const versions = project.versions as JsonObject[];
   const rig = versions[0]!;
@@ -160,9 +160,16 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(52);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(54);
   expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/painting.png')).toBe(true);
+  expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/background.png')).toBe(true);
   expect(receipt.steps.some(step => step.seed?.field === 'inputs[]')).toBe(false);
+  expect(receipt.steps.some(step => step.seed?.field.startsWith('scenes'))).toBe(false);
+  const sceneWrite = receipt.steps.findIndex(step => step.command.slice(0, 3).join(' ') === 'rig-create scene write');
+  expect(sceneWrite).toBeGreaterThan(receipt.steps.findIndex(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/background.png'));
+  expect(sceneWrite).toBeLessThan(receipt.steps.findIndex(step => step.command.slice(0, 3).join(' ') === 'rig-create direction write'));
+  expect(direction.schema).toBe('rig-create/direction@2');
+  expect(direction.scene).toEqual({ n: 1, path: 'evidence/scene/s1.json', sha256: (project.scenes as JsonObject[])[0]!.sha256 });
   const moves = project.advances as JsonObject[];
   const stages = ['plan-approved', 'parts', 'parts-review', 'rigging-interview', 'rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'];
   expect(moves.map(move => move.stage)).toEqual(stages);
@@ -294,8 +301,11 @@ test.each([
   if (stage === 4) {
     expect((project.versions as JsonObject[]).some(version => version.kind === 'post')).toBe(false);
     expect(declaration.files.some(file => file.path === 'evidence/direction-input.json')).toBe(false);
-    expect(declaration.pending.commands[0]).toBe('agent draft evidence/direction-input.json');
-    expect(declaration.pending.command_roles).toEqual(['agent', 'human', 'agent', 'human', 'human', 'human']);
+    expect(project.scenes).toBeUndefined();
+    expect(declaration.files.some(file => file.path === 'inputs/background.png')).toBe(false);
+    expect(declaration.pending.commands[0]).toBe('copy parts-producer background part inputs/background.png');
+    expect(declaration.pending.commands).toContain('agent draft evidence/direction-input.json');
+    expect(declaration.pending.command_roles).toEqual(['producer', 'human', 'agent', 'human', 'agent', 'human', 'agent', 'human', 'human', 'human']);
   }
 });
 
@@ -325,6 +335,8 @@ test('agent-authored inputs are declared at their true position before public wr
     ['evidence/structure.json', ['rig-create', 'signoff', 'parts-review']],
     ['evidence/setup.png', ['rig-create', 'review-package', '1']],
     ['evidence/v1/config.json', ['rig-create', 'review-package', '1']],
+    ['inputs/background.png', ['rig-create', 'input', 'add', 'inputs/background.png']],
+    ['evidence/scene-citations.json', ['rig-create', 'scene', 'write']],
     ['evidence/direction-input.json', ['rig-create', 'direction', 'write']],
   ];
   for (const id of ['rig_type', 'reference', 'seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion', 'camera_depth', 'post_timing', 'post_composition']) {

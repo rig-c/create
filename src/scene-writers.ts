@@ -3,6 +3,7 @@ import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, re
 import { basename, dirname, join, resolve } from 'node:path';
 import { checkProject, isObject, type Finding } from './check.ts';
 import { closed, directionHash } from './direction.ts';
+import { checkPlateRegistrations } from './plate-receipt.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { SCENE_SPEC, SceneError, checkScenes, plateRegistration, pngDimensions, sceneBytes, sceneEntries, sceneFail, scenePath, sceneRig, validateScene } from './scene.ts';
@@ -100,6 +101,7 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
     document = destination;
     const own: { dir: string; project: JsonObject; refusals: Finding[] } = { dir, project: next, refusals: [] };
     checkScenes(own);
+    checkPlateRegistrations({ ...own, warnings: [] });
     if (own.refusals[0]) sceneFail(own.refusals[0].code, own.refusals[0].path, own.refusals[0].message);
     const fresh = newFindings(baseline, checkProject(dir, next, { now }).refusals)[0];
     if (fresh) sceneFail(fresh.code, fresh.path, fresh.message);

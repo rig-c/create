@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
+import { checkPlateReceipt, checkPlateRegistrations, readPlateReceipt } from './plate-receipt.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -21,7 +22,9 @@ function readHash(dir: string, path: string): string {
 /** Only the tagged prepared-input records carry this file/hash contract; legacy intermediates are unchanged. */
 export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>): void {
   asArray(ctx.project.derived).forEach((entry, i) => {
-    if (!isObject(entry) || entry.kind !== 'prepared-input') return;
+    if (!isObject(entry)) return;
+    checkPlateReceipt(ctx, entry, `derived[${i}]`);
+    if (entry.kind !== 'prepared-input') return;
     const path = `derived[${i}]`;
     const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
     const files = [
@@ -50,9 +53,10 @@ export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
       if (actual !== (record.sha256 as string).toLowerCase()) ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${at}.sha256`, message: `${at}: '${name}' no longer matches its recorded sha256` });
     }
   });
+  checkPlateRegistrations(ctx);
 }
 
-export const DERIVED_HELP = `derived add [<project dir>] --source <file> [--source <file> …] --file <file> --operation <text> [--json]
+export const DERIVED_HELP = `derived add [<project dir>] --source <file> [--source <file> …] --file <file> --operation <text> [--receipt <path>] [--json]
   Records an operation already run by another tool, with the files' sha256s.
   Paths are relative to the project. No files are transformed; no stage moves.`;
 
@@ -65,7 +69,7 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
   for (let i = 1; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--json') json = true;
-    else if (['--source', '--file', '--operation'].includes(arg)) {
+    else if (['--source', '--file', '--operation', '--receipt'].includes(arg)) {
       const value = args[++i];
       if ((arg !== '--source' && opts[arg] !== undefined) || value === undefined || value.startsWith('--') || value.trim() === '') refuse('DERIVED_USAGE', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -94,8 +98,12 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
     sha256: hashes[sources.length] as string,
     operation: opts['--operation'] as string,
   };
+  if (opts['--receipt'] !== undefined) {
+    try { entry.receipt = readPlateReceipt(dir, opts['--receipt']).binding; }
+    catch (error) { refuse('PLATE_RECEIPT_INVALID', `derived.receipt: ${(error as Error).message}; supply an intact project-relative producer receipt; no record written`); }
+  }
   project.derived = [...asArray(project.derived), entry];
-  const ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'> = { dir, project: { ...project, derived: [entry] }, refusals: [], warnings: [] };
+  const ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'> = { dir, project: { ...project, derived: [entry], scenes: [] }, refusals: [], warnings: [] };
   checkPreparedInputs(ctx);
   const finding = ctx.refusals[0];
   if (finding) refuse(finding.code, finding.message);

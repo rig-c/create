@@ -683,12 +683,14 @@ are unchanged. No prepared files are silently registered or repaired.
 
 | Refusal | Fires when | Clear it by |
 | --- | --- | --- |
+| `PLATE_RECEIPT_INVALID` | a declared receipt is absent, outside the project, symlinked, changed, has an unknown spec or key order, or disagrees with the recorded painting, mask or output | restore the producer receipt and record it with `derived add --receipt` |
+| `PLATE_RECEIPT_MISSING` | a derived plate first registered by a retained scene on or after `PLATE_RECEIPT_SINCE` lacks a receipt | record the producer receipt with `derived add --receipt` |
 | `DERIVED_MALFORMED` | a prepared-input lacks operation, source path/hash, result path/hash, or a path escapes the project | use the prepared-input shape in PROJECT.md |
 | `DERIVED_FILE_UNREADABLE` | the source is absent or unreadable, or a present prepared result cannot be read | restore the named source or make the named result readable |
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE` and `PARTS_VERDICT_DRAFT_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE` and `PARTS_VERDICT_DRAFT_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -698,6 +700,7 @@ independent of the parts-review stage boundary. Read the history entry's own
 
 | Warning | Fires when | Clear it by |
 | --- | --- | --- |
+| `PLATE_RECEIPT_MISSING` | a derived plate first registered by a retained scene before `PLATE_RECEIPT_SINCE` lacks a receipt | retain the legacy record, or record its producer receipt |
 | `DERIVED_RESULT_MISSING` | a regenerable prepared result is absent, including on a fresh clone | the message names the file and its recorded operation for regeneration |
 | `AGENT_BOUNCE_LEGACY` | a free-form bounce has an entry date before the boundary, or no readable date | preserve its history; the warning names the new shape for future entries |
 
@@ -705,6 +708,8 @@ independent of the parts-review stage boundary. Read the history entry's own
 invalid arguments), `DERIVED_PATH_INVALID` (source and result not distinct
 project-relative files, or either is `project.json`), `DERIVED_FILE_UNREADABLE`, `DERIVED_MALFORMED` (a
 non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
+
+`PLATE_RECEIPT_SINCE = 2026-11-08T00:00:00Z` uses the earliest retained scene registration with matching derived index, path and sha256. Input plates are excluded. Every declared receipt is verified regardless of date or scene registration. `scene write` runs the same project checker before committing.
 
 ## Review packages
 

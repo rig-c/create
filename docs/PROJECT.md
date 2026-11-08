@@ -1149,6 +1149,15 @@ regenerable intermediates are absent. Only entries tagged `kind: "prepared-input
 untagged intermediates and projects with no `derived[]` entries keep passing.
 Restore derived files with the recorded operation when needed. The recorded
 hashes describe the bytes that must return.
+For a producer plate, supply `--source` for both its painting and uploaded mask,
+`--file` for its output, and `--receipt` for its `rig-parts-plate-receipt/1` JSON.
+The optional `receipt` records `{ path, sha256, spec }` from raw bytes. Its file
+must stay inside the project with no symlink components. Receipt paths resolve
+relative to the receipt directory. The checker compares declared paths and hashes
+to the derived sources and output, without repeating producer measurements.
+A retained scene registration identifies a derived plate. Its earliest scene
+`at` dates missing-receipt warnings or refusals under `PLATE_RECEIPT_SINCE`.
+
 The filled example ships synthetic SVG bytes under
 [example-prepared](../templates/example-prepared/); copy `source.svg` to
 `inputs/preparation-source.svg` and `prepared.svg` to `derived/prepared.svg`

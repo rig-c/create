@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { encodePngBytes } from '../node_modules/@rig-c/parts/src/raster/png.ts';
+import { EXAMPLE_SOURCE_DATE_EPOCH } from './example-time.ts';
+
 
 export function buildDirectionProbe(dir: string): {model: Buffer; config: Buffer; still: Buffer} {
   mkdirSync(join(dir, 'evidence/images'), {recursive: true});
@@ -21,7 +23,7 @@ export function buildDirectionProbe(dir: string): {model: Buffer; config: Buffer
   writeFileSync(join(dir, 'evidence/rig-config.json'), config);
   writeFileSync(join(dir, 'evidence/motion.json'), `${JSON.stringify({spec: 'rigc-motion/1', archetype: 'direction-probe', cut: 'probe', easings: {}, groups: {}, animations: {turn: {duration: 1, loop: false, tracks: [{bone: 'body', property: 'rotate', keys: [{t: 0, v: [-10]}, {t: 1, v: [10]}]}]}}}, null, 2)}\n`);
   // The binary is installed by parts' declared core dependency; no phantom core import.
-  const run = spawnSync(process.execPath, [resolve(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'), 'build', '--rig', 'evidence/rig-config.json', '--motion', 'evidence/motion.json', '--out', 'derived/review/v1/out/check/build', '--copy-images'], {cwd: dir, encoding: 'utf8', timeout: 60_000});
+  const run = spawnSync(process.execPath, [resolve(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'), 'build', '--rig', 'evidence/rig-config.json', '--motion', 'evidence/motion.json', '--out', 'derived/review/v1/out/check/build', '--copy-images'], {cwd: dir, env: {...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH}, encoding: 'utf8', timeout: 60_000});
   if (run.status !== 0) throw Error(`probe rigc build failed (${run.status}): ${run.stdout}\n${run.stderr}`);
   return {model: readFileSync(join(dir, 'derived/review/v1/out/check/build/skeleton.model.json')), config, still};
 }

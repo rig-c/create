@@ -6,12 +6,12 @@
     "version": "0.0.0-synthetic"
   },
   "source": {
-    "sha256": "e132c2b90e154746d2ca4b88cbca712c23ec7e9a16f27e8b5ddb7408ded62ad1",
+    "sha256": "042cfac20536f0e8255fc4e431804dfedb4d0dd2c9bb3061a6b39b1273e0b885",
     "files": [
       {
         "path": "../derived/drafts/chain/input/parts.json",
-        "bytes": 3979,
-        "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+        "bytes": 4162,
+        "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
       },
       {
         "path": "../derived/drafts/chain/input/parts/background.png",

@@ -1,8 +1,8 @@
 import type { JsonObject } from '../src/templates.ts';
 import { expect, test } from 'bun:test';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { exampleTime, retimeExample } from '../scripts/example-time.ts';
+import { EXAMPLE_SOURCE_DATE_EPOCH, exampleTime, retimeExample } from '../scripts/example-time.ts';
 import { generateExampleOrder } from '../scripts/generate-example-order.ts';
 import { EXAMPLE_DRAFT } from './draft-fixture.ts';
 import { fixture } from './fixtures.ts';
@@ -207,15 +207,19 @@ const originalSignoffs = [
 
 test('the installed producer reproduces every bound draft output from the retained inputs', () => {
   const dir = fixture(() => {}, 'example-project.json');
-  const out = join(tempDir(), 'fresh');
+  // Rebuild in a copy of the draft root with the generator's own relative layout, so the run records' relative paths match.
+  const draft = join(tempDir(), 'draft');
+  const source = join(dir, EXAMPLE_DRAFT);
+  cpSync(source, draft, { recursive: true, filter: path => path !== join(source, 'out') && !path.startsWith(join(source, 'out') + '/') });
+  const out = join(draft, 'out');
   const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
-    'rig', '--config', `${EXAMPLE_DRAFT}/config.json`, '--parts', `${EXAMPLE_DRAFT}/input`, '--out', out],
-  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+    'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
+  { cwd: draft, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH } });
   expect(result.exitCode).toBe(0);
   const compiled = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'),
-    'build', '--rig', join(out, 'rig.json'), '--motion', join(out, 'motion.json'), '--out', join(out, 'check/build'),
+    'build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'out/check/build',
     '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
-  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  { cwd: draft, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH } });
   expect(compiled.exitCode).toBe(0);
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   const outputs: string[] = [];

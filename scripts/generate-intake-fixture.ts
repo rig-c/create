@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { encodePngBytes } from '../node_modules/@rig-c/parts/src/raster/png.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
+import { EXAMPLE_SOURCE_DATE_EPOCH } from './example-time.ts';
 
 const { destination, check } = generatorArgs(import.meta.file, 'usage: generate-intake-fixture.ts <fresh> [--check]');
 const dir = resolve(destination);
@@ -19,7 +20,7 @@ for (const [x,y] of [[1,3],[4,3],[4,6]]) { const i=(y!*10+x!)*4; pixels.set([20,
 writeFileSync(join(dir,'full/hair.png'),encodePngBytes({width:10,height:10,data:pixels}));
 writeFileSync(join(dir,'full/layers.json'),JSON.stringify({width:10,height:10,layers:[{name:'front hair',filename:'hair.png',left:0,top:0,right:10,bottom:10,depth_median:0.5}]}));
 const command = ['node',join(parts,'bin/rig-parts.cjs'),'head-crop-preflight','--full',join(dir,'full'),'--canvas','20x10','--head-box','[5,0,15,5]'];
-const result = Bun.spawnSync(command);
+const result = Bun.spawnSync(command, { env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH } });
 writeFileSync(join(dir,'producer-command.json'),JSON.stringify(command,null,2)+'\n');
 writeFileSync(join(dir,'producer.stderr'),result.stderr);
 if(result.exitCode!==0)throw Error(result.stderr.toString());

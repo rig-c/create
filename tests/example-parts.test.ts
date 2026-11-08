@@ -49,7 +49,7 @@ test('the whole producer-backed fixture is byte-identical across fresh runs and 
   }
   const assets = Object.keys(first.files).filter(path => path.startsWith(`${EXAMPLE_DRAFT}/input/`) && path.endsWith('.png'));
   expect([...referenced].sort()).toEqual(assets.sort());
-  expect(referenced.size).toBe(6);
+  expect(referenced.size).toBe(7); // Six parts and the painting_in_rig raster parts.json declares.
   const accepted = Object.keys(first.files).filter(path => path.startsWith('derived/parts/') && path.endsWith('.png'));
   expect(accepted.length).toBe(7); // Six parts and the existing synthetic recomposite control.
   for (const path of accepted) {

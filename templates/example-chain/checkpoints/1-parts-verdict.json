@@ -27,7 +27,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "0469113519efc1e166fea707550e367112c10e6a585bbcc57b364a9feae09c7d",
+  "project_sha256": "951033ff301062f6d007b0d2bb1f92e55a5ad856f05132543d9f8b9739aafa7f",
   "files": [
     {
       "path": ".gitignore",
@@ -44,6 +44,10 @@
     {
       "path": "derived/drafts/chain/config.json",
       "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+    },
+    {
+      "path": "derived/drafts/chain/input/painting_in_rig.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
     },
     {
       "path": "derived/drafts/chain/input/parts/background.png",
@@ -71,7 +75,7 @@
     },
     {
       "path": "derived/drafts/chain/input/parts.json",
-      "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+      "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
     },
     {
       "path": "derived/drafts/chain/input/recomposite_rig.png",
@@ -80,6 +84,10 @@
     {
       "path": "derived/drafts/chain/interview-requirements.json",
       "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+    },
+    {
+      "path": "derived/drafts/chain/out/check/build/run.json",
+      "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -134,6 +142,10 @@
       "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
     },
     {
+      "path": "derived/drafts/chain/out/run.json",
+      "sha256": "3e98f53ecb461b64256268106d760d6529ae5ac42bdc28f0419341ba0e50ff6d"
+    },
+    {
       "path": "evidence/.gitkeep",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
@@ -175,11 +187,11 @@
     },
     {
       "path": "package.json",
-      "sha256": "6f51020052075e357b194c33ac2df6b4b97674040ccf17626e69cbe98042fd41"
+      "sha256": "d3ec766c347c65a78941f322fa3814829685fe2a4cc5cf8fbff23157fe00fd9f"
     },
     {
       "path": "project.json",
-      "sha256": "0469113519efc1e166fea707550e367112c10e6a585bbcc57b364a9feae09c7d"
+      "sha256": "951033ff301062f6d007b0d2bb1f92e55a5ad856f05132543d9f8b9739aafa7f"
     }
   ]
 }

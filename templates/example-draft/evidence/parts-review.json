@@ -6,12 +6,12 @@
     "version": "0.0.0-synthetic"
   },
   "source": {
-    "sha256": "62907cf5bd9a48d2cc6f35c276155e5d7629a67dcb96e81bb14cbcbd94035b64",
+    "sha256": "43f5e55dd1603bc95ef440f642d414716392b28e98a66b3060f9179e249179f7",
     "files": [
       {
         "path": "../derived/parts/rig/parts.json",
-        "bytes": 3979,
-        "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+        "bytes": 4162,
+        "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
       },
       {
         "path": "../derived/parts/rig/parts/background.png",

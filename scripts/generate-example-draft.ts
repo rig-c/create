@@ -2,7 +2,9 @@ import { generatorArgs } from './generator-args.ts';
 /** Build the synthetic draft with the installed CPU producer, retaining every output byte. */
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { EXAMPLE_SOURCE_DATE_EPOCH } from './example-time.ts';
 import { generateExampleParts } from './generate-example-parts.ts';
+
 
 export function generateExampleDraft(dir: string, parts: Record<string, Uint8Array>): Record<string, Buffer> {
   for (const [path, bytes] of Object.entries(parts)) {
@@ -26,13 +28,13 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
   writeFileSync(join(dir, 'interview-requirements.json'), `${JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }, null, 2)}\n`);
   const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
     'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
-  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  { cwd: dir, env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH }, stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0) throw new Error(`rig exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
   // This is check's installed compiler step, retaining its model without running diagnostic renders.
   const compiled = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'),
     'build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'out/check/build',
     '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
-  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  { cwd: dir, env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH }, stdout: 'pipe', stderr: 'pipe' });
   if (compiled.exitCode !== 0) throw new Error(`rigc build exit ${compiled.exitCode}\n${compiled.stdout}\n${compiled.stderr}`);
   const files: Record<string, Buffer> = { 'config.json': readFileSync(join(dir, 'config.json')), 'interview-requirements.json': readFileSync(join(dir, 'interview-requirements.json')) };
   const collect = (path: string): void => {
@@ -69,13 +71,13 @@ export function generateExampleMeshDraft(dir: string, parts: Record<string, Uint
   writeFileSync(join(dir, 'interview-requirements.json'), `${JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }, null, 2)}\n`);
   const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
     'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
-  { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
+  { cwd: dir, env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH }, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
   if (result.exitCode !== 0) throw new Error(`rig exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
   // This is check's installed compiler step, retaining its model without running diagnostic renders.
   const compiled = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'),
     'build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'out/check/build',
     '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
-  { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
+  { cwd: dir, env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH }, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
   if (compiled.exitCode !== 0) throw new Error(`rigc build exit ${compiled.exitCode}\n${compiled.stdout}\n${compiled.stderr}`);
   const files: Record<string, Buffer> = { 'config.json': readFileSync(join(dir, 'config.json')), 'interview-requirements.json': readFileSync(join(dir, 'interview-requirements.json')) };
   const collect = (path: string): void => {

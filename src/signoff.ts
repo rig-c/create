@@ -7,6 +7,7 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
+import { expandDiffTriage, readDiffTriage } from './diff-classes.ts';
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
 import { checkPartsVerdict, partsVerdictDraftFinding, partsVerdictEvidence } from './parts-verdict.ts';
@@ -32,6 +33,7 @@ export const SIGNOFF_HELP = `signoff:
   --draft <id>            labelled draft approved at parts-review
   --structure-file <path> retained structure decisions snapshot
   --diff-report <path>    parts-review difference report, required from 2026-11-06
+  --triage-file <file>    JSON class/component decisions from diff-classes (parts-review only)
   --component <id>=<status>:<why>  repeat for every report component (parts-review only)
   --json                  print the signature as JSON
   The clock supplies at. With no --steps, signs all steps of the stage's phase.
@@ -54,7 +56,7 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
       const id = value.slice(0, eq);
       if (components.some((c) => c.id === id)) refuse('SIGNOFF_OPTION_INVALID', `duplicate component ${id}`, USAGE_EXIT);
       components.push({ id, status: value.slice(eq + 1, colon), why: value.slice(colon + 1) });
-    } else if (['--version', '--draft', '--structure-file', '--diff-report', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
+    } else if (['--version', '--draft', '--structure-file', '--diff-report', '--triage-file', '--by', '--verbatim-file', '--steps', '--checkpoint', '--evidence'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -91,18 +93,26 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
   if ((stage === PARTS_REVIEW) !== (opts['--evidence'] !== undefined)) {
     refuse('SIGNOFF_OPTION_INVALID', '--evidence is required on parts-review and only accepted there', USAGE_EXIT);
   }
-  if ((opts['--diff-report'] !== undefined || components.length > 0) && stage !== PARTS_REVIEW) {
-    refuse('SIGNOFF_OPTION_INVALID', '--diff-report and --component are only accepted on parts-review', USAGE_EXIT);
+  if ((opts['--diff-report'] !== undefined || opts['--triage-file'] !== undefined || components.length > 0) && stage !== PARTS_REVIEW) {
+    refuse('SIGNOFF_OPTION_INVALID', '--diff-report, --triage-file and --component are only accepted on parts-review', USAGE_EXIT);
   }
   if (components.length > 0 && opts['--diff-report'] === undefined) refuse('SIGNOFF_OPTION_INVALID', '--component requires --diff-report', USAGE_EXIT);
+  if (opts['--triage-file'] !== undefined && (opts['--diff-report'] === undefined || components.length > 0)) refuse('SIGNOFF_OPTION_INVALID', '--triage-file requires --diff-report and cannot be combined with --component', USAGE_EXIT);
   let diffMap: JsonObject | undefined;
   if (opts['--diff-report'] !== undefined) {
     const path = opts['--diff-report'];
+    let bytes: Buffer;
     try {
-      const bytes = diffReportBytes(dir, path);
+      bytes = diffReportBytes(dir, path);
       diffMap = { report: { path, sha256: createHash('sha256').update(bytes).digest('hex') }, components };
     } catch (error) {
       refuse('DIFF_MAP_REPORT', `signoffs[${project.signoffs.length}].diff_map ${path}: ${error instanceof Error ? error.message : String(error)}; generate the report under the project and sign again with --diff-report`);
+    }
+    if (opts['--triage-file'] !== undefined) {
+      let report: unknown;
+      try { report = JSON.parse(bytes!.toString('utf8')); }
+      catch { refuse('DIFF_MAP_REPORT', `signoffs[${project.signoffs.length}].diff_map.report ${path}: invalid JSON; regenerate the report`); }
+      Object.assign(diffMap!, expandDiffTriage(report, readDiffTriage(opts['--triage-file']), `signoffs[${project.signoffs.length}].diff_map`));
     }
   }
   let evidence: JsonObject | undefined;

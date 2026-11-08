@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync
 import { dirname, join } from 'node:path';
 
 import { generateExampleDiff } from '../scripts/generate-example-diff.ts';
+import { deriveDiffClasses, expandDiffTriage, diffClassesCommand } from '../src/diff-classes.ts';
 import { DIFF_MAP_SINCE } from '../src/diff-map.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -250,6 +251,94 @@ describe('writer usage and cutoff', () => {
       signoffCommand(['parts-review', dir, '--by', 'user', '--evidence', EXAMPLE_VERDICT, '--verbatim-file', join(dir, 'words.txt')]);
       throw new Error('writer accepted a missing map');
     } catch (error) { expect((error as { code: string }).code).toBe('DIFF_MAP_MISSING'); }
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+});
+
+
+describe('class triage from measured producer properties', () => {
+  function inventory() {
+    const report = JSON.parse(reports.normal);
+    const seed = report.components[0];
+    report.components = Array.from({ length: 400 }, (_, i) => ({ ...seed, id: `synthetic-${i}`, px: 100,
+      coverage: i < 200 ? 'covered' : 'mixed', uncovered_px: i < 200 ? 0 : i % 2 ? 24 : 25,
+      borders: [{ part: i < 300 ? 'panel' : 'trim', px: 2 }] }));
+    return report;
+  }
+  function decisions(report: unknown, why?: string) {
+    return { classes: Object.fromEntries(deriveDiffClasses(report).map(c => [c.id, { status: 'left', why: why ?? `${c.key.coverage_band}: inspected the synthetic edge` }])) };
+  }
+  function prepared() {
+    const report = inventory(), text = JSON.stringify(report), dir = project();
+    writeFileSync(join(dir, EXAMPLE_DIFF_REPORT), text);
+    const file = join(dir, 'triage.json');
+    writeFileSync(file, JSON.stringify(decisions(report)));
+    return { report, text, dir, file };
+  }
+  test('400 components expand exhaustively through the writer and read command', () => {
+    const { report, dir, file } = prepared();
+    const classes = deriveDiffClasses(report);
+    expect(classes).toHaveLength(5);
+    expect(deriveDiffClasses({ ...report, components: [...report.components].reverse() })).toEqual(classes);
+    const read = diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT]);
+    expect(read.exit).toBe(0);
+    expect(JSON.parse(read.stdout).reduce((n: number, c: {member_count: number}) => n + c.member_count, 0)).toBe(400);
+    const result = writer(dir, ['--triage-file', file]);
+    expect(result.code).toBe(0);
+    const map = obj((JSON.parse(result.stdout) as JsonObject).diff_map);
+    expect(arr(map.components)).toHaveLength(400);
+    expect(arr(map.classes)).toHaveLength(5);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+  test('generic why is refused by the writer with unchanged project bytes', () => {
+    const { report, dir, file } = prepared();
+    writeFileSync(file, JSON.stringify(decisions(report, 'the difference is acceptable')));
+    const before = readFileSync(join(dir, 'project.json'));
+    const result = writer(dir, ['--triage-file', file]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('DIFF_MAP_CLASS_WHY');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+  test('a border-part observation satisfies specificity for a mixed band', () => {
+    const report = inventory();
+    const input = { classes: Object.fromEntries(deriveDiffClasses(report).map(c => [c.id, { status: 'in-painting', why: `${c.key.border_parts[0]} edge exists in the painting` }])) };
+    expect(arr(expandDiffTriage(report, input, 'diff_map').components)).toHaveLength(400);
+  });
+  test.each(['members', 'key', 'unknown', 'status'])('refuses supplied %s rather than trusting the caller', (kind) => {
+    const report = inventory(), input = decisions(report);
+    const id = Object.keys(input.classes)[0];
+    if (kind === 'unknown') input.classes.other = input.classes[id];
+    else Object.assign(input.classes[id], kind === 'status' ? { status: 'accepted' } : { [kind]: [] });
+    try { expandDiffTriage(report, input, 'diff_map'); throw new Error('accepted'); }
+    catch (error) { expect((error as {code: string}).code).toBe('DIFF_MAP_TRIAGE'); }
+  });
+  test.each(['foreign member', 'spread', 'status', 'why', 'orphan', 'duplicate', 'missing class'])('check refuses planted %s', (kind) => {
+    const { dir, file } = prepared();
+    expect(writer(dir, ['--triage-file', file]).code).toBe(0);
+    const path = join(dir, 'project.json'), p = JSON.parse(readFileSync(path, 'utf8')) as JsonObject;
+    const map = obj(signoff(p).diff_map), classes = arr(map.classes).map(obj), c = classes[0];
+    const member = arr(map.components).map(obj).find(m => m.class_id === c.id)!;
+    if (kind === 'foreign member') (c.members as string[])[0] = (classes[1].members as string[])[0];
+    if (kind === 'spread') obj(c.key).coverage_band = 'mixed:0.00-1.00';
+    if (kind === 'status') member.status = 'fixed';
+    if (kind === 'why') { c.why = 'looks fine'; for (const m of arr(map.components).map(obj)) if (m.class_id === c.id) m.why = c.why; }
+    if (kind === 'orphan') member.class_id = 'class-absent';
+    if (kind === 'duplicate') arr(map.classes).push(c);
+    if (kind === 'missing class') delete map.classes;
+    writeFileSync(path, JSON.stringify(p));
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain(kind === 'why' ? 'DIFF_MAP_CLASS_WHY' : 'DIFF_MAP_CLASS');
+  });
+  test('per-member input can replace a class, but overlapping decisions refuse before writing', () => {
+    const { report, dir, file } = prepared(), input = decisions(report);
+    const id = Object.keys(input.classes)[0], group = deriveDiffClasses(report).find(c => c.id === id)!;
+    const components = Object.fromEntries(group.members.map(id => [id, {status: 'fixed', why: 'individual synthetic repair'}]));
+    delete input.classes[id];
+    writeFileSync(file, JSON.stringify({ ...input, components }));
+    expect(writer(dir, ['--triage-file', file]).code).toBe(0);
+    writeFileSync(file, JSON.stringify({ ...decisions(report), components }));
+    const before = readFileSync(join(dir, 'project.json'));
+    const result = writer(dir, ['--triage-file', file]);
+    expect(result.code).toBe(1); expect(result.stderr).toContain('DIFF_MAP_STATUS');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
 });

@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
+import { checkDiffClasses } from './diff-classes.ts';
+
 import type { Finding } from './check.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -17,7 +19,7 @@ const hash = (v: unknown): v is string => typeof v === 'string' && SHA256.test(v
 const integer = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const binding = (v: unknown): boolean => object(v) && nonempty(v.path) && hash(v.sha256);
 
-function reportShape(v: Record<string, unknown>): boolean {
+export function reportShape(v: Record<string, unknown>): boolean {
   const d = v.definition;
   const b = v.below_floor;
   return v.spec === SPEC && binding(v.stack) && binding(v.painting) && object(d)
@@ -123,4 +125,5 @@ export function checkDiffMap(dir: string, signoff: JsonObject, at: string, parts
     }
   }
   for (const id of ids) if (!listed.has(id)) push('DIFF_MAP_COMPONENT_UNLISTED', `${map.report.path}: component ${id} is unlisted`);
+  checkDiffClasses(report, map, path, push);
 }

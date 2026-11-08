@@ -1,3 +1,4 @@
+import { reviewStdout } from './review-read-fixture.ts';
 import { jobHash } from '../src/job-outbox.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
@@ -15,7 +16,7 @@ export function recordPartsReceipt(root: string, draftId: string, now: number, s
     source: { sha256: 'a'.repeat(64), files: ((draft.parts as JsonObject).files as JsonObject[]).map(file => ({ sha256: file.sha256 })) },
     parts: { synthetic: { outcome: status === 'approved' ? 'clean' : status === 'pending' ? 'pending' : 'flagged', note: '' } } };
   const result = partsReviewCommand([root, '--draft', draftId, '--from-review-cli', '--by', 'user', '--json', '--', 'synthetic-review'], now,
-    { runCli: () => ({ stdout: Buffer.from(JSON.stringify(response)), exit: 0 }) });
+    { runCli: reviewStdout(JSON.stringify(response)) });
   return JSON.parse(result.stdout) as JsonObject;
 }
 

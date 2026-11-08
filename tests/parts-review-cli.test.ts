@@ -1,3 +1,4 @@
+import { reviewStdout } from './review-read-fixture.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -31,10 +32,10 @@ function response(root: string, status = 'approved'): JsonObject {
 const args = (root: string) => [root, '--draft', 'chain', '--from-review-cli', '--by', 'user', '--json', '--', 'opaque/input', '--verdict', 'never-created.json'];
 function record(root: string, value: JsonObject) {
   const bytes = Buffer.from(` ${JSON.stringify(value)}\n`);
-  const result = partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: (argv, cwd) => {
-    expect(argv).toEqual(['parts', 'opaque/input', '--verdict', 'never-created.json', '--format', 'json']);
+  const result = partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: (cwd, argv) => {
+    expect(argv).toEqual(['rig-review', 'parts', 'opaque/input', '--verdict', 'never-created.json', '--format', 'json']);
     expect(cwd).toBe(root);
-    return { stdout: bytes, exit: 0 };
+    return reviewStdout(bytes)(cwd, argv);
   } });
   return { result, bytes, receipt: JSON.parse(result.stdout) as JsonObject };
 }
@@ -110,7 +111,7 @@ for (const [label, stdout] of [
 ] as const) {
   test(`${label} refuses without changing the record`, () => {
     const root = fixture();
-    refuses(root, 'PARTS_REVIEW_CLI_INVALID', () => partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: () => ({ stdout: Buffer.from(stdout), exit: 0 }) }));
+    refuses(root, 'PARTS_REVIEW_CLI_INVALID', () => partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: reviewStdout(Buffer.from(stdout)) }));
   });
 }
 
@@ -123,15 +124,15 @@ for (const path of ['/absolute/file', '../escape', 'inside/../../escape', 'C:\\e
 
 test('CLI failure carries its code and diagnostic and writes nothing', () => {
   const root = fixture();
-  refuses(root, 'PARTS_REVIEW_CLI_FAILED', () => partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: () => ({ stdout: Buffer.alloc(0), stderr: 'PARTS_VERDICT_UNAVAILABLE: save a verdict first\n', exit: 1 }) }));
-  try { partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: () => ({ stdout: Buffer.alloc(0), stderr: 'PARTS_VERDICT_UNAVAILABLE: save a verdict first\n', exit: 1 }) }); }
+  refuses(root, 'PARTS_REVIEW_CLI_FAILED', () => partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: reviewStdout(Buffer.alloc(0), 1, 'PARTS_VERDICT_UNAVAILABLE: save a verdict first\n') }));
+  try { partsReviewCommand(args(root), EXAMPLE_NOW, { runCli: reviewStdout(Buffer.alloc(0), 1, 'PARTS_VERDICT_UNAVAILABLE: save a verdict first\n') }); }
   catch (error) { expect((error as Error).message).toContain('PARTS_VERDICT_UNAVAILABLE: save a verdict first'); }
 });
 
 test('invalid human and unknown draft refuse without writing', () => {
   const root = fixture();
   refuses(root, 'SIGNOFF_NOT_HUMAN', () => partsReviewCommand(args(root).map(arg => arg === 'user' ? 'agent' : arg), EXAMPLE_NOW));
-  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => partsReviewCommand(args(root).map(arg => arg === 'chain' ? 'unknown' : arg), EXAMPLE_NOW, { runCli: () => ({ stdout: Buffer.from(JSON.stringify(response(root))), exit: 0 }) }));
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => partsReviewCommand(args(root).map(arg => arg === 'chain' ? 'unknown' : arg), EXAMPLE_NOW, { runCli: reviewStdout(JSON.stringify(response(root))) }));
 });
 
 test('retained stdout hash and copied receipt fields are checked', () => {
@@ -148,7 +149,7 @@ test('evidence tampering between storage and commit refuses and cleans its new f
   const root = fixture();
   let evidence = '';
   refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => partsReviewCommand(args(root), EXAMPLE_NOW, {
-    runCli: () => ({ stdout: Buffer.from(JSON.stringify(response(root))), exit: 0 }),
+    runCli: reviewStdout(JSON.stringify(response(root))),
     afterEvidence: path => { evidence = path; writeFileSync(path, '{}'); },
   }));
   expect(existsSync(evidence)).toBe(false);

@@ -8,6 +8,10 @@ export const syntheticReviewRunner: ReviewReadRunner = (dir) => ({
     stdout: readFileSync(join(dir, 'evidence/feedback.json')),
     stderr: '', exitCode: 0, tool: { name: '@rig-c/review', version: '2.5.0' },
 });
+/** A runner that returns fixed stdout through the shared spawn path's exit and tool-identity checks. */
+export const reviewStdout = (stdout: string | Buffer, exitCode = 0, stderr = ''): ReviewReadRunner => () => ({
+    stdout: typeof stdout === 'string' ? Buffer.from(stdout) : stdout, stderr, exitCode, tool: { name: '@rig-c/review', version: '2.5.0' },
+});
 export function syntheticReviewOrigin(dir: string, sourceVersion: number, item: string, applied: JsonObject): JsonObject {
     const read = readReview(dir, 'synthetic-review', syntheticReviewRunner);
     return { feedback: read.file, review_read: read.receipt, source_version: sourceVersion, feedback_id: item, applied };

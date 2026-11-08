@@ -1,0 +1,81 @@
+{
+  "schema": "rig-create/example-checkpoint@1",
+  "stage": 0,
+  "name": "0b-plan-pending",
+  "chain_step": 26,
+  "pending": {
+    "act": "Approve the drafted parts plan",
+    "commands": [
+      "rig-create signoff plan-approved --by user --verbatim-file evidence/approval.txt"
+    ],
+    "command_roles": [
+      "human"
+    ],
+    "awaits": [
+      "signoffs[stage=plan-approved]"
+    ]
+  },
+  "expected_findings": {
+    "refusals": [],
+    "warnings": []
+  },
+  "project_sha256": "aab1e1b6e71ef2cfaa6dd25212f818575396742696eb48813e71db3f543203b0",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "58c9530777d5b5503615514bc2545fd25df42143f211572872dfa984c3c64d99"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "d9640659654a6c304ebe7f4086c8dd7381170ed015f5a044a2aa9fe0504ad786"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "4f21b640d3591d6fc8614b18f1cef324097184c735bdd845562ef214a523612a"
+    },
+    {
+      "path": "evidence/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/approval.txt",
+      "sha256": "e05bbdcecef4e5783efa2415eea975b0abdbf4454bf9143d5fb650c0c513eb83"
+    },
+    {
+      "path": "evidence/interview/assemble.json",
+      "sha256": "ad043df33c7ca22710d61b7f26676ead657cfbbd76c57d5c56a255340f3ddc38"
+    },
+    {
+      "path": "evidence/interview/reference.json",
+      "sha256": "00fd672f2125a1879249a57726f7fbc2f0ec9510587b7c6433caae1686ec6b9a"
+    },
+    {
+      "path": "evidence/interview/rig_type.json",
+      "sha256": "be6ce065cede003d5df3dc2d1392b403e7bec174a90182afe7280e7b926bc931"
+    },
+    {
+      "path": "evidence/interview/seethrough.json",
+      "sha256": "2f66f51b295c2fab3a362ff48df3322c346b9f2f84de23c9b736226c2fb030d0"
+    },
+    {
+      "path": "evidence/split-config.json",
+      "sha256": "09894c45fb493a697713d2055cbd294b0cb2c9c28cf9d2cda41334d8f1904100"
+    },
+    {
+      "path": "inputs/painting.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+    },
+    {
+      "path": "inputs/references/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "package.json",
+      "sha256": "d3ec766c347c65a78941f322fa3814829685fe2a4cc5cf8fbff23157fe00fd9f"
+    },
+    {
+      "path": "project.json",
+      "sha256": "aab1e1b6e71ef2cfaa6dd25212f818575396742696eb48813e71db3f543203b0"
+    }
+  ]
+}

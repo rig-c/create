@@ -19,24 +19,34 @@
   "stack_equals_painting": true,
   "checkpoints": [
     {
+      "stage": 0,
+      "name": "0a-interview-options",
+      "chain_step": 8
+    },
+    {
+      "stage": 0,
+      "name": "0b-plan-pending",
+      "chain_step": 26
+    },
+    {
       "stage": 1,
       "name": "1-parts-verdict",
-      "chain_step": 30
+      "chain_step": 39
     },
     {
       "stage": 2,
       "name": "2-rigging-answers",
-      "chain_step": 39
+      "chain_step": 48
     },
     {
       "stage": 3,
       "name": "3-rig-review",
-      "chain_step": 61
+      "chain_step": 70
     },
     {
       "stage": 4,
       "name": "4-direction-post",
-      "chain_step": 82
+      "chain_step": 91
     }
   ],
   "steps": [
@@ -137,115 +147,6 @@
       "step": "seed-5",
       "command": [
         "seed",
-        "plan.steps",
-        "[{\"id\":\"seethrough\",\"phase\":\"rig\",\"order\":1,\"does\":\"Execute synthetic seethrough\",\"produces\":\"Synthetic seethrough output\",\"rests_on\":[\"seethrough\"],\"bar\":\"The synthetic output matches its declared input.\",\"checkpoint_proposed\":false,\"checkpoint\":null,\"status\":\"pending\"},{\"id\":\"assemble\",\"phase\":\"rig\",\"order\":2,\"does\":\"Execute synthetic assemble\",\"produces\":\"Synthetic assemble output\",\"rests_on\":[\"assemble\"],\"bar\":\"The synthetic output matches its declared input.\",\"checkpoint_proposed\":true,\"checkpoint\":null,\"status\":\"pending\"},{\"id\":\"bones\",\"phase\":\"rig\",\"order\":3,\"does\":\"Execute synthetic bones\",\"produces\":\"Synthetic bones output\",\"rests_on\":[\"bones\"],\"bar\":\"The synthetic output matches its declared input.\",\"checkpoint_proposed\":false,\"checkpoint\":null,\"status\":\"pending\"},{\"id\":\"meshes\",\"phase\":\"rig\",\"order\":4,\"does\":\"Execute synthetic meshes\",\"produces\":\"Synthetic meshes output\",\"rests_on\":[\"meshes\"],\"bar\":\"The synthetic output matches its declared input.\",\"checkpoint_proposed\":false,\"checkpoint\":null,\"status\":\"pending\"},{\"id\":\"constraints\",\"phase\":\"rig\",\"order\":5,\"does\":\"Execute synthetic constraints\",\"produces\":\"Synthetic constraints output\",\"rests_on\":[\"constraints\"],\"bar\":\"The synthetic output matches its declared input.\",\"checkpoint_proposed\":false,\"checkpoint\":null,\"status\":\"pending\"},{\"id\":\"motion\",\"phase\":\"rig\",\"order\":6,\"does\":\"Execute synthetic motion\",\"produces\":\"Synthetic motion output\",\"rests_on\":[\"motion\"],\"bar\":\"The synthetic output matches its declared input.\",\"checkpoint_proposed\":false,\"checkpoint\":null,\"status\":\"pending\"}]"
-      ],
-      "exit": 0,
-      "output_sha256": "920a1755828adf2cbabc8722f2d46225f36f2dd902da300c53c17b100e749ecd",
-      "consumes": [],
-      "bindings": {},
-      "seed": {
-        "field": "plan.steps",
-        "value": [
-          {
-            "id": "seethrough",
-            "phase": "rig",
-            "order": 1,
-            "does": "Execute synthetic seethrough",
-            "produces": "Synthetic seethrough output",
-            "rests_on": [
-              "seethrough"
-            ],
-            "bar": "The synthetic output matches its declared input.",
-            "checkpoint_proposed": false,
-            "checkpoint": null,
-            "status": "pending"
-          },
-          {
-            "id": "assemble",
-            "phase": "rig",
-            "order": 2,
-            "does": "Execute synthetic assemble",
-            "produces": "Synthetic assemble output",
-            "rests_on": [
-              "assemble"
-            ],
-            "bar": "The synthetic output matches its declared input.",
-            "checkpoint_proposed": true,
-            "checkpoint": null,
-            "status": "pending"
-          },
-          {
-            "id": "bones",
-            "phase": "rig",
-            "order": 3,
-            "does": "Execute synthetic bones",
-            "produces": "Synthetic bones output",
-            "rests_on": [
-              "bones"
-            ],
-            "bar": "The synthetic output matches its declared input.",
-            "checkpoint_proposed": false,
-            "checkpoint": null,
-            "status": "pending"
-          },
-          {
-            "id": "meshes",
-            "phase": "rig",
-            "order": 4,
-            "does": "Execute synthetic meshes",
-            "produces": "Synthetic meshes output",
-            "rests_on": [
-              "meshes"
-            ],
-            "bar": "The synthetic output matches its declared input.",
-            "checkpoint_proposed": false,
-            "checkpoint": null,
-            "status": "pending"
-          },
-          {
-            "id": "constraints",
-            "phase": "rig",
-            "order": 5,
-            "does": "Execute synthetic constraints",
-            "produces": "Synthetic constraints output",
-            "rests_on": [
-              "constraints"
-            ],
-            "bar": "The synthetic output matches its declared input.",
-            "checkpoint_proposed": false,
-            "checkpoint": null,
-            "status": "pending"
-          },
-          {
-            "id": "motion",
-            "phase": "rig",
-            "order": 6,
-            "does": "Execute synthetic motion",
-            "produces": "Synthetic motion output",
-            "rests_on": [
-              "motion"
-            ],
-            "bar": "The synthetic output matches its declared input.",
-            "checkpoint_proposed": false,
-            "checkpoint": null,
-            "status": "pending"
-          }
-        ],
-        "citation": "docs/PROJECT.md:450,480",
-        "first_consumer": 8,
-        "first_consumer_command": [
-          "rig-create",
-          "interview-options",
-          "rig_type"
-        ]
-      }
-    },
-    {
-      "kind": "seed",
-      "step": "seed-6",
-      "command": [
-        "seed",
         "split.parts",
         "[{\"name\":\"background\",\"label\":\"rigid\",\"note\":\"Synthetic geometric block.\"},{\"name\":\"torso\",\"label\":\"rigid\",\"note\":\"Synthetic geometric block.\"},{\"name\":\"lantern\",\"label\":\"rigid\",\"note\":\"Synthetic geometric block.\"},{\"name\":\"face\",\"label\":\"rigid\",\"note\":\"Synthetic geometric block.\"},{\"name\":\"eye_r\",\"label\":\"rigid\",\"note\":\"Synthetic geometric block.\"},{\"name\":\"eye_l\",\"label\":\"rigid\",\"note\":\"Synthetic geometric block.\"}]"
       ],
@@ -288,7 +189,7 @@
           }
         ],
         "citation": "docs/PROJECT.md:399,756",
-        "first_consumer": 94,
+        "first_consumer": 103,
         "first_consumer_command": [
           "rig-create",
           "split-captions"
@@ -315,7 +216,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-8",
+      "step": "writer-7",
       "command": [
         "rig-create",
         "interview-options",
@@ -325,10 +226,8 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0cadeec191dfd021f20d09e0e1abd62c986b8c462ee6c3d30c3546328378d4f2",
-      "consumes": [
-        "seed-5"
-      ],
+      "output_sha256": "3ac9f297a51d3346dd235d90a6b1a5f7a554a900b124d81076aeab8d03ae9c37",
+      "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
@@ -336,7 +235,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-9",
+      "step": "writer-8",
       "command": [
         "rig-create",
         "interview-answer",
@@ -352,7 +251,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "63d735ec5eacebb5980ffeef3df7146675bfda7d3f87208386cd6bf58b9860bf",
+      "output_sha256": "316438e990d44e2f4b85ddbd1d27ac056a9c876935262c5e5bcee1858b235aaf",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -379,7 +278,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-11",
+      "step": "writer-10",
       "command": [
         "rig-create",
         "interview-options",
@@ -389,7 +288,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "e271cec6a7cb4bedbe757691e2bd8549d4fb6d14b1d37096afef82f85be2e80e",
+      "output_sha256": "aa82c97483eca4984cfbac1ad3e024f35c790122301cc588f15366ea11af2a3f",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -398,7 +297,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-12",
+      "step": "writer-11",
       "command": [
         "rig-create",
         "interview-answer",
@@ -414,7 +313,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a307f14bb52e5e352b15949fa2494ee6771eab1cdb8c509319cd7a9faeb8719e",
+      "output_sha256": "1a88581ac29fba4e6213a7a6e5805dfb9c0a14d7e61e647bb80a7e359feb7009",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -441,7 +340,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-14",
+      "step": "writer-13",
       "command": [
         "rig-create",
         "interview-options",
@@ -451,7 +350,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "b2d6edde95b0b8956c6825e72becfa6456dbf8f84d50aa77439500d4800a2624",
+      "output_sha256": "4de39c61d49e9f8cbfd734bfc4d4ea0d432c42935889a4e74a4486b48e92d141",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -460,7 +359,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-15",
+      "step": "writer-14",
       "command": [
         "rig-create",
         "interview-answer",
@@ -482,7 +381,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0789efbbc00a55be3f68b6ffe1e0fea67e10d6253efa5bc292844a46db6888ab",
+      "output_sha256": "680ea515a0100f0b589339fc8b8e1052fad21bdb3b377fcc69d17a49c3637811",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -509,7 +408,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-17",
+      "step": "writer-16",
       "command": [
         "rig-create",
         "interview-options",
@@ -519,7 +418,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7b00f1a3aec255831a6467b49193f1a7b14bd6e392c349cf5278de1d118ed4c8",
+      "output_sha256": "153224a5c8480eb2bd58de531f43c2346fce0efd30eb42e48adedaf61c139097",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -528,7 +427,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-18",
+      "step": "writer-17",
       "command": [
         "rig-create",
         "interview-answer",
@@ -556,7 +455,41 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c253bb40e34bc0860458963cd0566d9d899f3684b492ccb2418d649b5dad32b2",
+      "output_sha256": "b8294774a5ebaefb1167d0a5a3f459755036c0226f105dc9d43244ac3296e2a4",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-18",
+      "command": [
+        "rig-create",
+        "plan",
+        "add",
+        "seethrough",
+        "--by",
+        "agent",
+        "--phase",
+        "rig",
+        "--order",
+        "1",
+        "--does",
+        "Execute synthetic seethrough",
+        "--produces",
+        "Synthetic seethrough output",
+        "--rests-on",
+        "seethrough",
+        "--bar",
+        "The synthetic output matches its declared input.",
+        "--checkpoint-proposed",
+        "false"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "01581643260b462b6ee9626ec1010b4e141a83f164b5bbd0b5ce5b68c532f032",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -568,16 +501,29 @@
       "step": "writer-19",
       "command": [
         "rig-create",
-        "signoff",
-        "interview",
+        "plan",
+        "add",
+        "assemble",
         "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "agent",
+        "--phase",
+        "rig",
+        "--order",
+        "2",
+        "--does",
+        "Execute synthetic assemble",
+        "--produces",
+        "Synthetic assemble output",
+        "--rests-on",
+        "assemble",
+        "--bar",
+        "The synthetic output matches its declared input.",
+        "--checkpoint-proposed",
+        "true"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "71654acec59d23d1a78881a07dcca7a1150d813fb413f7faafd9caffd2ffad8b",
+      "output_sha256": "8cd07b87c9baaec4944b7f77d185b974ed5de1652779f0f791ea4b90b3a406d2",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -589,16 +535,29 @@
       "step": "writer-20",
       "command": [
         "rig-create",
-        "advance",
-        "plan-approved",
+        "plan",
+        "add",
+        "bones",
         "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "agent",
+        "--phase",
+        "rig",
+        "--order",
+        "3",
+        "--does",
+        "Execute synthetic bones",
+        "--produces",
+        "Synthetic bones output",
+        "--rests-on",
+        "bones",
+        "--bar",
+        "The synthetic output matches its declared input.",
+        "--checkpoint-proposed",
+        "false"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "64a683cf98960c6fc2b379179c67ffb822d46d53d1e704059a40d90d52ab2f34",
+      "output_sha256": "0c54b0dc74ede2a7e5e3f6951a6a3048b28985de02c0ec0994ae43e86133f032",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -610,6 +569,150 @@
       "step": "writer-21",
       "command": [
         "rig-create",
+        "plan",
+        "add",
+        "meshes",
+        "--by",
+        "agent",
+        "--phase",
+        "rig",
+        "--order",
+        "4",
+        "--does",
+        "Execute synthetic meshes",
+        "--produces",
+        "Synthetic meshes output",
+        "--rests-on",
+        "meshes",
+        "--bar",
+        "The synthetic output matches its declared input.",
+        "--checkpoint-proposed",
+        "false"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "41a5b4aafa8b6b6a1dea418f37902a0bbe38b71ef9debc57b28ec8566be9e2f1",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-22",
+      "command": [
+        "rig-create",
+        "plan",
+        "add",
+        "constraints",
+        "--by",
+        "agent",
+        "--phase",
+        "rig",
+        "--order",
+        "5",
+        "--does",
+        "Execute synthetic constraints",
+        "--produces",
+        "Synthetic constraints output",
+        "--rests-on",
+        "constraints",
+        "--bar",
+        "The synthetic output matches its declared input.",
+        "--checkpoint-proposed",
+        "false"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "1316d3418e5299320c0b2c6e25adea21f4c8a6984413d919a19bdb639c700d36",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-23",
+      "command": [
+        "rig-create",
+        "plan",
+        "add",
+        "motion",
+        "--by",
+        "agent",
+        "--phase",
+        "rig",
+        "--order",
+        "6",
+        "--does",
+        "Execute synthetic motion",
+        "--produces",
+        "Synthetic motion output",
+        "--rests-on",
+        "motion",
+        "--bar",
+        "The synthetic output matches its declared input.",
+        "--checkpoint-proposed",
+        "false"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "8078e9ae763ef36bb1d84c8ac15372425aa605889226e02d308673aa97a5b94d",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-24",
+      "command": [
+        "rig-create",
+        "signoff",
+        "interview",
+        "--by",
+        "user",
+        "--verbatim-file",
+        "evidence/approval.txt"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "1b24331cc3c10317a8eb0c4d79e3da7f1e6df0f6e205d6fda887f838276a71b1",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-25",
+      "command": [
+        "rig-create",
+        "advance",
+        "plan-approved",
+        "--by",
+        "user",
+        "--verbatim-file",
+        "evidence/approval.txt"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "aab1e1b6e71ef2cfaa6dd25212f818575396742696eb48813e71db3f543203b0",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-26",
+      "command": [
+        "rig-create",
         "signoff",
         "plan-approved",
         "--by",
@@ -619,18 +722,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "589dc829fa8081528801486a2baaf867eb3a9be9a487551bf0c822a4593efc86",
+      "output_sha256": "600c9e55319c9b58b1f31c4206c15bb15b81df0e0b03df479ea512100bca7be8",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-22",
+      "step": "writer-27",
       "command": [
         "rig-create",
         "advance",
@@ -642,66 +745,128 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "b173e5a570082c027028ef5fd430313ec20d8dc024d949d1f573ec853bf79afc",
+      "output_sha256": "a9ea9f1fd00d58e05312d39bc4205725dcc0f1a97eaaf508d52b0d96f591e0d0",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
-      }
-    },
-    {
-      "kind": "seed",
-      "step": "seed-23",
-      "command": [
-        "seed",
-        "plan.steps[seethrough].status",
-        "\"done\""
-      ],
-      "exit": 0,
-      "output_sha256": "58bf5b5478e5d1fb7441daeff9fd1ed60a4ad5fbfabc64715cd8608f3f59f6da",
-      "consumes": [],
-      "bindings": {},
-      "seed": {
-        "field": "plan.steps[seethrough].status",
-        "value": "done",
-        "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 25,
-        "first_consumer_command": [
-          "rig-create",
-          "signoff",
-          "parts"
-        ]
-      }
-    },
-    {
-      "kind": "seed",
-      "step": "seed-24",
-      "command": [
-        "seed",
-        "plan.steps[assemble].status",
-        "\"done\""
-      ],
-      "exit": 0,
-      "output_sha256": "58bf5b5478e5d1fb7441daeff9fd1ed60a4ad5fbfabc64715cd8608f3f59f6da",
-      "consumes": [],
-      "bindings": {},
-      "seed": {
-        "field": "plan.steps[assemble].status",
-        "value": "done",
-        "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 25,
-        "first_consumer_command": [
-          "rig-create",
-          "signoff",
-          "parts"
-        ]
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-25",
+      "step": "writer-28",
+      "command": [
+        "rig-create",
+        "step-status",
+        "seethrough",
+        "in-progress",
+        "--by",
+        "agent"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "2b0a58ce516425115a4f0b5189e1d4ef31a0402e883cf3f704958ecc282f6e25",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-29",
+      "command": [
+        "rig-create",
+        "step-status",
+        "seethrough",
+        "at-checkpoint",
+        "--by",
+        "agent"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "ea53b32306da28b736c74aea50640080c86f456f7c46b61adc0f75d45803b66c",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-30",
+      "command": [
+        "rig-create",
+        "step-status",
+        "seethrough",
+        "done",
+        "--by",
+        "agent"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "784e6001d2df253cc9337fc50915947f5d6d26a83ccff202a2026de8aad00fd6",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-31",
+      "command": [
+        "rig-create",
+        "step-status",
+        "assemble",
+        "in-progress",
+        "--by",
+        "agent"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "cd61dd5698859c06cf6f5ea63650a7a4ccf8d4e0905fa3cdc768df581177e260",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-32",
+      "command": [
+        "rig-create",
+        "step-status",
+        "assemble",
+        "at-checkpoint",
+        "--by",
+        "agent"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "86686d803d27ac3a254e2b1076e2f07e75b7e0f6d6c97bbf42cb14a04bfc69c4",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-33",
       "command": [
         "rig-create",
         "signoff",
@@ -715,16 +880,35 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a1acf5f900a453133ba7e395e60e2b03d7856eada9f7f06c7906507e6976ab6a",
-      "consumes": [
-        "seed-23",
-        "seed-24"
-      ],
+      "output_sha256": "5598c8a3fe8e64468bd4b145ce3de96add49fc60c06d5d1370889e94cd755f2e",
+      "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
+      }
+    },
+    {
+      "kind": "writer",
+      "step": "writer-34",
+      "command": [
+        "rig-create",
+        "step-status",
+        "assemble",
+        "done",
+        "--by",
+        "agent"
+      ],
+      "exit": 0,
+      "output_path": "project.json",
+      "output_sha256": "6c45458e289bdfbfc5eedf1ab588fcda15d5327edc667f68697193ffbcd3775e",
+      "consumes": [],
+      "bindings": {
+        "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
+        "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
@@ -802,7 +986,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-28",
+      "step": "writer-37",
       "command": [
         "rig-create",
         "draft-rig",
@@ -816,13 +1000,13 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "951033ff301062f6d007b0d2bb1f92e55a5ad856f05132543d9f8b9739aafa7f",
+      "output_sha256": "18d93638f9a0e9b401da8a0a52a017a95f6b7ca33b1e9e49e9b5fb8dcee5a60b",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
@@ -854,16 +1038,16 @@
       ],
       "exit": 0,
       "output_path": "evidence/parts-review.json",
-      "output_sha256": "dd83cb30576b3e7c94860cde0104df895526c766b1baf0eb5a723c00f768a79c",
+      "output_sha256": "ec87618dcb99bdf9a636245132a6e5455edbe62b40e80c830e83decb2e978611",
       "outputs": {
-        "evidence/parts-review.json": "dd83cb30576b3e7c94860cde0104df895526c766b1baf0eb5a723c00f768a79c"
+        "evidence/parts-review.json": "ec87618dcb99bdf9a636245132a6e5455edbe62b40e80c830e83decb2e978611"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-31",
+      "step": "writer-40",
       "command": [
         "rig-create",
         "parts-review",
@@ -879,18 +1063,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "562ac0736be83095cc1576a59c38c3e8ff6d63f1e97bcf4ccf51f0f757ef05a3",
+      "output_sha256": "3419c433839df41ad0f8962e4814c3ff23401a0fed9b32b62723c70c28fc7329",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-32",
+      "step": "writer-41",
       "command": [
         "rig-create",
         "structure-snapshot",
@@ -906,8 +1090,8 @@
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
@@ -940,7 +1124,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-34",
+      "step": "writer-43",
       "command": [
         "rig-create",
         "advance",
@@ -956,18 +1140,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1e06862392ab5039bd31b8fdbbbf36d42cd9ac1df863eeb42c8671ada1e5b3bb",
+      "output_sha256": "7fb27ec18b28d0459df0fe3a372f730dc96eefac96c59fdd93369fa9877d9cbe",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-35",
+      "step": "writer-44",
       "command": [
         "rig-create",
         "signoff",
@@ -985,18 +1169,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "2b4c8b92b97171381d46b36ae8cc27405a7e9da8f01de1a84e284b30ba4ca4e3",
+      "output_sha256": "2ec48da88e30bd97c21d344fe9e61a8c8515b072b72f623ccaa15dcfc114037d",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-36",
+      "step": "writer-45",
       "command": [
         "rig-create",
         "advance",
@@ -1008,13 +1192,13 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "53d1d556de64132c22219f8a47a0dcafde7779d18617c8aec8ce59c362e00f5a",
+      "output_sha256": "27b0a3a291d503f4cd573948ca49d1b0ea657e7d8a4926c779ef883a2cfc5445",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
@@ -1027,17 +1211,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/bones.json",
-      "output_sha256": "2f6f7ff81f70469688f3263235ba5626d047701e4dd39d2f5d9274e61098d7ae",
+      "output_sha256": "414d87b08e1bd5a123a254de22f3f6538d323fad9b2c9759199006292a927d0c",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/bones.json": "2f6f7ff81f70469688f3263235ba5626d047701e4dd39d2f5d9274e61098d7ae"
+        "evidence/interview/bones.json": "414d87b08e1bd5a123a254de22f3f6538d323fad9b2c9759199006292a927d0c"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-38",
+      "step": "writer-47",
       "command": [
         "rig-create",
         "interview-options",
@@ -1047,18 +1231,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "500a3b342fee2abf64108af4c7e0ad36cac7e436c74ba6adafcf283443af9ba1",
+      "output_sha256": "807b1032cd10ade2c4b24a1781eb6c8a14e3978868c3ab9ce4641d5947addf0a",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-39",
+      "step": "writer-48",
       "command": [
         "rig-create",
         "interview-answer",
@@ -1066,7 +1250,7 @@
         "--set",
         "evidence/interview/bones.json",
         "--sha256",
-        "2f6f7ff81f70469688f3263235ba5626d047701e4dd39d2f5d9274e61098d7ae",
+        "414d87b08e1bd5a123a254de22f3f6538d323fad9b2c9759199006292a927d0c",
         "--by",
         "user",
         "--pick",
@@ -1078,13 +1262,13 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "43c99275ee98e142b00afbfb2e6024beef858d74823a8a57cbfad56964ea0ee0",
+      "output_sha256": "efeea35e6ee129abfedefb28cc8d55553261246a9b0bb4c1c28a493c1e650ef1",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
@@ -1097,17 +1281,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/meshes.json",
-      "output_sha256": "293e3abd9c547acc367f54278ceee4e14a636c68763d26bd14bde35f0fc28ea4",
+      "output_sha256": "7223a25191c9a1fe8712b9be51d72e62f3f3e55fddf945e7903e39ca39bb693e",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/meshes.json": "293e3abd9c547acc367f54278ceee4e14a636c68763d26bd14bde35f0fc28ea4"
+        "evidence/interview/meshes.json": "7223a25191c9a1fe8712b9be51d72e62f3f3e55fddf945e7903e39ca39bb693e"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-41",
+      "step": "writer-50",
       "command": [
         "rig-create",
         "interview-options",
@@ -1117,18 +1301,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f8b1915bb7f672a400ca65071160ff18e7bcc4306088296d1c0a789af2ba9445",
+      "output_sha256": "f4d108c5e2e774f41f72ff65a49babe21af43b011c8510345ef94ef72a8e5198",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-42",
+      "step": "writer-51",
       "command": [
         "rig-create",
         "interview-answer",
@@ -1136,7 +1320,7 @@
         "--set",
         "evidence/interview/meshes.json",
         "--sha256",
-        "293e3abd9c547acc367f54278ceee4e14a636c68763d26bd14bde35f0fc28ea4",
+        "7223a25191c9a1fe8712b9be51d72e62f3f3e55fddf945e7903e39ca39bb693e",
         "--by",
         "user",
         "--pick",
@@ -1148,13 +1332,13 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a0d2e9013ba8632b3db9364e11454e2df3422fb1758ec6578a03c28d4f536082",
+      "output_sha256": "d59545c386bd216d85d20e36a74fc7aaf42179565a75c201ac4a0df8eb35f747",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
@@ -1167,17 +1351,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/constraints.json",
-      "output_sha256": "8d101beb358a9bcbc9a1b714990d713c21a99d508a892585c56c22c5ae833743",
+      "output_sha256": "bd33a55bf6515b902e7dcc1793b328c8b59b358df841f141102a1d2395bd7ac6",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/constraints.json": "8d101beb358a9bcbc9a1b714990d713c21a99d508a892585c56c22c5ae833743"
+        "evidence/interview/constraints.json": "bd33a55bf6515b902e7dcc1793b328c8b59b358df841f141102a1d2395bd7ac6"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-44",
+      "step": "writer-53",
       "command": [
         "rig-create",
         "interview-options",
@@ -1187,18 +1371,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1e0c636b3a708adbb2129168b4bd9afceffe1fd9af8d998e29f2cf23ce65b1e5",
+      "output_sha256": "1878f08b6c20e17220b4ee0a572aec216420140e688c8f3bc748fbf09c351ae6",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-45",
+      "step": "writer-54",
       "command": [
         "rig-create",
         "interview-answer",
@@ -1206,7 +1390,7 @@
         "--set",
         "evidence/interview/constraints.json",
         "--sha256",
-        "8d101beb358a9bcbc9a1b714990d713c21a99d508a892585c56c22c5ae833743",
+        "bd33a55bf6515b902e7dcc1793b328c8b59b358df841f141102a1d2395bd7ac6",
         "--by",
         "user",
         "--pick",
@@ -1222,13 +1406,13 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "5ba50396e7641cb6e20a3201ba9253e4bfcae68274effa52ed9cafbf7bbde599",
+      "output_sha256": "e9c11b8bac57dce0f2104f94ce7bcaaafbae1f75e3fd521bab5f6c569d754dbc",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
@@ -1241,17 +1425,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/motion.json",
-      "output_sha256": "c104f03902bdefe59c2a211faffb54cafa31ebc767d0cf5d53f64356979aaa83",
+      "output_sha256": "26b11bf5931c4223c55178627f04526a634be9e31a6e60ed8a71c92d6652108e",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/motion.json": "c104f03902bdefe59c2a211faffb54cafa31ebc767d0cf5d53f64356979aaa83"
+        "evidence/interview/motion.json": "26b11bf5931c4223c55178627f04526a634be9e31a6e60ed8a71c92d6652108e"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-47",
+      "step": "writer-56",
       "command": [
         "rig-create",
         "interview-options",
@@ -1261,18 +1445,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0a6a064d96a8d14164ecc68d8202859b6a0691eb011c74eb15c202975ce0f358",
+      "output_sha256": "224c1f8df9f2384f892194d8d70a8827e49259c2e31b4a4a1ec44e99a146dc89",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-48",
+      "step": "writer-57",
       "command": [
         "rig-create",
         "interview-answer",
@@ -1280,7 +1464,7 @@
         "--set",
         "evidence/interview/motion.json",
         "--sha256",
-        "c104f03902bdefe59c2a211faffb54cafa31ebc767d0cf5d53f64356979aaa83",
+        "26b11bf5931c4223c55178627f04526a634be9e31a6e60ed8a71c92d6652108e",
         "--by",
         "user",
         "--pick",
@@ -1296,18 +1480,18 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "e1554c83cfc7998f51300f3ec5586bb8fc6366d09741982f70809e46805cf0ad",
+      "output_sha256": "d8fcbf5822c80e38478e3f8bf9b7bb1508680fb3dad43dd0abd07719bc9f08e6",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-49",
+      "step": "writer-58",
       "command": [
         "rig-create",
         "signoff",
@@ -1319,22 +1503,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "05ff1fe3569e9c726e0f33c232180dff5e6f3c186c6601a2b1e7a4940bbf4195",
+      "output_sha256": "d313d6b79353e1c27a9db6e9cac4388568ba96d1c55242fbae175ec8a35785f6",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-50",
+      "step": "writer-59",
       "command": [
         "rig-create",
         "advance",
@@ -1346,22 +1530,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "e6e5197171db6d467ffe988470b714ae48afa43ef5fba9ca6b7d8788b3753f14",
+      "output_sha256": "2dbdbeb8f3e5add6755c1b3e31848d76a7fdb4897866e8e6d5788a84e805730b",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "seed",
-      "step": "seed-51",
+      "step": "seed-60",
       "command": [
         "seed",
         "plan.steps[bones].status",
@@ -1375,7 +1559,7 @@
         "field": "plan.steps[bones].status",
         "value": "done",
         "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 55,
+        "first_consumer": 64,
         "first_consumer_command": [
           "rig-create",
           "interview",
@@ -1385,7 +1569,7 @@
     },
     {
       "kind": "seed",
-      "step": "seed-52",
+      "step": "seed-61",
       "command": [
         "seed",
         "plan.steps[meshes].status",
@@ -1399,7 +1583,7 @@
         "field": "plan.steps[meshes].status",
         "value": "done",
         "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 55,
+        "first_consumer": 64,
         "first_consumer_command": [
           "rig-create",
           "interview",
@@ -1409,7 +1593,7 @@
     },
     {
       "kind": "seed",
-      "step": "seed-53",
+      "step": "seed-62",
       "command": [
         "seed",
         "plan.steps[constraints].status",
@@ -1423,7 +1607,7 @@
         "field": "plan.steps[constraints].status",
         "value": "done",
         "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 55,
+        "first_consumer": 64,
         "first_consumer_command": [
           "rig-create",
           "interview",
@@ -1433,7 +1617,7 @@
     },
     {
       "kind": "seed",
-      "step": "seed-54",
+      "step": "seed-63",
       "command": [
         "seed",
         "plan.steps[motion].status",
@@ -1447,7 +1631,7 @@
         "field": "plan.steps[motion].status",
         "value": "done",
         "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 55,
+        "first_consumer": 64,
         "first_consumer_command": [
           "rig-create",
           "interview",
@@ -1457,7 +1641,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-55",
+      "step": "writer-64",
       "command": [
         "rig-create",
         "interview",
@@ -1466,22 +1650,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7d2f179027fa4345cb256550aa0fdc8d57873a3697f8acdf4963947facb608bb",
+      "output_sha256": "ec2aa1f1d10d05217392522f4c39eafefbf60349594a8edffe2f735b23a8927f",
       "consumes": [
-        "seed-51",
-        "seed-52",
-        "seed-53",
-        "seed-54"
+        "seed-60",
+        "seed-61",
+        "seed-62",
+        "seed-63"
       ],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
@@ -1559,14 +1743,14 @@
     },
     {
       "kind": "seed",
-      "step": "seed-58",
+      "step": "seed-67",
       "command": [
         "seed",
         "versions[]",
-        "{\"n\":1,\"kind\":\"rig\",\"rig_version\":null,\"at\":\"2026-11-06T01:00:40.000Z\",\"built_by\":\"agent\",\"built_with\":{\"@rig-c/parts\":\"2.30.1\",\"@rig-c/core\":\"3.6.0\"},\"changed\":\"Build the synthetic approved parts.\",\"outputs\":[{\"path\":\"outputs/v1/out/check/build/skeleton.model.json\",\"sha256\":\"50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff\",\"bytes\":22757}],\"evidence\":[{\"kind\":\"still\",\"path\":\"evidence/setup.png\",\"sha256\":\"02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f\",\"camera\":\"fixed\",\"frame\":\"setup\"}],\"verdicts\":[],\"answers_feedback\":[],\"review_origin\":null,\"provenance\":{\"config\":{\"path\":\"evidence/v1/config.json\",\"sha256\":\"dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942\"},\"sections\":{\"assemble\":[{\"entry\":\"assemble\",\"guide\":\"assemble\",\"quote\":\"Use the synthetic projection\\nKeep the declared geometric example.\\n\\nUse the synthetic cut\\nKeep the declared geometric example.\\n\\nUse the synthetic emphasis\\nKeep the declared geometric example.\\n\\nUse the synthetic draw_order\\nKeep the declared geometric example.\\n\\nUse the synthetic authored\\nKeep the declared geometric example.\\n\\nUse the synthetic occluders\\nKeep the declared geometric example.\\n\\nUse the synthetic outfits\\nKeep the declared geometric example.\",\"asks\":[\"projection\",\"cut\",\"emphasis\",\"draw_order\",\"authored\",\"occluders\",\"outfits\"]}],\"bones\":[{\"entry\":\"bones\",\"guide\":\"bones\",\"quote\":\"Use the synthetic chains\\nKeep the declared geometric example.\\n\\nUse the synthetic placement\\nKeep the declared geometric example.\\n\\nUse the synthetic length\\nKeep the declared geometric example.\",\"asks\":[\"chains\",\"placement\",\"length\"]}],\"meshes\":[{\"entry\":\"meshes\",\"guide\":\"meshes\",\"quote\":\"Use the synthetic bend\\nKeep the declared geometric example.\\n\\nUse the synthetic rigid\\nKeep the declared geometric example.\\n\\nUse the synthetic density\\nKeep the declared geometric example.\",\"asks\":[\"bend\",\"rigid\",\"density\"]}],\"regions\":[{\"entry\":\"regions\",\"guide\":\"meshes\",\"quote\":\"Use the synthetic bend\\nKeep the declared geometric example.\\n\\nUse the synthetic rigid\\nKeep the declared geometric example.\\n\\nUse the synthetic density\\nKeep the declared geometric example.\",\"asks\":[\"bend\",\"rigid\",\"density\"]}],\"motion\":[{\"entry\":\"motion\",\"guide\":\"motion\",\"quote\":\"Use the synthetic tracks\\nKeep the declared geometric example.\\n\\nUse the synthetic extent\\nKeep the declared geometric example.\\n\\nUse the synthetic speed\\nKeep the declared geometric example.\\n\\nUse the synthetic loop\\nKeep the declared geometric example.\\n\\nUse the synthetic blink\\nKeep the declared geometric example.\",\"asks\":[\"tracks\",\"extent\",\"speed\",\"loop\",\"blink\"]}]}}}"
+        "{\"n\":1,\"kind\":\"rig\",\"rig_version\":null,\"at\":\"2026-11-06T01:00:52.000Z\",\"built_by\":\"agent\",\"built_with\":{\"@rig-c/parts\":\"2.30.1\",\"@rig-c/core\":\"3.6.0\"},\"changed\":\"Build the synthetic approved parts.\",\"outputs\":[{\"path\":\"outputs/v1/out/check/build/skeleton.model.json\",\"sha256\":\"50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff\",\"bytes\":22757}],\"evidence\":[{\"kind\":\"still\",\"path\":\"evidence/setup.png\",\"sha256\":\"02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f\",\"camera\":\"fixed\",\"frame\":\"setup\"}],\"verdicts\":[],\"answers_feedback\":[],\"review_origin\":null,\"provenance\":{\"config\":{\"path\":\"evidence/v1/config.json\",\"sha256\":\"dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942\"},\"sections\":{\"assemble\":[{\"entry\":\"assemble\",\"guide\":\"assemble\",\"quote\":\"Use the synthetic projection\\nKeep the declared geometric example.\\n\\nUse the synthetic cut\\nKeep the declared geometric example.\\n\\nUse the synthetic emphasis\\nKeep the declared geometric example.\\n\\nUse the synthetic draw_order\\nKeep the declared geometric example.\\n\\nUse the synthetic authored\\nKeep the declared geometric example.\\n\\nUse the synthetic occluders\\nKeep the declared geometric example.\\n\\nUse the synthetic outfits\\nKeep the declared geometric example.\",\"asks\":[\"projection\",\"cut\",\"emphasis\",\"draw_order\",\"authored\",\"occluders\",\"outfits\"]}],\"bones\":[{\"entry\":\"bones\",\"guide\":\"bones\",\"quote\":\"Use the synthetic chains\\nKeep the declared geometric example.\\n\\nUse the synthetic placement\\nKeep the declared geometric example.\\n\\nUse the synthetic length\\nKeep the declared geometric example.\",\"asks\":[\"chains\",\"placement\",\"length\"]}],\"meshes\":[{\"entry\":\"meshes\",\"guide\":\"meshes\",\"quote\":\"Use the synthetic bend\\nKeep the declared geometric example.\\n\\nUse the synthetic rigid\\nKeep the declared geometric example.\\n\\nUse the synthetic density\\nKeep the declared geometric example.\",\"asks\":[\"bend\",\"rigid\",\"density\"]}],\"regions\":[{\"entry\":\"regions\",\"guide\":\"meshes\",\"quote\":\"Use the synthetic bend\\nKeep the declared geometric example.\\n\\nUse the synthetic rigid\\nKeep the declared geometric example.\\n\\nUse the synthetic density\\nKeep the declared geometric example.\",\"asks\":[\"bend\",\"rigid\",\"density\"]}],\"motion\":[{\"entry\":\"motion\",\"guide\":\"motion\",\"quote\":\"Use the synthetic tracks\\nKeep the declared geometric example.\\n\\nUse the synthetic extent\\nKeep the declared geometric example.\\n\\nUse the synthetic speed\\nKeep the declared geometric example.\\n\\nUse the synthetic loop\\nKeep the declared geometric example.\\n\\nUse the synthetic blink\\nKeep the declared geometric example.\",\"asks\":[\"tracks\",\"extent\",\"speed\",\"loop\",\"blink\"]}]}}}"
       ],
       "exit": 0,
-      "output_sha256": "526ad6c0aea5469eac2fc230f516173ea9ec5077997b908e5982be2b8a5db7d9",
+      "output_sha256": "86c5cee173af546ebc0bf936bfe7e0b5242f1ce95c0c3af35426bab4e2be082e",
       "consumes": [],
       "bindings": {},
       "seed": {
@@ -1575,7 +1759,7 @@
           "n": 1,
           "kind": "rig",
           "rig_version": null,
-          "at": "2026-11-06T01:00:40.000Z",
+          "at": "2026-11-06T01:00:52.000Z",
           "built_by": "agent",
           "built_with": {
             "@rig-c/parts": "2.30.1",
@@ -1677,7 +1861,7 @@
           }
         },
         "citation": "docs/PROJECT.md:580,595",
-        "first_consumer": 59,
+        "first_consumer": 68,
         "first_consumer_command": [
           "rig-create",
           "review-package",
@@ -1687,7 +1871,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-59",
+      "step": "writer-68",
       "command": [
         "rig-create",
         "review-package",
@@ -1699,24 +1883,24 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c9e7f3f47e580a7e84ce9202096af0a91d2cf43cccf95b07a678bc587d4ceeae",
+      "output_sha256": "1b79b4ca146142e52cea6ec22a6c86861dd3d9bfa68db308e2e24f846040af51",
       "consumes": [
-        "seed-58"
+        "seed-67"
       ],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-60",
+      "step": "writer-69",
       "command": [
         "rig-create",
         "advance",
@@ -1728,22 +1912,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f684042b5a4d918f3f72e557d54be649b0de9c808b32f96919ad6502139e839d",
+      "output_sha256": "b5106dc8b0160c2af494ab5edb11fd5059c74fe9633528af2cb659208573e54e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-61",
+      "step": "writer-70",
       "command": [
         "rig-create",
         "review",
@@ -1761,22 +1945,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "5fbb5c00ac3424f6d12c426737f09a80b8837accab2c63aa3485bc85682c440f",
+      "output_sha256": "54b1ad66bab25e79fbc853708545ebb183cc0e47f3a206038b6eeed7c7b3734e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-62",
+      "step": "writer-71",
       "command": [
         "rig-create",
         "signoff",
@@ -1790,22 +1974,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "639d6d7d4bbd96a337f30f1f92d8c9559e8992a3341114e341e3a32773a03265",
+      "output_sha256": "4cb9a5474215b811e0df123ad0a2cb5796587eda3553de1a135960dc61d18258",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-63",
+      "step": "writer-72",
       "command": [
         "rig-create",
         "advance",
@@ -1817,22 +2001,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1dddc8d1dfd00a0dabe3a0fada5bdd9c3045cf7defa2643d15b185934a134148",
+      "output_sha256": "2039e8d99f9d993575381a9badb1cc5698b2d6515e2b62e231e59c395031df54",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "seed",
-      "step": "seed-64",
+      "step": "seed-73",
       "command": [
         "seed",
         "plan.steps[camera]",
@@ -1859,7 +2043,7 @@
           "status": "pending"
         },
         "citation": "docs/PROJECT.md:479,480",
-        "first_consumer": 68,
+        "first_consumer": 77,
         "first_consumer_command": [
           "rig-create",
           "interview-options",
@@ -1869,7 +2053,7 @@
     },
     {
       "kind": "seed",
-      "step": "seed-65",
+      "step": "seed-74",
       "command": [
         "seed",
         "plan.steps[timing]",
@@ -1896,7 +2080,7 @@
           "status": "pending"
         },
         "citation": "docs/PROJECT.md:479,480",
-        "first_consumer": 68,
+        "first_consumer": 77,
         "first_consumer_command": [
           "rig-create",
           "interview-options",
@@ -1906,7 +2090,7 @@
     },
     {
       "kind": "seed",
-      "step": "seed-66",
+      "step": "seed-75",
       "command": [
         "seed",
         "plan.steps[composition]",
@@ -1933,7 +2117,7 @@
           "status": "pending"
         },
         "citation": "docs/PROJECT.md:479,480",
-        "first_consumer": 68,
+        "first_consumer": 77,
         "first_consumer_command": [
           "rig-create",
           "interview-options",
@@ -1951,17 +2135,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/camera_depth.json",
-      "output_sha256": "c31206938557b9e4b40de974a57d54cd55c2038ef83f9b040351d594bab36ed7",
+      "output_sha256": "70b796337c6db5af5b508fe701db83b551992c17736255bb15bc8b4f31416b16",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/camera_depth.json": "c31206938557b9e4b40de974a57d54cd55c2038ef83f9b040351d594bab36ed7"
+        "evidence/interview/camera_depth.json": "70b796337c6db5af5b508fe701db83b551992c17736255bb15bc8b4f31416b16"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-68",
+      "step": "writer-77",
       "command": [
         "rig-create",
         "interview-options",
@@ -1971,26 +2155,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f2d19a4a60a6fddc2896cc8a79f2df5e79d0c9495ea35cc5e3b880b20c951ec0",
+      "output_sha256": "9940e60f247baa8b711075ce402ca996f5bd5471872fced5fa6f6be50456df44",
       "consumes": [
-        "seed-64",
-        "seed-65",
-        "seed-66"
+        "seed-73",
+        "seed-74",
+        "seed-75"
       ],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-69",
+      "step": "writer-78",
       "command": [
         "rig-create",
         "interview-answer",
@@ -1998,7 +2182,7 @@
         "--set",
         "evidence/interview/camera_depth.json",
         "--sha256",
-        "c31206938557b9e4b40de974a57d54cd55c2038ef83f9b040351d594bab36ed7",
+        "70b796337c6db5af5b508fe701db83b551992c17736255bb15bc8b4f31416b16",
         "--by",
         "user",
         "--pick",
@@ -2006,17 +2190,17 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c632177926a6ff5550994bb524f8355d657205f3d55958539061eea1267c9e48",
+      "output_sha256": "df3db2a8a5f4a6459d0a47a03fa1cc01573683988db3684f91f9a7a4418065bb",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
@@ -2029,17 +2213,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/post_timing.json",
-      "output_sha256": "448924b8b9ccb482f2bfeeb2cfb6f3e5081650c5ad6ddad5d59fe77bb2582168",
+      "output_sha256": "0f6a2ced5732289c4e4298ae13b43f38aa580861e1fdc03196c45ab4e578e463",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/post_timing.json": "448924b8b9ccb482f2bfeeb2cfb6f3e5081650c5ad6ddad5d59fe77bb2582168"
+        "evidence/interview/post_timing.json": "0f6a2ced5732289c4e4298ae13b43f38aa580861e1fdc03196c45ab4e578e463"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-71",
+      "step": "writer-80",
       "command": [
         "rig-create",
         "interview-options",
@@ -2049,22 +2233,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "25f15413d4a8a036f09282d7ac4a669bead15cdb5c441031a4549482ec8ae9bf",
+      "output_sha256": "0d8b26b40db2b6b143e349647e1b807482bb8f229907e92ed3e28993ca938828",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-72",
+      "step": "writer-81",
       "command": [
         "rig-create",
         "interview-answer",
@@ -2072,7 +2256,7 @@
         "--set",
         "evidence/interview/post_timing.json",
         "--sha256",
-        "448924b8b9ccb482f2bfeeb2cfb6f3e5081650c5ad6ddad5d59fe77bb2582168",
+        "0f6a2ced5732289c4e4298ae13b43f38aa580861e1fdc03196c45ab4e578e463",
         "--by",
         "user",
         "--pick",
@@ -2080,17 +2264,17 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c99285f88f506938af5804a21a899079e7b8f6b6bbf5c1d4ee88baa38c7dc706",
+      "output_sha256": "7a9bd2299104101bc91b66d2636815fc3bb5c7db041a874b824f02dd428c2289",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
@@ -2103,17 +2287,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/post_composition.json",
-      "output_sha256": "b82e9b319c835951dc34939ff774fdadbf10d7fdfe6f25a19770d2ce7948d7c7",
+      "output_sha256": "5242c510a17cdb05276361751dbf2e4b5fbeafdf3cda163436336dccc41adc1c",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/post_composition.json": "b82e9b319c835951dc34939ff774fdadbf10d7fdfe6f25a19770d2ce7948d7c7"
+        "evidence/interview/post_composition.json": "5242c510a17cdb05276361751dbf2e4b5fbeafdf3cda163436336dccc41adc1c"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-74",
+      "step": "writer-83",
       "command": [
         "rig-create",
         "interview-options",
@@ -2123,22 +2307,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f47f9e9cc772047cfb532dd9be5278168a0401ffcb4b3aa9b1d6c4ba424d3730",
+      "output_sha256": "7919cbec69b9a19e38c440e7afefc6925e2b9d6f2dd9413562aa570413f579c2",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-75",
+      "step": "writer-84",
       "command": [
         "rig-create",
         "interview-answer",
@@ -2146,7 +2330,7 @@
         "--set",
         "evidence/interview/post_composition.json",
         "--sha256",
-        "b82e9b319c835951dc34939ff774fdadbf10d7fdfe6f25a19770d2ce7948d7c7",
+        "5242c510a17cdb05276361751dbf2e4b5fbeafdf3cda163436336dccc41adc1c",
         "--by",
         "user",
         "--pick",
@@ -2154,22 +2338,22 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1b019c04dc9da0bf01ec2b82a239887452ef601136c6849e0f5c06bde0191f14",
+      "output_sha256": "4424b329aefe870b92e8b54de3c92f8bb83d637f9360d459bf30bba78dd8917e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-76",
+      "step": "writer-85",
       "command": [
         "rig-create",
         "signoff",
@@ -2181,25 +2365,25 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c8a703bd5c88e1086e91637d1813b4dc6f7780545d12651d22f439a39ca713bb",
+      "output_sha256": "d0f658d0467ac11d9e6c9754363a19dafb4675cdf501be28c47abdb44f1c85da",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-77",
+      "step": "writer-86",
       "command": [
         "rig-create",
         "advance",
@@ -2211,25 +2395,25 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "94a21c75784aabba75682bf85b437b9659d8f8993a2ac0d33f8814a12de1eade",
+      "output_sha256": "bfeb44e40ad6fc3f18da3483c4aa5340bb667d7ec17fe461757e3e589a41cb36",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "seed",
-      "step": "seed-78",
+      "step": "seed-87",
       "command": [
         "seed",
         "plan.steps[camera].status",
@@ -2243,7 +2427,7 @@
         "field": "plan.steps[camera].status",
         "value": "done",
         "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 81,
+        "first_consumer": 90,
         "first_consumer_command": [
           "rig-create",
           "direction",
@@ -2253,7 +2437,7 @@
     },
     {
       "kind": "seed",
-      "step": "seed-79",
+      "step": "seed-88",
       "command": [
         "seed",
         "plan.steps[timing].status",
@@ -2267,7 +2451,7 @@
         "field": "plan.steps[timing].status",
         "value": "done",
         "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 81,
+        "first_consumer": 90,
         "first_consumer_command": [
           "rig-create",
           "direction",
@@ -2277,7 +2461,7 @@
     },
     {
       "kind": "seed",
-      "step": "seed-80",
+      "step": "seed-89",
       "command": [
         "seed",
         "plan.steps[composition].status",
@@ -2291,7 +2475,7 @@
         "field": "plan.steps[composition].status",
         "value": "done",
         "citation": "docs/PROJECT.md:81,84",
-        "first_consumer": 81,
+        "first_consumer": 90,
         "first_consumer_command": [
           "rig-create",
           "direction",
@@ -2301,7 +2485,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-81",
+      "step": "writer-90",
       "command": [
         "rig-create",
         "direction",
@@ -2309,24 +2493,24 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a8d370ea37f0998c24629477ea8e9b1fe2f6849b8a6ed9c2ddcb79ca99fed23d",
+      "output_sha256": "d12067d86ff954440e0eb0b9bd5d77c593a4e22c7836bd4f382bae5b7bc76e0c",
       "consumes": [
-        "seed-78",
-        "seed-79",
-        "seed-80"
+        "seed-87",
+        "seed-88",
+        "seed-89"
       ],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
@@ -2348,7 +2532,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-83",
+      "step": "writer-92",
       "command": [
         "rig-create",
         "input",
@@ -2359,21 +2543,21 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "d9ba105491addd283e0531e5b2ca089bfd2fe1c9e2f2ee34335030f5dc82fd2a",
+      "output_sha256": "e2237762e0544ce269625f7789f329e162b15f186ac30c7472781660463f1169",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
@@ -2396,7 +2580,7 @@
     },
     {
       "kind": "writer",
-      "step": "writer-85",
+      "step": "writer-94",
       "command": [
         "rig-create",
         "scene",
@@ -2412,21 +2596,21 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "d013215738c94792de438641888586f4ed17bc500e22de10ea9408303e975a99",
+      "output_sha256": "d5a3935eaccb37d2c98ec3f6fb4846013a3e68205492f3a5037bbdbc659c6684",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
@@ -2439,17 +2623,17 @@
       ],
       "exit": 0,
       "output_path": "evidence/direction-input.json",
-      "output_sha256": "a08d8ad06b23ee3848dd9d46e3d930cef9d6c67fd63953ffb077ab58613d0654",
+      "output_sha256": "2fc3b9202bc7fce6901714b2817cc89cc6c10626fa98c5739668abe3308cb607",
       "authored_by": "agent",
       "outputs": {
-        "evidence/direction-input.json": "a08d8ad06b23ee3848dd9d46e3d930cef9d6c67fd63953ffb077ab58613d0654"
+        "evidence/direction-input.json": "2fc3b9202bc7fce6901714b2817cc89cc6c10626fa98c5739668abe3308cb607"
       },
       "consumes": [],
       "bindings": {}
     },
     {
       "kind": "writer",
-      "step": "writer-87",
+      "step": "writer-96",
       "command": [
         "rig-create",
         "direction",
@@ -2462,26 +2646,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "8b2368c1f80cd768ef32165f1aad0ace1787a78fb625b8b8618ef5d21d278a0a",
+      "output_sha256": "f2abc2d3df6fda7717d5308636505eca090ec013de720ddbb1e663f2ea7c8fc2",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-88",
+      "step": "writer-97",
       "command": [
         "rig-create",
         "direction",
@@ -2491,26 +2675,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "8b2368c1f80cd768ef32165f1aad0ace1787a78fb625b8b8618ef5d21d278a0a",
+      "output_sha256": "f2abc2d3df6fda7717d5308636505eca090ec013de720ddbb1e663f2ea7c8fc2",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-89",
+      "step": "writer-98",
       "command": [
         "rig-create",
         "advance",
@@ -2522,26 +2706,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "09ff9dd7369b5487bd5703fa484af8016e50694ae6e1c6d80ece21f0c18e2da9",
+      "output_sha256": "06e08836c4695ce8a8b23376a4f82e9235d0918ac6d37d172af3da7f57c18b7f",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-90",
+      "step": "writer-99",
       "command": [
         "rig-create",
         "review",
@@ -2559,26 +2743,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f98e7262dd4afa9c9a300716a2bbd4d1e52876431918ba97324279f216748232",
+      "output_sha256": "184ab1ab723b663a23339923571b7ed78d0b7fe2a122ade27d80efa15a17cb54",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-91",
+      "step": "writer-100",
       "command": [
         "rig-create",
         "signoff",
@@ -2592,26 +2776,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "43024e8bf3a8d1be5189ac7688e3c470b7f720cb185f649b7a0497dcdef44413",
+      "output_sha256": "8d9584e7ff0e794a802fe54b0b1b95d0b1791026f8b77960d477ff4d39693fd6",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-92",
+      "step": "writer-101",
       "command": [
         "rig-create",
         "advance",
@@ -2623,26 +2807,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c14beda01ebddb0998ffcbca07be74765341680039b80814c29ffaee706d0219",
+      "output_sha256": "326c1c139d130f4b6ac5160b316ce04d842c4496bd1d11c2359dc3574cd30982",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-93",
+      "step": "writer-102",
       "command": [
         "rig-create",
         "interview",
@@ -2651,26 +2835,26 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c14beda01ebddb0998ffcbca07be74765341680039b80814c29ffaee706d0219",
+      "output_sha256": "326c1c139d130f4b6ac5160b316ce04d842c4496bd1d11c2359dc3574cd30982",
       "consumes": [],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351"
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763"
       }
     },
     {
       "kind": "writer",
-      "step": "writer-94",
+      "step": "writer-103",
       "command": [
         "rig-create",
         "split-captions",
@@ -2679,23 +2863,23 @@
       ],
       "exit": 0,
       "output_path": "evidence/captions.json",
-      "output_sha256": "89e8cdbdc6569a56b25021e499f9e420a2ce2b9403a2f07c8c0214a1df5a4147",
+      "output_sha256": "a6613090c54ce502732c5df03ccb0a96387b478f9d1cfe114d6f9d180234b7e6",
       "consumes": [
-        "seed-6"
+        "seed-5"
       ],
       "bindings": {
-        "inputs[]": "062548ee863aff91999b1397bb190879dc7488597b757d63e38692a1edeeba47",
+        "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
         "inputs/painting.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "inputs/background.png": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
-        "plan.steps[seethrough].approval": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "plan.steps[assemble].approval": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32",
-        "plan.steps[bones].approval": "b8398282d7a07fbb791ecc33955940b67215356b457abfe14f2b0192ba363b28",
-        "plan.steps[meshes].approval": "6ec7e95ba8b44af6921dbd93344d420a0335db3435b1e61817c5061e371c3c58",
-        "plan.steps[constraints].approval": "8b8b1e9752e255f17ae084588966e264ef6337f979c67697b59baa69b13c0382",
-        "plan.steps[motion].approval": "2e82e05fae3574930047ee4669991d8ca71d484b3de31ca6f78afc540ecd4da0",
-        "plan.steps[camera].approval": "aca975929bd645b50e23815cc03f2d19398eabbe3136fac19871007df16765db",
-        "plan.steps[timing].approval": "24fa174d25b0028d1fbc0c67b4cd1aca4d6322e2ca224da12d2a63526d4a328b",
-        "plan.steps[composition].approval": "92d5196b9effe9b70f31585109272af010975a373bc75935704fd9c0a8be0351",
+        "plan.steps[seethrough].approval": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "plan.steps[assemble].approval": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752",
+        "plan.steps[bones].approval": "f2ffb08f0e275baedcfe9179518875f89171c5418f57b55acc28321e8a85c251",
+        "plan.steps[meshes].approval": "0c6b3d31d7f647f566366ac9d5030d43f358f0fe1b695a8d591582ff2ba1495e",
+        "plan.steps[constraints].approval": "39aa8eea05c3280652038cf81a956e5758391ecd000f0d2c16831d40f44f7841",
+        "plan.steps[motion].approval": "d5d8df8f75fdaa1b99f10ca7fc4542a4a3a5200e0c05d1cb27fb78dc42b524d3",
+        "plan.steps[camera].approval": "3805e7e0c8ea45ba85214014b97e1cbf14aef87f86c47e5f336d61dbc2488bf1",
+        "plan.steps[timing].approval": "75f3db4482026c4b574f0707755d6bd22a89b937ee6c77cdeaab25904f12f145",
+        "plan.steps[composition].approval": "31693bccb701917dd7f2527885fb55791c2870effd39cce119d660cfa2212763",
         "split.parts": "324ea0dd25ed7f29c242740e6a716fb3e0d039489028ae97837d58be551b9014"
       }
     }

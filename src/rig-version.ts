@@ -11,6 +11,7 @@ import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
+import { checkRegisteredRuns, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
 import { structurePathIsIgnored } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -78,7 +79,7 @@ function pathAdapter(raw: Json): JsonObject[] {
 }
 
 /** Only explicitly registered versions opt in. Older version contracts are unchanged. */
-export function rigRegistrationFindings(dir: string, project: JsonObject): Finding[] {
+export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = []): Finding[] {
   const findings: Finding[] = [];
   for (const version of asArray(project.versions).filter(isObject)) {
     if (version.registration === undefined) continue;
@@ -89,6 +90,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject): Findi
       || !isObject(record.toolchain) || record.toolchain.kind !== 'npm-lock-v3' || version.at_basis !== 'not-after') {
       add('RIG_REGISTRATION_INVALID', 'registration', 'expected frozen-rig/1, a UTC registration date and npm-lock-v3 declaration'); continue;
     }
+    const runPaths = checkRegisteredRuns(dir, path, record, findings, warnings);
     try {
       const versions = lockVersions(JSON.parse(bytesAt(dir, record.toolchain.source).toString()));
       if (!isDeepStrictEqual(versions, version.built_with)) add('RIG_TOOLCHAIN_MISMATCH', 'built_with', 'declared versions disagree with the retained npm lock');
@@ -108,7 +110,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject): Findi
     try {
       const files = asArray(record.files);
       if (!files.length || files.some(f => !isObject(f))) throw Error('missing retained input inventory');
-      for (const file of files) bytesAt(dir, file);
+      for (const file of files) if (!isObject(file) || typeof file.path !== 'string' || !runPaths.has(file.path)) bytesAt(dir, file);
       const config = isObject(version.provenance) ? version.provenance.config : undefined;
       for (const binding of [record.toolchain.source, version.at_source, record.compile, record.config_source, record.path_adapter, config]) {
         if (!isObject(binding) || !files.some(f => isObject(f) && f.path === binding.path && f.sha256 === binding.sha256)) throw Error('a declared input is absent from the retained inventory');
@@ -158,8 +160,8 @@ export function rigRegistrationFindings(dir: string, project: JsonObject): Findi
 
 export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <render dir>
   --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <package-lock.json>
-  --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--citations <sections JSON>] [--json]
-  Copy and hash frozen producer outputs. Retain an explicitly declared npm lock and UTC not-after date.
+  --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--json]
+  Copy and hash frozen producer outputs. Retain an explicitly declared npm lock, producer run records and UTC not-after date.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
   Source arguments resolve against the project directory; external frozen sources are permitted.`;
 
@@ -168,12 +170,17 @@ interface SourceFile { source: string; bytes: Buffer }
 export function rigVersionCommand(args: string[], now: number): { stdout: string; exit: number } {
   const positional: string[] = [];
   const options: Record<string, string> = {};
+  const runRecords: string[] = [];
   const flags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by', '--citations'];
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') json = true;
-    else if (flags.includes(arg)) {
+    else if (arg === '--run-record') {
+      const value = args[++i];
+      if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--run-record needs one value');
+      runRecords.push(value);
+    } else if (flags.includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith('--') || options[arg] !== undefined) fail('RIG_REGISTRATION_USAGE', 'versions', `${arg} needs one value`);
       options[arg] = value;
@@ -232,16 +239,39 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       if (outputs) outputFiles.push(binding);
       return binding;
     };
-    const input = (flag: string, name: string): JsonObject => retain(`${evidence}/${name}`, sourceBytes(options[flag]!));
-    // Validate the toolchain lock before creating retained directories.
+    const input = (flagOrPath: string, name: string): JsonObject => retain(`${evidence}/${name}`, sourceBytes(options[flagOrPath] ?? flagOrPath));
+    // Validate the toolchain lock and run records before creating retained directories.
     let versions: JsonObject;
     try { versions = lockVersions(JSON.parse(sourceBytes(options['--toolchain-lock']!).toString())); }
     catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_TOOLCHAIN_LOCK_INVALID', `versions[v${n}].built_with`, String(error)); }
+    const registrationAt = new Date(now).toISOString();
+    const validatedRuns: { path: string; spec: RunSpec }[] = [];
+    const seenSpecs = new Set<RunSpec>();
+    for (const [i, recordPath] of runRecords.entries()) {
+      const entryPath = `versions[v${n}].registration.runs[${i}]`;
+      try {
+        const { spec } = validateRunRecord(sourceBytes(recordPath), entryPath);
+        if (seenSpecs.has(spec)) throw new RunRecordError('RUN_RECORD_MALFORMED', `${entryPath}.spec`, `duplicate run record for spec ${spec}; supply at most one --run-record per spec`);
+        seenSpecs.add(spec);
+        validatedRuns.push({ path: recordPath, spec });
+      } catch (error) {
+        if (error instanceof Refusal) throw error;
+        if (error instanceof RunRecordError) refuse(error.code, error.message);
+        return fail('RUN_RECORD_MALFORMED', entryPath, String(error));
+      }
+    }
+    if (validatedRuns.length === 0 && Date.parse(registrationAt) >= Date.parse(RUN_RECORD_SINCE)) {
+      return fail('RUN_RECORD_REQUIRED', `versions[v${n}].registration.runs`, 'version registered from the npm lock alone; retain producer run.json records with --run-record');
+    }
     // Pre-existing refusals stay the project's; the candidate may not add a new one.
     const baseline = checkProject(dir, project, { now }).refusals;
     created.push(join(dir, evidence), join(dir, out));
     mkdirSync(join(dir, evidence), { recursive: true });
     const toolchain = input('--toolchain-lock', 'package-lock.json');
+    const runs = validatedRuns.map(({ path, spec }) => ({
+      spec,
+      source: input(path, `${spec.replace('/', '-')}.json`),
+    }));
     let atSource: JsonObject;
     let at: Json | undefined;
     try {
@@ -336,7 +366,8 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const version: JsonObject = { n, kind: 'rig', rig_version: null, at, at_basis: 'not-after', at_source: atSource,
       built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: [], review_origin: null,
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections },
-      registration: { kind: 'frozen-rig/1', at: new Date(now).toISOString(), toolchain: { kind: 'npm-lock-v3', source: toolchain },
+      registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
+        ...(runs.length ? { runs } : {}),
         files: retained, config_source: configSource, path_adapter: adapterBinding, idle, compile,
         copied: { files: outputFiles.length, bytes: outputFiles.reduce((total, f) => total + Number(f.bytes), 0) } } };
     const candidate = { ...project, versions: [...project.versions, version] };

@@ -29,9 +29,24 @@ function setup() {
   put(dir, 'source/parts/parts.json', { parts: [{ name: 'rectangle', x: 0, y: 0, w: 8, h: 16 }] });
   mkdirSync(join(dir, 'source/parts/parts'), { recursive: true });
   cpSync(join(dir, 'source/rig/images/rectangle.png'), join(dir, 'source/parts/parts/rectangle.png'));
+  put(dir, 'source/run.json', {
+    spec: 'rigc-run/1',
+    package: { name: 'rig-c', version: '3.4.1' },
+    command: 'build',
+    started_at: '2026-11-06T20:44:40.000Z',
+    finished_at: '2026-11-06T20:44:41.000Z',
+    inputs: [
+      { role: 'rig', path: '../rig/rig.json', sha256: '1'.repeat(64) },
+      { role: 'motion', path: '../rig/motion.json', sha256: '2'.repeat(64) },
+    ],
+    outputs: [
+      { path: '../compile-report.json', sha256: '3'.repeat(64) },
+      { path: 'skeleton.model.json', sha256: '4'.repeat(64) },
+    ],
+  });
   const args = ['1', dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle',
     '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json',
-    '--toolchain-lock', 'source/package-lock.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant', '--json'];
+    '--toolchain-lock', 'source/package-lock.json', '--run-record', 'source/run.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant', '--json'];
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   return { dir, args, load };
 }

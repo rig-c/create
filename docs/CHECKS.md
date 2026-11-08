@@ -625,7 +625,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `OVERRIDDEN_ANSWERS_SINCE` and `RUN_RECORD_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1060,10 +1060,13 @@ checks still use current post applicability.
 
 ## Frozen rig registration
 
-`rig-version` records explicitly declared toolchain and dated-source bindings.
-These codes apply only to the new writer and versions carrying `registration`.
-The existing template records carry no such field. This additive contract adds
-no SINCE constant. `interview --check` uses the same registration validator.
+`rig-version` records explicitly declared toolchain, producer run-record and
+dated-source bindings. These codes apply only to the new writer and versions
+carrying `registration`. The existing template records carry no such field.
+`RUN_RECORD_SINCE = 2026-11-08T00:00:00Z` dates lock-only `frozen-rig/1`
+registrations by `registration.at`: before it they WARN under
+`RUN_RECORD_REQUIRED`, and from it onward they refuse under the same code.
+`interview --check` uses the same registration validator.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
@@ -1081,9 +1084,15 @@ no SINCE constant. `interview --check` uses the same registration validator.
 | `RIG_PATH_ADAPTER_INVALID` | the adapter lacks distinct at/before/after mappings | retain the recorded adapter with unique config locations |
 | `RIG_RUNTIME_PATH_UNRESOLVED` | an absolute config input lacks an exact adapter mapping, or a figure mask escapes the retained config directory | retain the recorded runtime mapping and contained named inputs |
 | `RIG_IDLE_MANIFEST_MISSING` | idle evidence lacks the public render's frames.json | render through public rigc render and supply its output directory |
+| `RUN_RECORD_REQUIRED` | a `frozen-rig/1` version has no `registration.runs` (WARN before `RUN_RECORD_SINCE` by `registration.at`, refusal from `RUN_RECORD_SINCE` onward) | retain producer `run.json` records with `--run-record` and register a new rig version |
+| `RUN_RECORD_SPEC_UNKNOWN` | a run record or `registration.runs[]` entry names a `spec` other than `rig-run/1` or `rigc-run/1` | supply a producer `rig-run/1` or `rigc-run/1` `run.json` and register a new rig version |
+| `RUN_RECORD_HASH_MISMATCH` | a bound run record is missing, unreadable, absent from `registration.files`, or its bytes differ from its recorded `sha256` | restore the retained run record bytes or register a new rig version |
+| `RUN_RECORD_ROLE_INVALID` | a `rigc-run/1` record omits a required input role (`rig` or `motion`), names an unknown role, or sorts roles outside `rig`, `motion`, `manifest`, `cuts` | retain the unedited `rigc-run/1` `run.json` with required `rig` and `motion` inputs |
+| `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes, unsorted outputs, or duplicate specs | retain at most one unedited producer `run.json` per spec in its published key order |
 
-The date citation declares a completion bound and the npm lock declares the
-run-to-toolchain association. Producer-owned run stamps are tracked in
-parts#1165 and core#1718. Acceptance and forward stage moves retain their
+The date citation declares a completion bound, the npm lock declares the
+toolchain, and `registration.runs` binds the producer run stamps (`rig-run/1`
+from parts#1165 and `rigc-run/1` from core#1718) by raw SHA-256 and spec.
+Acceptance and forward stage moves retain their
 existing review/signoff and advance contracts. See
 [the registration procedure](PROJECT.md#registering-a-frozen-rig-build).

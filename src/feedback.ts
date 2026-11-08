@@ -543,36 +543,19 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   } catch (error) { for (const path of created) rmSync(path, { force: true }); throw error; }
 }
 
-function exportedActBytes(file: string): string {
-  try { return readFileSync(file, 'utf8'); }
-  catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: act export is missing or unreadable; save the raw fetch-act output beside its PNG and retry'); }
-}
-
 /** The common #184 lock covers fetch, source validation and the atomic write. */
-export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, exportFile?: string): Recorded {
+export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number): Recorded {
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
-    const child = exportFile ? null : Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+    const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
       stdin: Buffer.from(JSON.stringify(reviewActTransport(root, actId))), stdout: 'pipe', stderr: 'pipe',
     });
     let response: { ok: boolean; bytes: string; stillBytes?: string; code: string; message: string };
-    try {
-      if (exportFile) {
-        const bytes = exportedActBytes(exportFile);
-        const act = decodeReviewAct(bytes);
-        let stillBytes: string | undefined;
-        if (act.schema === 'rig-review/act@3') {
-          try { stillBytes = readFileSync(join(dirname(exportFile), act.still.path)).toString('base64'); }
-          catch { refuse('REVIEW_ACT_STILL_INVALID', 'project.json.review_acts: exported still PNG is missing; fetch the complete act and PNG pair'); }
-        }
-        response = { ok: true, bytes, stillBytes, code: '', message: '' };
-      } else response = JSON.parse(child!.stdout.toString());
-    }
+    try { response = JSON.parse(child.stdout.toString()); }
     catch (error) { if (error instanceof Refusal) throw error; return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
-    if (!response.ok || child !== null && child.exitCode !== 0) refuse(response.code, response.message);
+    if (!response.ok || child.exitCode !== 0) refuse(response.code, response.message);
     const act = decodeReviewAct(response.bytes);
-    if (exportFile && act.actId !== actId) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act identity differs; use the exported act identity');
     const selector = act.source.selector!;
     if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');
     if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
@@ -600,7 +583,6 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
 export const REVIEW_HELP = `review:
   <version>        the version shown (3 or v3)
   [<project dir>]  the project folder (default: the current directory)
-  --from-review-file <act.json>  ingest raw act bytes and the named PNG beside it
   --from-review <actId>  fetch a rig/post verdict through the live job writer binding
   --verdict <v>    accepted | bounced | provisional
   --by <who>       who gave it (the user's name or role)
@@ -651,7 +633,9 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
       return v;
     };
     if (arg === '--json') json = true;
-    else if (['--from-review-file', '--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
+    else if (arg === '--from-review-file' || arg.startsWith('--from-review-file=')) {
+      refuse('REVIEW_FILE_ROUTE_REMOVED', 'project.json.review_acts: saved act files are unsupported; use --from-review <actId> through the live Review job API', USAGE_EXIT);
+    } else if (['--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
       if (arg in opts) refuse('REVIEW_OPTION_INVALID', `${arg} is given twice`, USAGE_EXIT);
       opts[arg] = value();
     } else if (arg === '--answers-feedback') {
@@ -687,13 +671,11 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
   }
   if (positional.length > 2) refuse('REVIEW_TOO_MANY_ARGUMENTS', `review takes a version and one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   const version = parseVersion(positional[0]);
-  if (opts['--from-review'] !== undefined || opts['--from-review-file'] !== undefined) {
+  if (opts['--from-review'] !== undefined) {
     if (Object.keys(opts).length !== 1 || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
       refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --from-review excludes human-value and feedback flags; submit those values through Review', USAGE_EXIT);
     }
-    const exportFile = opts['--from-review-file'] === undefined ? undefined : resolve(opts['--from-review-file']);
-    const actId = exportFile ? decodeReviewAct(exportedActBytes(exportFile)).actId : opts['--from-review'];
-    const recorded = recordReviewAct(positional[1] ?? process.cwd(), version, actId, now, exportFile);
+    const recorded = recordReviewAct(positional[1] ?? process.cwd(), version, opts['--from-review'], now);
     return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []), `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`].join('\n'), exit: 0 };
   }
   if (opts['--verbatim'] !== undefined && opts['--verbatim-file'] !== undefined) refuse('REVIEW_OPTION_INVALID', 'choose --verbatim or --verbatim-file', USAGE_EXIT);

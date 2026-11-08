@@ -537,9 +537,8 @@ That acceptance rests on a **still-frame record** in the same version's
 | `what` | what it shows, in words |
 
 This repository does not render the still: rig-c/core and rig-c/review render,
-the `review <version> --from-review-file <act.json>` writer ingests the
-raw export and its `<sha256>.png` sibling (or `--from-review <actId>` fetches
-both from the live job). The writer preserves the act bytes under
+the `review <version> --from-review <actId>` writer fetches the
+raw act bytes and PNG through the live job API. The writer preserves the act bytes under
 `evidence/v<N>/`, binds them in `review_acts` by sha256 and verifies the PNG
 before recording it. Missing or mismatched PNGs refuse without changing
 `project.json`. Numeric frames record the animation name in `what`;

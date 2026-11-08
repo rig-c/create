@@ -335,36 +335,53 @@ test('changes-requested records a bounced verdict with exact words and the norma
   expect(report.warnings.map(finding => finding.code)).toEqual(['FEEDBACK_OPEN']);
 });
 
-test.each(['missing', 'mismatch'])('offline act refuses a %s PNG without changing project bytes', async failure => {
+/** Inject consumer API responses without materializing a saved Review export. */
+function fetchAdapter(root: string, act: { jobId: string }, raw: string, png?: Buffer) {
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    if (request.headers.get('accept') === 'image/png') {
+      return png === undefined ? new Response(null, { status: 404 }) : new Response(new Uint8Array(png));
+    }
+    return new Response(raw, { headers: { 'content-type': 'application/vnd.rig-review.act+json' } });
+  } });
+  const binding = readWriterBinding(root)!;
+  expect(binding.jobId).toBe(act.jobId);
+  binding.origin = `http://127.0.0.1:${server.port}`;
+  writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
+  const project = projectAt(root);
+  (project.review_job as JsonObject).origin = binding.origin;
+  putProject(root, project);
+  return server;
+}
+
+test.each(['missing', 'mismatch'])('API act refuses a %s PNG without changing project bytes', async failure => {
   const { root, act } = await published();
-  if (act.schema !== 'rig-review/act@3') throw Error('expected rig still');
-  const exported = temporary('create-act-export-');
-  const raw = `${JSON.stringify(act, null, 3)}\n`;
-  writeFileSync(join(exported, 'act.json'), raw);
-  if (failure === 'mismatch') writeFileSync(join(exported, act.still.path), 'wrong pixels');
-  const before = readFileSync(join(root, 'project.json'));
-  expect(() => reviewCommand(['1', root, '--from-review-file', join(exported, 'act.json')], Date.now() + 1000))
-    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_STILL_INVALID' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  const server = fetchAdapter(root, act, JSON.stringify(act), failure === 'mismatch' ? Buffer.from('wrong pixels') : undefined);
+  try {
+    const before = readFileSync(join(root, 'project.json'));
+    const result = await command(root, act.actId);
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toContain(failure === 'missing' ? 'REVIEW_ACT_FETCH_REFUSED:' : 'REVIEW_ACT_STILL_INVALID:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  } finally { server.stop(true); }
 });
 
-test('offline export retains exact raw act bytes and PNG and binds both hashes', async () => {
+test('API retains exact raw act bytes and PNG and binds both hashes', async () => {
   const { root, act } = await published();
   if (act.schema !== 'rig-review/act@3') throw Error('expected rig still');
-  const exported = temporary('create-act-export-');
   const raw = `${JSON.stringify(act, null, 3)}\n`;
-  writeFileSync(join(exported, 'act.json'), raw);
   const png = readFileSync(join(root, 'evidence/setup.png'));
-  writeFileSync(join(exported, act.still.path), png);
-  const result = reviewCommand(['1', root, '--from-review-file', join(exported, 'act.json')], Date.now() + 1000);
-  expect(result.exit).toBe(0);
-  const project = projectAt(root);
-  const receipt = (project.review_acts as JsonObject[])[0];
-  expect(receipt.bytes).toBe(raw);
-  expect(receipt.sha256).toBe(jobHash(raw));
-  expect(readFileSync(join(root, `evidence/v1/${jobHash(raw)}.act.json`), 'utf8')).toBe(raw);
-  expect(readFileSync(join(root, `evidence/v1/${act.still.path}`))).toEqual(png);
-  expect(checkProject(root, project, { now: Date.now() + 1000 }).refusals).toEqual([]);
+  const server = fetchAdapter(root, act, raw, png);
+  try {
+    const result = await command(root, act.actId);
+    expect(result.exit).toBe(0);
+    const project = projectAt(root);
+    const receipt = (project.review_acts as JsonObject[])[0];
+    expect(receipt.bytes).toBe(raw);
+    expect(receipt.sha256).toBe(jobHash(raw));
+    expect(readFileSync(join(root, `evidence/v1/${jobHash(raw)}.act.json`), 'utf8')).toBe(raw);
+    expect(readFileSync(join(root, `evidence/v1/${act.still.path}`))).toEqual(png);
+    expect(checkProject(root, project, { now: Date.now() + 1000 }).refusals).toEqual([]);
+  } finally { server.stop(true); }
 });
 
 test('manual accepted rig verdict without a still refuses and leaves project bytes unchanged', async () => {
@@ -382,10 +399,12 @@ test('manual accepted rig verdict without a still refuses and leaves project byt
 });
 
 
-test('a missing raw act export refuses by name and preserves project bytes', async () => {
+test('removed file route refuses by name before opening a file and preserves project bytes', async () => {
   const { root } = await published();
   const before = readFileSync(join(root, 'project.json'));
-  expect(() => reviewCommand(['1', root, '--from-review-file', join(root, 'missing-act.json')], Date.now() + 1000))
-    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_FETCH_REFUSED' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  for (const flags of [['--from-review-file', join(root, 'missing-act.json')], ['--from-review-file'], ['--from-review-file=missing-act.json']]) {
+    expect(() => reviewCommand(['1', root, ...flags], Date.now() + 1000))
+      .toThrow(expect.objectContaining({ code: 'REVIEW_FILE_ROUTE_REMOVED', exitCode: 2, message: expect.stringContaining('--from-review <actId>') }));
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  }
 });

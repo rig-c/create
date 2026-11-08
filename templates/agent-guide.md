@@ -31,6 +31,7 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
    against approved parts/structure; use interview-options/answer/decision.
 3. **Rig and animation**. Hand pass is rig-review's correction loop; keep feedback.
+   Record verdicts with `review <version> --from-review <actId>` through the live job API.
 4. **Direction**. Ask after rig acceptance; judge at direction-review.
 
 Use `advance <stage>`, `step-status <id>`; see `rig-create --help`.

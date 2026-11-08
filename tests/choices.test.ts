@@ -8,6 +8,13 @@ import { collectItems, isObject, asArray } from '../src/check.ts';
 import { CHOICE_SPEC, CHOICE_ORDER_SPEC, sha256, optionContext, validateSet, assembleFragments, checkChoiceConstraints, type ChoiceError } from '../src/choices.ts';
 import { FRAMING_IDS } from '../src/waypoints.ts';
 import { GUIDE_INTERVIEW, hasStageOrder, stageIndex } from '../src/stages.ts';
+import { currentJobIdentity } from '../src/job-publication.ts';
+import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
+import { realpathSync } from 'node:fs';
+import { interviewAnswerCommand as rawInterviewAnswer } from '../src/choice-writers.ts';
+import { decodeReviewResponse, fetchReviewAct, reviewActFindings } from '../src/review-act.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
+import { PARTS_CLI_RECEIPT, partsReadFindings } from '../src/parts-verdict-record.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, obj, arr, waypoint, framing } from './fixtures.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
@@ -43,6 +50,30 @@ function rewriteSet(w:ReturnType<typeof working>,edit:(s:JsonObject)=>void):void
   const p=load(w.dir);current(p,String(w.set.question)).record.pending_options={path:w.path,sha256:w.hash};save(w.dir,p);
 }
 
+/** Synthetic finalized acts enter through the injected job fetch adapter. */
+function bindReview(w: {dir:string}): void {
+  const project=load(w.dir);const jobId='synthetic-interview-job';
+  const origin='http://127.0.0.1:43123';
+  const identity=currentJobIdentity({root:w.dir,stateDir:'unused-private-state',fingerprint:'synthetic',reviewer:{id:'synthetic-owner',role:'owner'}},w.dir);
+  writePrivateJson(join(realpathSync(w.dir),JOB_BINDING_FILE),{schema:'rig-create/job-binding@1',identity,jobId,origin,fetchCapability:'synthetic-read-grant'},true);
+  project.review_job={jobId,origin};save(w.dir,project);
+}
+function reviewAnswer(w: {dir:string;path:string;hash:string}, payload: JsonObject, extra: string[] = [], editAct?: (act: JsonObject) => void): string {
+  bindReview(w);
+  const set=JSON.parse(readFileSync(join(w.dir,w.path),'utf8')) as JsonObject;
+  const jobId='synthetic-interview-job',actId=`pick-${String(set.id)}`;
+  const act={schema:'rig-review/act@2',kind:'interview-picks',jobId,actId,askId:'synthetic-ask',publicationId:'synthetic-publication',at:payload.at,
+    authority:{actor:'human',channel:'review-ui',reviewer:{id:'synthetic-owner',role:'owner'}},
+    source:{sourceHash:'1'.repeat(64),projectHash:'2'.repeat(64),package:{id:'synthetic-package',revision:'one'},
+      parts:{enumeratorVersion:'2.30.1'},optionSet:{id:set.id,sha256:obj(payload.set).sha256}},
+    value:{questionId:set.question,selections:arr(payload.picks).map(raw=>({itemId:obj(raw).ask,optionId:obj(raw).option_id,otherText:obj(raw).other_text??null})),note:payload.note??''}};
+  editAct?.(act as JsonObject);
+  return rawInterviewAnswer([String(set.question),realpathSync(w.dir),'--from-review',actId,...extra],testClock.now(),{fetch:transport=>{
+    expect(transport.jobId).toBe(jobId);expect(transport.actId).toBe(actId);expect(transport.kind).toBe('interview-picks');
+    return {bytes:JSON.stringify(act)};
+  }});
+}
+
 test('every framing id explicitly belongs to the source interview',()=>{for(const id of FRAMING_IDS)expect(GUIDE_INTERVIEW[id]).toBe('interview');});
 test('active writer-generated fixture is 0/0, and @1 still has split semantics',()=>{
   const r=checkProject(fixture(()=>{},'example-project.json'));expect(r.refusals).toEqual([]);expect(r.warnings).toEqual([]);
@@ -65,23 +96,120 @@ test('missing/duplicate picks and unknown options refuse without changing projec
   expect(code(()=>answer(w,arr(w.set.asks).map(a=>`${String(obj(a).id)}=bad`)))).toBe('INTERVIEW_CHOICE_INVALID');
   expect(code(()=>answer(w,['tracks=keep','tracks=keep']))).toBe('INTERVIEW_OPTIONS_USAGE');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
 });
-test('picks-file round trip equals flags byte for byte, including exact Unicode note',()=>{
+test('job picks round trip equals flags byte for byte, including exact Unicode note',()=>{
   const a=working('reference'),b=working('reference');const note='끝 줄\n e\u0301  \n';writeFileSync(join(a.dir,'note.txt'),note);
   const at=new Date(testClock.now()).toISOString();const payload={schema:'rig-review/interview-picks@1',set:{path:b.path,sha256:b.hash},picks:[{ask:'reference',option_id:'keep'}],note,by:'user',at};
-  writeFileSync(join(b.dir,'evidence/picks.json'),JSON.stringify(payload));
   const left=interviewAnswerCommand(['reference',a.dir,'--set',a.path,'--sha256',a.hash,'--by','user','--pick','reference=keep','--note-file',join(a.dir,'note.txt')]);
-  const right=interviewAnswerCommand(['reference',b.dir,'--picks-file','evidence/picks.json']);
+  const right=reviewAnswer(b,payload);
   expect(right).toBe(left);expect(obj(JSON.parse(right)).verbatim).toBe(String(obj(arr(obj(arr(b.set.asks)[0]).options)[0]).label)+'\n'+String(obj(arr(obj(arr(b.set.asks)[0]).options)[0]).effect)+'\n'+note);
 });
-test('picks-file stale sha, unknown keys, symlink traversal and exclusivity refuse byte-identically',()=>{
-  const w=working('reference');const payload:JsonObject={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:'0'.repeat(64)},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date(testClock.now()).toISOString()};const path='evidence/picks.json';
-  const before=readFileSync(join(w.dir,'project.json'));const ingest=()=>interviewAnswerCommand(['reference',w.dir,'--picks-file',path]);
-  writeFileSync(join(w.dir,path),JSON.stringify(payload));expect(code(ingest)).toBe('INTERVIEW_OPTIONS_STALE');
-  obj(payload.set).sha256=w.hash;payload.value='injected';writeFileSync(join(w.dir,path),JSON.stringify(payload));expect(code(ingest)).toBe('INTERVIEW_CHOICE_INVALID');delete payload.value;
-  writeFileSync(join(w.dir,path),JSON.stringify(payload));symlinkSync(join(w.dir,'evidence'),join(w.dir,'alias'));
-  expect(code(()=>interviewAnswerCommand(['reference',w.dir,'--picks-file','alias/picks.json']))).toBe('INTERVIEW_CHOICE_INVALID');
-  expect(code(()=>interviewAnswerCommand(['reference',w.dir,'--picks-file',path,'--pick','reference=keep']))).toBe('INTERVIEW_OPTIONS_USAGE');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+test('removed picks file route refuses without changing project bytes',()=>{
+  const w=working('reference');const before=readFileSync(join(w.dir,'project.json'));
+  for(const flags of [['--picks-file','missing.json'],['--picks-file','missing.json','--pick','reference=keep']]) {
+    expect(code(()=>interviewAnswerCommand(['reference',w.dir,...flags]))).toBe('INTERVIEW_PICKS_FILE_REMOVED');
+    expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+  }
 });
+test('stale, invalid, duplicate and conflicting job selections refuse byte-identically',()=>{
+  const w=working('reference');bindReview(w);
+  const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
+  const cases:[string,(p:JsonObject)=>void][]=[
+    ['INTERVIEW_OPTIONS_STALE',p=>{obj(p.set).sha256='0'.repeat(64);}],
+    ['INTERVIEW_CHOICE_INVALID',p=>{obj(arr(p.picks)[0]).option_id='missing';}],
+    ['REVIEW_ACT_INVALID',p=>{arr(p.picks).push(structuredClone(arr(p.picks)[0]));}],
+    ['REVIEW_ACT_INVALID',p=>{p.at='2099-01-01T00:00:00Z';}],
+  ];
+  for(const [expected,mutate] of cases){
+    const value=structuredClone(payload);mutate(value);const before=readFileSync(join(w.dir,'project.json'));
+    expect(code(()=>reviewAnswer(w,value))).toBe(expected);expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+  }
+  const before=readFileSync(join(w.dir,'project.json'));
+  expect(code(()=>reviewAnswer(w,payload,['--pick','reference=keep']))).toBe('INTERVIEW_OPTIONS_USAGE');
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+});
+test('job receipt binds API bytes and supports identical replay',()=>{
+  const w=working('reference');const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
+  const answer=reviewAnswer(w,payload);const before=readFileSync(join(w.dir,'project.json'));
+  const receipt=obj(arr(load(w.dir).review_acts)[0]);expect(receipt.sha256).toBe(sha256(Buffer.from(String(receipt.bytes))));
+  expect(reviewActFindings(load(w.dir))).toEqual([]);
+  const changed=load(w.dir);obj(arr(changed.review_acts)[0]).question='missing';
+  expect(reviewActFindings(changed).map(f=>f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  expect(reviewAnswer(w,payload)).toBe(answer);expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+  payload.note='changed';expect(code(()=>reviewAnswer(w,payload))).toBe('REVIEW_ACT_REPLAY_CONFLICT');
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+});
+test('interview transport consumes the JSON job API response through its fetch adapter',async()=>{
+  const w=working('reference');const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
+  reviewAnswer(w,payload);const receipt=obj(arr(load(w.dir).review_acts)[0]);const act=JSON.parse(String(receipt.bytes));
+  const calls:string[]=[];
+  const adapter=(async(input: string | URL | Request, init?:RequestInit)=>{
+    calls.push(String(input));const request=JSON.parse(String(init?.body));
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer synthetic-read-grant');
+    expect(new Headers(init?.headers).get('accept')).toBe('application/json');
+    expect(request.verb).toBe('fetch-act');expect(request.actId).toBe(act.actId);
+    return Response.json({schema:'rig-review/job-api@2',verb:'fetch-act',ok:true,jobId:act.jobId,requestId:request.requestId,value:act});
+  }) as typeof fetch;
+  const result=await fetchReviewAct({origin:'http://127.0.0.1:43123',jobId:act.jobId,actId:act.actId,fetchCapability:'synthetic-read-grant',kind:'interview-picks'},adapter);
+  expect(result.bytes).toBe(String(receipt.bytes));expect(result.act.kind).toBe('interview-picks');expect(calls).toHaveLength(1);
+  expect(code(()=>decodeReviewResponse(JSON.stringify({schema:'rig-review/job-api@2',verb:'fetch-act',ok:true,jobId:act.jobId,requestId:'wrong',value:act}),act.jobId,act.actId,'request','interview-picks'))).toBe('REVIEW_ACT_INVALID');
+});
+test('malformed API acts preserve the interview record',()=>{
+  const w=working('reference');bindReview(w);
+  const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
+  const cases:[string,(act:JsonObject)=>void][]=[
+    ['REVIEW_ACT_INVALID',act=>{act.jobId='other-job';}],
+    ['REVIEW_ACT_INVALID',act=>{obj(act.value).questionId='other-question';}],
+    ['REVIEW_ACT_KIND_MISMATCH',act=>{act.kind='parts-verdict';}],
+    ['REVIEW_ACT_INVALID',act=>{obj(act.authority).channel='agent';}],
+    ['REVIEW_ACT_INVALID',act=>{obj(act.value).note=null;}],
+    ['INTERVIEW_OPTIONS_STALE',act=>{obj(obj(act.source).optionSet).id='other-set';}],
+  ];
+  for(const [expected,edit] of cases){
+    const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>reviewAnswer(w,payload,[],edit))).toBe(expected);
+    expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+  }
+});
+test('interview ledger validates optional intake answers through the same branch',()=>{
+  const w=working('reference');const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
+  const answer=JSON.parse(reviewAnswer(w,payload));const project=load(w.dir);
+  const receipt=obj(arr(project.review_acts)[0]);const act=JSON.parse(String(receipt.bytes));
+  act.value.questionId='intake_suitability';receipt.question='intake_suitability';
+  receipt.bytes=JSON.stringify(act);receipt.sha256=sha256(Buffer.from(String(receipt.bytes)));
+  project.intake={choice:{answer}};expect(reviewActFindings(project)).toEqual([]);
+  obj(obj(project.intake).choice).answer=null;
+  expect(reviewActFindings(project).map(f=>f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+});
+test('job selections preserve Other text and delegate authority and replay history',()=>{
+  const w=working('reference');const words='  Exact Other words\n끝  ';
+  const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'other',other_text:words}],note:'  note\n',at:new Date(testClock.now()).toISOString()};
+  const delegate=(act:JsonObject):void=>{obj(obj(act.authority).reviewer).role='delegate';};
+  const first=reviewAnswer(w,payload,[],delegate);const selected=JSON.parse(first);
+  expect(selected.by).toBe('delegate');expect(selected.choice.picks[0].other_text).toBe(words);expect(selected.choice.note).toBe(payload.note);
+  interviewOptionsCommand(['reference',w.dir,'--file',w.path]);answer(w,['reference=keep']);
+  const before=readFileSync(join(w.dir,'project.json'));expect(reviewAnswer(w,payload,[],delegate)).toBe(first);
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);expect(reviewActFindings(load(w.dir))).toEqual([]);
+});
+test('merged ledger records picks after a parts CLI receipt and runs the picks branch',()=>{
+  const w=working('reference');const root=realpathSync(w.dir);
+  const draft=obj(arr(load(root).drafts)[0]);const parts=obj(draft.parts);
+  const value={schema:'rig-review-parts-verdict/2',tool:{name:'@rig-c/review',version:'2.5.0'},
+    source:{sha256:'a'.repeat(64),files:arr(parts.files).map(raw=>({sha256:obj(raw).sha256,path:'opaque/frame'}))},
+    status:'approved',parts:{'synthetic part':{outcome:'clean',note:''}}};
+  const recorded=partsReviewCommand([root,'--draft',String(draft.id),'--from-review-cli','--by','user','--json','--','opaque/input','--verdict','never-created.json'],testClock.now(),{
+    runCli:()=>({stdout:Buffer.from(JSON.stringify(value)),exit:0}),
+  });
+  expect(recorded.exit).toBe(0);expect(obj(arr(load(root).review_acts)[0]).schema).toBe(PARTS_CLI_RECEIPT);
+  expect(partsReadFindings(root,load(root))).toEqual([]);
+  const payload:JsonObject={set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],at:new Date(testClock.now()).toISOString()};
+  reviewAnswer(w,payload);const project=load(root);
+  expect(arr(project.review_acts)).toHaveLength(2);expect(reviewActFindings(project)).toEqual([]);
+  expect(partsReadFindings(root,project)).toEqual([]);
+  obj(arr(project.review_acts)[1]).question='missing';
+  const findings=reviewActFindings(project);
+  expect(findings.map(f=>f.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  expect(findings[0].path).toBe('review_acts[1]');expect(findings[0].message).toContain('recorded interview answer differs');
+});
+
 test('Other with multiline Unicode and explicit fragment preserves text; unresolved Other is pending until a fresh explicit pick',()=>{
   const w=working('reference');const words='첫 줄\nSecond line  \ne\u0301';writeFileSync(join(w.dir,'other.txt'),words);writeFileSync(join(w.dir,'fragment.json'),JSON.stringify('custom'));
   const other=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=other','--other',`reference=${join(w.dir,'other.txt')}`]));
@@ -248,11 +376,10 @@ test('OVERRIDE_REASON_MISSING writer guard refuses missing/blank reasons byte-id
   writeFileSync(w.reason,Buffer.from([0xff,0xfe]));expect(code(()=>overrideAnswer(w,['--why-file',w.reason]))).toBe('OVERRIDE_REASON_MISSING');
   expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);expect(readFileSync(w.parentFile)).toEqual(parent);
 });
-test('override picks-file and fresh replacement require exact reasons, preserve the old collection reference and check at 0/0',()=>{
+test('override job picks and fresh replacement require exact reasons, preserve the old collection reference and check at 0/0',()=>{
   const w=inheritedWorking();const parent=readFileSync(w.parentFile);
   const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date(testClock.now()).toISOString()};
-  writeFileSync(join(w.dir,'evidence/picks.json'),JSON.stringify(payload));
-  const selected=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--picks-file','evidence/picks.json','--why-file',w.reason]));
+  const selected=JSON.parse(reviewAnswer(w,payload,['--why-file',w.reason]));
   expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:'2026-11-09T00:00:00Z'});expect(selected.why_verbatim).toBe(w.why);
   expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);expect(checkProject(w.dir).warnings).toEqual([]);
   const q=obj(arr(obj(w.parent.interview).framing)[0]);q.history=[q.answer as Json];q.answer={...obj(q.answer),at:'2026-11-10T14:12:00Z'};writeFileSync(w.parentFile,JSON.stringify(w.parent));const changedParent=readFileSync(w.parentFile);
@@ -280,7 +407,7 @@ test('legacy override without metadata recovers its inherited history through th
   expect(arr(framing(load(w.dir),'reference').history)).toContainEqual(legacy);expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);
 });
 
-for(const state of ['withdrawn','per-member'] as const)for(const input of ['flags','picks-file'] as const){
+for(const state of ['withdrawn','per-member'] as const)for(const input of ['flags','job'] as const){
   test(`inherited ${state} shared answer becomes own via ${input} without a reason`,()=>{
     const w=inheritedWorking();const q=obj(arr(obj(w.parent.interview).framing)[0]);const original=q.answer as Json;
     q.history=[original];q.answer=state==='withdrawn'?null:{...obj(original),value:'per-member'};writeFileSync(w.parentFile,JSON.stringify(w.parent));const parent=readFileSync(w.parentFile);
@@ -289,7 +416,7 @@ for(const state of ['withdrawn','per-member'] as const)for(const input of ['flag
     if(input==='flags')expect(code(()=>{selected=JSON.parse(overrideAnswer(w));})).toBe('NO_REFUSAL');
     else{
       const payload={schema:'rig-review/interview-picks@1',set:{path:w.path,sha256:w.hash},picks:[{ask:'reference',option_id:'keep'}],by:'user',at:new Date(testClock.now()).toISOString()};
-      writeFileSync(join(w.dir,'evidence/picks.json'),JSON.stringify(payload));expect(code(()=>{selected=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--picks-file','evidence/picks.json']));})).toBe('NO_REFUSAL');
+      expect(code(()=>{selected=JSON.parse(reviewAnswer(w,payload));})).toBe('NO_REFUSAL');
     }
     expect(selected.basis).toBe('own');expect(selected).not.toHaveProperty('overrides');expect(selected).not.toHaveProperty('why_verbatim');expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);
   });

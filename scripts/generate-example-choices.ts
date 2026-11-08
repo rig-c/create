@@ -38,7 +38,8 @@ export function generateExampleChoices(dir:string): Record<string,string> {
     const binding=keep('reference','other-pending','10');
     const picks={schema:'rig-review/interview-picks@1',set:{path:binding.path,sha256:binding.sha256},picks:[{ask:'reference',option_id:'other',other_text:'다른 방향\nKeep the final spaces.  \ne\u0301'}],by:'user',at:exampleTime('2026-11-10T14:11:00.000Z')};
     const picksPath='evidence/interview/other-picks.json';const picksBytes=JSON.stringify(picks,null,2)+'\n';writeFileSync(join(dir,picksPath),picksBytes);files['example-interview-options/other-picks.json']=picksBytes;
-    now=Date.parse(picks.at);const pending=JSON.parse(interviewAnswerCommand(['reference',dir,'--picks-file',picksPath], now)) as JsonObject;
+    writeFileSync(join(dir,'other.txt'),String(picks.picks[0]?.other_text));
+    now=Date.parse(picks.at);const pending=JSON.parse(interviewAnswerCommand(['reference',dir,'--set',binding.path,'--sha256',binding.sha256,'--by','user','--pick','reference=other','--other',`reference=${join(dir,'other.txt')}`], now)) as JsonObject;
     writeFileSync(join(dir,'approval.txt'),'Approve');now=Date.parse(exampleTime('2026-11-10T16:10:00Z'));
     const before=readFileSync(join(dir,'project.json'));let approval='';try{signoffCommand(['interview',dir,'--by','user','--verbatim-file',join(dir,'approval.txt')], now);}catch(e){if(!(e instanceof Refusal))throw e;approval=e.code;}
     if(approval!=='INTERVIEW_CHOICE_REQUIRED'||!before.equals(readFileSync(join(dir,'project.json'))))throw Error('pending Other approval control failed');

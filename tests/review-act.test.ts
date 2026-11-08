@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
-import { checkProject } from '../src/check.ts';
+import { checkProject, collectItems } from '../src/check.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
 import { inputCommand } from '../src/inputs.ts';
@@ -146,6 +146,34 @@ test('producer-bound rig verdict fetch commits once, preserves words, and unchan
   const replay = await command(root, act.actId);
   expect(replay.exit).toBe(0); expect(replay.stdout).toBe(first.stdout);
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+});
+
+test('review verdict ingestion skips earlier interview receipts in the same job', async () => {
+  const { root, act } = await published();
+  const project = projectAt(root);
+  const answer = collectItems(project, { collection: null }).find(item => item.id === 'reference')!.raw as JsonObject;
+  const choice = answer.choice as JsonObject;
+  const binding = choice.set as JsonObject;
+  const set = JSON.parse(readFileSync(join(root, String(binding.path)), 'utf8'));
+  const interview = { schema: 'rig-review/act@2', kind: 'interview-picks', jobId: act.jobId,
+    actId: 'interview-before-verdict', askId: 'interview-ask', publicationId: act.publicationId,
+    at: answer.at, authority: act.authority,
+    source: { ...act.source, optionSet: { id: set.id, sha256: binding.sha256 } },
+    value: { questionId: 'reference', selections: (choice.picks as JsonObject[]).map(pick => ({
+      itemId: pick.ask, optionId: pick.option_id, otherText: pick.other_text ?? null,
+    })), note: choice.note ?? '' },
+  };
+  const bytes = JSON.stringify(interview);
+  project.review_acts = [{ schema: 'rig-create/review-act@1', kind: 'interview-picks',
+    jobId: act.jobId, actId: interview.actId, question: 'reference', bytes, sha256: jobHash(bytes),
+    version_hash: jobHash(JSON.stringify(choice)) }];
+  expect(reviewActFindings(project)).toEqual([]);
+  putProject(root, project);
+  const result = await command(root, act.actId);
+  expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+  const recorded = projectAt(root);
+  expect(recorded.review_acts as JsonObject[]).toHaveLength(2);
+  expect(reviewActFindings(recorded)).toEqual([]);
 });
 
 test('replay after a displayed source change refuses REVIEW_ACT_SOURCE_STALE with record bytes identical', async () => {

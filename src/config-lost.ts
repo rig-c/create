@@ -27,7 +27,7 @@ export function versionCommand(args: string[], now: number): { stdout: string; e
       json = true;
     } else if (arg === '--note' || arg === '--source') {
       const value = args[++i];
-      if (value === undefined || arg in opts) usage(`${arg} needs one value`);
+      if (value === undefined || value.startsWith('--') || arg in opts) usage(`${arg} needs one value`);
       opts[arg] = value;
     } else if (arg.startsWith('-')) {
       usage(`unsupported flag ${arg}`);

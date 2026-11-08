@@ -132,6 +132,13 @@ describe('version config-lost writer (#171)', () => {
       expect(missingFlag.code).toBe(2);
       expect(missingFlag.stderr).toContain('CONFIG_LOST_USAGE');
       expect(readFileSync(file)).toEqual(before);
+      // A following option is never taken as the missing value.
+      for (const values of [['--note', '--json', '--source', LOSS.source], ['--note', LOSS.note, '--source', '--json']]) {
+        const flagAsValue = cli(['version', 'config-lost', '1', ...values, dir], dir, env);
+        expect(flagAsValue.code).toBe(2);
+        expect(flagAsValue.stderr).toContain('CONFIG_LOST_USAGE');
+        expect(readFileSync(file)).toEqual(before);
+      }
     }
 
     // 5. No such version exists

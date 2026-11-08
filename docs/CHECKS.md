@@ -121,8 +121,9 @@ free text, so that case needs an explicit interview coverage contract.
   the project is not clear to rig, and the list is the interview's to-do. It
   is a different code from `WAYPOINT_SILENT` because nothing was skipped —
   the interview has not been held yet.
-- **`paused`** is checked as the first stage whose sign-off is missing
-  (where it resumes), and needs its own `{ "stage": "paused" }` sign-off.
+- **`paused`** is checked as the first stage whose sign-off is missing,
+  and needs its own `{ "stage": "paused" }` sign-off. `resume` returns it to
+  the stage it was paused from ([Pausing and resuming](#pausing-and-resuming)).
 - **When every post item is not applicable**, `post` and `direction-review` are
   not required ([PROJECT.md § When post is not passed](PROJECT.md#stages)).
 - **A project that predates `parts-review`** is read from the date of its
@@ -377,7 +378,7 @@ Exit `1`. Each names its object in `path`.
 | `POST_ON_UNACCEPTED_RIG` | a post version's `rig_version` is not an integer, names no rig version, names one with no human `accepted` rig-review verdict, or the post version was built (`at`) before that acceptance | build post work on the accepted rig version; `rig-create handoff` names it |
 | `RIG_VERSION_UNACCEPTED` | the stage is past `rig-review` and the latest rig version has no accepted rig-review verdict (or there is no rig version) | a rig change after rig-review is a new first review: move the stage back to `rig-review` and review the new rig on its still frame |
 | `POST_ON_SUPERSEDED_RIG` | the latest post version is on an accepted rig version older than the latest accepted one | redo the post work on the new rig, as a new post version |
-| `PAUSED_UNSIGNED` | `stage` is `paused` with no `{ "stage": "paused" }` sign-off | the person who stopped it signs |
+| `PAUSED_UNSIGNED` | `stage` is `paused` with no `{ "stage": "paused" }` sign-off, or `pause` finds no human one dated at or after the latest recorded move | the person who stopped it signs `paused`, then run pause |
 | `PROVENANCE_MISSING` | a `rig` or `post` version has no `provenance.sections` object | write the version's provenance: the config it was built from and, per section, its citations |
 | `SECTION_UNCITED` | a section that needs a citation (§ Provenance) is listed with no entries, or is in the read config and not listed | cite the guide sentence or delegation it rests on; if there is none, ask for one, or take the section out of the config before the version is shown |
 | `SECTION_UNKNOWN` | a `rig` version's provenance names a section that is no `@rig-c/parts` section and not on the placement table | name the section as the config does; a misspelt name leaves the real one uncited |
@@ -1048,7 +1049,7 @@ amendment grants no authority. A completed bar permits its next review.
 | `STAGE_SIGNOFF_DATE_INVALID` | the live frontier approval has an unreadable date | restore its original readable date before advancing |
 | `ADVANCE_UNAUTHORIZED` | advance has no live stage-level human approval | sign the current stage before advancing |
 | `ADVANCE_MALFORMED` | advances history lacks the human move, adjacent target, boolean event-time post_not_passed snapshot, required steps_before phases and completed bars, or matching event-time live authorizing signoff | retain the original move and matching `{stage,checkpoint,at}` signature through advance |
-| `PROGRESS_OPTION_INVALID` | advance or step-status arguments are missing, repeated or malformed | supply the target or step/status and --by once |
+| `PROGRESS_OPTION_INVALID` | advance, step-status, pause or resume arguments are missing, repeated or malformed | supply the target or step/status and --by once |
 | `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage (on an amended project, outside both the retained stage and the effective stage the work resumes at), or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage, or on an amended project re-sign the lapsed approvals and finish the earlier bars, and use pending, in-progress, at-checkpoint, done in order |
 | `STEP_STATUS_SIGNOFF` | retained status history has a missing or mismatched checkpoint signature reference | retain its matching human checkpoint signoff and record done through step-status |
 | `STAGE_MOVE_UNLINKED` | an advance or reopen's `from_stage` is not the stage the previous recorded move (by time) left, starting from `interview` (`paused` links to either side), or an `advances[]` entry is dated before an earlier one | preserve the history; record each later move through advance or reopen |
@@ -1082,6 +1083,24 @@ changes and post applicability changes after reopen preserve the original
 authorization. Missing or non-boolean snapshots are malformed. Current done
 writes still require a live human checkpoint signature, and current stage
 checks still use current post applicability.
+
+### Pausing and resuming
+
+`pause` and `resume` append `pauses[]` and set `stage` ([PROJECT.md §
+Pausing and resuming](PROJECT.md#pausing-and-resuming)). The history is not
+read as an advance or reopen, so `STAGE_MOVE_UNLINKED` and the latest-move
+`STAGE_SKIPPED` read the same records as before it existed. `pauses[]` is new,
+so its shape check refuses no earlier record and has no contract date.
+
+| Code | Fires when | Remedy |
+| --- | --- | --- |
+| `PAUSE_ALREADY_PAUSED` | pause runs on a project whose stage is already `paused` | resume it, or reopen a passed stage |
+| `PAUSE_STAGE_INVALID` | pause runs on `accepted` or on a stage outside the order | pause only work in progress |
+| `RESUME_NOT_PAUSED` | resume runs on a project whose stage is not `paused` | nothing to resume; use advance or reopen |
+| `RESUME_STAGE_MISMATCH` | resume names a stage other than the one the project was paused from (its latest pause's `from_stage`, or for a hand pause the stage its latest recorded move reached) | resume that stage, then advance or reopen from there |
+| `PAUSE_MALFORMED` | `pauses` is not a list, or an entry lacks string `stage`, `from_stage`, `verbatim`, a human `by`, a readable `at` or a text `source`, is dated before the entry before it, neither enters `paused` from a stage before `accepted` nor leaves it for a stage in the order, or a pause's `signoff` is not the identity of a human paused sign-off dated at or before it | preserve the history; record pauses through pause and resume |
+
+`SIGNOFF_NOT_HUMAN` refuses either writer run `--by agent`.
 
 ## Frozen rig registration
 

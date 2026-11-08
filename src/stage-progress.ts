@@ -135,6 +135,41 @@ export function checkAdvances(ctx: Ctx): void {
   }
 }
 
+/**
+ * pauses[] is the pause and resume writers' own history, kept apart from advances[] and reopens[], so the
+ * move linkage and the latest-move rule read exactly what they read before it existed: a resume back to the
+ * paused-from stage leaves the latest recorded move matching stage, and a resume anywhere else is STAGE_SKIPPED.
+ * Only the shape is checked here; the field did not exist before, so no earlier record is refused.
+ */
+export function checkPauses(ctx: Ctx): void {
+  const push = (path: string, why: string): void => {
+    ctx.refusals.push({ code: 'PAUSE_MALFORMED', path, message: `${path}: ${why}; preserve the history and record pauses through pause and resume` });
+  };
+  if (ctx.project.pauses === undefined) return;
+  if (!Array.isArray(ctx.project.pauses)) { push('pauses', 'must be a list'); return; }
+  let previous = -Infinity;
+  for (const [index, entry] of ctx.project.pauses.entries()) {
+    const path = `pauses[${index}]`;
+    if (!isObject(entry) || ['stage', 'from_stage', 'by', 'at', 'verbatim'].some(k => typeof entry[k] !== 'string')
+      || !Number.isFinite(Date.parse(String(entry.at))) || (entry.source !== undefined && typeof entry.source !== 'string')
+      || (entry.by as string).trim() === '' || (entry.by as string).toLowerCase() === 'agent') {
+      push(path, 'needs stage, from_stage, a human by, a readable at, verbatim and an optional text source'); continue;
+    }
+    const at = Date.parse(String(entry.at));
+    if (at < previous) push(path, 'is dated before the entry before it');
+    previous = Math.max(previous, at);
+    const from = String(entry.from_stage);
+    const signature = resolveSignoff(ctx.project, entry.signoff);
+    if (entry.stage === PAUSED_STAGE) {
+      if (stageIndex(from) < 0 || from === 'accepted') push(path, `pauses from ${from}, which is not a stage in the order before accepted`);
+      else if (!isObject(signature) || signature.stage !== PAUSED_STAGE || signature.checkpoint !== null
+        || typeof signature.by !== 'string' || signature.by.toLowerCase() === 'agent' || !(Date.parse(String(signature.at)) <= at)) {
+        push(path, 'signoff must be the { stage, checkpoint, at } identity of a human paused sign-off dated at or before it');
+      }
+    } else if (from !== PAUSED_STAGE || stageIndex(String(entry.stage)) < 0) push(path, 'must enter paused from a stage, or leave paused for a stage in the order');
+  }
+}
+
 /** Snapshot bars remain historical facts even when the current plan is reopened or replaced. */
 export function checkAdvanceBars(ctx: Ctx): void {
   for (const [index, entry] of asArray(ctx.project.advances).entries()) {

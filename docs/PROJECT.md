@@ -87,7 +87,7 @@ which stages end on a sign-off are written once, in `src/stages.ts`;
 | `post` | 2 | Post-production on the accepted rig version (`versions[].kind: "post"`, `rig_version` naming it); post tooling asks `rig-create handoff` first ([below](#the-hand-off-to-post-production)). | The last post step's bar is met. |
 | `direction-review` | 2 → 3 | **Second review, direction**: camera, depth, timing, framing. Same feedback rule. | The user accepts one post version. |
 | `accepted` | — | Done. If finals go somewhere else, `archive` says where. | — |
-| `paused` | — | Work stopped by a human sign-off. Resuming starts at the first stage whose sign-off is missing. | — |
+| `paused` | — | Work stopped by a human sign-off, entered and left through `pause` and `resume` ([below](#pausing-and-resuming)). While paused it is checked as the first stage whose sign-off is missing; `resume` returns it to the stage it was paused from. | — |
 
 **Why two reviews.** The rig is reviewed first on a still frame with a fixed
 camera — the rig alone — so a seam cannot hide behind a camera move, and a
@@ -173,6 +173,36 @@ reset; the last entry matches `status`. Breaks are `STAGE_MOVE_UNLINKED` and
 Both writers reconcile `stage_values` with the applicable order and run the
 same complete `checkProject` candidate validation before writing. Refused
 writes leave `project.json` byte-identical. Neither writer runs a producer.
+
+### Pausing and resuming
+
+```sh
+rig-create signoff paused --by <who> --verbatim-file words.txt [<project dir>]
+rig-create pause --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>] [--json]
+rig-create resume <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>] [--json]
+```
+
+A person stops the work by signing `paused`; `pause` then sets `stage` to
+`paused`. It needs a human `{ "stage": "paused" }` sign-off dated at or after
+the latest recorded move, so a second pause needs a new signature. `resume`
+sets `stage` back to the stage the project was paused from, and refuses any
+other target (`RESUME_STAGE_MISMATCH`). A project paused by hand before the
+writer existed resumes at the stage its latest recorded move reached. Pausing
+a paused project, resuming one that is not paused, and pausing at `accepted`
+are refused by name. A reopen may also leave `paused`, as before.
+
+Both append to `pauses[]`: `{ from_stage, stage: "paused", by, at, verbatim,
+source?, signoff }` for a pause, with `signoff` the stable `{ stage,
+checkpoint, at }` identity of the paused sign-off, and `{ from_stage:
+"paused", stage, by, at, verbatim, source? }` for a resume. The clock
+supplies `at`. The history is kept apart from `advances[]` and `reopens[]`,
+so their linkage (`STAGE_MOVE_UNLINKED`) and the rule that `stage` equals the
+latest recorded move read the same records as before: after a resume the
+latest advance or reopen still names the stage, and a hand move to any other
+stage is still `STAGE_SKIPPED`. The check validates the shape of each entry
+(`PAUSE_MALFORMED`). Both writers run the complete `checkProject` candidate
+validation before writing and replace `project.json` in one rename; refused
+writes leave it byte-identical.
 
 ### Reopening a passed stage
 

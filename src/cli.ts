@@ -16,6 +16,7 @@ import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { PROGRESS_HELP, advanceCommand, stepStatusCommand } from './progress-writers.ts';
 import { REOPEN_HELP, reopenCommand } from './reopen.ts';
+import { PAUSE_HELP, pauseCommand, resumeCommand } from './pause.ts';
 import { AMEND_HELP, amendCommand } from './amend.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
 import { PLAN_HELP, planCommand } from './plan-writers.ts';
@@ -59,6 +60,10 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record an audited forward step status
   rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
                                                     record a human backward move without deleting history
+  rig-create pause --by <who> [--verbatim-file <file>] [<project dir>]
+                                                    stop work on a paused sign-off and record the stage it left
+  rig-create resume <stage> --by <who> [--verbatim-file <file>] [<project dir>]
+                                                    return a paused project to the stage it was paused from
   rig-create amend <stage> --kind <kind> --target <id> --change <file> --by <who> [<project dir>]
                                                     record a forward amendment and name lapsed approvals
   rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
@@ -98,6 +103,8 @@ ${PLAN_HELP}
 ${PROGRESS_HELP}
 
 ${REOPEN_HELP}
+
+${PAUSE_HELP}
 
 ${AMEND_HELP}
 
@@ -183,6 +190,8 @@ const COMMANDS: Record<string, Command> = {
   signoff: signoffCommand,
   plan: planCommand,
   reopen: reopenCommand,
+  pause: pauseCommand,
+  resume: resumeCommand,
   advance: advanceCommand,
   'step-status': stepStatusCommand,
   amend: amendCommand,

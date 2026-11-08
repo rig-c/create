@@ -843,9 +843,19 @@ is create-owned artifact identity, not producer provenance or reproducibility.
 | `STRUCTURE_DECISIONS_INVALID` | snapshot schema/declarations/config binding are malformed or changed | retain the exact human-approved structure file |
 | `STRUCTURE_DECISIONS_CONFLICT` | a snapshot or retained production config contradicts the approved mesh/chest declaration | obtain renewed human approval instead of overriding the structure |
 | `DRAFT_RIG_USAGE` | missing, repeated or unsupported recorder arguments (exit 2) | use draft-rig <id> [dir] --config <path> --from <dir> [--parts <dir>] |
+| `STRUCTURE_SNAPSHOT_USAGE` | `structure-snapshot` misses `--draft`, `--verdict` or `--out`, repeats one, takes an unsupported flag or more than one folder (exit 2) | use structure-snapshot [dir] --draft <id> --verdict <path> --out <path> |
+| `STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN` | `drafts[<id>]`: no recorded draft has the `--draft` id | record the reviewed draft with `draft-rig`, then name its id |
+| `STRUCTURE_SNAPSHOT_CONFIG_CHANGED` | `drafts[i].config` is absent, unreadable, escapes the project or no longer hashes to its recorded sha256 | restore the recorded config bytes, or record the changed config as a new draft and review it |
+| `STRUCTURE_SNAPSHOT_OUT_INVALID` | `--out` is absolute or not a literal POSIX path, leads out of the project through a link, sits under a file, or names an existing entry that is not a regular file | name a new file under the project, for example `evidence/structure-decisions.json` |
+| `STRUCTURE_SNAPSHOT_OUT_IGNORED` | `--out`, as written or with links followed, is under an ignored root | write the snapshot outside ignored roots, for example `evidence/` |
+| `STRUCTURE_SNAPSHOT_OUT_EXISTS` | `--out` already holds bytes other than the snapshot (the same bytes are a no-op success) | name a new file; a retained snapshot is never overwritten |
 
 Each refusal names the record path and writes nothing in the corresponding writer.
 The existing plan, checkpoint, parts-verdict and diff-map codes remain active.
+`structure-snapshot` also refuses with the `PARTS_VERDICT_*` codes of the verdict
+it reads, and with `STRUCTURE_DECISIONS_INVALID` or `STRUCTURE_DECISIONS_CONFLICT`
+when its candidate fails the snapshot rules (a draft config whose `meshes` is not
+an object, or a part name that is not a valid pointer segment).
 
 
 Missing ignored draft files are unavailable, not altered files. Existing files

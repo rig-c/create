@@ -42,9 +42,20 @@ export function checkStructure(dir: string, project: JsonObject, signoff: JsonOb
   if (signoff.structure === undefined || signoff.draft_id === undefined) {
     add(errors, 'STRUCTURE_DECISIONS_MISSING', path, 'parts approval needs --draft and --structure-file, with explicit entries:[] when unchanged'); return null;
   }
+  let snapshot: JsonObject;
+  try { snapshot = retainedJson(dir, signoff.structure); } catch (error) { add(errors, 'STRUCTURE_DECISIONS_INVALID', `${path}.structure`, error instanceof Error ? error.message : String(error)); return null; }
+  return validateStructureSnapshot(dir, project, signoff.draft_id, snapshot, `${path}.structure`, errors);
+}
+
+/**
+ * The rules a structure snapshot meets, shared by the check and the
+ * structure-snapshot writer: it binds the named draft and its config, and
+ * every entry is a distinct exact `meshes.<part>` declaration of that config
+ * when the config is available. `at` is the path findings name.
+ */
+export function validateStructureSnapshot(dir: string, project: JsonObject, draftId: Json | undefined, snapshot: JsonObject, at: string, errors: Finding[]): JsonObject | null {
   try {
-    const snapshot = retainedJson(dir, signoff.structure);
-    const draft = asArray(project.drafts).find(d => isObject(d) && d.id === signoff.draft_id);
+    const draft = asArray(project.drafts).find(d => isObject(d) && d.id === draftId);
     if (!isObject(draft) || snapshot.schema !== STRUCTURE_SCHEMA || snapshot.draft_id !== draft.id || !isDeepStrictEqual(snapshot.config, draft.config) || !Array.isArray(snapshot.entries)) throw new Error('snapshot must bind the named draft and its config');
     if (!isObject(draft.config) || typeof draft.config.path !== 'string') throw new Error('draft config binding is malformed');
     const config = draftFileUnavailable(dir, draft.config.path, `derived/drafts/${String(draft.id)}`)
@@ -55,11 +66,11 @@ export function checkStructure(dir: string, project: JsonObject, signoff: JsonOb
       seen.add(raw.path);
       const part = raw.path.slice('/meshes/'.length).replaceAll('~1', '/').replaceAll('~0', '~');
       if (config !== undefined && (!isObject(config.meshes) || !isDeepStrictEqual(config.meshes[part], raw.value))) {
-        add(errors, 'STRUCTURE_DECISIONS_CONFLICT', `${path}.structure`, `${raw.path} differs from the reviewed config`); return null;
+        add(errors, 'STRUCTURE_DECISIONS_CONFLICT', at, `${raw.path} differs from the reviewed config`); return null;
       }
     }
     return snapshot;
-  } catch (error) { add(errors, 'STRUCTURE_DECISIONS_INVALID', `${path}.structure`, error instanceof Error ? error.message : String(error)); return null; }
+  } catch (error) { add(errors, 'STRUCTURE_DECISIONS_INVALID', at, error instanceof Error ? error.message : String(error)); return null; }
 }
 
 /** Resolve shared context outside the answer union, ready for later choice-answer schemas. */

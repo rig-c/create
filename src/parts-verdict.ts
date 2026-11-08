@@ -17,6 +17,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
 
 import type { Finding } from './check.ts';
+import { refuse } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const PARTS_VERDICT_SCHEMA = 'rig-review-parts-verdict/1';
@@ -57,6 +58,31 @@ function real(path: string): string | null {
 function insideReal(realRoot: string, file: string): boolean | null {
   const resolved = real(file);
   return resolved === null ? null : inside(realRoot, resolved);
+}
+
+/**
+ * The `evidence` binding for the verdict file named on a command line (`given`,
+ * relative to `dir` or absolute): its project-relative POSIX path, with links
+ * followed, and the sha256 of its bytes. Refuses PARTS_VERDICT_UNREAD when the
+ * file is missing, unreadable or outside the project. The binding is then read
+ * by checkPartsVerdict.
+ */
+export function partsVerdictEvidence(dir: string, given: string): JsonObject {
+  let verdictFile: string;
+  try {
+    verdictFile = realpathSync(resolve(dir, given));
+  } catch (error) {
+    refuse('PARTS_VERDICT_UNREAD', `${given}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const path = relative(realpathSync(dir), verdictFile).split(sep).join('/');
+  if (path === '' || path.startsWith('..') || isAbsolute(path)) refuse('PARTS_VERDICT_UNREAD', 'the verdict must be under the project');
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(verdictFile);
+  } catch (error) {
+    refuse('PARTS_VERDICT_UNREAD', `${path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return { kind: PARTS_VERDICT_KIND, path, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
 const REVIEW_AGAIN = 'open the parts in rig-review\'s parts view (`rig-review parts`), review them again, save the sign-off, and record a new parts-review sign-off whose evidence names the file it wrote';

@@ -4,11 +4,11 @@
   "question": "constraints",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-06T01:00:30.000Z",
+  "drafted_at": "2026-11-06T01:00:31.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-06T01:00:22.000Z",
+      "signoff_at": "2026-11-06T01:00:23.000Z",
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/parts-review.json",
@@ -17,7 +17,7 @@
     },
     "structure": {
       "path": "evidence/structure.json",
-      "sha256": "9969e25f3a767588e0afcf4db07b887017ac61502555f1fdd4614768661ed42f"
+      "sha256": "1d083d2e5d09a2038d99756fdd7af08928bb87953b38d87578cff9327ff2099f"
     },
     "draft_id": "chain",
     "parts": {

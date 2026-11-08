@@ -42,7 +42,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "23d33573496094d67a65fa07a8cab56593403f365a1b4b1fd56fc0abfb917588",
+  "project_sha256": "6636b151be655a303ca896a6a05662c4ae742d939470b5cb319192ef6fde50ce",
   "files": [
     {
       "path": ".gitignore",
@@ -158,7 +158,7 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "41021bf0d45af94e6a10167cf2f44bda3fd7cbfb9df900ece3150c520d4e0175"
+      "sha256": "5e9b0d073aa7c2fc89be613fd99d8202b4ee2bb55b2f69d1dae7eda3710a423d"
     },
     {
       "path": "derived/review/v1/config.json",
@@ -254,7 +254,7 @@
     },
     {
       "path": "derived/review/v1/out/rig/run.json",
-      "sha256": "41021bf0d45af94e6a10167cf2f44bda3fd7cbfb9df900ece3150c520d4e0175"
+      "sha256": "5e9b0d073aa7c2fc89be613fd99d8202b4ee2bb55b2f69d1dae7eda3710a423d"
     },
     {
       "path": "evidence/.gitkeep",
@@ -442,15 +442,15 @@
     },
     {
       "path": "outputs/v1/out/rig/run.json",
-      "sha256": "41021bf0d45af94e6a10167cf2f44bda3fd7cbfb9df900ece3150c520d4e0175"
+      "sha256": "5e9b0d073aa7c2fc89be613fd99d8202b4ee2bb55b2f69d1dae7eda3710a423d"
     },
     {
       "path": "package.json",
-      "sha256": "d028395ca41ce0d307db32e0bb332a779502c6445da3b6ead948442271b7cfc8"
+      "sha256": "cf80150574b403df80b9c337e5b57e2d09a795185a20e7c4a281d90cf09e7029"
     },
     {
       "path": "project.json",
-      "sha256": "23d33573496094d67a65fa07a8cab56593403f365a1b4b1fd56fc0abfb917588"
+      "sha256": "6636b151be655a303ca896a6a05662c4ae742d939470b5cb319192ef6fde50ce"
     }
   ]
 }

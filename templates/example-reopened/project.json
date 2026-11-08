@@ -195,7 +195,7 @@
         "verdict": "versions[1].verdicts[0]",
         "review_package": {
           "path": "versions[1].review_package",
-          "sha256": "9c9736b4850f91d1e9592d4a2992dd28798b955b978c2bc7cb28dda85a20b309"
+          "sha256": "ddf2a9a7561e4f4c369d66037284464a625f1a6e8e1bdf4c4e0fc8451c42c4a5"
         }
       }
     },
@@ -233,13 +233,13 @@
         "verdict": "versions[3].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "c114486c2732f9f7b83654df6c026d75dadff1e3da44c6488fb2e680e40a787a"
+          "sha256": "073b22578d498914a72302b058007ba919f718feb7a131bdb08cf2ff0cec0e5b"
         }
       }
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.33.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.34.0)",
     "held": true,
     "date": "2026-11-10",
     "interviewer": "agent",
@@ -2374,7 +2374,7 @@
       "at": "2026-11-08T00:00:46.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.33.0",
+        "@rig-c/parts": "2.34.0",
         "@rig-c/core": "3.6.0"
       },
       "answers_feedback": [],
@@ -2480,7 +2480,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "57c5294afd3e3eef52cef40fd29c865c4eac01181d48f10ea243b01654bb7a64"
+            "sha256": "cdf7865879386cd36d4100393fdebcd66ec41adc77ec069b2360a37861559800"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2704,7 +2704,7 @@
       "at": "2026-11-08T00:00:50.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.33.0",
+        "@rig-c/parts": "2.34.0",
         "@rig-c/core": "3.6.0"
       },
       "answers_feedback": [
@@ -2815,7 +2815,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "57c5294afd3e3eef52cef40fd29c865c4eac01181d48f10ea243b01654bb7a64"
+            "sha256": "cdf7865879386cd36d4100393fdebcd66ec41adc77ec069b2360a37861559800"
           }
         ],
         "open": "rig-review open 'derived/review/v2/out'"
@@ -3056,7 +3056,7 @@
       "at": "2026-11-08T00:01:01.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.33.0",
+        "@rig-c/parts": "2.34.0",
         "@rig-c/core": "3.6.0"
       },
       "answers_feedback": [],
@@ -3159,7 +3159,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v4.json",
-          "sha256": "c114486c2732f9f7b83654df6c026d75dadff1e3da44c6488fb2e680e40a787a"
+          "sha256": "073b22578d498914a72302b058007ba919f718feb7a131bdb08cf2ff0cec0e5b"
         }
       ],
       "evidence": [
@@ -3190,11 +3190,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v4.json",
-          "sha256": "c114486c2732f9f7b83654df6c026d75dadff1e3da44c6488fb2e680e40a787a"
+          "sha256": "073b22578d498914a72302b058007ba919f718feb7a131bdb08cf2ff0cec0e5b"
         },
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "c114486c2732f9f7b83654df6c026d75dadff1e3da44c6488fb2e680e40a787a"
+          "sha256": "073b22578d498914a72302b058007ba919f718feb7a131bdb08cf2ff0cec0e5b"
         },
         "sections": {
           "camera": [
@@ -3232,7 +3232,7 @@
       "at": "2026-11-08T00:00:35.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.33.0"
+        "version": "2.34.0"
       },
       "config": {
         "path": "derived/drafts/example/config.json",
@@ -3334,7 +3334,7 @@
         },
         {
           "path": "derived/drafts/example/out/run.json",
-          "sha256": "57c5294afd3e3eef52cef40fd29c865c4eac01181d48f10ea243b01654bb7a64"
+          "sha256": "cdf7865879386cd36d4100393fdebcd66ec41adc77ec069b2360a37861559800"
         }
       ],
       "config_inputs": [
@@ -4381,7 +4381,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "3f289c76141ccf7bfb9f551e86966efa96883222d1a5d4983e66e975a9016c3c",
+      "sha256": "a20d13fb9660e5278dd4de49635ad6c9befa930058067a86cb813419842ad084",
       "at": "2026-11-08T00:01:00.000Z",
       "by": "user"
     }

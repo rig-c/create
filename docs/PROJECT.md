@@ -2077,3 +2077,14 @@ edge. Destination left is `(rect.x-vx)*s`, top is
 `(vy+vh-rect.y-rect.height)*s`, width is `rect.width*s`, height is
 `rect.height*s`. Foreground is optional. Review #482 owns that consumer
 change and the inspection camera default. Create performs no rendering.
+
+### Recording interview picks from a standing job
+
+Use `interview-answer <question> [<project>] --from-review <actId>` after the
+human finalizes an `interview-picks` act in the standing Review job. The writer
+fetches through its private sibling capability, binds the displayed option set
+by ID and SHA-256, and retains the immutable API act bytes in `review_acts`.
+An identical act can be replayed without adding a second answer. A changed act
+with the same identity refuses. `--why-file` still supplies the exact reason
+for a member override. The removed `--picks-file` flag refuses with
+`INTERVIEW_PICKS_FILE_REMOVED`. Earlier answers remain valid.

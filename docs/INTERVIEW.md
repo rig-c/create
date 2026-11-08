@@ -810,7 +810,7 @@ a recommendation. Unadopted projects keep the earlier derived-answer rules.
 ```
 rig-create interview-options <question> [dir] --file evidence/interview/<id>.json
 rig-create interview-answer <question> [dir] --set <path> --sha256 <shown sha> --by <human> --pick <ask>=<option>...
-rig-create interview-answer <question> [dir] --picks-file <project-relative file>
+rig-create interview-answer <question> [dir] --from-review <actId>
 rig-create interview-decision <question> [dir] --by <agent> --reasoning-file <file> --fragment <ask>=<JSON file>...
 ```
 
@@ -823,15 +823,23 @@ answer first requires the relevant stage to be reopened. Collection members
 write local overrides; inherited source answers remain historical evidence,
 never fabricated member selections.
 
-Review writes **only** `rig-review/interview-picks@1`:
-`{schema,set:{path,sha256},picks:[{ask,option_id,other_text?}],note?,by:"user",at}`.
-Unknown keys are refused. Review supplies no shown text, fragments, value,
-verbatim or project edits. `--picks-file` is exclusive with pick/Other/fragment
-and note flags; optional set/hash flags must match the file. The writer retains
-the human event's by/at, fills shown, assembly, coverage and verbatim, and checks
-constraints. Stale displayed sha refuses `INTERVIEW_OPTIONS_STALE`; malformed
-payload refuses `INTERVIEW_CHOICE_INVALID`. Flags use the writer's clock. Both
-paths produce the same answer bytes for the same human event.
+Review exposes finalized `interview-picks` acts through the standing job API.
+The writer fetches the act using its private sibling capability, binds the
+question and displayed option-set ID and SHA-256 to the pending set, and retains
+the semantic act bytes and SHA-256 in `review_acts`. Selections carry item and
+option IDs, optional Other text and the exact note. The writer derives shown
+text, assembly, coverage and verbatim from the retained options and checks
+constraints. The act's timestamp and reviewer role determine the answer's
+`at` and `by`. Identical replay returns the retained answer, including from
+history. Conflicting bytes under the same act identity refuse.
+
+`--from-review` is exclusive with pick, Other, fragment and note flags.
+Optional set/hash/by flags must agree with the act. A stale displayed set
+refuses `INTERVIEW_OPTIONS_STALE`. Malformed acts refuse `REVIEW_ACT_INVALID`.
+The removed `--picks-file` flag refuses `INTERVIEW_PICKS_FILE_REMOVED` and points
+to `--from-review`. Earlier file-route answers remain valid records. Synthetic
+generators retain historical wire fixtures while constructing answers through
+the public flag writer. Flags use the writer's clock.
 
 Writers use the check's choice validators before writing. A partial interview
 may keep unrelated existing refusals, but a writer cannot introduce a new

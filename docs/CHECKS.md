@@ -1329,3 +1329,13 @@ before writing. A refused write leaves `project.json` byte-identical.
 | `CONFIG_LOST_HAS_CONFIG` | the target version carries a non-null `provenance.config` | retain the surviving build config instead of declaring `config_lost` |
 | `CONFIG_LOST_ALREADY_SET` | `config_lost` is already present on the target version | preserve the existing `config_lost` declaration |
 | `REVIEW_ACT_STILL_INVALID` | `project.json.review_acts`: the exported still PNG is missing, mismatched or conflicts with retained bytes | fetch the complete original act and PNG pair |
+
+### Interview picks through the job API
+
+| Code | Condition | Remedy |
+| --- | --- | --- |
+| `INTERVIEW_PICKS_FILE_REMOVED` | `interview-answer` receives the removed `--picks-file` flag | fetch the finalized interview act with `interview-answer <question> --from-review <actId>` |
+
+The writer binds retained API act bytes in `project.json.review_acts` by
+SHA-256 and validates the selected pending option set before writing. Refusals
+preserve `project.json` bytes. Earlier file-route answers remain valid records.

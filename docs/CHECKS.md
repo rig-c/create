@@ -30,6 +30,7 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <3.0.0`. Publish through an accepted installed Parts enumerator and review again. |
 | `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date or rig/post or parts value is malformed. Restore the original act evidence or request a new act. |
 | `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict or parts-verdict writer. Use the matching version and supported writer. |
+| `REVIEW_FILE_ROUTE_REMOVED` | `project.json.review_acts` cannot ingest saved act files (exit 2). Use `review <version> --from-review <actId>` through the live Review job API. |
 | `REVIEW_ACT_FETCH_REFUSED` | The live job refused or could not complete finalized-act fetch. The diagnostic retains the producer refusal code without exposing its private details. Restore the live job and its writer grant. |
 | `REVIEW_ACT_SOURCE_STALE` | A current source binding or retained version/draft-entry identity differs from the displayed act. Restore the retained bytes or request a new review. Replays also refuse without changing the recorded verdict. |
 | `REVIEW_ACT_REPLAY_CONFLICT` | A `(jobId, actId)` appears twice or its immutable value changed. Restore the original receipt and its single linked verdict. |

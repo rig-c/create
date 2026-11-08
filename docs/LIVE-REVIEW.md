@@ -165,8 +165,7 @@ version-entry hash and the exact still entries added by ingestion. Historical
 semantic-API receipts keep their original encoding. No act has a self-hash.
 
 For rig act@3, `review --from-review <actId>` fetches raw act bytes and the
-PNG with the consumer grant. Alternatively, `--from-review-file <act.json>`
-ingests the raw `fetch-act` stdout saved verbatim beside its `<sha256>.png`.
+PNG through the live job API with the consumer grant.
 The writer verifies the PNG hash, retains both files under `evidence/v<N>/`,
 and records the displayed still first in `evidence[]`. Numeric frames name
 the animation in `what`. Create never renders or reconstructs these pixels.

@@ -9,7 +9,7 @@ import { EXAMPLE_DRAFT } from './draft-fixture.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
-import { jobHash } from '../src/job-outbox.ts';
+import { JOB_BINDING_FILE, writePrivateJson, jobHash } from '../src/job-outbox.ts';
 import { main } from '../src/cli.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -77,7 +77,10 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     expect(errors.mock.calls.map(call => String(call[0])).join('')).toContain('RIG_ACCEPTED_WITHOUT_STILL');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(withoutStill);
     const identity = currentJobIdentity({ root: dir, stateDir: join(scratch, 'host'), fingerprint: 'rig-create/still-cycle/1', reviewer: { id: 'synthetic-reviewer', role: 'owner' } }, dir);
-    host = await startJobHost({ ...identity, partsEnumerator, readPublished, installWriterBinding: () => {} });
+    host = await startJobHost({ ...identity, partsEnumerator, readPublished, installWriterBinding: grant => writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grant }, true) });
+    const project = load();
+    project.review_job = { jobId: host.session.jobId, origin: host.origin };
+    put('project.json', `${JSON.stringify(project, null, 2)}\n`);
     const path = prepareLiveManifest(dir, load(), 1);
     const agent = async (verb: string, fields: object): Promise<JsonObject> => {
       const response = await host!.ports.handleJobApi(new Request(`${host!.origin}/jobs/${host!.session.jobId}/api`, {
@@ -108,14 +111,11 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     if (!submitted.ok) throw Error(submitted.error.code);
     const act = submitted.value;
     if (act.schema !== 'rig-review/act@3') throw Error('expected displayed still');
-    // Export through Review's consumer endpoint; preserve the exact raw bytes.
-    for (const [accept, file] of [['application/vnd.rig-review.act+json', 'act.json'], ['image/png', act.still.path]]) {
-      const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, { method: 'POST', headers: { authorization: `Bearer ${host.session.writerGrant().fetchCapability}`, accept, 'content-type': 'application/json' },
-        body: JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: host.session.jobId, actId: act.actId, requestId: randomUUID() }) }));
-      expect(response.ok).toBe(true); writeFileSync(join(scratch, file!), Buffer.from(await response.arrayBuffer()));
-    }
     const reviewAt = Math.max(now + 4000, Date.parse(act.at));
-    command(['review', '1', dir, '--from-review-file', join(scratch, 'act.json')], reviewAt);
+    const consumer = Bun.spawn([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'review', '1', dir, '--from-review', act.actId], { stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, exit] = await Promise.all([new Response(consumer.stdout).text(), new Response(consumer.stderr).text(), consumer.exited]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
+    expect(stdout).toContain('recorded or replayed');
     const recordedStill = obj(arr(obj(arr(load().versions)[0]).evidence)[0]);
     expect(recordedStill.frame).toBe(0);
     expect(recordedStill.what).toBe('Review displayed animation \"idle\" at 0 seconds');

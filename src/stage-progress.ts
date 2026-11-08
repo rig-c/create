@@ -77,8 +77,9 @@ export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
   const latestMove = moves[0];
   if (latestMove === undefined ? ctx.stage !== 'interview' : latestMove.record.stage !== ctx.stage) {
     // The unrecorded move is no older than the latest recorded move and the stage's arrival authority:
-    // the latest live stage-level signature at the furthest stage before the current one.
-    const earlier = ctx.signoffs.filter(s => s.checkpoint === null && stageIndex(s.stage) >= 0 && stageIndex(s.stage) < current);
+    // the latest stage-level signature at the furthest stage before the current one. It is live, or on an
+    // amended project retained, since amend voids the approvals that dated the arrival.
+    const earlier = (amended ? collectSignoffs(ctx.project, []) : ctx.signoffs).filter(s => s.checkpoint === null && stageIndex(s.stage) >= 0 && stageIndex(s.stage) < current);
     const arrivalStage = Math.max(...earlier.map(s => stageIndex(s.stage)));
     const arrival = earlier.filter(s => stageIndex(s.stage) === arrivalStage);
     const dates = [

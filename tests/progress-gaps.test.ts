@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
+import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, step } from './fixtures.ts';
 import { amendCommand, checkProject, stepStatusCommand, testClock } from './clock.ts';
@@ -58,4 +59,32 @@ test('an amended pre-parts project cannot run a parts step in rigging through th
     expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe('STEP_RUN_UNAPPROVED');
   }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+// A legacy record without advances keeps its retained approvals as the date of its unrecorded move after amend voids them.
+test.each([
+  ['before', 'warns', false],
+  ['on', 'refuses', true],
+] as const)('an amended legacy project without advances whose arrival is dated %s STAGE_PROGRESS_SINCE %s STAGE_SKIPPED', (_when, _verdict, atCutoff) => {
+  const dir = fixture(p => {
+    delete p.advances;
+    if (atCutoff) for (const raw of arr(p.signoffs)) if (obj(raw).stage === 'direction-review') obj(raw).at = STAGE_PROGRESS_SINCE;
+  });
+  const before = checkProject(dir);
+  expect(before.stage).toBe('accepted');
+  if (!atCutoff) {
+    expect(before.refusals).toEqual([]);
+    amend(dir, 'interview');
+    const after = checkProject(dir);
+    expect([after.stage, after.effective_stage]).toEqual(['accepted', 'interview']);
+    expect(after.refusals).toEqual([]);
+    expect(after.warnings.map(f => `${f.code}@${f.path}`)).toContain('STAGE_SKIPPED@stage');
+    return;
+  }
+  expect(before.refusals.map(f => `${f.code}@${f.path}`)).toEqual(['STAGE_SKIPPED@stage']);
+  const bytes = readFileSync(join(dir, 'project.json'));
+  try { amend(dir, 'interview'); throw new Error('expected refusal'); } catch (error) {
+    expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe('STAGE_SKIPPED');
+  }
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
 });

@@ -13,8 +13,9 @@ import { dirname, join, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
+import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
-import { STAGE_VALUES } from '../src/stages.ts';
+import { STAGES, STAGE_VALUES } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
@@ -80,6 +81,16 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
       ? String(arr(original.signoffs).map(obj).find(s => s.stage === stage)!.verbatim)
       : `Approve the synthetic ${stage} record.\n`);
     signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words, ...flags]); reload();
+    if (p.stage === stage && !['parts-review', 'rig-review'].includes(stage)) {
+      const next = STAGES[STAGES.findIndex(s => s.id === stage) + 1]!.id;
+      advanceCommand([next, dir, '--by', 'user', '--verbatim-file', words]); reload();
+    }
+  };
+  const finish = (phase: string, ids?: string[]): void => {
+    const steps = arr(obj(p.plan).steps).map(obj).filter(step => step.phase === phase && (ids === undefined || ids.includes(String(step.id))));
+    for (const step of steps) for (const status of ['in-progress', 'at-checkpoint', 'done']) {
+      stepStatusCommand([String(step.id), status, dir, '--by', 'agent']); reload();
+    }
   };
   try {
     p.stage = 'plan-approved'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
@@ -93,20 +104,21 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     p.signoffs = [];
     for (const w of arr(interview.waypoints).map(obj)) if (['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) w.guide = null;
     for (const s of arr(obj(p.plan).steps).map(obj)) { s.status = 'pending'; if (s.id === 'assemble') s.rests_on = ['assemble']; }
-    save(); Object.assign(files,writeExampleChoices(dir,'interview')); reload(); sign('interview', '2026-11-10T14:20:00Z'); sign('plan-approved', '2026-11-10T16:05:00Z');
+    p.stage = 'interview'; save(); Object.assign(files,writeExampleChoices(dir,'interview')); reload(); sign('interview', '2026-11-10T14:20:00Z'); sign('plan-approved', '2026-11-10T16:05:00Z');
     p.stage = 'parts';
-    for (const s of arr(obj(p.plan).steps).map(obj)) if (['seethrough', 'assemble'].includes(String(s.id))) s.status = 'done';
     arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'parts'));
-    save(); setSystemTime(new Date(exampleTime('2026-11-11T10:00:00Z')));
+    save(); setSystemTime(new Date(String(arr(original.signoffs).map(obj).find(s => s.stage === 'parts')!.at)));
+    finish('rig', ['seethrough', 'assemble']);
+    setSystemTime(new Date(exampleTime('2026-11-11T10:00:00Z')));
     draftRigCommand(['example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`]); reload();
     const draft = obj(arr(p.drafts)[0]);
     files['evidence/structure-decisions.json'] = `${JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'example', config: draft.config, entries: [] }, null, 2)}\n`;
     write('evidence/structure-decisions.json', files['evidence/structure-decisions.json'] as string);
-    p.stage = 'parts-review'; save();
+    advanceCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words]); reload();
     sign('parts-review', '2026-11-11T10:20:00Z', ['--evidence', EXAMPLE_VERDICT, '--diff-report', EXAMPLE_DIFF_REPORT,
       '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
       '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);
-    p.stage = 'rigging-interview'; obj(p.plan).rigging_drafted_at = exampleTime('2026-11-11T11:05:00Z');
+    obj(p.plan).rigging_drafted_at = exampleTime('2026-11-11T11:05:00Z');
     for (const w of arr(obj(p.interview).waypoints).map(obj)) {
       if (!['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) continue;
       const old = arr(obj(original.interview).waypoints).map(obj).find(x => x.id === w.id);
@@ -114,7 +126,9 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
       w.history = [...arr(w.history ?? []), structuredClone(guide)];
       guide.at = exampleTime('2026-11-11T11:00:00Z'); guide.verbatim = `Synthetic ${String(w.id)} answer after viewing the approved parts and structure.`; w.guide = guide;
     }
-    save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview')); reload(); sign('rigging-interview', '2026-11-11T11:10:00Z');
+    save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview')); reload();
+    advanceCommand(['rigging-interview', dir, '--by', 'user', '--verbatim-file', words]); reload();
+    sign('rigging-interview', '2026-11-11T11:10:00Z');
     sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
     // Retain the already writer-shaped synthetic execution/review history; new approvals are all writer-generated.
     arr(p.signoffs).push(...arr(original.signoffs).filter(s => obj(s).stage === 'rigging'));
@@ -134,19 +148,22 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
         files[path] = readFileSync(join(dir, path));
       }
     }
-    p.stage = 'rig-review';
+    p.stage = 'rigging';
     p.versions = arr(original.versions).filter(v => obj(v).kind === 'rig');
-    for (const s of arr(obj(p.plan).steps).map(obj)) if (s.phase === 'rig') s.status = 'done';
-    save(); sign('rig-review', '2026-11-13T09:15:00Z', ['--version', '2']);
+    save(); setSystemTime(new Date(String(arr(original.signoffs).map(obj).filter(s => s.stage === 'rigging').at(-1)!.at)));
+    finish('rig', ['bones', 'meshes', 'constraints', 'motion']);
+    advanceCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words]); reload();
+    sign('rig-review', '2026-11-13T09:15:00Z', ['--version', '2']);
     p.versions = original.versions as Json;
-    p.stage = 'post-interview';
     obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
     for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
     save(); Object.assign(files,writeExampleChoices(dir,'post-interview')); reload();
+    advanceCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words]); reload();
     save(); sign('post-interview', '2026-11-13T10:30:00Z');
-    p.stage = original.stage as Json; p.versions = original.versions as Json;
-    for (const s of arr(obj(p.plan).steps).map(obj)) s.status = 'done';
-    p.stage = 'direction-review'; save();
+    p.versions = original.versions as Json; save();
+    setSystemTime(new Date(exampleTime('2026-11-15T11:00:00Z')));
+    finish('post');
+    advanceCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', words]); reload();
     sign('direction-review', '2026-11-15T11:00:00Z', ['--version', '4']);
     p.stage = original.stage as Json; save();
     const checked = checkProject(dir);
@@ -177,7 +194,7 @@ if (import.meta.main) {
   const generated = generateExampleOrder(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
-  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'versions']) text = replaceValue(text, key, generated.project[key] as Json);
+  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'versions', 'advances']) text = replaceValue(text, key, generated.project[key] as Json);
   text = text.replace(/("proposed_at":\s*)"([^"]+)"/, (_match, prefix: string, at: string) => `${prefix}${JSON.stringify(exampleTime(at))}`);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
   const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };

@@ -1,3 +1,5 @@
+import { advanceCommand } from '../src/progress-writers.ts';
+import { retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, setSystemTime, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
@@ -21,7 +23,7 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
   const source=['rig_type','reference','assemble','seethrough'].includes(question);
   const dir=fixture(p=>{
     p.stage=source?'interview':'rigging-interview';p.versions=[];
-    p.signoffs=arr(p.signoffs).filter(s=>stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
+    retainSignoffs(p, s => stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
     for(const s of arr(obj(p.plan).steps).map(obj))if(source||!['seethrough','assemble'].includes(String(s.id)))s.status='pending';
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
     if(source)for(const id of ['bones','meshes','constraints','motion'])waypoint(p,id).guide=null;
@@ -85,7 +87,7 @@ test('Other with multiline Unicode and explicit fragment preserves text; unresol
   const w=working('reference');const words='첫 줄\nSecond line  \ne\u0301';writeFileSync(join(w.dir,'other.txt'),words);writeFileSync(join(w.dir,'fragment.json'),JSON.stringify('custom'));
   const other=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=other','--other',`reference=${join(w.dir,'other.txt')}`]));
   expect(other.value).toBeNull();expect(other.asks).toEqual([{id:'reference',state:'other-pending'}]);expect(other.choice.picks[0].other_text).toBe(words);
-  const before=readFileSync(join(w.dir,'project.json'));const p=load(w.dir);p.stage='plan-approved';save(w.dir,p);setSystemTime(new Date('2026-11-10T16:10:00Z'));const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
+  const before=readFileSync(join(w.dir,'project.json'));setSystemTime(new Date('2026-11-10T16:10:00Z'));const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
   expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'yes.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(snapshot);
   // A new tailored option preserves the pending record as history; its date is not rewritten.
   const next=structuredClone(w.set);next.id='resolved-reference';next.drafted_at='2026-11-10T14:12:00Z';obj(arr(obj(arr(next.asks)[0]).options)[0]).label=words;obj(arr(obj(arr(next.asks)[0]).options)[0]).fragment='custom';obj(arr(obj(arr(next.asks)[0]).options)[0]).effect=`As answered on ${String(other.at)} in review questionnaire`;
@@ -212,7 +214,8 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   const selected=JSON.parse(answer(w,picks));expect(selected.asks).toContainEqual({id:'ground',state:'delegated'});expect(checkProject(w.dir).refusals).toEqual([]);
   writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');setSystemTime(new Date('2026-11-10T16:10:00Z'));
   signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
-  const planned=load(w.dir);planned.stage='plan-approved';save(w.dir,planned);
+  expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+  advanceCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
   const beforeApproval=readFileSync(join(w.dir,'project.json'));
   expect(code(()=>signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('DELEGATION_UNDECIDED');
   expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);
@@ -221,7 +224,10 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   const decide=()=>interviewDecisionCommand(['assemble',w.dir,'--by','agent','--reasoning-file',join(w.dir,'reason.txt'),'--fragment',`ground=${fragment}`]);
   expect(code(decide)).toBe('ASSEMBLE_GROUND_UNANSWERED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);
   writeFileSync(fragment,JSON.stringify({ground}));expect(JSON.parse(decide()).value).toEqual({ground});expect(checkProject(w.dir).refusals).toEqual([]);
-  signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);expect(checkProject(w.dir).refusals).toEqual([]);
+  signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
+  expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+  advanceCommand(['parts',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
+  expect(checkProject(w.dir).refusals).toEqual([]);
 });
 
 function inheritedWorking(): ReturnType<typeof working> & {parentFile:string; parent:JsonObject; why:string; reason:string} {

@@ -6,8 +6,8 @@
  * Verdicts are synthetic, written field for field as rig-review's parts view
  * writes them (tests/parts-package.ts).
  */
-import { describe, expect, test } from 'bun:test';
-import { mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { checkProject, type CheckReport } from '../src/check.ts';
@@ -90,12 +90,11 @@ describe('green', () => {
   });
 
   test('a sign-off at parts-review, before rigging starts, is not read yet', () => {
-    const dir = fixture((p) => {
-      atRiggingStart(p);
-      p.stage = 'parts-review';
-      delete partsReviewSignoff(p).evidence;
+    const dir = fixture(p => {
+      atRiggingStart(p); p.stage = 'parts-review'; delete partsReviewSignoff(p).evidence;
     });
-    expect(checkProject(dir).refusals).toEqual([]);
+    expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+    expect(verdictCodes(checkProject(dir))).toEqual([]);
   });
 });
 
@@ -326,3 +325,5 @@ describe('containment follows links: a symlink out of the project is an escape',
     expect(checkProject(dir).refusals).toEqual([]);
   });
 });
+
+afterEach(() => setSystemTime());

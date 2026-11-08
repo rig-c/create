@@ -1,3 +1,4 @@
+import { retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, test, setSystemTime } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -7,6 +8,8 @@ import { checkProject, type Finding } from '../src/check.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
 import { checkCorrections } from '../src/corrections.ts';
 import { DIRECTION_CONTRACT, DIRECTION_PATCH_SPEC, DirectionError, assertDirectionApproval, checkDirections, directionHash, directionPostIdentity, objects, patchDirection, readDirection, validateDirectionCitations, validateDirectionIdentity, validateDirectionShape } from '../src/direction.ts';
+import { reopenCommand } from '../src/reopen.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { recordVerdict } from '../src/feedback.ts';
 import { handoff } from '../src/review.ts';
@@ -101,7 +104,10 @@ test('current per-ask Other with fragment and auto decided pass; their pending c
 
 test('authored document integrates into filled project at 0/0 and packaging cannot rebind its model',async()=>{
   const {fixture}=await import('./fixtures.ts');const {collectItems}=await import('../src/check.ts');
-  const dir=fixture(p=>{p.stage='post';p.signoffs=objects(p.signoffs).filter(s=>s.stage!=='direction-review');for(const v of objects(p.versions))if(v.kind==='post')v.verdicts=objects(v.verdicts).filter(d=>d.verdict!=='accepted');},'example-project.json');
+  const dir=fixture(()=>{},'example-project.json');
+  setSystemTime(new Date('2026-11-21T08:00:00Z'));
+  writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post.');
+  reopenCommand(['post',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
   setSystemTime(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;const f=setup();setSystemTime(new Date('2026-11-21T09:10:00Z'));
   const doc=f.doc;doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
@@ -117,14 +123,19 @@ test('direction check on a current stale take refuses instead of blessing it as 
 
 test('N/A fixed camera publishes through direction write and checkProject; two keys refuse the writer',async()=>{
   const {fixture}=await import('./fixtures.ts');const {collectItems}=await import('../src/check.ts');
-  const dir=fixture(p=>{
-    p.stage='post';p.signoffs=objects(p.signoffs).filter(s=>s.stage!=='direction-review');
-    for(const v of objects(p.versions))if(v.kind==='post')v.verdicts=objects(v.verdicts).filter(d=>d.verdict!=='accepted');
-    const camera=objects(((p.interview as JsonObject).post as JsonObject).items).find(i=>i.id==='camera_depth')!;
-    camera.history=[...objects(camera.history),camera.guide as JsonObject];
-    camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:(camera.guide as JsonObject).at!};
-  },'example-project.json');
-  resignAfterChange(dir, '2026-11-20T00:00:00Z');
+  const dir=fixture(()=>{},'example-project.json');
+  setSystemTime(new Date('2026-11-19T00:00:00Z'));
+  writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post answers.');
+  reopenCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+  const changed=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
+  const camera=objects(((changed.interview as JsonObject).post as JsonObject).items).find(i=>i.id==='camera_depth')!;
+  camera.history=[...objects(camera.history),camera.guide as JsonObject];
+  camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:'2026-11-19T01:00:00Z'};
+  writeFileSync(join(dir,'project.json'),JSON.stringify(changed));
+  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  signoffCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+  expect(checkProject(dir).refusals.map(f=>f.code)).toContain('STAGE_LAGGING');
+  advanceCommand(['post',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
   setSystemTime(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
   const f=setup();setSystemTime(new Date('2026-11-21T09:10:00Z'));const doc=f.doc;

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
-import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
+import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
 import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
@@ -14,6 +14,8 @@ import { checkStructure, riggingContext, structurePathIsIgnored } from './struct
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, STAGE_ORDER_SPEC, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
+import { furthestStageSignoff } from './stage-progress.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -64,6 +66,8 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
+  const existingLag = checkProject(dir, project).refusals.find(f => f.code === 'STAGE_LAGGING');
+  if (existingLag !== undefined) refuse(existingLag.code, existingLag.message);
   if (!Array.isArray(project.signoffs)) refuse('SIGNOFF_MALFORMED', 'signoffs must be a list');
   const checkpointId = opts['--checkpoint'];
   if (checkpointId !== undefined) {
@@ -197,9 +201,17 @@ export function signoffCommand(args: string[]): { stdout: string; exit: number }
   const target = selectSignoffTarget(dir, project, stage, opts['--version']);
   if (target !== undefined) signoff.target = target;
   project.signoffs.push(signoff);
+  const reopens = collectReopens(project, []);
+  const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
+  const ownLag = signoff.checkpoint === null && frontier?.index === project.signoffs.length - 1;
+  const candidateRefusals = checkProject(dir, project).refusals;
+  const pendingOwnAdvance = (finding: Finding): boolean => ownLag && finding.code === 'STAGE_LAGGING';
+  const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f));
+  if (progress !== undefined) refuse(progress.code, progress.message);
   if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
     const path = `signoffs[${project.signoffs.length - 1}]`;
-    const first = checkProject(dir, project).refusals.find(f => {
+    const first = candidateRefusals.find(f => {
+      if (pendingOwnAdvance(f)) return false;
       if (f.code.startsWith('SIGNOFF_ANSWERS_')) return f.path.startsWith(`${path}.`);
       if (f.code === 'GUIDE_CHANGED_UNSIGNED') return covered.some(step => f.path === `plan.steps[${String(step.id)}]`);
       return true;

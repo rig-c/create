@@ -4,13 +4,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { signoffCommand } from '../src/signoff.ts';
-import { readTemplate, type JsonObject } from '../src/templates.ts';
+import { type JsonObject } from '../src/templates.ts';
+import { materializeFixture } from '../tests/fixtures.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from '../tests/diff-fixture.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, writePartsPackage } from '../tests/parts-package.ts';
 
 export function generateExampleDiff(dir: string): { report: string; stack: Buffer; record: JsonObject } {
   if (existsSync(dir)) throw new Error('generation needs a fresh scratch directory');
-  mkdirSync(dir, { recursive: true });
+  materializeFixture(dir, () => {}, 'legacy-example-project.json');
   const report = generateDiffFixture(join(dir, 'inputs'));
   const parsed = JSON.parse(report) as { components: { id: string }[] };
   if (parsed.components.length < 1) throw new Error('synthetic example must list a component');
@@ -18,7 +19,6 @@ export function generateExampleDiff(dir: string): { report: string; stack: Buffe
   writePartsPackage(dir);
   writeFileSync(join(dir, EXAMPLE_DIFF_REPORT), report);
   writeFileSync(join(dir, EXAMPLE_PARTS_DIR, 'recomposite_rig.png'), stack);
-  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(readTemplate('legacy-example-project.json'), null, 2)}\n`);
   writeFileSync(join(dir, 'words.txt'), 'the parts are clean, rig it');
   const flags = parsed.components.flatMap((c) => ['--component', `${c.id}=in-painting:the synthetic painting deliberately differs here`]);
   const signed = signoffCommand(['parts-review', dir, '--by', 'user', '--evidence', EXAMPLE_VERDICT,

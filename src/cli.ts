@@ -13,6 +13,7 @@ import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './intervie
 import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
+import { PROGRESS_HELP, advanceCommand, stepStatusCommand } from './progress-writers.ts';
 import { REOPEN_HELP, reopenCommand } from './reopen.ts';
 import { AMEND_HELP, amendCommand } from './amend.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
@@ -38,6 +39,10 @@ Usage:
                                                     record what a person said about a shown version, word for word
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
+  rig-create advance <stage> --by <who> [--verbatim-file <file>] [<project dir>]
+                                                    move to the next stage authorized by a live signoff
+  rig-create step-status <step> <status> --by <who> [<project dir>]
+                                                    record an audited forward step status
   rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
                                                     record a human backward move without deleting history
   rig-create amend <stage> --kind <kind> --target <id> --change <file> --by <who> [<project dir>]
@@ -67,6 +72,8 @@ ${COLLECTION_HELP}
 ${REVIEW_HELP}
 
 ${SIGNOFF_HELP}
+
+${PROGRESS_HELP}
 
 ${REOPEN_HELP}
 
@@ -142,6 +149,8 @@ const COMMANDS: Record<string, Command> = {
   review: reviewCommand,
   signoff: signoffCommand,
   reopen: reopenCommand,
+  advance: advanceCommand,
+  'step-status': stepStatusCommand,
   amend: amendCommand,
   'draft-rig': draftRigCommand,
   correction: correctionCommand,

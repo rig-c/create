@@ -1,3 +1,4 @@
+import { checkAdvances, checkAdvanceBars, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
 import { checkSignoffTarget } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
@@ -808,7 +809,7 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
 // ---------------------------------------------------------------------- entry
 
 /** With a candidate record, validate the would-be write against the same project files without writing it. */
-export function checkProject(projectDirArg: string, candidate?: JsonObject): CheckReport {
+export function checkProject(projectDirArg: string, candidate?: JsonObject, options: { forwardWrite?: boolean } = {}): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
@@ -905,6 +906,7 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkDrafts(dir, project, refusals, warnings);
   refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);
+  checkAdvances(ctx);
   checkAnswers(ctx);
   checkOverrides(project, collection, refusals, warnings);
   checkAskCoverage(ctx);
@@ -913,6 +915,9 @@ export function checkProject(projectDirArg: string, candidate?: JsonObject): Che
   checkPlan(ctx);
   warnings.push(...appearanceBarWarnings(project));
   checkStages(ctx);
+  checkStageProgress(ctx, options.forwardWrite);
+  checkAdvanceBars(ctx);
+  checkStepStatusHistory(ctx);
   checkPreInterview(ctx);
   checkReviews(ctx);
   checkReviewPackages(ctx);

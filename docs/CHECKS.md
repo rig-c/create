@@ -625,7 +625,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE` and `OVERRIDDEN_ANSWERS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1014,3 +1014,43 @@ direction-review signature binds an accepted verdict and its version's reviewed 
 | `SIGNOFF_ANSWERS_MISSING` | A current-era live approval has no answer hash map or omits an expected item | Sign the named stage again |
 | `SIGNOFF_ANSWERS_MISSING_LEGACY` | A pre-contract live approval lacks a complete answer hash map | Preserve history and bind the next approval |
 | `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs | Restore the intended answer and sign its stage again |
+
+## Forward stage and step progress
+
+`STAGE_PROGRESS_SINCE = 2026-11-08T00:00:00Z` dates stage lag and skip by
+the latest live signature at the furthest signed stage. Older readable
+signature dates WARN with the same code. Unreadable frontier dates refuse.
+A stage that differs from its latest recorded move is a separate
+`STAGE_SKIPPED`, dated by when that unrecorded move could have happened: the
+later of the latest recorded move and the latest live signature at the
+furthest stage before the current one. It refuses from `STAGE_PROGRESS_SINCE`
+and WARNs before it, so a later sign-off does not turn an older hand move into
+a refusal; with no such date, or an unreadable one, it refuses. Re-signing an earlier plan does not
+revoke later approvals. Stage/checkpoint history invalidated by reopen or
+amendment grants no authority. A completed bar permits its next review.
+
+| Code | Fires when | Remedy |
+| --- | --- | --- |
+| `STAGE_LAGGING` | stage precedes the stage authorized by the live closing signature | run advance for the next authorized stage |
+| `STAGE_SKIPPED` | stage exceeds the signature frontier and completed bar exits, differs from its latest advance/reopen, or has no move from the initial stage | reopen the unfinished stage, finish its work and use advance |
+| `STAGE_SIGNOFF_DATE_INVALID` | the live frontier approval has an unreadable date | restore its original readable date before advancing |
+| `ADVANCE_UNAUTHORIZED` | advance has no live stage-level human approval | sign the current stage before advancing |
+| `ADVANCE_MALFORMED` | advances history lacks the human move, adjacent target, boolean event-time post_not_passed snapshot, required steps_before phases and completed bars, or matching event-time live authorizing signoff | retain the original move and matching `{stage,checkpoint,at}` signature through advance |
+| `PROGRESS_OPTION_INVALID` | advance or step-status arguments are missing, repeated or malformed | supply the target or step/status and --by once |
+| `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage, or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage and use pending, in-progress, at-checkpoint, done in order |
+| `STEP_STATUS_SIGNOFF` | retained status history has a missing or mismatched checkpoint signature reference | retain its matching human checkpoint signoff and record done through step-status |
+
+`CHECKPOINT_UNSIGNED` also refuses a step-status done without its live human
+checkpoint approval. A new advance refuses lag and skip even for legacy signatures. Both progress writers reconcile stage_values, validate
+with checkProject and preserve bytes on refusal. The signature writer allows
+its own pending-advance lag until advance records the separate stage move.
+Signoff retains its existing conditional/scoped candidate validation. Its
+additional progress guard blocks pre-existing refusal-level lag, permits
+legacy WARN lag, and rejects other candidate progress refusals.
+
+History reads `status_history[].checkpoint_required` and
+`advances[].post_not_passed` from their event snapshots. Current checkpoint
+changes and post applicability changes after reopen preserve the original
+authorization. Missing or non-boolean snapshots are malformed. Current done
+writes still require a live human checkpoint signature, and current stage
+checks still use current post applicability.

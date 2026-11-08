@@ -7,10 +7,12 @@ import { generateExampleDiff } from '../scripts/generate-example-diff.ts';
 import { checkProject } from '../src/check.ts';
 import { DIFF_MAP_SINCE } from '../src/diff-map.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
+import { reopenCommand } from '../src/reopen.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
-import { arr, fixture, historicalFixture, obj, rehashSignoffs } from './fixtures.ts';
+import { arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from './parts-package.ts';
 
@@ -33,7 +35,7 @@ function rigging(p: JsonObject): void {
   p.signoffs = arr(p.signoffs).filter((s) => ['interview', 'plan-approved', 'parts', 'parts-review'].includes(String(obj(s).stage)) && !Array.isArray(obj(s).steps));
   for (const s of arr(obj(p.plan).steps).map(obj)) if (s.phase === 'post' || ['bones', 'meshes', 'constraints', 'motion'].includes(String(s.id))) s.status = 'pending';
 }
-function project(edit: (s: JsonObject) => void = () => {}, name = 'normal', historical = false): string {
+function project(edit: (s: JsonObject, project: JsonObject) => void = () => {}, name = 'normal', historical = false): string {
   const report = reports[name];
   const materialize = historical ? historicalFixture : fixture;
   return materialize((p) => {
@@ -41,7 +43,7 @@ function project(edit: (s: JsonObject) => void = () => {}, name = 'normal', hist
     const s = signoff(p);
     s.diff_map = { report: { path: EXAMPLE_DIFF_REPORT, sha256: sha(report) },
       components: (JSON.parse(report) as { components: { id: string }[] }).components.map((c) => ({ id: c.id, status: 'left', why: 'the synthetic difference is accepted' })) };
-    edit(s);
+    edit(s, p);
   }, 'legacy-example-project.json', { [EXAMPLE_DIFF_REPORT]: report });
 }
 function componentFlags(dir: string): string[] {
@@ -71,14 +73,20 @@ describe('B0 normal writer and both producer layouts', () => {
   test.each(['build', 'assemble'])('%s permits rigging with every component listed', (layout) => {
     const dir = project();
     const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-    p.signoffs = arr(p.signoffs).filter((s) => obj(s).stage !== 'parts-review');
+    setSystemTime();
+    retimeFixture(p, Date.now());
     writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+    writeFileSync(join(dir, 'words.txt'), 'Revisit the synthetic parts.');
+    reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
     if (layout === 'assemble') moveToAssemble(dir);
     const result = writer(dir);
     expect(result.code).toBe(0);
     const signed = JSON.parse(result.stdout) as JsonObject;
     expect(arr(obj(signed.diff_map).components)).toHaveLength(2);
     expect(obj(arr(obj(signed.diff_map).components)[0]).why).toBe('observed: synthetic difference');
+    // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
+    advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
     expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
@@ -173,13 +181,15 @@ test('a directory not named rig has only the build candidate', () => {
   expect(checkProject(dir).refusals).toEqual([]);
 });
 test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
-  const dir = project((s) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; });
+  const dir = project((s, p) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; p.stage = 'parts-review'; p.advances = []; });
+  writeFileSync(join(dir, 'words.txt'), 'Advance the historical synthetic approval.');
+  advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   const report = checkProject(dir);
   expect(report.refusals).toEqual([]);
   expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DIFF_MAP_PREDATES', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
 });
 test('an old sign-off with a map is checked fully', () => {
-  only(project((s) => { s.at = '2026-11-05T00:00:00Z'; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
+  only(project((s, p) => { s.at = '2026-11-05T00:00:00Z'; p.advances = []; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
 });
 test('a pre-stage legacy project still validates a map it carries while rigging', () => {
   const dir = project((s) => { obj(arr(obj(s.diff_map).components)[0]).why = ''; }, 'normal', true);

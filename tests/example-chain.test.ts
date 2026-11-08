@@ -122,7 +122,7 @@ function readProject(): JsonObject {
 test('the finished chain binds its own approved parts, package model and signed direction', () => {
   const checked = checkExampleChain(shipped);
   expect(checked.refusals).toEqual([]);
-  expect(checked.warnings).toEqual([]);
+  expect(checked.warnings.map(f => [f.code, f.path])).toEqual([['STAGE_SKIPPED', 'stage']]);
   const project = readProject();
   const versions = project.versions as JsonObject[];
   const rig = versions[0]!;
@@ -250,7 +250,7 @@ test.each([
   const report = checkProject(root);
   expect(report.stage).toBe(projectStage);
   expect(report.refusals).toHaveLength(count);
-  expect(report.warnings).toEqual([]);
+  expect(report.warnings.map(f => [f.code, f.path])).toEqual([['STAGE_SKIPPED', 'stage']]);
   expect(declaration.expected_findings).toEqual({ refusals: report.refusals, warnings: report.warnings });
   expect(declaration.pending.commands[0].split(' --sha256 ')[0]).toBe(chain.steps[index]!.command.join(' ').split(' --sha256 ')[0]!);
   expect(declaration.pending.command_roles).toHaveLength(declaration.pending.commands.length);

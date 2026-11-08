@@ -62,7 +62,13 @@
         "message": "interview.waypoints[motion].guide: not answered yet; the interview is incomplete"
       }
     ],
-    "warnings": []
+    "warnings": [
+      {
+        "code": "STAGE_SKIPPED",
+        "path": "stage",
+        "message": "stage: rigging-interview differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
+      }
+    ]
   },
   "project_sha256": "1f10886466773c25ac51cd4b3dce3ad8f1abf117923284de9073049aea8093b1",
   "files": [
@@ -72,7 +78,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "8f551d835611162b0081399cf68d51fd81e51de174d2bb5385747e7d7ee53892"
+      "sha256": "721c1aa44db6f3d41f8593f5f579a8a29d50cccf40bdc65fe4f0b2a98f79ac11"
     },
     {
       "path": "CLAUDE.md",

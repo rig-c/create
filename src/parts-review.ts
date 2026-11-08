@@ -5,6 +5,7 @@ import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, ren
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readProject } from './feedback.ts';
+import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { decodeReviewAct, reviewActFindings, reviewActTransport } from './review-act.ts';
@@ -16,7 +17,8 @@ import type { JsonObject } from './templates.ts';
 export const PARTS_REVIEW_HELP = 'parts-review [<project>] --from-review <actId> [--json] | parts-review [<project>] --draft <id> --from-review-cli --by <name> [--json] -- <rig-review parts arguments>';
 export interface PartsReviewHooks {
   afterEvidence?: (path: string) => void;
-  runCli?: (args: string[], root: string) => { stdout: Buffer; stderr?: string; exit: number };
+  /** Replaces Review's resolution and spawn; the exit code and tool identity are still checked. */
+  runCli?: ReviewReadRunner;
 }
 
 function syncDirectory(path: string): void {
@@ -153,10 +155,12 @@ function recordCliVerdict(root: string, options: Record<string, string>, cliArgs
     const invalid = [...reviewActFindings(project), ...partsActFindings(root, project), ...partsReadFindings(root, project)][0];
     if (invalid) refuse(invalid.code, invalid.message);
     const draftId = options['--draft'];
-    const command = ['parts', ...cliArgs, '--format', 'json'];
-    const response = hooks.runCli ? hooks.runCli(command, root) : runPartsCli(command, root);
-    if (response.exit !== 0) refuse('PARTS_REVIEW_CLI_FAILED', `project.json.review_acts: rig-review parts exited ${response.exit}: ${response.stderr?.trim() || 'no diagnostic returned'}; restore the saved verdict and retry its original display arguments`);
-    const bytes = response.stdout;
+    let bytes: Buffer;
+    try { bytes = readPartsReview(root, cliArgs, hooks.runCli).stdout; }
+    catch (error) {
+      if (!(error instanceof ReviewReadError)) throw error;
+      return refuse('PARTS_REVIEW_CLI_FAILED', `project.json.review_acts: rig-review ${error.why}; restore the pinned rig-review installation and the saved verdict, then retry its original display arguments`);
+    }
     const verdict = decodePartsRead(bytes);
     assertPartsReadDraft(root, project, verdict, draftId);
     const hash = jobHash(bytes);
@@ -166,23 +170,11 @@ function recordCliVerdict(root: string, options: Record<string, string>, cliArgs
     const evidence = { kind: 'parts-verdict', path: `evidence/review-reads/${hash}.json`, sha256: hash };
     const receipt: JsonObject = { schema: PARTS_CLI_RECEIPT, kind: 'parts-verdict', draft_id: draftId, evidence,
       route: 'cli', argv: cliArgs, tool: verdict.tool, status: verdict.status, ...partsVerdictNames(verdict), by: options['--by'], at: new Date(now).toISOString() };
-    for (const segment of ['evidence', 'evidence/review-reads']) {
-      const path = join(root, segment);
-      try { mkdirSync(path); syncDirectory(dirname(path)); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-      const info = lstatSync(path);
-      if (!info.isDirectory() || info.isSymbolicLink()) refuse('PARTS_REVIEW_EVIDENCE_CONFLICT', 'project.json.review_acts.evidence: restore a real evidence directory without symlinks');
-    }
     const path = join(root, evidence.path);
-    try {
-      const info = lstatSync(path);
-      if (!info.isFile() || info.isSymbolicLink() || !readFileSync(path).equals(bytes)) refuse('PARTS_REVIEW_EVIDENCE_CONFLICT', 'project.json.review_acts.evidence: preserve and restore the original content-addressed verdict');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      const fd = openSync(path, 'wx', 0o600);
-      created = path;
-      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-      syncDirectory(dirname(path));
+    try { if (storeReviewRead(root, bytes).created) created = path; }
+    catch (error) {
+      if (!(error instanceof ReviewReadError)) throw error;
+      refuse('PARTS_REVIEW_EVIDENCE_CONFLICT', `project.json.review_acts.evidence: ${error.why}; preserve and restore the original content-addressed verdict in a real evidence directory`);
     }
     hooks.afterEvidence?.(path);
     const next = structuredClone(project);
@@ -200,16 +192,5 @@ function recordCliVerdict(root: string, options: Record<string, string>, cliArgs
     if (created && !committed) rmSync(created, { force: true });
     rmSync(temporary, { force: true });
     release();
-  }
-}
-
-function runPartsCli(args: string[], root: string): { stdout: Buffer; stderr?: string; exit: number } {
-  try {
-    const packageFile = import.meta.resolve('@rig-c/review/package.json');
-    const entry = fileURLToPath(new URL('./src/entry.ts', packageFile));
-    const result = Bun.spawnSync([process.execPath, entry, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
-    return { stdout: result.stdout, stderr: result.stderr.toString(), exit: result.exitCode };
-  } catch {
-    return refuse('PARTS_REVIEW_CLI_FAILED', 'project.json.review_acts: review CLI could not run; restore the pinned rig-review installation');
   }
 }

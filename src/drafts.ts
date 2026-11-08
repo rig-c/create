@@ -4,10 +4,11 @@ import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.t
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
 import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
-import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
+import { diffStackCandidates } from './diff-map.ts';
 import { locateParts } from './parts-sections.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
@@ -243,6 +244,10 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       if (standalone && !opts['--parts']) throw new Error('standalone rig output needs --parts');
       const parts = opts['--parts'] ?? from;
       const partsFiles = partsInventory(dir, parts, root).files;
+      const candidates = diffStackCandidates(resolve(dir, parts, 'parts.json'));
+      const present = candidates.filter(file => existsSync(file));
+      if (present.length !== 1) refuse('DRAFT_RIG_STACK', `drafts[${id}].parts.path: ${parts}/parts.json has ${present.length === 0 ? 'no stack candidate' : 'ambiguous stack candidates'} (${candidates.map(file => relative(dir, file)).join(', ')}); re-run rig-parts build into the draft output, or keep assemble's render/ beside rig/`);
+      fileAt(dir, relative(dir, present[0]!).split(sep).join('/'), root);
       const rigPrefix = build ? `${from}/rig` : from;
       for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
       const configFile = fileAt(dir, opts['--config'], root);

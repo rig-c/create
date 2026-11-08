@@ -1330,7 +1330,11 @@ its bound stamp warns `DRAFT_PRODUCER_MISMATCH`.
 All files must resolve under `derived/drafts/<id>/`. Standalone `rig --out`
 requires explicit `--parts`; only an unambiguous build root containing
 `parts.json`, `parts/` and `rig/` supplies those inputs implicitly. Ambiguous
-layouts, symlinks out of the root and changes to present recorded input bytes refuse.
+layouts refuse, and new registrations require exactly one stack candidate at
+`D/recomposite_rig.png` or, when the recorded parts directory D is named `rig`,
+`D/../render/recomposite_rig.png`; missing or ambiguous candidates refuse with
+`DRAFT_RIG_STACK`, remedied by re-running `rig-parts build` into the draft output
+or keeping assemble's `render/` beside `rig/`. Symlinks out of the root and changes to present recorded input bytes refuse.
 Absent ignored draft files warn as `DRAFT_RIG_UNAVAILABLE`, including after a
 clone; they do not invalidate an accepted record. Present files still verify
 even when another file is absent.

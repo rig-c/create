@@ -169,7 +169,16 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(56);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(68);
+  expect(receipt.steps.some(step => step.seed?.field === 'plan.steps')).toBe(false);
+  expect(receipt.steps.some(step => step.seed?.field === 'plan.steps[seethrough].status' || step.seed?.field === 'plan.steps[assemble].status')).toBe(false);
+  expect(receipt.steps.filter(step => step.command[1] === 'plan' && step.command[2] === 'add').map(step => step.command[3])).toEqual([
+    'seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion',
+  ]);
+  expect(receipt.steps.filter(step => step.command[1] === 'step-status').map(step => [step.command[2], step.command[3]])).toEqual([
+    ['seethrough', 'in-progress'], ['seethrough', 'at-checkpoint'], ['seethrough', 'done'],
+    ['assemble', 'in-progress'], ['assemble', 'at-checkpoint'], ['assemble', 'done'],
+  ]);
   expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/painting.png')).toBe(true);
   expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/background.png')).toBe(true);
   expect(receipt.steps.some(step => step.seed?.field === 'inputs[]')).toBe(false);
@@ -269,10 +278,12 @@ function fileInventory(dir: string, prefix = ''): Record<string, string> {
 }
 
 test.each([
-  ['1-parts-verdict', 1, 30, 'parts', 0],
-  ['2-rigging-answers', 2, 39, 'rigging-interview', 4],
-  ['3-rig-review', 3, 61, 'rig-review', 0],
-  ['4-direction-post', 4, 82, 'post', 0],
+  ['0a-interview-options', 0, 8, 'interview', 4],
+  ['0b-plan-pending', 0, 26, 'plan-approved', 0],
+  ['1-parts-verdict', 1, 39, 'parts', 0],
+  ['2-rigging-answers', 2, 48, 'rigging-interview', 4],
+  ['3-rig-review', 3, 70, 'rig-review', 0],
+  ['4-direction-post', 4, 91, 'post', 0],
 ] as const)('checkpoint %s preserves its complete prefix and pending state', (name, stage, index, projectStage, count) => {
   const root = join(shipped, 'checkpoints', name);
   const declaration = JSON.parse(readFileSync(`${root}.json`, 'utf8')) as CheckpointDeclaration;
@@ -296,9 +307,43 @@ test.each([
   expect(declaration.pending.command_roles).toHaveLength(declaration.pending.commands.length);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const signoffs = project.signoffs as JsonObject[];
-  const awaited = ['parts-review', 'rigging-interview', 'rig-review', 'direction-review'][stage - 1];
+  const closingStages: Record<string, string> = {
+    '0a-interview-options': 'interview',
+    '0b-plan-pending': 'plan-approved',
+    '1-parts-verdict': 'parts-review',
+    '2-rigging-answers': 'rigging-interview',
+    '3-rig-review': 'rig-review',
+    '4-direction-post': 'direction-review',
+  };
+  const awaited = closingStages[name];
   expect(signoffs.some(signoff => signoff.stage === awaited)).toBe(false);
+  if (stage === 0) {
+    expect(Object.keys(fileInventory(root)).some(path => path.endsWith('skeleton.model.json'))).toBe(false);
+    expect(declaration.files.some(file => file.path.endsWith('skeleton.model.json'))).toBe(false);
+  }
+  if (name === '0a-interview-options') {
+    expect(report.refusals.map(finding => [finding.code, finding.path])).toEqual([
+      ['INTERVIEW_INCOMPLETE', 'interview.framing[rig_type].answer'],
+      ['INTERVIEW_INCOMPLETE', 'interview.framing[reference].answer'],
+      ['INTERVIEW_INCOMPLETE', 'interview.waypoints[seethrough].guide'],
+      ['INTERVIEW_INCOMPLETE', 'interview.waypoints[assemble].guide'],
+    ]);
+    expect((project.plan as JsonObject).steps).toEqual([]);
+    expect(declaration.pending.command_roles).toEqual([
+      'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human',
+      'agent', 'agent', 'agent', 'agent', 'agent', 'agent', 'human',
+    ]);
+  }
+  if (name === '0b-plan-pending') {
+    expect(report.refusals).toEqual([]);
+    expect(((project.plan as JsonObject).steps as JsonObject[]).map(step => step.id)).toEqual([
+      'seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion',
+    ]);
+    expect(declaration.pending.commands).toEqual(['rig-create signoff plan-approved --by user --verbatim-file evidence/approval.txt']);
+    expect(declaration.pending.command_roles).toEqual(['human']);
+  }
   if (stage === 1) {
+    expect(report.refusals).toEqual([]);
     expect(declaration.files.some(file => file.path === 'evidence/parts-review.json')).toBe(false);
     expect(declaration.files.some(file => file.path === 'evidence/structure.json')).toBe(false);
     expect(declaration.pending.command_roles).toEqual(['producer', 'agent', 'agent', 'producer', 'human', 'human']);
@@ -308,12 +353,16 @@ test.each([
       ['bones', 'meshes', 'constraints', 'motion'].map(id => ['INTERVIEW_INCOMPLETE', `interview.waypoints[${id}].guide`]));
     expect(declaration.pending.command_roles).toEqual(['human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'human']);
   }
-  if (stage === 3) expect((project.versions as JsonObject[])[0]!.verdicts).toEqual([]);
+  if (stage === 3) {
+    expect(report.refusals).toEqual([]);
+    expect((project.versions as JsonObject[])[0]!.verdicts).toEqual([]);
+  }
   if (stage === 1 || stage === 4) {
     expect(declaration.pending.awaits).toContain('project.stage');
     expect(declaration.pending.commands).toContain(`rig-create advance ${stage === 1 ? 'parts-review' : 'direction-review'} --by user --verbatim-file evidence/approval.txt${stage === 1 ? ' --parts-check evidence/parts-check.json --parts derived/drafts/chain/input' : ''}`);
   }
   if (stage === 4) {
+    expect(report.refusals).toEqual([]);
     expect((project.versions as JsonObject[]).some(version => version.kind === 'post')).toBe(false);
     expect(declaration.files.some(file => file.path === 'evidence/direction-input.json')).toBe(false);
     expect(project.scenes).toBeUndefined();
@@ -378,8 +427,8 @@ test('agent-authored inputs are declared at their true position before public wr
   }
 });
 
-test('pending rigging answers use available drafted files and run-time hashes', () => {
-  const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints/2-rigging-answers.json'), 'utf8')) as CheckpointDeclaration;
+test.each(['0a-interview-options', '2-rigging-answers'])('pending answers in %s use available drafted files and run-time hashes', name => {
+  const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints', `${name}.json`), 'utf8')) as CheckpointDeclaration;
   const available = new Set(declaration.files.map(file => file.path));
   for (const command of declaration.pending.commands) {
     if (command.startsWith('agent draft ')) available.add(command.slice('agent draft '.length));
@@ -393,7 +442,7 @@ test('pending rigging answers use available drafted files and run-time hashes', 
   }
 });
 
-test.each(['1-parts-verdict', '2-rigging-answers', '3-rig-review', '4-direction-post'])('%s pending writers succeed at the real clock with retained producer inputs', name => {
+test.each(['0a-interview-options', '0b-plan-pending', '1-parts-verdict', '2-rigging-answers', '3-rig-review', '4-direction-post'])('%s pending writers succeed at the real clock with retained producer inputs', name => {
   const dir = mkdtempSync(join(tmpdir(), 'chain-pending-'));
   const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints', `${name}.json`), 'utf8')) as CheckpointDeclaration;
   const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };

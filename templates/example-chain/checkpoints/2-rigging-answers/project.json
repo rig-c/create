@@ -27,7 +27,7 @@
       "stage": "interview",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:15.000Z",
+      "at": "2026-11-06T01:00:21.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "answer_hashes": {
         "rig_type": "5f741d7c36a11897a1f1e8f108ec1a089258a6390f837915fad94301d87fe3f3",
@@ -40,15 +40,15 @@
       "stage": "plan-approved",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:17.000Z",
+      "at": "2026-11-06T01:00:23.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "steps": [
         "seethrough",
         "assemble"
       ],
       "step_hashes": {
-        "seethrough": "06fa64424921b8b73f71f4e288778190a420d46680c49a668514533e67be4fa3",
-        "assemble": "631d27a0d47b9d70430ea80f4759394beaa6c7a89445fdec5476494c8a9d2d32"
+        "seethrough": "6418a3b3bf15732da730c343a9f9f2bbee36ae0de3db66184af9fb1c7f406278",
+        "assemble": "7722f4a7c55fe6b37bb254c3901019b01de3343b888fde33780ae4cdfa234752"
       },
       "answer_hashes": {
         "seethrough": "8da1be870160a01fd156628fcc5ce0ee6f0ad56b7ff90886fd2303133a2a3fe7",
@@ -59,19 +59,19 @@
       "stage": "parts",
       "checkpoint": "assemble",
       "by": "user",
-      "at": "2026-11-06T01:00:19.000Z",
+      "at": "2026-11-06T01:00:30.000Z",
       "verbatim": "Approve this synthetic geometric example.\n"
     },
     {
       "stage": "parts-review",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:24.000Z",
+      "at": "2026-11-06T01:00:36.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9.json",
-        "sha256": "8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9",
+        "path": "evidence/review-reads/e0ce622889e12ed96f671005d428076cda82e988bbd0c351c6d2ff867e058df9.json",
+        "sha256": "e0ce622889e12ed96f671005d428076cda82e988bbd0c351c6d2ff867e058df9",
         "spec": "rig-create/parts-verdict-cli@1"
       },
       "diff_map": {
@@ -424,7 +424,7 @@
         "history": [],
         "pending_options": {
           "path": "evidence/interview/bones.json",
-          "sha256": "2f6f7ff81f70469688f3263235ba5626d047701e4dd39d2f5d9274e61098d7ae"
+          "sha256": "414d87b08e1bd5a123a254de22f3f6538d323fad9b2c9759199006292a927d0c"
         }
       },
       {
@@ -536,8 +536,8 @@
     }
   },
   "plan": {
-    "drafted_by": null,
-    "drafted_at": null,
+    "drafted_by": "agent",
+    "drafted_at": "2026-11-06T01:00:16.000Z",
     "steps": [
       {
         "id": "seethrough",
@@ -553,11 +553,37 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:17.000Z",
+          "at": "2026-11-06T01:00:23.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
-        "status": "done"
+        "status": "done",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-06T01:00:25.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "at-checkpoint",
+            "by": "agent",
+            "at": "2026-11-06T01:00:26.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          },
+          {
+            "from_status": "at-checkpoint",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-06T01:00:27.000Z",
+            "checkpoint_required": false,
+            "signoff": null
+          }
+        ]
       },
       {
         "id": "assemble",
@@ -573,11 +599,41 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:17.000Z",
+          "at": "2026-11-06T01:00:23.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": true
         },
-        "status": "done"
+        "status": "done",
+        "status_history": [
+          {
+            "from_status": "pending",
+            "status": "in-progress",
+            "by": "agent",
+            "at": "2026-11-06T01:00:28.000Z",
+            "checkpoint_required": true,
+            "signoff": null
+          },
+          {
+            "from_status": "in-progress",
+            "status": "at-checkpoint",
+            "by": "agent",
+            "at": "2026-11-06T01:00:29.000Z",
+            "checkpoint_required": true,
+            "signoff": null
+          },
+          {
+            "from_status": "at-checkpoint",
+            "status": "done",
+            "by": "agent",
+            "at": "2026-11-06T01:00:31.000Z",
+            "checkpoint_required": true,
+            "signoff": {
+              "stage": "parts",
+              "checkpoint": "assemble",
+              "at": "2026-11-06T01:00:30.000Z"
+            }
+          }
+        ]
       },
       {
         "id": "bones",
@@ -635,7 +691,8 @@
         "checkpoint": null,
         "status": "pending"
       }
-    ]
+    ],
+    "rigging_drafted_at": "2026-11-06T01:00:20.000Z"
   },
   "split": {
     "label_values": [
@@ -699,21 +756,21 @@
       "stage": "plan-approved",
       "from_stage": "interview",
       "by": "user",
-      "at": "2026-11-06T01:00:16.000Z",
+      "at": "2026-11-06T01:00:22.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:15.000Z"
+          "at": "2026-11-06T01:00:21.000Z"
         }
       ],
       "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "interview",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:15.000Z"
+        "at": "2026-11-06T01:00:21.000Z"
       },
       "steps_before": [
         {
@@ -752,26 +809,26 @@
       "stage": "parts",
       "from_stage": "plan-approved",
       "by": "user",
-      "at": "2026-11-06T01:00:18.000Z",
+      "at": "2026-11-06T01:00:24.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:15.000Z"
+          "at": "2026-11-06T01:00:21.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:17.000Z"
+          "at": "2026-11-06T01:00:23.000Z"
         }
       ],
       "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:17.000Z"
+        "at": "2026-11-06T01:00:23.000Z"
       },
       "steps_before": [
         {
@@ -810,31 +867,31 @@
       "stage": "parts-review",
       "from_stage": "parts",
       "by": "user",
-      "at": "2026-11-06T01:00:23.000Z",
+      "at": "2026-11-06T01:00:35.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:15.000Z"
+          "at": "2026-11-06T01:00:21.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:17.000Z"
+          "at": "2026-11-06T01:00:23.000Z"
         },
         {
           "stage": "parts",
           "checkpoint": "assemble",
-          "at": "2026-11-06T01:00:19.000Z"
+          "at": "2026-11-06T01:00:30.000Z"
         }
       ],
       "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:17.000Z"
+        "at": "2026-11-06T01:00:23.000Z"
       },
       "steps_before": [
         {
@@ -931,36 +988,36 @@
       "stage": "rigging-interview",
       "from_stage": "parts-review",
       "by": "user",
-      "at": "2026-11-06T01:00:25.000Z",
+      "at": "2026-11-06T01:00:37.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
         {
           "stage": "interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:15.000Z"
+          "at": "2026-11-06T01:00:21.000Z"
         },
         {
           "stage": "plan-approved",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:17.000Z"
+          "at": "2026-11-06T01:00:23.000Z"
         },
         {
           "stage": "parts",
           "checkpoint": "assemble",
-          "at": "2026-11-06T01:00:19.000Z"
+          "at": "2026-11-06T01:00:30.000Z"
         },
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:24.000Z"
+          "at": "2026-11-06T01:00:36.000Z"
         }
       ],
       "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "parts-review",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:24.000Z"
+        "at": "2026-11-06T01:00:36.000Z"
       },
       "steps_before": [
         {
@@ -1000,7 +1057,7 @@
     {
       "id": "chain",
       "kind": "draft-rig",
-      "at": "2026-11-06T01:00:20.000Z",
+      "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
         "version": "2.30.1"
@@ -1123,8 +1180,8 @@
       "draft_id": "chain",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9.json",
-        "sha256": "8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9"
+        "path": "evidence/review-reads/e0ce622889e12ed96f671005d428076cda82e988bbd0c351c6d2ff867e058df9.json",
+        "sha256": "e0ce622889e12ed96f671005d428076cda82e988bbd0c351c6d2ff867e058df9"
       },
       "route": "cli",
       "argv": [
@@ -1140,7 +1197,7 @@
       "flagged": [],
       "noted": [],
       "by": "user",
-      "at": "2026-11-06T01:00:21.000Z"
+      "at": "2026-11-06T01:00:33.000Z"
     }
   ]
 }

@@ -1,0 +1,6 @@
+/derived/
+/outputs/
+/scratch/
+node_modules/
+/.rig-create-review-binding.json
+/.rig-create-review/

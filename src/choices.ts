@@ -1,4 +1,4 @@
-import { SceneError, currentScene, sceneReference } from './scene.ts';
+import { SceneError, currentScene, sceneCurrentAt, sceneReference } from './scene.ts';
 import { humanReviewVerdicts } from './review.ts';
 import { intakeContext } from './intake.ts';
 /** Per-ask proposals and human selections. No producer is run or measurement derived here. */
@@ -19,6 +19,8 @@ export const CHOICE_SPEC = 'rig-create/interview-choice@1';
 export { CHOICE_ORDER_SPEC } from './stages.ts';
 /** Labels legacy warnings; dates alone never adopt choices. Correct at landing. */
 export const CHOICE_ANSWERS_SINCE = '2026-11-06T00:00:00Z';
+/** Scene-kind option sets drafted earlier keep the rule of their day: the latest scene, current or not. */
+export const SCENE_CONTEXT_SINCE = '2026-11-08T00:00:00Z';
 export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const text = (v: Json | undefined): v is string => typeof v === 'string' && v.trim() !== '';
 const date = (v: Json | undefined): number => typeof v === 'string' ? Date.parse(v) : NaN;
@@ -136,8 +138,12 @@ export function validateSet(project: JsonObject, item: Item, set: JsonObject, co
   }
 }
 
-/** A context is a projection of existing identities, never a producer report reconstructed by create. */
-export function optionContext(project: JsonObject, stage: string, at: number): JsonObject {
+/**
+ * A context is a projection of existing identities, never a producer report reconstructed by create.
+ * A post set takes the scene kind only while the scene is current at `at`, which reads the scene
+ * document under `dir`; `legacyScene` is the rule before SCENE_CONTEXT_SINCE, where any latest scene was taken.
+ */
+export function optionContext(project: JsonObject, stage: string, at: number, dir?: string, legacyScene = false): JsonObject {
   if (stage === 'parts') {
     try { return intakeContext(project, at); } catch (e) { fail('INTERVIEW_OPTIONS_STALE', `${String(e)}; record the preflight before showing options`); }
   }
@@ -154,7 +160,9 @@ export function optionContext(project: JsonObject, stage: string, at: number): J
     return { kind: 'parts', accepted_parts: { signoff_at: approval.at as Json, evidence: approval.evidence }, structure: approval.structure, draft_id: draft.id as Json, parts: draft.parts };
   }
   try {
-    const scene = currentScene(project, at);
+    const candidate = currentScene(project, at);
+    if (candidate && !legacyScene && dir === undefined) fail('INTERVIEW_OPTIONS_STALE', `${String(candidate.path)}: the scene's currentness needs the project folder; pass dir to optionContext`);
+    const scene = legacyScene || !candidate ? candidate : sceneCurrentAt(dir!, project, at);
     if (scene) return { kind: 'scene', scene: sceneReference(scene) };
   } catch (error) {
     if (error instanceof SceneError) fail('INTERVIEW_OPTIONS_STALE', error.message);
@@ -184,7 +192,8 @@ function verifyBinding(dir: string, binding: Json, fresh: boolean): void {
     if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !lstatSync(file).isFile() || sha256(readFileSync(file)) !== binding.sha256) throw Error('context file changed or escaped');
   } catch (e) { fail('INTERVIEW_OPTIONS_STALE', `${String(binding.path)}: ${e instanceof Error ? e.message : String(e)}; redraft against current retained context`); }
 }
-export function validateContext(dir: string, project: JsonObject, set: JsonObject, at: number, fresh = false): void {
+/** `warn` receives the reason when a set drafted before SCENE_CONTEXT_SINCE holds only under that day's rule. */
+export function validateContext(dir: string, project: JsonObject, set: JsonObject, at: number, fresh = false, warn?: (why: string) => void): void {
   const drafted = date(set.drafted_at);
   if (!Number.isFinite(at) || drafted > at) fail('INTERVIEW_OPTIONS_STALE','selection must follow drafting; redraft against current accepted inputs');
   const contextProject = isObject(set.context) && set.context.kind === 'rig' ? { ...project, scenes: [] } : project;
@@ -193,7 +202,20 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
     // A later additional input must not rewrite which immutable input an earlier person saw.
     const declared = objects(project.inputs);
     if (!Array.isArray(set.context.files) || !set.context.files.length || set.context.files.some(f => !isObject(f) || !declared.some(d => d.path === f.path && d.sha256 === f.sha256 && (d.at === undefined || date(d.at) <= drafted)))) fail('INTERVIEW_OPTIONS_STALE','shown source identity is no longer declared; restore the original inputs');
-  } else if (!equal(optionContext(contextProject, String(set.stage), drafted), set.context) || !equal(optionContext(contextProject, String(set.stage), at), set.context)) fail('INTERVIEW_OPTIONS_STALE', 'options no longer match the live context; redraft against current accepted inputs');
+  } else {
+    const live = (legacyScene: boolean): void => {
+      if (!equal(optionContext(contextProject, String(set.stage), drafted, dir, legacyScene), set.context) || !equal(optionContext(contextProject, String(set.stage), at, dir, legacyScene), set.context)) fail('INTERVIEW_OPTIONS_STALE', 'options no longer match the live context; redraft against current accepted inputs');
+    };
+    if (!isObject(set.context) || set.context.kind !== 'scene' || !(drafted < Date.parse(SCENE_CONTEXT_SINCE))) live(false);
+    else {
+      try { live(false); }
+      catch (error) {
+        if (!(error instanceof ChoiceError)) throw error;
+        live(true);
+        warn?.(`drafted before ${SCENE_CONTEXT_SINCE} on a scene that was not current (${error.message})`);
+      }
+    }
+  }
   if (collectReopens(project, []).some(r => r.at > drafted && r.at <= at && stageIndex(r.stage) <= stageIndex(String(set.stage)))) fail('INTERVIEW_OPTIONS_STALE', 'context was reopened after drafting; redraft the option set');
   const context = set.context as JsonObject;
   const files: Json[] = [...(context.kind === 'inputs' ? asArray(context.files) : isObject(context.parts) ? asArray(context.parts.files) : [])];
@@ -279,12 +301,12 @@ export function refusalBaseline(answer: JsonObject): JsonObject[] {
   return (answer.refusal_baseline ?? []) as JsonObject[];
 }
 
-export function validateChoice(dir: string, project: JsonObject, item: Item, answer: JsonObject): void {
+export function validateChoice(dir: string, project: JsonObject, item: Item, answer: JsonObject, warn?: (why: string) => void): void {
   if (!isObject(answer.choice)) badChoice('choice must be an object');
   refusalBaseline(answer);
   const choice = answer.choice;
   const { set } = optionFile(dir, choice.set);
-  validateSet(answersAt(project, date(set.drafted_at),loadCollection(dir)), item, set); validateContext(dir, project, set, date(answer.at));
+  validateSet(answersAt(project, date(set.drafted_at),loadCollection(dir)), item, set); validateContext(dir, project, set, date(answer.at), false, warn);
   if (!text(answer.by) || answer.by.toLowerCase() === 'agent' || !Number.isFinite(date(answer.at))) badChoice('a selection needs a human identity and valid clock');
   const projected = selection(set, choice);
   if (answer.delegated !== projected.delegated || !equal(answer.asks, projected.asks) || answer.verbatim !== choiceVerbatim(objects(choice.picks), choice.note)
@@ -303,7 +325,7 @@ export function validateChoice(dir: string, project: JsonObject, item: Item, ans
       || date(decision.at) < date(answer.at) || !Number.isFinite(date(decision.at)) || decision.covers !== projected.autos.join(',')
       || !Array.isArray(decision.fragments) || !equal(objects(decision.fragments).map(f => f.ask), projected.autos)
       || objects(decision.fragments).length !== decision.fragments.length || objects(decision.fragments).some(f => !('fragment' in f))) badChoice('decision must record exactly the auto asks in order, exact covers, author, clock and reasoning');
-    validateContext(dir, project, set, date(decision.at));
+    validateContext(dir, project, set, date(decision.at), false, warn);
     const entries = objects(decision.fragments);
     const assembled = assembleFragments(String((set.assembly as JsonObject).rule), entries.map(f => f.fragment as Json));
     if (!equal(decision.value, assembled)) badChoice('agent_decision.value differs from its per-ask fragments');
@@ -317,19 +339,26 @@ function finding(e: unknown, path: string): Finding {
   return { code: e instanceof ChoiceError ? e.code : 'INTERVIEW_CHOICE_INVALID', path, message: `${path}: ${e instanceof Error ? e.message : String(e)}; retain the shown set, explicitly pick each ask, and record the exact contributions` };
 }
 
+/** One WARN per record path, however many of its clocks the earlier rule had to hold. */
+function legacyScene(ctx: Ctx, path: string): (why: string) => void {
+  return why => {
+    if (ctx.warnings.some(w => w.code === 'INTERVIEW_OPTIONS_SCENE_LEGACY' && w.path === path)) return;
+    ctx.warnings.push({ code: 'INTERVIEW_OPTIONS_SCENE_LEGACY', path, message: `${path}: option set ${why}; preserve the record and redraft against the current context when this question is asked again` });
+  };
+}
 export function checkChoices(ctx: Ctx): void {
   const adopted = choiceAdoption(ctx.project);
   if (adopted !== null && (!Number.isFinite(adopted) || !hasStageOrder(ctx.project))) ctx.refusals.push(finding(new ChoiceError('INTERVIEW_CHOICE_INVALID', 'order@2 requires choices_adopted_at'), 'interview.order'));
   if (adopted === null) ctx.warnings.push({ code: 'CHOICE_ANSWERS_LEGACY', path: 'interview.order', message: `interview.order: choices are not adopted (${CHOICE_ANSWERS_SINCE} legacy label); preserve answers and adopt order@2 explicitly before asking fresh choices` });
   for (const item of ctx.items) {
     if (item.record.pending_options !== undefined) {
-      try { const { set } = optionFile(ctx.dir, item.record.pending_options); validateSet(ctx.project, item, set,ctx.collection); validateContext(ctx.dir, ctx.project, set, date(set.drafted_at)); }
+      try { const { set } = optionFile(ctx.dir, item.record.pending_options); validateSet(ctx.project, item, set,ctx.collection); validateContext(ctx.dir, ctx.project, set, date(set.drafted_at), false, legacyScene(ctx, `${item.path}.pending_options`)); }
       catch (e) { ctx.refusals.push(finding(e, `${item.path}.pending_options`)); }
     }
     const answers: { answer: JsonObject; path: string; current: boolean }[] = objects(item.record.history).map((answer,i) => ({ answer, path: `${item.path}.history[${i}]`, current: false }));
     if (item.state.state === 'user' || item.state.state === 'delegated') answers.push({ answer: item.state.answer, path: item.path, current: true });
     for (const { answer, path, current } of answers) {
-      if (answer.choice !== undefined) { try { validateChoice(ctx.dir, ctx.project, item, answer); } catch (e) { ctx.refusals.push(finding(e, path)); } }
+      if (answer.choice !== undefined) { try { validateChoice(ctx.dir, ctx.project, item, answer, legacyScene(ctx, path)); } catch (e) { ctx.refusals.push(finding(e, path)); } }
       else if (current && adopted !== null) {
         // An inherited collection answer is historical evidence, never a fabricated member click.
         const inherited = isObject(item.raw) && item.raw.basis === 'inherited';

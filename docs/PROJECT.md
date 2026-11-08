@@ -1829,10 +1829,57 @@ Posts from DIRECTION_SCENE_SINCE require @2. The parent finalizes the one
 exported cutoff to the implementation's UTC landing day before merge and
 checks every live pilot for new same-day refusals.
 
-Post option sets drafted with a scene use
-`{kind:"scene",scene:{n,path,sha256}}`. Their freshness requires unchanged
-scene bytes and that scene still being current. Existing rig contexts keep
-their original identity and remain valid under their existing rules.
+### Scene option context
+
+A post option set takes one of two contexts: the rig kind
+(docs/INTERVIEW.md) or the scene kind. This section is the scene kind's
+contract.
+
+1. **Entries.** `project.scenes[]` is append-only. Each entry is exactly
+   `{n,path,sha256,at,by}`: `n` counts from 1 in array order, `path` is
+   `evidence/scene/s<n>.json`, `sha256` is the SHA-256 of the file's raw bytes
+   in lowercase hex, `at` is a UTC ISO time ending in `Z`, and `by` is a human
+   (not `agent`, in any case). The documents are immutable `rig-create/scene@1`.
+2. **Reference.** The context is `{kind:"scene",scene:{n,path,sha256}}`: the
+   entry without `at` and `by`.
+3. **Selection.** At an instant *t*, the candidate is the last `scenes[]`
+   entry whose `at` ≤ *t*. Earlier entries are never selected.
+4. **Currentness.** The candidate applies only if it is current at *t*.
+   Its document must match `sha256`, carry the entry's `n` and have the closed
+   scene@1 shape. Then the scene currentness gate (`SCENE_RIG_STALE`,
+   `SCENE_ACCEPTANCE_STALE`) runs on the records dated at or before *t*:
+   `signoffs[]`, `versions[]` and their `verdicts[]`, `reopens[]` and
+   `amendments[]`. Undated entries are left out.
+   - `rig.version` is the latest live accepted rig, and no live rig version
+     has a higher `n`.
+   - `rig.acceptance` equals the latest live rig-review signoff
+     (`checkpoint:null`) whose target names that version: its
+     `{stage,checkpoint,at}`, `verdict` and `review_package`.
+
+   No live post is needed. When the gate fails, the set takes the rig kind
+   exactly as if no scene existed, so a scene built on an earlier rig never
+   anchors a post set. The rig kind keeps its own refusals: with no live
+   accepted rig and live rig-review signoff at *t*, for example after a
+   rig-review reopen, it refuses `INTERVIEW_OPTIONS_STALE`. An unreadable,
+   changed or malformed candidate refuses `INTERVIEW_OPTIONS_STALE` instead
+   of falling back.
+5. **Freshness.** These rules apply to the rig and scene kinds alike.
+   - The context is recomputed at `drafted_at` and again at the selection or
+     decision time, and both must equal `set.context` exactly. A writer uses
+     now. `check` uses the answer's or decision's `at`, and `drafted_at` for a
+     pending set. A later scene, or a later live rig version, makes a
+     scene-kind set `INTERVIEW_OPTIONS_STALE`.
+   - A rig-kind set is recomputed with `scenes[]` ignored, so no scene makes
+     it stale.
+   - A reopen or amendment of a stage at or before the set's stage, dated
+     after `drafted_at` and at or before that time, refuses
+     `INTERVIEW_OPTIONS_STALE`.
+   - The file at `scene.path` must be a literal project-relative regular file
+     whose raw bytes match `scene.sha256`.
+6. **Contract date.** A scene-kind set drafted before
+   `SCENE_CONTEXT_SINCE = 2026-11-08T00:00:00Z` that is stale only under
+   rule 4 is checked under the rule of its day, where the latest scene
+   applied whether current or not. It warns `INTERVIEW_OPTIONS_SCENE_LEGACY`.
 
 ### Publication and review read boundary
 

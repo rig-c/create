@@ -697,7 +697,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE` and `PARTS_VERDICT_RECEIPT_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE` and `FIX_LEDGER_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1375,3 +1375,56 @@ before the check runs. In the inventory phase, check refusals produce
 | `PARTS_VERDICT_FILE_ROUTE_REMOVED` | `signoff --evidence` and `structure-snapshot --verdict` are removed and exit 2 before writing. Query the draft with `parts-review`, then select its receipt with `--draft`. |
 | `PARTS_VERDICT_RECEIPT_REQUIRED` | `signoffs[].evidence` has no recorded parts-review API receipt for `draft_id`. Record the response with parts-review before signing. |
 | `PARTS_VERDICT_FILE_LEGACY` | A parts-review signature predates `PARTS_VERDICT_RECEIPT_SINCE = 2026-11-08T00:00:00Z` and binds a review-saved file. Preserve the binding. Check WARNs without opening that file. Query the reviewed draft through parts-review before signing again. |
+
+## Fix ledger, ledger reports and restarts (create#285)
+
+`project.json.fix_ledger` holds the owner fixes every version inherits. Each row
+is `{ id, note: { ref, verbatim }, at, by, check, bar }`, plus `retired: { at,
+by, reason }` once retired. `ledger add` and `ledger retire` write it, and the
+writers and check validate rows with the same function. A row's `note.ref`
+names `corrections[<id>]` or `versions[v<n>].verdicts[<i>]`, and its words
+must be quoted from that note when `ledger add` writes the row. Check does not
+re-read an older row's note: a restart retires the record it pointed into, and
+the row keeps the words it quoted.
+
+create never runs a ledger check. `draft-rig --ledger-report <file>` binds the
+project's own `rig-create/fix-ledger-report@1` report by sha256 and spec. Check
+then compares the report's rows with the ledger. It does not recompute a row.
+A row is live for a draft when it was written by the draft's `at` and not
+retired by then. The predecessor is the previous entry in `drafts[]`; a restart
+clears `drafts[]`, so the first draft after a restart has none. `fixes` counts
+the live rows the report passes that the `fixes_against` draft did not pass.
+That draft is the latest earlier one with a parts-review receipt (any verdict),
+else the previous draft. `FIX_LEDGER_SINCE = 2026-11-09T00:00:00Z` dates the
+report requirement by `drafts[].at`. `check` lists each bound draft's `fixes`
+and known regressions under `ledger`.
+
+| Code | When | Remedy |
+| --- | --- | --- |
+| `FIX_LEDGER_MISSING` | WARN: the project has drafts and no `fix_ledger` | record each accepted owner fix with `ledger add` |
+| `FIX_LEDGER_MALFORMED` | `fix_ledger` is not a list, or a row has an unknown key, a duplicate or invalid id, a future or unreadable `at`, empty `by`, `check` or `bar`, an invalid `note`, or a `retired` without `{ at, by, reason }` dated after the row | restore the row `ledger add` wrote, or retire it with `ledger retire` |
+| `FIX_LEDGER_NOTE_UNKNOWN` | `ledger add`: `--note` names no recorded correction or verdict | quote an owner note the record holds |
+| `FIX_LEDGER_NOTE_MISMATCH` | `ledger add`: the `--verbatim-file` words are not in the note `--note` names | quote the owner's words verbatim |
+| `LEDGER_USAGE` | `ledger` arguments are missing, repeated or unsupported, `--note` is not a record path, or the retire reason is empty (exit 2) | use `ledger add <id> --by --check --bar --note --verbatim-file` or `ledger retire <id> --by --reason-file` |
+| `LEDGER_ROW_UNKNOWN` | `ledger retire` names no row | name a row `ledger add` wrote |
+| `LEDGER_ROW_RETIRED` | `ledger retire` names a row already retired | keep the retirement |
+| `LEDGER_SOURCE_CHANGED` | `project.json` changed while `ledger` was validating | retry against the current record |
+| `DRAFT_LEDGER_REPORT_MISSING` | a draft binds no report while the ledger had a live row; a refusal from `FIX_LEDGER_SINCE` or without a readable `at`, a WARN for an earlier draft | run the project's check script on the build and record the draft with `draft-rig --ledger-report <file>` |
+| `DRAFT_LEDGER_REPORT_INVALID` | the binding is not `{ path, sha256, spec }`, or the report is not a literal project path, is under an ignored root, leaves the project, is missing, changed, not JSON, has another `schema`, lacks `build.manifest_sha256` or `script_sha256`, or has a row without a unique id and a result of `pass`, `fail` or `unmeasurable` | retain the report the check script wrote under the project (for example `evidence/`) and record the draft with it |
+| `DRAFT_LEDGER_BUILD_MISMATCH` | the report's `build.manifest_sha256` is not the sha256 of the draft's bound `parts.json` | run the check script on this draft's build and record the draft with that report |
+| `DRAFT_LEDGER_INCOMPLETE` | the report has no row for a live ledger row | run the check script over every non-retired row |
+| `DRAFT_LEDGER_REGRESSION` | a live row the predecessor's report passed is `fail`, `unmeasurable` or absent here, and `--known-regression` does not name it | fix the build, or record the draft with `--known-regression <row id>=<reason file>` for each row |
+| `DRAFT_LEDGER_MALFORMED` | `fixes`, `fixes_against` or `known_regressions` without a report; `known_regressions` is not a list of `{ id, reason }` with unique ids, or names a row that did not regress; `fixes_against` is not an earlier draft with a parts-review receipt or the previous draft (`null` only for the first); `fixes` differs from the rows the report passes and that draft did not | record the draft again with `draft-rig` under a new id; the old record is kept |
+| `INIT_ARTWORK_EXISTS` | `init --painting` names a file whose sha256 is an input of a project directly under `--projects-root` (default: the new project's parent), without `--same-artwork-reason` | record the redo as a version of that project, or give the reason for a different rig kind |
+| `INIT_ARTWORK_USAGE` | an artwork option without `--painting <file> --origin <words>`, an unreadable painting or root, or a reason that is empty or names no matching project (exit 2) | give `--painting` and `--origin`; drop a reason no project needs |
+| `RESTART_USAGE` | `restart` arguments are missing, repeated or unsupported, or the reason file is empty (exit 2) | use `restart [<dir>] --by <human> --reason-file <file>` |
+| `RESTART_NOT_A_PROJECT` | the folder has no readable `rig-create/project@0` `project.json` | run restart on a create project folder |
+| `RESTART_INPUT_INVALID` | a kept input fails the input writer's checks, including a legacy record without writer metadata | restore the file, or register it again with `input add` |
+| `RESTART_PART_SET_INCOMPLETE` | a kept part set (inputs under `<set>/parts/*.png` or `<set>/parts.json`) lacks `<set>/parts.json`, a part PNG, or its rig: `rig.json` and `mesh_report.json` at `<set>/rig/` or `<set>/` | register the missing files with `input add`, or stop keeping the set |
+| `RESTART_MALFORMED` | `restarts` is not a list, or an entry lacks `{ at, by, reason, previous_record_sha256 }` | restore the entry `restart` wrote |
+| `RESTART_SOURCE_CHANGED` | `project.json` changed while `restart` was validating | retry against the current record |
+
+`restart` by `agent` refuses with `SIGNOFF_NOT_HUMAN`. A refused `ledger`,
+`draft-rig` or `restart` write leaves `project.json` byte-identical. A
+restarted record carries exactly the refusals a fresh `init` record carries
+(its open interview), and `restart` refuses any other.

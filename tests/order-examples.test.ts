@@ -84,7 +84,7 @@ test('a cloned new-order example keeps its retained structure while ignored arti
   const report = checkProject(dir);
   expect(report.refusals.map(f => f.code)).toEqual(['SCENE_MODEL_MISMATCH', 'SCENE_MODEL_MISMATCH']);
   expect(report.warnings.map(f => f.code)).toEqual([
-    'DRAFT_RIG_UNAVAILABLE', 'DERIVED_RESULT_MISSING', 'REVIEW_PACKAGE_MISSING', 'REVIEW_PACKAGE_MISSING',
+    'DRAFT_RIG_UNAVAILABLE', 'DRAFT_RIG_UNAVAILABLE', 'DERIVED_RESULT_MISSING', 'REVIEW_PACKAGE_MISSING', 'REVIEW_PACKAGE_MISSING',
   ]);
   // A retained human snapshot remains mandatory and hash-bound on that same clone.
   rmSync(join(dir, 'evidence/structure-decisions.json'));

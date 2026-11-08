@@ -2193,3 +2193,70 @@ when ignored draft artifacts cannot be read. The retained API response remains
 hash- and spec-checked. New writers require the source bytes before recording.
 The examples query the pinned Review CLI, so a Review pin bump regenerates
 these responses and their dependent example bindings.
+
+## One artwork, one project, and the fix ledger (create#285)
+
+One artwork is one project for its whole life. A new project is for a different
+painting or a different rig kind. A redo, a new source ladder, new seeds, a new
+tool version or a new parts route is a new version in the same project. Only
+recorded drafts and versions count as versions; any other build is an
+experiment.
+
+`rig-create init <dir> --painting <file> --origin <words>` copies the painting
+into `inputs/` and registers it as the first input. It refuses with
+`INIT_ARTWORK_EXISTS` when a `project.json` directly under `--projects-root`
+(default: the new project's parent folder) has an input with the same sha256.
+`--same-artwork-reason <file>` allows it, and the new record keeps
+`same_artwork: { reason, at, projects }`. init without `--painting` is unchanged.
+
+The fix ledger lives in `project.json.fix_ledger`, so a restart or a new build
+cannot drop an accepted fix unnoticed. `ledger add <id> --by <who> --check <check
+id> --bar <text> --note <ref> --verbatim-file <file>` records one owner fix:
+the note it answers (`corrections[<id>]` or `versions[v<n>].verdicts[<i>]`),
+the owner's words quoted from it, an opaque check id and the bar.
+`ledger retire <id> --by <who> --reason-file <file>` retires it with a reason.
+A retired row stays in the ledger.
+
+The pixel checks are the project's own script. create binds its report and does
+not run or reproduce a check. A draft is recorded with
+`draft-rig ... --ledger-report <file>`, a `rig-create/fix-ledger-report@1`
+report:
+
+```
+{"schema": "rig-create/fix-ledger-report@1",
+ "build": {"dir": "<as given>", "manifest_sha256": "<sha256 of the build's parts.json>"},
+ "script_sha256": "<sha256 of the check script>",
+ "rows": [{"id": "T1", "result": "pass|fail|unmeasurable", "measured": 3, "bar": "<text>", "reason": null}]}
+```
+
+The report stays under the project outside ignored roots, for example
+`evidence/fix-ledger/`. Build identity is `build.manifest_sha256` against the
+draft's bound `parts.json`; `build.dir` is not identity. Extra keys in a row
+are allowed. The draft records `ledger_report { path, sha256, spec }`,
+`fixes_against`, `fixes` and, when given, `known_regressions [{ id, reason }]`:
+
+- The report must cover every live row (`DRAFT_LEDGER_INCOMPLETE`).
+- A row the previous draft passed must pass again. `fail`, `unmeasurable` or a
+  missing row is a regression (`DRAFT_LEDGER_REGRESSION`), unless
+  `--known-regression <row id>=<reason file>` names it.
+- `fixes` lists the live rows this report passes that the last draft a person
+  saw did not. That draft is the latest earlier one with a parts-review
+  receipt, else the previous draft.
+
+The filled example records the v1 bounce's lantern fix as row `T1` and a later
+draft, `lantern`, with a synthetic passing report
+(`templates/example-draft/evidence/fix-ledger/lantern.json`, written by
+`scripts/example-ledger.ts` through `generate-example-order.ts`).
+
+`rig-create restart [<dir>] --by <human> --reason-file <file>` starts the record
+again at v1 when the owner orders it. It writes the record `init` writes, with
+no versions, drafts, signoffs, plan, answers or review acts. It keeps the name,
+title, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
+`restarts[] { at, by, reason, previous_record_sha256 }`. create does not keep
+the earlier `project.json`; git history holds it. Before writing, restart
+re-validates every input with the input writer's checks. A kept part set
+(inputs under `<set>/parts/*.png` or `<set>/parts.json`) must keep its
+`parts.json`, its PNGs and its rig (`rig.json` and `mesh_report.json`). The
+first draft after a restart has no predecessor, but it covers the whole
+ledger, so the inherited fixes are checked on day one. Codes are in
+[CHECKS.md § Fix ledger, ledger reports and restarts](CHECKS.md#fix-ledger-ledger-reports-and-restarts-create285).

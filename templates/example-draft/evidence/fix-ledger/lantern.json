@@ -1,0 +1,17 @@
+{
+  "schema": "rig-create/fix-ledger-report@1",
+  "build": {
+    "dir": "derived/drafts/lantern/out",
+    "manifest_sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+  },
+  "script_sha256": "df0994c4c995ef5cb4020c4e3eeb3baadeaf2bacf8058b1942b96ce90fbfdf30",
+  "rows": [
+    {
+      "id": "T1",
+      "result": "pass",
+      "measured": 24,
+      "bar": "the lantern pivots at the hand: its swing angle differs from the forearm angle by at least 10 degrees in the sway take",
+      "reason": null
+    }
+  ]
+}

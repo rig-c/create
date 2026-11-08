@@ -3,6 +3,7 @@ import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateExampleReopened } from '../scripts/generate-example-reopened.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
+import { exampleLedgerReport } from '../scripts/example-ledger.ts';
 import { collectSignoffs } from '../src/check.ts';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { collectReopens, liveSignoff } from '../src/reopen.ts';
@@ -80,7 +81,9 @@ test('a parts-review made correction records and resolves against the reopened e
   writeFileSync(join(dir, String(model.path).replace('/example/', '/corrected/')), modelBytes);
   testClock.set(new Date(at + 2000));
   writeFileSync(join(dir, 'derived/drafts/corrected/input/recomposite_rig.png'), 'synthetic stack bytes');
-  draftRigCommand(['corrected', dir, '--config', 'derived/drafts/corrected/config.json', '--from', 'derived/drafts/corrected/out', '--parts', 'derived/drafts/corrected/input']);
+  // The example's ledger has a live row, so the corrected draft binds the project's (synthetic) ledger report.
+  writeFileSync(join(dir, 'evidence/fix-ledger/corrected.json'), exampleLedgerReport(readFileSync(join(dir, 'derived/drafts/corrected/input/parts.json'))));
+  draftRigCommand(['corrected', dir, '--config', 'derived/drafts/corrected/config.json', '--from', 'derived/drafts/corrected/out', '--parts', 'derived/drafts/corrected/input', '--ledger-report', 'evidence/fix-ledger/corrected.json']);
   writeFileSync(join(dir, 'reasoning.txt'), 'Declare the synthetic corrected draft.');
   testClock.set(new Date(at + 3000));
   expect(correctionCommand(['resolve', 'example-fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--draft', 'corrected']).exit).toBe(0);

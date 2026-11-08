@@ -7,6 +7,8 @@ import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { handoff } from './review.ts';
+import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
+import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import type { JsonObject } from './templates.ts';
 
 export const DIRECTION_HELP = `direction --adopt [<dir>]
@@ -52,7 +54,10 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
   const lock=join(dir,'.direction.lock');let fd:number;
   try{fd=openSync(lock,'wx');}catch{directionFail('DIRECTION_SOURCE_CHANGED','project.json','another direction writer holds the lock');}
   let published:string|null=null;const staged:string[]=[];
+  let releasePublication = () => {};
+  let publicationIntent: PendingPublication | null = null;
   try{
+    releasePublication = acquireBoundJobWrite(dir);
     const next=structuredClone(project);const contract=directionContract(project,now);
     let bytes:Buffer|undefined;let doc:JsonObject|undefined;const snapshots=new Map<string,Buffer>([['project.json',original]]);
     const snapshot=(path:string):Buffer=>{const value=directionBytes(dir,path);snapshots.set(path,value);return value;};
@@ -100,7 +105,10 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
     if(collectionRoot && collectionBytes && !directionBytes(collectionRoot,'collection.json').equals(collectionBytes))directionFail('DIRECTION_SOURCE_CHANGED','collection.json','inherited answer context changed during publication');
     for(const[path,expected]of snapshots)if(!directionBytes(dir,path).equals(expected))directionFail('DIRECTION_SOURCE_CHANGED',path,'source bytes changed during publication');
     if(bytes&&doc){const target=directionPath(n);if(!directionBytes(dir,target).equals(bytes))directionFail('DIRECTION_SOURCE_CHANGED',target,'published document changed before commit');}
-    const temp=join(dir,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,`${JSON.stringify(next,null,2)}\n`,{flag:'wx'});renameSync(temp,file);published=null;
+    const recordBytes = Buffer.from(`${JSON.stringify(next,null,2)}\n`);
+    if (action !== '--adopt') publicationIntent = prepareVersionIntent(dir, recordBytes, n);
+    const temp=join(dir,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,recordBytes,{flag:'wx'});renameSync(temp,file);published=null;
+    if (action !== '--adopt') publishCommittedVersion(dir, n);
     return{stdout:action==='--adopt'?'direction: adopted; historical posts preserved':`direction: v${n} recorded; stage unchanged`,exit:0};
-  }finally{if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});closeSync(fd);rmSync(lock);}
+  }finally{cancelUncommittedIntent(dir,publicationIntent);if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});closeSync(fd);rmSync(lock);releasePublication();}
 }

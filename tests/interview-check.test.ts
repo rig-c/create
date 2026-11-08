@@ -358,7 +358,7 @@ describe('waypoints come from the installed @rig-c/parts', () => {
     expect(own.CONFIG_SECTIONS).toEqual(PARTS_SECTIONS);
     for (const section of PARTS_SECTIONS) expect(SECTION_PLACEMENT[section]).toBeDefined();
     const pkg = JSON.parse(readFileSync(join(import.meta.dir, '..', 'package.json'), 'utf8'));
-    expect(pkg.devDependencies['@rig-c/parts']).toBe(PINNED_PACKAGES['@rig-c/parts']);
+    expect(pkg.dependencies['@rig-c/parts']).toBe(PINNED_PACKAGES['@rig-c/parts']);
     const installed = JSON.parse(readFileSync(join(import.meta.dir, '..', 'node_modules', '@rig-c', 'parts', 'package.json'), 'utf8'));
     expect(installed.version).toBe(PINNED_PACKAGES['@rig-c/parts']);
   });

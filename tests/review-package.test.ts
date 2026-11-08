@@ -45,6 +45,24 @@ function checked(dir: string) {
 }
 
 describe('frozen review package', () => {
+  test('copied parts trees replace historical SVG declarations without re-reading absent files', () => {
+    const dir = fixture();
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+    project.versions[0].review_package = { files: [{ path: 'out/parts/piece.svg', sha256: sha('historical SVG') }] };
+    put(dir, 'project.json', JSON.stringify(project));
+    const first = write(dir);
+    expect(first.files).toContainEqual({ path: 'out/parts/piece.png', sha256: sha('synthetic part') });
+    expect((first.files as JsonObject[]).some(file => file.path === 'out/parts/piece.svg')).toBe(false);
+    expect(write(dir)).toEqual(first);
+  });
+  test('config-owned out paths are regenerated from their named source instead of the producer tree', () => {
+    const dir = fixture();
+    put(dir, 'frozen/config.json', JSON.stringify({ generation: { control: { skeleton: 'out/skeleton.json' } } }));
+    put(dir, 'frozen/out/skeleton.json', '{}');
+    const first = write(dir);
+    expect(first.files).toContainEqual({ path: 'out/skeleton.json', sha256: sha('{}') });
+    expect(write(dir)).toEqual(first);
+  });
   test('a declared mask with changed bytes refuses packaging before publication', () => {
     const dir = fixture();
     put(dir, 'frozen/config.json', JSON.stringify({ requirements: 'requirements.json' }));

@@ -74,7 +74,9 @@ function setup(at = '2026-11-08T00:00:00Z') {
   put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json' });
   put(dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: { required: true } });
   put(dir, 'source/adapter.json', []);
-  put(dir, 'source/parts/parts.json', { parts: [{ name: 'rectangle', x: 0, y: 0, w: 8, h: 16 }] });
+  put(dir, 'source/parts/parts.json', { rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
+    parts: [{ name: 'rectangle', from: 'painting:rectangle', x: 0, y: 0, w: 8, h: 16,
+      opaque_px: 128, projected_core_px: 128, source_px_taken: 128, refused_drift_px: 0, merged_px: 0, seam_override_px: 0 }] });
   mkdirSync(join(dir, 'source/parts/parts'), { recursive: true });
   cpSync(join(dir, 'source/rig/images/rectangle.png'), join(dir, 'source/parts/parts/rectangle.png'));
   put(dir, 'source/parts-run.json', partsRunRecord());

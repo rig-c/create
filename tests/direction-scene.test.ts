@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { type Finding } from '../src/check.ts';
 import { optionContext, validateContext } from '../src/choices.ts';
 import { DIRECTION_PATCH_SPEC, DIRECTION_SCENE_SINCE, DIRECTION_SCENE_SPEC, directionHash, directionPostIdentity, objects, patchDirection, readDirection, validateDirectionScene, validateDirectionShape } from '../src/direction.ts';
@@ -8,8 +9,59 @@ import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sceneFixture } from './scene-fixture.ts';
 import { checkDirections, directionCommand, testClock } from './clock.ts';
+import { openCreateJob } from '../src/job-host.ts';
+import { jobHash, jobHostStateRoot, jobPrivateRoot } from '../src/job-outbox.ts';
+import { clockedCli } from './helpers.ts';
+import { readPublished } from '../src/job-publication.ts';
 
 afterEach(() => testClock.reset());
+
+test('direction CLI publishes a committed example-chain post through its bound writer', async () => {
+  const shipped = join(import.meta.dir, '../templates/example-chain');
+  const dir = mkdtempSync(join(tmpdir(), 'create-direction-job-'));
+  cpSync(join(shipped, 'checkpoints/4-direction-post'), dir, { recursive: true });
+  const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as {
+    steps: { kind: string; command: string[]; outputs?: Record<string, string> }[];
+  };
+  const declaration = JSON.parse(readFileSync(join(shipped, 'checkpoints/4-direction-post.json'), 'utf8')) as { chain_step: number };
+  testClock.set('2026-11-08T00:00:00Z');
+  let host: Awaited<ReturnType<typeof openCreateJob>> | undefined;
+  try {
+    for (const step of chain.steps.slice(declaration.chain_step, declaration.chain_step + 5)) {
+      if (step.kind === 'producer') {
+        for (const [path, hash] of Object.entries(step.outputs!)) {
+          const bytes = readFileSync(join(shipped, path));
+          expect(jobHash(bytes)).toBe(hash);
+          mkdirSync(dirname(join(dir, path)), { recursive: true });
+          writeFileSync(join(dir, path), bytes);
+        }
+      } else {
+        const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...step.command.slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+        expect(result.stderr.toString()).toBe('');
+        expect(result.exitCode).toBe(0);
+      }
+    }
+    host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
+    const child = Bun.spawn([process.execPath, ...clockedCli(), ...chain.steps[declaration.chain_step + 5]!.command.slice(1)], {
+      cwd: dir, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    if (exit !== 0) await readPublished({ root: dir, record: { path: 'project.json', sha256: jobHash(readFileSync(join(dir, 'project.json'))) }, result: { path: 'review-live-v2.json', selector: { kind: 'post', version: 2, rigVersion: 1 } } });
+    expect(stderr).toBe('');
+    expect(exit).toBe(0);
+    const publication = host.session.status().publication!;
+    expect(publication.source.projectHash).toBe(jobHash(readFileSync(join(dir, 'project.json'))));
+    expect(publication.source.selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
+    expect(publication.label).toBe('post v2 (rig v1)');
+    expect(publication.source.direction?.sha256).toBe(jobHash(readFileSync(join(dir, 'evidence/direction/v2.json'))));
+  } finally {
+    host?.stop();
+    rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+    rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function setup() {
   const f = sceneFixture(); f.writeScene();
   const doc: JsonObject = { ...f.doc, schema: DIRECTION_SCENE_SPEC, rig: { version: 1, model: f.modelBinding }, scene: sceneReference(currentScene(f.load())!) };

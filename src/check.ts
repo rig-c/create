@@ -1,5 +1,6 @@
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
+import { pendingPublicationHoles } from './job-outbox.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
 import { checkSignoffTarget } from './signoff-target.ts';
 import { checkOverrides } from './overrides.ts';
@@ -145,6 +146,8 @@ export interface CheckReport {
   readonly amendments?: AmendmentSummary[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
+  /** Local delivery gaps, distinct from record-validation refusals. */
+  readonly holes?: Finding[];
 }
 
 type Phase = 'rig' | 'post';
@@ -836,6 +839,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
+  const holes = pendingPublicationHoles(dir);
   const fail = (partial: Partial<CheckReport> = {}): CheckReport => ({
     ok: false,
     project_dir: dir,
@@ -848,6 +852,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
     feedback: [],
     refusals,
     warnings,
+    ...(holes.length ? { holes } : {}),
     ...partial,
   });
 
@@ -968,7 +973,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   warnings.push(...reopenLapseWarnings(project));
 
   return {
-    ok: refusals.length === 0,
+    ok: refusals.length === 0 && holes.length === 0,
     project_dir: dir,
     stage,
     effective_stage: effectiveStage,
@@ -980,6 +985,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
     ...(amendments.length === 0 ? {} : { amendments: amendmentSummaries(project, amendments, reopens) }),
     refusals,
     warnings,
+    ...(holes.length ? { holes } : {}),
   };
 }
 
@@ -1006,11 +1012,12 @@ export function formatReport(report: CheckReport): string {
   }
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);
+  for (const hole of report.holes ?? []) lines.push(`  HOLE ${hole.code}: ${hole.message}`);
   const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
   lines.push(
     report.ok
       ? `clean: ${n(report.warnings.length, 'warning')}; the record is complete for stage ${report.stage}`
-      : `not clear: ${n(report.refusals.length, 'refusal')}, ${n(report.warnings.length, 'warning')}`,
+      : `not clear: ${n(report.refusals.length, 'refusal')}, ${n(report.warnings.length, 'warning')}${report.holes?.length ? `, ${n(report.holes.length, 'hole')}` : ''}`,
   );
   return lines.join('\n');
 }

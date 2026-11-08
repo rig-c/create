@@ -1,0 +1,57 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication } from './job-outbox.ts';
+import { prepareLiveManifest, publicationSelector } from './job-publication.ts';
+import { refuse } from './refusal.ts';
+import type { JsonObject } from './templates.ts';
+
+export function acquireBoundJobWrite(root: string): () => void {
+  if (!readWriterBinding(root)) return () => {};
+  const release = acquireJobLock(root)!;
+  try {
+    if (pendingPublications(root, true).length) refuse('JOB_PUBLISH_PENDING', 'project.json: an earlier committed publication is pending; run rig-create job reconcile before another bound write');
+  } catch (error) { release(); throw error; }
+  return release;
+}
+
+export function prepareVersionIntent(root: string, bytes: Buffer, n: number): PendingPublication | null {
+  const binding = readWriterBinding(root);
+  if (!binding) return null;
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  return enqueuePublication(root, binding, { path: `review-live-v${n}.json`, selector: publicationSelector(project, n) }, bytes);
+}
+
+/** Called by the committing writer, before its own locks are released. */
+export function publishCommittedVersion(root: string, n: number): void {
+  const binding = readWriterBinding(root);
+  if (!binding) return;
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const result = { path: `review-live-v${n}.json`, selector: publicationSelector(project, n) };
+  const entry = enqueuePublication(root, binding, result);
+  entry.phase = 'pending';
+  failPublication(root, entry, entry.failure);
+  try {
+    prepareLiveManifest(root, project, n);
+  } catch {
+    const failure = { code: 'JOB_PUBLICATION_INVALID', message: 'project.json: retained review package cannot be prepared; restore its model/direction sources' };
+    failPublication(root, entry, failure);
+    refuse('JOB_PUBLISH_PENDING', `project.json: committed record ${entry.recordHash} is pending (${failure.code}); run rig-create job reconcile`);
+  }
+  // A separate Bun process runs asynchronous Review while this synchronous writer
+  // keeps its existing call contract and retains both write locks.
+  let exit: number;
+  try {
+    exit = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./job-runtime.ts', import.meta.url)), 'publish'], {
+      stdin: Buffer.from(JSON.stringify({ root, id: entry.id })), stdout: 'pipe', stderr: 'pipe',
+    }).exitCode;
+  } catch {
+    refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} committed but the publication process could not start; restore the runtime and run rig-create job reconcile`);
+  }
+  if (exit !== 0) {
+    const path = join(jobPrivateRoot(root), 'outbox', `${entry.id}.json`);
+    if (!existsSync(path)) return; // The child acknowledged before its abnormal exit.
+    const pending = JSON.parse(readFileSync(path, 'utf8')) as PendingPublication;
+    refuse('JOB_PUBLISH_PENDING', `project.json: committed record ${entry.recordHash} awaits publication${pending.failure ? ` (${pending.failure.code}: ${pending.failure.message})` : ''}; run rig-create job reconcile`);
+  }
+}

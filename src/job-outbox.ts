@@ -30,6 +30,7 @@ export interface WriterBinding {
   jobId: string;
   origin: string;
   fetchCapability: string;
+  listenerIncarnation: string;
 }
 
 export interface PendingPublication {
@@ -182,7 +183,8 @@ export function readWriterBinding(root: string): WriterBinding | null {
   try { value = privateJson(path) as WriterBinding; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   if (value?.schema !== 'rig-create/job-binding@1' || !value.identity || typeof value.jobId !== 'string'
-    || typeof value.origin !== 'string' || typeof value.fetchCapability !== 'string') {
+    || typeof value.origin !== 'string' || typeof value.fetchCapability !== 'string'
+    || value.listenerIncarnation !== undefined && typeof value.listenerIncarnation !== 'string') {
     refuse('JOB_BINDING_INVALID', 'project.json: malformed private live-job binding; reopen the job through rig-create job open');
   }
   return value;

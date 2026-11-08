@@ -70,8 +70,8 @@
       "verbatim": "Approve the synthetic parts-review record.\n",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
-        "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+        "path": "evidence/review-reads/ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53.json",
+        "sha256": "ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53",
         "spec": "rig-create/parts-verdict-cli@1"
       },
       "diff_map": {
@@ -117,19 +117,19 @@
         "motion": "83938c19a41f9f52ea83971dcb34760c5ce1fbe7e61a2b99129f182e50338add"
       },
       "answer_hashes": {
-        "bones": "27504e1183c796855342742df17763dc26180e57afc61da06bb64d7fc68cb018",
-        "meshes": "226f5d3bc062573c54bb54e85cceafb59aaa02270db5ba34ed06469815b4c9d1",
+        "bones": "c44fff0888e66b29095fd66f76a1e3139ab25ae90caa59932d9c68ab5a8518b0",
+        "meshes": "243d6c0ed45a6dcab87374084986746b3a9d10196b4a140d7ba29640d3586c9a",
         "assemble": "9585a4ccbcd8fca140fba7d12468f34f8d3321dda108cb12f0d3b88a729cc1b6",
-        "constraints": "e923eef2936b5dc967d11678da21d1b5e8956148fb4755daf71bf25d9c7c954c",
-        "motion": "eb8ab0724caae087503fbe30217bcfd3d7adcc841a2de237e0693b81a4271109",
+        "constraints": "39afb060c57ef9878ca0730145a6425fe2f5e7b08e9ebef5531b29e60f920f57",
+        "motion": "912c6fc169d35aff2eb5a207bdef4312d701f92dba9d981f9b0805302eccc199",
         "rig_type": "c6336c4c4cf0275f72a3b078b6f9641396159511f633d76198292abc2cbfd58c"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-08T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
-          "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+          "path": "evidence/review-reads/ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53.json",
+          "sha256": "ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53",
           "spec": "rig-create/parts-verdict-cli@1"
         }
       },
@@ -153,15 +153,15 @@
         "constraints": "79c3a1af5871d75c61fafed54292631238cb1526b586237a26d47164fd3082a8"
       },
       "answer_hashes": {
-        "bones": "27504e1183c796855342742df17763dc26180e57afc61da06bb64d7fc68cb018",
-        "constraints": "e923eef2936b5dc967d11678da21d1b5e8956148fb4755daf71bf25d9c7c954c"
+        "bones": "c44fff0888e66b29095fd66f76a1e3139ab25ae90caa59932d9c68ab5a8518b0",
+        "constraints": "39afb060c57ef9878ca0730145a6425fe2f5e7b08e9ebef5531b29e60f920f57"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-08T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
-          "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+          "path": "evidence/review-reads/ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53.json",
+          "sha256": "ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53",
           "spec": "rig-create/parts-verdict-cli@1"
         }
       },
@@ -218,7 +218,7 @@
       "answer_hashes": {
         "camera_depth": "d75b83ff8ac70182738f5f3d611b555c0194942f2137e2e9ce6bb55c97e71f14",
         "post_timing": "aaac0e2f85452f82cb051392fb58c68e427f2d0dcce556ff68ff3dd70f384031",
-        "motion": "eb8ab0724caae087503fbe30217bcfd3d7adcc841a2de237e0693b81a4271109",
+        "motion": "912c6fc169d35aff2eb5a207bdef4312d701f92dba9d981f9b0805302eccc199",
         "post_composition": "95ba975d38054eff1f985656375df83f71be789ab2ebdee221464fbb0170a2db"
       }
     },
@@ -773,7 +773,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-bones.json",
-              "sha256": "d676aded0234b33d05e0c4af477f3b304905be50cd43b7965f63bac71581364f"
+              "sha256": "22a21e130581f7702a86d22469c515b50f79c6d3ef9ab4708162a23aee028596"
             },
             "picks": [
               {
@@ -969,7 +969,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-meshes.json",
-              "sha256": "3d137cc5f74a213653f7ff778f966f795bdfe0d17b901067fa0403745108f687"
+              "sha256": "e0cc997a599a9501849bfe7beabf3d7017121c446a566bf2d2d90a84f2848ee8"
             },
             "picks": [
               {
@@ -1126,7 +1126,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-constraints.json",
-              "sha256": "f4028061e49cf29d0acfb3a99b985d8ff1d61024578f2e8a1c6d368e1cb4be6f"
+              "sha256": "21d97817d2210815e30ccf46dd08067216d2c667fecb4389f6609819e4a66644"
             },
             "picks": [
               {
@@ -1372,7 +1372,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-motion.json",
-              "sha256": "995376f4163023fa68b66856cfb0a994212bd67d78c9b0e5bbacea5b83edca83"
+              "sha256": "7bdd071fff9e3b48a068531a1d227ebdee5e8e11b9999434127e7f46fe6a7608"
             },
             "picks": [
               {
@@ -1745,8 +1745,8 @@
         "signoff_at": "2026-11-08T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
-          "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2",
+          "path": "evidence/review-reads/ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53.json",
+          "sha256": "ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53",
           "spec": "rig-create/parts-verdict-cli@1"
         }
       },
@@ -3352,8 +3352,8 @@
       "draft_id": "example",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2.json",
-        "sha256": "7435ebf0ea8b85bfdbb8b502713ff7751bbc8d9181d9c1ca1af279ca57f612a2"
+        "path": "evidence/review-reads/ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53.json",
+        "sha256": "ee443c0ef04d761e724da1f99ebf89c52900553817e7d60967b8a34aac031e53"
       },
       "route": "cli",
       "argv": [

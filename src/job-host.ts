@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobReviewerBinding } from '@rig-c/review/job-host';
+import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding } from '@rig-c/review/job-host';
 import { checkProject } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -12,18 +12,51 @@ function installBinding(root: string, binding: WriterBinding): void {
   writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
 }
 
-function options(identity: JobIdentity, install: boolean): JobHostOptions {
+function reuseBinding(identity: JobIdentity): JobHostReuseBinding {
+  return {
+    root: identity.root, stateDir: identity.stateDir, fingerprint: identity.fingerprint,
+    reviewer: { id: identity.reviewer.id, role: identity.reviewer.role },
+    readerId: identity.readerId, bindingId: identity.bindingId,
+    partsEnumeratorId: identity.partsEnumeratorId, partsEnumeratorVersion: identity.enumeratorVersion,
+    apiSchema: identity.apiSchema as JobHostReuseBinding['apiSchema'],
+    actSchema: identity.actSchema as JobHostReuseBinding['actSchema'],
+  };
+}
+
+type WriterGrant = Pick<WriterBinding, 'jobId' | 'origin' | 'fetchCapability'>;
+
+function options(
+  identity: JobIdentity,
+  install: boolean,
+  binding?: Pick<WriterBinding, 'jobId' | 'origin' | 'listenerIncarnation'>,
+  onGrant?: (grant: WriterGrant) => void,
+): JobHostOptions {
   return {
     root: identity.root, stateDir: identity.stateDir, fingerprint: identity.fingerprint, reviewer: identity.reviewer,
     readerId: identity.readerId, readPublished, partsEnumeratorId: identity.partsEnumeratorId, partsEnumerator,
     bindingId: identity.bindingId,
     installWriterBinding: async grant => {
-      if (install) installBinding(identity.root, { schema: 'rig-create/job-binding@1', identity, ...grant });
+      if (install) onGrant?.(grant);
     },
+    ...(binding ? {
+      reuseOnly: {
+        expected: {
+          jobId: binding.jobId,
+          origin: binding.origin,
+          listenerIncarnation: binding.listenerIncarnation,
+          binding: reuseBinding(identity),
+        },
+      },
+    } : {}),
   };
 }
 
-export async function openCreateJob(root: string, reviewer: JobReviewerBinding, now: number): Promise<JobOwnerHost> {
+export async function openCreateJob(
+  root: string,
+  reviewer: JobReviewerBinding,
+  now: number,
+  startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+): Promise<JobOwnerHost> {
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
   try {
@@ -31,10 +64,22 @@ export async function openCreateJob(root: string, reviewer: JobReviewerBinding, 
     const identity = currentJobIdentity({ root, stateDir: existing?.identity.stateDir ?? join(jobHostStateRoot(root), 'host'), fingerprint: 'rig-create/live-review/1', reviewer }, root);
     privateDirectory(identity.stateDir);
     if (existing) assertJobIdentity(existing.identity, identity);
-    const host = await startJobHost({ ...options(identity, true), ...(existing ? { port: Number(new URL(existing.origin).port) } : {}) });
+    let writerGrant: WriterGrant | undefined;
+    const host = await startHost({
+      ...options(identity, true, undefined, grant => { writerGrant = grant; }),
+      ...(existing ? { port: Number(new URL(existing.origin).port) } : {}),
+    });
     const file = join(root, 'project.json');
     const temporary = join(root, '.rig-create-job-record.tmp');
     try {
+      if (host.attachment && writerGrant) {
+        installBinding(identity.root, {
+          schema: 'rig-create/job-binding@1',
+          identity,
+          ...writerGrant,
+          listenerIncarnation: host.attachment.listenerIncarnation,
+        });
+      }
       const project = JSON.parse(readFileSync(file, 'utf8'));
       const next = { ...project, review_job: { jobId: host.session.jobId, origin: host.origin } };
       const failure = newFindings(baselineOf(checkProject(root, project, { now })), checkProject(root, next, { now }).refusals);
@@ -50,19 +95,46 @@ export async function openCreateJob(root: string, reviewer: JobReviewerBinding, 
   } finally { release(); }
 }
 
-/** One attachment boundary, to switch to Review's future reuse-only operation. */
-export async function attachCreateJob(entry: PendingPublication, requested = currentJobIdentity(entry.identity, entry.root),
-  beforeAttach?: () => void | Promise<void>): Promise<JobOwnerHost> {
+function isAttachRefused(error: unknown): error is Extract<JobHostAttachFailure, { code: 'JOB_HOST_ATTACH_REFUSED' }> {
+  return typeof error === 'object' && error !== null
+    && (error as { code?: unknown }).code === 'JOB_HOST_ATTACH_REFUSED'
+    && typeof (error as { reason?: unknown }).reason === 'string'
+    && typeof (error as { phase?: unknown }).phase === 'string';
+}
+
+function isReuseMismatch(error: unknown): error is Extract<JobHostAttachFailure, { code: 'JOB_HOST_REUSE_MISMATCH' }> {
+  return typeof error === 'object' && error !== null
+    && (error as { code?: unknown }).code === 'JOB_HOST_REUSE_MISMATCH'
+    && typeof (error as { field?: unknown }).field === 'string'
+    && 'expected' in error && 'actual' in error;
+}
+
+/** One attachment boundary, using Review's strict reuse-only operation. */
+export async function attachCreateJob(
+  entry: PendingPublication,
+  requested = currentJobIdentity(entry.identity, entry.root),
+  beforeAttach?: () => void | Promise<void>,
+  startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+): Promise<JobOwnerHost> {
   assertJobIdentity(entry.identity, requested);
   const binding = readWriterBinding(requested.root);
   if (!binding || binding.jobId !== entry.jobId || binding.origin !== entry.origin) {
     refuse('JOB_HOST_REUSE_MISMATCH', `project.json: host incarnation expected=${entry.jobId} found=${binding?.jobId ?? 'absent'}; reopen the original live job before rig-create job reconcile`);
   }
+  if (!binding.listenerIncarnation) {
+    refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: listenerIncarnation expected=a bound listener found=absent in the private binding; reopen the live job through rig-create job open, then run rig-create job reconcile');
+  }
   assertJobIdentity(entry.identity, binding.identity);
   await beforeAttach?.();
   let host: JobOwnerHost;
-  try { host = await startJobHost(options(requested, false)); }
+  try { host = await startHost(options(requested, false, binding)); }
   catch (error) {
+    if (isAttachRefused(error)) {
+      refuse('JOB_HOST_ATTACH_REFUSED', `project.json: live host attach refused (reason=${error.reason}, phase=${error.phase}); reopen or restore the bound live host before rig-create job reconcile`);
+    }
+    if (isReuseMismatch(error)) {
+      refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.field} expected=${JSON.stringify(error.expected)} found=${JSON.stringify(error.actual)}; restore the bound host configuration, then run rig-create job reconcile`);
+    }
     if (error instanceof Error && (error as Error & { code?: string }).code === 'JOB_HOST_REUSE_MISMATCH') {
       refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.message}; restore the bound host options before rig-create job reconcile`);
     }
@@ -75,9 +147,13 @@ export async function attachCreateJob(entry: PendingPublication, requested = cur
   return host;
 }
 
-export async function publishPending(entry: PendingPublication, requested?: JobIdentity,
-  beforeAttach?: () => void | Promise<void>): Promise<void> {
-  const host = await attachCreateJob(entry, requested, beforeAttach);
+export async function publishPending(
+  entry: PendingPublication,
+  requested?: JobIdentity,
+  beforeAttach?: () => void | Promise<void>,
+  startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+): Promise<void> {
+  const host = await attachCreateJob(entry, requested, beforeAttach, startHost);
   try {
     const bytes = readFileSync(join(entry.root, 'project.json'));
     if (publicationVersionHash(bytes, entry.result) !== entry.versionHash) refuse('JOB_PUBLICATION_STALE', 'project.json: pending version changed; restore its retained entry/files before reconciling');

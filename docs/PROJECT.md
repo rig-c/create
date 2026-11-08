@@ -1714,7 +1714,9 @@ writes `project.json` or invokes create. Review 1.6.0 has no authored camera
 consumer; review#373 consumes this contract after it lands. No camera Apply
 capability is claimed for that installation.
 
-Review's output is a closed `rig-review-direction-patch/1` file with exactly
+This is a planned contract. No review version produces it today: the direction
+producer is review#373, which is parked, and its result will arrive as a job act
+(create#271). The planned patch is a closed `rig-review-direction-patch/1` with exactly
 `{schema,source_post,rig_model_sha256,direction_sha256,replace}`. `replace` holds
 one or more of `camera`, `timing`, `take`, replacing whole typed sections only.
 The source is the current post, and both base hashes must match. Unknown keys,

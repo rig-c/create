@@ -1,13 +1,13 @@
+import { syntheticReviewRunner, syntheticReviewOrigin } from './review-read-fixture.ts';
+import { Refusal } from '../src/refusal.ts';
 /** Synthetic values in review's published applied/2 serializer shape, not producer measurements. */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { correctionHash } from '../src/corrections.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
-import { checkCorrections, TEST_NOW, testClock } from './clock.ts';
-import { clockedCli } from './helpers.ts';
+import { checkCorrections, correctionCommand, TEST_NOW, testClock } from './clock.ts';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -34,7 +34,7 @@ function fixture(change: (applied: JsonObject) => void) {
   const projectFile = join(dir, 'project.json');
   const project = JSON.parse(readFileSync(projectFile, 'utf8'));
   project.versions[1].review_origin.applied = applied;
-  project.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(file));
+  project.versions[1].review_origin = syntheticReviewOrigin(dir,1,'synthetic-apply',applied);
   writeFileSync(projectFile, JSON.stringify(project, null, 2) + '\n');
   return dir;
 }
@@ -44,7 +44,14 @@ function command(dir: string, action: 'record' | 'resolve') {
     : ['resolve', 'fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--version', '2'];
   // Capture, the corrected build and closure happen one second apart, in that order.
   testClock.set(TEST_NOW + (action === 'record' ? 0 : 2000));
-  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'correction', ...args], { cwd: process.cwd() });
+  let result: {exitCode:number;stdout:Buffer;stderr:Buffer};
+  try {
+    const value=correctionCommand(args,syntheticReviewRunner);
+    result={exitCode:value.exit,stdout:Buffer.from(value.stdout),stderr:Buffer.from('')};
+  } catch(error) {
+    if(!(error instanceof Refusal))throw error;
+    result={exitCode:error.exitCode,stdout:Buffer.from(''),stderr:Buffer.from(error.code+' '+error.message)};
+  }
   if (action === 'record' && result.exitCode === 0) {
     // The synthetic corrected build is declared after the request.
     const file = join(dir, 'project.json');
@@ -63,7 +70,7 @@ function refused(dir: string, action: 'record' | 'resolve', code: string) {
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 }
 for (const field of ['stageInputHash', 'check.source']) {
-  test(`published ${field} records and resolves through CLI`, () => {
+  test(`published ${field} records and resolves through the writer with an injected CLI read`, () => {
     const dir = fixture(applied => {
       if (field === 'check.source') {
         delete applied.stageInputHash;

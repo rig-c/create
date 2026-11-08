@@ -68,7 +68,7 @@ export const advanceCommand = at(progress.advanceCommand);
 export const amendCommand = at(amend.amendCommand);
 export const collectionCommand = at(pins.collectionCommand);
 export const collectionInitCommand = at(collectionWriters.collectionInitCommand);
-export const correctionCommand = at(correctionWriters.correctionCommand);
+export const correctionCommand = (args: string[], runner?: import('../src/review-read.ts').ReviewReadRunner): ReturnType<typeof correctionWriters.correctionCommand> => correctionWriters.correctionCommand(args,current,runner);
 export const draftRigCommand = at(drafts.draftRigCommand);
 export const handoffCommand = at(review.handoffCommand);
 export const intakeReportCommand = at(intake.intakeReportCommand);

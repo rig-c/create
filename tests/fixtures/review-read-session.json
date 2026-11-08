@@ -1,0 +1,99 @@
+{
+  "schema": "rig-review-session/1",
+  "id": "synthetic",
+  "revision": "1",
+  "sourceHash": "2aee7c2e255dce26cc1d1c581810e3994fc5347350f0bdc595e7a56fb9f455be",
+  "reviewedSource": {
+    "packageRevision": "1",
+    "viewerVersion": "2.5.0",
+    "runtimeVersion": "1.23.0",
+    "rig": null,
+    "motion": null
+  },
+  "status": "changes-requested",
+  "checkpoints": {},
+  "feedback": [
+    {
+      "id": "correction-one",
+      "frameStart": 0,
+      "frameEnd": 0,
+      "target": {
+        "kind": "rig",
+        "name": "synthetic"
+      },
+      "category": "defect",
+      "summary": "Adjust the idle keys",
+      "context": {
+        "applied": {
+          "schema": "rig-review-applied/2",
+          "buildId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "patch": {
+            "schema": "rig-review-config-patch/1",
+            "config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ops": [
+              {
+                "op": "replace",
+                "path": "/rig/idle_keys",
+                "value": "direct"
+              }
+            ],
+            "producer": {
+              "name": "@rig-c/parts",
+              "version": "2.30.1"
+            },
+            "op": {
+              "cmd": "rig",
+              "args": [
+                "--idle-keys",
+                "direct"
+              ]
+            }
+          },
+          "patchSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "configHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "modelHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "producer": {
+            "package": "@rig-c/parts",
+            "version": "2.30.1"
+          },
+          "compiler": {
+            "package": "@rig-c/core",
+            "version": "synthetic"
+          },
+          "line": "synthetic producer evidence",
+          "check": {
+            "schema": "rig-review-check-summary/1",
+            "pass": true,
+            "exitCode": 0,
+            "line": "check: PASS",
+            "bars": {
+              "SYNTHETIC": "PASS"
+            },
+            "gate": true
+          },
+          "diff": {
+            "count": 1,
+            "paths": [
+              "/rig"
+            ]
+          },
+          "files": {
+            "documents": [],
+            "images": {
+              "changed": 0,
+              "unchanged": 0,
+              "names": []
+            }
+          }
+        },
+        "interval": {
+          "frameStart": 0,
+          "frameEnd": 0,
+          "inclusive": true
+        }
+      }
+    }
+  ],
+  "feedbackWarnings": [],
+  "updatedAt": "2026-11-08T13:47:48.773Z"
+}

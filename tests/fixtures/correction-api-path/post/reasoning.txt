@@ -1,0 +1,1 @@
+Agent declaration of the recorded response.

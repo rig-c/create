@@ -2077,3 +2077,28 @@ edge. Destination left is `(rect.x-vx)*s`, top is
 `(vy+vh-rect.y-rect.height)*s`, width is `rect.width*s`, height is
 `rect.height*s`. Foreground is optional. Review #482 owns that consumer
 change and the inspection camera default. Create performs no rendering.
+
+## Corrections through Review feedback
+
+For config corrections, `--feedback-file`, `--applied-feedback` and
+`--patch-file` now take the Review package argument to `rig-review feedback`,
+with `--item` or `--feedback-id` selecting the saved item. create passes that
+argument unchanged from the project directory and records the CLI argv.
+`--patch-file` selects the patch embedded in that applied item. A downloaded
+preview patch that Review has never applied has no API source. For example,
+a proposed config-patch JSON with no saved applied item must first be applied
+and submitted through Review before create can record it.
+
+create stores the exact stdout at `evidence/review-reads/<sha256>.json`.
+The correction artifact's `review_read` contains `route: "cli"`, `argv`,
+`stdout: {path, sha256}` and `tool: {name, version}`. The `feedback.file`
+binding names those same stdout bytes. A version's `review_origin` uses
+`review_read` and `feedback` with the same bindings. `check` consumes these
+stored responses and does not invoke Review. Records before
+`REVIEW_READ_SINCE` without a receipt get `REVIEW_READ_LEGACY` and preserve
+their history without opening producer-saved session or patch files.
+
+The field inventory used synthetic declared applied/2 through Review's
+browserless session PUT. Producer Apply was outside this inventory. The inventory confirmed
+`patch`, `patchSha256`, `configHash`, `modelHash`, `check` and `files` survive
+`feedback --format json`.

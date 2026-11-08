@@ -1,3 +1,4 @@
+import { retainedReviewRead, reviewReadLegacy, ReviewReadError } from './review-read.ts';
 import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
@@ -174,7 +175,9 @@ function changed(a: JsonObject, b: JsonObject): boolean {
 export function correctionApplied(dir: string, artifact: JsonObject): { feedback: JsonObject; item: JsonObject; applied: JsonObject } {
   const binding = artifact.feedback;
   if (!isObject(binding) || !closed(binding, ['file', 'item_id']) || !text(binding.item_id)) return fail('CORRECTION_APPLIED_INVALID', 'feedback requires file and item_id');
-  const feedback = correctionJson(correctionFile(dir, binding.file));
+  let feedback: JsonObject;
+  try { feedback = retainedReviewRead(dir, artifact.review_read, binding.file); }
+  catch (error) { if (error instanceof ReviewReadError) return fail(error.code,error.message); throw error; }
   const matches = bindings(feedback.feedback).filter(f => f.id === binding.item_id);
   const item = matches[0];
   if (feedback.schema !== 'rig-review-session/1' || !isObject(feedback.reviewedSource) || matches.length !== 1 || !isObject(item) || !text(item.summary) || !isObject(item.context) || !isObject(item.context.applied)) return fail('CORRECTION_APPLIED_INVALID', 'expected one session feedback item with context.applied');
@@ -259,10 +262,6 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
     const required = expected.filter(x => isObject(x) && (x === draft.config || String(x.path).endsWith('/parts.json') || String(x.path).includes('/parts/') || /\/(rig|motion|mesh_report)\.json$/.test(String(x.path))));
     if (!required.every(x=>files.some(f=>sameHash(x,f))) || !files.every(f => expected.some(x => sameHash(x, f)))) fail('CORRECTION_APPLIED_INVALID', 'draft handoff contains foreign inputs');
   } else fail('CORRECTION_APPLIED_INVALID', 'config patch Apply requires rig or reviewed draft');
-  if (artifact.patch !== undefined) {
-    const patch = correctionJson(correctionFile(dir, artifact.patch)); validateCorrectionPatch(patch);
-    if (!equal(patch, applied.patch)) fail('CORRECTION_APPLIED_INVALID', 'preview patch differs from applied.patch');
-  }
   const summary = applied.check;
   if (artifact.state === 'applied-and-checked') {
     if (!isObject(summary) || summary.schema !== 'rig-review-check-summary/1' || summary.pass !== true || summary.exitCode !== 0 || summary.gate !== true || !text(summary.line) || !isObject(summary.bars) || (summary.source !== undefined && !['remesh', 'retune', 'check'].includes(String(summary.source)))) fail('CORRECTION_APPLIED_INVALID', 'claimed checked Apply lacks a passing producer check summary');
@@ -342,28 +341,37 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       const artifact = record.artifact;
       if (!isObject(artifact)) fail('CORRECTION_MALFORMED', 'missing artifact');
       const art = artifact as JsonObject;
+      const apiArtifact = record.path === 'made' && !direction;
+      const legacyRead = apiArtifact && art.review_read === undefined && reviewReadLegacy(record.at);
+      if (legacyRead) warnings.push(correctionFinding('REVIEW_READ_LEGACY', path, 'historical correction has no CLI response receipt; preserve history and capture new results through Review feedback'));
+      if (legacyRead) {
+        if(record.by !== 'user') fail('CORRECTION_MALFORMED','made requires by:user');
+        if(art.kind === 'unsupported') {
+          if(!closed(art,['kind','operation','reason','files','producer_schema']) || !['mesh-delta','retarget','keyed-animation','other'].includes(String(art.operation)) || !text(art.reason) || !text(art.producer_schema) || !Array.isArray(art.files) || !art.files.length) fail('CORRECTION_MALFORMED','invalid historical unsupported artifact');
+          if(record.outcome !== null) fail('CORRECTION_UNSUPPORTED_OUTCOME','unsupported operations cannot claim completion');
+        } else if(art.kind !== 'config-patch' || !closed(art,['kind','state','feedback'],['patch']) || !['preview/pending','applied-and-checked'].includes(String(art.state)) || on.kind === 'post' || on.kind === 'parts' || record.outcome !== null && art.state !== 'applied-and-checked') fail('CORRECTION_MALFORMED','invalid historical config patch artifact');
+      }
+      if (apiArtifact && !legacyRead) {
+        try { retainedReviewRead(dir,art.review_read,art.kind === 'unsupported' ? asArray(art.files)[0] : isObject(art.feedback) ? art.feedback.file : undefined); }
+        catch(error) { if(error instanceof ReviewReadError) fail(error.code,error.message); throw error; }
+      }
       if (record.path === 'described') {
         if (!closed(art, ['kind']) || art.kind !== 'description') fail('CORRECTION_MALFORMED', 'described artifact is description');
       } else if (direction) {
         if (record.by !== 'user') fail('CORRECTION_MALFORMED','made requires by:user');
         try { validateDirectionOutcome(dir,project,record,art); } catch(e) { if(e instanceof DirectionError) fail(e.code,e.message); throw e; }
-      } else {
+      } else if (!legacyRead) {
         if (record.by !== 'user') fail('CORRECTION_MALFORMED', 'made requires by:user');
         if (art.kind === 'unsupported') {
-          if (!closed(art, ['kind', 'operation', 'reason', 'files', 'producer_schema']) || !['mesh-delta', 'retarget', 'keyed-animation', 'other'].includes(String(art.operation)) || !text(art.reason) || !text(art.producer_schema) || !Array.isArray(art.files) || !art.files.length) fail('CORRECTION_MALFORMED', 'invalid unsupported artifact');
-          for (const f of art.files as Json[]) correctionFile(dir, f);
+          if (!closed(art, ['kind', 'operation', 'reason', 'files', 'producer_schema'], ['review_read']) || !['mesh-delta', 'retarget', 'keyed-animation', 'other'].includes(String(art.operation)) || !text(art.reason) || !text(art.producer_schema) || !Array.isArray(art.files) || art.files.length!==1) fail('CORRECTION_MALFORMED', 'invalid unsupported artifact');
           if (record.outcome !== null) fail('CORRECTION_UNSUPPORTED_OUTCOME', 'unsupported operations cannot claim completion');
         } else {
-          if (art.kind !== 'config-patch' || !closed(art, ['kind', 'state', 'feedback'], ['patch']) || !['preview/pending', 'applied-and-checked'].includes(String(art.state)) || on.kind === 'post' || on.kind === 'parts') fail('CORRECTION_MALFORMED', 'config patch needs rig/draft and known state');
-          if (art.patch !== undefined) {
-            const patch = correctionJson(correctionFile(dir, art.patch)); validateCorrectionPatch(patch);
-            if (!isObject(on.config) || patch.config_sha256 !== on.config.sha256) fail('CORRECTION_SOURCE', 'patch targets another source config');
-          }
+          if (art.kind !== 'config-patch' || !closed(art, ['kind', 'state', 'feedback','review_read']) || !['preview/pending', 'applied-and-checked'].includes(String(art.state)) || on.kind === 'post' || on.kind === 'parts') fail('CORRECTION_MALFORMED', 'config patch needs rig/draft and known state');
           if (art.feedback !== null) {
             try { validateApplied(dir, project, record, art, on, warnings, path); }
             catch (error) { if (error instanceof CorrectionError) throw error; fail('CORRECTION_APPLIED_INVALID', `config-named inputs unreadable: ${error instanceof Error ? error.message : String(error)}`); }
           }
-          else if (art.patch === undefined || art.state === 'applied-and-checked') fail('CORRECTION_APPLIED_INVALID', 'missing preview patch or checked session');
+          else fail('CORRECTION_APPLIED_INVALID', 'missing preview patch or checked session');
           if (record.outcome !== null && art.state !== 'applied-and-checked') fail('CORRECTION_APPLIED_INVALID', 'pending preview cannot claim completed outcome');
         }
       }
@@ -372,7 +380,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
         try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
         const closure = record.closure;
         if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > now || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? (record.path === 'described' || sameHash(on.model,outcome.model)) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
-        if (record.path === 'made' && on.kind === 'rig' && outcome.kind === 'rig') {
+        if (record.path === 'made' && !legacyRead && on.kind === 'rig' && outcome.kind === 'rig') {
           const target = versionRecord(project, outcome.n); const { applied } = correctionApplied(dir, art);
           const origin = target.review_origin;
           if (!isObject(origin) || origin.source_version !== on.n || !equal(origin.applied, applied) || !isObject(art.feedback) || !equal(origin.feedback, art.feedback.file) || origin.feedback_id !== art.feedback.item_id) fail('CORRECTION_OUTCOME', 'result version must preserve the same review_origin');

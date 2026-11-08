@@ -1,5 +1,7 @@
+import { isDeepStrictEqual } from 'node:util';
+import { readReview, ReviewReadError, type ReviewReadRunner } from './review-read.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPostIdentity, validateDirectionOutcome } from './direction.ts';
-/** Human capture and declared outcome writers. No producer or review process is launched. */
+/** Human correction capture through Review's read-only feedback CLI. */
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
@@ -15,13 +17,13 @@ export const CORRECTION_HELP = `correction --adopt [<dir>]
 correction record [<dir>] --id <id> --path described|made --stage <review-stage>
   (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
   --by <human> [--verbatim-file <UTF-8 file>] [--source <text>] [--resolves <id>]
-  made: --direction-patch-file <retained direction patch> (post@2) | --patch-file <retained patch> | --feedback-file <retained session> --item <id>
+  made: --direction-patch-file <retained direction patch> (post@2) | (--patch-file <review package> | --feedback-file <review package>) --item <id>
 correction resolve <id> [<dir>]
   (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
-  --by agent --reasoning-file <file> [--applied-feedback <session> --feedback-id <id>]
+  --by agent --reasoning-file <file> [--applied-feedback <review package> --feedback-id <id>]
   described direction-review: --version binds the authored direction and compiled model.
   --json prints the recorded object. No command executes a patch or producer.
-  A preview patch hash is independent of review's retained patchSha256 claim.`;
+  Config patches come only from the selected applied item through Review feedback.`;
 const common = ['--version', '--draft', '--parts-file', '--model-file', '--by'];
 function usage(why: string): never { refuse('CORRECTION_USAGE', `corrections: ${why}; ${CORRECTION_HELP}`, USAGE_EXIT); }
 function objects(v: JsonObject[string]): JsonObject[] { return asArray(v).filter(isObject); }
@@ -76,10 +78,10 @@ function openStage(project: JsonObject, stage: string): void {
   const reopens=collectReopens(project,[]);
   if (collectSignoffs(project,[]).some(s=>s.stage===stage&&s.checkpoint===null&&liveSignoff(reopens,stage,s.at)) || objects(project.versions).some(v=>objects(v.verdicts).some(d=>d.review===stage&&d.verdict==='accepted'&&liveSignoff(reopens,stage,Date.parse(String(d.at)))))) throw new CorrectionError('CORRECTION_SOURCE',`approval for ${stage} is still live; reopen before changing its corrections`);
 }
-export function correctionCommand(args: string[], now: number): {stdout:string;exit:number} {
-  try { return command(args,now); } catch(e) { if(e instanceof DirectionError) refuse(e.code,e.message); if(e instanceof CorrectionError) { const f=correctionFinding(e.code,'corrections',e.message);refuse(f.code,f.message); } throw e; }
+export function correctionCommand(args: string[], now: number, runner?: ReviewReadRunner): {stdout:string;exit:number} {
+  try { return command(args,now,runner); } catch(e) { if(e instanceof ReviewReadError) refuse(e.code,e.message); if(e instanceof DirectionError) refuse(e.code,e.message); if(e instanceof CorrectionError) { const f=correctionFinding(e.code,'corrections',e.message);refuse(f.code,f.message); } throw e; }
 }
-function command(args:string[],now:number): {stdout:string;exit:number} {
+function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:string;exit:number} {
   const action=args[0];const opts:Record<string,string>={};const positional:string[]=[];let json=false;
   const allowed=action==='record'?[...common,'--id','--path','--stage','--verbatim-file','--source','--resolves','--patch-file','--direction-patch-file','--feedback-file','--item']:action==='resolve'?[...common,'--reasoning-file','--applied-feedback','--feedback-id']:[];
   for(let i=1;i<args.length;i++) {const arg=args[i] as string;if(arg==='--json'){if(json)usage('duplicate --json');json=true;}else if(allowed.includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`${arg} requires one value`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
@@ -123,17 +125,17 @@ function command(args:string[],now:number): {stdout:string;exit:number} {
       if(direction) {
         if(opts['--item'] || !opts['--verbatim-file'])usage('direction capture needs verbatim-file and no item');
         artifact={kind:'direction-patch',patch:correctionBinding(dir,opts['--direction-patch-file'] as string),state:'preview/pending',result:null};verbatim=readVerbatim(opts['--verbatim-file']);
-      }else if(opts['--patch-file']) {
-        if(opts['--item']||!opts['--verbatim-file'])usage('patch-only capture needs verbatim-file and no item');
-        artifact={kind:'config-patch',patch:correctionBinding(dir,opts['--patch-file']),state:'preview/pending',feedback:null};verbatim=readVerbatim(opts['--verbatim-file']);
       }else {
-        if(!opts['--item']||opts['--verbatim-file'])usage('session capture requires item and uses its summary verbatim');
-        const binding=correctionBinding(dir,opts['--feedback-file'] as string);const feedback=correctionJson(correctionBytes(dir,opts['--feedback-file'] as string));
+        if(!opts['--item']||opts['--verbatim-file'])usage('API capture requires item and uses its summary verbatim');
+        const input = (opts['--feedback-file'] ?? opts['--patch-file']) as string;
+        const read = readReview(dir,input,runner);
+        const feedback=read.value;
         const items=objects(feedback.feedback).filter(i=>i.id===opts['--item']);const item=items[0];
-        if(feedback.schema!=='rig-review-session/1'||items.length!==1||!item||typeof item.summary!=='string'||!isObject(item.context)||!isObject(item.context.applied))throw new CorrectionError('CORRECTION_APPLIED_INVALID','session needs exactly one applied item');
+        if(items.length!==1||!item||typeof item.summary!=='string'||!isObject(item.context)||!isObject(item.context.applied))throw new CorrectionError('CORRECTION_APPLIED_INVALID','session needs exactly one applied item');
         verbatim=item.summary;const applied=item.context.applied;
-        if(applied.schema==='rig-review-applied/2' && on.kind!=='post') artifact={kind:'config-patch',state:'preview/pending',feedback:{file:binding,item_id:opts['--item']}};
-        else artifact={kind:'unsupported',operation:applied.schema==='rig-review-applied/3'?'mesh-delta':String(applied.op).includes('retarget')?'retarget':String(applied.op).includes('key')?'keyed-animation':'other',reason:'No checked create adapter for this producer-owned operation',files:[binding],producer_schema:String(applied.schema)};
+        if(opts['--patch-file'] && applied.schema!=='rig-review-applied/2')throw new CorrectionError('CORRECTION_APPLIED_INVALID','patch-file requires a config patch applied through Review');
+        if(applied.schema==='rig-review-applied/2' && on.kind!=='post') artifact={kind:'config-patch',state:'preview/pending',feedback:{file:read.file,item_id:opts['--item']},review_read:read.receipt};
+        else artifact={kind:'unsupported',operation:applied.schema==='rig-review-applied/3'?'mesh-delta':String(applied.op).includes('retarget')?'retarget':String(applied.op).includes('key')?'keyed-animation':'other',reason:'No checked create adapter for this producer-owned operation',files:[read.file],producer_schema:String(applied.schema),review_read:read.receipt};
       }
     }
     record={schema:direction || describedDirection?DIRECTION_CORRECTION_SPEC:CORRECTION_SPEC,id:opts['--id'],path:path as string,by:opts['--by'],at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
@@ -152,7 +154,15 @@ function command(args:string[],now:number): {stdout:string;exit:number} {
     if((opts['--applied-feedback']===undefined)!==(opts['--feedback-id']===undefined))usage('applied-feedback and feedback-id are paired');
     if(artifact.kind==='description'&&(opts['--applied-feedback']||opts['--feedback-id']))usage('described closure takes no Apply flags');
     if(artifact.kind==='config-patch') {
-      if(opts['--applied-feedback'])artifact.feedback={file:correctionBinding(dir,opts['--applied-feedback']),item_id:opts['--feedback-id'] as string};
+      if(opts['--applied-feedback']) {
+        const previousPatch = artifact.review_read === undefined ? undefined : correctionApplied(dir,artifact).applied.patch;
+        const read=readReview(dir,opts['--applied-feedback'],runner);
+        const selected=objects(read.value.feedback).filter(item=>item.id===opts['--feedback-id']);
+        const selectedApplied=selected.length===1 && isObject(selected[0]?.context) ? selected[0].context.applied : undefined;
+        if(previousPatch !== undefined && (!isObject(selectedApplied) || !isDeepStrictEqual(previousPatch,selectedApplied.patch)))throw new CorrectionError('CORRECTION_APPLIED_INVALID','selected Apply patch differs from the captured correction');
+        artifact.feedback={file:read.file,item_id:opts['--feedback-id'] as string};
+        artifact.review_read=read.receipt;
+      }
       const {item, applied}=correctionApplied(dir,artifact);
       if (isObject(applied.check) && isObject(applied.check.bars)) coverage = correctionCheckCoverage(applied.check);
       // A preview's human words cannot silently change when an Apply is attached.

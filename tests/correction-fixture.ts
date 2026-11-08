@@ -1,3 +1,4 @@
+import { capturedReviewSession, syntheticReviewOrigin } from './review-read-fixture.ts';
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -44,12 +45,18 @@ export function correctionFixture(dir:string,kind:'post'|'rig'|'parts'='post'): 
     files['evidence/preview.json']=JSON.stringify(patch,null,2)+'\n';
     // patchSha256 is a retained review claim over synthetic review-format bytes. Create never recomputes it.
     const applied={schema:'rig-review-applied/2',buildId:correctionHash(Buffer.from('synthetic-build-id')),patch,patchSha256:correctionHash(Buffer.from(JSON.stringify(patch))),configHash:config.sha256,producer:{package:'@rig-c/parts',version:PINNED_PACKAGES['@rig-c/parts']},compiler:{package:'@rig-c/core',version:'0.0.0-synthetic'},line:'synthetic shape-only, not measured',check:{schema:'rig-review-check-summary/1',pass:true,exitCode:0,line:'check: synthetic shape-only',bars:{SYNTHETIC:'PASS'},gate:true},diff:{count:1,paths:['/synthetic']},modelHash:binding('evidence/outcome.model.json').sha256};
-    const session={schema:'rig-review-session/1',reviewedSource:{rig:{path:'build/skeleton.model.json',sha256:binding('evidence/source.model.json').sha256},motion:null,handoff:{config,files:[{path:'../../config.json',sha256:config.sha256}],missing:[]}},feedback:[{id:'synthetic-apply',summary:files['words.txt'],context:{applied}}]};
+    const session={...capturedReviewSession,schema:'rig-review-session/1',reviewedSource:{rig:{path:'build/skeleton.model.json',sha256:binding('evidence/source.model.json').sha256},motion:null,handoff:{config,files:[{path:'../../config.json',sha256:config.sha256}],missing:[]}},feedback:[{id:'synthetic-apply',summary:files['words.txt'],context:{applied}}]};
     files['evidence/feedback.json']=JSON.stringify(session,null,2)+'\n';
     target.review_origin={feedback:binding('evidence/feedback.json'),source_version:1,feedback_id:'synthetic-apply',applied};
   }
   mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'project.json'),JSON.stringify(p,null,2)+'\n');
   for(const[path,bytes]of Object.entries(files)){mkdirSync(dirname(join(dir,path)),{recursive:true});writeFileSync(join(dir,path),path.endsWith('.png')?Buffer.from(bytes,'base64'):bytes);}
+  if(kind==='rig') {
+    const target=(p.versions as JsonObject[])[1]!;
+    const applied=(target.review_origin as JsonObject).applied as JsonObject;
+    target.review_origin=syntheticReviewOrigin(dir,1,'synthetic-apply',applied);
+    writeFileSync(join(dir,'project.json'),JSON.stringify(p,null,2)+'\n');
+  }
   testClock.set(new Date('2026-11-04T09:00:00.000Z'));
   correctionCommand(['--adopt',dir]);
   return{project:JSON.parse(readFileSync(join(dir,'project.json'),'utf8')),files,args,outcome};

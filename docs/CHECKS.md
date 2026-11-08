@@ -697,7 +697,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `PARTS_VERDICT_DRAFT_SINCE` and `PARTS_VERDICT_LATEST_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE` and `PARTS_VERDICT_LATEST_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1329,3 +1329,10 @@ before writing. A refused write leaves `project.json` byte-identical.
 | `CONFIG_LOST_HAS_CONFIG` | the target version carries a non-null `provenance.config` | retain the surviving build config instead of declaring `config_lost` |
 | `CONFIG_LOST_ALREADY_SET` | `config_lost` is already present on the target version | preserve the existing `config_lost` declaration |
 | `REVIEW_ACT_STILL_INVALID` | `project.json.review_acts`: the exported still PNG is missing, mismatched or conflicts with retained bytes | fetch the complete original act and PNG pair |
+
+## Review CLI response receipts
+
+| Code | Finding and remedy |
+| --- | --- |
+| `REVIEW_READ_INVALID` | A correction or applied-review record has no valid CLI receipt, or its stored response differs from the content-addressed stdout binding. Retrieve the result through `rig-review feedback --format json` and retain its receipt in the named record. |
+| `REVIEW_READ_LEGACY` | WARN for a correction or applied-review record before `REVIEW_READ_SINCE` that has no CLI response receipt. Preserve history and capture new results through Review feedback. Historical producer-saved session and patch files are never opened. |

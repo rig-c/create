@@ -71,7 +71,7 @@ test('a parts-review made correction records and resolves against the reopened e
   writeFileSync(join(dir, 'evidence/correction-session.json'), JSON.stringify(feedback));
   const at = Date.parse(EXAMPLE_REOPEN_AT);
   testClock.set(new Date(at + 1000));
-  expect(correctionCommand(['record', dir, '--id', 'example-fix', '--path', 'made', '--stage', 'parts-review', '--by', 'user', '--draft', 'example', '--feedback-file', 'evidence/correction-session.json', '--item', 'synthetic-apply']).exit).toBe(0);
+  expect(correctionCommand(['record', dir, '--id', 'example-fix', '--path', 'made', '--stage', 'parts-review', '--by', 'user', '--draft', 'example', '--feedback-file', 'evidence/correction-session.json', '--item', 'synthetic-apply'],()=>({stdout:readFileSync(join(dir,'evidence/correction-session.json')),stderr:'',exitCode:0,tool:{name:'@rig-c/review',version:'2.5.0'}})).exit).toBe(0);
   const record = obj(arr(load(dir).corrections)[0]);
   expect(validateCorrectionIdentity(dir, load(dir), record.on, 'parts-review')).toEqual(obj(record.on));
   expect(checkProject(dir).warnings.map(finding => finding.code)).toEqual(['CORRECTION_OPEN', ...PARTS_REVIEW_LAPSES.map(([code]) => code)]);

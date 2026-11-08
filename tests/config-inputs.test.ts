@@ -1,3 +1,4 @@
+import { syntheticReviewRunner, syntheticReviewOrigin } from './review-read-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -40,7 +41,7 @@ function sample(kind: 'rig' | 'draft', state: 'honest' | 'absent' | 'altered', l
   writeFileSync(join(dir, 'derived/review/v1/config.json'), readFileSync(join(dir, 'evidence/source-config.json')));
   save('evidence/feedback.json', s); save('project.json', p);
   testClock.set(new Date(legacy ? '2026-11-04T09:10:00Z' : '2026-11-06T09:10:00Z'));
-  return { dir, load, save, record: () => correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', kind === 'rig' ? 'rig-review' : 'parts-review', '--by', 'user', ...(kind === 'rig' ? ['--version', '1'] : ['--draft', 'synthetic']), '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']) };
+  return { dir, load, save, record: () => correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', kind === 'rig' ? 'rig-review' : 'parts-review', '--by', 'user', ...(kind === 'rig' ? ['--version', '1'] : ['--draft', 'synthetic']), '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply'],syntheticReviewRunner) };
 }
 for (const kind of ['rig', 'draft'] as const) for (const legacy of [false, true]) for (const state of ['honest', 'absent', 'altered'] as const) {
   test(`${kind} ${legacy ? 'legacy' : 'current'} ${state} named handoff`, () => {
@@ -62,7 +63,7 @@ for (const kind of ['rig', 'draft'] as const) for (const legacy of [false, true]
         if (kind === 'rig') {
           project.versions[1].at = `${hour}T10:00:00Z`;
           project.versions[1].review_origin.applied = f.load('evidence/feedback.json').feedback[0].context.applied;
-          project.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(join(f.dir, 'evidence/feedback.json')));
+          project.versions[1].review_origin = syntheticReviewOrigin(f.dir,1,'synthetic-apply',project.versions[1].review_origin.applied);
         } else {
           mkdirSync(join(f.dir, 'evidence/after'), { recursive: true });
           writeFileSync(join(f.dir, 'evidence/after/skeleton.model.json'), readFileSync(join(f.dir, 'evidence/outcome.model.json')));
@@ -81,7 +82,7 @@ for (const legacy of [false, true]) for (const state of ['honest', 'absent', 'al
     const f = sample('rig', state, legacy); const p = f.load('project.json');
     p.versions[1].at = legacy ? '2026-11-04T10:00:00Z' : '2026-11-06T10:00:00Z';
     p.versions[1].review_origin.applied = f.load('evidence/feedback.json').feedback[0].context.applied;
-    p.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(join(f.dir, 'evidence/feedback.json')));
+    p.versions[1].review_origin = syntheticReviewOrigin(f.dir,1,'synthetic-apply',p.versions[1].review_origin.applied);
     const ctx = { dir: f.dir, project: p, refusals: [] as Finding[], warnings: [] as Finding[] }; checkAppliedReview(ctx);
     expect(ctx.refusals.map(f => f.code)).toEqual(state === 'altered' || state === 'absent' && !legacy ? ['APPLIED_REVIEW_SOURCE'] : []);
     expect(ctx.warnings.some(f => f.code === 'APPLIED_REVIEW_SOURCE')).toBe(state === 'absent' && legacy);
@@ -123,7 +124,7 @@ for (const legacy of [false, true]) test(`unavailable unbound input cannot claim
   let error: { code?: string; message?: string } = {};
   try { f.record(); } catch (caught) { error = caught as typeof error; }
   expect(error.code).toBe('CORRECTION_APPLIED_INVALID'); expect(error.message).toContain('requirements.json');
-  project.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(join(f.dir, 'evidence/feedback.json')));
+  project.versions[1].review_origin = syntheticReviewOrigin(f.dir,1,'synthetic-apply',project.versions[1].review_origin.applied);
   project.versions[1].review_origin.applied = feedback.feedback[0].context.applied;
   const ctx = { dir: f.dir, project, refusals: [] as Finding[], warnings: [] as Finding[] };
   checkAppliedReview(ctx); expect(ctx.refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
@@ -150,7 +151,7 @@ for (const legacy of [false, true]) test(`older loader named inputs ${legacy ? '
   const p = f.load('project.json');
   p.versions[1].at = legacy ? '2026-11-05T10:00:00Z' : '2026-11-06T10:00:00Z';
   p.versions[1].review_origin.applied = f.load('evidence/feedback.json').feedback[0].context.applied;
-  p.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(join(f.dir, 'evidence/feedback.json')));
+  p.versions[1].review_origin = syntheticReviewOrigin(f.dir,1,'synthetic-apply',p.versions[1].review_origin.applied);
   const ctx = { dir: f.dir, project: p, refusals: [] as Finding[], warnings: [] as Finding[] }; checkAppliedReview(ctx);
   expect((legacy ? ctx.warnings : ctx.refusals).find(f => f.code === 'APPLIED_REVIEW_SOURCE')?.message).toContain('@rig-c/parts 2.8.0');
   expect(legacy ? ctx.refusals : ctx.warnings).toEqual([]);
@@ -160,7 +161,7 @@ test('older loader and a config with no named files retain the original correcti
   correctionFixture(dir, 'rig'); oldParts(dir); testClock.set(new Date('2026-11-06T09:10:00Z'));
   expect(configInputReferences(dir, { note: 'no files' })).toEqual([]);
   expect(configInputReferences(dir, { generation: { control: { skeleton: 'stand_sides' } } })).toEqual([]);
-  expect(correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']).exit).toBe(0);
+  expect(correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply'],syntheticReviewRunner).exit).toBe(0);
   const ctx = { dir, project: JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')), refusals: [] as Finding[], warnings: [] as Finding[] };
   checkCorrections(ctx); expect(ctx.refusals).toEqual([]); expect(ctx.warnings.map(f => f.code)).toEqual(['CORRECTION_OPEN']);
 });
@@ -181,7 +182,7 @@ for (const legacy of [false, true]) test(`missing frozen rig input uses the sour
   }
   p.versions[1].at = legacy ? '2026-11-04T10:00:00Z' : '2026-11-06T10:00:00Z';
   p.versions[1].review_origin.applied = f.load('evidence/feedback.json').feedback[0].context.applied;
-  p.versions[1].review_origin.feedback.sha256 = correctionHash(readFileSync(join(f.dir, 'evidence/feedback.json')));
+  p.versions[1].review_origin = syntheticReviewOrigin(f.dir,1,'synthetic-apply',p.versions[1].review_origin.applied);
   const ctx = { dir: f.dir, project: p, refusals: [] as Finding[], warnings: [] as Finding[] }; checkAppliedReview(ctx);
   expect((legacy ? ctx.warnings : ctx.refusals).find(f => f.code === 'APPLIED_REVIEW_SOURCE')?.message).toContain('requirements.json is missing from source package');
   expect(legacy ? ctx.refusals : ctx.warnings).toEqual([]);

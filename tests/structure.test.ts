@@ -6,7 +6,7 @@ import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA, latestPartsApproval } from '../src/structure.ts';
 import { Refusal } from '../src/refusal.ts';
 import { arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './fixtures.ts';
-import { EXAMPLE_VERDICT } from './parts-package.ts';
+import { EXAMPLE_VERDICT, writeReviewedInput } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -29,7 +29,7 @@ function setup(density?: number, reopen = true): string {
   const root = 'derived/drafts/shape';
   const entry = density === undefined ? { contour: { bust: { alpha: 0.5 } } } : { density };
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: entry } }));
-  write(dir, `${root}/input/parts.json`, '{}'); write(dir, `${root}/input/parts/torso.png`, 'synthetic');
+  writeReviewedInput(dir, root);
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${name}`, '{}');
   write(dir, 'words.txt', 'Approve this synthetic structure.\r\n');
   if (reopen) {
@@ -152,7 +152,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   completeParts(dir);
   const root = 'derived/drafts/revised';
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: { density: 20 } } }));
-  write(dir, `${root}/input/parts.json`, '{}'); write(dir, `${root}/input/parts/torso.png`, 'synthetic');
+  writeReviewedInput(dir, root);
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${file}`, '{}');
   draftRigCommand(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));

@@ -230,3 +230,123 @@ export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, 
   }
   if (refusals.length === before) return resolve(base, ...entries[0].path.split('/'));
 }
+
+/**
+ * The day the verdict-to-draft binding landed (rig-c/create#236): a parts-review
+ * sign-off carrying `draft_id` dated from it is refused when its verdict does
+ * not review that draft's parts; an earlier one WARNs with the same code.
+ */
+export const PARTS_VERDICT_DRAFT_SINCE = '2026-11-08T00:00:00Z';
+
+type FileBinding = { path: string; sha256: string };
+
+function bindings(list: Json | undefined): FileBinding[] | null {
+  if (!Array.isArray(list)) return null;
+  const out: FileBinding[] = [];
+  for (const raw of list) {
+    if (!isObj(raw)) return null;
+    const path = str(raw.path);
+    const sha = str(raw.sha256);
+    if (path === null || sha === null || !SHA256.test(sha)) return null;
+    out.push({ path, sha256: sha });
+  }
+  return out;
+}
+
+/** The bytes at `file` when it is a regular file under the project, links followed, hashing to `sha`; else null. */
+function boundBytes(dir: string, file: string, sha: string): Buffer | null {
+  const realRoot = real(dir) ?? dir;
+  if (!inside(dir, file) || insideReal(realRoot, file) !== true || !statSync(file).isFile()) return null;
+  const bytes = readFileSync(file);
+  return createHash('sha256').update(bytes).digest('hex') === sha ? bytes : null;
+}
+
+const listed = (paths: string[]): string => paths.length === 0 ? 'none'
+  : `${paths.slice(0, 3).join(', ')}${paths.length > 3 ? ` and ${paths.length - 3} more` : ''}`;
+
+/** The entries of `side` whose sha256 the other side does not match, one for one. */
+function unmatched(side: FileBinding[], other: FileBinding[]): string[] {
+  const counts = new Map<string, number>();
+  for (const f of other) counts.set(f.sha256, (counts.get(f.sha256) ?? 0) + 1);
+  const out: string[] = [];
+  for (const f of side) {
+    const n = counts.get(f.sha256) ?? 0;
+    if (n > 0) counts.set(f.sha256, n - 1);
+    else out.push(f.path);
+  }
+  return out;
+}
+
+/**
+ * Whether the parts verdict a `parts-review` sign-off rests on reviews the
+ * parts of the draft it names (rig-c/create#236), shared by `signoff
+ * parts-review --draft`, `structure-snapshot` and the check. It compares the
+ * sha256 multiset of the verdict's `source.files[]` with that of the draft's
+ * `parts.files[]`, by bytes and never by path (the verdict may read the
+ * assembled root, the draft its own copy). It leaves out only the raster the
+ * draft's `parts.json` declares under `painting_in_rig`, on either side, read
+ * from those bytes and never inferred. It measures nothing else.
+ *
+ * Returns the PARTS_VERDICT_DRAFT_MISMATCH finding at `path`, or null when the
+ * two match. It is also null when it cannot read the binding: an unreadable or
+ * malformed verdict, an unknown or malformed draft, or a `parts.json` whose
+ * bytes are on neither side's disk while both list them. Those are other
+ * readers' findings (PARTS_VERDICT_*, STRUCTURE_DECISIONS_*, DRAFT_RIG_*).
+ */
+export function partsVerdictDraftFinding(dir: string, project: JsonObject, evidence: Json | undefined, draftId: Json | undefined, path: string): Finding | null {
+  if (!isObj(evidence) || typeof draftId !== 'string') return null;
+  const relPath = str(evidence.path);
+  const recorded = str(evidence.sha256);
+  if (relPath === null || relPath === '' || recorded === null || !SHA256.test(recorded)) return null;
+  const file = resolve(dir, relPath);
+  let verdict: Json;
+  try {
+    const bytes = boundBytes(dir, file, recorded);
+    if (bytes === null) return null;
+    verdict = JSON.parse(bytes.toString('utf8')) as Json;
+  } catch {
+    return null;
+  }
+  const reviewed = isObj(verdict) && isObj(verdict.source) ? bindings(verdict.source.files) : null;
+  const draft = Array.isArray(project.drafts) ? project.drafts.find(d => isObj(d) && d.id === draftId) : undefined;
+  const parts = isObj(draft) && isObj(draft.parts) ? draft.parts : null;
+  const partsPath = parts === null ? null : str(parts.path);
+  const bound = parts === null ? null : bindings(parts.files);
+  if (reviewed === null || reviewed.length === 0 || partsPath === null || bound === null) return null;
+  const manifest = bound.find(f => f.path === `${partsPath}/parts.json`);
+  if (manifest === undefined) return null;
+
+  // The painting parts.json declares, read from bytes bound to the draft's parts.json: its own copy, or the verdict's.
+  const base = dirname(file);
+  const verdictManifest = reviewed.find(f => posix.basename(f.path) === 'parts.json');
+  const candidates = [resolve(dir, manifest.path), ...reviewed.filter(f => posix.basename(f.path) === 'parts.json' && f.sha256 === manifest.sha256).map(f => resolve(base, ...f.path.split('/')))];
+  let painting: string | null | undefined;
+  for (const candidate of candidates) {
+    try {
+      const bytes = boundBytes(dir, candidate, manifest.sha256);
+      if (bytes === null) continue;
+      const declared = JSON.parse(bytes.toString('utf8')) as Json;
+      const entry = isObj(declared) ? declared.painting_in_rig : undefined;
+      painting = isObj(entry) ? str(entry.path) : null;
+      break;
+    } catch {
+      continue;
+    }
+  }
+  // Both sides list those parts.json bytes, but neither holds them: the declaration cannot be read (derived/ need not survive a clone).
+  if (painting === undefined && reviewed.some(f => f.sha256 === manifest.sha256)) return null;
+  const draftPainting = painting ? `${partsPath}/${painting}` : null;
+  const verdictPainting = painting && verdictManifest !== undefined ? posix.join(posix.dirname(verdictManifest.path), painting) : null;
+  const verdictSide = reviewed.filter(f => f.path !== verdictPainting);
+  const draftSide = bound.filter(f => f.path !== draftPainting);
+  const verdictOnly = unmatched(verdictSide, draftSide);
+  const draftOnly = unmatched(draftSide, verdictSide);
+  if (verdictOnly.length === 0 && draftOnly.length === 0) return null;
+  const left = draftPainting === null ? 'leaving out nothing, as its parts.json declares no painting_in_rig it could read'
+    : `leaving out only ${draftPainting}, which its parts.json declares under painting_in_rig`;
+  return {
+    code: 'PARTS_VERDICT_DRAFT_MISMATCH',
+    path,
+    message: `${path}: the parts verdict ${relPath} does not review draft ${draftId}'s parts; compared by sha256, ${left}, the verdict lists ${verdictOnly.length} file(s) the draft does not bind (${listed(verdictOnly)}) and the draft binds ${draftOnly.length} the verdict does not list (${listed(draftOnly)}); review the parts of draft ${draftId} in rig-review's parts view and sign with that verdict, or name the draft whose parts the verdict reviewed`,
+  };
+}

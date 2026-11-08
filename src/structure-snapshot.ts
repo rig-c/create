@@ -11,7 +11,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
-import { checkPartsVerdict, partsVerdictEvidence } from './parts-verdict.ts';
+import { checkPartsVerdict, partsVerdictDraftFinding, partsVerdictEvidence } from './parts-verdict.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { retainedJson, STRUCTURE_SCHEMA, structurePathIsIgnored, validateStructureSnapshot } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -88,8 +88,12 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
 
   // The verdict is read by the parts-review sign-off's own reader; only an approved one gives a snapshot.
   const refusals: Finding[] = [];
-  checkPartsVerdict(dir, { evidence: partsVerdictEvidence(dir, verdict) }, 'structure-snapshot', refusals);
+  const evidence = partsVerdictEvidence(dir, verdict);
+  checkPartsVerdict(dir, { evidence }, 'structure-snapshot', refusals);
   if (refusals[0] !== undefined) refuse(refusals[0].code, refusals[0].message);
+  // ...and it reviews this draft's parts (rig-c/create#236).
+  const bound = partsVerdictDraftFinding(dir, project, evidence, draftId, `structure-snapshot --draft ${draftId}`);
+  if (bound !== null) refuse(bound.code, bound.message);
 
   const meshes = config.meshes;
   if (meshes !== undefined && !isObject(meshes)) refuse('STRUCTURE_DECISIONS_INVALID', `drafts[${index}].config meshes: expected an object of part declarations; review the labelled draft, retain its exact structure decisions, and sign again`);

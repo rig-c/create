@@ -365,6 +365,38 @@ their existing shape when no amendment is present.
 
 ### The parts are reviewed before rigging
 
+`parts-review [<project>] --draft <id> --from-review-cli --by <name>
+[--json] -- <rig-review parts arguments>` records an independent parts verdict
+through `rig-review parts <arguments> --format json`. Put create's flags before
+`--`. The remaining arguments, including `--verdict`, are opaque strings passed
+to review in the project directory. They must be project-relative and stay
+inside the project. create reads only stdout and never opens the saved verdict
+named by those arguments. A failed CLI call refuses with its diagnostic.
+
+Exact stdout bytes are retained at `evidence/review-reads/<sha256>.json`.
+The ordered `review_acts` list holds both routes. A CLI receipt uses schema
+`rig-create/parts-verdict-cli@1`, `kind: "parts-verdict"`, `route: "cli"`,
+`draft_id`, `argv`, `evidence: {path, sha256}`, `tool: {name, version}`,
+`status`, `flagged`, `noted`, `by` and `at`. Names retain their response order
+and spelling. Notes remain verbatim in the retained response. `--by` identifies
+the human because the CLI response supplies no reviewer. Approved, pending and
+changes-requested responses can all be recorded. Recording identical bytes
+for the same draft again preserves the record byte for byte. Different bytes
+append, and the last receipt for that draft is current across both routes.
+A current changes-requested receipt refuses `signoff --draft` until a newer
+approved receipt exists. This does not itself sign or move a stage.
+
+The writer and check compare the CLI source hash multiset with the draft's
+recorded parts and output hashes. Every reviewed hash must be recorded and
+every part must be reviewed. Outputs absent from the response are optional.
+The painting declared by the draft's hash-bound `parts.json` is excluded on
+both sides, including repeated occurrences of its hash. Response paths are
+never resolved. Check reads the retained stdout, verifies its hash and copied
+receipt fields, and repeats this draft binding without querying the saved
+verdict. Signatures before `PARTS_VERDICT_LATEST_SINCE` warn for a current
+changes-requested receipt, while signatures from that date refuse.
+
+
 A defect in the parts — a part with nothing painted under its occluder, a
 boundary between two parts nobody composed — is cheapest to fix before a bone
 is placed on it. Found at `rig-review`, every build in between was spent on

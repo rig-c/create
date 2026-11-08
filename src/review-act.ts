@@ -1,3 +1,4 @@
+import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 /** Finalized semantic acts. This reader never opens Review's private state. */
 import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -255,6 +256,7 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
   if (!Array.isArray(project.review_acts)) { add('REVIEW_ACT_LEDGER_INVALID', 'review_acts', 'expected a replay ledger array'); return findings; }
   project.review_acts.forEach((entry, index) => {
     const path = `review_acts[${index}]`;
+    if (object(entry) && entry.schema === PARTS_CLI_RECEIPT) return;
     try {
       if (!object(entry) || entry.schema !== 'rig-create/review-act@1' || typeof entry.bytes !== 'string'
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');

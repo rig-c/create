@@ -1,3 +1,4 @@
+import { latestPartsVerdictFinding } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { assertDirectionApproval } from './direction.ts';
@@ -70,6 +71,10 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
+  if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) {
+    const finding = latestPartsVerdictFinding(project, opts['--draft'], `signoffs[${asArray(project.signoffs).length}].draft_id`);
+    if (finding) refuse(finding.code, finding.message);
+  }
   // The record as read: its refusals are the baseline the candidate is judged against below.
   const asRead = checkProject(dir, project, { now });
   const existingLag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');

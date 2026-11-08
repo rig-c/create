@@ -461,6 +461,28 @@ assembled parts before `rigging` starts.
   first `=` and first following `:` separate fields, so `why` may contain colons.
   Every report id must appear exactly once, with no extra ids. Status is
   `in-painting`, `fixed` or `left`, and every status requires a nonempty `why`.
+  For a large report, read `rig-create diff-classes --diff-report <path>` first.
+  It prints JSON rows with deterministic ids, derived keys, member ids and counts,
+  pixel-count ranges and uncovered-fraction ranges. Keys use the exact sorted
+  border-part set and coverage band. Covered and uncovered bands have fractions
+  0 and 1; mixed bands are [0,0.25), [0.25,0.50), [0.50,0.75), [0.75,1).
+  This caps mixed spread below 0.25 without combining different border sets.
+  create groups producer fields; it never measures image pixels.
+
+  Supply `--triage-file triage.json` instead of component flags:
+  `{"classes":{"<derived id>":{"status":"left","why":"covered edge observed in the painting"}},"components":{}}`.
+  Each decision contains only status and why; the writer derives the key and full
+  member list. A class reason must name at least one exact border part or its
+  coverage band (for example `mixed:0.25-0.50`). Inspect the images before deciding.
+  Components needing individual judgment can instead use the `components` map,
+  keyed by report id with the same status/why fields. Do not overlap decisions.
+  The file cannot be combined with component flags and requires a diff report.
+
+  The optional `diff_map.classes` list retains `{id, key, status, why, members}`;
+  each expanded component also retains `class_id`. Check re-derives each full
+  class and requires disjoint members and identical expanded status and why.
+  Per-component records remain compatible and do not acquire class requirements.
+
   A report with no components needs no component flags. Its spec must be
   `rig-parts-diff-components/1`, `definition.floor_px` at most 2 and
   `definition.threshold` at most 40. The stack is derived from the verdict's

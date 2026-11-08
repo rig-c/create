@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
 import { partsReviewCommand } from './parts-review.ts';
 import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
@@ -54,6 +55,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     name the accepted rig version post work runs on, or refuse
   rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s> [--item <id>[:<answer_was>]]... [<project dir>]
                                                     record what a person said about a shown version, word for word
+  rig-create diff-classes [<dir>] --diff-report <path>
+                                                    read measured component classes for triage
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
   rig-create plan add|revise|remove <id> --by <drafter> [<project dir>]
@@ -105,6 +108,8 @@ ${COLLECTION_HELP}
 ${REVIEW_HELP}
 
 ${SIGNOFF_HELP}
+
+${DIFF_CLASSES_HELP}
 
 ${PLAN_HELP}
 
@@ -198,6 +203,7 @@ const COMMANDS: Record<string, Command> = {
   collection: collectionCommand,
   review: reviewCommand,
   signoff: signoffCommand,
+  'diff-classes': diffClassesCommand,
   plan: planCommand,
   reopen: reopenCommand,
   pause: pauseCommand,

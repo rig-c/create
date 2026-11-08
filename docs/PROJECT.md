@@ -2238,7 +2238,9 @@ are allowed. The draft records `ledger_report { path, sha256, spec }`,
 - The report must cover every live row (`DRAFT_LEDGER_INCOMPLETE`).
 - A row the previous draft passed must pass again. `fail`, `unmeasurable` or a
   missing row is a regression (`DRAFT_LEDGER_REGRESSION`), unless
-  `--known-regression <row id>=<reason file>` names it.
+  `--known-regression <row id>=<reason file>` names it. A known regression
+  stays owed: the next draft passes that row or records it as a known
+  regression again, with its own reason.
 - `fixes` lists the live rows this report passes that the last draft a person
   saw did not. That draft is the latest earlier one with a parts-review
   receipt, else the previous draft.
@@ -2258,5 +2260,7 @@ re-validates every input with the input writer's checks. A kept part set
 (inputs under `<set>/parts/*.png` or `<set>/parts.json`) must keep its
 `parts.json`, its PNGs and its rig (`rig.json` and `mesh_report.json`). The
 first draft after a restart has no predecessor, but it covers the whole
-ledger, so the inherited fixes are checked on day one. Codes are in
+ledger, so the inherited fixes are checked on day one. A restarted record
+checks the same as a fresh `init` record: the same codes, which include the
+open interview's `INTERVIEW_INCOMPLETE` refusals, and 0 warnings. Codes are in
 [CHECKS.md § Fix ledger, ledger reports and restarts](CHECKS.md#fix-ledger-ledger-reports-and-restarts-create285).

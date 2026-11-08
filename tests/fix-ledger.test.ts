@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { FIX_LEDGER_REPORT_SPEC, FIX_LEDGER_SINCE, ledgerCommand } from '../src/fix-ledger.ts';
 import { restartCommand } from '../src/restart.ts';
+import { freshProjectRecord } from '../src/init.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
@@ -105,6 +106,23 @@ test.each(['fail', 'unmeasurable'])('a row the predecessor passed and the new re
   expect(checked.ledger).toContainEqual({ draft: 'd3', fixes: [], known_regressions: ['T1'] });
 });
 
+test('a known regression stays owed: the next draft passes the row or records it as a known regression again', () => {
+  const dir = example(); addRow(dir, 'X');
+  copyDraft(dir, 'd1'); record(dir, 'd1', '--ledger-report', report(dir, 'd1', { T1: 'pass', X: 'pass' }));
+  copyDraft(dir, 'd2'); record(dir, 'd2', '--ledger-report', report(dir, 'd2', { T1: 'pass', X: 'fail' }), '--known-regression', `X=${words(dir, 'X is rebuilt in the next draft.')}`);
+  copyDraft(dir, 'd3');
+  const path = report(dir, 'd3', { T1: 'pass', X: 'fail' });
+  const refusal = refused(dir, 'DRAFT_LEDGER_REGRESSION', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', path)));
+  expect(refusal.message).toContain('X (fail) passed in d2, or are known regressions it still owes');
+  expect(record(dir, 'd3', '--ledger-report', path, '--known-regression', `X=${words(dir, 'Still rebuilding X.')}`).known_regressions).toEqual([{ id: 'X', reason: 'Still rebuilding X.' }]);
+  copyDraft(dir, 'd4');
+  // Passing it clears the debt; fixes count against `example`, the only draft with a parts-review receipt.
+  const cleared = record(dir, 'd4', '--ledger-report', report(dir, 'd4', { T1: 'pass', X: 'pass' }));
+  expect(cleared.known_regressions).toBeUndefined();
+  expect(cleared.fixes).toEqual(['T1', 'X']);
+  expect(checkProject(dir).refusals).toEqual([]);
+});
+
 test('a known regression must name a row that regressed', () => {
   const dir = example(); copyDraft(dir, 'd3');
   refused(dir, 'DRAFT_LEDGER_MALFORMED', () => draftRigCommand(draftArgs(dir, 'd3', '--ledger-report', report(dir, 'd3', { T1: 'pass' }), '--known-regression', `T1=${words(dir, 'not regressed')}`)));
@@ -162,10 +180,13 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   for (const key of ['drafts', 'review_acts', 'advances', 'scenes']) expect(restarted[key]).toBeUndefined();
   expect(obj(restarted.plan).steps).toEqual([]);
   expect(arr(restarted.restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason: 'Restart at v1; delete everything before it.', previous_record_sha256: sha(before) }]);
-  // A restarted record carries exactly the open interview a fresh init record carries, and no warning.
+  // A restarted record checks the same as a fresh init record: the same codes (its open interview) and 0 warnings.
   const checked = checkProject(dir);
-  expect(checked.refusals.map(f => f.code)).toEqual(['INTERVIEW_INCOMPLETE', 'INTERVIEW_INCOMPLETE', 'INTERVIEW_INCOMPLETE', 'INTERVIEW_INCOMPLETE']);
+  const fresh = checkProject(dir, freshProjectRecord(String(old.name), testClock.now()));
+  expect(checked.refusals.map(f => [f.code, f.path])).toEqual(fresh.refusals.map(f => [f.code, f.path]));
+  expect(fresh.refusals.map(f => f.code)).toContain('INTERVIEW_INCOMPLETE');
   expect(checked.warnings).toEqual([]);
+  expect(fresh.warnings).toEqual([]);
   const open = checked.refusals;
   // The first draft after a restart has no predecessor, but it covers every live row.
   copyDraft(dir, 'r1');
@@ -191,7 +212,7 @@ test('restart refuses before writing: a changed input, a part set without its pa
   refused(clean, 'RESTART_PART_SET_INCOMPLETE', () => restartCommand([clean, '--by', 'owner', '--reason-file', words(clean, 'restart')], step()));
   keep('inputs/seed/rig/mesh_report.json');
   restartCommand([clean, '--by', 'owner', '--reason-file', words(clean, 'restart')], step());
-  expect(checkProject(clean).refusals.map(f => f.code)).toEqual(['INTERVIEW_INCOMPLETE', 'INTERVIEW_INCOMPLETE', 'INTERVIEW_INCOMPLETE', 'INTERVIEW_INCOMPLETE']);
+  expect(checkProject(clean).refusals.map(f => [f.code, f.path])).toEqual(checkProject(clean, freshProjectRecord('project', testClock.now())).refusals.map(f => [f.code, f.path]));
   const empty = tempDir();
   expect(() => restartCommand([empty, '--by', 'owner', '--reason-file', words(empty, 'restart')], step())).toThrow(Refusal);
   expect(existsSync(join(empty, 'project.json'))).toBe(false);

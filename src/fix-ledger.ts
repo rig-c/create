@@ -191,6 +191,7 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     warnings.push(finding('FIX_LEDGER_MISSING', 'fix_ledger', 'the project has drafts but no fix ledger, so no draft is checked against earlier accepted fixes; record each accepted owner fix with ledger add'));
   }
   const reports: (LedgerReport | null)[] = [];
+  const owed: string[][] = [];
   const summaries: LedgerSummary[] = [];
   drafts.forEach((raw, index) => {
     const path = `drafts[${index}]`;
@@ -225,15 +226,18 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
       return;
     }
     const knownIds = known.map(k => String((k as JsonObject).id));
+    owed[index] = knownIds;
     // The predecessor is the previous recorded draft; a restart clears drafts, so its first draft has none.
+    // What it owes is every row it passed and every row it recorded as a known regression: a known regression stays owed.
     const predecessor = index > 0 ? reports[index - 1] : null;
-    const regressed = predecessor ? live.filter(r => predecessor.results.get(r.id) === 'pass' && report.results.get(r.id) !== 'pass').map(r => r.id) : [];
+    const debt = new Set(index > 0 ? owed[index - 1] ?? [] : []);
+    const regressed = predecessor ? live.filter(r => (predecessor.results.get(r.id) === 'pass' || debt.has(r.id)) && report.results.get(r.id) !== 'pass').map(r => r.id) : [];
     const unnamed = regressed.filter(id => !knownIds.includes(id));
     if (unnamed.length) {
-      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.results.get(id) ?? 'absent'})`).join(', ')} passed in ${String((drafts[index - 1] as JsonObject).id)} and do not pass here; fix the build, or record it with --known-regression <row id>=<reason file> for each row`));
+      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.results.get(id) ?? 'absent'})`).join(', ')} passed in ${String((drafts[index - 1] as JsonObject).id)}, or are known regressions it still owes, and do not pass here; fix the build, or record it with --known-regression <row id>=<reason file> for each row`));
     }
     const stray = knownIds.filter(id => !regressed.includes(id));
-    if (stray.length) malformed(`known_regressions names ${stray.join(', ')}, which did not regress from the predecessor draft`);
+    if (stray.length) malformed(`known_regressions names ${stray.join(', ')}, which the predecessor draft neither passed nor owed`);
     // The writer chose the reference when it recorded the draft; a receipt recorded later for another draft does not move it.
     const against = raw.fixes_against;
     const previous = index > 0 && isObject(drafts[index - 1]) ? (drafts[index - 1] as JsonObject).id : undefined;

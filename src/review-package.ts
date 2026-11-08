@@ -126,7 +126,8 @@ function sourceFiles(out: string, imagePaths: readonly string[]): FileHash[] {
     : filesAt(join(out, entry)).map((file) => ({ ...file, path: `${entry}/${file.path}` })));
   const seen = new Set(files.map(file => file.path));
   for (const path of imagePaths) {
-    if (seen.has(path)) continue;
+    const copiedTree = required.some(entry => entry !== 'parts.json' && path.startsWith(`${entry}/`));
+    if (seen.has(path) || copiedTree) continue;
     const absolute = resolve(out, path);
     if (!inside(out, absolute) || path.split('/').some(segment => !segment || segment === '.' || segment === '..')
       || realpathSync(absolute) !== absolute || !lstatSync(absolute).isFile()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${path}: restore the retained regular image before packaging`);
@@ -360,8 +361,9 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
     // Regeneration uses the existing declaration, preserving historical packages
     // that omitted sibling images. New registration supplies official rows.
     const recordedFiles = isObject(version.review_package) ? asArray(version.review_package.files) : [];
+    const namedPaths = new Set(named.map(input => input.path));
     const retainedImages = imagePaths ?? recordedFiles.filter(isObject).flatMap(file =>
-      typeof file.path === 'string' && file.path.startsWith('out/') ? [file.path.slice(4)] : []);
+      typeof file.path === 'string' && file.path.startsWith('out/') && !namedPaths.has(file.path) ? [file.path.slice(4)] : []);
     const inputs = sourceFiles(from, retainedImages);
     const pkg = join(dir, packagePath(n));
     makePackageParent(dir);

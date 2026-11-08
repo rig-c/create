@@ -1321,6 +1321,12 @@ config: {path,sha256}, parts: {path,files:[{path,sha256}]}, files:[{path,sha256}
 `parts.files` binds `parts.json`, `parts/*` and the raster `parts.json` itself
 declares under `painting_in_rig`; an undeclared file is not bound, and a draft
 recorded before the declared raster was bound warns `DRAFT_DECLARED_FILE_UNBOUND`.
+`producer` is the `package` of the `rig-run/1` `run.json` parts writes beside
+`rig.json` (`<out>/run.json`, or `<root>/rig/run.json` in a build root), which
+`files` already binds; a malformed or other-spec stamp refuses under its
+`RUN_RECORD_*` code. Without one, `producer` is the installed `@rig-c/parts` and
+the check warns `DRAFT_PRODUCER_ASSUMED`; a recorded producer that disagrees with
+its bound stamp warns `DRAFT_PRODUCER_MISMATCH`.
 All files must resolve under `derived/drafts/<id>/`. Standalone `rig --out`
 requires explicit `--parts`; only an unambiguous build root containing
 `parts.json`, `parts/` and `rig/` supplies those inputs implicitly. Ambiguous

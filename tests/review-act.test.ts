@@ -2,7 +2,8 @@ import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
+import { tmpdir } from 'node:os';
+import { startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { checkProject } from '../src/check.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
@@ -23,14 +24,14 @@ afterEach(() => {
   for (const root of directories.splice(0)) { rmSync(jobHostStateRoot(root), { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
 });
 function temporary(prefix: string): string {
-  const root = realpathSync(mkdtempSync(`/private/tmp/${prefix}`));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   directories.push(root);
   return root;
 }
 function projectAt(root: string): JsonObject { return JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')); }
 function putProject(root: string, value: JsonObject): void { writeFileSync(join(root, 'project.json'), `${JSON.stringify(value, null, 2)}\n`); }
 
-async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n') {
+async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved') {
   const root = temporary('create-act-project-');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
   if (n === 2) {
@@ -83,7 +84,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   if (!displayed.ok) throw Error(displayed.error.code);
   const submitted = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
     publicationId: publication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
-    expectedGeneration: host.session.status().generation, submissionId: 'synthetic-submission', kind: 'review-verdict', value: { stage, verdict: 'approved', words },
+    expectedGeneration: host.session.status().generation, submissionId: 'synthetic-submission', kind: 'review-verdict', value: { stage, verdict, words },
   }));
   expect(submitted.ok).toBe(true);
   if (!submitted.ok) throw Error(submitted.error.code);
@@ -106,7 +107,8 @@ const original = Bun.spawnSync;
 Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.path, ...args.slice(1)], options);
 `);
   if (guarded) {
-    const probe = Bun.spawn([process.execPath, '--preload', guard, '-e', "require('node:fs').readFileSync('/private/tmp/create-act-hidden-planted/file')"], { stdout: 'pipe', stderr: 'pipe' });
+    const planted = join(temporary('create-act-hidden-planted-'), 'file');
+    const probe = Bun.spawn([process.execPath, '--preload', guard, '-e', `require('node:fs').readFileSync(${JSON.stringify(planted)})`], { stdout: 'pipe', stderr: 'pipe' });
     const [error, exit] = await Promise.all([new Response(probe.stderr).text(), probe.exited]);
     expect(exit).toBe(1); expect(error).toContain('REVIEW_STATE_ACCESSED');
   }
@@ -300,4 +302,26 @@ test('host-attested delegate and empty or whitespace-only words survive the publ
     const receipt = (projectAt(root).review_acts as JsonObject[])[0];
     expect(JSON.parse(String(receipt.bytes)).authority.reviewer).toEqual({ id: 'synthetic-reviewer', role: 'delegate' });
   }
+});
+
+test('changes-requested records a bounced verdict with exact words and the normal open-feedback warning', async () => {
+  const words = '  Synthetic changes requested.\r\nKeep the declared timing.\n';
+  const { root, act } = await published('3-rig-review', 1, 'owner', words, 'changes-requested');
+  const before = projectAt(root);
+  const result = await command(root, act.actId);
+  expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+  const recorded = JSON.parse(result.stdout);
+  expect(recorded.verdict.verdict).toBe('bounced');
+  expect(recorded.verdict.verbatim).toBe(words);
+  expect(recorded.verdict.by).toBe('user');
+  const project = projectAt(root);
+  expect(project.stage).toBe(before.stage);
+  expect(project.signoffs).toEqual(before.signoffs);
+  const receipt = (project.review_acts as JsonObject[])[0];
+  expect(JSON.parse(String(receipt.bytes))).toEqual(act);
+  expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
+  expect(reviewActFindings(project)).toEqual([]);
+  const report = checkProject(root, project, { now: Date.now() + 1000 });
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.map(finding => finding.code)).toEqual(['FEEDBACK_OPEN']);
 });

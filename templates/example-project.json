@@ -3274,7 +3274,65 @@
           "phase": "post",
           "status": "pending"
         }
-      ]
+      ],
+      "parts_check": {
+        "path": "evidence/parts-check.json",
+        "sha256": "24026aa39909be6aa6df385a9bb9b45c1eca46db7191051965088c9e49424ac1",
+        "spec": "rig-parts-parts-check/1",
+        "parts": "derived/drafts/example/input",
+        "exit_code": 0,
+        "holes": [
+          {
+            "code": "PARTS_PLATE_GHOST",
+            "object": "parts",
+            "reason": "no adopted plate-ghost discriminator; assemble outputs do not bind a background plate or composed figure outline",
+            "line": "PARTS_PLATE_GHOST: HOLE — no adopted plate-ghost discriminator; assemble outputs do not bind a background plate or composed figure outline"
+          },
+          {
+            "code": "PARTS_PLATE_STRUCTURE",
+            "object": "parts",
+            "reason": "no adopted background-structure continuation measure or reference",
+            "line": "PARTS_PLATE_STRUCTURE: HOLE — no adopted background-structure continuation measure or reference"
+          },
+          {
+            "code": "PARTS_PLATE_SMEAR",
+            "object": "parts",
+            "reason": "no adopted plate-smear discriminator",
+            "line": "PARTS_PLATE_SMEAR: HOLE — no adopted plate-smear discriminator"
+          },
+          {
+            "code": "PARTS_PLATE_STEPS",
+            "object": "parts",
+            "reason": "no adopted plate-fill continuity measure",
+            "line": "PARTS_PLATE_STEPS: HOLE — no adopted plate-fill continuity measure"
+          },
+          {
+            "code": "PARTS_INVENTED_MATERIAL",
+            "object": "parts",
+            "reason": "no validated producer-bound per-pixel painted-versus-invented record",
+            "line": "PARTS_INVENTED_MATERIAL: HOLE — no validated producer-bound per-pixel painted-versus-invented record"
+          },
+          {
+            "code": "PARTS_INVENTED_EXPOSURE",
+            "object": "parts",
+            "reason": "invented-material identity and posed-frame observations are unavailable at the parts stage",
+            "line": "PARTS_INVENTED_EXPOSURE: HOLE — invented-material identity and posed-frame observations are unavailable at the parts stage"
+          },
+          {
+            "code": "PARTS_SOURCE_COVER",
+            "object": "source_cover.json",
+            "reason": "source_cover.json is absent; direct unplanned source cover is unavailable",
+            "line": "PARTS_SOURCE_COVER: HOLE — source_cover.json is absent; direct unplanned source cover is unavailable"
+          },
+          {
+            "code": "PARTS_PAINTING_ALLOCATION",
+            "object": "painting_allocation.json",
+            "reason": "painting_allocation.json is absent; painting-edge transfer membership is unavailable",
+            "line": "PARTS_PAINTING_ALLOCATION: HOLE — painting_allocation.json is absent; painting-edge transfer membership is unavailable"
+          }
+        ],
+        "reported": []
+      }
     },
     {
       "stage": "rigging-interview",

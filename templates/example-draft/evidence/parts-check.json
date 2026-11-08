@@ -1,0 +1,122 @@
+{
+  "spec": "rig-parts-parts-check/1",
+  "stage": "parts",
+  "inputs": [
+    {
+      "path": "painting_allocation.json",
+      "status": "absent",
+      "sha256": null
+    },
+    {
+      "path": "painting_in_rig.png",
+      "status": "read",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+    },
+    {
+      "path": "parts.json",
+      "status": "read",
+      "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+    },
+    {
+      "path": "parts/background.png",
+      "status": "read",
+      "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+    },
+    {
+      "path": "parts/eye_l.png",
+      "status": "read",
+      "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+    },
+    {
+      "path": "parts/eye_r.png",
+      "status": "read",
+      "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+    },
+    {
+      "path": "parts/face.png",
+      "status": "read",
+      "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+    },
+    {
+      "path": "parts/lantern.png",
+      "status": "read",
+      "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+    },
+    {
+      "path": "parts/torso.png",
+      "status": "read",
+      "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+    },
+    {
+      "path": "source_cover.json",
+      "status": "absent",
+      "sha256": null
+    }
+  ],
+  "parts": {
+    "primary": [
+      "background",
+      "torso",
+      "lantern",
+      "face",
+      "eye_r",
+      "eye_l"
+    ],
+    "alternates": [],
+    "source_cover": null,
+    "painting_allocation": []
+  },
+  "refusals": [],
+  "reported": [],
+  "holes": [
+    {
+      "code": "PARTS_PLATE_GHOST",
+      "object": "parts",
+      "reason": "no adopted plate-ghost discriminator; assemble outputs do not bind a background plate or composed figure outline",
+      "line": "PARTS_PLATE_GHOST: HOLE — no adopted plate-ghost discriminator; assemble outputs do not bind a background plate or composed figure outline"
+    },
+    {
+      "code": "PARTS_PLATE_STRUCTURE",
+      "object": "parts",
+      "reason": "no adopted background-structure continuation measure or reference",
+      "line": "PARTS_PLATE_STRUCTURE: HOLE — no adopted background-structure continuation measure or reference"
+    },
+    {
+      "code": "PARTS_PLATE_SMEAR",
+      "object": "parts",
+      "reason": "no adopted plate-smear discriminator",
+      "line": "PARTS_PLATE_SMEAR: HOLE — no adopted plate-smear discriminator"
+    },
+    {
+      "code": "PARTS_PLATE_STEPS",
+      "object": "parts",
+      "reason": "no adopted plate-fill continuity measure",
+      "line": "PARTS_PLATE_STEPS: HOLE — no adopted plate-fill continuity measure"
+    },
+    {
+      "code": "PARTS_INVENTED_MATERIAL",
+      "object": "parts",
+      "reason": "no validated producer-bound per-pixel painted-versus-invented record",
+      "line": "PARTS_INVENTED_MATERIAL: HOLE — no validated producer-bound per-pixel painted-versus-invented record"
+    },
+    {
+      "code": "PARTS_INVENTED_EXPOSURE",
+      "object": "parts",
+      "reason": "invented-material identity and posed-frame observations are unavailable at the parts stage",
+      "line": "PARTS_INVENTED_EXPOSURE: HOLE — invented-material identity and posed-frame observations are unavailable at the parts stage"
+    },
+    {
+      "code": "PARTS_SOURCE_COVER",
+      "object": "source_cover.json",
+      "reason": "source_cover.json is absent; direct unplanned source cover is unavailable",
+      "line": "PARTS_SOURCE_COVER: HOLE — source_cover.json is absent; direct unplanned source cover is unavailable"
+    },
+    {
+      "code": "PARTS_PAINTING_ALLOCATION",
+      "object": "painting_allocation.json",
+      "reason": "painting_allocation.json is absent; painting-edge transfer membership is unavailable",
+      "line": "PARTS_PAINTING_ALLOCATION: HOLE — painting_allocation.json is absent; painting-edge transfer membership is unavailable"
+    }
+  ],
+  "exit_code": 0
+}

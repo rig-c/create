@@ -12,6 +12,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, retimeFixture, step } from './fixtures.ts';
 import { clockedCli, tempDir } from './helpers.ts';
 import { directionFixture } from './direction-fixture.ts';
+import { withPartsCheck } from './parts-check-fixture.ts';
 import { checkProject, advanceCommand, stepStatusCommand, signoffCommand, reopenCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
@@ -228,7 +229,7 @@ test('a step without a checkpoint completes and then permits the bar-stage exit'
     status(dir, id, 'done');
   }
   expect(obj(arr(step(read(dir), 'seethrough').status_history)[2]).signoff).toBeNull();
-  advance(dir, 'parts-review'); expect(codes(dir)).toEqual([]);
+  advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', words(dir), ...withPartsCheck(dir)]); expect(codes(dir)).toEqual([]);
   expect(obj(arr(read(dir).advances).at(-1)).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
 });
 

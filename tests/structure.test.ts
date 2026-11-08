@@ -8,6 +8,7 @@ import { Refusal } from '../src/refusal.ts';
 import { arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './fixtures.ts';
 import { EXAMPLE_VERDICT } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
+import { withPartsCheck } from './parts-check-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
@@ -42,7 +43,7 @@ function setup(density?: number, reopen = true): string {
     advanceCommand(['parts', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     testClock.set(new Date('2026-11-19T00:00:03Z'));
     completeParts(dir);
-    advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), ...withPartsCheck(dir)]);
     testClock.set(new Date('2026-11-20T00:00:00Z'));
   }
   if (!reopen) return dir;
@@ -157,7 +158,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));
   write(dir, 'evidence/revised-structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'revised', config: draft.config, entries: [{ path: '/meshes/torso', value: { density: 20 } }] }));
   testClock.set(new Date('2026-11-25T00:00:00Z'));
-  advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), ...withPartsCheck(dir)]);
   partsSign(dir, 'revised', 'evidence/revised-structure.json');
   freshRigInterview(dir, '2026-11-26T00:00:00Z', '2026-11-27T00:00:00Z');
   expect(signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]).exit).toBe(0);

@@ -174,7 +174,12 @@ test('the finished chain binds its own approved parts, package model and signed 
   const stages = ['plan-approved', 'parts', 'parts-review', 'rigging-interview', 'rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'];
   expect(moves.map(move => move.stage)).toEqual(stages);
   expect(receipt.steps.filter(step => step.command[1] === 'advance').map(step => step.command)).toEqual(
-    stages.map(stage => ['rig-create', 'advance', stage, '--by', 'user', '--verbatim-file', 'evidence/approval.txt']));
+    stages.map(stage => ['rig-create', 'advance', stage, '--by', 'user', '--verbatim-file', 'evidence/approval.txt',
+      ...(stage === 'parts-review' ? ['--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'] : [])]));
+  const partsCheck = receipt.steps.find(step => step.step === 'parts-stage check report')!;
+  expect(partsCheck.kind).toBe('producer');
+  expect(partsCheck.output_sha256).toBe(sha256(readFileSync(join(shipped, 'evidence/parts-check.json'))));
+  expect(moves.find(move => move.stage === 'parts-review')!.parts_check).toMatchObject({ path: 'evidence/parts-check.json', parts: 'derived/drafts/chain/input', exit_code: 0 });
   expect(receipt.steps.some(step => step.seed?.field === 'project.stage')).toBe(false);
   expect(receipt.steps.every(step => step.exit === 0)).toBe(true);
   expect(receipt.steps.some(step => step.command.join(' ') === 'rig-create direction check 2 --json')).toBe(true);
@@ -255,10 +260,10 @@ function fileInventory(dir: string, prefix = ''): Record<string, string> {
 }
 
 test.each([
-  ['1-parts-verdict', 1, 30, 'parts', 0],
-  ['2-rigging-answers', 2, 37, 'rigging-interview', 4],
-  ['3-rig-review', 3, 59, 'rig-review', 0],
-  ['4-direction-post', 4, 80, 'post', 0],
+  ['1-parts-verdict', 1, 31, 'parts', 0],
+  ['2-rigging-answers', 2, 38, 'rigging-interview', 4],
+  ['3-rig-review', 3, 60, 'rig-review', 0],
+  ['4-direction-post', 4, 81, 'post', 0],
 ] as const)('checkpoint %s preserves its complete prefix and pending state', (name, stage, index, projectStage, count) => {
   const root = join(shipped, 'checkpoints', name);
   const declaration = JSON.parse(readFileSync(`${root}.json`, 'utf8')) as CheckpointDeclaration;
@@ -296,7 +301,7 @@ test.each([
   if (stage === 3) expect((project.versions as JsonObject[])[0]!.verdicts).toEqual([]);
   if (stage === 1 || stage === 4) {
     expect(declaration.pending.awaits).toContain('project.stage');
-    expect(declaration.pending.commands).toContain(`rig-create advance ${stage === 1 ? 'parts-review' : 'direction-review'} --by user --verbatim-file evidence/approval.txt`);
+    expect(declaration.pending.commands).toContain(`rig-create advance ${stage === 1 ? 'parts-review' : 'direction-review'} --by user --verbatim-file evidence/approval.txt${stage === 1 ? ' --parts-check evidence/parts-check.json --parts derived/drafts/chain/input' : ''}`);
   }
   if (stage === 4) {
     expect((project.versions as JsonObject[]).some(version => version.kind === 'post')).toBe(false);

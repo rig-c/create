@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 3,
   "name": "3-rig-review",
-  "chain_step": 59,
+  "chain_step": 60,
   "pending": {
     "act": "Review and approve the rig",
     "commands": [
@@ -22,7 +22,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "3d3186ba6ac6f091c7a195a5c4427872d449300933cf0b11f947ff234abcc182",
+  "project_sha256": "794a30ad8c32fed46c81cf82c0039441fd767eb8330ea9b3660acbad816efb6f",
   "files": [
     {
       "path": ".gitignore",
@@ -281,6 +281,10 @@
       "sha256": "2f66f51b295c2fab3a362ff48df3322c346b9f2f84de23c9b736226c2fb030d0"
     },
     {
+      "path": "evidence/parts-check.json",
+      "sha256": "9b1527d1426c313c2ca1322f92530972e3fd0b109aba25f18877171af35b2ba1"
+    },
+    {
       "path": "evidence/parts-review.json",
       "sha256": "6ff1c1c1e438b9fa864e0530567aad6de155ecfd719567ccb073e0c51616f063"
     },
@@ -410,7 +414,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "3d3186ba6ac6f091c7a195a5c4427872d449300933cf0b11f947ff234abcc182"
+      "sha256": "794a30ad8c32fed46c81cf82c0039441fd767eb8330ea9b3660acbad816efb6f"
     }
   ]
 }

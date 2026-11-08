@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 4,
   "name": "4-direction-post",
-  "chain_step": 80,
+  "chain_step": 81,
   "pending": {
     "act": "Author the direction post and approve its review",
     "commands": [
@@ -42,7 +42,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "e22649be376bfb6fc39ca647de11ab2c1839f740f7fa15aa189d21b4bb03cc20",
+  "project_sha256": "d2d91f0e602085362f379520bf090c230fdffd5db433d4bb6b419b645f8ab0ba",
   "files": [
     {
       "path": ".gitignore",
@@ -313,6 +313,10 @@
       "sha256": "2f66f51b295c2fab3a362ff48df3322c346b9f2f84de23c9b736226c2fb030d0"
     },
     {
+      "path": "evidence/parts-check.json",
+      "sha256": "9b1527d1426c313c2ca1322f92530972e3fd0b109aba25f18877171af35b2ba1"
+    },
+    {
       "path": "evidence/parts-review.json",
       "sha256": "6ff1c1c1e438b9fa864e0530567aad6de155ecfd719567ccb073e0c51616f063"
     },
@@ -442,7 +446,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "e22649be376bfb6fc39ca647de11ab2c1839f740f7fa15aa189d21b4bb03cc20"
+      "sha256": "d2d91f0e602085362f379520bf090c230fdffd5db433d4bb6b419b645f8ab0ba"
     }
   ]
 }

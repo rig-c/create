@@ -2,13 +2,13 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 1,
   "name": "1-parts-verdict",
-  "chain_step": 30,
+  "chain_step": 31,
   "pending": {
     "act": "Export the synthetic review-tool parts verdict, then approve the parts",
     "commands": [
       "partsPackage tests/parts-package.ts",
       "rig-parts diff-components --stack assembled/render/recomposite_rig.png --painting painting.png --parts assembled/rig/parts.json --floor 2 --threshold 40 --out diff-components.json",
-      "rig-create advance parts-review --by user --verbatim-file evidence/approval.txt",
+      "rig-create advance parts-review --by user --verbatim-file evidence/approval.txt --parts-check evidence/parts-check.json --parts derived/drafts/chain/input",
       "rig-create signoff parts-review --by user --verbatim-file evidence/approval.txt --draft chain --structure-file evidence/structure.json --evidence evidence/parts-review.json --diff-report evidence/diff-components.json"
     ],
     "command_roles": [
@@ -168,6 +168,10 @@
     {
       "path": "evidence/interview/seethrough.json",
       "sha256": "2f66f51b295c2fab3a362ff48df3322c346b9f2f84de23c9b736226c2fb030d0"
+    },
+    {
+      "path": "evidence/parts-check.json",
+      "sha256": "9b1527d1426c313c2ca1322f92530972e3fd0b109aba25f18877171af35b2ba1"
     },
     {
       "path": "evidence/split-config.json",

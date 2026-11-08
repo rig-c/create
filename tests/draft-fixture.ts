@@ -3,6 +3,8 @@ import { join } from 'node:path';
 /** Materialize the retained synthetic draft separately from the review controls. */
 
 export const EXAMPLE_DRAFT = 'derived/drafts/example';
+/** The retained parts-stage check report the example's parts → parts-review move binds. */
+export const EXAMPLE_PARTS_CHECK = 'evidence/parts-check.json';
 
 /** parts.json, parts/* and the painting parts.json declares under painting_in_rig; nothing undeclared. */
 export function retainedPartsFiles(root: string): Record<string, Uint8Array> {

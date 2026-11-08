@@ -9,11 +9,15 @@ import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts'
 import { collectAmendments } from './amend.ts';
 import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
 import { furthestStageSignoff, isSignoffIdentity, signoffIdentity, statusTransitionFinding } from './stage-progress.ts';
+import { isPartsCheckMove, partsCheckLines, partsCheckRecord } from './parts-check.ts';
 import type { JsonObject } from './templates.ts';
 
 export const PROGRESS_HELP = `advance:
   <stage> [<project dir>] --by <who> [--verbatim-file <file>] [--source <text>]
+         [--parts-check <report> --parts <assembled dir>]
   Move one authorized stage forward and append advances[] with its stable signoff identity.
+  parts -> parts-review requires both: a passing rig-parts check-parts report retained
+  under the project and the project-relative assembled root it was run on.
 step-status:
   <step> <status> [<project dir>] --by <who>
   Record pending -> in-progress -> at-checkpoint -> done and status_history[].
@@ -28,7 +32,7 @@ function options(args: string[], command: string): { positional: string[]; opts:
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') json = true;
-    else if (['--by', ...(command === 'advance' ? ['--verbatim-file', '--source'] : [])].includes(arg)) {
+    else if (['--by', ...(command === 'advance' ? ['--verbatim-file', '--source', '--parts-check', '--parts'] : [])].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value.trim() === '') refuse('PROGRESS_OPTION_INVALID', `${command}: ${arg} needs one value; see help`, USAGE_EXIT);
       opts[arg] = value;
@@ -77,10 +81,26 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
     steps_before: steps.map(s => ({ id: s.id ?? null, phase: s.phase ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   if (project.advances !== undefined && !Array.isArray(project.advances)) refuse('ADVANCE_MALFORMED', 'advances: must be a list; preserve existing history');
+  const checkPath = `advances[${asArray(project.advances).length}].parts_check`;
+  const report = opts['--parts-check'];
+  const root = opts['--parts']?.replace(/\/+$/, '');
+  if (!isPartsCheckMove(entry) && (report !== undefined || root !== undefined)) {
+    refuse('PROGRESS_OPTION_INVALID', `${checkPath}: --parts-check and --parts are accepted only on the move from parts to parts-review; see help`, USAGE_EXIT);
+  }
+  if ((report === undefined) !== (root === undefined)) {
+    refuse('PROGRESS_OPTION_INVALID', `${checkPath}: supply --parts-check and --parts together; see help`, USAGE_EXIT);
+  }
+  // Without both flags the check refuses the move as PARTS_CHECK_MISSING, in check order.
+  if (report !== undefined && root !== undefined) {
+    const read = partsCheckRecord(dir, report, root, checkPath);
+    if ('refusal' in read) refuse(read.refusal.code, read.refusal.message);
+    entry.parts_check = read.record;
+  }
   project.advances = [...asArray(project.advances), entry];
   project.stage = entry.stage!;
   save(dir, file, project, now, true);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `advance: ${String(entry.from_stage)} -> ${String(entry.stage)}`, exit: 0 };
+  const lines = isObject(entry.parts_check) ? partsCheckLines(entry.parts_check, checkPath) : [];
+  return { stdout: json ? JSON.stringify(entry, null, 2) : [`advance: ${String(entry.from_stage)} -> ${String(entry.stage)}`, ...lines].join('\n'), exit: 0 };
 }
 
 export function stepStatusCommand(args: string[], now: number): { stdout: string; exit: number } {

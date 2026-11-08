@@ -1,6 +1,8 @@
 /** Register frozen bytes. Toolchain association and the not-after date are declarations. */
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
+import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -192,8 +194,8 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const n = Number(positional[0]?.replace(/^v/, ''));
   if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || flags.filter(f => f !== '--citations').some(f => !options[f])) refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_HELP, USAGE_EXIT);
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
-  const { file, project } = readProject(dir);
-  const original = readFileSync(file);
+  let { file, project } = readProject(dir);
+  let original = readFileSync(file);
   const lock = `${file}.rig-version.lock`;
   let descriptor: number;
   try { descriptor = openSync(lock, 'wx'); } catch { return fail('RIG_REGISTRATION_BUSY', 'versions', 'another registration holds the lock'); }
@@ -204,7 +206,12 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const sources: SourceFile[] = [];
   const sourceDirectories = new Map<string, string[]>();
   const outputFiles: JsonObject[] = [];
+  let releasePublication = () => {};
+  let publicationIntent: PendingPublication | null = null;
   try {
+    releasePublication = acquireBoundJobWrite(dir);
+    ({ file, project } = readProject(dir));
+    original = readFileSync(file);
     if (project.schema !== 'rig-create/project@0') fail('SCHEMA_UNKNOWN', 'schema', 'rig-version reads rig-create/project@0');
     if (!Array.isArray(project.versions) || asArray(project.versions).some(v => !isObject(v) || typeof v.n !== 'number')) fail('RIG_REGISTRATION_INVALID', 'versions', 'restore the version list');
     if (n !== Math.max(0, ...project.versions.filter(isObject).map(v => Number(v.n))) + 1) fail('RIG_REGISTRATION_INVALID', 'versions', 'use the next version number');
@@ -387,16 +394,21 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     for (const source of sources) if (!readFileSync(source.source).equals(source.bytes)) fail('RIG_REGISTRATION_SOURCE_CHANGED', source.source, 'source changed during registration');
     if (!readFileSync(file).equals(original)) fail('RIG_REGISTRATION_SOURCE_CHANGED', 'project.json', 'record changed during registration');
     const pending = join(dir, evidence, 'project.pending');
-    writeFileSync(pending, `${JSON.stringify(candidate, null, 2)}\n`);
+    const recordBytes = Buffer.from(`${JSON.stringify(candidate, null, 2)}\n`);
+    publicationIntent = prepareVersionIntent(dir, recordBytes, n);
+    writeFileSync(pending, recordBytes);
     renameSync(pending, file);
     created.length = 0;
+    publishCommittedVersion(dir, n);
     return { stdout: json ? JSON.stringify(version, null, 2) : `rig-version: v${n} registered; ${String((version.review_package as JsonObject).open)}`, exit: 0 };
   } catch (error) {
     if (error instanceof Refusal) throw error;
     return fail('RIG_REGISTRATION_FILE_INVALID', `versions[v${n}].registration`, error instanceof Error ? error.message : String(error));
   } finally {
+    cancelUncommittedIntent(dir, publicationIntent);
     for (const path of created.reverse()) rmSync(path, { recursive: true, force: true });
     closeSync(descriptor);
     rmSync(lock);
+    releasePublication();
   }
 }

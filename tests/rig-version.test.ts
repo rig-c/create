@@ -9,6 +9,10 @@ import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { fixture, obj } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
+import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
+import { jobHash, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { partsEnumerator, readPublished } from '../src/job-publication.ts';
+import { startJobHost } from '@rig-c/review/job-host';
 
 const roots: string[] = [];
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
@@ -60,6 +64,46 @@ function refused(args: string[], code: string): void {
 }
 
 describe('frozen rig registration', () => {
+  test.each([false, true])('writer commit owns live publication, with stopped host=%s', async stopped => {
+    const { dir, args } = setup();
+    put(dir, 'source/parts/parts.json', { rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
+      parts: [{ name: 'rectangle', from: 'painting:rectangle', x: 0, y: 0, w: 8, h: 16,
+        opaque_px: 128, projected_core_px: 128, source_px_taken: 128, refused_drift_px: 0, merged_px: 0, seam_override_px: 0 }] });
+    const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
+    const binding = readWriterBinding(dir)!;
+    let recovery: Awaited<ReturnType<typeof startJobHost>> | undefined;
+    try {
+      if (stopped) host.stop();
+      // The agent only invokes the writer. No test/agent publish call occurs here.
+      const child = Bun.spawn([process.execPath, ...clockedCli(), 'rig-version', ...args], {
+        cwd: dir, stdout: 'pipe', stderr: 'pipe',
+      });
+      const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      const bytes = readFileSync(join(dir, 'project.json'));
+      if (stopped) {
+        expect(exit).toBe(1);
+        expect(stderr).toContain('JOB_PUBLISH_PENDING');
+        expect(pendingPublications(dir)[0].failure?.code).toBe('JOB_HOST_REUSE_MISMATCH');
+        expect(checkProject(dir).holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
+        recovery = await startJobHost({ ...binding.identity, port: Number(new URL(binding.origin).port),
+          readPublished, partsEnumerator, installWriterBinding: () => {} });
+        expect(recovery.session.status().generation).toBe(0);
+        await reconcileCreateJob(dir);
+        expect(checkProject(dir).holes ?? []).toEqual([]);
+        expect(recovery.session.status().publication?.source.projectHash).toBe(jobHash(bytes));
+        expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
+      } else {
+        expect(stderr).toBe('');
+        expect(exit).toBe(0);
+        expect(host.session.status().publication?.source.projectHash).toBe(jobHash(bytes));
+        expect(host.session.status().publication?.label).toBe('rig v1');
+      }
+    } finally {
+      recovery?.stop(); host.stop();
+      rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+    }
+  });
+
   test('public CLI records real producer frames, declared tools, cited date and unchanged stage', () => {
     const { dir, args, load } = setup();
     expect(checkProject(dir).refusals).toEqual([]);

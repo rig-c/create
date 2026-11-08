@@ -19,6 +19,7 @@ import * as interview from '../src/interview.ts';
 import * as inputs from '../src/inputs.ts';
 import * as amend from '../src/amend.ts';
 import * as pins from '../src/pins-check.ts';
+import * as plan from '../src/plan-writers.ts';
 import * as progress from '../src/progress-writers.ts';
 import * as reopen from '../src/reopen.ts';
 import * as review from '../src/review.ts';
@@ -72,6 +73,7 @@ export const interviewDecisionCommand = at(choiceWriters.interviewDecisionComman
 export const interviewOptionsCommand = at(choiceWriters.interviewOptionsCommand);
 export const inputCommand = at(inputs.inputCommand);
 export const main = at(cli.main);
+export const planCommand = at(plan.planCommand);
 export const reopenCommand = at(reopen.reopenCommand);
 export const reviewCommand = at(feedback.reviewCommand);
 export const rigVersionCommand = at(rigVersion.rigVersionCommand);

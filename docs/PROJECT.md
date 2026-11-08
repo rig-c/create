@@ -536,9 +536,42 @@ agent reads, and a second file is one a resume can skip.
       "checkpoint": { "delegated": false, "by": "user", "at": "2026-11-10T16:00:00Z", "verbatim": "yes, show me", "value": true },
       "status": "pending"
     }
+  ],
+  "replaced": [
+    {
+      "step": {
+        "id": "camera",
+        "phase": "post",
+        "order": 1,
+        "does": "Keep a fixed frame.",
+        "produces": "A fixed camera track.",
+        "rests_on": ["camera_depth"],
+        "bar": "The approved rig stays within the frame.",
+        "checkpoint_proposed": false,
+        "checkpoint": null,
+        "status": "pending"
+      },
+      "sha256": "1f42b6a62120e479ea30aeb08244d5c35b8b4c3ec803f079489047d9e8f4bd61",
+      "action": "removed",
+      "at": "2026-11-10T15:30:00Z",
+      "by": "agent"
+    }
   ]
 }
 ```
+
+Draft steps with `rig-create plan add|revise|remove <id> [<project dir>]
+--by <drafter>`. Its `--help` lists their field flags. Draft dates follow the
+existing [phase-date contract](#explicit-adoption-of-the-split-interview),
+using both previous and resulting approval ownership on revision, with
+`drafted_by` updated only alongside `drafted_at`. Every write refuses
+additional checker findings counted by code and path before changing the file. Reopen live covering plan
+approvals first. Completed work, including completion retained by reopen,
+requires removal and a new id. Revise/remove append the full previous step
+to optional `replaced[]`, with its existing `stepHash`, action, ISO date and
+drafter. Entries retain write order, nondecreasing dates and unique
+`step.id` / `at` identities. Reopened signatures may resolve hashes and
+checkpoints against history. Live approvals bind current steps.
 
 - **Rig steps follow the waypoints**: one step per waypoint the plan passes, in
   pipeline order, with the step's `id` equal to the waypoint's. The last rig
@@ -924,7 +957,8 @@ Top-level fields of `project.json`:
 | `stage`, `stage_values` | the current stage and the list it comes from |
 | `signoffs[]` | every human signature: `stage`, `checkpoint` (step id or `null`), `by`, `at`, `verbatim`; plan signatures add `steps[]` naming covered steps and `step_hashes` binding their approval fields. `by` names whose decision is recorded, including their delegated instruction written by an agent, and `by: "agent"` remains refused (`SIGNOFF_NOT_HUMAN`). |
 | `interview` | `question_set` (the prompt set and package version the waypoints were read from), `held`, `date`, `interviewer`, `respondent`, `framing[]` (`id`, `text`, `source`, `required_for`, `answer`, `history[]`), `waypoints[]` (`id`, `config[]`, `prompts[]` of `id`/`text`/`source`/`required_for`, `guide`, `history[]`), `post` (`held`, `date`, `items[]` shaped like waypoints with `guide`) — answer shapes in [INTERVIEW.md](INTERVIEW.md) |
-| `plan` | `drafted_by`, `drafted_at`, `steps[]` — above |
+| `plan` | `drafted_by`, `drafted_at`, current unique `steps[]`, optional append-only `replaced[]` — above |
+| `plan.replaced[]` | full previous `step`, `sha256` from `stepHash(step)`, `action` (`revised` or `removed`), ISO `at`, drafter `by`, identified by `step.id` plus `at`, in nondecreasing date and write order |
 | `split` | the `assemble` checkpoint's data: `label_values`, `proposal_image`, `proposed_by`, `proposed_at`, `parts[]` (`name`, `label`, `note`) |
 | `inputs[]` | `path`, `sha256`, `bytes`, `origin` (where the file came from, in words), `at` (writer timestamp) |
 | `derived[]` | `path`, `what`, `command`, `inputs[]` (`path`, `sha256`), `bytes` |

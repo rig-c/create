@@ -1,0 +1,74 @@
+{
+  "schema": "rig-create/direction@2",
+  "scene": {
+    "n": 1,
+    "path": "evidence/scene/s1.json",
+    "sha256": "27932e2273e229772955f9ad751408094a3e1baf5fbde39c7ea13abda33a8ef7"
+  },
+  "rig": {
+    "version": 3,
+    "model": {
+      "path": "derived/review/v3/out/check/build/skeleton.model.json",
+      "sha256": "a324b10d0cfd819382eb4ddb9b9ec240df26049179cab2cb2ec07a2ed6825f46"
+    }
+  },
+  "take": {
+    "duration": 4,
+    "loop": false
+  },
+  "camera": {
+    "space": "rig-world-y-up",
+    "keys": [
+      {
+        "time": 0,
+        "box": {
+          "x": -64,
+          "y": 0,
+          "width": 128,
+          "height": 128
+        },
+        "easing": "linear"
+      },
+      {
+        "time": 4,
+        "box": {
+          "x": -62,
+          "y": 2,
+          "width": 124,
+          "height": 124
+        },
+        "easing": "hold"
+      }
+    ]
+  },
+  "timing": {
+    "keys": [
+      {
+        "time": 0,
+        "source_time": 0,
+        "easing": "linear"
+      },
+      {
+        "time": 4,
+        "source_time": 4,
+        "easing": "hold"
+      }
+    ]
+  },
+  "citations": {
+    "camera": {
+      "guide": "camera_depth",
+      "asks": [
+        "camera_depth"
+      ],
+      "quote": "Use the synthetic camera_depth\nKeep the declared geometric example."
+    },
+    "timing": {
+      "guide": "post_timing",
+      "asks": [
+        "post_timing"
+      ],
+      "quote": "Use the synthetic post_timing\nKeep the declared geometric example."
+    }
+  }
+}

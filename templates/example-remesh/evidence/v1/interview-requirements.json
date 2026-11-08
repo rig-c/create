@@ -1,0 +1,8 @@
+{
+  "spec": "spine-parts-requirements/1",
+  "fps": 12,
+  "requirements": [],
+  "setup_painting": {
+    "required": true
+  }
+}

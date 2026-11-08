@@ -1,0 +1,309 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "remesh-assemble",
+  "question": "assemble",
+  "stage": "interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-08T00:00:12.000Z",
+  "context": {
+    "kind": "inputs",
+    "files": [
+      {
+        "path": "inputs/painting.png",
+        "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      }
+    ]
+  },
+  "assembly": {
+    "rule": "merge"
+  },
+  "asks": [
+    {
+      "id": "projection",
+      "prompt": "Choose projection for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic projection",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "project": "core"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change projection",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "projection": "alternate projection"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "cut",
+      "prompt": "Choose cut for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic cut",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "cut": "synthetic cut"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change cut",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "cut": "alternate cut"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "emphasis",
+      "prompt": "Choose emphasis for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic emphasis",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "emphasis": "synthetic emphasis"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change emphasis",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "emphasis": "alternate emphasis"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "draw_order",
+      "prompt": "Choose draw_order for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic draw_order",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "draw_order": "synthetic draw_order"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change draw_order",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "draw_order": "alternate draw_order"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "authored",
+      "prompt": "Choose authored for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic authored",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "authored": "synthetic authored"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change authored",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "authored": "alternate authored"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "occluders",
+      "prompt": "Choose occluders for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic occluders",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "occluders": "synthetic occluders"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change occluders",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "occluders": "alternate occluders"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "outfits",
+      "prompt": "Choose outfits for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic outfits",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "outfits": "synthetic outfits"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change outfits",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "outfits": "alternate outfits"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    }
+  ]
+}

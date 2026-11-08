@@ -1,0 +1,30 @@
+{
+  "schema": "rig-create/structure-decisions@0",
+  "draft_id": "remesh",
+  "config": {
+    "path": "derived/drafts/remesh/config.json",
+    "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+  },
+  "entries": [
+    {
+      "path": "/meshes/torso",
+      "value": {
+        "grid": 16,
+        "r": 16,
+        "segments": [
+          [
+            "body",
+            [
+              64,
+              8
+            ],
+            [
+              64,
+              72
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

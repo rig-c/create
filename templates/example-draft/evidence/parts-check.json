@@ -48,6 +48,11 @@
       "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
     },
     {
+      "path": "recomposite_rig.png",
+      "status": "read",
+      "sha256": "230d10b95ab2d21afd7fcdffda0491bbb011b8a0c096f4b1363f1b08ba996036"
+    },
+    {
       "path": "source_cover.json",
       "status": "absent",
       "sha256": null

@@ -15,7 +15,7 @@ export function retainedPartsFiles(root: string): Record<string, Uint8Array> {
 export function exampleDraftFiles(input?: Record<string, Uint8Array>, output?: Record<string, Uint8Array>): Record<string, string | Uint8Array> {
   const files: Record<string, string | Uint8Array> = {};
   const root = join(import.meta.dir, '../templates/example-draft/input');
-  const parts = input ?? retainedPartsFiles(root);
+  const parts = input ?? { ...retainedPartsFiles(root), 'recomposite_rig.png': readFileSync(join(root, 'recomposite_rig.png')) };
   for (const [path, content] of Object.entries(parts)) files[`${EXAMPLE_DRAFT}/input/${path}`] = content;
   const collect = (path: string): void => {
     for (const entry of readdirSync(join(root, '..', path), { withFileTypes: true })) {

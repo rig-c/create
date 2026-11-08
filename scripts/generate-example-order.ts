@@ -25,7 +25,7 @@ import { stepHash } from '../src/step-hash.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { exampleDraftFiles, EXAMPLE_DRAFT, EXAMPLE_PARTS_CHECK } from '../tests/draft-fixture.ts';
-import { partsPackage, EXAMPLE_VERDICT } from '../tests/parts-package.ts';
+import { partsPackage, EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT } from '../tests/parts-package.ts';
 import { preparedExampleFiles } from '../tests/prepared-fixture.ts';
 import { reviewExampleFiles } from '../tests/review-fixture.ts';
 import { EXAMPLE_DIFF_REPORT } from '../tests/diff-fixture.ts';
@@ -53,6 +53,8 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     const installed = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')) as { version: string };
     return [name, installed.version];
   }));
+  // Carry the diff-report stack at the draft recorder's candidate position.
+  files[`${EXAMPLE_DRAFT}/input/recomposite_rig.png`] = files[`${EXAMPLE_PARTS_DIR}/recomposite_rig.png`]!;
   for (const [path, bytes] of Object.entries({ ...preparedExampleFiles(), ...reviewExampleFiles(), ...files })) write(path, bytes);
   for (const raw of arr(original.versions)) {
     const version = obj(raw);

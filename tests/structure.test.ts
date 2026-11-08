@@ -30,6 +30,7 @@ function setup(density?: number, reopen = true): string {
   const entry = density === undefined ? { contour: { bust: { alpha: 0.5 } } } : { density };
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: entry } }));
   writeReviewedInput(dir, root);
+  write(dir, `${root}/input/recomposite_rig.png`, 'synthetic stack bytes');
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${name}`, '{}');
   write(dir, 'words.txt', 'Approve this synthetic structure.\r\n');
   if (reopen) {
@@ -153,6 +154,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   const root = 'derived/drafts/revised';
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: { density: 20 } } }));
   writeReviewedInput(dir, root);
+  write(dir, `${root}/input/recomposite_rig.png`, 'synthetic stack bytes');
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${file}`, '{}');
   draftRigCommand(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));

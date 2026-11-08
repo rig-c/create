@@ -3562,7 +3562,7 @@
       ],
       "parts_check": {
         "path": "evidence/parts-check.json",
-        "sha256": "24026aa39909be6aa6df385a9bb9b45c1eca46db7191051965088c9e49424ac1",
+        "sha256": "304e2330e0f54275cd29053510addb32720a20c1dfeca23488d96d6be54e91ea",
         "spec": "rig-parts-parts-check/1",
         "parts": "derived/drafts/example/input",
         "exit_code": 0,

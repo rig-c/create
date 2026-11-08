@@ -34,6 +34,7 @@ function draft(dir: string, id: string, config: JsonObject, input?: Record<strin
   if (input === undefined) writeReviewedInput(dir, root, verdict);
   else for (const [path, bytes] of Object.entries(input)) { mkdirSync(dirname(join(dir, root, 'input', path)), { recursive: true }); writeFileSync(join(dir, root, 'input', path), bytes); }
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!existsSync(join(dir, root, 'out', name))) write(dir, `${root}/out/${name}`, '{}');
+  write(dir, `${root}/input/recomposite_rig.png`, 'synthetic stack bytes');
   draftRigCommand([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
 }
 

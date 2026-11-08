@@ -79,6 +79,7 @@ test('a parts-review made correction records and resolves against the reopened e
   const modelBytes = readFileSync(join(controlDir, 'evidence/outcome.model.json'));
   writeFileSync(join(dir, String(model.path).replace('/example/', '/corrected/')), modelBytes);
   testClock.set(new Date(at + 2000));
+  writeFileSync(join(dir, 'derived/drafts/corrected/input/recomposite_rig.png'), 'synthetic stack bytes');
   draftRigCommand(['corrected', dir, '--config', 'derived/drafts/corrected/config.json', '--from', 'derived/drafts/corrected/out', '--parts', 'derived/drafts/corrected/input']);
   writeFileSync(join(dir, 'reasoning.txt'), 'Declare the synthetic corrected draft.');
   testClock.set(new Date(at + 3000));

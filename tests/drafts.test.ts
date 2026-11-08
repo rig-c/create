@@ -14,6 +14,7 @@ function write(dir: string, path: string, bytes = '{}'): void { mkdirSync(dirnam
 function draft(build = false): { dir: string; args: string[] } {
   const dir = fixture(); const root = 'derived/drafts/sample'; const out = `${root}/out`; const parts = build ? out : `${root}/inputs`;
   write(dir, `${root}/config.json`);
+  write(dir, `${parts}/recomposite_rig.png`, 'synthetic stack bytes');
   write(dir, `${parts}/parts.json`); write(dir, `${parts}/parts/synthetic.png`, 'synthetic part bytes');
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${out}/${build ? 'rig/' : ''}${file}`);
   const args = ['sample', dir, '--config', `${root}/config.json`, '--from', out, '--json'];
@@ -162,4 +163,35 @@ test('a recorded producer that disagrees with its bound run.json warns DRAFT_PRO
   expect(report.refusals).toEqual([]);
   expect(report.warnings.filter(f => f.code === 'DRAFT_PRODUCER_MISMATCH').map(f => f.path)).toEqual(['drafts[0].producer']);
   expect(report.warnings.map(f => f.code)).not.toContain('DRAFT_PRODUCER_ASSUMED');
+});
+
+
+test('a build without a stack refuses before writing and existing records remain accepted', () => {
+  const { dir, args } = draft(true);
+  draftRigCommand(args);
+  rmSync(join(dir, 'derived/drafts/sample/out/recomposite_rig.png'));
+  expect(checkProject(dir).refusals).toEqual([]);
+  const p = read(dir); p.drafts = [];
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+  const before = readFileSync(join(dir, 'project.json'));
+  rejected(() => draftRigCommand(args), 'DRAFT_RIG_STACK');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('standalone assemble stack beside rig records and two stack candidates refuse before writing', () => {
+  const { dir, args } = draft();
+  const root = 'derived/drafts/sample';
+  const parts = `${root}/rig`;
+  write(dir, `${parts}/parts.json`);
+  write(dir, `${parts}/parts/piece.png`, 'synthetic part bytes');
+  write(dir, `${root}/render/recomposite_rig.png`, 'synthetic stack bytes');
+  args[args.indexOf('--parts') + 1] = parts;
+  const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  expect(obj(record.parts).path).toBe(parts);
+  const p = read(dir); p.drafts = [];
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+  write(dir, `${parts}/recomposite_rig.png`, 'synthetic stack bytes');
+  const before = readFileSync(join(dir, 'project.json'));
+  rejected(() => draftRigCommand(args), 'DRAFT_RIG_STACK');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

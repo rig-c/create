@@ -43,7 +43,7 @@ export function generateExampleParts(dir: string): Record<string, Buffer> {
   { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0) throw new Error(`assemble exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
   const root = join(dir, 'assembled/rig');
-  const files: Record<string, Buffer> = { 'parts.json': readFileSync(join(root, 'parts.json')) };
+  const files: Record<string, Buffer> = { 'parts.json': readFileSync(join(root, 'parts.json')), 'painting_in_rig.png': readFileSync(join(root, 'painting_in_rig.png')) };
   for (const file of readdirSync(join(root, 'parts'))) files[`parts/${file}`] = readFileSync(join(root, 'parts', file));
   return files;
 }

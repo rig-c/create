@@ -33,7 +33,7 @@
     {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-08T00:01:04.000Z","verbatim":"done, I like it","target":{"version":4,"verdict":"versions[3].verdicts[0]","direction":{"path":"evidence/direction/v4.json","sha256":"b9ed40d9a128d4f84f472cafd783b19b06fad65c7fe67ca701307598060c003d"}}}
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.16.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.30.1)",
     "held": true,
     "date": "2026-11-10",
     "interviewer": "agent",

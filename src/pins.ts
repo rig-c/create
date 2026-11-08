@@ -12,6 +12,6 @@
  * bumping parts here without re-reading the waypoints fails.
  */
 export const PINNED_PACKAGES = {
-  '@rig-c/core': '3.2.1',
-  '@rig-c/parts': '2.16.0',
+  '@rig-c/core': '3.6.0',
+  '@rig-c/parts': '2.30.1',
 } as const satisfies Record<string, string>;

@@ -1360,6 +1360,8 @@ the record unchanged.
 | `JOB_RECORD_SUBJECT_INVALID` | `project.json` does not bind the explicitly requested question, option set and effective stage, including a question whose pick is already recorded and so has no pending set, or a subject id cannot be represented by the record publication contract. Publish the exact current pending subject with its original representable id. |
 | `JOB_RECORD_COLLECTION_EXTERNAL` | A member record's inherited answers depend on `../../collection.json`, outside the project-relative closure. Publish from a standalone project until the collection binding lands. |
 | `JOB_RECORD_CLOSURE_INCOMPLETE` | `project.json` passes its retained seals, but the retained check refuses. The closure holds every file the inventory check read, so this means the retained root lacks or changed one of them. Structured details retain the check's codes and paths. Restore the complete inventory closure before finalization. |
+| `JOB_RECORD_PARTS_LOCK_MISSING` | The `@rig-c/parts` the check loads (the project's install, or in the retained phase the host's) has no `bun.lock` or `package-lock.json` entry with its installed version and an integrity, or two lockfiles disagree. The version alone is never used. Install parts from a lockfile that records its integrity and publish again. |
+| `JOB_RECORD_PARTS_MISMATCH` | In the retained phase, the host loads a different `@rig-c/parts` version or integrity than the inventory phase sealed. The message names both versions. Rebuild the project on the host's parts, or run the check where the sealed version is installed. |
 
 In the retained phase, unsafe paths, missing or changed sealed files and
 invalid or duplicate file declarations refuse with `JOB_PUBLICATION_INVALID`

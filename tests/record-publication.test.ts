@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { collectItems, checkProject } from '../src/check.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { interviewOptionsCommand } from '../src/choice-writers.ts';
-import { readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
+import { loadedPartsIdentity, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
+import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
 import { jobHash, jobPrivateRoot } from '../src/job-outbox.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -76,7 +77,7 @@ test('pending option-set publishes exact inputs and merges identical references 
   const before = snapshot(root);
   const context = readRecordPublished(request(root), TEST_NOW);
   expect(context.subjects).toEqual([{ kind: 'interview-picks', questionId: 'reference', setId: 'pending-reference' }]);
-  expect(Object.keys(context).sort()).toEqual(['files', 'inputs', 'label', 'plan', 'subjects']);
+  expect(Object.keys(context).sort()).toEqual(['files', 'inputs', 'label', 'parts', 'plan', 'subjects']);
   expect(context.files.map(file => file.path)).toEqual(context.files.map(file => file.path).sort());
   expect(new Set(context.files.map(file => file.path)).size).toBe(context.files.length);
   expect(context.files.map(file => file.path)).toContain(path);
@@ -289,7 +290,7 @@ function retained(input: RecordPublicationRequest): RecordPublicationRequest {
     mkdirSync(dirname(join(root, file.path)), { recursive: true });
     cpSync(join(input.root, file.path), join(root, file.path));
   }
-  return { ...input, root, phase: 'retained' };
+  return { ...input, root, phase: 'retained', parts: context.parts };
 }
 
 test('the measured #277 case: the retained phase equals the inventory phase with 0 refusals', () => {
@@ -337,7 +338,7 @@ test.each(['inventory', 'retained'] as const)('%s: a question whose pick is reco
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
   delete collectItems(project, { collection: null }).find(item => item.id === 'reference')!.record.pending_options;
   save(root, project);
-  rejectsUnchanged({ ...request(root), phase }, 'JOB_RECORD_SUBJECT_INVALID');
+  rejectsUnchanged({ ...request(root), phase, ...(phase === 'retained' ? { parts: loadedPartsIdentity(root, 'host') } : {}) }, 'JOB_RECORD_SUBJECT_INVALID');
 });
 
 test('tampered retained seals fail mechanically before the incomplete retained check', () => {
@@ -425,3 +426,56 @@ test('only an enabled at-checkpoint step is offered with canonical subject keys'
   save(root, project);
   expect(readRecordPublished({ ...request(root), result: { kind: 'plan' } }, TEST_NOW).subjects).toEqual([]);
 });
+
+/** The host's own parts identity, read independently from create's install and lockfile. */
+function hostParts(): { name: string; version: string; integrity: string } {
+  const version = JSON.parse(readFileSync(join(OWN_NODE_MODULES, PARTS_PACKAGE, 'package.json'), 'utf8')).version as string;
+  const entry = (Bun.JSONC.parse(readFileSync(join(OWN_NODE_MODULES, '..', 'bun.lock'), 'utf8')) as { packages: Record<string, string[]> }).packages[PARTS_PACKAGE]!;
+  return { name: PARTS_PACKAGE, version, integrity: entry.at(-1)! };
+}
+
+/** A pending project with its own parts install (linked to the host's) and the given lockfiles. */
+function installed(lockfiles: Record<string, unknown>): string {
+  const { root } = pending();
+  mkdirSync(join(root, 'node_modules', '@rig-c'), { recursive: true });
+  symlinkSync(join(OWN_NODE_MODULES, PARTS_PACKAGE), join(root, 'node_modules', PARTS_PACKAGE));
+  for (const [file, value] of Object.entries(lockfiles)) writeFileSync(join(root, file), JSON.stringify(value, null, 2) + '\n');
+  return root;
+}
+
+const bunLock = (version: string, integrity: string) => ({ lockfileVersion: 1, workspaces: {}, packages: {
+  [PARTS_PACKAGE]: [`${PARTS_PACKAGE}@${version}`, '', {}, integrity], 'unrelated-dep': ['unrelated-dep@1.0.0', '', {}, 'sha512-unrelated'] } });
+const npmLock = (version: string, integrity: string) => ({ lockfileVersion: 3, packages: { [`node_modules/${PARTS_PACKAGE}`]: { version, integrity } } });
+
+test.each([['bun.lock'], ['package-lock.json'], ['both']])('matching parts identity from %s passes both phases', which => {
+  const host = hostParts();
+  const root = installed({
+    ...(which !== 'package-lock.json' ? { 'bun.lock': bunLock(host.version, host.integrity) } : {}),
+    ...(which !== 'bun.lock' ? { 'package-lock.json': npmLock(host.version, host.integrity) } : {}),
+  });
+  const inventory = readRecordPublished(request(root), TEST_NOW);
+  expect(inventory.parts).toEqual(host);
+  // The lockfile is not a closure file: an unrelated dependency bump cannot stale the closure.
+  expect(inventory.files.map(file => file.path).filter(path => path.endsWith('.lock') || path.endsWith('lock.json'))).toEqual([]);
+  const copy = retained(request(root));
+  expect(readRecordPublished(copy, TEST_NOW)).toEqual(inventory);
+});
+
+test.each([['version'], ['integrity']])('a sealed parts %s different from the host refuses JOB_RECORD_PARTS_MISMATCH naming both versions', field => {
+  const { root } = pending();
+  const copy = retained(request(root));
+  const host = hostParts();
+  const sealed = field === 'version' ? { ...host, version: '2.0.0' } : { ...host, integrity: 'sha512-planted' };
+  rejectsUnchanged({ ...copy, parts: sealed }, 'JOB_RECORD_PARTS_MISMATCH');
+  try { readRecordPublished({ ...copy, parts: sealed }, TEST_NOW); } catch (error) {
+    expect((error as Error).message).toContain(`${PARTS_PACKAGE} ${sealed.version}`);
+    expect((error as Error).message).toContain(`${PARTS_PACKAGE} ${host.version}`);
+    expect((error as Error).message).toContain(`rebuild the project on the host's ${PARTS_PACKAGE} ${host.version}, or run the check where ${sealed.version} is installed`);
+  }
+});
+
+test.each([['no lockfile', {}], ['no parts entry', { 'bun.lock': { lockfileVersion: 1, workspaces: {}, packages: {} } }],
+  ['another version only', { 'bun.lock': bunLock('2.0.0', 'sha512-other') }], ['no integrity', { 'package-lock.json': { packages: { [`node_modules/${PARTS_PACKAGE}`]: { version: hostParts().version } } } }]] as const)(
+  '%s for the installed parts refuses JOB_RECORD_PARTS_LOCK_MISSING', (_name, lockfiles) => {
+    rejectsUnchanged(request(installed(lockfiles)), 'JOB_RECORD_PARTS_LOCK_MISSING');
+  });

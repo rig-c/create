@@ -6,6 +6,7 @@ import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
+import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed } from './check.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { approvalStageOfStep, hasStageOrder, STAGES, stageOfStep } from './stages.ts';
@@ -21,15 +22,21 @@ export const JOB_BINDING_ID = 'rig-create/writer-binding/1';
 export const JOB_ENUMERATOR_ID = 'rig-create/parts-file-references/1';
 export const partsEnumerator = { version: partsPackage.version, enumerate: partsFileReferences };
 
+/** The parts the check loads: its name and version, and that version's integrity from the lockfile beside its install. */
+export interface RecordPartsIdentity { readonly name: string; readonly version: string; readonly integrity: string }
+
 export interface RecordPublicationRequest {
   readonly root: string;
   readonly record: { readonly path: 'project.json'; readonly sha256: string };
   readonly result: { readonly kind: 'option-set'; readonly questionId: string; readonly setId: string } | { readonly kind: 'plan' };
   readonly phase: 'inventory' | 'retained';
+  /** Retained phase only: the `parts` identity the inventory phase returned. */
+  readonly parts?: RecordPartsIdentity;
 }
 
 type RecordContextBase = {
   readonly label: string;
+  readonly parts: RecordPartsIdentity;
   readonly inputs: JobPublishedContext['files'];
   readonly files: JobPublishedContext['files'];
 };
@@ -52,11 +59,55 @@ export class RecordClosureIncomplete extends Refusal {
   }
 }
 
+/** The lockfile entries for parts beside `base/node_modules`: bun.lock and package-lock.json, each one that exists. */
+function lockedParts(base: string): { file: string; version: unknown; integrity: unknown }[] {
+  const entries: { file: string; version: unknown; integrity: unknown }[] = [];
+  const bun = join(base, 'bun.lock');
+  if (existsSync(bun)) {
+    let entry: unknown;
+    try { entry = (Bun.JSONC.parse(readFileSync(bun, 'utf8')) as { packages?: Record<string, unknown> }).packages?.[PARTS_PACKAGE]; } catch { entry = undefined; }
+    const spec = Array.isArray(entry) && typeof entry[0] === 'string' && entry[0].startsWith(`${PARTS_PACKAGE}@`) ? entry[0].slice(PARTS_PACKAGE.length + 1) : undefined;
+    entries.push({ file: 'bun.lock', version: spec, integrity: Array.isArray(entry) ? entry.at(-1) : undefined });
+  }
+  const npm = join(base, 'package-lock.json');
+  if (existsSync(npm)) {
+    let entry: unknown;
+    try { entry = (JSON.parse(readFileSync(npm, 'utf8')) as { packages?: Record<string, unknown> }).packages?.[`node_modules/${PARTS_PACKAGE}`]; } catch { entry = undefined; }
+    entries.push({ file: 'package-lock.json', version: isObject(entry as Json) ? (entry as JsonObject).version : undefined, integrity: isObject(entry as Json) ? (entry as JsonObject).integrity : undefined });
+  }
+  return entries;
+}
+
+/**
+ * The identity of the parts `checkProject(dir)` loads (`locateParts`): the installed version and the
+ * integrity every lockfile beside that install records for it. Never the version alone.
+ */
+export function loadedPartsIdentity(dir: string, who: 'project' | 'host'): RecordPartsIdentity {
+  const missing = (why: string): never => refuse('JOB_RECORD_PARTS_LOCK_MISSING', `project.json: the ${who}'s ${PARTS_PACKAGE} ${why}; install it from a lockfile that records its integrity and publish again`);
+  const installed = locateParts(dir);
+  if (installed === null) return missing('is not installed');
+  let version: unknown;
+  try { version = (JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as { version?: unknown }).version; } catch { version = undefined; }
+  if (typeof version !== 'string') return missing(`at ${installed} has no readable version`);
+  const base = dirname(dirname(dirname(installed)));
+  const entries = lockedParts(base);
+  if (!entries.length) return missing(`${version} has no lockfile beside its install`);
+  const integrities = new Set<string>();
+  for (const entry of entries) {
+    if (entry.version !== version || typeof entry.integrity !== 'string' || !/^sha(256|384|512)-/.test(entry.integrity)) {
+      return missing(`${version} has no matching ${entry.file} entry with an integrity`);
+    }
+    integrities.add(entry.integrity);
+  }
+  if (integrities.size !== 1) return missing(`${version} has different integrities in bun.lock and package-lock.json`);
+  return { name: PARTS_PACKAGE, version, integrity: [...integrities][0]! };
+}
+
 /** Reuse check's eligibility and the exact retained evidence of its subject. No writes or locks. */
 export function readRecordPublished(input: RecordPublicationRequest & { result: Extract<RecordPublicationRequest['result'], { kind: 'option-set' }> }, now?: number): RecordOptionContext;
 export function readRecordPublished(input: RecordPublicationRequest & { result: { kind: 'plan' } }, now?: number): RecordPlanContext;
 export function readRecordPublished(input: RecordPublicationRequest, now?: number): RecordPublishedContext;
-export function readRecordPublished({ root, record, result, phase }: RecordPublicationRequest, now = Date.now()): RecordPublishedContext {
+export function readRecordPublished({ root, record, result, phase, parts: sealedParts }: RecordPublicationRequest, now = Date.now()): RecordPublishedContext {
   try {
     const bytes = publicationFile(root, record.path);
     if (record.path !== 'project.json' || jobHash(bytes) !== record.sha256) refuse('JOB_PUBLICATION_INVALID', 'project.json: the committed record binding changed; restore its exact sealed bytes');
@@ -64,6 +115,17 @@ export function readRecordPublished({ root, record, result, phase }: RecordPubli
     if (phase !== 'inventory' && phase !== 'retained') throw Error('phase must be inventory or retained');
     if (loadCollection(root) !== null) {
       refuse('JOB_RECORD_COLLECTION_EXTERNAL', "project.json: a member record's inherited answers depend on ../../collection.json, which the project-relative closure cannot seal; publish from a standalone project until the collection binding lands");
+    }
+    // The check's waypoints come from the parts it loads, which no project file seals.
+    let parts = loadedPartsIdentity(root, phase === 'inventory' ? 'project' : 'host');
+    if (phase === 'retained') {
+      if (!isObject(sealedParts as Json | undefined) || typeof sealedParts!.name !== 'string' || typeof sealedParts!.version !== 'string' || typeof sealedParts!.integrity !== 'string') {
+        refuse('JOB_PUBLICATION_INVALID', 'project.json: the retained phase needs the parts identity the inventory phase returned; pass it unchanged');
+      }
+      if (sealedParts!.name !== parts.name || sealedParts!.version !== parts.version || sealedParts!.integrity !== parts.integrity) {
+        refuse('JOB_RECORD_PARTS_MISMATCH', `project.json: the project was checked with ${sealedParts!.name} ${sealedParts!.version} (${sealedParts!.integrity}), but the host loads ${parts.name} ${parts.version} (${parts.integrity}); rebuild the project on the host's ${parts.name} ${parts.version}, or run the check where ${sealedParts!.version} is installed`);
+      }
+      parts = { name: sealedParts!.name, version: sealedParts!.version, integrity: sealedParts!.integrity };
     }
     const seals = new Map<string, string>();
     const seal = (raw: Json): { path: string; sha256: string } => {
@@ -173,13 +235,13 @@ export function readRecordPublished({ root, record, result, phase }: RecordPubli
     if (!publicationFile(root, record.path).equals(bytes)) throw Error('project.json changed while reading its closure');
     const files = [...seals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, sha256]) => ({ path, sha256 }));
     if (result.kind === 'option-set') {
-      return { label, inputs, files, plan: null,
+      return { label, parts, inputs, files, plan: null,
         subjects: [{ kind: 'interview-picks', questionId: result.questionId, setId: result.setId }] };
     }
-    return { label, inputs, files,
+    return { label, parts, inputs, files,
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
-    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL'].includes(error.code))) throw error;
+    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING'].includes(error.code))) throw error;
     refuse('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
   }
 }

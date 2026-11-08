@@ -1,3 +1,4 @@
+import { reviewStdout } from './review-read-fixture.ts';
 
 import { retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
@@ -196,7 +197,7 @@ test('merged ledger records picks after a parts CLI receipt and runs the picks b
     source:{sha256:'a'.repeat(64),files:arr(parts.files).map(raw=>({sha256:obj(raw).sha256,path:'opaque/frame'}))},
     status:'approved',parts:{'synthetic part':{outcome:'clean',note:''}}};
   const recorded=partsReviewCommand([root,'--draft',String(draft.id),'--from-review-cli','--by','user','--json','--','opaque/input','--verdict','never-created.json'],testClock.now(),{
-    runCli:()=>({stdout:Buffer.from(JSON.stringify(value)),exit:0}),
+    runCli:reviewStdout(JSON.stringify(value)),
   });
   expect(recorded.exit).toBe(0);expect(obj(arr(load(root).review_acts)[0]).schema).toBe(PARTS_CLI_RECEIPT);
   expect(partsReadFindings(root,load(root))).toEqual([]);

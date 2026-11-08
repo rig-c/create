@@ -849,7 +849,7 @@ Repeatable `--run-record <file>` binds at most one producer `run.json` per
 spec beside `--toolchain-lock`, recorded in the order given as
 `registration.runs: [{spec,source:{path,sha256,bytes}}]`. The dispatcher in
 `src/run-record.ts` accepts `rig-run/1` (`@rig-c/parts` `rig` or `assemble`) and
-`rigc-run/1` (`rig-c` `build`, with required `rig` and `motion` input roles and
+`rigc-run/1` (`@rig-c/core` or its `rig-c` alias, `build`, with required `rig` and `motion` input roles and
 optional `manifest` and `cuts` sorted in that role order and UTF-16 code-unit
 path order), validating only the published keys, key order and types without
 re-running or recomputing producer measurements. `interview --check` re-reads

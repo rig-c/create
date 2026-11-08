@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
 import { closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
-import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { prepareVersionIntent } from '../src/job-writer.ts';
 import { partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
@@ -65,6 +65,10 @@ test('bound publication retains the committed record hash and the exact parts ro
   const status = host.session.status();
   expect(status.generation).toBe(1);
   expect(status.publication?.source.projectHash).toBe(entry.recordHash);
+  const acknowledged = readAcknowledgedPublication(root, host.session.jobId, status.publication!.publicationId)!;
+  expect(acknowledged.versionHash).toBe(entry.versionHash!);
+  expect(acknowledged.generation).toBe(status.publication!.generation);
+  expect(lstatSync(join(root, '.rig-create-review/acknowledged-publications')).mode & 0o077).toBe(0);
   expect(status.publication?.source.parts?.images.map(row => ({ path: row.path, role: row.role })))
     .toEqual(partsEnumerator.enumerate(join(root, 'derived/review/v1/out')));
   const cancellation = new AbortController();

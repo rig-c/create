@@ -110,3 +110,83 @@ in `web/job-session.ts` lines 1711–1712.
 Review 2.4.6 refuses records containing answered scene-context choices or
 reader diagnostics with `JOB_RECORD_INCOMPLETE` before this reader runs.
 Those publications remain pending until review#555 supplies its contract.
+
+## Finalized verdict ingestion
+
+```sh
+rig-create review <version> <project> --from-review <actId> --json
+```
+
+The synchronous writer uses its private #184 binding to fetch the finalized act
+from the exact loopback job API. Its subprocess receives no Review state path or
+host callbacks. It opens no host and carries no producer storage file. The grant
+travels in Authorization, and the private process transport uses stdin/stdout.
+Human-value and feedback flags are exclusive with `--from-review`.
+
+The shared reader checks `rig-review/job-api@2`, `rig-review/act@2`, and the
+act's Parts enumerator version against `>=2.25.0 <3.0.0`. API@1 and act@1 are
+refused without migration. This card consumes rig/post `review-verdict` only.
+Interview picks, signoff, checkpoint and parts verdict ingestion await their
+follow-up cards. Image-review has no create version writer mapping. Described
+correction and mesh-edit retain Review's reserved status.
+
+`approved`, `changes-requested` and `pending` map to the existing verdict
+vocabulary `accepted`, `bounced` and `provisional`. Host-attested owner maps to
+`by: user`, and delegate maps to `by: delegate`. The complete reviewer identity,
+authority, original words, time and source remain in the immutable act receipt.
+A verdict records only a verdict. Signoff and stage advance require their own
+separate writer invocations.
+
+### Source checks and replay
+
+The #184 job/write lock spans fetch, validation and commit. Every first ingest
+and replay checks the explicit selector, retained model, direction, package,
+plan step identities, Parts manifest and declared image hashes against current
+files. Create never reconstructs Review's composite `sourceHash` or producer
+measurements. `source.projectHash` remains exact publication provenance inside
+the retained act. Later unrelated signoffs can change project.json without
+invalidating a displayed version.
+
+A successful publish now retains an owner-only acknowledged receipt beside the
+outbox in `.rig-create-review/acknowledged-publications/`. It records the job,
+publication ID, generation, request ID, selector and #184 `publicationVersionHash`
+before the outbox entry is removed. `JobAct.publicationId` links first ingest to
+that receipt. A changed version entry refuses `REVIEW_ACT_SOURCE_STALE`. When
+private receipts are absent, including after a clone, ingest emits
+`REVIEW_ACT_VERSION_UNVERIFIED` and still checks every explicit source binding.
+The JSON command result carries `warnings[]`, and the text result prints the
+named warning. This warning describes the skipped first-ingest version-entry
+comparison. It grants no exemption from the explicit source checks.
+
+The versioned record's `review_acts[]` stores `rig-create/review-act@1` receipts
+keyed by `(jobId, actId)`. Each retains the API's semantic act encoded once with
+`JSON.stringify` as a `bytes` string, SHA-256 of those exact UTF-8 bytes, the
+version and verdict index, and the pre-append version-entry hash. This encoding
+is explicit and does not claim to be Review's private storage serialization.
+The result and receipt are validated with the checker, fsynced and atomically
+replaced together. Refusal preserves project.json bytes. `check` validates the
+receipt hash, immutable act and linked verdict, including words and authority.
+Historical receipts are checked against retained evidence, independently of
+whether their sources are still current.
+
+An unchanged replay reports the existing verdict without rewriting the record.
+Replay discounts verdicts appended after its recorded verdict index when
+comparing the pre-append version-entry hash. Other original version fields and
+prior verdicts remain covered. Source changes refuse `REVIEW_ACT_SOURCE_STALE`
+with the recorded verdict untouched. This implements create#182's C4 ruling
+against the installed dedupe-first order in Review 2.4.6 `src/job-contract.ts`
+lines 574–576. C4's source-check requirement is recorded in create#182's
+“C4 act-side checks” ruling and review#501. [Create ruling](https://github.com/rig-c/create/issues/182), [Review C4](https://github.com/rig-c/review/issues/501).
+
+### Isolation evidence and legacy inputs
+
+The path test starts the host with relocated state, excludes its actual state
+path from the writer binding, and guards filesystem calls in the writer and
+fetch subprocess against that state path. It exercises the producer-bound
+chain checkpoint's rig verdict over the loopback API. Separate-UID filesystem
+unreadability is not measurable in this local test environment. The guarded
+path test establishes the accepted consumer access boundary.
+
+`--picks-file`, `--verbatim-file`, parts `--evidence`, and reshaped feedback JSON
+remain available for legacy/history workflows. The current semantic verdict
+path uses `--from-review` and preserves the fetched act directly.

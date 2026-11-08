@@ -106,11 +106,12 @@ for (const [name, code, mutate] of [
   ['export schema', 'APPLIED_REVIEW_FILE', (f: JsonObject) => { f.schema = 'other'; }],
   ['inspected model', 'APPLIED_REVIEW_SOURCE', (f: JsonObject) => { obj(obj(f.reviewedSource).rig).sha256 = 'e'.repeat(64); }],
   ['handoff input', 'APPLIED_REVIEW_SOURCE', (f: JsonObject) => { obj((obj(obj(f.reviewedSource).handoff).files as JsonObject[])[0]).sha256 = 'f'.repeat(64); }],
+  ['omitted handoff input', 'APPLIED_REVIEW_SOURCE', (f: JsonObject) => { const h = obj(obj(f.reviewedSource).handoff); h.files = (h.files as JsonObject[]).filter((e) => !String(e.path).endsWith('interview-requirements.json')); }],
   ['missing applied context', 'APPLIED_REVIEW_RESULT', (f: JsonObject) => { obj((f.feedback as JsonObject[])[0]).context = {}; }],
   ['duplicate feedback id', 'APPLIED_REVIEW_RESULT', (f: JsonObject) => { (f.feedback as JsonObject[]).push((f.feedback as JsonObject[])[0]!); }],
 ] as const) {
   test(`refuses changed ${name} even with an updated file hash`, async () => {
-    const { dir, project } = await chain();
+    const { dir, project } = await chain(name === 'omitted handoff input' ? 'example-project.json' : undefined);
     const record = obj(version(project, 2).review_origin);
     const file = join(dir, obj(record.feedback).path as string);
     const feedback = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -118,18 +119,19 @@ for (const [name, code, mutate] of [
     const bytes = JSON.stringify(feedback);
     writeFileSync(file, bytes);
     obj(record.feedback).sha256 = sha(bytes);
-    expect(checked(dir, project).refusals.map((f) => f.code)).toContain(code);
+    const refusals = checked(dir, project).refusals;
+    expect(refusals.map((f) => f.code)).toContain(code);
+    if (name === 'omitted handoff input') expect(refusals[0]?.message).toContain('interview-requirements.json');
   });
 }
 
 
-test('installed review omitting a named input is refused for the current signed example', async () => {
+test('installed review hashes every named input for the current signed example', async () => {
   const { dir, project } = await chain('example-project.json');
-  expect(checked(dir, project).refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
-  expect(checked(dir, project).refusals[0]?.message).toContain('interview-requirements.json');
+  expect(checked(dir, project)).toMatchObject({ refusals: [], warnings: [] });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   const report = checkProject(dir);
-  expect(report.refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
+  expect(report.refusals).toEqual([]);
   expect(report.warnings).toEqual([]);
 });
 

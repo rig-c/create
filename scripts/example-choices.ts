@@ -34,7 +34,7 @@ export function writeExampleChoices(dir: string, stage: string, clock: { now: nu
       {id:'other',kind:'other',label:'Other',effect:'Describe this decision.',recommended:false},
       {id:'auto',kind:'auto',label:'Let the agent decide',effect:'The agent must record this decision before approval.',recommended:false},
     ]}));
-    const set: JsonObject = {schema:OPTIONS_SPEC,id:`example-${item.id.replaceAll('_','-')}`,question:item.id,stage,drafted_by:'agent',drafted_at:drafted,context:optionContext(dir,project,stage,Date.parse(drafted)),asks,assembly:{rule:item.kind==='waypoint'?'merge':'single'}};
+    const set: JsonObject = {schema:OPTIONS_SPEC,id:`example-${item.id.replaceAll('_','-')}`,question:item.id,stage,drafted_by:'agent',drafted_at:drafted,context:optionContext(project,stage,Date.parse(drafted)),asks,assembly:{rule:item.kind==='waypoint'?'merge':'single'}};
     if(item.id==='assemble') set.constraints=[{asks:['projection','ground'],allowed:[['keep','keep'],['alternative','keep'],['alternative','alternative']]}];
     const path = `evidence/interview/${String(set.id)}.json`;
     const bytes = `${JSON.stringify(set,null,2)}\n`; writeFileSync(join(dir,path),bytes);files[path]=bytes;

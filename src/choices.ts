@@ -140,10 +140,10 @@ export function validateSet(project: JsonObject, item: Item, set: JsonObject, co
 
 /**
  * A context is a projection of existing identities, never a producer report reconstructed by create.
- * A post set takes the scene kind only while the scene is current at `at`; `legacyScene` is the
- * rule before SCENE_CONTEXT_SINCE, where any latest scene was taken.
+ * A post set takes the scene kind only while the scene is current at `at`, which reads the scene
+ * document under `dir`; `legacyScene` is the rule before SCENE_CONTEXT_SINCE, where any latest scene was taken.
  */
-export function optionContext(dir: string, project: JsonObject, stage: string, at: number, legacyScene = false): JsonObject {
+export function optionContext(project: JsonObject, stage: string, at: number, dir?: string, legacyScene = false): JsonObject {
   if (stage === 'parts') {
     try { return intakeContext(project, at); } catch (e) { fail('INTERVIEW_OPTIONS_STALE', `${String(e)}; record the preflight before showing options`); }
   }
@@ -160,7 +160,9 @@ export function optionContext(dir: string, project: JsonObject, stage: string, a
     return { kind: 'parts', accepted_parts: { signoff_at: approval.at as Json, evidence: approval.evidence }, structure: approval.structure, draft_id: draft.id as Json, parts: draft.parts };
   }
   try {
-    const scene = legacyScene ? currentScene(project, at) : sceneCurrentAt(dir, project, at);
+    const candidate = currentScene(project, at);
+    if (candidate && !legacyScene && dir === undefined) fail('INTERVIEW_OPTIONS_STALE', `${String(candidate.path)}: the scene's currentness needs the project folder; pass dir to optionContext`);
+    const scene = legacyScene || !candidate ? candidate : sceneCurrentAt(dir!, project, at);
     if (scene) return { kind: 'scene', scene: sceneReference(scene) };
   } catch (error) {
     if (error instanceof SceneError) fail('INTERVIEW_OPTIONS_STALE', error.message);
@@ -202,7 +204,7 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
     if (!Array.isArray(set.context.files) || !set.context.files.length || set.context.files.some(f => !isObject(f) || !declared.some(d => d.path === f.path && d.sha256 === f.sha256 && (d.at === undefined || date(d.at) <= drafted)))) fail('INTERVIEW_OPTIONS_STALE','shown source identity is no longer declared; restore the original inputs');
   } else {
     const live = (legacyScene: boolean): void => {
-      if (!equal(optionContext(dir, contextProject, String(set.stage), drafted, legacyScene), set.context) || !equal(optionContext(dir, contextProject, String(set.stage), at, legacyScene), set.context)) fail('INTERVIEW_OPTIONS_STALE', 'options no longer match the live context; redraft against current accepted inputs');
+      if (!equal(optionContext(contextProject, String(set.stage), drafted, dir, legacyScene), set.context) || !equal(optionContext(contextProject, String(set.stage), at, dir, legacyScene), set.context)) fail('INTERVIEW_OPTIONS_STALE', 'options no longer match the live context; redraft against current accepted inputs');
     };
     if (!isObject(set.context) || set.context.kind !== 'scene' || !(drafted < Date.parse(SCENE_CONTEXT_SINCE))) live(false);
     else {

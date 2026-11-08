@@ -118,7 +118,7 @@ test('@2 requires the exact closed committed scene reference', () => {
 
 test('post option context binds scene bytes, resolves freshness and preserves legacy rig contexts', () => {
   const f = setup(); const p = f.load(); const at = Date.parse('2026-11-07T10:00:00Z');
-  const context = optionContext(f.dir, p, 'post-interview', at);
+  const context = optionContext(p, 'post-interview', at, f.dir);
   expect(context).toEqual({ kind: 'scene', scene: f.doc.scene! });
   const set = { stage: 'post-interview', drafted_at: '2026-11-07T10:00:00Z', context };
   validateContext(f.dir, p, set, at, true);
@@ -129,7 +129,7 @@ test('post option context binds scene bytes, resolves freshness and preserves le
   expect(() => validateContext(f.dir, f.load(), set, testClock.now(), true)).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
   const latest = currentScene(f.load())!;
   writeFileSync(join(f.dir, String(latest.path)), '{}');
-  expect(() => optionContext(f.dir, f.load(), 'post-interview', testClock.now())).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
+  expect(() => optionContext(f.load(), 'post-interview', testClock.now(), f.dir)).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
   const next = { ...set, drafted_at: testClock.iso(), context: { kind: 'scene', scene: sceneReference(latest) } };
   expect(() => validateContext(f.dir, f.load(), next, testClock.now(), true)).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
 });

@@ -66,7 +66,7 @@ function acceptNewRig(dir: string, start = 0): void {
 test('(a) a rig accepted after the scene anchors post sets on that rig, never on the previous rig\'s scene', () => {
   const dir = chainProject(); acceptNewRig(dir);
   tick(6);
-  const context = optionContext(dir, load(dir), 'post-interview', at());
+  const context = optionContext(load(dir), 'post-interview', at(), dir);
   expect(context.kind).toBe('rig');
   expect(context.rig_version).toBe(3);
   register(dir, draft(dir, 'post-composition-rig', context));
@@ -79,7 +79,7 @@ test('(b) a scene current on the live accepted rig anchors post sets after a pos
   const dir = chainProject();
   tick(0); reopen(dir, 'post-interview');
   tick(1);
-  const context = optionContext(dir, load(dir), 'post-interview', at());
+  const context = optionContext(load(dir), 'post-interview', at(), dir);
   expect(context).toEqual(scene(dir));
   const path = draft(dir, 'post-composition-scene', context);
   register(dir, path);
@@ -88,7 +88,7 @@ test('(b) a scene current on the live accepted rig anchors post sets after a pos
   tick(2); sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', dir]);
   refused('INTERVIEW_OPTIONS_STALE', answer(dir, path), dir);
   tick(3);
-  const fresh = draft(dir, 'post-composition-s2', optionContext(dir, load(dir), 'post-interview', at()));
+  const fresh = draft(dir, 'post-composition-s2', optionContext(load(dir), 'post-interview', at(), dir));
   expect(JSON.parse(readFileSync(join(dir, fresh), 'utf8')).context).toEqual(scene(dir));
   register(dir, fresh);
   writeFileSync(join(dir, 'evidence/scene/s2.json'), '{}');
@@ -98,11 +98,11 @@ test('(b) a scene current on the live accepted rig anchors post sets after a pos
 test('(c) reopening rig-review after the scene leaves no post context until a rig is accepted again', () => {
   const dir = chainProject();
   tick(0); reopen(dir, 'post-interview');
-  tick(1); const before = draft(dir, 'post-composition-before', optionContext(dir, load(dir), 'post-interview', at()));
+  tick(1); const before = draft(dir, 'post-composition-before', optionContext(load(dir), 'post-interview', at(), dir));
   register(dir, before);
   tick(2); reopen(dir, 'rig-review');
   tick(3);
-  expect(() => optionContext(dir, load(dir), 'post-interview', at())).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
+  expect(() => optionContext(load(dir), 'post-interview', at(), dir)).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
   // The set drafted before the reopen is stale by the existing reopen rule.
   refused('INTERVIEW_OPTIONS_STALE', answer(dir, before), dir);
 });
@@ -110,14 +110,23 @@ test('(c) reopening rig-review after the scene leaves no post context until a ri
 test('currentness is read at the instant in question: a scene-kind answer stays valid after a later rig is accepted', () => {
   const dir = chainProject();
   tick(0); reopen(dir, 'post-interview');
-  tick(1); const path = draft(dir, 'post-composition-scene', optionContext(dir, load(dir), 'post-interview', at()));
+  tick(1); const path = draft(dir, 'post-composition-scene', optionContext(load(dir), 'post-interview', at(), dir));
   register(dir, path);
   tick(2); answer(dir, path)();
   acceptNewRig(dir, 3);
   tick(10);
-  expect(optionContext(dir, load(dir), 'post-interview', at()).kind).toBe('rig');
-  expect(optionContext(dir, load(dir), 'post-interview', base + 1000)).toEqual(scene(dir));
+  expect(optionContext(load(dir), 'post-interview', at(), dir).kind).toBe('rig');
+  expect(optionContext(load(dir), 'post-interview', base + 1000, dir)).toEqual(scene(dir));
   expect(optionCodes(dir)).toEqual([]);
+});
+
+test('the three-argument call keeps its rig kind with no scene, and refuses by name when a scene needs the folder', () => {
+  const root = join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post');
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  expect(project.scenes).toBeUndefined();
+  expect(optionContext(project, 'post-interview', at()).kind).toBe('rig');
+  const dir = chainProject();
+  expect(() => optionContext(load(dir), 'post-interview', at())).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE', message: expect.stringContaining('needs the project folder') }));
 });
 
 const sinceOffset = (seconds: number): number => Date.parse(SCENE_CONTEXT_SINCE) + seconds * 1000;

@@ -271,7 +271,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       };
       const value = values[item.id] ?? {};
       const set: JsonObject = { schema: OPTIONS_SPEC, id: `chain-${item.id}`, question: item.id, stage: phase,
-        drafted_by: 'agent', drafted_at: new Date(now).toISOString(), context: optionContext(dir, project, phase, now),
+        drafted_by: 'agent', drafted_at: new Date(now).toISOString(), context: optionContext(project, phase, now),
         assembly: { rule: item.kind === 'waypoint' ? 'merge' : 'single' },
         asks: asks.map((ask): JsonObject => ({ id: ask, prompt: `Choose ${ask} for the synthetic plate.`, options: [
           { id: 'keep', kind: 'value', label: `Use the synthetic ${ask}`, effect: 'Keep the declared geometric example.',

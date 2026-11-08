@@ -1,3 +1,4 @@
+import { reviewActFindings } from './review-act.ts';
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
@@ -959,6 +960,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkAppliedReview(ctx);
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);
+  refusals.push(...reviewActFindings(project));
   checkCgGates(ctx);
   checkSetupPainting(ctx);
   checkFigureMask(ctx);

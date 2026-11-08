@@ -312,3 +312,49 @@ export function pendingPublicationHoles(root: string): { code: string; path: str
     return [{ code: 'JOB_OUTBOX_INVALID', path: 'project.json', message: 'project.json: HOLE private publication outbox is unreadable; restore its owner-only bytes before rig-create job reconcile' }];
   }
 }
+
+export interface AcknowledgedPublication {
+  schema: 'rig-create/job-acknowledged@1';
+  jobId: string;
+  publicationId: string;
+  generation: number;
+  requestId: string;
+  result: PendingPublication['result'];
+  versionHash: string;
+}
+
+function acknowledgedPath(root: string, jobId: string, publicationId: string): string {
+  return join(jobPrivateRoot(root), 'acknowledged-publications', `${jobHash(JSON.stringify([jobId, publicationId]))}.json`);
+}
+
+/** Persist the version identity before the pending publication is removed. */
+export function acknowledgePublication(entry: PendingPublication, publicationId: string, generation: number, requestId: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(publicationId) || !Number.isSafeInteger(generation) || generation < 0 || !entry.versionHash) {
+    refuse('JOB_OUTBOX_INVALID', 'project.json: publication acknowledgment lacks its identity; reconcile the original pending publication');
+  }
+  const receipt: AcknowledgedPublication = { schema: 'rig-create/job-acknowledged@1', jobId: entry.jobId,
+    publicationId, generation, requestId, result: entry.result, versionHash: entry.versionHash };
+  const path = acknowledgedPath(entry.root, entry.jobId, publicationId);
+  let existing: unknown;
+  try { existing = privateJson(path); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  if (existing !== undefined && !isDeepStrictEqual(existing, receipt)) {
+    refuse('JOB_OUTBOX_INVALID', 'project.json: acknowledgment identity conflicts with retained receipt; restore the original publication receipt');
+  }
+  if (existing === undefined) writePrivateJson(path, receipt);
+}
+
+export function readAcknowledgedPublication(root: string, jobId: string, publicationId: string): AcknowledgedPublication | null {
+  const directory = join(jobPrivateRoot(root), 'acknowledged-publications');
+  if (!existsSync(directory)) return null;
+  privateDirectory(directory);
+  let value: AcknowledgedPublication;
+  try { value = privateJson(acknowledgedPath(root, jobId, publicationId)) as AcknowledgedPublication; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  if (value?.schema !== 'rig-create/job-acknowledged@1' || value.jobId !== jobId || value.publicationId !== publicationId
+    || !/^[a-f0-9]{64}$/.test(value.versionHash) || !Number.isSafeInteger(value.generation) || value.generation < 0
+    || typeof value.requestId !== 'string' || !value.result?.selector) {
+    refuse('JOB_OUTBOX_INVALID', 'project.json: acknowledged publication receipt is malformed; restore its owner-only original');
+  }
+  return value;
+}

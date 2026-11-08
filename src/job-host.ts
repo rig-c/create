@@ -5,7 +5,7 @@ import { checkProject } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from './job-publication.ts';
-import { acquireJobLock, assertJobIdentity, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
+import { acknowledgePublication, acquireJobLock, assertJobIdentity, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -100,11 +100,13 @@ export async function publishPending(entry: PendingPublication, requested?: JobI
       method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
       body: JSON.stringify(request),
     }));
-    const result = await response.json() as { schema: string; ok: boolean; error?: { code: string; detail?: string } };
+    const result = await response.json() as { schema: string; ok: boolean; error?: { code: string; detail?: string }; value?: { publicationId: string; generation: number } };
     if (result.schema !== entry.identity.apiSchema || !result.ok) {
       const code = result.error?.code ?? 'JOB_PUBLICATION_INVALID';
       refuse(code, `project.json: publication of record ${entry.recordHash} was refused by review (${code}); run rig-create job reconcile after restoring the bound sources`);
     }
+    if (!result.value) refuse('JOB_OUTBOX_INVALID', 'project.json: publication response lacks its identity; reconcile the pending publication');
+    acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt);
   } finally { host.stop(); }
 }
 

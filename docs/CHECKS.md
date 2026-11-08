@@ -21,6 +21,22 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_RECORD_INCOMPLETE` | Review 2.4.6 refuses answered scene-context choices or diagnostics before publication. Preserve the pending entry until review#555 supplies the reader contract. |
 
 
+## Finalized Review acts
+
+| Code | Finding and remedy |
+| --- | --- |
+| `REVIEW_API_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported API schema. Restore a live job using job-api@2 and fetch again. |
+| `REVIEW_ACT_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported act schema, explicitly including act@1. Request a new act@2 without migrating the old act. |
+| `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <3.0.0`. Publish through an accepted installed Parts enumerator and review again. |
+| `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date or rig/post value is malformed. Restore the original act evidence or request a new act. |
+| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside rig/post review-verdict ingestion. Use the matching version and supported writer. |
+| `REVIEW_ACT_FETCH_REFUSED` | The live job refused or could not complete finalized-act fetch. The diagnostic retains the producer refusal code without exposing its private details. Restore the live job and its writer grant. |
+| `REVIEW_ACT_SOURCE_STALE` | A current source binding or retained version-entry identity differs from the displayed act. Restore the retained bytes or request a new review. Replays also refuse without changing the recorded verdict. |
+| `REVIEW_ACT_REPLAY_CONFLICT` | A `(jobId, actId)` appears twice or its immutable value changed. Restore the original receipt and its single linked verdict. |
+| `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target or linked verdict is invalid. Restore the original receipt and verdict together. |
+| `REVIEW_ACT_VERSION_UNVERIFIED` | WARN on ingest when the acknowledged publication receipt is unavailable. The version-entry comparison was skipped, and all explicit source bindings were checked. Preserve private acknowledged receipts for future ingests. |
+
+
 ```
 rig-create interview --check [<project dir>] [--json]
 ```
@@ -642,7 +658,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | `VERBATIM_UNREADABLE` | a verbatim file or stdin cannot be read |
 | `VERBATIM_INVALID_UTF8` | the input cannot round-trip as UTF-8 through JSON (exit 2) |
 | `REVIEW_NOT_HUMAN` | the reviewer is `agent`, case-insensitively |
-| `REVIEW_OPTION_INVALID` | invalid `--at`, malformed feedback ref, or both `--verbatim` and `--verbatim-file` (exit 2) |
+| `REVIEW_OPTION_INVALID` | invalid `--at`, malformed feedback ref, both `--verbatim` and `--verbatim-file`, or competing human-value/feedback flags with `--from-review` (exit 2) |
 | `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version |
 | `FEEDBACK_REF_DUPLICATE` | the reference already exists or occurs twice in this command |
 

@@ -18,7 +18,14 @@ import { assertCorrectionApproval } from './correction-writers.ts';
  *   verdict, and a `not-asked` item whose sentence was never added are refused
  *   by name; per bounced verdict, its items are counted by cause.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import { acquireBoundJobWrite } from './job-writer.ts';
+import { jobHash } from './job-outbox.ts';
+import { assertReviewActSource, decodeReviewAct, reviewActFindings, reviewActPublicationWarning, reviewActTransport, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
+import { newRefusals } from './refusal-baseline.ts';
 import { join, resolve } from 'node:path';
 
 import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
@@ -329,6 +336,7 @@ export interface Recorded {
   readonly verdict: JsonObject;
   readonly items: RecordedItem[];
   readonly stage: string | null;
+  readonly warnings?: string[];
 }
 
 export function readProject(dir: string): { file: string; project: JsonObject } {
@@ -346,10 +354,16 @@ export function readProject(dir: string): { file: string; project: JsonObject } 
 
 /** Appends one verdict to `versions[v<n>].verdicts[]`, writes not-asked sentences into their guides, and saves project.json. Refuses before writing anything. */
 export function recordVerdict(projectDirArg: string, input: ReviewInput, now: number): Recorded {
+  return writeVerdict(projectDirArg, input, now);
+}
+
+function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fetched?: FetchedReviewAct, warnings: string[] = []): Recorded {
   if (!isHuman(input.by)) refuse('REVIEW_NOT_HUMAN', 'review must name a human, not agent');
   if (input.at !== undefined && !Number.isFinite(Date.parse(input.at))) refuse('REVIEW_OPTION_INVALID', '--at needs a valid timestamp', USAGE_EXIT);
   const dir = resolve(projectDirArg);
   const { file, project } = readProject(dir);
+  const originalBytes = readFileSync(file);
+  const original = structuredClone(project);
   const version = asArray(project.versions).find((v): v is JsonObject => isObject(v) && v.n === input.version);
   if (version === undefined) refuse('REVIEW_VERSION_UNKNOWN', `versions[] has no version ${input.version}; a verdict is on a version that was shown`);
   const draftProblem = draftVersionFindings(dir, { ...project, versions: [version] })[0];
@@ -473,13 +487,72 @@ export function recordVerdict(projectDirArg: string, input: ReviewInput, now: nu
   if (verdict.verdict === 'accepted') assertDirectionApproval(dir, project, String(verdict.review), now, input.version);
   if (verdict.verdict === 'accepted' && verdict.review === 'rig-review') assertFigureMaskApproval(dir, project, input.version);
   if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review), now);
+  const result = { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage), ...(warnings.length ? { warnings } : {}) };
+  if (fetched) {
+    const receipt = { schema: 'rig-create/review-act@1', jobId: fetched.act.jobId, actId: fetched.act.actId,
+      bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
+      version_hash: reviewActVersionHash(original, fetched.act) };
+    project.review_acts = [...asArray(project.review_acts), receipt];
+    const invalid = reviewActFindings(project)[0] ?? newRefusals(dir, original, project, { now })[0];
+    if (invalid) refuse(invalid.code, invalid.message);
+    assertReviewActSource(dir, original, fetched.act);
+    if (!readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during verdict validation; retry against the current live job');
+    const temporary = join(dir, `.rig-create-review-act-${randomUUID()}.tmp`);
+    const fd = openSync(temporary, 'wx', 0o600);
+    try {
+      writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
+      fsyncSync(fd);
+      renameSync(temporary, file);
+      const directory = openSync(dir, 'r');
+      try { fsyncSync(directory); } finally { closeSync(directory); }
+    } finally { closeSync(fd); rmSync(temporary, { force: true }); }
+    return result;
+  }
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
+}
+
+/** The common #184 lock covers fetch, source validation and the atomic write. */
+export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number): Recorded {
+  root = resolve(root);
+  const release = acquireBoundJobWrite(root);
+  try {
+    const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+      stdin: Buffer.from(JSON.stringify(reviewActTransport(root, actId))), stdout: 'pipe', stderr: 'pipe',
+    });
+    let response: { ok: boolean; bytes: string; code: string; message: string };
+    try { response = JSON.parse(child.stdout.toString()); }
+    catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
+    if (!response.ok || child.exitCode !== 0) refuse(response.code, response.message);
+    const act = decodeReviewAct(response.bytes);
+    const selector = act.source.selector!;
+    if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');
+    if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
+    const { project } = readProject(root);
+    const invalid = reviewActFindings(project)[0];
+    if (invalid) refuse(invalid.code, invalid.message);
+    assertReviewActSource(root, project, act);
+    const existing = asArray(project.review_acts).find(entry => isObject(entry) && entry.jobId === act.jobId && entry.actId === act.actId);
+    if (isObject(existing)) {
+      if (!isDeepStrictEqual(JSON.parse(String(existing.bytes)), act)) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable act changed; restore the original receipt');
+      if (existing.version_hash !== reviewActVersionHash(project, act, Number(existing.verdict))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed version changed; request a new review act');
+      const version = asArray(project.versions).find(v => isObject(v) && v.n === requestedVersion) as JsonObject;
+      return { project_dir: root, verdict_path: `versions[v${requestedVersion}].verdicts[${existing.verdict}]`,
+        verdict: (version.verdicts as JsonObject[])[Number(existing.verdict)], items: [], stage: asString(project.stage) };
+    }
+    const warning = reviewActPublicationWarning(root, project, act);
+    return writeVerdict(root, { version: requestedVersion,
+      verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict] as ReviewInput['verdict'],
+      by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', review: act.value.stage as Review,
+      verbatim: act.value.words, at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
+    }, now, { act, bytes: response.bytes }, warning ? [warning] : []);
+  } finally { release(); }
 }
 
 export const REVIEW_HELP = `review:
   <version>        the version shown (3 or v3)
   [<project dir>]  the project folder (default: the current directory)
+  --from-review <actId>  fetch a rig/post verdict through the live job writer binding
   --verdict <v>    accepted | bounced | provisional
   --by <who>       who gave it (the user's name or role)
   --review <r>     rig-review (a rig version) | direction-review (a post version)
@@ -529,7 +602,7 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
       return v;
     };
     if (arg === '--json') json = true;
-    else if (['--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
+    else if (['--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
       if (arg in opts) refuse('REVIEW_OPTION_INVALID', `${arg} is given twice`, USAGE_EXIT);
       opts[arg] = value();
     } else if (arg === '--answers-feedback') {
@@ -565,6 +638,13 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
   }
   if (positional.length > 2) refuse('REVIEW_TOO_MANY_ARGUMENTS', `review takes a version and one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   const version = parseVersion(positional[0]);
+  if (opts['--from-review'] !== undefined) {
+    if (Object.keys(opts).length !== 1 || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
+      refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --from-review excludes human-value and feedback flags; submit those values through Review', USAGE_EXIT);
+    }
+    const recorded = recordReviewAct(positional[1] ?? process.cwd(), version, opts['--from-review'], now);
+    return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []), `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`].join('\n'), exit: 0 };
+  }
   if (opts['--verbatim'] !== undefined && opts['--verbatim-file'] !== undefined) refuse('REVIEW_OPTION_INVALID', 'choose --verbatim or --verbatim-file', USAGE_EXIT);
   if (opts['--verbatim-file'] !== undefined) opts['--verbatim'] = readVerbatim(opts['--verbatim-file']);
   const missing = ['--verdict', '--by', '--review', '--verbatim', '--source'].filter((k) => opts[k] === undefined || opts[k] === '');

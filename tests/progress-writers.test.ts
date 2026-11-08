@@ -522,12 +522,14 @@ test('writer-made status and advance history links through same-clock reopen res
   expect(linkage(dir, 'warnings')).toEqual([]);
 });
 
-test('a planted status gap is refused, and step-status keeps the bytes', () => {
+test('a planted status gap is refused by check, and a carried gap does not block another step', () => {
   const dir = partsProject('parts');
   status(dir, 'assemble', 'in-progress');
   const gap = read(dir); step(gap, 'assemble').status = 'at-checkpoint'; save(dir, gap);
   expect(linkage(dir)).toEqual([['STEP_STATUS_UNLINKED', 'plan.steps[assemble].status']]);
-  refused(dir, 'STEP_STATUS_UNLINKED', () => status(dir, 'seethrough', 'in-progress'));
+  status(dir, 'seethrough', 'in-progress');
+  expect(linkage(dir)).toEqual([['STEP_STATUS_UNLINKED', 'plan.steps[assemble].status']]);
+  save(dir, gap);
   // The writer reads the hand-set status, so its next entry carries the gap into history.
   const hidden = read(dir); arr(step(hidden, 'assemble').status_history).push(entry('at-checkpoint', 'done', '2026-11-20T00:00:00Z'));
   step(hidden, 'assemble').status = 'done'; save(dir, hidden);

@@ -89,13 +89,25 @@ test('a planted steps_before status on an example-chain prefix is refused at its
   reopen(dir, 'rigging');
   const planted = read(dir);
   const path = beforePath(planted, 'bones', 1);
-  // The prefix's done status was recorded without history before the cutoff, so its snapshot is a legacy WARN.
-  const legacy = [[CODE, beforePath(planted, 'bones', 0)]];
+  // The prefix's done bones had no history at the first reopen, so that snapshot is not judged.
   expect(unlinked(dir, 'refusals')).toEqual([]);
-  expect(unlinked(dir, 'warnings')).toEqual(legacy);
+  expect(unlinked(dir, 'warnings')).toEqual([]);
   before(planted, 'bones', 1).status = 'done'; save(dir, planted);
   expect(unlinked(dir, 'refusals')).toEqual([[CODE, path]]);
-  expect(unlinked(dir, 'warnings')).toEqual(legacy);
+  expect(unlinked(dir, 'warnings')).toEqual([]);
+});
+
+test('a step done with no history at a reopen dated from the cutoff can still be redone through step-status', () => {
+  const dir = parts(NOW);
+  expect(Date.parse(String(obj(arr(read(dir).advances).at(-1)).at))).toBeGreaterThanOrEqual(SINCE);
+  handSet(dir, 'seethrough', 'done');
+  expect(unlinked(dir, 'refusals')).toEqual([]);
+  reopen(dir, 'parts');
+  expect(before(read(dir), 'seethrough').status).toBe('done');
+  status(dir, 'seethrough', 'in-progress');
+  expect(arr(obj(arr(obj(read(dir).plan).steps).find(raw => obj(raw).id === 'seethrough')).status_history)).toHaveLength(1);
+  expect(checkProject(dir).refusals.map(f => f.code)).not.toContain(CODE);
+  expect(checkProject(dir).warnings.map(f => f.code)).not.toContain(CODE);
 });
 
 test('an omitted steps_before status reads as pending; a malformed one keeps REOPEN_MALFORMED', () => {

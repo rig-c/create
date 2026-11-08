@@ -337,10 +337,13 @@ export function checkProgressLinkage(ctx: Ctx): void {
         if (!isObject(raw) || raw.id !== step.id) continue;
         const claimed = raw.status === undefined ? 'pending' : raw.status;
         if (typeof claimed !== 'string' || !STEP_STATUSES.includes(claimed as typeof STEP_STATUSES[number])) continue;
-        // The chain at the reopen is the last earlier entry's status (pending before any), then any reset after it.
+        // A step with no history before the reopen had no recorded chain then, as #186 leaves a step with no history unjudged.
+        // Judging it once a later redo adds history would block that redo with no writer remedy.
         const earlier = (history as JsonObject[]).filter(entry => eventTime(entry.at) < at).at(-1);
-        const last = earlier === undefined ? -Infinity : eventTime(earlier.at);
-        const chained = reset(new Set([earlier === undefined ? 'pending' : String(earlier.status)]), last, at, events);
+        if (earlier === undefined) continue;
+        // The chain at the reopen is the last earlier entry's status, then any reset after it.
+        const last = eventTime(earlier.at);
+        const chained = reset(new Set([String(earlier.status)]), last, at, events);
         // An entry tied in time with the reopen may fall on either side of it.
         const tied = (history as JsonObject[]).filter(entry => eventTime(entry.at) === at);
         for (const entry of tied) chained.add(String(entry.status));

@@ -160,7 +160,7 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(54);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(55);
   expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/painting.png')).toBe(true);
   expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/background.png')).toBe(true);
   expect(receipt.steps.some(step => step.seed?.field === 'inputs[]')).toBe(false);
@@ -260,7 +260,7 @@ function fileInventory(dir: string, prefix = ''): Record<string, string> {
 }
 
 test.each([
-  ['1-parts-verdict', 1, 31, 'parts', 0],
+  ['1-parts-verdict', 1, 30, 'parts', 0],
   ['2-rigging-answers', 2, 38, 'rigging-interview', 4],
   ['3-rig-review', 3, 60, 'rig-review', 0],
   ['4-direction-post', 4, 81, 'post', 0],
@@ -291,7 +291,8 @@ test.each([
   expect(signoffs.some(signoff => signoff.stage === awaited)).toBe(false);
   if (stage === 1) {
     expect(declaration.files.some(file => file.path === 'evidence/parts-review.json')).toBe(false);
-    expect(declaration.pending.command_roles).toEqual(['producer', 'producer', 'human', 'human']);
+    expect(declaration.files.some(file => file.path === 'evidence/structure.json')).toBe(false);
+    expect(declaration.pending.command_roles).toEqual(['producer', 'agent', 'producer', 'human', 'human']);
   }
   if (stage === 2) {
     expect(report.refusals.map(finding => [finding.code, finding.path])).toEqual(
@@ -337,7 +338,6 @@ test('agent-authored inputs are declared at their true position before public wr
     ['evidence/approval.txt', ['rig-create', 'signoff', 'interview']],
     ['inputs/painting.png', ['rig-create', 'interview-options', 'rig_type']],
     ['evidence/split-config.json', ['rig-create', 'split-captions']],
-    ['evidence/structure.json', ['rig-create', 'signoff', 'parts-review']],
     ['evidence/setup.png', ['rig-create', 'review-package', '1']],
     ['evidence/v1/config.json', ['rig-create', 'review-package', '1']],
     ['inputs/background.png', ['rig-create', 'input', 'add', 'inputs/background.png']],
@@ -415,3 +415,19 @@ test.each(['1-parts-verdict', '2-rigging-answers', '3-rig-review', '4-direction-
     expect(report.warnings.map(f => f.code)).toEqual(current ? [] : ['STAGE_LAGGING']);
   } finally { rmSync(dir, { recursive: true }); }
 }, 30_000);
+
+test('the parts-review structure snapshot is written by structure-snapshot after the verdict, not authored by hand', () => {
+  const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };
+  const path = 'evidence/structure.json';
+  const at = (command: string[]): number => chain.steps.findIndex(step => command.every((arg, index) => step.command[index] === arg));
+  const writer = at(['rig-create', 'structure-snapshot']);
+  expect(chain.steps[writer]!.kind).toBe('writer');
+  expect(chain.steps[writer]!.output_path).toBe(path);
+  expect(chain.steps[writer]!.output_sha256).toBe(sha256(readFileSync(join(shipped, path))));
+  expect(chain.steps.some(step => step.outputs?.[path] !== undefined)).toBe(false);
+  expect(at(['partsPackage'])).toBeLessThan(writer);
+  expect(writer).toBeLessThan(at(['rig-create', 'signoff', 'parts-review']));
+  const config = JSON.parse(readFileSync(join(shipped, 'derived/drafts/chain/config.json'), 'utf8')) as { meshes: Record<string, unknown> };
+  const snapshot = JSON.parse(readFileSync(join(shipped, path), 'utf8')) as { entries: { path: string; value: unknown }[] };
+  expect(snapshot.entries).toEqual(Object.entries(config.meshes).map(([part, value]) => ({ path: `/meshes/${part}`, value })));
+});

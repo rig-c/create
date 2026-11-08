@@ -1311,6 +1311,7 @@ draft's proposed bones and weights are not the person's rigging answers.
 
 ```sh
 rig-create draft-rig <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--json]
+rig-create structure-snapshot [<dir>] --draft <id> --verdict <path> --out <path>
 rig-create signoff parts-review --by <who> --evidence <path> --diff-report <path> --component '<id>=<status>:<why>' --draft <id> --structure-file <path> --verbatim-file <file>
 ```
 
@@ -1339,8 +1340,8 @@ output root and numbered version. This checks declared artifact identity;
 it does not claim to recognise untracked byte copies after their identity is
 stripped. Identical model hashes alone are not blacklisted.
 
-`--structure-file` retains an agent-prepared declaration snapshot approved by
-the human parts sign-off, not a fabricated review export:
+`--structure-file` retains a declaration snapshot approved by the human parts
+sign-off, not a fabricated review export. `structure-snapshot` writes it:
 
 ```json
 {
@@ -1354,6 +1355,25 @@ the human parts sign-off, not a fabricated review export:
 Each entry is the complete exact `meshes.<part>` declaration, including
 `contour.bust` or `contour.regions` where present. Paths use JSON Pointer
 escaping. Explicit `entries: []` is legal when no declarations are carried.
+
+The parts verdict names no per-declaration approval: an approved verdict
+approves the reviewed draft. So `structure-snapshot` copies `draft_id` and the
+draft's own `config: {path, sha256}` binding, and writes one entry per key of
+that config's `meshes`, in the config's key order, each value copied exactly.
+A config without `meshes` gives `entries: []`. It computes no mesh. It reads
+`--verdict` with the parts-review sign-off's own reader, so a verdict that is
+not approved refuses `PARTS_VERDICT_NOT_APPROVED`, and a changes-requested
+review gives no snapshot. It refuses an unknown draft
+(`STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN`), a draft config whose bytes changed since
+the draft was recorded (`STRUCTURE_SNAPSHOT_CONFIG_CHANGED`), and an `--out`
+that is not a literal project path (`STRUCTURE_SNAPSHOT_OUT_INVALID`), is under
+an ignored root (`STRUCTURE_SNAPSHOT_OUT_IGNORED`) or already holds different
+bytes (`STRUCTURE_SNAPSHOT_OUT_EXISTS`). The candidate is validated with the
+rules the check applies to a signed snapshot before any byte is written, and a
+refusal leaves no new or changed file. An `--out` that already holds the same
+bytes is left as it is and the command succeeds. It writes only `--out`, never
+`project.json`; `signoff parts-review --draft <id> --structure-file <path>`
+then binds the file.
 The snapshot must live outside ignored roots, such as `evidence/`; the writer
 refuses paths or aliases into ignored storage. The writer hashes the retained
 file and checks its config/declaration identity when the draft config is

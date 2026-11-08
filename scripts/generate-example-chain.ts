@@ -9,7 +9,6 @@ import { currentScene, sceneReference } from '../src/scene.ts';
 import { applicableAsks, optionContext, OPTIONS_SPEC, sha256 } from '../src/choices.ts';
 import { interviewStageOfGuide } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
-import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { generatorArgs } from './generator-args.ts';
 import { checkExampleParts, generateExampleParts } from './generate-example-parts.ts';
@@ -188,7 +187,8 @@ export function generateExampleChain(destination: string): Record<string, Buffer
   };
   const json = (path: string, value: unknown): void => write(path, `${JSON.stringify(value, null, 2)}\n`);
   const binding = (path: string): JsonObject => ({ path, sha256: sha256(readFileSync(join(dir, path))) });
-  const writer = (args: string[], outputPath?: string): void => {
+  // outputPath names the file the step produced: its captured stdout, or with captured false a file the writer wrote itself.
+  const writer = (args: string[], outputPath?: string, captured = true): void => {
     if (args[0] === 'interview-answer' && args[1] === 'bones') {
       checkpoint(2, '2-rigging-answers', 'Choose the rigging interview answers and approve their plan',
         ['interview.waypoints[bones].guide', 'interview.waypoints[meshes].guide', 'interview.waypoints[constraints].guide', 'interview.waypoints[motion].guide', 'signoffs[stage=rigging-interview]']);
@@ -212,7 +212,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       steps[index]!.seed!.first_consumer = steps.length;
       return steps[index]!.step;
     });
-    if (outputPath) write(outputPath, output);
+    if (outputPath && captured) write(outputPath, output);
     const project = load();
     const bindings: Record<string, string> = {};
     for (const input of asArray(project.inputs).filter(isObject)) {
@@ -325,19 +325,18 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       [`${draftRoot}/input/recomposite_rig.png`]: readFileSync(join(scratch, 'parts-producer/assembled/render/recomposite_rig.png')),
     });
     writer(['draft-rig', 'chain', '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`, '--parts', `${draftRoot}/input`]);
-    const declaredDraft = asArray(load().drafts).filter(isObject)[0]!;
-    agentJson('agent-prepared structure snapshot', 'evidence/structure.json', { schema: STRUCTURE_SCHEMA, draft_id: 'chain', config: declaredDraft.config, entries: [] });
     const partsDir = `${draftRoot}/input`;
     // The producer's parts-stage check on the retained assembled root; the parts → parts-review move binds it.
     const partsCheck = checkExampleParts(join(dir, partsDir), join(scratch, 'parts-check-producer'));
     write('evidence/parts-check.json', partsCheck);
     producer('parts-stage check report', ['rig-parts', 'check-parts', '--parts', partsDir, '--out', '../parts-check-producer'], { 'evidence/parts-check.json': partsCheck });
     checkpoint(1, '1-parts-verdict', 'Export the synthetic review-tool parts verdict, then approve the parts',
-      ['evidence/parts-review.json', 'signoffs[stage=parts-review]', 'project.stage']);
+      ['evidence/parts-review.json', 'evidence/structure.json', 'signoffs[stage=parts-review]', 'project.stage']);
     const verdict = partsPackage({ input, partsDir, verdict: 'evidence/parts-review.json', edit: v => { v.updatedAt = new Date(now).toISOString(); } });
     write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
     producer('synthetic review-tool parts verdict (tests/parts-package.ts)', ['partsPackage', 'tests/parts-package.ts'],
       { 'evidence/parts-review.json': readFileSync(join(dir, 'evidence/parts-review.json')) });
+    writer(['structure-snapshot', '--draft', 'chain', '--verdict', 'evidence/parts-review.json', '--out', 'evidence/structure.json'], 'evidence/structure.json', false);
     const diff = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
       'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png', '--parts', 'assembled/rig/parts.json',
       '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'],
@@ -449,7 +448,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
         if (step.kind === 'seed') return 'seed';
         if (step.authored_by === 'agent') return 'agent';
         if (step.kind === 'producer') return 'producer';
-        if (step.command[1] === 'interview-options' || step.command[1] === 'direction' && step.command[2] === 'check') return 'agent';
+        if (step.command[1] === 'interview-options' || step.command[1] === 'structure-snapshot' || step.command[1] === 'direction' && step.command[2] === 'check') return 'agent';
         return 'human';
       });
       const report = checkProject(join(dir, 'checkpoints', saved.name), undefined, { now });
@@ -464,7 +463,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       + 'The setup still is the assembly recomposite, retained as synthetic setup evidence. The example demonstrates record binding. Rendered motion and camera behaviour require separate producer validation.\n\n'
       + 'The public create CLI writes stage moves, signoffs, rig/post review verdicts, the review package, immutable input inventory, the sealed scene and authored direction. The direction is direction@2, bound to that scene. The parts verdict is a synthetic review-tool export from tests/parts-package.ts, recorded as a producer step.\n\n'
       + 'Two seed kinds cover plan.steps (setup and status progress) with split.parts, and the rig version declaration. Source inventory is registered by input add. Each seed declares its consuming command and records that command’s step index in chain.json.\n\n'
-      + 'checkpoints/ contains frozen prefix projects and adjacent pending-act declarations. Stage 1 follows the producer parts-stage check report that the parts-review move binds, and precedes the synthetic review-tool parts verdict export. Stage 2 precedes the first rigging answer and still needs later option sets to be agent-drafted in declared steps before registration by public writers. Pending answers use the SHA-256 of the file drafted during the walk. Stage 3 precedes rig review. Stage 4 precedes the background plate registration, the scene write, the declared agent-authored direction@2 input and the direction write. Pending stage moves use advance with the existing authorizing signoffs. Every file authored or copied for a later writer has a declared producer step with output hashes. The chain_step indices are zero-based. Stage 2 has four expected INTERVIEW_INCOMPLETE findings for its unanswered rigging guides. Every prefix has zero warnings and records its stage moves in advances[]. tests/example-chain.test.ts checks these states.\n\n'
+      + 'checkpoints/ contains frozen prefix projects and adjacent pending-act declarations. Stage 1 follows the producer parts-stage check report that the parts-review move binds, and precedes the synthetic review-tool parts verdict export and the structure-snapshot writer, which copies the meshes declarations of the labelled draft once that verdict is approved. Stage 2 precedes the first rigging answer and still needs later option sets to be agent-drafted in declared steps before registration by public writers. Pending answers use the SHA-256 of the file drafted during the walk. Stage 3 precedes rig review. Stage 4 precedes the background plate registration, the scene write, the declared agent-authored direction@2 input and the direction write. Pending stage moves use advance with the existing authorizing signoffs. Every file authored or copied for a later writer has a declared producer step with output hashes. The chain_step indices are zero-based. Stage 2 has four expected INTERVIEW_INCOMPLETE findings for its unanswered rigging guides. Every prefix has zero warnings and records its stage moves in advances[]. tests/example-chain.test.ts checks these states.\n\n'
       + 'Reproduce with `bun scripts/generate-example-chain.ts <fresh-dir> --check` from the create repository.\n');
     return chainFiles(dir);
   } finally { process.chdir(originalCwd); }

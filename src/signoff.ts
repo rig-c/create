@@ -9,7 +9,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
-import { checkPartsVerdict, PARTS_VERDICT_KIND } from './parts-verdict.ts';
+import { checkPartsVerdict, partsVerdictEvidence } from './parts-verdict.ts';
 import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -105,23 +105,7 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
     }
   }
   let evidence: JsonObject | undefined;
-  if (opts['--evidence'] !== undefined) {
-    let verdictFile: string;
-    try {
-      verdictFile = realpathSync(resolve(dir, opts['--evidence']));
-    } catch (error) {
-      refuse('PARTS_VERDICT_UNREAD', `${opts['--evidence']}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    const path = relative(realpathSync(dir), verdictFile).split(sep).join('/');
-    if (path === '' || path.startsWith('..') || isAbsolute(path)) refuse('PARTS_VERDICT_UNREAD', 'the verdict must be under the project');
-    let bytes: Buffer;
-    try {
-      bytes = readFileSync(verdictFile);
-    } catch (error) {
-      refuse('PARTS_VERDICT_UNREAD', `${path}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    evidence = { kind: PARTS_VERDICT_KIND, path, sha256: createHash('sha256').update(bytes).digest('hex') };
-  }
+  if (opts['--evidence'] !== undefined) evidence = partsVerdictEvidence(dir, opts['--evidence']);
   if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
   if ((opts['--draft'] === undefined) !== (opts['--structure-file'] === undefined)) refuse('SIGNOFF_OPTION_INVALID', 'parts-review requires --draft and --structure-file together', USAGE_EXIT);
   const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;

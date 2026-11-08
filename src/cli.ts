@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
 import { CORRECTION_HELP, correctionCommand } from './correction-writers.ts';
 import { DRAFT_RIG_HELP, draftRigCommand } from './drafts.ts';
+import { STRUCTURE_SNAPSHOT_HELP, structureSnapshotCommand } from './structure-snapshot.ts';
 import { collectionInitCommand } from './collection.ts';
 import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
@@ -68,6 +69,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record a forward amendment and name lapsed approvals
   rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
                                                     record labelled draft artifacts without building or promoting
+  rig-create structure-snapshot [<dir>] --draft <id> --verdict <path> --out <path>
+                                                    write the parts-review structure snapshot from the approved draft
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
                                                     copy producer inputs and record the review open command
   rig-create rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <dir> …
@@ -109,6 +112,8 @@ ${PAUSE_HELP}
 ${AMEND_HELP}
 
 ${DRAFT_RIG_HELP}
+
+${STRUCTURE_SNAPSHOT_HELP}
 
 ${CORRECTION_HELP}
 
@@ -196,6 +201,7 @@ const COMMANDS: Record<string, Command> = {
   'step-status': stepStatusCommand,
   amend: amendCommand,
   'draft-rig': draftRigCommand,
+  'structure-snapshot': structureSnapshotCommand,
   correction: correctionCommand,
   scene: sceneCommand,
   direction: directionCommand,

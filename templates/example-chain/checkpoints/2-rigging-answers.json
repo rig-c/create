@@ -64,7 +64,7 @@
     ],
     "warnings": []
   },
-  "project_sha256": "d1b5bd6fdc34d01a08bb59834b91ae26ab4dce46400b0d267112b0e59adb8f2a",
+  "project_sha256": "b73846be05ddabcbaeeb9c8a76c619abf251e1a56699026fee839fb964094fee",
   "files": [
     {
       "path": ".gitignore",
@@ -200,7 +200,7 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "c950a59bf1656bb2188dd75a17fac2b0a1ef1d93ae3e33722122163476fc2ed4"
+      "sha256": "9d3291e7fb96b394c9dc188cd7a6557c04955fcf676e062eb4c76412f4acc969"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -228,7 +228,7 @@
     },
     {
       "path": "evidence/structure.json",
-      "sha256": "9969e25f3a767588e0afcf4db07b887017ac61502555f1fdd4614768661ed42f"
+      "sha256": "1d083d2e5d09a2038d99756fdd7af08928bb87953b38d87578cff9327ff2099f"
     },
     {
       "path": "inputs/painting.png",
@@ -244,7 +244,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "d1b5bd6fdc34d01a08bb59834b91ae26ab4dce46400b0d267112b0e59adb8f2a"
+      "sha256": "b73846be05ddabcbaeeb9c8a76c619abf251e1a56699026fee839fb964094fee"
     }
   ]
 }

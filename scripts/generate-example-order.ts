@@ -22,7 +22,7 @@ import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { STAGES, STAGE_VALUES } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
-import { STRUCTURE_SCHEMA } from '../src/structure.ts';
+import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { exampleDraftFiles, EXAMPLE_DRAFT, EXAMPLE_PARTS_CHECK } from '../tests/draft-fixture.ts';
 import { partsPackage, EXAMPLE_VERDICT } from '../tests/parts-package.ts';
@@ -125,9 +125,9 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   finish('rig', ['seethrough', 'assemble']);
   clock.now = Date.parse(exampleTime('2026-11-11T10:00:00Z'));
   draftRigCommand(['example', dir, '--config', `${EXAMPLE_DRAFT}/config.json`, '--from', `${EXAMPLE_DRAFT}/out`, '--parts', `${EXAMPLE_DRAFT}/input`], clock.now); reload();
-  const draft = obj(arr(p.drafts)[0]);
-  files['evidence/structure-decisions.json'] = `${JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'example', config: draft.config, entries: [] }, null, 2)}\n`;
-  write('evidence/structure-decisions.json', files['evidence/structure-decisions.json'] as string);
+  // The structure snapshot is the writer's: every meshes declaration of the draft the approved verdict covers.
+  structureSnapshotCommand([dir, '--draft', 'example', '--verdict', EXAMPLE_VERDICT, '--out', 'evidence/structure-decisions.json']);
+  files['evidence/structure-decisions.json'] = readFileSync(join(dir, 'evidence/structure-decisions.json'));
   // The producer's parts-stage check on the retained assembled root, bound by the advance.
   files[EXAMPLE_PARTS_CHECK] = checkExampleParts(join(dir, `${EXAMPLE_DRAFT}/input`), join(dir, 'parts-check-producer'));
   write(EXAMPLE_PARTS_CHECK, files[EXAMPLE_PARTS_CHECK]!);

@@ -2,6 +2,9 @@ import { overrideFindings } from './overrides.ts';
 import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { acquireBoundJobWrite } from './job-writer.ts';
+import { decodeReviewAct, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
@@ -15,8 +18,9 @@ import type { Json, JsonObject } from './templates.ts';
 
 export const CHOICE_HELP = `interview-options <question> [<dir>] --file <retained project-relative JSON>
 interview-options --adopt [<dir>]
+interview-answer <question> [<dir>] --from-review <actId> [--why-file <file>]
 interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <human>
-  [--picks-file <project-relative review JSON> | --pick <ask>=<option>...] [--other <ask>=<file> --other-fragment <ask>=<JSON file>]...
+  [--pick <ask>=<option>...] [--other <ask>=<file> --other-fragment <ask>=<JSON file>]...
   [--note-file <file>] [--source <location>] [--why-file <file> for a member override]
 interview-decision <question> [<dir>] --by <agent> --reasoning-file <file>
   --fragment <ask>=<JSON file>...
@@ -116,89 +120,127 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
   item.record.pending_options = binding; save(file,dir,project,next,now); return JSON.stringify(binding);
 }); }
 
-export function interviewAnswerCommand(args: string[], now: number): string { return run(() => {
-  const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--picks-file','--why-file'],['--pick','--other','--other-fragment']);
-  if (opts.positional.length > 2 || (!opts.one['--picks-file'] && (!opts.one['--set'] || !opts.one['--sha256'] || !opts.one['--by']))) usage('question and --picks-file, or --set/--sha256/--by required');
-  const dir = resolve(opts.positional[1] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
-  const item = itemAt(next,dir,opts.positional[0]); checkNewAnswer(dir,next,item);
-  let payload: JsonObject | null = null;
-  if (opts.one['--picks-file']) {
-    if (Object.keys(opts.many).length || opts.one['--note-file']) usage('--picks-file is exclusive with pick/Other/note flags');
-    try {
-      const parsed: Json = JSON.parse(readFileSync(literalFile(dir,opts.one['--picks-file']),'utf8'));
-      if (!isObject(parsed) || Object.keys(parsed).some(k => !['schema','set','picks','note','by','at'].includes(k)) || parsed.schema !== 'rig-review/interview-picks@1'
-        || !isObject(parsed.set) || Object.keys(parsed.set).some(k => !['path','sha256'].includes(k)) || typeof parsed.set.path !== 'string' || typeof parsed.set.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(parsed.set.sha256)
-        || !Array.isArray(parsed.picks) || parsed.by !== 'user' || typeof parsed.at !== 'string' || !Number.isFinite(Date.parse(parsed.at)) || Date.parse(parsed.at) > now
-        || (parsed.note !== undefined && typeof parsed.note !== 'string') || parsed.picks.some(p => !isObject(p) || Object.keys(p).some(k => !['ask','option_id','other_text'].includes(k)) || typeof p.ask !== 'string' || typeof p.option_id !== 'string' || (p.other_text !== undefined && typeof p.other_text !== 'string'))) throw Error('invalid picks payload fields');
-      literalFile(dir,parsed.set.path);
-      payload = parsed;
-    } catch (e) { throw new ChoiceError('INTERVIEW_CHOICE_INVALID',`picks file: ${e instanceof Error ? e.message : String(e)}`); }
-  }
-  const binding = payload ? payload.set as JsonObject : {path:opts.one['--set'] as string,sha256:opts.one['--sha256'] as string};
-  const registered = item.record.pending_options;
-  if (isObject(registered) && binding.sha256 !== registered.sha256) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: displayed set sha differs from the registered set; refresh the questionnaire`);
-  if (payload && ((opts.one['--set'] && opts.one['--set'] !== binding.path) || (opts.one['--sha256'] && opts.one['--sha256'] !== binding.sha256))) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: picks file set differs from the displayed set; refresh the questionnaire`);
-  if (payload && opts.one['--by'] && opts.one['--by'] !== payload.by) usage('--by differs from picks file human identity');
-  if (!equal(registered,binding)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: displayed set is not the registered pending set; register/refresh the shown options`);
-  const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
-  const offered = asArray(set.asks).filter(isObject);
-  const filePicks = payload ? (payload.picks as Json[]).filter(isObject) : null;
-  const selected = filePicks ? new Map(filePicks.map(p => [String(p.ask),String(p.option_id)])) : opts.many['--pick'] ?? new Map<string,string>();
-  if (selected.size !== offered.length || [...selected.keys()].some(k => !offered.some(a => a.id === k)) || (filePicks && !equal(filePicks.map(p=>p.ask),offered.map(a=>a.id)))) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','pick exactly once per applicable ask in questionnaire order');
-  const picks: JsonObject[] = offered.map(ask => {
-    const option = asArray(ask.options).filter(isObject).find(o => o.id === selected.get(String(ask.id)));
-    if (!option) throw new ChoiceError('INTERVIEW_CHOICE_INVALID',`unknown option for ${String(ask.id)}`);
-    const pick: JsonObject = {ask:ask.id as Json,option_id:option.id as Json,shown:{label:option.label as Json,effect:option.effect as Json}};
-    const fromFile = filePicks?.find(p=>p.ask===ask.id);
-    if (option.kind === 'other') {
-      const textPath = opts.many['--other']?.get(String(ask.id)); const fragment = opts.many['--other-fragment']?.get(String(ask.id));
-      const words = fromFile?.other_text ?? (textPath ? readText(textPath) : undefined);
-      if (typeof words !== 'string' || !words.trim()) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','Other requires exact nonempty text');
-      pick.other_text = words;
-      if (fragment) pick.other_fragment = jsonFile(fragment);
-    } else if (fromFile?.other_text !== undefined) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','other_text is only for Other');
-    return pick;
-  });
-  for (const flag of ['--other','--other-fragment']) for (const ask of opts.many[flag]?.keys() ?? []) if (!picks.some(p => p.ask === ask && 'other_text' in p)) usage(`${flag} supplied for non-Other ask ${ask}`);
-  const choice: JsonObject = {spec:CHOICE_SPEC,set:binding,picks};
-  if (payload?.note !== undefined) choice.note = payload.note;
-  else if (opts.one['--note-file']) choice.note = readText(opts.one['--note-file']);
-  const result = selection(set,choice);
-  const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date(now).toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
-  if (result.value !== undefined) answer.value = result.value;
-  if (result.autos.length) answer.agent_decision = {covers:result.autos.join(',')};
-  if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? (item.state.state === 'silent' ? 'own' : 'overridden') : item.raw.basis;
-  if (answer.basis === 'overridden') {
-    const collection = loadCollection(dir);
-    const prior = item.raw as JsonObject;
-    const inherited = prior.basis === 'inherited' ? prior : prior.overrides === undefined ? asArray(item.record.history).filter(isObject).reverse().find(a => a.basis === 'inherited') : undefined;
-    if (inherited !== undefined) {
-      const from = isObject(inherited.from) ? inherited.from : {};
-      const source = collection !== null && typeof from.question === 'string' ? collectionAnswer(collection, from.question) : undefined;
-      answer.overrides = { collection: from.collection ?? null, question: from.question ?? null, collection_answer_at: isObject(source) ? source.at ?? null : null };
-    } else if (prior.overrides !== undefined) answer.overrides = structuredClone(prior.overrides);
-    answer.why_verbatim = null;
-    if (opts.one['--why-file']) {
-      try { answer.why_verbatim = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readFileSync(opts.one['--why-file'])); }
-      catch { refuse('OVERRIDE_REASON_MISSING', `${item.path}: --why-file must be readable UTF-8; ask for and retain the user's exact nonblank reason`); }
+export interface InterviewAnswerHooks {
+  fetch?: (transport: ReviewActTransport) => { bytes: string };
+}
+export function interviewAnswerCommand(args: string[], now: number, hooks: InterviewAnswerHooks = {}): string { return run(() => {
+  if (args.includes('--picks-file')) refuse('INTERVIEW_PICKS_FILE_REMOVED', 'project.json: --picks-file was removed; use interview-answer <question> --from-review <actId>', USAGE_EXIT);
+  const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--from-review','--why-file'],['--pick','--other','--other-fragment']);
+  if (opts.positional.length > 2 || (!opts.one['--from-review'] && (!opts.one['--set'] || !opts.one['--sha256'] || !opts.one['--by']))) usage('question and --from-review, or --set/--sha256/--by required');
+  const dir = resolve(opts.positional[1] ?? process.cwd());
+  const release = acquireBoundJobWrite(dir);
+  try {
+    const {file,project} = readProject(dir); const original = readFileSync(file); const next = structuredClone(project);
+    const item = itemAt(next,dir,opts.positional[0]);
+    let payload: JsonObject | null = null;
+    let fetched: { bytes: string } | undefined;
+    let act: InterviewPicksAct | undefined;
+    if (opts.one['--from-review']) {
+      if (Object.keys(opts.many).length || opts.one['--note-file']) usage('--from-review is exclusive with pick/Other/note flags');
+      const invalid = reviewActFindings(next)[0];
+      if (invalid) refuse(invalid.code,invalid.message);
+      const transport: ReviewActTransport = { ...reviewActTransport(dir, opts.one['--from-review']), kind: 'interview-picks' };
+      if (hooks.fetch) fetched = hooks.fetch(transport);
+      else {
+        const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+          stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
+        });
+        let response: { ok: boolean; bytes: string; code: string; message: string };
+        try { response = JSON.parse(child.stdout.toString()); }
+        catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
+        if (!response.ok || child.exitCode) refuse(response.code, response.message);
+        fetched = response;
+      }
+      act = decodeReviewAct(fetched.bytes, 'interview-picks');
+      if (act.jobId !== transport.jobId || act.actId !== transport.actId || Date.parse(act.at) > now
+        || act.value.questionId !== item.id) refuse('REVIEW_ACT_INVALID', `${item.path}: fetched identity, question or date differs; fetch the correct interview act`);
+      const existing = asArray(next.review_acts).filter(isObject).find(entry => entry.jobId === act!.jobId && entry.actId === act!.actId);
+      if (existing) {
+        if (existing.bytes !== fetched.bytes) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable interview act changed; restore the original receipt');
+        const retained = [item.raw,...asArray(item.record.history)].filter(isObject).find(answer => answer.at === act!.at
+          && sha256(Buffer.from(JSON.stringify(answer.choice))) === existing.version_hash);
+        if (!retained) refuse('REVIEW_ACT_LEDGER_INVALID', `${item.path}: original interview answer is absent; restore its history`);
+        return JSON.stringify(retained);
+      }
+      const registered = item.record.pending_options;
+      if (!isObject(registered) || registered.sha256 !== act.source.optionSet.sha256) refuse('INTERVIEW_OPTIONS_STALE', `${item.path}: displayed option set differs; refresh the questionnaire`);
+      const {set} = optionFile(dir,registered);
+      if (set.id !== act.source.optionSet.id) refuse('INTERVIEW_OPTIONS_STALE', `${item.path}: displayed option set identity differs; refresh the questionnaire`);
+      payload = { set: registered, picks: act.value.selections.map(row => ({ ask: row.itemId, option_id: row.optionId,
+        ...(row.otherText === null ? {} : {other_text:row.otherText}) })), note: act.value.note,
+        by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at };
     }
-    const findings = overrideFindings(answer, collection, item.path);
-    if (findings.length) refuse(findings[0]!.code, findings[0]!.message);
-  } else if (opts.one['--why-file']) usage('--why-file applies only to a member override');
-  if (result.autos.length || result.pending.length) {
-    answer.refusal_baseline = [...baselineOf(checkProject(dir,project,{now}))].map(([key,count]) => {
-      const [code,path] = JSON.parse(key) as [string,string];
-      return {code,path,count};
+    checkNewAnswer(dir,next,item);
+    const binding = payload ? payload.set as JsonObject : {path:opts.one['--set'] as string,sha256:opts.one['--sha256'] as string};
+    const registered = item.record.pending_options;
+    if (isObject(registered) && binding.sha256 !== registered.sha256) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: displayed set sha differs from the registered set; refresh the questionnaire`);
+    if (payload && ((opts.one['--set'] && opts.one['--set'] !== binding.path) || (opts.one['--sha256'] && opts.one['--sha256'] !== binding.sha256))) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: review act set differs from the displayed set; refresh the questionnaire`);
+    if (payload && opts.one['--by'] && opts.one['--by'] !== payload.by) usage('--by differs from review act human identity');
+    if (!equal(registered,binding)) refuse('INTERVIEW_CHOICE_INVALID',`${item.path}: displayed set is not the registered pending set; register/refresh the shown options`);
+    const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
+    const offered = asArray(set.asks).filter(isObject);
+    const reviewPicks = payload ? (payload.picks as Json[]).filter(isObject) : null;
+    const selected = reviewPicks ? new Map(reviewPicks.map(p => [String(p.ask),String(p.option_id)])) : opts.many['--pick'] ?? new Map<string,string>();
+    if (selected.size !== offered.length || [...selected.keys()].some(k => !offered.some(a => a.id === k)) || (reviewPicks && !equal(reviewPicks.map(p=>p.ask),offered.map(a=>a.id)))) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','pick exactly once per applicable ask in questionnaire order');
+    const picks: JsonObject[] = offered.map(ask => {
+      const option = asArray(ask.options).filter(isObject).find(o => o.id === selected.get(String(ask.id)));
+      if (!option) throw new ChoiceError('INTERVIEW_CHOICE_INVALID',`unknown option for ${String(ask.id)}`);
+      const pick: JsonObject = {ask:ask.id as Json,option_id:option.id as Json,shown:{label:option.label as Json,effect:option.effect as Json}};
+      const fromReview = reviewPicks?.find(p=>p.ask===ask.id);
+      if (option.kind === 'other') {
+        const textPath = opts.many['--other']?.get(String(ask.id)); const fragment = opts.many['--other-fragment']?.get(String(ask.id));
+        const words = fromReview?.other_text ?? (textPath ? readText(textPath) : undefined);
+        if (typeof words !== 'string' || !words.trim()) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','Other requires exact nonempty text');
+        pick.other_text = words;
+        if (fragment) pick.other_fragment = jsonFile(fragment);
+      } else if (fromReview?.other_text !== undefined) throw new ChoiceError('INTERVIEW_CHOICE_INVALID','other_text is only for Other');
+      return pick;
     });
-  }
-  validateChoice(dir,next,item,answer);
-  if (item.raw !== null && item.raw !== undefined) {
-    const prior = [item.raw];
-    if (isObject(item.raw) && item.raw.basis === 'inherited' && (item.state.state === 'user' || item.state.state === 'delegated')) prior.push(structuredClone(item.state.answer));
-    item.record.history = [...asArray(item.record.history),...prior];
-  }
-  item.record[item.kind === 'framing' ? 'answer' : 'guide'] = answer; delete item.record.pending_options;
-  save(file,dir,project,next,now); return JSON.stringify(answer);
+    for (const flag of ['--other','--other-fragment']) for (const ask of opts.many[flag]?.keys() ?? []) if (!picks.some(p => p.ask === ask && 'other_text' in p)) usage(`${flag} supplied for non-Other ask ${ask}`);
+    const choice: JsonObject = {spec:CHOICE_SPEC,set:binding,picks};
+    if (payload?.note !== undefined) choice.note = payload.note;
+    else if (opts.one['--note-file']) choice.note = readText(opts.one['--note-file']);
+    const result = selection(set,choice);
+    const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date(now).toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
+    if (result.value !== undefined) answer.value = result.value;
+    if (result.autos.length) answer.agent_decision = {covers:result.autos.join(',')};
+    if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? (item.state.state === 'silent' ? 'own' : 'overridden') : item.raw.basis;
+    if (answer.basis === 'overridden') {
+      const collection = loadCollection(dir);
+      const prior = item.raw as JsonObject;
+      const inherited = prior.basis === 'inherited' ? prior : prior.overrides === undefined ? asArray(item.record.history).filter(isObject).reverse().find(a => a.basis === 'inherited') : undefined;
+      if (inherited !== undefined) {
+        const from = isObject(inherited.from) ? inherited.from : {};
+        const source = collection !== null && typeof from.question === 'string' ? collectionAnswer(collection, from.question) : undefined;
+        answer.overrides = { collection: from.collection ?? null, question: from.question ?? null, collection_answer_at: isObject(source) ? source.at ?? null : null };
+      } else if (prior.overrides !== undefined) answer.overrides = structuredClone(prior.overrides);
+      answer.why_verbatim = null;
+      if (opts.one['--why-file']) {
+        try { answer.why_verbatim = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readFileSync(opts.one['--why-file'])); }
+        catch { refuse('OVERRIDE_REASON_MISSING', `${item.path}: --why-file must be readable UTF-8; ask for and retain the user's exact nonblank reason`); }
+      }
+      const findings = overrideFindings(answer, collection, item.path);
+      if (findings.length) refuse(findings[0]!.code, findings[0]!.message);
+    } else if (opts.one['--why-file']) usage('--why-file applies only to a member override');
+    if (result.autos.length || result.pending.length) {
+      answer.refusal_baseline = [...baselineOf(checkProject(dir,project,{now}))].map(([key,count]) => {
+        const [code,path] = JSON.parse(key) as [string,string];
+        return {code,path,count};
+      });
+    }
+    validateChoice(dir,next,item,answer);
+    if (item.raw !== null && item.raw !== undefined) {
+      const prior = [item.raw];
+      if (isObject(item.raw) && item.raw.basis === 'inherited' && (item.state.state === 'user' || item.state.state === 'delegated')) prior.push(structuredClone(item.state.answer));
+      item.record.history = [...asArray(item.record.history),...prior];
+    }
+    item.record[item.kind === 'framing' ? 'answer' : 'guide'] = answer; delete item.record.pending_options;
+    if (act && fetched) next.review_acts = [...asArray(next.review_acts), {schema:'rig-create/review-act@1',kind:'interview-picks',
+      jobId:act.jobId,actId:act.actId,question:item.id,bytes:fetched.bytes,sha256:sha256(Buffer.from(fetched.bytes)),
+      version_hash:sha256(Buffer.from(JSON.stringify(choice)))}];
+    if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview fetch; retry against the current job');
+    save(file,dir,project,next,now); return JSON.stringify(answer);
+  } finally { release(); }
 }); }
 
 export function interviewDecisionCommand(args: string[], now: number): string { return run(() => {

@@ -48,7 +48,7 @@ export function writeExampleChoices(dir: string, stage: string, clock: { now: nu
       const picksPath = 'evidence/interview/example-picks.json';
       const payload = `${JSON.stringify({schema:'rig-review/interview-picks@1',set:registered,picks:[{ask:item.id,option_id:'keep'}],by:'user',at:new Date(clock.now).toISOString()},null,2)}\n`;
       writeFileSync(join(dir,picksPath),payload); files[picksPath]=payload;
-      interviewAnswerCommand([item.id,dir,'--picks-file',picksPath],clock.now);
+      interviewAnswerCommand([item.id,dir,'--set',path,'--sha256',String(registered.sha256),'--by','user',...flags],clock.now);
     } else interviewAnswerCommand([item.id,dir,'--set',path,'--sha256',String(registered.sha256),'--by','user',...flags],clock.now);
     if(item.id==='seethrough') {
       const fragment = join(dir,'seed-fragment.json'); const reasoning = join(dir,'reasoning.txt');

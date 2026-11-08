@@ -8,9 +8,12 @@ import type { JobAct, JobModelSourceBinding } from '@rig-c/review/job-host';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
+import { INTAKE_QUESTION, intakeItem } from './intake.ts';
+import { collectItems, asArray, isObject } from './check.ts';
 import { stepHash } from './step-hash.ts';
 import type { Json, JsonObject } from './templates.ts';
 
+export type InterviewPicksAct = Extract<JobAct, { kind: 'interview-picks' }>;
 export type PartsVerdictAct = Extract<JobAct, { kind: 'parts-verdict' }>;
 export type ReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
 export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string }
@@ -24,9 +27,10 @@ function failure(code: string, detail: string): never {
 
 /** Also used by check on the retained, explicitly encoded act bytes. */
 export function decodeReviewAct(bytes: string): ReviewVerdictAct;
+export function decodeReviewAct(bytes: string, kind: 'interview-picks'): InterviewPicksAct;
 export function decodeReviewAct(bytes: string, kind: 'parts-verdict'): PartsVerdictAct;
-export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict'): ReviewVerdictAct | PartsVerdictAct;
-export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' = 'review-verdict'): ReviewVerdictAct | PartsVerdictAct {
+export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct;
+export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' = 'review-verdict'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct {
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
@@ -47,8 +51,18 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
     || !object(reviewer) || typeof reviewer.id !== 'string' || !reviewer.id.trim() || !['owner', 'delegate'].includes(String(reviewer.role))
     || !object(source) || !sha(source.sourceHash) || !sha(source.projectHash)
     || !object(source.package) || !id(source.package.id) || typeof source.package.revision !== 'string'
-    || !object(value) || typeof value.words !== 'string' || !['pending', 'approved', 'changes-requested'].includes(String(value.verdict))) {
+    || !object(value) || kind !== 'interview-picks' && (typeof value.words !== 'string' || !['pending', 'approved', 'changes-requested'].includes(String(value.verdict)))) {
     failure('REVIEW_ACT_INVALID', 'act identity, authority, source or verdict is malformed');
+  }
+  if (kind === 'interview-picks') {
+    if (!object(source.optionSet) || !id(source.optionSet.id) || !sha(source.optionSet.sha256)
+      || !id(value.questionId) || typeof value.note !== 'string' || !Array.isArray(value.selections)
+      || !value.selections.length || value.selections.some(row => !object(row) || !id(row.itemId) || !id(row.optionId)
+        || row.otherText !== null && typeof row.otherText !== 'string')
+      || new Set(value.selections.map(row => (row as JsonObject).itemId)).size !== value.selections.length) {
+      failure('REVIEW_ACT_INVALID', 'interview question, option set or selections are malformed');
+    }
+    return act as unknown as InterviewPicksAct;
   }
   if (kind === 'parts-verdict') {
     const selector = source.selector;
@@ -97,7 +111,7 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   return act as unknown as ReviewVerdictAct;
 }
 
-export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: 'review-verdict' | 'parts-verdict' = 'review-verdict'): { act: ReviewVerdictAct | PartsVerdictAct; bytes: string } {
+export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' = 'review-verdict'): { act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct; bytes: string } {
   let response: JsonObject;
   try { const parsed: unknown = JSON.parse(text); if (!object(parsed)) throw Error(); response = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'Review response is not JSON'); }
@@ -117,7 +131,7 @@ export interface ReviewActTransport {
   jobId: string;
   actId: string;
   fetchCapability: string;
-  kind?: 'parts-verdict';
+  kind?: 'parts-verdict' | 'interview-picks';
 }
 
 /** Only the route and fetch grant leave the binding reader. Never attach a host. */
@@ -134,12 +148,12 @@ export function reviewActTransport(root: string, actId: string): ReviewActTransp
   return { origin: origin.origin, jobId: binding.jobId, actId, fetchCapability: binding.fetchCapability };
 }
 
-export async function fetchReviewAct(transport: ReviewActTransport): Promise<{ act: ReviewVerdictAct | PartsVerdictAct; bytes: string; stillBytes?: string }> {
+export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct; bytes: string; stillBytes?: string }> {
   const requestId = randomUUID();
   const request = JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId });
   async function read(accept: string): Promise<Response> {
     try {
-      const response = await fetch(`${transport.origin}/jobs/${transport.jobId}/api`, {
+      const response = await fetchAdapter(`${transport.origin}/jobs/${transport.jobId}/api`, {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
         headers: { authorization: `Bearer ${transport.fetchCapability}`, 'content-type': 'application/json', accept }, body: request,
       });
@@ -147,7 +161,7 @@ export async function fetchReviewAct(transport: ReviewActTransport): Promise<{ a
       return response;
     } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
   }
-  if (transport.kind === 'parts-verdict') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, 'parts-verdict');
+  if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
   const bytes = await (await read('application/vnd.rig-review.act+json')).text();
   const act = decodeReviewAct(bytes);
   if (act.jobId !== transport.jobId || act.actId !== transport.actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
@@ -181,7 +195,7 @@ export function reviewActVersionHash(project: JsonObject, act: ReviewVerdictAct,
 function previousPublicationVerdict(project: JsonObject, act: ReviewVerdictAct): number | undefined {
   if (!Array.isArray(project.review_acts)) return undefined;
   const receipts = project.review_acts.filter(object).filter(entry => {
-    if (entry.kind === 'parts-verdict' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
+    if (entry.kind === 'parts-verdict' || entry.kind === 'interview-picks' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
     return decodeReviewAct(entry.bytes).publicationId === act.publicationId;
   });
   return receipts.length ? Math.min(...receipts.map(entry => Number(entry.verdict))) : undefined;
@@ -260,13 +274,29 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
     try {
       if (!object(entry) || entry.schema !== 'rig-create/review-act@1' || typeof entry.bytes !== 'string'
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
-      const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : 'review-verdict');
+      const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : 'review-verdict');
       if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
       const key = JSON.stringify([act.jobId, act.actId]);
       if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
       seen.add(key);
       if (act.kind === 'parts-verdict') {
         if (entry.draft_id !== act.source.selector.id || !file(entry.evidence) || entry.evidence.sha256 !== entry.sha256) failure('REVIEW_ACT_LEDGER_INVALID', 'parts receipt target differs from its act');
+        return;
+      }
+      if (act.kind === 'interview-picks') {
+        const item = act.value.questionId === INTAKE_QUESTION ? intakeItem(project)
+          : collectItems(project, { collection: null }).find(item => item.id === act.value.questionId);
+        const answers = item ? [item.raw, ...asArray(item.record.history)].filter(isObject) : [];
+        const answer = answers.find(answer => answer.at === act.at && object(answer.choice)
+          && jobHash(JSON.stringify(answer.choice)) === entry.version_hash);
+        const choice = object(answer?.choice) ? answer.choice : null;
+        const picks = choice && Array.isArray(choice.picks) ? choice.picks : [];
+        if (entry.question !== act.value.questionId || !answer || answer.by !== (act.authority.reviewer.role === 'owner' ? 'user' : 'delegate')
+          || !choice || !object(choice.set) || choice.set.sha256 !== act.source.optionSet.sha256
+          || (choice.note ?? '') !== act.value.note || !isDeepStrictEqual(picks.map(raw => object(raw)
+            ? { itemId: raw.ask, optionId: raw.option_id, otherText: raw.other_text ?? null } : null), act.value.selections)) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded interview answer differs from the immutable act');
+        }
         return;
       }
       if (!Number.isSafeInteger(entry.verdict) || Number(entry.verdict) < 0 || entry.version !== ('version' in act.source.selector! ? act.source.selector.version : null)) failure('REVIEW_ACT_LEDGER_INVALID', 'verdict receipt target is invalid');

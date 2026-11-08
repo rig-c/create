@@ -1337,6 +1337,16 @@ before writing. A refused write leaves `project.json` byte-identical.
 | `REVIEW_READ_INVALID` | A correction or applied-review record has no valid CLI receipt, or its stored response differs from the content-addressed stdout binding. Retrieve the result through `rig-review feedback --format json` and retain its receipt in the named record. |
 | `REVIEW_READ_LEGACY` | WARN for a correction or applied-review record before `REVIEW_READ_SINCE` that has no CLI response receipt. Preserve history and capture new results through Review feedback. Historical producer-saved session and patch files are never opened. |
 
+### Interview picks through the job API
+
+| Code | Condition | Remedy |
+| --- | --- | --- |
+| `INTERVIEW_PICKS_FILE_REMOVED` | `interview-answer` receives the removed `--picks-file` flag | fetch the finalized interview act with `interview-answer <question> --from-review <actId>` |
+
+The writer binds retained API act bytes in `project.json.review_acts` by
+SHA-256 and validates the selected pending option set before writing. Refusals
+preserve `project.json` bytes. Earlier file-route answers remain valid records.
+
 ## Model-free record publication
 
 `readRecordPublished` reports `JOB_RECORD_INCOMPLETE` for a changed record,

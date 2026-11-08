@@ -2103,6 +2103,17 @@ browserless session PUT. Producer Apply was outside this inventory. The inventor
 `patch`, `patchSha256`, `configHash`, `modelHash`, `check` and `files` survive
 `feedback --format json`.
 
+### Recording interview picks from a standing job
+
+Use `interview-answer <question> [<project>] --from-review <actId>` after the
+human finalizes an `interview-picks` act in the standing Review job. The writer
+fetches through its private sibling capability, binds the displayed option set
+by ID and SHA-256, and retains the immutable API act bytes in `review_acts`.
+An identical act can be replayed without adding a second answer. A changed act
+with the same identity refuses. `--why-file` still supplies the exact reason
+for a member override. The removed `--picks-file` flag refuses with
+`INTERVIEW_PICKS_FILE_REMOVED`. Earlier answers remain valid.
+
 ## Model-free record publication
 
 `readRecordPublished({root, record, result, phase})` in `job-publication.ts`

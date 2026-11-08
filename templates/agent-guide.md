@@ -6,8 +6,7 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 
 1. Read `project.json` first. Only its decisions count. Copy chat decisions
    verbatim, with speaker and time.
-2. Resume per {{RESUME_LINK}}. Read `stage`, last `signoffs[]`, first
-   `plan.steps[]` not `done`, and last `versions[]` for status and next work.
+2. Resume per {{RESUME_LINK}}.
 
 ## The order, and what you may not do
 
@@ -15,11 +14,9 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 `rigging-interview` → `rigging` → `rig-review` (the rig, still frame) → `post-interview` → `post` →
 `direction-review` → `accepted`. Any stage can become `paused`.
 
-- `plan-approved` approves source/parts steps. Production rigging waits for
-  `parts-review` and the later `rigging-interview` sign-off. Only a labelled
-  draft may have proposed bones/weights for earlier mesh/chest inspection.
 - Only a person's `signoffs[]` advances `stage` or passes a plan checkpoint.
-  You may draft, propose, build and measure in any stage.
+  You may draft, propose, build and measure in any stage; production rigging
+  waits for `rigging-interview` ({{STAGES_LINK}}).
 - Never derive answers from the image. Offer a pick per ask, with one reasoned
   recommendation, Other and auto. Retain the shown set; never preselect.
 - Record "auto" as delegated, with your decision on the item. It is never a
@@ -35,7 +32,10 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 3. **Rig and animation**. Hand pass is rig-review's correction loop; keep feedback.
 4. **Direction**. Ask after rig acceptance; judge at direction-review.
 
-Use `advance <stage>`, `step-status <id>`.
+Use `advance <stage>`, `step-status <id>`; see `rig-create --help`.
+`advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
+refusing {{PARTS_CHECK_LINK}}.
+In `parts`, an `intake-report` preflight and its choice are advisory: {{INTAKE_LINK}}.
 
 Drafts stay under `derived/drafts/<id>/`, never versions/handoff. Old records
 warn: preserve history and dates; adopt choices explicitly.
@@ -44,8 +44,7 @@ warn: preserve history and dates; adopt choices explicitly.
 
 - **Prior words.** In adopted projects, show them verbatim as a tailored option
   with source/date; require a pick. Legacy derivation: {{DERIVED_LINK}}.
-- **Projection.** Ask core/visible, then plain/busy only for visible. Record the
-  assemble guide values and write `assemble.project`/`assemble.ground` in config.
+- **Projection.** Ask and record it per {{PROJECTION_LINK}}.
 - **Upscale first.** A painting smaller than the rig needs is upscaled before it
   goes into `inputs/`; one already there gets its upscale as a new input.
 - **The crux is a bar.** Before rigging, name every risk band, count background
@@ -54,9 +53,7 @@ warn: preserve history and dates; adopt choices explicitly.
 - **Bars before sign-off.** Each reading names its command, checked against
   installed `--help`. A reading with no command is a STOP before sign-off.
   Loop bars are in rig-c/create `docs/INTERVIEW.md`, "Bars have reading commands".
-- **Appearance needs a person.** Whole-piece or moving-image calls go to
-  `rig-review` (rig) or `direction-review` (post), with measured context, not
-  step bars. See rig-c/create `docs/INTERVIEW.md`, "Appearance belongs to a person's review".
+- **Appearance needs a person**, not a step bar: {{APPEARANCE_LINK}}.
 - **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
   reference ("move like X") is read for what it shows; anything more is a
   question, not a default.
@@ -65,13 +62,9 @@ warn: preserve history and dates; adopt choices explicitly.
   along painted outlines, See-through alpha where no line exists, feather 0,
   with a receipt. Never cut polygons in code/config. Hidden surfaces stay See-through.
 - **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each
-  rig version's config, kept in `evidence/v<N>/`, sets `trace_parts: true` in
-  `assemble.editor_receipts` and names a `requirements` file with
-  `seam_over_motion.required: true` and `boundary_colour.max_step_excess: 12`.
-  Refusals are the art's to fix.
-- **The bust is meshed**: a `contour` torso with `contour.bust`, unless the
-  `meshes` guide excludes it; then pass the parts opt-out (rig-c/parts#986)
-  and its reason.
+  rig version declares the gates in {{CG_GATES_LINK}}. Refusals are the art's to fix.
+- **The bust is meshed** unless the `meshes` guide excludes it with a reason
+  ({{BUST_LINK}}).
 - **Overlaps.** A piece over a part with its own animation (glasses over
   eyelids) holds none of that part's pixels, or the animation shows its copy.
 - **Pairs.** Left/right bust, eyes, hair ends, hem panels: measure symmetry
@@ -86,16 +79,7 @@ warn: preserve history and dates; adopt choices explicitly.
 
 ## Where things go
 
-| Path | Lifetime | In git |
-| --- | --- | --- |
-| `project.json` | forever | yes |
-| `inputs/` | forever, never edited; a changed input is a new file | yes |
-| `evidence/v<N>/` | forever: what a verdict rested on | yes |
-| `derived/` | until regenerated; each entry listed in `derived[]` with its command | no |
-| `outputs/v<N>/` | until discarded; frozen when shown | no |
-| `scratch/` | none; deleting it must lose nothing | no |
-
-References: `inputs/references/`, with sha256 in `inputs[]`.
+Each folder's lifetime and git status: {{LIFETIME_LINK}}.
 
 ## What to read, and why
 

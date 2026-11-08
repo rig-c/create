@@ -123,9 +123,20 @@ export const CREATE_DOCS: readonly CreateDoc[] = [
 
 /** Links into create's docs that carry an anchor; the tests check each anchor is a heading. */
 export const RESUME_LINK = { path: 'docs/PROJECT.md', anchor: 'how-an-agent-resumes-a-project' } as const;
-export const OWNER_LINK = { path: 'docs/INTERVIEW.md', anchor: 'every-item-has-an-owner' } as const;
 export const DERIVED_LINK = { path: 'docs/INTERVIEW.md', anchor: 'derived-answers' } as const;
 export const GATES_LINK = { path: 'docs/CRAFT.md', anchor: 'for-the-gates-not-the-interview' } as const;
+export const STAGES_LINK = { path: 'docs/PROJECT.md', anchor: 'stages' } as const;
+export const LIFETIME_LINK = { path: 'docs/PROJECT.md', anchor: 'data-is-split-by-lifetime' } as const;
+export const INTAKE_LINK = { path: 'docs/PROJECT.md', anchor: 'advisory-intake-reports' } as const;
+export const CG_GATES_LINK = { path: 'docs/CHECKS.md', anchor: 'cg-gates' } as const;
+export const APPEARANCE_LINK = { path: 'docs/CHECKS.md', anchor: 'appearance-bar-wording' } as const;
+export const BUST_LINK = { path: 'docs/CHECKS.md', anchor: 'the-bust-at-meshes' } as const;
+export const PROJECTION_LINK = { path: 'docs/CHECKS.md', anchor: 'projection-and-ground' } as const;
+/** The heading is "Parts-stage check at the parts → parts-review move": the arrow drops, leaving two hyphens. */
+export const PARTS_CHECK_LINK = { path: 'docs/CHECKS.md', anchor: 'parts-stage-check-at-the-parts--parts-review-move' } as const;
+
+/** The refusals `advance parts-review --parts-check` can give, all in one CHECKS.md table. */
+export const PARTS_CHECK_CODES = ['MISSING', 'UNREAD', 'INVALID', 'CHANGED', 'FAILED', 'STALE'].map((c) => `PARTS_CHECK_${c}`);
 
 export function createDocUrl(path: string, anchor?: string): string {
   return `${CREATE_DOCS_BASE}${path}${anchor === undefined ? '' : `#${anchor}`}`;
@@ -158,11 +169,11 @@ export const READ_FIRST = [
 ].join('\n');
 
 /**
- * The check an agent runs before asking for the interview sign-off.
- * After rig-c/create#3 (`rig-create interview --check`) lands, this line names
- * that command, in the form a project runs it, instead of the doc reference.
+ * The check an agent runs before asking for the interview sign-off: since
+ * rig-c/create#3 it is `rig-create interview --check`, which refuses every
+ * `null` answer by name, so the line names the command, not the doc reference.
  */
-export const INTERVIEW_CHECK_LINE = `Before asking the user to sign the interview, check that no answer belonging to that interview is \`null\` ([INTERVIEW.md § Every item has an owner](${createDocUrl(OWNER_LINK.path, OWNER_LINK.anchor)})).`;
+export const INTERVIEW_CHECK_LINE = 'Before asking the user to sign the interview, run `rig-create interview --check`: it names every `null` answer.';
 
 export const GUIDE_TEMPLATE = 'agent-guide.md';
 
@@ -189,6 +200,14 @@ export function renderAgentGuide(): string {
     INTERVIEW_CHECK: INTERVIEW_CHECK_LINE,
     DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
     GATES_LINK: `[CRAFT.md G8](${createDocUrl(GATES_LINK.path, GATES_LINK.anchor)})`,
+    STAGES_LINK: `[PROJECT.md § Stages](${createDocUrl(STAGES_LINK.path, STAGES_LINK.anchor)})`,
+    LIFETIME_LINK: `[PROJECT.md § Data is split by lifetime](${createDocUrl(LIFETIME_LINK.path, LIFETIME_LINK.anchor)})`,
+    INTAKE_LINK: `[PROJECT.md § Advisory intake reports](${createDocUrl(INTAKE_LINK.path, INTAKE_LINK.anchor)})`,
+    CG_GATES_LINK: `[CHECKS.md § CG gates](${createDocUrl(CG_GATES_LINK.path, CG_GATES_LINK.anchor)})`,
+    APPEARANCE_LINK: `[CHECKS.md § Appearance bar wording](${createDocUrl(APPEARANCE_LINK.path, APPEARANCE_LINK.anchor)})`,
+    BUST_LINK: `[CHECKS.md § The bust at meshes](${createDocUrl(BUST_LINK.path, BUST_LINK.anchor)})`,
+    PROJECTION_LINK: `[CHECKS.md § Projection and ground](${createDocUrl(PROJECTION_LINK.path, PROJECTION_LINK.anchor)})`,
+    PARTS_CHECK_LINK: `[${PARTS_CHECK_CODES.map((code) => `\`${code}\``).join(', ')}](${createDocUrl(PARTS_CHECK_LINK.path, PARTS_CHECK_LINK.anchor)})`,
     READ_FIRST,
     PACKAGE_DOCS: PACKAGE_DOCS.map((doc) =>
       linkLine(`${doc.package} ${doc.path}`, packageDocPath(doc), doc.why),
@@ -200,7 +219,7 @@ export function renderAgentGuide(): string {
     const fill = fills[key];
     if (fill === undefined) throw new Error(`${GUIDE_TEMPLATE}: unknown marker ${marker}`);
     return fill;
-  }) + '\nIn parts, record a head-crop preflight with intake-report, then offer the optional report-bound intake_suitability choice. Counts are advisory and never block approval; this cannot save the first full run. Colour-adjacent ground and enclosed ground are known-not-predicted (two failed model-sweep rounds on a pilot), without thresholds.\n';
+  });
 }
 
 /**

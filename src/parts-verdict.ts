@@ -280,12 +280,17 @@ function unmatched(side: FileBinding[], other: FileBinding[]): string[] {
 /**
  * Whether the parts verdict a `parts-review` sign-off rests on reviews the
  * parts of the draft it names (rig-c/create#236), shared by `signoff
- * parts-review --draft`, `structure-snapshot` and the check. It compares the
- * sha256 multiset of the verdict's `source.files[]` with that of the draft's
- * `parts.files[]`, by bytes and never by path (the verdict may read the
- * assembled root, the draft its own copy). It leaves out only the raster the
- * draft's `parts.json` declares under `painting_in_rig`, on either side, read
- * from those bytes and never inferred. It measures nothing else.
+ * parts-review --draft`, `structure-snapshot` and the check. It matches the
+ * sha256 multiset of the verdict's `source.files[]` against the draft's
+ * `parts.files[]` and `files[]`, by bytes and never by path (the verdict may
+ * read the assembled root, the draft its own copy). Every verdict file must be
+ * one of those, and every `parts.files[]` entry must be in the verdict. A
+ * `files[]` entry the verdict does not list is not missing: a parts view that
+ * shows meshes also lists `rig.json`, `mesh_report.json` and the mesh rasters
+ * (rig-c/create#245), the draft's outputs, while a parts-only view lists none.
+ * It leaves out only the raster the draft's `parts.json` declares under
+ * `painting_in_rig`, on either side, read from those bytes and never
+ * inferred. It measures nothing else.
  *
  * Returns the PARTS_VERDICT_DRAFT_MISMATCH finding at `path`, or null when the
  * two match. It is also null when it cannot read the binding: an unreadable or
@@ -313,6 +318,8 @@ export function partsVerdictDraftFinding(dir: string, project: JsonObject, evide
   const partsPath = parts === null ? null : str(parts.path);
   const bound = parts === null ? null : bindings(parts.files);
   if (reviewed === null || reviewed.length === 0 || partsPath === null || bound === null) return null;
+  // Outputs that cannot be read match nothing: DRAFT_RIG_MALFORMED is their finding, and the parts still compare.
+  const outputs = (isObj(draft) ? bindings(draft.files) : null) ?? [];
   const manifest = bound.find(f => f.path === `${partsPath}/parts.json`);
   if (manifest === undefined) return null;
 
@@ -339,7 +346,8 @@ export function partsVerdictDraftFinding(dir: string, project: JsonObject, evide
   const verdictPainting = painting && verdictManifest !== undefined ? posix.join(posix.dirname(verdictManifest.path), painting) : null;
   const verdictSide = reviewed.filter(f => f.path !== verdictPainting);
   const draftSide = bound.filter(f => f.path !== draftPainting);
-  const verdictOnly = unmatched(verdictSide, draftSide);
+  // A verdict file matches a part or an output; only a part can be missing from the verdict.
+  const verdictOnly = unmatched(verdictSide, [...draftSide, ...outputs]);
   const draftOnly = unmatched(draftSide, verdictSide);
   if (verdictOnly.length === 0 && draftOnly.length === 0) return null;
   const left = draftPainting === null ? 'leaving out nothing, as its parts.json declares no painting_in_rig it could read'
@@ -347,6 +355,6 @@ export function partsVerdictDraftFinding(dir: string, project: JsonObject, evide
   return {
     code: 'PARTS_VERDICT_DRAFT_MISMATCH',
     path,
-    message: `${path}: the parts verdict ${relPath} does not review draft ${draftId}'s parts; compared by sha256, ${left}, the verdict lists ${verdictOnly.length} file(s) the draft does not bind (${listed(verdictOnly)}) and the draft binds ${draftOnly.length} the verdict does not list (${listed(draftOnly)}); review the parts of draft ${draftId} in rig-review's parts view and sign with that verdict, or name the draft whose parts the verdict reviewed`,
+    message: `${path}: the parts verdict ${relPath} does not review draft ${draftId}'s parts; compared by sha256, ${left}, the verdict lists ${verdictOnly.length} file(s) the draft does not bind among its parts or outputs (${listed(verdictOnly)}) and the draft binds ${draftOnly.length} the verdict does not list (${listed(draftOnly)}); review the parts of draft ${draftId} in rig-review's parts view and sign with that verdict, or name the draft whose parts the verdict reviewed`,
   };
 }

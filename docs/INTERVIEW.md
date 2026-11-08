@@ -728,6 +728,9 @@ measurement:
 - `rig`: `{kind:"rig", rig_version, signoff_at, config:{path,sha256}, parts}`
   binds the accepted rig, its rig-review signoff, retained provenance config
   and the parts inventory from its build-time approval. Post asks wait for it.
+- `scene`: `{kind:"scene", scene:{n,path,sha256}}` replaces the rig kind for a
+  post set while the latest scene is current on the latest live accepted rig
+  ([PROJECT.md, "Scene option context"](PROJECT.md#scene-option-context)).
 
 Draft time and selection time must both see that context live. New selection
 or decision after changed files/approval/structure or a relevant reopen refuses

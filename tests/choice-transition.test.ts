@@ -29,7 +29,7 @@ function transition(value: string) {
   const set = JSON.parse(readFileSync(join(dir, setPath), 'utf8')) as JsonObject;
   set.id = 'transition-rig-type';
   set.drafted_at = '2026-11-10T14:10:00Z';
-  set.context = optionContext(JSON.parse(readFileSync(file, 'utf8')) as JsonObject, String(set.stage), Date.parse(set.drafted_at));
+  set.context = optionContext(dir, JSON.parse(readFileSync(file, 'utf8')) as JsonObject, String(set.stage), Date.parse(set.drafted_at));
   const path = 'evidence/interview/transition-rig-type.json';
   const bytes = JSON.stringify(set, null, 2) + '\n';
   writeFileSync(join(dir, path), bytes);

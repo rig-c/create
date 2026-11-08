@@ -123,7 +123,7 @@ test.each([
     const item = collectItems(current, { collection: null }).find(item => item.id === id)!;
     const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/evidence/interview', `${id}.json`), 'utf8'));
     set.id = `departure-${id}`; set.drafted_at = testClock.iso();
-    set.context = optionContext(current, stage, testClock.now());
+    set.context = optionContext(dir, current, stage, testClock.now());
     const path = `evidence/interview/departure-${id}.json`;
     const bytes = JSON.stringify(set); writeFileSync(join(dir, path), bytes);
     interviewOptionsCommand([id, dir, '--file', path]);

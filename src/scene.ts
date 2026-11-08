@@ -131,6 +131,28 @@ export function validateSceneCurrent(project: JsonObject, rig: JsonObject, curre
     if (!latest || !equal(sceneReference(latest), reference)) sceneFail('DIRECTION_SCENE_STALE', 'direction.scene', 'new direction must cite the current scene');
   }
 }
+/** The records validateSceneCurrent would have read at `at`: every dated entry at or before it. */
+function recordsAt(project: JsonObject, at: number): JsonObject {
+  const dated = (value: Json | undefined): JsonObject[] => asArray(value).filter((entry): entry is JsonObject => isObject(entry) && Date.parse(String(entry.at)) <= at);
+  const view: JsonObject = { ...project, signoffs: dated(project.signoffs), versions: dated(project.versions).map(version => ({ ...version, verdicts: dated(version.verdicts) })) };
+  if (project.reopens !== undefined) view.reopens = dated(project.reopens);
+  if (project.amendments !== undefined) view.amendments = dated(project.amendments);
+  return view;
+}
+/** The last scene dated at or before `at`, while it passes validateSceneCurrent on the records of that instant. */
+export function sceneCurrentAt(dir: string, project: JsonObject, at: number): JsonObject | undefined {
+  const entry = currentScene(project, at);
+  if (!entry) return undefined;
+  const doc = json(boundBytes(dir, entry, 'SCENE_FILE_CHANGED'), String(entry.path));
+  if (doc.n !== entry.n) sceneFail('SCENE_MALFORMED', String(entry.path), 'document n differs from its committed entry');
+  validateSceneShape(doc, String(entry.path));
+  try { validateSceneCurrent(recordsAt(project, at), doc.rig as JsonObject, true); }
+  catch (error) {
+    if (error instanceof SceneError && ['SCENE_RIG_STALE', 'SCENE_ACCEPTANCE_STALE'].includes(error.code)) return undefined;
+    throw error;
+  }
+  return entry;
+}
 function rigVersion(project: JsonObject, n: number): { version: JsonObject; index: number } {
   const matches = asArray(project.versions).map((version, index) => ({ version, index })).filter(value => isObject(value.version) && value.version.kind === 'rig' && value.version.n === n);
   if (matches.length !== 1) sceneFail('SCENE_RIG_STALE', 'scene.rig.version', 'select a uniquely recorded rig version');

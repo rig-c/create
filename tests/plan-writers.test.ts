@@ -1,15 +1,14 @@
-import { afterEach, expect, setSystemTime, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { checkProject, isObject } from '../src/check.ts';
+import { isObject } from '../src/check.ts';
 import { checkReplacedSignoffs, collectPlanReplaced } from '../src/plan-history.ts';
-import { planCommand } from '../src/plan-writers.ts';
-import { reopenCommand } from '../src/reopen.ts';
 import { Refusal } from '../src/refusal.ts';
 import { STAGE_ORDER_SPEC } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
+import { checkProject, planCommand, reopenCommand, testClock } from './clock.ts';
 import { arr, fixture, obj, step, waypoint } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
 
@@ -19,7 +18,7 @@ const fields = ['--phase', 'post', '--order', '1', '--does', 'Frame the approved
   '--rests-on', 'bones', '--bar', 'The frame retains every approved part.', '--checkpoint-proposed', 'false'];
 const codes = (dir: string): string[] => checkProject(dir).refusals.map(finding => finding.code);
 function draft(): string {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   return fixture(project => {
     waypoint(project, 'bones').guide = { delegated: false, by: 'user', at: '2026-11-10T00:00:00Z', verbatim: 'Use the approved rig.', value: 'Use the approved rig.' };
   }, 'project.json');
@@ -43,7 +42,7 @@ function reopen(dir: string, stage = 'plan-approved'): void {
 function retained(record: JsonObject, at = '2026-11-20T00:00:00Z'): JsonObject {
   return { step: structuredClone(record), sha256: stepHash(record), action: 'revised', at, by: 'agent' };
 }
-afterEach(() => setSystemTime());
+afterEach(() => testClock.reset());
 
 test('add, partial revise and remove preserve previous full steps, hashes and write order', () => {
   const dir = draft();
@@ -55,14 +54,14 @@ test('add, partial revise and remove preserve previous full steps, hashes and wr
   expect(step(first, 'camera')).toMatchObject({ phase: 'post', order: 1, rests_on: ['bones'], checkpoint_proposed: false, checkpoint: null, status: 'pending' });
   step(first, 'camera')['x-note'] = { text: 'Retain the whole definition.', values: [1, 2] };
   save(dir, first);
-  setSystemTime(new Date('2026-11-20T00:00:01Z'));
+  testClock.set('2026-11-20T00:00:01Z');
   write(dir, 'revise', 'camera', ['--does', 'Use the revised framing.', '--checkpoint-proposed', 'true']);
   const second = read(dir);
   expect(obj(arr(obj(second.plan).replaced)[0])).toEqual({ ...retained(step(first, 'camera'), '2026-11-20T00:00:01.000Z'), action: 'revised' });
   expect(step(second, 'camera')['x-note']).toEqual(step(first, 'camera')['x-note']);
   expect(step(second, 'camera').checkpoint).toBeNull();
   expect(step(second, 'camera').checkpoint_proposed).toBe(true);
-  setSystemTime(new Date('2026-11-20T00:00:02Z'));
+  testClock.set('2026-11-20T00:00:02Z');
   write(dir, 'remove');
   const third = read(dir);
   expect(obj(third.plan).steps).toEqual([]);
@@ -76,10 +75,10 @@ test('add, partial revise and remove preserve previous full steps, hashes and wr
 test('a second revision appends under the same id, then a clock reversal is refused byte-identically', () => {
   const dir = draft(); write(dir, 'add', 'camera', fields);
   write(dir, 'revise', 'camera', ['--bar', 'First revised bar.']);
-  setSystemTime(new Date('2026-11-20T00:00:01Z'));
+  testClock.set('2026-11-20T00:00:01Z');
   write(dir, 'revise', 'camera', ['--bar', 'Second revised bar.']);
   expect(arr(obj(read(dir).plan).replaced).map(entry => obj(obj(entry).step).id)).toEqual(['camera', 'camera']);
-  setSystemTime(new Date('2026-11-19T00:00:00Z'));
+  testClock.set('2026-11-19T00:00:00Z');
   unchanged(dir, 'PLAN_REPLACED_ORDER', () => write(dir, 'remove'));
 });
 
@@ -101,7 +100,7 @@ test('the refusal delta counts duplicate findings at the same code and path', ()
 });
 
 test.each(['revise', 'remove'])('live signed %s refuses, including legacy approvals without hashes', action => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture(project => {
     step(project, 'bones').status = 'pending';
     for (const signature of arr(project.signoffs)) delete obj(signature).step_hashes;
@@ -110,7 +109,7 @@ test.each(['revise', 'remove'])('live signed %s refuses, including legacy approv
 });
 
 test('the exact reopen cutoff releases a pending signed step and retained hashes still resolve', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture(project => { step(project, 'bones').status = 'pending'; });
   reopen(dir);
   const before = read(dir);
@@ -130,7 +129,7 @@ function isHashFor(value: Json, id: string): boolean {
 }
 
 test('reopening a later stage leaves the earlier plan binding live', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture(project => { step(project, 'bones').status = 'pending'; });
   reopen(dir, 'post-interview');
   unchanged(dir, 'PLAN_STEP_SIGNED', () => write(dir, 'revise', 'bones', ['--bar', 'Changed.']));
@@ -156,7 +155,7 @@ test('a currently done unsigned step cannot be revised and removal retains its s
 });
 
 test('the existing global drafted_at check still refuses a newly introduced stale parts approval', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture(project => { step(project, 'camera').status = 'pending'; });
   reopen(dir, 'post-interview');
   const before = readFileSync(join(dir, 'project.json'));
@@ -167,7 +166,7 @@ test('the existing global drafted_at check still refuses a newly introduced stal
 });
 
 test.each(['legacy-example-project.json', 'example-project.json'])('post re-plan after post-interview reopen preserves both plan dates in %s', template => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture(project => {
     step(project, 'camera').status = 'pending';
     step(project, 'camera').status_history = [];
@@ -201,7 +200,7 @@ test.each([
   const actions = ['add', 'revise', 'remove'];
   for (const [index, action] of actions.entries()) {
     const at = `2026-11-20T00:00:0${index}.000Z`;
-    setSystemTime(new Date(at));
+    testClock.set(at);
     write(dir, action, id, action === 'add' ? fields.map(value => value === 'post' ? phase : value)
       : action === 'revise' ? ['--bar', 'Revised owner bar.'] : []);
     expect(obj(read(dir).plan)).toMatchObject({
@@ -227,7 +226,7 @@ test.each([
   save(dir, project);
   write(dir, 'add', id, fields.map(value => value === 'post' ? from : value));
   const before = obj(read(dir).plan);
-  const at = '2026-11-20T00:00:01.000Z'; setSystemTime(new Date(at));
+  const at = '2026-11-20T00:00:01.000Z'; testClock.set(at);
   write(dir, 'revise', id, ['--phase', to]);
   const after = obj(read(dir).plan);
   expect(after.drafted_at).toEqual(parts ? at : before.drafted_at);
@@ -238,7 +237,7 @@ test.each([
 });
 
 test('done work cannot be revised after reopen, can be removed with checkpoint history, and needs a new id', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture();
   reopen(dir);
   unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'revise', 'camera', ['--bar', 'Changed.']));
@@ -253,7 +252,7 @@ test('done work cannot be revised after reopen, can be removed with checkpoint h
 });
 
 test('a live plan hash cannot resolve only to removed history', () => {
-  setSystemTime(new Date('2026-11-20T00:00:00Z'));
+  testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture();
   const project = read(dir);
   obj(project.plan).replaced = [{ ...retained(step(project, 'camera')), action: 'removed' }];
@@ -338,7 +337,9 @@ test('normal CLI entry adds, revises and removes, returning JSON and named usage
   const added = cli(['plan', 'add', 'camera', dir, '--by', 'agent', ...fields, '--json'], dir, env);
   expect(added.code).toBe(0); expect(added.stderr).toBe('');
   expect(obj(JSON.parse(added.stdout) as JsonObject).drafted_by).toBeNull();
+  testClock.set('2026-11-20T00:00:01Z');
   expect(cli(['plan', 'revise', 'camera', dir, '--by', 'agent', '--bar', 'Revised through CLI.'], dir, env).code).toBe(0);
+  testClock.set('2026-11-20T00:00:02Z');
   expect(cli(['plan', 'remove', 'camera', dir, '--by', 'agent'], dir, env).code).toBe(0);
   const before = readFileSync(join(dir, 'project.json'));
   const invalid = cli(['plan', 'add', 'camera', dir], dir, env);

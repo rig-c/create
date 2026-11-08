@@ -27,7 +27,7 @@ function completed(project: JsonObject, step: JsonObject): boolean {
     || asArray(project.reopens).some(entry => isObject(entry) && asArray(entry.steps_before).some(before => isObject(before) && before.id === step.id && before.status === 'done'));
 }
 
-export function planCommand(args: string[]): { stdout: string; exit: number } {
+export function planCommand(args: string[], now: number): { stdout: string; exit: number } {
   const action = args[0];
   const opts: Record<string, string> = {};
   const positional: string[] = [];
@@ -102,7 +102,7 @@ export function planCommand(args: string[]): { stdout: string; exit: number } {
       }
       if (action === 'revise' && completed(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; remove it and add the replacement under a new id`);
     }
-    const at = new Date().toISOString();
+    const at = new Date(now).toISOString();
     if (previous !== undefined) {
       plan.replaced = [...asArray(plan.replaced), { step: structuredClone(previous), sha256: stepHash(previous), action: action === 'revise' ? 'revised' : 'removed', at, by: opts['--by']! }];
       const index = steps.indexOf(previous);
@@ -119,11 +119,11 @@ export function planCommand(args: string[]): { stdout: string; exit: number } {
 
     // Count code/path pairs, including repeated refusals at the same path.
     const counts = new Map<string, number>();
-    for (const finding of checkProject(dir, project).refusals) {
+    for (const finding of checkProject(dir, project, { now }).refusals) {
       const key = JSON.stringify([finding.code, finding.path]);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-    for (const finding of checkProject(dir, next).refusals) {
+    for (const finding of checkProject(dir, next, { now }).refusals) {
       const key = JSON.stringify([finding.code, finding.path]);
       const count = counts.get(key) ?? 0;
       if (count === 0) refuse(finding.code, finding.message);

@@ -1370,10 +1370,14 @@ A config without `meshes` gives `entries: []`. It computes no mesh. It reads
 `--verdict` with the parts-review sign-off's own reader, so a verdict that is
 not approved refuses `PARTS_VERDICT_NOT_APPROVED`, and a changes-requested
 review gives no snapshot. The verdict must also review that draft's parts: both
-writers and the check compare its `source.files[]` with the draft's
-`parts.files[]` by sha256, never by path, leaving out only the declared
-`painting_in_rig` raster, and refuse any other difference as
-`PARTS_VERDICT_DRAFT_MISMATCH`. It refuses an unknown draft
+writers and the check match its `source.files[]` against the draft's
+`parts.files[]` and `files[]` by sha256, never by path, leaving out only the
+declared `painting_in_rig` raster. Every verdict file must be one of the
+draft's, and every `parts.files[]` entry must be in the verdict; any other
+difference is refused as `PARTS_VERDICT_DRAFT_MISMATCH`. A parts view that
+shows meshes also lists `rig.json`, `mesh_report.json` and the mesh rasters,
+which the draft binds in `files[]`; an output the verdict does not list is not
+missing, since a parts-only view lists none. It refuses an unknown draft
 (`STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN`), a draft config whose bytes changed since
 the draft was recorded (`STRUCTURE_SNAPSHOT_CONFIG_CHANGED`), and an `--out`
 that is not a literal project path (`STRUCTURE_SNAPSHOT_OUT_INVALID`), is under

@@ -31,7 +31,7 @@ const ROW_KEYS: Record<string, readonly string[]> = {
 };
 const STATUSES = ['read', 'missing', 'unreadable', 'absent'];
 /** The roots a clone does not carry, as the path is written; a link inside the project is followed as for the parts verdict. */
-const IGNORED: readonly string[] = [...IGNORED_DIRS, 'node_modules', '.git'];
+const isIgnoredRoot = (root: string): boolean => [...IGNORED_DIRS, 'node_modules', '.git'].includes(root);
 const RUN = 'run rig-parts check-parts --parts <assembled dir> --out <dir outside it>, retain parts-check.json under the project (for example evidence/) and advance with --parts-check <report> --parts <assembled dir>';
 
 /** The move whose arrival needs a passing parts-stage check. */
@@ -57,7 +57,7 @@ export function readPartsCheckBytes(dir: string, path: Json | undefined, at: str
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return unread(`${path} leaves the project through a link`);
     if (!statSync(file).isFile()) return unread(`${path} is not a regular file`);
   } catch { return unread(`${path} is not there`); }
-  if (IGNORED.includes(path.split('/')[0]!)) return unread(`${path} is under an ignored root and would not survive a clone`);
+  if (isIgnoredRoot(path.split('/')[0]!)) return unread(`${path} is under an ignored root and would not survive a clone`);
   try {
     return readFileSync(file);
   } catch (error) {

@@ -27,7 +27,7 @@ import { join, resolve } from 'node:path';
 import { draftVersionFindings } from './drafts.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
+import { collectReopens, liveSignoff, reopenTime, type Reopen } from './reopen.ts';
 import { PAUSED_STAGE, RIG_REVIEW, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -64,6 +64,8 @@ export interface RigVersion {
   readonly live: boolean;
   readonly n: number;
   readonly path: string;
+  /** When the version was built; a reopen or amendment after it makes the version history (`live: false`). */
+  readonly at: string | null;
   /** The last human `accepted` verdict at `rig-review`, or `null`. */
   readonly accepted: Acceptance | null;
   /** The well-formed still-frame evidence entries. */
@@ -178,7 +180,7 @@ export function readVersions(project: JsonObject): Versions {
       ? { note: asString(v.outputs_lost.note) ?? '', source: asString(v.outputs_lost.source) ?? '' } : undefined;
     const configLost = v.pre_interview === true && isObject(v.config_lost)
       ? { note: asString(v.config_lost.note) ?? '', source: asString(v.config_lost.source) ?? '' } : undefined;
-    rigs.push({ configLost, outputsLost, n: v.n, path, live: liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(v.at) ?? '')), preInterview: v.pre_interview === true, accepted, stills, malformedStills });
+    rigs.push({ configLost, outputsLost, n: v.n, path, at: asString(v.at), live: liveSignoff(reopens, RIG_REVIEW, Date.parse(asString(v.at) ?? '')), preInterview: v.pre_interview === true, accepted, stills, malformedStills });
   });
   return { rigs, posts, malformed };
 }
@@ -190,6 +192,26 @@ function latestRig(versions: Versions): RigVersion | null {
 /** The accepted rig version with the highest number. */
 export function latestAccepted(versions: Versions): RigVersion | null {
   return versions.rigs.filter((r) => r.live && r.accepted !== null).reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
+}
+
+/**
+ * When no live rig is accepted but an older one was: that accepted rig, and the first reopen or amendment after
+ * its build that made it history, named by its record path. An acceptance that lapsed this way is not a missing verdict.
+ */
+function lapsedAcceptance(project: JsonObject, versions: Versions): string | null {
+  const rig = versions.rigs.filter(r => !r.live && r.accepted !== null).reduce<RigVersion | null>((a, r) => (a === null || r.n > a.n ? r : a), null);
+  if (rig === null || rig.accepted === null) return null;
+  const built = Date.parse(rig.at ?? '');
+  const cutoff = collectReopens(project, []).filter(r => stageIndex(r.stage) <= stageIndex(RIG_REVIEW) && !(built > r.at))
+    .reduce<Reopen | null>((a, r) => (a === null || r.at < a.at ? r : a), null);
+  if (cutoff === null) return null;
+  const when = new Date(cutoff.at).toISOString();
+  // collectReopens appends amendment cutoffs, which carry their amendments[] index.
+  const amendment = 'index' in cutoff && typeof cutoff.index === 'number' ? cutoff.index : -1;
+  const reopen = asArray(project.reopens).findIndex(r => isObject(r) && r.stage === cutoff.stage && Date.parse(asString(r.at) ?? '') === cutoff.at);
+  const by = amendment >= 0 ? `the amendment at ${when} (amendments[${amendment}])`
+    : `the reopen to ${cutoff.stage} at ${when} (reopens[${reopen}])`;
+  return `${rig.path}.verdicts[${rig.accepted.verdict}]: rig v${rig.n} was accepted at ${rig.accepted.at}, but ${by} made it history, so no live rig version is accepted; register a new rig version with rig-create rig-version <n> and accept it with rig-create review <n> --verdict accepted --review rig-review`;
 }
 
 /** Why a post version's `rig_version` is not an accepted rig, or `null` when it is. */
@@ -256,7 +278,10 @@ export function checkReviews(ctx: ReviewCtx): void {
   const cur = stageIndex(ctx.effectiveStage);
   if (ctx.effectiveStage !== PAUSED_STAGE && cur > reviewIdx) {
     const latest = latestRig(versions);
-    if (latest === null) {
+    const lapsed = latest === null ? lapsedAcceptance(ctx.project, versions) : null;
+    if (lapsed !== null) {
+      push('RIG_VERSION_UNACCEPTED', 'versions', `stage is past rig-review on a lapsed acceptance: ${lapsed}, at rig-review`);
+    } else if (latest === null) {
       push('RIG_VERSION_UNACCEPTED', 'versions', `stage is past rig-review, but versions[] has no rig version for the review to have accepted`);
     } else if (latest.accepted === null) {
       push(
@@ -324,7 +349,9 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
   const accepted = latestAccepted(versions);
   const latest = latestRig(versions);
   if (accepted === null || accepted.accepted === null) {
-    refuse('RIG_VERSION_UNACCEPTED', `rig-review is signed, but no rig version has an accepted rig-review verdict naming it`);
+    const lapsed = lapsedAcceptance(record, versions);
+    refuse('RIG_VERSION_UNACCEPTED', lapsed !== null ? `rig-review is signed on a lapsed acceptance: ${lapsed} before post work runs`
+      : `rig-review is signed, but no rig version has an accepted rig-review verdict naming it`);
   }
   if (latest !== null && latest.n !== accepted.n) {
     refuse(

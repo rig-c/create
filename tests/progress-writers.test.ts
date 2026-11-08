@@ -13,7 +13,7 @@ import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, 
 import { clockedCli, tempDir } from './helpers.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
-import { checkProject, advanceCommand, stepStatusCommand, signoffCommand, reopenCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
+import { checkProject, advanceCommand, handoff, stepStatusCommand, signoffCommand, reopenCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2) + '\n');
@@ -21,12 +21,15 @@ const codes = (dir: string): string[] => checkProject(dir).refusals.map(f => f.c
 function words(dir: string): string { const path = join(dir, 'words.txt'); writeFileSync(path, '\uFEFFMove the synthetic project.\r\n'); return path; }
 function advance(dir: string, stage = 'parts'): void { advanceCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir), '--source', 'synthetic approval']); }
 function status(dir: string, id: string, value: string): void { stepStatusCommand([id, value, dir, '--by', 'agent']); }
-function refused(dir: string, code: string, action: () => unknown): void {
+function refused(dir: string, code: string, action: () => unknown): string {
   const before = readFileSync(join(dir, 'project.json'));
+  let message = '';
   try { action(); throw new Error('expected planted refusal'); } catch (error) {
     expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe(code);
+    message = (error as Refusal).message;
   }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  return message;
 }
 function partsProject(stage = 'plan-approved', split = false): string {
   return fixture(p => {
@@ -105,7 +108,8 @@ test.each([
   const dir = interviewArrival(stage);
   advance(dir, stage);
   expect(checkProject(dir, { ...read(dir), stage: next }).refusals.map(f => f.code)).toContain(code);
-  refused(dir, 'ADVANCE_MALFORMED', () => advance(dir, next));
+  // The unsigned departure names the stage to sign before the candidate's own findings (#221).
+  expect(refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, next))).toContain(`rig-create signoff ${stage} first`);
 });
 
 test.each([
@@ -266,7 +270,7 @@ test('an earlier re-signature leaves the furthest live target unchanged', () => 
   expect(codes(dir)).toEqual([]);
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(read(dir).stage).toBe('post-interview'); expect(codes(dir)).toEqual([]);
-  refused(dir, 'ADVANCE_MALFORMED', () => advance(dir, 'post'));
+  expect(refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, 'post'))).toContain('rig-create signoff post-interview first');
 });
 
 test.each([false, true])('signoff permits only lag introduced by its own signature, split=%s', split => {
@@ -576,4 +580,50 @@ test('a reopen cannot absorb a hand stage move, and keeps the bytes', () => {
   const p = read(dir); p.stage = 'parts-review'; save(dir, p);
   expect(codes(dir)).toContain('STAGE_SKIPPED');
   refused(dir, 'STAGE_MOVE_UNLINKED', () => reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
+});
+
+// #221: each refusal names the code of its cause and the writer that clears it.
+
+test('advance without a live sign-off at the current stage names ADVANCE_UNAUTHORIZED and the stage to sign', () => {
+  const dir = join(tempDir(), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
+  reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', words(dir), '--source', 'synthetic approval']);
+  const message = refused(dir, 'ADVANCE_UNAUTHORIZED', () => advance(dir, 'post-interview'));
+  expect(message).toContain('rig-create signoff rig-review first');
+  signoffCommand(['rig-review', dir, '--by', 'user', '--version', '1', '--verbatim-file', words(dir)]);
+  advance(dir, 'post-interview');
+  expect(read(dir).stage).toBe('post-interview');
+});
+
+test('a rig acceptance lapsed by a reopen is named with the reopen, not reported as missing', () => {
+  const dir = join(tempDir(), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
+  reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  testClock.set(new Date('2026-11-20T00:01:00Z'));
+  signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  for (const message of [
+    refused(dir, 'RIG_VERSION_UNACCEPTED', () => advance(dir, 'post-interview')),
+    refused(dir, 'RIG_VERSION_UNACCEPTED', () => handoff(dir, null)),
+  ]) {
+    expect(message).toContain('versions[v1].verdicts[0]');
+    expect(message).toContain('(reopens[0])');
+    expect(message).toContain('rig-create rig-version <n>');
+    expect(message).toContain('rig-create review <n> --verdict accepted');
+  }
+  // A rig that was never accepted keeps the missing-verdict message.
+  const never = read(dir);
+  for (const raw of arr(never.versions)) if (obj(raw).kind === 'rig') obj(raw).verdicts = [];
+  never.stage = 'post-interview';
+  const finding = checkProject(dir, never).refusals.find(f => f.code === 'RIG_VERSION_UNACCEPTED');
+  expect(finding?.path).toBe('versions');
+  expect(finding?.message).not.toContain('reopens[');
+});
+
+test('a skipped or finished step status names the next writer call', () => {
+  const dir = partsProject('parts');
+  expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create step-status seethrough in-progress next');
+  status(dir, 'seethrough', 'in-progress');
+  expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create step-status seethrough at-checkpoint next');
+  status(dir, 'seethrough', 'at-checkpoint'); status(dir, 'seethrough', 'done');
+  expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create reopen parts');
 });

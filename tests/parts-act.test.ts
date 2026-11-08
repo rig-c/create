@@ -322,3 +322,23 @@ test('changed plan still refuses first ingest and replay before deduplication', 
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
 });
+
+test('CLI and act receipts share current-verdict ordering', async () => {
+  const { partsReviewCommand } = await import('../src/parts-review.ts');
+  const { latestPartsVerdictFinding } = await import('../src/parts-verdict-record.ts');
+  const { root, host } = await bound();
+  const rejected = await submit(root, host, 'changes-requested', 'flagged');
+  const nextRejected = await submit(root, host, 'changes-requested', 'flagged');
+  expect((await cli(root, ['parts-review', '--from-review', rejected.actId])).exit).toBe(0);
+  expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')?.code).toBe('PARTS_VERDICT_LATEST_NOT_APPROVED');
+  const draft = (read(root).drafts as JsonObject[])[0]!;
+  const response = { schema: 'rig-review-parts-verdict/2', status: 'approved', tool: { name: '@rig-c/review', version: '2.5.0' },
+    source: { sha256: 'a'.repeat(64), files: (draft.parts as JsonObject).files }, parts: { torso: { outcome: 'clean', note: '' } } };
+  partsReviewCommand([root, '--draft', 'chain', '--from-review-cli', '--by', 'user', '--', 'opaque', '--verdict', 'opaque.json'], Date.now(), {
+    runCli: () => ({ stdout: Buffer.from(JSON.stringify(response)), exit: 0 }),
+  });
+  expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')).toBeUndefined();
+  expect((await cli(root, ['parts-review', '--from-review', nextRejected.actId])).exit).toBe(0);
+  expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')?.code).toBe('PARTS_VERDICT_LATEST_NOT_APPROVED');
+  expect(partsActFindings(root, read(root))).toEqual([]);
+});

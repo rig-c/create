@@ -1,3 +1,4 @@
+import { assertPartsCliArgs, assertPartsReadDraft, decodePartsRead, partsReadFindings, partsVerdictNames, PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 /** A parts verdict is recorded independently of signoff and stage progression. */
 import { randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -5,15 +6,18 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readProject } from './feedback.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
-import { jobHash, readAcknowledgedPublication } from './job-outbox.ts';
+import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { decodeReviewAct, reviewActFindings, reviewActTransport } from './review-act.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
-export const PARTS_REVIEW_HELP = 'parts-review [<project>] --from-review <actId> [--json]';
-export interface PartsReviewHooks { afterEvidence?: (path: string) => void }
+export const PARTS_REVIEW_HELP = 'parts-review [<project>] --from-review <actId> [--json] | parts-review [<project>] --draft <id> --from-review-cli --by <name> [--json] -- <rig-review parts arguments>';
+export interface PartsReviewHooks {
+  afterEvidence?: (path: string) => void;
+  runCli?: (args: string[], root: string) => { stdout: Buffer; stderr?: string; exit: number };
+}
 
 function syncDirectory(path: string): void {
   const fd = openSync(path, 'r');
@@ -22,18 +26,31 @@ function syncDirectory(path: string): void {
 
 export function partsReviewCommand(args: string[], now: number, hooks: PartsReviewHooks = {}): { stdout: string; exit: number } {
   let actId: string | undefined;
+  const options: Record<string, string> = {};
   let json = false;
+  let fromCli = false;
+  let cliArgs: string[] = [];
   const positional: string[] = [];
   const usage = (): never => refuse('PARTS_REVIEW_OPTION_INVALID', `project.json.review_acts: ${PARTS_REVIEW_HELP}; submit human values through Review`, USAGE_EXIT);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--json') { if (json) usage(); json = true; }
+    if (arg === '--') { cliArgs = args.slice(i + 1); break; }
+    if (arg === '--from-review-cli') { if (fromCli) usage(); fromCli = true; }
+    else if (arg === '--json') { if (json) usage(); json = true; }
     else if (arg === '--from-review') { if (actId) usage(); actId = args[++i]; if (!actId || actId.startsWith('-')) usage(); }
+    else if (['--draft', '--by'].includes(arg)) {
+      const value = args[++i];
+      if (options[arg] !== undefined || !value || value.startsWith('-')) usage();
+      options[arg] = value;
+    }
     else if (arg.startsWith('-')) usage();
     else positional.push(arg);
   }
-  if (!actId || positional.length > 1) usage();
+  if (positional.length > 1 || (actId ? fromCli || Object.keys(options).length > 0 || cliArgs.length > 0 : !fromCli || Object.keys(options).length !== 2 || cliArgs.length === 0)) usage();
+  if (fromCli && cliArgs.some(arg => arg === '--format' || arg.startsWith('--format='))) usage();
   const root = resolve(positional[0] ?? process.cwd());
+  if (fromCli) assertPartsCliArgs(cliArgs);
+  if (!actId) return recordCliVerdict(root, options, cliArgs, json, now, hooks);
   const release = acquireBoundJobWrite(root);
   let created: string | undefined;
   let committed = false;
@@ -52,7 +69,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
     const { file } = readProject(root);
     const original = readFileSync(file);
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
-    const invalid = [...reviewActFindings(project), ...partsActFindings(root, project)][0];
+    const invalid = [...reviewActFindings(project), ...partsActFindings(root, project), ...partsReadFindings(root, project)][0];
     if (invalid) refuse(invalid.code, invalid.message);
     assertPartsActSource(root, project, act);
     const hash = partsActDraftHash(project, act);
@@ -120,5 +137,79 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
     if (created && !committed) rmSync(created, { force: true });
     rmSync(temporary, { force: true });
     release();
+  }
+}
+
+function recordCliVerdict(root: string, options: Record<string, string>, cliArgs: string[], json: boolean, now: number, hooks: PartsReviewHooks): { stdout: string; exit: number } {
+  if (!options['--by'].trim() || options['--by'].toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', 'project.json.review_acts.by: supply the human reviewer with --by');
+  const release = readWriterBinding(root) ? acquireBoundJobWrite(root) : acquireJobLock(root)!;
+  const temporary = join(root, `.parts-review-${randomUUID()}.tmp`);
+  let created: string | undefined;
+  let committed = false;
+  try {
+    const { file } = readProject(root);
+    const original = readFileSync(file);
+    const project = JSON.parse(original.toString('utf8')) as JsonObject;
+    const invalid = [...reviewActFindings(project), ...partsActFindings(root, project), ...partsReadFindings(root, project)][0];
+    if (invalid) refuse(invalid.code, invalid.message);
+    const draftId = options['--draft'];
+    const command = ['parts', ...cliArgs, '--format', 'json'];
+    const response = hooks.runCli ? hooks.runCli(command, root) : runPartsCli(command, root);
+    if (response.exit !== 0) refuse('PARTS_REVIEW_CLI_FAILED', `project.json.review_acts: rig-review parts exited ${response.exit}: ${response.stderr?.trim() || 'no diagnostic returned'}; restore the saved verdict and retry its original display arguments`);
+    const bytes = response.stdout;
+    const verdict = decodePartsRead(bytes);
+    assertPartsReadDraft(root, project, verdict, draftId);
+    const hash = jobHash(bytes);
+    const receipts = project.review_acts as JsonObject[] | undefined;
+    const existing = receipts?.find(entry => entry.schema === PARTS_CLI_RECEIPT && entry.draft_id === draftId && (entry.evidence as JsonObject).sha256 === hash);
+    if (existing) return { stdout: json ? JSON.stringify(existing, null, 2) : `parts-review: ${draftId} ${existing.status}, already recorded`, exit: 0 };
+    const evidence = { kind: 'parts-verdict', path: `evidence/review-reads/${hash}.json`, sha256: hash };
+    const receipt: JsonObject = { schema: PARTS_CLI_RECEIPT, kind: 'parts-verdict', draft_id: draftId, evidence,
+      route: 'cli', argv: cliArgs, tool: verdict.tool, status: verdict.status, ...partsVerdictNames(verdict), by: options['--by'], at: new Date(now).toISOString() };
+    for (const segment of ['evidence', 'evidence/review-reads']) {
+      const path = join(root, segment);
+      try { mkdirSync(path); syncDirectory(dirname(path)); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
+      const info = lstatSync(path);
+      if (!info.isDirectory() || info.isSymbolicLink()) refuse('PARTS_REVIEW_EVIDENCE_CONFLICT', 'project.json.review_acts.evidence: restore a real evidence directory without symlinks');
+    }
+    const path = join(root, evidence.path);
+    try {
+      const info = lstatSync(path);
+      if (!info.isFile() || info.isSymbolicLink() || !readFileSync(path).equals(bytes)) refuse('PARTS_REVIEW_EVIDENCE_CONFLICT', 'project.json.review_acts.evidence: preserve and restore the original content-addressed verdict');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const fd = openSync(path, 'wx', 0o600);
+      created = path;
+      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      syncDirectory(dirname(path));
+    }
+    hooks.afterEvidence?.(path);
+    const next = structuredClone(project);
+    next.review_acts = [...(receipts ?? []), receipt];
+    const failure = [...partsReadFindings(root, next), ...newRefusals(root, project, next, { now })][0];
+    if (failure) refuse(failure.code, failure.message);
+    if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during validation; retry against the current record');
+    const fd = openSync(temporary, 'wx', 0o600);
+    try { writeFileSync(fd, `${JSON.stringify(next, null, 2)}\n`); fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(temporary, file);
+    committed = true;
+    syncDirectory(root);
+    return { stdout: json ? JSON.stringify(receipt, null, 2) : `parts-review: ${draftId} ${receipt.status}, evidence ${evidence.path}`, exit: 0 };
+  } finally {
+    if (created && !committed) rmSync(created, { force: true });
+    rmSync(temporary, { force: true });
+    release();
+  }
+}
+
+function runPartsCli(args: string[], root: string): { stdout: Buffer; stderr?: string; exit: number } {
+  try {
+    const packageFile = import.meta.resolve('@rig-c/review/package.json');
+    const entry = fileURLToPath(new URL('./src/entry.ts', packageFile));
+    const result = Bun.spawnSync([process.execPath, entry, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
+    return { stdout: result.stdout, stderr: result.stderr.toString(), exit: result.exitCode };
+  } catch {
+    return refuse('PARTS_REVIEW_CLI_FAILED', 'project.json.review_acts: review CLI could not run; restore the pinned rig-review installation');
   }
 }

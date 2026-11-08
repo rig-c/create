@@ -1,3 +1,4 @@
+import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
 import { reviewActFindings } from './review-act.ts';
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
@@ -961,7 +962,12 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkAppliedReview(ctx);
   const provenance = checkProvenance(ctx, parts);
   const feedback = checkFeedback(ctx);
-  refusals.push(...reviewActFindings(project), ...partsActFindings(dir, project));
+  refusals.push(...reviewActFindings(project), ...partsActFindings(dir, project), ...partsReadFindings(dir, project));
+  for (const [index, raw] of asArray(project.signoffs).entries()) {
+    if (!isObject(raw) || raw.stage !== 'parts-review' || typeof raw.draft_id !== 'string') continue;
+    const finding = latestPartsVerdictFinding(project, raw.draft_id, `signoffs[${index}].draft_id`);
+    if (finding) (typeof raw.at === 'string' && Date.parse(raw.at) < Date.parse(PARTS_VERDICT_LATEST_SINCE) ? warnings : refusals).push(finding);
+  }
   checkCgGates(ctx);
   checkSetupPainting(ctx);
   checkFigureMask(ctx);

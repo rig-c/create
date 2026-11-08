@@ -1,3 +1,4 @@
+import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 /** Typed semantic evidence. Legacy verdict documents retain their own reader. */
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -62,7 +63,7 @@ export function assertPartsActSource(root: string, project: JsonObject, act: Par
 export function partsActFindings(root: string, project: JsonObject): { code: string; path: string; message: string }[] {
   if (!Array.isArray(project.review_acts)) return [];
   return project.review_acts.flatMap((entry, index) => {
-    if (!object(entry) || entry.kind !== 'parts-verdict') return [];
+    if (!object(entry) || entry.kind !== 'parts-verdict' || entry.schema === PARTS_CLI_RECEIPT) return [];
     const path = `review_acts[${index}].evidence`;
     try {
       if (!object(entry.evidence) || typeof entry.evidence.path !== 'string') throw Error();

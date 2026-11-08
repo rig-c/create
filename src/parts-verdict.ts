@@ -245,7 +245,7 @@ export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, 
  */
 export const PARTS_VERDICT_DRAFT_SINCE = '2026-11-08T00:00:00Z';
 
-type FileBinding = { path: string; sha256: string };
+export type FileBinding = { path: string; sha256: string };
 
 function bindings(list: Json | undefined): FileBinding[] | null {
   if (!Array.isArray(list)) return null;
@@ -360,8 +360,7 @@ export function partsVerdictDraftFinding(dir: string, project: JsonObject, evide
   const verdictSide = reviewed.filter(f => f.path !== verdictPainting);
   const draftSide = bound.filter(f => f.path !== draftPainting);
   // A verdict file matches a part or an output; only a part can be missing from the verdict.
-  const verdictOnly = unmatched(verdictSide, [...draftSide, ...outputs]);
-  const draftOnly = unmatched(draftSide, verdictSide);
+  const { verdictOnly, draftOnly } = comparePartsVerdictBindings(verdictSide, draftSide, outputs);
   if (verdictOnly.length === 0 && draftOnly.length === 0) return null;
   const left = draftPainting === null ? 'leaving out nothing, as its parts.json declares no painting_in_rig it could read'
     : `leaving out only ${draftPainting}, which its parts.json declares under painting_in_rig`;
@@ -370,4 +369,9 @@ export function partsVerdictDraftFinding(dir: string, project: JsonObject, evide
     path,
     message: `${path}: the parts verdict ${relPath} does not review draft ${draftId}'s parts; compared by sha256, ${left}, the verdict lists ${verdictOnly.length} file(s) the draft does not bind among its parts or outputs (${listed(verdictOnly)}) and the draft binds ${draftOnly.length} the verdict does not list (${listed(draftOnly)}); review the parts of draft ${draftId} in rig-review's parts view and sign with that verdict, or name the draft whose parts the verdict reviewed`,
   };
+}
+
+/** Shared source-list comparison, after each reader removes its declared painting. */
+export function comparePartsVerdictBindings(reviewed: FileBinding[], parts: FileBinding[], outputs: FileBinding[]): { verdictOnly: string[]; draftOnly: string[] } {
+  return { verdictOnly: unmatched(reviewed, [...parts, ...outputs]), draftOnly: unmatched(parts, reviewed) };
 }

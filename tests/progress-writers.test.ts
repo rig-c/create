@@ -103,7 +103,8 @@ test.each([false, true])('signoff then advance uses the public CLI and reconcile
   p.signoffs = arr(p.signoffs).slice(0, 1); p.stage_values = ['interview'];
   retimeFixture(p, Date.now()); save(dir, p);
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
-  expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
+  // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
   const result = Bun.spawnSync([process.execPath, CLI, 'advance', 'parts', dir, '--by', 'owner', '--verbatim-file', words(dir), '--json'], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0); expect(result.stderr.toString()).toBe('');
   expect(JSON.parse(result.stdout.toString()).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));

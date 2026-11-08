@@ -84,7 +84,8 @@ describe('B0 normal writer and both producer layouts', () => {
     const signed = JSON.parse(result.stdout) as JsonObject;
     expect(arr(obj(signed.diff_map).components)).toHaveLength(2);
     expect(obj(arr(obj(signed.diff_map).components)[0]).why).toBe('observed: synthetic difference');
-    expect(checkProject(dir).warnings.map(f => f.code)).toContain('STAGE_LAGGING');
+    // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
     advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);

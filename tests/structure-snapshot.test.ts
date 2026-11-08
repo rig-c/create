@@ -5,12 +5,14 @@ import { dirname, join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
+import { PARTS_VERDICT_DRAFT_SINCE } from '../src/parts-verdict.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, draftRigCommand, main, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, draftRigCommand, main, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
+import { retainedPartsFiles } from './draft-fixture.ts';
 import { arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
-import { EXAMPLE_VERDICT } from './parts-package.ts';
+import { EXAMPLE_VERDICT, writeReviewedInput } from './parts-package.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 
 const sha = (b: string | Buffer): string => createHash('sha256').update(b).digest('hex');
@@ -22,10 +24,12 @@ afterEach(() => testClock.reset());
 const MESHES = { torso: { contour: { bust: { alpha: 0.5 } } }, 'arm/l~1': { density: 3 } };
 const OUT = 'evidence/structure-decisions.json';
 
-function draft(dir: string, id: string, config: JsonObject): void {
+/** Records draft `id`; its parts are the ones the example verdict reviewed unless `input` (parts-relative path → bytes) names others. */
+function draft(dir: string, id: string, config: JsonObject, input?: Record<string, string | Uint8Array>): void {
   const root = `derived/drafts/${id}`;
   write(dir, `${root}/config.json`, JSON.stringify(config));
-  write(dir, `${root}/input/parts.json`, '{}'); write(dir, `${root}/input/parts/torso.png`, 'synthetic');
+  if (input === undefined) writeReviewedInput(dir, root);
+  else for (const [path, bytes] of Object.entries(input)) { mkdirSync(dirname(join(dir, root, 'input', path)), { recursive: true }); writeFileSync(join(dir, root, 'input', path), bytes); }
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${name}`, '{}');
   draftRigCommand([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
 }
@@ -161,4 +165,79 @@ test('missing and repeated flags are usage refusals with exit 2', () => {
   refused(() => structureSnapshotCommand([dir, '--draft', 'shape', '--draft', 'shape', '--verdict', EXAMPLE_VERDICT, '--out', OUT]), 'STRUCTURE_SNAPSHOT_USAGE');
   expect(main(['structure-snapshot', dir, '--out', OUT])).toBe(2);
   expect(existsSync(join(dir, OUT))).toBe(false);
+});
+
+// rig-c/create#236: the verdict binds the draft it approves by the sha256 multiset of the parts it reviewed.
+const MISMATCH = 'PARTS_VERDICT_DRAFT_MISMATCH';
+const exampleTree = (): Record<string, Uint8Array> => retainedPartsFiles(join(import.meta.dir, '../templates/example-draft/input'));
+const signDraft = (dir: string, id: string): ReturnType<typeof signoffCommand> => signoffCommand(['parts-review', dir, '--by', 'owner',
+  '--verbatim-file', join(dir, 'words.txt'), '--evidence', EXAMPLE_VERDICT, '--diff-report', EXAMPLE_DIFF_REPORT,
+  '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic', '--draft', id, '--structure-file', OUT]);
+
+test('a verdict of one parts tree approves no other draft: both writers refuse and write nothing', () => {
+  const dir = setup();
+  // Draft "other" holds the example draft tree, which the verdict (the synthetic package) never reviewed.
+  draft(dir, 'other', { meshes: MESHES }, exampleTree());
+  const project = readFileSync(join(dir, 'project.json'));
+  const error = refused(() => structureSnapshotCommand([dir, '--draft', 'other', '--verdict', EXAMPLE_VERDICT, '--out', OUT]), MISMATCH);
+  // Up to three unmatched files on each side: 4 verdict entries, 7 draft entries once the declared painting is left out.
+  expect(error.message).toContain('and 1 more');
+  expect(error.message).toContain('and 4 more');
+  expect(error.message).not.toContain('painting_in_rig.png (');
+  expect(existsSync(join(dir, OUT))).toBe(false);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(project);
+  expect(snapshot(dir).exit).toBe(0);
+  const before = readFileSync(join(dir, 'project.json'));
+  refused(() => signDraft(dir, 'other'), MISMATCH);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('one part image differing by one byte from the reviewed one is refused', () => {
+  const dir = setup();
+  const reviewed = join(dir, 'derived/parts/rig/parts/torso.png');
+  const flipped = Buffer.from(readFileSync(reviewed));
+  flipped[0] = flipped[0]! ^ 1;
+  draft(dir, 'flipped', { meshes: MESHES }, {
+    'parts.json': readFileSync(join(dir, 'derived/parts/rig/parts.json')),
+    'parts/background.png': readFileSync(join(dir, 'derived/parts/rig/parts/background.png')),
+    'parts/torso.png': flipped,
+    'parts/lantern.png': readFileSync(join(dir, 'derived/parts/rig/parts/lantern.png')),
+  });
+  const error = refused(() => structureSnapshotCommand([dir, '--draft', 'flipped', '--verdict', EXAMPLE_VERDICT, '--out', OUT]), MISMATCH);
+  expect(error.message).toContain('the verdict lists 1 file(s)');
+  expect(error.message).toContain('the draft binds 1 the verdict does not list (derived/drafts/flipped/input/parts/torso.png)');
+  expect(existsSync(join(dir, OUT))).toBe(false);
+});
+
+test.each([
+  ['from the contract date', '2026-11-20T00:00:00.000Z', 'refusals'],
+  ['before the contract date', new Date(Date.parse(PARTS_VERDICT_DRAFT_SINCE) - 1).toISOString(), 'warnings'],
+] as const)('the check reads a sign-off naming another draft, dated %s (%s), among its %s', (_name, at, where) => {
+  const dir = setup();
+  draft(dir, 'other', { meshes: MESHES }, exampleTree());
+  expect(snapshot(dir).exit).toBe(0);
+  expect(signDraft(dir, 'shape').exit).toBe(0);
+  const signed = read(dir);
+  const index = arr(signed.signoffs).length - 1;
+  expect(checkProject(dir).refusals.map(f => f.code)).not.toContain(MISMATCH);
+  const signoff = obj(arr(signed.signoffs)[index]);
+  signoff.draft_id = 'other';
+  signoff.at = at;
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(signed, null, 2)}\n`);
+  const report = checkProject(dir);
+  const other = where === 'refusals' ? report.warnings : report.refusals;
+  expect(report[where].filter(f => f.code === MISMATCH).map(f => f.path)).toEqual([`signoffs[${index}].draft_id`]);
+  expect(other.map(f => f.code)).not.toContain(MISMATCH);
+});
+
+test('the painting parts.json declares is left out: a verdict without it approves the draft that binds it', () => {
+  const dir = fixture(() => {}, 'example-project.json');
+  const project = read(dir);
+  const bound = arr(obj(obj(arr(project.drafts)[0]).parts).files).map(f => String(obj(f).path));
+  expect(bound).toContain('derived/drafts/example/input/painting_in_rig.png');
+  const reviewed = (JSON.parse(readFileSync(join(dir, EXAMPLE_VERDICT), 'utf8')) as { source: { files: { path: string }[] } }).source.files.map(f => f.path);
+  expect(reviewed.some(path => path.endsWith('painting_in_rig.png'))).toBe(false);
+  const report = checkProject(dir);
+  expect([...report.refusals, ...report.warnings].map(f => f.code)).not.toContain(MISMATCH);
+  expect(structureSnapshotCommand([dir, '--draft', 'example', '--verdict', EXAMPLE_VERDICT, '--out', 'evidence/structure-again.json']).exit).toBe(0);
 });

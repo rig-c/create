@@ -45,7 +45,7 @@ import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkDiffMap } from './diff-map.ts';
-import { checkPartsVerdict } from './parts-verdict.ts';
+import { checkPartsVerdict, PARTS_VERDICT_DRAFT_SINCE, partsVerdictDraftFinding } from './parts-verdict.ts';
 import { checkReviews, latestAccepted, readVersions } from './review.ts';
 import { checkAppliedReview } from './applied-review.ts';
 import { checkReviewPackages } from './review-package.ts';
@@ -799,6 +799,20 @@ function checkPartsReviewEvidence(ctx: Ctx): void {
   }
 }
 
+/**
+ * Every `parts-review` sign-off carrying `draft_id`, reopened ones included, rests on a verdict of that
+ * draft's parts (rig-c/create#236, src/parts-verdict.ts): refused from
+ * `PARTS_VERDICT_DRAFT_SINCE` or without a readable date, a WARN before it.
+ */
+function checkPartsVerdictDrafts(ctx: Ctx, history: readonly Signoff[]): void {
+  const since = Date.parse(PARTS_VERDICT_DRAFT_SINCE);
+  for (const s of history) {
+    if (s.stage !== PARTS_REVIEW || s.record.draft_id === undefined) continue;
+    const finding = partsVerdictDraftFinding(ctx.dir, ctx.project, s.record.evidence, s.record.draft_id, `signoffs[${s.index}].draft_id`);
+    if (finding !== null) (s.at < since ? ctx.warnings : ctx.refusals).push(finding);
+  }
+}
+
 /** The latest stage-level sign-off, optionally covering a step, by date then array position. Undated counts as earliest. */
 function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | undefined {
   let best: Signoff | undefined;
@@ -916,6 +930,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkDrafts(dir, project, refusals, warnings);
   refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);
+  checkPartsVerdictDrafts(ctx, historySignoffs);
   checkAdvances(ctx);
   checkAnswers(ctx);
   checkOverrides(project, collection, refusals, warnings);

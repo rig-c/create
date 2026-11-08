@@ -9,7 +9,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap, diffReportBytes } from './diff-map.ts';
 import { readProject } from './feedback.ts';
-import { checkPartsVerdict, partsVerdictEvidence } from './parts-verdict.ts';
+import { checkPartsVerdict, partsVerdictDraftFinding, partsVerdictEvidence } from './parts-verdict.ts';
 import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -138,6 +138,9 @@ export function signoffCommand(args: string[], now: number): { stdout: string; e
     const record = { evidence, at, ...(diffMap === undefined ? {} : { diff_map: diffMap }) };
     const partsFile = checkPartsVerdict(dir, record, `signoffs[${project.signoffs.length}]`, refusals);
     checkDiffMap(dir, record, `signoffs[${project.signoffs.length}]`, partsFile, refusals, []);
+    // The verdict reviews the parts of the draft it approves (rig-c/create#236).
+    const bound = refusals.length === 0 ? partsVerdictDraftFinding(dir, project, evidence, opts['--draft'], `signoffs[${project.signoffs.length}].draft_id`) : null;
+    if (bound !== null) refusals.push(bound);
     const first = refusals[0];
     if (first !== undefined) refuse(first.code, first.message);
   }

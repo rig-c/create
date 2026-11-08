@@ -88,6 +88,23 @@ export function partsPackage(options: PackageOptions = {}): PartsPackage {
   return { files: { ...files, ...exampleDiffFiles(partsDir) }, verdictPath, verdictSha256: sha(text) };
 }
 
+/**
+ * Copies the parts a verdict under `dir` reviewed into `<root>/input/` (parts.json
+ * and its parts, paths relative to parts.json), so a draft recorded from that
+ * input binds the same bytes the verdict reviewed (rig-c/create#236).
+ */
+export function writeReviewedInput(dir: string, root: string, verdict = EXAMPLE_VERDICT): void {
+  const verdictDir = posix.dirname(verdict);
+  const files = (JSON.parse(readFileSync(join(dir, verdict), 'utf8')) as { source: { files: { path: string }[] } }).source.files;
+  const partsDir = posix.dirname(posix.join(verdictDir, files[0]!.path));
+  for (const { path } of files) {
+    const from = posix.join(verdictDir, path);
+    const to = join(dir, root, 'input', posix.relative(partsDir, from));
+    mkdirSync(dirname(to), { recursive: true });
+    writeFileSync(to, readFileSync(join(dir, from)));
+  }
+}
+
 /** Writes a package's files under a project folder (default: the filled example's approved package). */
 export function writePartsPackage(dir: string, pkg: PartsPackage = partsPackage({ verdict: EXAMPLE_VERDICT })): void {
   const files = { ...preparedExampleFiles(), ...reviewExampleFiles(), ...pkg.files };

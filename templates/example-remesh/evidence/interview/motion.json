@@ -1,0 +1,272 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "remesh-motion",
+  "question": "motion",
+  "stage": "rigging-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-08T00:00:43.000Z",
+  "context": {
+    "kind": "parts",
+    "accepted_parts": {
+      "signoff_at": "2026-11-08T00:00:32.000Z",
+      "evidence": {
+        "kind": "parts-verdict",
+        "path": "evidence/review-reads/b2a940928aa74bcec551a8afa04516e44a7c9d3694cbed6eb09721cbeab5363b.json",
+        "sha256": "b2a940928aa74bcec551a8afa04516e44a7c9d3694cbed6eb09721cbeab5363b",
+        "spec": "rig-create/parts-verdict-cli@1"
+      }
+    },
+    "structure": {
+      "path": "evidence/structure.json",
+      "sha256": "5123152c728770533cc8ffff2a80d6b3a8f5f84246da90ba7be238b2f58ee6cb"
+    },
+    "draft_id": "remesh",
+    "parts": {
+      "path": "derived/drafts/remesh/input",
+      "files": [
+        {
+          "path": "derived/drafts/remesh/input/painting_in_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+        },
+        {
+          "path": "derived/drafts/remesh/input/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+        },
+        {
+          "path": "derived/drafts/remesh/input/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/remesh/input/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/remesh/input/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+        },
+        {
+          "path": "derived/drafts/remesh/input/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+        },
+        {
+          "path": "derived/drafts/remesh/input/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+        },
+        {
+          "path": "derived/drafts/remesh/input/parts.json",
+          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+        }
+      ]
+    }
+  },
+  "assembly": {
+    "rule": "merge"
+  },
+  "asks": [
+    {
+      "id": "tracks",
+      "prompt": "Choose tracks for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic tracks",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "tracks": "synthetic tracks"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change tracks",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "tracks": "alternate tracks"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "extent",
+      "prompt": "Choose extent for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic extent",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "extent": "synthetic extent"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change extent",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "extent": "alternate extent"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "speed",
+      "prompt": "Choose speed for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic speed",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "speed": "synthetic speed"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change speed",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "speed": "alternate speed"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "loop",
+      "prompt": "Choose loop for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic loop",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "loop": "synthetic loop"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change loop",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "loop": "alternate loop"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "blink",
+      "prompt": "Choose blink for the synthetic plate.",
+      "options": [
+        {
+          "id": "keep",
+          "kind": "value",
+          "label": "Use the synthetic blink",
+          "effect": "Keep the declared geometric example.",
+          "fragment": {
+            "blink": "synthetic blink"
+          },
+          "recommended": true,
+          "reason": "Matches the synthetic geometric inputs."
+        },
+        {
+          "id": "alternative",
+          "kind": "value",
+          "label": "Change blink",
+          "effect": "Use the alternate synthetic choice.",
+          "fragment": {
+            "blink": "alternate blink"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Supply different words.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Delegate",
+          "effect": "Ask the agent to decide.",
+          "recommended": false
+        }
+      ]
+    }
+  ]
+}

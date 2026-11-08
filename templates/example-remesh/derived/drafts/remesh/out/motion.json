@@ -1,0 +1,137 @@
+{
+ "spec": "rigc-motion/1",
+ "archetype": "synthetic_painting",
+ "cut": "synthetic_painting",
+ "easings": {
+  "shut": [
+   0.5,
+   0,
+   0.9,
+   0.6
+  ],
+  "open": [
+   0.1,
+   0.4,
+   0.4,
+   1
+  ]
+ },
+ "groups": {},
+ "animations": {
+  "idle": {
+   "duration": 4,
+   "loop": true,
+   "note": "Breath (chest), head roll, hair/accessory sway, sleeve and hem sway, one blink. Sines with exact tangents; phase lags down every chain.",
+   "tracks": [
+    {
+     "bone": "body_ctl",
+     "property": "translatey",
+     "keys": [
+      {
+       "t": 0,
+       "v": [
+        0
+       ],
+       "curve": [
+        0.166667,
+        0.1309,
+        0.333333,
+        0.261
+       ]
+      },
+      {
+       "t": 0.5,
+       "v": [
+        0.3536
+       ],
+       "curve": [
+        0.666667,
+        0.4461,
+        0.833333,
+        0.5
+       ]
+      },
+      {
+       "t": 1,
+       "v": [
+        0.5
+       ],
+       "curve": [
+        1.166667,
+        0.5,
+        1.333333,
+        0.4461
+       ]
+      },
+      {
+       "t": 1.5,
+       "v": [
+        0.3536
+       ],
+       "curve": [
+        1.666667,
+        0.261,
+        1.833333,
+        0.1309
+       ]
+      },
+      {
+       "t": 2,
+       "v": [
+        0
+       ],
+       "curve": [
+        2.166667,
+        -0.1309,
+        2.333333,
+        -0.261
+       ]
+      },
+      {
+       "t": 2.5,
+       "v": [
+        -0.3536
+       ],
+       "curve": [
+        2.666667,
+        -0.4461,
+        2.833333,
+        -0.5
+       ]
+      },
+      {
+       "t": 3,
+       "v": [
+        -0.5
+       ],
+       "curve": [
+        3.166667,
+        -0.5,
+        3.333333,
+        -0.4461
+       ]
+      },
+      {
+       "t": 3.5,
+       "v": [
+        -0.3536
+       ],
+       "curve": [
+        3.666667,
+        -0.261,
+        3.833333,
+        -0.1309
+       ]
+      },
+      {
+       "t": 4,
+       "v": [
+        0
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

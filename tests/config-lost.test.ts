@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { stageIndex } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject } from './clock.ts';
-import { arr, bindFixtureAnswers, codes, fixture, framing, obj, retainSignoffs, version, type Mutate } from './fixtures.ts';
+import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+import { arr, bindFixtureAnswers, codes, fixture, framing, obj, retainSignoffs, retimeFixture, version, type Mutate } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
 
 const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-interview.json'), 'utf8')) as {
@@ -31,6 +32,8 @@ function migratedCg(mutate: Mutate = () => {}): string {
     delete version(p, 1).built_with;
     version(p, 2).built_with = { '@rig-c/parts': '2.3.0' };
     mutate(p);
+    // A migrated pre-interview project predates stage-progress authority.
+    retimeFixture(p, Date.parse(STAGE_PROGRESS_SINCE));
   }, 'legacy-example-project.json', historical.files);
 }
 

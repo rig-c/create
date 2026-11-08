@@ -85,6 +85,15 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   const submitted = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
     publicationId: publication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
     expectedGeneration: host.session.status().generation, submissionId: 'synthetic-submission', kind: 'review-verdict', value: { stage, verdict, words },
+    ...(n !== 1 ? {} : (() => {
+      const png = readFileSync(join(root, 'evidence/setup.png'));
+      return { capture: { png: `data:image/png;base64,${png.toString('base64')}`,
+        width: png.readUInt32BE(16), height: png.readUInt32BE(20), camera: 'fixed', framing: 'default',
+        view: 'whole-rig', frame: 'setup', playing: false,
+        binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey,
+          sourceHash: (publication.source as JsonObject).sourceHash, pageId: 'synthetic-page', askId: ask.askId,
+          drawGeneration: 1, playerGeneration: 0 } } };
+    })()),
   }));
   expect(submitted.ok).toBe(true);
   if (!submitted.ok) throw Error(submitted.error.code);
@@ -245,14 +254,14 @@ test('writer fetches through the grant with relocated Review state never supplie
 
 test('unsupported fetched schemas and enumerator refuse at the CLI before any record mutation', async () => {
   const { root, act, host } = await published();
-  let planted: 'api' | 'act' | 'enumerator' = 'api';
+  let planted: 'act' | 'enumerator' = 'act';
   const proxy = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${act.jobId}/api`, request));
-    const value = await response.json() as { schema: string; value: { schema: string; source: { parts: { enumeratorVersion: string } } } };
-    if (planted === 'api') value.schema = 'rig-review/job-api@1';
-    if (planted === 'act') value.value.schema = 'rig-review/act@1';
-    if (planted === 'enumerator') value.value.source.parts.enumeratorVersion = '3.0.0';
+    const value = await response.json() as { schema: string; source: { parts: { enumeratorVersion: string } } };
+    if (planted === 'act') value.schema = 'rig-review/act@1';
+    if (planted === 'enumerator') value.source.parts.enumeratorVersion = '3.0.0';
     return Response.json(value);
+
   } });
   try {
     const binding = readWriterBinding(root)!;
@@ -262,7 +271,7 @@ test('unsupported fetched schemas and enumerator refuse at the CLI before any re
     (project.review_job as JsonObject).origin = binding.origin;
     putProject(root, project);
     const before = readFileSync(join(root, 'project.json'));
-    const controls = { api: 'REVIEW_API_SCHEMA_UNSUPPORTED', act: 'REVIEW_ACT_SCHEMA_UNSUPPORTED', enumerator: 'REVIEW_PARTS_ENUMERATOR_UNSUPPORTED' } as const;
+    const controls = { act: 'REVIEW_ACT_SCHEMA_UNSUPPORTED', enumerator: 'REVIEW_PARTS_ENUMERATOR_UNSUPPORTED' } as const;
     for (const [kind, code] of Object.entries(controls)) {
       planted = kind as typeof planted;
       const result = await command(root, act.actId);
@@ -324,4 +333,59 @@ test('changes-requested records a bounced verdict with exact words and the norma
   const report = checkProject(root, project, { now: Date.now() + 1000 });
   expect(report.refusals).toEqual([]);
   expect(report.warnings.map(finding => finding.code)).toEqual(['FEEDBACK_OPEN']);
+});
+
+test.each(['missing', 'mismatch'])('offline act refuses a %s PNG without changing project bytes', async failure => {
+  const { root, act } = await published();
+  if (act.schema !== 'rig-review/act@3') throw Error('expected rig still');
+  const exported = temporary('create-act-export-');
+  const raw = `${JSON.stringify(act, null, 3)}\n`;
+  writeFileSync(join(exported, 'act.json'), raw);
+  if (failure === 'mismatch') writeFileSync(join(exported, act.still.path), 'wrong pixels');
+  const before = readFileSync(join(root, 'project.json'));
+  expect(() => reviewCommand(['1', root, '--from-review-file', join(exported, 'act.json')], Date.now() + 1000))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_STILL_INVALID' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+});
+
+test('offline export retains exact raw act bytes and PNG and binds both hashes', async () => {
+  const { root, act } = await published();
+  if (act.schema !== 'rig-review/act@3') throw Error('expected rig still');
+  const exported = temporary('create-act-export-');
+  const raw = `${JSON.stringify(act, null, 3)}\n`;
+  writeFileSync(join(exported, 'act.json'), raw);
+  const png = readFileSync(join(root, 'evidence/setup.png'));
+  writeFileSync(join(exported, act.still.path), png);
+  const result = reviewCommand(['1', root, '--from-review-file', join(exported, 'act.json')], Date.now() + 1000);
+  expect(result.exit).toBe(0);
+  const project = projectAt(root);
+  const receipt = (project.review_acts as JsonObject[])[0];
+  expect(receipt.bytes).toBe(raw);
+  expect(receipt.sha256).toBe(jobHash(raw));
+  expect(readFileSync(join(root, `evidence/v1/${jobHash(raw)}.act.json`), 'utf8')).toBe(raw);
+  expect(readFileSync(join(root, `evidence/v1/${act.still.path}`))).toEqual(png);
+  expect(checkProject(root, project, { now: Date.now() + 1000 }).refusals).toEqual([]);
+});
+
+test('manual accepted rig verdict without a still refuses and leaves project bytes unchanged', async () => {
+  const { root } = await published();
+  const project = projectAt(root);
+  const version = (project.versions as JsonObject[])[0];
+  version.evidence = (version.evidence as JsonObject[]).filter(e => e.kind !== 'still');
+  version.verdicts = [];
+  putProject(root, project);
+  const before = readFileSync(join(root, 'project.json'));
+  expect(() => reviewCommand(['1', root, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user',
+    '--verbatim', 'Synthetic approval', '--source', 'synthetic review'], Date.now() + 1000))
+    .toThrow(expect.objectContaining({ code: 'RIG_ACCEPTED_WITHOUT_STILL' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+});
+
+
+test('a missing raw act export refuses by name and preserves project bytes', async () => {
+  const { root } = await published();
+  const before = readFileSync(join(root, 'project.json'));
+  expect(() => reviewCommand(['1', root, '--from-review-file', join(root, 'missing-act.json')], Date.now() + 1000))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_FETCH_REFUSED' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });

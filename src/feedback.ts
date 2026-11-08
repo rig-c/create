@@ -18,7 +18,7 @@ import { assertCorrectionApproval } from './correction-writers.ts';
  *   verdict, and a `not-asked` item whose sentence was never added are refused
  *   by name; per bounced verdict, its items are counted by cause.
  */
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -26,13 +26,13 @@ import { acquireBoundJobWrite } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, reviewActFindings, reviewActPublicationWarning, reviewActTransport, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
 import { answersOf, askAnswers } from './provenance.ts';
 import { readVerbatim } from './record-input.ts';
-import { refuse, USAGE_EXIT } from './refusal.ts';
+import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_ACCEPTS } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -488,43 +488,91 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   if (verdict.verdict === 'accepted' && verdict.review === 'rig-review') assertFigureMaskApproval(dir, project, input.version);
   if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review), now);
   const result = { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage), ...(warnings.length ? { warnings } : {}) };
-  if (fetched) {
-    const receipt = { schema: 'rig-create/review-act@1', jobId: fetched.act.jobId, actId: fetched.act.actId,
-      bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
-      version_hash: reviewActVersionHash(original, fetched.act) };
-    project.review_acts = [...asArray(project.review_acts), receipt];
-    const invalid = reviewActFindings(project)[0] ?? newRefusals(dir, original, project, { now })[0];
+  const created: string[] = [];
+  try {
+    const addedEvidence: JsonObject[] = [];
+    if (fetched?.act.schema === 'rig-review/act@3') {
+      const still = fetched.act.still;
+      const png = fetched.stillBytes === undefined ? null : Buffer.from(fetched.stillBytes, 'base64');
+      if (!png || jobHash(png) !== still.sha256) refuse('REVIEW_ACT_STILL_INVALID', 'project.json.review_acts: named PNG is missing or mismatched; fetch act.json and its still together');
+      const base = `evidence/v${input.version}`;
+      const images = [
+        { path: `${base}/${still.path}`, bytes: png },
+        { path: `${base}/${jobHash(fetched.bytes)}.act.json`, bytes: Buffer.from(fetched.bytes) },
+      ];
+      for (const image of images) {
+        const destination = join(dir, image.path);
+        mkdirSync(dirname(destination), { recursive: true });
+        if (existsSync(destination)) {
+          if (!readFileSync(destination).equals(image.bytes)) refuse('REVIEW_ACT_STILL_INVALID', `${image.path}: retained bytes differ; restore the original export`);
+        } else { writeFileSync(destination, image.bytes, { flag: 'wx' }); created.push(destination); }
+      }
+      const evidence: JsonObject = { kind: 'still', path: images[0].path, sha256: still.sha256,
+        camera: still.camera, frame: still.frame,
+        what: still.frame === 'setup' ? 'Review displayed setup pose' : `Review displayed animation ${JSON.stringify(still.animation)} at ${still.frame} seconds` };
+      const entries = asArray(version.evidence);
+      if (!isDeepStrictEqual(entries[0], evidence)) {
+        entries.unshift(evidence); addedEvidence.push(evidence);
+      }
+      version.evidence = entries;
+    }
+    if (fetched) {
+      const receipt = { schema: 'rig-create/review-act@1', jobId: fetched.act.jobId, actId: fetched.act.actId,
+        bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
+        version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence };
+      project.review_acts = [...asArray(project.review_acts), receipt];
+      const invalid = reviewActFindings(project)[0] ?? newRefusals(dir, original, project, { now })[0];
+      if (invalid) refuse(invalid.code, invalid.message);
+      assertReviewActSource(dir, original, fetched.act);
+      if (!readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during verdict validation; retry against the current live job');
+      const temporary = join(dir, `.rig-create-review-act-${randomUUID()}.tmp`);
+      const fd = openSync(temporary, 'wx', 0o600);
+      try {
+        writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
+        fsyncSync(fd);
+        renameSync(temporary, file);
+        const directory = openSync(dir, 'r');
+        try { fsyncSync(directory); } finally { closeSync(directory); }
+      } finally { closeSync(fd); rmSync(temporary, { force: true }); }
+      return result;
+    }
+    const invalid = newRefusals(dir, original, project, { now })[0];
     if (invalid) refuse(invalid.code, invalid.message);
-    assertReviewActSource(dir, original, fetched.act);
-    if (!readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during verdict validation; retry against the current live job');
-    const temporary = join(dir, `.rig-create-review-act-${randomUUID()}.tmp`);
-    const fd = openSync(temporary, 'wx', 0o600);
-    try {
-      writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
-      fsyncSync(fd);
-      renameSync(temporary, file);
-      const directory = openSync(dir, 'r');
-      try { fsyncSync(directory); } finally { closeSync(directory); }
-    } finally { closeSync(fd); rmSync(temporary, { force: true }); }
-    return result;
-  }
-  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
+    writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+    return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
+  } catch (error) { for (const path of created) rmSync(path, { force: true }); throw error; }
+}
+
+function exportedActBytes(file: string): string {
+  try { return readFileSync(file, 'utf8'); }
+  catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: act export is missing or unreadable; save the raw fetch-act output beside its PNG and retry'); }
 }
 
 /** The common #184 lock covers fetch, source validation and the atomic write. */
-export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number): Recorded {
+export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, exportFile?: string): Recorded {
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
-    const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+    const child = exportFile ? null : Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
       stdin: Buffer.from(JSON.stringify(reviewActTransport(root, actId))), stdout: 'pipe', stderr: 'pipe',
     });
-    let response: { ok: boolean; bytes: string; code: string; message: string };
-    try { response = JSON.parse(child.stdout.toString()); }
-    catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
-    if (!response.ok || child.exitCode !== 0) refuse(response.code, response.message);
+    let response: { ok: boolean; bytes: string; stillBytes?: string; code: string; message: string };
+    try {
+      if (exportFile) {
+        const bytes = exportedActBytes(exportFile);
+        const act = decodeReviewAct(bytes);
+        let stillBytes: string | undefined;
+        if (act.schema === 'rig-review/act@3') {
+          try { stillBytes = readFileSync(join(dirname(exportFile), act.still.path)).toString('base64'); }
+          catch { refuse('REVIEW_ACT_STILL_INVALID', 'project.json.review_acts: exported still PNG is missing; fetch the complete act and PNG pair'); }
+        }
+        response = { ok: true, bytes, stillBytes, code: '', message: '' };
+      } else response = JSON.parse(child!.stdout.toString());
+    }
+    catch (error) { if (error instanceof Refusal) throw error; return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
+    if (!response.ok || child !== null && child.exitCode !== 0) refuse(response.code, response.message);
     const act = decodeReviewAct(response.bytes);
+    if (exportFile && act.actId !== actId) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act identity differs; use the exported act identity');
     const selector = act.source.selector!;
     if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');
     if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
@@ -545,13 +593,14 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
       verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict] as ReviewInput['verdict'],
       by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', review: act.value.stage as Review,
       verbatim: act.value.words, at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
-    }, now, { act, bytes: response.bytes }, warning ? [warning] : []);
+    }, now, { act, bytes: response.bytes, stillBytes: response.stillBytes }, warning ? [warning] : []);
   } finally { release(); }
 }
 
 export const REVIEW_HELP = `review:
   <version>        the version shown (3 or v3)
   [<project dir>]  the project folder (default: the current directory)
+  --from-review-file <act.json>  ingest raw act bytes and the named PNG beside it
   --from-review <actId>  fetch a rig/post verdict through the live job writer binding
   --verdict <v>    accepted | bounced | provisional
   --by <who>       who gave it (the user's name or role)
@@ -602,7 +651,7 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
       return v;
     };
     if (arg === '--json') json = true;
-    else if (['--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
+    else if (['--from-review-file', '--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
       if (arg in opts) refuse('REVIEW_OPTION_INVALID', `${arg} is given twice`, USAGE_EXIT);
       opts[arg] = value();
     } else if (arg === '--answers-feedback') {
@@ -638,11 +687,13 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
   }
   if (positional.length > 2) refuse('REVIEW_TOO_MANY_ARGUMENTS', `review takes a version and one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   const version = parseVersion(positional[0]);
-  if (opts['--from-review'] !== undefined) {
+  if (opts['--from-review'] !== undefined || opts['--from-review-file'] !== undefined) {
     if (Object.keys(opts).length !== 1 || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
       refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --from-review excludes human-value and feedback flags; submit those values through Review', USAGE_EXIT);
     }
-    const recorded = recordReviewAct(positional[1] ?? process.cwd(), version, opts['--from-review'], now);
+    const exportFile = opts['--from-review-file'] === undefined ? undefined : resolve(opts['--from-review-file']);
+    const actId = exportFile ? decodeReviewAct(exportedActBytes(exportFile)).actId : opts['--from-review'];
+    const recorded = recordReviewAct(positional[1] ?? process.cwd(), version, actId, now, exportFile);
     return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []), `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`].join('\n'), exit: 0 };
   }
   if (opts['--verbatim'] !== undefined && opts['--verbatim-file'] !== undefined) refuse('REVIEW_OPTION_INVALID', 'choose --verbatim or --verbatim-file', USAGE_EXIT);

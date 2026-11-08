@@ -12,7 +12,7 @@ import type { Json, JsonObject } from './templates.ts';
 
 export type PartsVerdictAct = Extract<JobAct, { kind: 'parts-verdict' }>;
 export type ReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
-export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string }
+export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string }
 const object = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const id = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
@@ -29,7 +29,7 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
-  if (act.schema !== 'rig-review/act@2') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
+  if (act.schema !== 'rig-review/act@2' && !(kind === 'review-verdict' && act.schema === 'rig-review/act@3')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
   const source = act.source;
   const parts = object(source) ? source.parts : null;
   const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
@@ -84,6 +84,15 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
       || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))) {
     failure('REVIEW_ACT_INVALID', 'rig/post source binding is malformed or contradicts the review stage');
   }
+  if (act.schema === 'rig-review/act@3') {
+    const still = act.still;
+    if (value.stage !== 'rig-review' || !file(still) || still.path !== `${still.sha256}.png`
+      || still.camera !== 'fixed' || !(still.frame === 'setup' && still.animation === undefined
+        || typeof still.frame === 'number' && Number.isFinite(still.frame) && still.frame >= 0
+          && typeof still.animation === 'string' && still.animation.length > 0)) {
+      failure('REVIEW_ACT_INVALID', 'rig-review still identity, camera, frame or animation is malformed');
+    }
+  }
   return act as unknown as ReviewVerdictAct;
 }
 
@@ -124,27 +133,44 @@ export function reviewActTransport(root: string, actId: string): ReviewActTransp
   return { origin: origin.origin, jobId: binding.jobId, actId, fetchCapability: binding.fetchCapability };
 }
 
-export async function fetchReviewAct(transport: ReviewActTransport): Promise<{ act: ReviewVerdictAct | PartsVerdictAct; bytes: string }> {
+export async function fetchReviewAct(transport: ReviewActTransport): Promise<{ act: ReviewVerdictAct | PartsVerdictAct; bytes: string; stillBytes?: string }> {
   const requestId = randomUUID();
-  let text: string;
-  try {
-    const response = await fetch(`${transport.origin}/jobs/${transport.jobId}/api`, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
-      headers: { authorization: `Bearer ${transport.fetchCapability}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId }),
-    });
-    text = await response.text();
-  } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
-  return decodeReviewResponse(text, transport.jobId, transport.actId, requestId, transport.kind ?? 'review-verdict');
+  const request = JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId });
+  async function read(accept: string): Promise<Response> {
+    try {
+      const response = await fetch(`${transport.origin}/jobs/${transport.jobId}/api`, {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+        headers: { authorization: `Bearer ${transport.fetchCapability}`, 'content-type': 'application/json', accept }, body: request,
+      });
+      if (!response.ok) return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review refused fetch');
+      return response;
+    } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
+  }
+  if (transport.kind === 'parts-verdict') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, 'parts-verdict');
+  const bytes = await (await read('application/vnd.rig-review.act+json')).text();
+  const act = decodeReviewAct(bytes);
+  if (act.jobId !== transport.jobId || act.actId !== transport.actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
+  if (act.schema !== 'rig-review/act@3') return { act, bytes };
+  const png = Buffer.from(await (await read('image/png')).arrayBuffer());
+  if (jobHash(png) !== act.still.sha256) failure('REVIEW_ACT_STILL_INVALID', 'exported still sha256 does not match');
+  return { act, bytes, stillBytes: png.toString('base64') };
 }
 
-/** Exact #184 identity, discounting only verdicts appended after this receipt. */
+/** Exact #184 identity, discounting verdicts and exact evidence added after this receipt. */
 export function reviewActVersionHash(project: JsonObject, act: ReviewVerdictAct, verdictsBefore?: number): string {
   const selector = act.source.selector!;
   if (!Array.isArray(project.versions)) return failure('REVIEW_ACT_SOURCE_STALE', 'versions are absent');
   const versions = project.versions.map(raw => {
     if (!object(raw) || !('version' in selector) || raw.n !== selector.version || verdictsBefore === undefined) return raw;
-    return { ...raw, verdicts: Array.isArray(raw.verdicts) ? raw.verdicts.slice(0, verdictsBefore) : [] };
+    const added = (Array.isArray(project.review_acts) ? project.review_acts : []).filter(object)
+      .filter(receipt => receipt.version === raw.n && Number(receipt.verdict) >= verdictsBefore)
+      .flatMap(receipt => Array.isArray(receipt.added_evidence) ? receipt.added_evidence : []);
+    return { ...raw, evidence: Array.isArray(raw.evidence) ? raw.evidence.filter(entry => {
+        const index = added.findIndex(value => isDeepStrictEqual(value, entry));
+        if (index < 0) return true;
+        added.splice(index, 1); return false;
+      }) : raw.evidence,
+      verdicts: Array.isArray(raw.verdicts) ? raw.verdicts.slice(0, verdictsBefore) : [] };
   });
   const hash = publicationVersionHash(Buffer.from(JSON.stringify({ versions })), { path: '', selector });
   if (!hash) return failure('REVIEW_ACT_SOURCE_STALE', 'reviewed version is absent');
@@ -248,6 +274,16 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
       const version = Array.isArray(project.versions) ? project.versions.find(v => object(v) && v.n === entry.version) : null;
       const verdict = object(version) && Array.isArray(version.verdicts) ? version.verdicts[Number(entry.verdict)] : null;
       if (!isDeepStrictEqual(verdict, reviewActVerdict(act))) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded verdict differs from the immutable act');
+      if (act.schema === 'rig-review/act@3') {
+        const still = act.still;
+        const expected = { kind: 'still', path: `evidence/v${entry.version}/${still.path}`, sha256: still.sha256,
+          camera: still.camera, frame: still.frame,
+          what: still.frame === 'setup' ? 'Review displayed setup pose' : `Review displayed animation ${JSON.stringify(still.animation)} at ${still.frame} seconds` };
+        if (!object(version) || !Array.isArray(version.evidence) || !version.evidence.some(e => isDeepStrictEqual(e, expected))
+          || !Array.isArray(entry.added_evidence) || entry.added_evidence.some(e => !isDeepStrictEqual(e, expected))) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded still differs from the immutable act');
+        }
+      }
     } catch (error) { add(error instanceof Refusal ? error.code : 'REVIEW_ACT_LEDGER_INVALID', path, error instanceof Refusal ? error.message : 'invalid act receipt'); }
   });
   return findings;

@@ -18,7 +18,7 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
 | `JOB_WRITE_BUSY` | A bound writer holds the shared publication freeze. Wait for that operation before retrying. |
-| `JOB_RECORD_INCOMPLETE` | Review 2.4.6 refuses answered scene-context choices or diagnostics before publication. Preserve the pending entry until review#555 supplies the reader contract. |
+| `JOB_RECORD_INCOMPLETE` | Review 2.5.0 refuses answered scene-context choices or diagnostics before publication. Preserve the pending entry until review#555 supplies the reader contract. |
 
 
 ## Finalized Review acts
@@ -1313,3 +1313,4 @@ before writing. A refused write leaves `project.json` byte-identical.
 | `CONFIG_LOST_NOT_PRE_INTERVIEW` | the target version does not carry `pre_interview: true` | record `config_lost` only on a migrated `pre_interview: true` version; keep `provenance.config` on create-built versions |
 | `CONFIG_LOST_HAS_CONFIG` | the target version carries a non-null `provenance.config` | retain the surviving build config instead of declaring `config_lost` |
 | `CONFIG_LOST_ALREADY_SET` | `config_lost` is already present on the target version | preserve the existing `config_lost` declaration |
+| `REVIEW_ACT_STILL_INVALID` | `project.json.review_acts`: the exported still PNG is missing, mismatched or conflicts with retained bytes | fetch the complete original act and PNG pair |

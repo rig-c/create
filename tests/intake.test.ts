@@ -125,11 +125,12 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>handoff(dir,null),
   ];
-  for(const action of actions){
+  for(const [index, action] of actions.entries()){
     testClock.set(new Date('2026-11-20T10:00:00Z'));
     save(dir,p);
     const without=outcome(action);
-    expect(without).toBe('OK');
+    // Appending an acceptance to an already signed version changes its target.
+    expect(without).toBe([4, 5].includes(index) ? 'SIGNOFF_TARGET_STALE' : 'OK');
     testClock.set(new Date('2026-11-20T10:00:00Z'));
     save(dir,{...p,intake:intake!});
     const withIntake=outcome(action);

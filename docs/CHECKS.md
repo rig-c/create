@@ -19,7 +19,7 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
 | `JOB_WRITE_BUSY` | A bound writer holds the shared publication freeze. Wait for that operation before retrying. |
-| `JOB_RECORD_INCOMPLETE` | Review 2.5.0 refuses answered scene-context choices or diagnostics before publication. Preserve the pending entry until review#555 supplies the reader contract. |
+| `JOB_RECORD_INCOMPLETE` | Review 2.7.0 refuses answered scene-context choices or diagnostics before publication. Preserve the pending entry until review#555 supplies the reader contract. |
 
 
 ## Finalized Review acts

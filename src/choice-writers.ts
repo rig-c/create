@@ -57,7 +57,7 @@ function run(action: () => string): string {
   try { return action(); } catch (e) { if (e instanceof ChoiceError) refuse(e.code, `interview: ${e.message}; retain the shown set and explicitly record each ask`); throw e; }
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
-function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = []): void {
+export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = []): void {
   const before = checkProject(dir,original,{now}).refusals;
   const after = checkProject(dir,candidate,{now}).refusals;
   const counts = new Map<string,number>();

@@ -44,7 +44,7 @@ describe('the filled example', () => {
 
   test('passes: 0 refusals, 0 warnings', () => {
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
     expect(report.ok).toBe(true);
   });
 
@@ -94,7 +94,7 @@ describe('a section with no citation', () => {
     }));
     expect(report.provenance[1]?.config).toBe('changed');
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['QUESTION_SET_STALE', 'PROVENANCE_CONFIG_CHANGED', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['QUESTION_SET_STALE', 'PROVENANCE_CONFIG_CHANGED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a section placed `none` (not a direction call) passes without provenance', () => {
@@ -380,7 +380,7 @@ describe('citations name the recorded ask', () => {
   test('omitting asks warns on covered guides', () => {
     const r = checkProject(cited({ quote: 'The coat is one piece' }));
     expect(r.refusals).toEqual([]);
-    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'CITATION_ASKS_MISSING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'CITATION_ASKS_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('unknown and unrecorded asks have distinct refusals', () => {
@@ -406,7 +406,7 @@ describe('citations name the recorded ask', () => {
       for (const entry of citedSections(p, 2).meshes as JsonObject[]) if (entry.guide === 'meshes') delete entry.asks;
     })));
     expect(r.refusals).toEqual([]);
-    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(r.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'GUIDE_ASKS_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('history coverage cannot borrow the current quote', () => {

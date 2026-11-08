@@ -160,7 +160,9 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(51);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(52);
+  expect(receipt.steps.some(step => step.command.slice(0, 4).join(' ') === 'rig-create input add inputs/painting.png')).toBe(true);
+  expect(receipt.steps.some(step => step.seed?.field === 'inputs[]')).toBe(false);
   const moves = project.advances as JsonObject[];
   const stages = ['plan-approved', 'parts', 'parts-review', 'rigging-interview', 'rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'];
   expect(moves.map(move => move.stage)).toEqual(stages);

@@ -926,7 +926,7 @@ Top-level fields of `project.json`:
 | `interview` | `question_set` (the prompt set and package version the waypoints were read from), `held`, `date`, `interviewer`, `respondent`, `framing[]` (`id`, `text`, `source`, `required_for`, `answer`, `history[]`), `waypoints[]` (`id`, `config[]`, `prompts[]` of `id`/`text`/`source`/`required_for`, `guide`, `history[]`), `post` (`held`, `date`, `items[]` shaped like waypoints with `guide`) — answer shapes in [INTERVIEW.md](INTERVIEW.md) |
 | `plan` | `drafted_by`, `drafted_at`, `steps[]` — above |
 | `split` | the `assemble` checkpoint's data: `label_values`, `proposal_image`, `proposed_by`, `proposed_at`, `parts[]` (`name`, `label`, `note`) |
-| `inputs[]` | `path`, `sha256`, `bytes`, `origin` (where the file came from, in words) |
+| `inputs[]` | `path`, `sha256`, `bytes`, `origin` (where the file came from, in words), `at` (writer timestamp) |
 | `derived[]` | `path`, `what`, `command`, `inputs[]` (`path`, `sha256`), `bytes` |
 | `versions[]` | above |
 | `archive` | `null`, or `{ "where", "at", "by" }` if the finals were moved out of the project |
@@ -951,6 +951,22 @@ Top-level fields of `project.json`:
    longer match is stale — regenerate it with its recorded command.
 6. When a new version is shown to anyone: freeze `outputs/v<N>/`, hash it, add
    the `versions[]` entry and its evidence in the same turn.
+
+### Registering immutable inputs
+
+```sh
+rig-create input add inputs/source.png --origin "synthetic source exported by the painting tool"
+```
+
+Run from the project, or pass its directory after the source path. The writer
+appends `{path, sha256, bytes, origin, at}` using the file's raw bytes and the
+current UTC timestamp. `--json` prints that record. It refuses an escaping or
+missing source, an already registered path, and changed bytes under a
+registered name. A changed source needs a new file with a new name. A refused
+write leaves `project.json` byte-identical. The shared checker checks complete
+records against their retained files. Incomplete writer metadata is
+`INPUT_WRITER_MISSING`, dated by `inputs[].at` from `INPUT_WRITER_SINCE`.
+Earlier or unreadably dated entries WARN and retain their original history.
 
 ## Prepared inputs and agent-found bounces
 
@@ -1240,12 +1256,12 @@ project from its labelled draft and approved parts through a packaged rig,
 rig-review, signed post interview, authored direction and direction-review.
 `bun scripts/generate-example-chain.ts <fresh scratch dir> --check` reproduces
 it. The public writers record signoffs, rig/post review verdicts, the review
-package and authored direction. The parts verdict is a synthetic review-tool
-export from `tests/parts-package.ts`, recorded as a producer step.
-`chain.json` names four seed kinds, covering forward stage movement,
+package, immutable input inventory and authored direction. The parts verdict
+is a synthetic review-tool export from `tests/parts-package.ts`, recorded as a producer step.
+`chain.json` names seed declarations covering forward stage movement,
 `plan.steps (setup and status progress)` with `split.parts`, the rig-version
-declaration and source inventory. Each seed declares its consuming command
-and records that command's step index. Status progress is forward-only,
+declaration. Its source inventory is written by `input add`. Each seed
+declares its consuming command and records that command's step index. Status progress is forward-only,
 and signed plan fields stay bound. Post steps are added after rig-review,
 before the post-interview options.
 The direction binds that package's compiled model, built from the approved

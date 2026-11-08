@@ -69,7 +69,7 @@ describe('plan-approved → parts → parts-review → rigging', () => {
   test('green: parts done and a person signed parts-review, rigging starts with nothing refused', () => {
     const report = checkProject(fixture(atRiggingStart));
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a project at plan-approved advances to parts: the parts steps run there, nothing refused', () => {
@@ -206,7 +206,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
     expect(warned).toHaveLength(1);
     expect(warned[0]?.message).toContain("project 'lantern-keeper'");
     expect(warned[0]?.message).toContain(PARTS_REVIEW_SINCE);
-    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
+    expect(report.warnings.map((w) => w.code).sort()).toEqual(['CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY', 'INPUT_WRITER_MISSING', 'PARTS_REVIEW_PREDATES_STAGE', 'QUESTION_SET_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'STAGE_ORDER_LEGACY', 'STAGE_VALUES_STALE']);
   });
 
   test('one that a person did review is not warned about as predating the stage; its evidence-less approval gets one build-identity WARN per rig version', () => {
@@ -217,7 +217,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'REVIEW_PACKAGE_PARTS_UNREAD', 'REVIEW_PACKAGE_PARTS_UNREAD', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {
@@ -231,7 +231,7 @@ describe('a project that passed plan-approved before the stages existed', () => 
       }),
     );
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'STAGE_LAGGING', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map((w) => w.code)).toEqual(['STAGE_VALUES_STALE', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'SIGNOFF_ANSWERS_MISSING_LEGACY', 'QUESTION_SET_STALE', 'STAGE_LAGGING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a plan-approved sign-off dated on or after the stages arrived is not in flight: rigging without parts-review is refused', () => {

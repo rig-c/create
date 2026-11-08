@@ -27,7 +27,7 @@ for (const ground of ['plain', 'busy']) {
     test(`visible records ${ground}, delegated=${delegated}`, () => {
       const report = checkProject(resignAfterChange(project('visible', ground, delegated)));
       expect(report.refusals).toEqual([]);
-      expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+      expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
     });
   }
 }
@@ -45,7 +45,7 @@ for (const rule of ['core', undefined]) {
   test(`config projection ${rule} adds no ground ask or refusal`, () => {
     const report = checkProject(resignAfterChange(project(rule)));
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 }
 
@@ -105,7 +105,7 @@ test('answered guide visible activates ground before a config is written', () =>
 test('filled example remains clean and every recorded step hash matches stepHash', () => {
   const report = checkProject(fixture());
   expect(report.refusals).toEqual([]);
-  expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const p = readTemplate('legacy-example-project.json');
   for (const raw of arr(p.signoffs)) {
     const signoff = obj(raw);

@@ -37,6 +37,7 @@ import { checkChoices } from './choices.ts';
 import { translateInvariants, type InvariantsDocument } from './invariants.ts';
 import { checkAskCoverage } from './ask-coverage.ts';
 import { checkAgentBounces } from './agent-bounce.ts';
+import { checkInputs } from './inputs.ts';
 import { checkPreparedInputs } from './prepared-inputs.ts';
 import { checkMeshesBust } from './meshes-bust.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
@@ -934,6 +935,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   checkFigureMask(ctx);
   checkMeshesBust(ctx);
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
+  checkInputs(ctx);
   checkChoices(ctx);
   checkCorrections(ctx, options.now);
   checkDirections(ctx, options.now);

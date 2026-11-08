@@ -4,7 +4,7 @@ import { basename, join, resolve } from 'node:path';
 import { writeAgentGuide } from './agent-guide.ts';
 import { PINNED_PACKAGES } from './pins.ts';
 import { refuse } from './refusal.ts';
-import { CHOICE_ORDER_SPEC } from './choices.ts';
+import { CHOICE_ORDER_SPEC } from './stages.ts';
 import { readTemplate } from './templates.ts';
 import { JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY } from './job-outbox.ts';
 

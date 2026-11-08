@@ -1863,6 +1863,32 @@ contract.
    rig-review reopen, it refuses `INTERVIEW_OPTIONS_STALE`. An unreadable,
    changed or malformed candidate refuses `INTERVIEW_OPTIONS_STALE` instead
    of falling back.
+
+   The closed scene@1 shape in this rule is exactly the structure below.
+   "Closed" means the listed keys must be present, optional keys may be
+   present, and no other key is allowed. A text value is a string with
+   non-blank content. A count is a positive safe integer. A hash is 64
+   lowercase hex digits. A path is a relative `/`-separated text with no empty,
+   `.` or `..` segment, no leading `/`, no backslash and no drive prefix. A box is
+   closed `{x,y,width,height}` with number values. A binding is closed
+   `{path,sha256}`.
+
+   | Object | Keys (optional in brackets) | Values |
+   | --- | --- | --- |
+   | document | `schema`, `n`, `rig`, `frame`, `plates`, `layers` | `schema` is `rig-create/scene@1`; `n` is a count; `plates` is a list; `layers` is a list of strings |
+   | `rig` | `version`, `acceptance`, `model`, `animation` | `version` is a count; `model` is a binding |
+   | `rig.animation` | `name`, [`frames`] | `name` is text; `frames` is a binding |
+   | `rig.acceptance` | `signoff`, `verdict`, `review_package` | `verdict` matches `versions[<i>].verdicts[<j>]`; `review_package` is a closed `{path,sha256}` with text path and a hash |
+   | `rig.acceptance.signoff` | `stage`, `checkpoint`, `at` | `rig-review`, `null`, and a readable date text |
+   | `frame` | `space`, `stage` | `space` is `rig-world-y-up`; `stage` is a box |
+   | each plate | `role`, `path`, `sha256`, `width`, `height`, `rect`, `registered`, [`citation`] | `role` is `background` or `foreground`; `path` is a path; `sha256` is a hash; `width` and `height` are counts; `rect` is a box; `registered` is closed `{kind,ref}` with `kind` `input` or `derived` and text `ref` |
+   | `citation` | any of `guide`, `asks`, `quote`, `delegated` | a string, a list of strings, a string, and a boolean |
+
+   A plate's file bytes, PNG size, registration chain, rect scale and
+   citation wording, the layer order and the role count are validated when
+   the scene is written and in the full scene check above. They are not part of
+   this option-context gate, so a reader of option contexts doesn't have to
+   reproduce them.
 5. **Freshness.** These rules apply to the rig and scene kinds alike.
    - The context is recomputed at `drafted_at` and again at the selection or
      decision time, and both must equal `set.context` exactly. A writer uses

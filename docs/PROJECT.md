@@ -148,7 +148,11 @@ time, including a permitted bar exit or the declared no-post route.
 
 `step-status` runs in the step's execution stage and records one transition
 through `pending` (also the absent status), `in-progress`, `at-checkpoint`,
-then `done`. Each step's `status_history[]` retains
+then `done`. On a legacy-order project whose plan was approved before
+`PARTS_REVIEW_SINCE`, rig steps also run in `rigging`. That route grants no
+authority of its own: the writer's candidate check still refuses a started
+step without a live covering stage-level approval (`STEP_RUN_UNAPPROVED`), and
+a `plan-approved` checkpoint signature is refused (`SIGNOFF_UNKNOWN_CHECKPOINT`). Each step's `status_history[]` retains
 `{ from_status, status, by, at, checkpoint_required, signoff }`.
 `checkpoint_required` snapshots the resolved boolean requirement at that event.
 History validates that snapshot when checking a done entry. Reopening and
@@ -273,7 +277,14 @@ cutoffs, so a narrower amendment cannot revive an earlier invalidation.
 The writer leaves `project.stage` in place, sets plan steps running at or after
 the amended stage to `pending`, and retains all previous approvals and versions.
 The check's `effective_stage` is the first unfinished stage while re-approval
-is pending, bounded by the stored stage. Re-sign the lapsed approvals and meet
+is pending, bounded by the stored stage. While it differs from the stored
+stage, the check still refuses a stage that differs from its latest recorded
+move (`STAGE_SKIPPED`, same dating), but skips the signature window
+(`STAGE_LAGGING` and the window's `STAGE_SKIPPED`). The stored stage stays
+while its approvals lapse, so the window would refuse every amended record,
+the amend writer's own candidate included. Judging the window against
+`effective_stage` instead fails too: that stage passes unfinished bars before
+the amended stage, which the window stops at. Re-sign the lapsed approvals and meet
 the affected steps' bars in order. Existing upstream approvals need no re-sign.
 A rig covered by the cutoff needs a new build and acceptance before handoff.
 The writer runs the same complete candidate check before writing. Any refusal

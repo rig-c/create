@@ -58,12 +58,13 @@ export function stageWindow(ctx: Ctx): { minimum: string; maximum: string; signo
 }
 
 export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
-  if (ctx.stage === PAUSED_STAGE || ctx.effectiveStage !== ctx.stage) return;
-  const window = stageWindow(ctx);
+  if (ctx.stage === PAUSED_STAGE) return;
+  // Amend retains the stored stage while its approvals lapse, so only the recorded-move check applies (PROJECT.md).
+  const amended = ctx.effectiveStage !== ctx.stage;
   const current = stageIndex(ctx.stage);
   const frontier = furthestStageSignoff(ctx.signoffs);
   const unreadable = ctx.signoffs.find(s => s.stage === frontier?.stage && s.checkpoint === null && !Number.isFinite(s.at));
-  if (unreadable !== undefined) {
+  if (!amended && unreadable !== undefined) {
     ctx.refusals.push({ code: 'STAGE_SIGNOFF_DATE_INVALID', path: `signoffs[${unreadable.index}].at`, message: `signoffs[${unreadable.index}].at: frontier approval needs a readable date; restore its original date before advancing` });
     return;
   }
@@ -88,6 +89,8 @@ export function checkStageProgress(ctx: Ctx, forwardWrite = false): void {
     const finding = { code: 'STAGE_SKIPPED', path: 'stage', message: `stage: ${ctx.stage} differs from its latest recorded move (${latestMove === undefined ? 'none' : String(latestMove.record.stage)}); use advance for the next authorized stage or reopen the unfinished stage` };
     (forwardWrite || !(movedAt < since) ? ctx.refusals : ctx.warnings).push(finding);
   }
+  if (amended) return;
+  const window = stageWindow(ctx);
   const code = current < stageIndex(window.minimum) ? 'STAGE_LAGGING'
     : current > stageIndex(window.maximum) ? 'STAGE_SKIPPED' : null;
   if (code === null) return;

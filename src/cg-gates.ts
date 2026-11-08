@@ -21,7 +21,7 @@
  * a value outside them would decide nothing here and let a CG build through.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { dirname, relative, resolve, sep } from 'node:path';
 
 import { asString, isObject, itemFor, asArray, type Ctx } from './check.ts';

@@ -1,6 +1,7 @@
 /** Read Review through its CLI and retain the exact response bytes owned by create. */
 import { createHash } from 'node:crypto';
-import { existsSync, linkSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import type { JsonObject } from './templates.ts';
 export const REVIEW_READ_SINCE = '2026-11-08T00:00:00Z';

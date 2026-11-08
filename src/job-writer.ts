@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication } from './job-outbox.ts';

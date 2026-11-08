@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { collectItems, checkProject } from '../src/check.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
@@ -292,25 +292,52 @@ function retained(input: RecordPublicationRequest): RecordPublicationRequest {
   return { ...input, root, phase: 'retained' };
 }
 
-test('retained check exposes unsealed historical choices and the parts response by code and path', () => {
+test('the measured #277 case: the retained phase equals the inventory phase with 0 refusals', () => {
+  const { root } = pending();
+  const inventory = readRecordPublished(request(root), TEST_NOW);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  const paths = inventory.files.map(file => file.path);
+  // The files the earlier closure missed: the historical choices and the parts receipt response.
+  for (const item of collectItems(project, { collection: null })) {
+    if (item.state.state === 'user' || item.state.state === 'delegated') {
+      const choice = item.state.answer.choice;
+      if (choice && typeof choice === 'object' && !Array.isArray(choice)) expect(paths).toContain(String(obj(choice.set).path));
+    }
+  }
+  const receipts = arr(project.review_acts).map(obj).filter(receipt => receipt.schema === 'rig-create/parts-verdict-cli@1');
+  expect(receipts.length).toBeGreaterThan(0);
+  for (const receipt of receipts) expect(paths).toContain(String(obj(receipt.evidence).path));
+  const input = retained(request(root));
+  expect(checkProject(input.root, undefined, { now: TEST_NOW, readOnly: true }).refusals).toEqual([]);
+  const before = snapshot(input.root);
+  expect(readRecordPublished(input, TEST_NOW)).toEqual(inventory);
+  expect(snapshot(input.root)).toEqual(before);
+});
+
+test('a sealed-closure file removed from the retained root refuses JOB_RECORD_CLOSURE_INCOMPLETE by code and path', () => {
   const { root } = pending();
   const input = retained(request(root));
+  const project = JSON.parse(readFileSync(join(input.root, 'project.json'), 'utf8'));
+  const historical = collectItems(project, { collection: null }).find(item => item.id === 'rig_type')!;
+  rmSync(join(input.root, String(obj(obj(obj(historical.raw).choice).set).path)));
   const before = snapshot(input.root);
-  expect(checkProject(root, undefined, { now: TEST_NOW, readOnly: true }).refusals).toEqual([]);
   rejectsUnchanged(input, 'JOB_RECORD_CLOSURE_INCOMPLETE');
   try {
     readRecordPublished(input, TEST_NOW);
     throw Error('retained reader did not refuse');
   } catch (error) {
-    expect(error).toMatchObject({ code: 'JOB_RECORD_CLOSURE_INCOMPLETE', details: [
-      { code: 'JOB_PUBLICATION_INVALID', path: 'review_acts[0]' },
-      { code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.framing[rig_type].answer' },
-      { code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.framing[reference].answer' },
-      { code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.waypoints[seethrough].guide' },
-      { code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.waypoints[assemble].guide' },
-    ] });
+    expect(error).toMatchObject({ code: 'JOB_RECORD_CLOSURE_INCOMPLETE',
+      details: [{ code: 'INTERVIEW_OPTIONS_FILE', path: 'interview.framing[rig_type].answer' }] });
   }
   expect(snapshot(input.root)).toEqual(before);
+});
+
+test.each(['inventory', 'retained'] as const)('%s: a question whose pick is recorded refuses JOB_RECORD_SUBJECT_INVALID', phase => {
+  const { root } = pending();
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  delete collectItems(project, { collection: null }).find(item => item.id === 'reference')!.record.pending_options;
+  save(root, project);
+  rejectsUnchanged({ ...request(root), phase }, 'JOB_RECORD_SUBJECT_INVALID');
 });
 
 test('tampered retained seals fail mechanically before the incomplete retained check', () => {

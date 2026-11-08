@@ -1,6 +1,7 @@
 /** Register immutable source bytes without interpreting producer content. */
 import { createHash } from 'node:crypto';
-import { closeSync, fchmodSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, fchmodSync, openSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';

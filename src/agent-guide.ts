@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 
 import { PINNED_PACKAGES } from './pins.ts';

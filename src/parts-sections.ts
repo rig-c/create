@@ -17,7 +17,7 @@
  * moves it) is `PARTS_SECTIONS_UNREADABLE`, so it fails loudly instead of
  * silently deriving no waypoints.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 

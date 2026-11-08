@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';

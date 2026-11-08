@@ -30,7 +30,7 @@ import { amendmentSummaries, collectAmendments, type AmendmentSummary } from './
  * CG gates a full-screen scene's rig versions declare (src/cg-gates.ts), and the
  * bust's default or reasoned exclusion at `meshes` (src/meshes-bust.ts).
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, recordCheckReads, type CheckRead } from './check-reads.ts';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
@@ -150,6 +150,8 @@ export interface CheckReport {
   readonly warnings: Finding[];
   /** Local delivery gaps, distinct from record-validation refusals. */
   readonly holes?: Finding[];
+  /** Present only with `recordReads`: every project file the check read, as `{path, sha256}` sorted by path (src/check-reads.ts). */
+  readonly reads?: readonly CheckRead[];
 }
 
 type Phase = 'rig' | 'post';
@@ -835,8 +837,15 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
 /**
  * With a candidate record, validate the would-be write against the same project files without writing it.
  * `options.now` is the instant the check runs at (ms since the epoch); see README.md "The clock".
+ * With `options.recordReads`, the report also lists every project file the check read (`reads`).
  */
-export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean }): CheckReport {
+export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean; recordReads?: boolean }): CheckReport {
+  if (!options.recordReads) return checkProjectOnce(projectDirArg, candidate, options);
+  const { value, reads } = recordCheckReads(projectDirArg, () => checkProjectOnce(projectDirArg, candidate, options));
+  return { ...value, reads };
+}
+
+function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean }): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];

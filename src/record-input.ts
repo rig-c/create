@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 
 import { refuse, USAGE_EXIT } from './refusal.ts';
 

@@ -1,5 +1,5 @@
 /** Create-owned composition declarations. Producer measurements are only read. */
-import { readFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Ctx, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';

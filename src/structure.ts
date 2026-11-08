@@ -1,6 +1,6 @@
 /** Human-approved structure declarations, without applying producer patches or measuring meshes. */
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';

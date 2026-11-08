@@ -2144,9 +2144,9 @@ remain eligible, and publication HOLEs refuse publication.
 
 `inputs` projects every declared input to `{path, sha256}` in project-input
 order and rehashes its bytes. `files` seals the record, inputs and selected
-option/context evidence. Plans include current answer evidence for every
-displayed step's declared basis and retained parts/structure approval
-evidence. Signoff eligibility uses the existing answer-selection and
+option/context evidence, and every project file the check read. Plans include
+current answer evidence for every displayed step's declared basis and retained
+parts/structure approval evidence. Signoff eligibility uses the existing answer-selection and
 rigging-context readers. Plan step hashes use `stepHash`.
 
 Every path is literal and project-relative. Duplicate declarations within
@@ -2156,11 +2156,23 @@ string comparison. Both phases verify closure bytes before the official
 check and write nothing, create no lock and perform no intent recovery.
 Default `checkProject` calls keep their existing recovery behavior.
 
+The check's reads come from `checkProject(..., { recordReads: true })`: the
+check modules read project files only through the recorded reader in
+`src/check-reads.ts`, which returns each file the check opened, stat'ed,
+resolved or listed as `{path, sha256}`. The job's private outbox and
+`node_modules/` are not record files and are not recorded. A retained root
+holding exactly `files` therefore gives the check the same bytes, and the
+retained phase returns the inventory phase's context. A test-only strict mode
+(`tests/strict-reads.ts`) throws `CHECK_READ_UNRECORDED` when a check module
+reads a project file around the recorder; every committed example runs
+through it.
+
 After its seals pass, a retained-root check refusal produces
 `JOB_RECORD_CLOSURE_INCOMPLETE`, carrying structured `details` containing
-only the check's finding codes and record paths. Historical choice files
-can lie outside a selected option's closure. This limitation keeps
-finalization blocked until the complete check-read closure contract lands.
+only the check's finding codes and record paths. It fires only when the
+retained root lacks or changed a closure file. An option-set request for a
+question with no pending set refuses `JOB_RECORD_SUBJECT_INVALID` in both
+phases.
 Collection members with external collection evidence refuse with
 `JOB_RECORD_COLLECTION_EXTERNAL` until that closure has a signed binding.
 

@@ -1,4 +1,5 @@
-import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
@@ -47,7 +48,7 @@ export type RecordPublishedContext = RecordOptionContext | RecordPlanContext;
 
 export class RecordClosureIncomplete extends Refusal {
   constructor(readonly details: readonly { code: string; path: string }[]) {
-    super('JOB_RECORD_CLOSURE_INCOMPLETE', 'project.json: the retained check needs a file outside the sealed closure; preserve the inventory binding and wait for the complete check-closure contract before finalization');
+    super('JOB_RECORD_CLOSURE_INCOMPLETE', 'project.json: the retained check refuses while its sealed files match, so the retained root lacks or changed a file of the inventory closure; restore the complete inventory closure before finalization');
   }
 }
 
@@ -102,7 +103,9 @@ export function readRecordPublished({ root, record, result, phase }: RecordPubli
       const matches = items.filter(item => item.id === result.questionId);
       if (matches.length !== 1) throw Error('the requested question is absent or ambiguous');
       const binding = matches[0].record.pending_options;
-      seal(binding!);
+      // A question whose pick is already recorded has no pending set to publish.
+      if (!isObject(binding)) refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: the requested question has no pending option set; publish the exact current pending set');
+      seal(binding);
       selectedSet = optionFile(root, binding).set;
       sealContext(selectedSet.context as JsonObject);
     } else if (result.kind === 'plan') {
@@ -120,7 +123,9 @@ export function readRecordPublished({ root, record, result, phase }: RecordPubli
       if (isObject(approval?.evidence)) seal(approval.evidence);
       if (isObject(approval?.structure)) seal(approval.structure);
     } else throw Error('unknown record result');
-    const report = checkProject(root, project, { now, readOnly: true });
+    // The closure is every project file the check reads, so a retained copy gives the check identical bytes.
+    const report = checkProject(root, project, { now, readOnly: true, recordReads: true });
+    for (const { path, sha256 } of report.reads ?? []) seal({ path, sha256 });
     if (report.refusals.length && phase === 'retained') {
       throw new RecordClosureIncomplete(report.refusals.map(({ code, path }) => ({ code, path })));
     }

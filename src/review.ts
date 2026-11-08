@@ -21,7 +21,7 @@ import { assertFigureMaskApproval } from './figure-mask.ts';
  * `checkReviews` runs inside `interview --check`; `handoff` is the command.
  * Both read the record only: nothing is rendered or signed here.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { join, resolve } from 'node:path';
 
 import { draftVersionFindings } from './drafts.ts';

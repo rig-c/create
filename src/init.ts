@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from './check-reads.ts';
 import { basename, join, resolve } from 'node:path';
 
 import { writeAgentGuide } from './agent-guide.ts';

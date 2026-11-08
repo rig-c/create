@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fsyncSync, mkdirSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, JOB_PRIVATE_DIRECTORY, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
@@ -7,7 +8,7 @@ import type { JobPublishRequest, JobReviewerBinding } from '@rig-c/review/job-ho
 import { refuse } from './refusal.ts';
 
 export const JOB_BINDING_FILE = '.rig-create-review-binding.json';
-export const JOB_OUTBOX_DIRECTORY = '.rig-create-review';
+export const JOB_OUTBOX_DIRECTORY = JOB_PRIVATE_DIRECTORY;
 const PRIVATE_TEMP_ROOT = realpathSync(tmpdir());
 export const jobHash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 

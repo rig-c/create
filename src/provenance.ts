@@ -25,7 +25,7 @@ import { fixedNotApplicableCamera } from './direction-citation.ts';
  *   framing answer), never a rig waypoint.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { relative, resolve, sep } from 'node:path';
 
 import { answered, asArray, asString, collectionQuestion, isDecision, isObject, itemFor, type Ctx, type Item } from './check.ts';

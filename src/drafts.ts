@@ -4,7 +4,8 @@ import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.t
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
 import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';

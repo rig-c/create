@@ -1,6 +1,6 @@
 /** Bind producer run records (rig-run/1 and rigc-run/1) by raw SHA-256 and spec shape without re-running or recomputing producer measurements. */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { isAbsolute, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, type Finding } from './check.ts';

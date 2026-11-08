@@ -1,6 +1,6 @@
 /** Bind the producer's published receipt bytes, without repeating its measurements. */
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from './check-reads.ts';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Ctx } from './check.ts';
 import type { Json, JsonObject } from './templates.ts';

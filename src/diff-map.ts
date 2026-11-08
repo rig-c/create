@@ -1,6 +1,6 @@
 /** Hash-bound inventory on the latest parts-review sign-off. create never measures differences. */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { checkDiffClasses } from './diff-classes.ts';

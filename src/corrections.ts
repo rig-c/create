@@ -3,7 +3,7 @@ import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';

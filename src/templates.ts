@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 
 /** The repository's templates/ folder, read from the source tree. */

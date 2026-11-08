@@ -10,7 +10,7 @@
   ],
   "producer": {
     "name": "@rig-c/parts",
-    "version": "2.30.1"
+    "version": "2.31.0"
   },
   "op": {
     "cmd": "rig",

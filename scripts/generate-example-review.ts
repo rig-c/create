@@ -7,7 +7,9 @@ import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { exampleReviewBytes } from '../tests/review-fixture.ts';
 import { asArray, isObject } from '../src/check.ts';
 import { sha256 } from '../src/choices.ts';
+import { EXAMPLE_SOURCE_DATE_EPOCH } from './example-time.ts';
 import { generateExampleOrder } from './generate-example-order.ts';
+
 
 export function generateExampleReview(dir: string): JsonObject[] {
   if (existsSync(dir)) throw new Error('generation needs a fresh project directory');
@@ -25,7 +27,7 @@ export function generateExampleReview(dir: string): JsonObject[] {
     (version.provenance as JsonObject).config = { path: `evidence/v${n}/review-config.json`, sha256: sha256(readFileSync(join(dir, `evidence/v${n}/review-config.json`))) };
     writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
     const command = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'review-package', String(n), dir,
-      '--config', `evidence/v${n}/review-config.json`, '--from', `outputs/v${n}/out`, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+      '--config', `evidence/v${n}/review-config.json`, '--from', `outputs/v${n}/out`, '--json'], { env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH }, stdout: 'pipe', stderr: 'pipe' });
     if (command.exitCode !== 0) throw new Error(command.stderr.toString());
     records.push(JSON.parse(command.stdout.toString()) as JsonObject);
   }

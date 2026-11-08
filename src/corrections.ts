@@ -121,6 +121,10 @@ function partsIdentity(dir: string, value: JsonObject): void {
     }
   };
   try { walk(`${root}/parts`); } catch (e) { if (e instanceof CorrectionError) throw e; fail('CORRECTION_FILE', `${root}/parts: missing/unreadable inventory`); }
+  // The raster parts.json declares under painting_in_rig belongs to the inventory when the identity carries it (drafts.ts partsInventory).
+  const painting = correctionJson(correctionFile(dir, value.manifest)).painting_in_rig;
+  const declared = isObject(painting) && typeof painting.path === 'string' ? `${root}/${painting.path}` : null;
+  if (declared !== null && files.some(f => f.path === declared)) actual.push(declared);
   if (!equal(actual.sort(), files.map(f => f.path))) fail('CORRECTION_SOURCE', 'parts manifest/tree inventory is incomplete');
   if (!files.some(f => equal(f, value.manifest))) fail('CORRECTION_SOURCE', 'manifest missing from inventory');
 }

@@ -22,7 +22,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "4045177cf11b14d69eae2d102496e142d137411a5a1008a8835fb1089ec974d9",
+  "project_sha256": "3d3186ba6ac6f091c7a195a5c4427872d449300933cf0b11f947ff234abcc182",
   "files": [
     {
       "path": ".gitignore",
@@ -39,6 +39,10 @@
     {
       "path": "derived/drafts/chain/config.json",
       "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+    },
+    {
+      "path": "derived/drafts/chain/input/painting_in_rig.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
     },
     {
       "path": "derived/drafts/chain/input/parts/background.png",
@@ -66,7 +70,7 @@
     },
     {
       "path": "derived/drafts/chain/input/parts.json",
-      "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+      "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
     },
     {
       "path": "derived/drafts/chain/input/recomposite_rig.png",
@@ -75,6 +79,10 @@
     {
       "path": "derived/drafts/chain/interview-requirements.json",
       "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+    },
+    {
+      "path": "derived/drafts/chain/out/check/build/run.json",
+      "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -129,12 +137,20 @@
       "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
     },
     {
+      "path": "derived/drafts/chain/out/run.json",
+      "sha256": "3e98f53ecb461b64256268106d760d6529ae5ac42bdc28f0419341ba0e50ff6d"
+    },
+    {
       "path": "derived/review/v1/config.json",
       "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
     },
     {
       "path": "derived/review/v1/interview-requirements.json",
       "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+    },
+    {
+      "path": "derived/review/v1/out/check/build/run.json",
+      "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
     },
     {
       "path": "derived/review/v1/out/check/build/skeleton.atlas",
@@ -178,7 +194,7 @@
     },
     {
       "path": "derived/review/v1/out/parts.json",
-      "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+      "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
     },
     {
       "path": "derived/review/v1/out/rig/images/background.png",
@@ -217,6 +233,10 @@
       "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
     },
     {
+      "path": "derived/review/v1/out/rig/run.json",
+      "sha256": "3e98f53ecb461b64256268106d760d6529ae5ac42bdc28f0419341ba0e50ff6d"
+    },
+    {
       "path": "evidence/.gitkeep",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
@@ -234,19 +254,19 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "b05db04157cd08c85dc28acbd22d302b7d720bb8de5818da9823847c28831daa"
+      "sha256": "c950a59bf1656bb2188dd75a17fac2b0a1ef1d93ae3e33722122163476fc2ed4"
     },
     {
       "path": "evidence/interview/constraints.json",
-      "sha256": "a8e7fa4312e0d29fa4fb8a2fb615f47121187338ffb482f15848db8caf4f708b"
+      "sha256": "26d6a7f5b7ee079a44f49fdb29a030cab4ef2f48ce041dfd7257c8f0d3c65613"
     },
     {
       "path": "evidence/interview/meshes.json",
-      "sha256": "ed9b2266cfee0b5d5a3e0a12f629d27d3d460bd6336253c4978494ed7cda4956"
+      "sha256": "815b9a4b6e7fd79b88506d760dda5ceb9fe58fc78248fe3c27feea5cf82c727e"
     },
     {
       "path": "evidence/interview/motion.json",
-      "sha256": "00c924828812bcdfd4b4104c576d3fab7ff650fb924007c2ebddc218226dc78f"
+      "sha256": "0822f4b102aeace738f648b5901800460048c6a4e0d7848cf6658362ba88d9ab"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -262,7 +282,7 @@
     },
     {
       "path": "evidence/parts-review.json",
-      "sha256": "43612029d2b294565e1a8b9af1d9704334da4678a1556959315014f83d1c6077"
+      "sha256": "6ff1c1c1e438b9fa864e0530567aad6de155ecfd719567ccb073e0c51616f063"
     },
     {
       "path": "evidence/setup.png",
@@ -293,6 +313,10 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
+      "path": "outputs/v1/out/check/build/run.json",
+      "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
+    },
+    {
       "path": "outputs/v1/out/check/build/skeleton.atlas",
       "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
     },
@@ -307,6 +331,10 @@
     {
       "path": "outputs/v1/out/check/build/skeleton.png",
       "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+    },
+    {
+      "path": "outputs/v1/out/painting_in_rig.png",
+      "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
     },
     {
       "path": "outputs/v1/out/parts/background.png",
@@ -334,7 +362,7 @@
     },
     {
       "path": "outputs/v1/out/parts.json",
-      "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+      "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
     },
     {
       "path": "outputs/v1/out/rig/images/background.png",
@@ -373,12 +401,16 @@
       "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
     },
     {
+      "path": "outputs/v1/out/rig/run.json",
+      "sha256": "3e98f53ecb461b64256268106d760d6529ae5ac42bdc28f0419341ba0e50ff6d"
+    },
+    {
       "path": "package.json",
-      "sha256": "6f51020052075e357b194c33ac2df6b4b97674040ccf17626e69cbe98042fd41"
+      "sha256": "d3ec766c347c65a78941f322fa3814829685fe2a4cc5cf8fbff23157fe00fd9f"
     },
     {
       "path": "project.json",
-      "sha256": "4045177cf11b14d69eae2d102496e142d137411a5a1008a8835fb1089ec974d9"
+      "sha256": "3d3186ba6ac6f091c7a195a5c4427872d449300933cf0b11f947ff234abcc182"
     }
   ]
 }

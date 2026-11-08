@@ -337,7 +337,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     const diff = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
       'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png', '--parts', 'assembled/rig/parts.json',
       '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'],
-    { cwd: join(scratch, 'parts-producer'), stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
+    { cwd: join(scratch, 'parts-producer'), env: { ...process.env, SOURCE_DATE_EPOCH: String(Math.trunc(now / 1000)) }, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
     if (diff.exitCode !== 0) throw new Error(`diff-components exit ${diff.exitCode}: ${diff.stderr}`);
     const reportBytes = readFileSync(join(scratch, 'parts-producer/diff-components.json'));
     write('evidence/diff-components.json', reportBytes);

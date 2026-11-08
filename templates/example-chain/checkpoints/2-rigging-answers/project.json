@@ -71,7 +71,7 @@
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/parts-review.json",
-        "sha256": "43612029d2b294565e1a8b9af1d9704334da4678a1556959315014f83d1c6077"
+        "sha256": "6ff1c1c1e438b9fa864e0530567aad6de155ecfd719567ccb073e0c51616f063"
       },
       "diff_map": {
         "report": {
@@ -88,7 +88,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.16.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.30.1)",
     "held": false,
     "date": null,
     "interviewer": null,
@@ -423,7 +423,7 @@
         "history": [],
         "pending_options": {
           "path": "evidence/interview/bones.json",
-          "sha256": "b05db04157cd08c85dc28acbd22d302b7d720bb8de5818da9823847c28831daa"
+          "sha256": "c950a59bf1656bb2188dd75a17fac2b0a1ef1d93ae3e33722122163476fc2ed4"
         }
       },
       {
@@ -944,7 +944,7 @@
       "at": "2026-11-06T01:00:20.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.16.0"
+        "version": "2.30.1"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -953,6 +953,10 @@
       "parts": {
         "path": "derived/drafts/chain/input",
         "files": [
+          {
+            "path": "derived/drafts/chain/input/painting_in_rig.png",
+            "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+          },
           {
             "path": "derived/drafts/chain/input/parts/background.png",
             "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
@@ -979,11 +983,15 @@
           },
           {
             "path": "derived/drafts/chain/input/parts.json",
-            "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+            "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
           }
         ]
       },
       "files": [
+        {
+          "path": "derived/drafts/chain/out/check/build/run.json",
+          "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
+        },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
           "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
@@ -1035,6 +1043,10 @@
         {
           "path": "derived/drafts/chain/out/rig.json",
           "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
+        },
+        {
+          "path": "derived/drafts/chain/out/run.json",
+          "sha256": "3e98f53ecb461b64256268106d760d6529ae5ac42bdc28f0419341ba0e50ff6d"
         }
       ],
       "config_inputs": [

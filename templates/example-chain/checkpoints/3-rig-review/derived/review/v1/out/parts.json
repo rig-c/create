@@ -4,6 +4,11 @@
     128
   ],
   "scale_rig_per_source": 1,
+  "painting_in_rig": {
+    "path": "painting_in_rig.png",
+    "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+    "resample": "lanczos3-rgb-opaque"
+  },
   "parts": [
     {
       "name": "background",

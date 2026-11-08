@@ -3,6 +3,8 @@ import { generatorArgs } from './generator-args.ts';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
+import { EXAMPLE_SOURCE_DATE_EPOCH } from './example-time.ts';
+
 
 const load = createRequire(import.meta.url);
 const { encodePng } = load('@rig-c/core/plate') as {
@@ -40,10 +42,10 @@ export function generateExampleParts(dir: string): Record<string, Buffer> {
   }));
   const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
     'assemble', '--source', 'painting.png', '--full', 'layers', '--config', 'config.json', '--out', 'assembled'],
-  { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  { cwd: dir, env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH }, stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0) throw new Error(`assemble exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
   const root = join(dir, 'assembled/rig');
-  const files: Record<string, Buffer> = { 'parts.json': readFileSync(join(root, 'parts.json')) };
+  const files: Record<string, Buffer> = { 'parts.json': readFileSync(join(root, 'parts.json')), 'painting_in_rig.png': readFileSync(join(root, 'painting_in_rig.png')) };
   for (const file of readdirSync(join(root, 'parts'))) files[`parts/${file}`] = readFileSync(join(root, 'parts', file));
   return files;
 }

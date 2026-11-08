@@ -41,3 +41,7 @@ export const EXAMPLE_REOPEN_AT = new Date(EXAMPLE_ANCHOR + events.length * 1000)
 
 /** The fixed "now" for tests and generators that act after the whole narrative: twelve hours after the latest contract date. */
 export const EXAMPLE_NOW = EXAMPLE_ANCHOR + 12 * 60 * 60 * 1000;
+
+/** The shared canonical SOURCE_DATE_EPOCH (whole seconds at EXAMPLE_ANCHOR) for producer spawns without their own clock. */
+export const EXAMPLE_SOURCE_DATE_EPOCH = String(Math.trunc(EXAMPLE_ANCHOR / 1000));
+

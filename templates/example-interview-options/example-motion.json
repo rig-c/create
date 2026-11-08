@@ -12,7 +12,7 @@
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/parts-review.json",
-        "sha256": "7a913e28d36648bb86abf4698eb8e6433e12e9f83c60ff75edd45062488b3ae4"
+        "sha256": "54a88efc06c8a1741fa46bd97b3f00b26ebc1e4c6a170e8bc04ad5e85d2862a6"
       }
     },
     "structure": {
@@ -23,6 +23,10 @@
     "parts": {
       "path": "derived/drafts/example/input",
       "files": [
+        {
+          "path": "derived/drafts/example/input/painting_in_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+        },
         {
           "path": "derived/drafts/example/input/parts/background.png",
           "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
@@ -49,7 +53,7 @@
         },
         {
           "path": "derived/drafts/example/input/parts.json",
-          "sha256": "52470b397c2947529e790abffbea4372dd81fceedfc7627938999fe2e1ff23eb"
+          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
         }
       ]
     }

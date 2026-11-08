@@ -838,11 +838,11 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
  * With a candidate record, validate the would-be write against the same project files without writing it.
  * `options.now` is the instant the check runs at (ms since the epoch); see README.md "The clock".
  */
-export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean }): CheckReport {
+export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean }): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
-  const holes = pendingPublicationHoles(dir);
+  const holes = pendingPublicationHoles(dir, options.readOnly);
   const fail = (partial: Partial<CheckReport> = {}): CheckReport => ({
     ok: false,
     project_dir: dir,

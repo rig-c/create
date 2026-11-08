@@ -5,14 +5,179 @@ import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
+import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed } from './check.ts';
+import { optionContextFiles, optionFile, validateContext } from './choices.ts';
+import { approvalStageOfStep, hasStageOrder, STAGES, stageOfStep } from './stages.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
+import { selectAnswerHashes } from './signoff-answers.ts';
+import { latestPartsApproval, riggingContext } from './structure.ts';
 import { jobHash, type JobIdentity } from './job-outbox.ts';
-import { refuse } from './refusal.ts';
-import type { JsonObject } from './templates.ts';
+import { Refusal, refuse } from './refusal.ts';
+import type { Json, JsonObject } from './templates.ts';
 
-export const JOB_READER_ID = 'rig-create/publication-reader/1';
+export const JOB_READER_ID = 'rig-create/publication-reader/2';
 export const JOB_BINDING_ID = 'rig-create/writer-binding/1';
 export const JOB_ENUMERATOR_ID = 'rig-create/parts-file-references/1';
 export const partsEnumerator = { version: partsPackage.version, enumerate: partsFileReferences };
+
+export interface RecordPublicationRequest {
+  readonly root: string;
+  readonly record: { readonly path: 'project.json'; readonly sha256: string };
+  readonly result: { readonly kind: 'option-set'; readonly questionId: string; readonly setId: string } | { readonly kind: 'plan' };
+  readonly phase: 'inventory' | 'retained';
+}
+
+type RecordContextBase = {
+  readonly label: string;
+  readonly inputs: JobPublishedContext['files'];
+  readonly files: JobPublishedContext['files'];
+};
+type RecordSignoffStage = 'plan-approved' | 'rigging-interview' | 'post-interview';
+type RecordPlanSubject = { readonly kind: 'checkpoint'; readonly checkpointId: string }
+  | { readonly kind: 'signoff'; readonly stage: RecordSignoffStage };
+export type RecordOptionContext = RecordContextBase & {
+  readonly plan: null;
+  readonly subjects: readonly [{ readonly kind: 'interview-picks'; readonly questionId: string; readonly setId: string }];
+};
+export type RecordPlanContext = RecordContextBase & {
+  readonly plan: NonNullable<JobPublishedContext['plan']>;
+  readonly subjects: readonly RecordPlanSubject[];
+};
+export type RecordPublishedContext = RecordOptionContext | RecordPlanContext;
+
+export class RecordClosureIncomplete extends Refusal {
+  constructor(readonly details: readonly { code: string; path: string }[]) {
+    super('JOB_RECORD_CLOSURE_INCOMPLETE', 'project.json: the retained check needs a file outside the sealed closure; preserve the inventory binding and wait for the complete check-closure contract before finalization');
+  }
+}
+
+/** Reuse check's eligibility and the exact retained evidence of its subject. No writes or locks. */
+export function readRecordPublished(input: RecordPublicationRequest & { result: Extract<RecordPublicationRequest['result'], { kind: 'option-set' }> }, now?: number): RecordOptionContext;
+export function readRecordPublished(input: RecordPublicationRequest & { result: { kind: 'plan' } }, now?: number): RecordPlanContext;
+export function readRecordPublished(input: RecordPublicationRequest, now?: number): RecordPublishedContext;
+export function readRecordPublished({ root, record, result, phase }: RecordPublicationRequest, now = Date.now()): RecordPublishedContext {
+  try {
+    const bytes = publicationFile(root, record.path);
+    if (record.path !== 'project.json' || jobHash(bytes) !== record.sha256) refuse('JOB_PUBLICATION_INVALID', 'project.json: the committed record binding changed; restore its exact sealed bytes');
+    const project: JsonObject = JSON.parse(bytes.toString('utf8'));
+    if (phase !== 'inventory' && phase !== 'retained') throw Error('phase must be inventory or retained');
+    if (loadCollection(root) !== null) {
+      refuse('JOB_RECORD_COLLECTION_EXTERNAL', "project.json: a member record's inherited answers depend on ../../collection.json, which the project-relative closure cannot seal; publish from a standalone project until the collection binding lands");
+    }
+    const seals = new Map<string, string>();
+    const seal = (raw: Json): { path: string; sha256: string } => {
+      if (!isObject(raw) || typeof raw.path !== 'string' || typeof raw.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(raw.sha256)) refuse('JOB_PUBLICATION_INVALID', 'project.json: retained file identity is malformed; restore its literal path and sha256');
+      const { path, sha256 } = raw;
+      if (seals.has(path) && seals.get(path) !== sha256) refuse('JOB_PUBLICATION_INVALID', `project.json: ${path} has conflicting hashes; restore one immutable identity`);
+      if (jobHash(publicationFile(root, path)) !== sha256) refuse('JOB_PUBLICATION_INVALID', `project.json: ${path} differs from its retained bytes; restore its sealed bytes`);
+      seals.set(path, sha256);
+      return { path, sha256 };
+    };
+    const list = (raw: Json | undefined): { path: string; sha256: string }[] => {
+      if (!Array.isArray(raw)) refuse('JOB_PUBLICATION_INVALID', 'project.json: retained file list is missing; restore its declared identities');
+      const paths = new Set<string>();
+      return raw.map(value => {
+        const identity = seal(value);
+        if (paths.has(identity.path)) refuse('JOB_PUBLICATION_INVALID', `project.json: ${identity.path} is declared twice in one list; retain a single declaration`);
+        paths.add(identity.path);
+        return identity;
+      });
+    };
+    const sealContext = (context: JsonObject): void => {
+      if (context.kind === 'inputs') list(context.files);
+      if (isObject(context.parts)) list(context.parts.files);
+      for (const binding of optionContextFiles(context)) seal(binding);
+    };
+    seal({ path: record.path, sha256: record.sha256 });
+    const inputs = list(project.inputs);
+    const items = collectItems(project, { collection: null });
+    const plan = isObject(project.plan) ? project.plan : null;
+    const steps = asArray(plan?.steps).filter(isObject);
+    const ids = result.kind === 'option-set' ? [result.questionId, result.setId] : steps.map(step => step.id);
+    if (ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id))) {
+      refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: a requested question, set or displayed step id is outside the record publication id domain; retain a representable producer id without aliases');
+    }
+    let selectedSet: JsonObject | undefined;
+    if (result.kind === 'option-set') {
+      const matches = items.filter(item => item.id === result.questionId);
+      if (matches.length !== 1) throw Error('the requested question is absent or ambiguous');
+      const binding = matches[0].record.pending_options;
+      seal(binding!);
+      selectedSet = optionFile(root, binding).set;
+      sealContext(selectedSet.context as JsonObject);
+    } else if (result.kind === 'plan') {
+      if (!plan) throw Error('the requested plan is absent');
+      // Seal current answer evidence for every displayed step before checking eligibility.
+      const basis = new Set(steps.flatMap(step => asArray(step.rests_on).map(String)));
+      for (const item of items.filter(item => basis.has(item.id))) {
+        if (item.state.state !== 'user' && item.state.state !== 'delegated') continue;
+        const choice = item.state.answer.choice;
+        if (!isObject(choice)) continue;
+        seal(choice.set!);
+        sealContext(optionFile(root, choice.set).set.context as JsonObject);
+      }
+      const approval = latestPartsApproval(project);
+      if (isObject(approval?.evidence)) seal(approval.evidence);
+      if (isObject(approval?.structure)) seal(approval.structure);
+    } else throw Error('unknown record result');
+    const report = checkProject(root, project, { now, readOnly: true });
+    if (report.refusals.length && phase === 'retained') {
+      throw new RecordClosureIncomplete(report.refusals.map(({ code, path }) => ({ code, path })));
+    }
+    const finding = report.refusals[0] ?? report.holes?.[0];
+    if (finding) throw Error(`${finding.code} at ${finding.path}`);
+    const stage = report.effective_stage;
+    let subjects: RecordPlanSubject[] = [];
+    let label: string;
+    if (result.kind === 'option-set') {
+      const set = selectedSet!;
+      if (set.id !== result.setId || set.question !== result.questionId || set.stage !== stage) {
+        refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: requested option set does not match its question, set id and effective stage; publish the exact current pending set');
+      }
+      validateContext(root, project, set, now, true);
+      label = `option-set ${result.questionId} / ${result.setId}`;
+    } else if (result.kind === 'plan') {
+      if (!plan) throw Error('the requested plan is absent');
+      const planPhase = stage === 'post-interview' ? 'post' : 'rig';
+      const covered = steps.filter(step => step.phase === planPhase && approvalStageOfStep(planPhase, String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage);
+      const reopens = collectReopens(project, []);
+      const signoffs = collectSignoffs(project, []).filter(signature => liveSignoff(reopens, signature.stage, signature.at));
+      const signable = stage !== null && ['plan-approved', 'rigging-interview', 'post-interview'].includes(stage)
+        && STAGES.some(spec => spec.id === stage && spec.closed_by === 'signoff')
+        && !signoffs.some(signature => signature.stage === stage && signature.checkpoint === null);
+      const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
+      if (signable && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
+      const signature: JsonObject = { stage, steps: covered.map(step => step.id!) };
+      if (signable) selectAnswerHashes(root, project, signature);
+      if (signable && stage === 'rigging-interview') {
+        const errors: Parameters<typeof riggingContext>[3] = [];
+        const context = riggingContext(root, project, new Date(now).toISOString(), errors);
+        if (errors.length || !context) throw Error(errors[0]?.code ?? 'rigging evidence is missing');
+      }
+      subjects = steps.filter(step => {
+        if (step.status !== 'at-checkpoint' || (step.phase !== 'rig' && step.phase !== 'post') || stageOfStep(step.phase, String(step.id)) !== stage) return false;
+        const checkpoint = classify(step.checkpoint, { collection: null });
+        const value = checkpoint.state === 'user' ? checkpoint.answer.value
+          : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
+        return value === true;
+      }).map(step => ({ kind: 'checkpoint' as const, checkpointId: String(step.id) }));
+      if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
+      label = `plan / ${stage}`;
+    } else throw Error('unknown record result');
+    // Detect record changes during closure reads as well as changes before entry.
+    if (!publicationFile(root, record.path).equals(bytes)) throw Error('project.json changed while reading its closure');
+    const files = [...seals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, sha256]) => ({ path, sha256 }));
+    if (result.kind === 'option-set') {
+      return { label, inputs, files, plan: null,
+        subjects: [{ kind: 'interview-picks', questionId: result.questionId, setId: result.setId }] };
+    }
+    return { label, inputs, files,
+      plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
+  } catch (error) {
+    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL'].includes(error.code))) throw error;
+    refuse('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
+  }
+}
 
 export function currentJobIdentity(saved: Pick<JobIdentity, 'root' | 'stateDir' | 'fingerprint' | 'reviewer'>, root: string): JobIdentity {
   return { ...saved, root: realpathSync(root), readerId: JOB_READER_ID, bindingId: JOB_BINDING_ID,

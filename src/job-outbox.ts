@@ -301,10 +301,10 @@ export async function reconcilePublication(root: string, entry: PendingPublicati
   syncDirectory(join(jobPrivateRoot(root), 'outbox'));
 }
 
-export function pendingPublicationHoles(root: string): { code: string; path: string; message: string }[] {
+export function pendingPublicationHoles(root: string, readOnly = false): { code: string; path: string; message: string }[] {
   try {
     if (!existsSync(root) || !existsSync(join(jobPrivateRoot(root), 'outbox'))) return [];
-    const release = acquireJobLock(root, false);
+    const release = readOnly ? null : acquireJobLock(root, false);
     let entries: PendingPublication[];
     try { entries = pendingPublications(root, release !== null); }
     finally { release?.(); }

@@ -217,7 +217,11 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
     }
   }
   if (collectReopens(project, []).some(r => r.at > drafted && r.at <= at && stageIndex(r.stage) <= stageIndex(String(set.stage)))) fail('INTERVIEW_OPTIONS_STALE', 'context was reopened after drafting; redraft the option set');
-  const context = set.context as JsonObject;
+  for (const file of optionContextFiles(set.context as JsonObject)) verifyBinding(dir, file, fresh);
+}
+
+/** The exact retained bindings read by validateContext, shared with publication. */
+export function optionContextFiles(context: JsonObject): Json[] {
   const files: Json[] = [...(context.kind === 'inputs' ? asArray(context.files) : isObject(context.parts) ? asArray(context.parts.files) : [])];
   if (context.kind === 'parts') files.push(context.structure as Json, (context.accepted_parts as JsonObject).evidence as Json);
   if (context.kind === 'rig') files.push(context.config as Json);
@@ -226,7 +230,7 @@ export function validateContext(dir: string, project: JsonObject, set: JsonObjec
     files.push({ path: context.scene.path as Json, sha256: context.scene.sha256 as Json });
   }
   if (context.kind === 'intake') files.push(context.report as Json);
-  for (const file of files) verifyBinding(dir, file, fresh);
+  return files;
 }
 
 export function choiceVerbatim(picks: JsonObject[], note?: Json): string {

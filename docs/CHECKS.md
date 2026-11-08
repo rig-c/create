@@ -1346,3 +1346,23 @@ before writing. A refused write leaves `project.json` byte-identical.
 The writer binds retained API act bytes in `project.json.review_acts` by
 SHA-256 and validates the selected pending option set before writing. Refusals
 preserve `project.json` bytes. Earlier file-route answers remain valid records.
+
+## Model-free record publication
+
+`readRecordPublished` reports `JOB_RECORD_INCOMPLETE` for a changed record,
+input or evidence file, a malformed or duplicated declaration, conflicting
+file identities, a check refusal or an outstanding publication HOLE. Restore
+`project.json` and its retained evidence, resolve the check findings and
+reconcile pending publications before publishing again. Every refusal leaves
+the record unchanged.
+
+| Code | Finding and remedy |
+| --- | --- |
+| `JOB_RECORD_SUBJECT_INVALID` | `project.json` does not bind the explicitly requested question, option set and effective stage, or a subject id cannot be represented by the record publication contract. Publish the exact current pending subject with its original representable id. |
+| `JOB_RECORD_COLLECTION_EXTERNAL` | A member record's inherited answers depend on `../../collection.json`, outside the project-relative closure. Publish from a standalone project until the collection binding lands. |
+| `JOB_RECORD_CLOSURE_INCOMPLETE` | `project.json` passes its retained seals, but the retained check needs a file outside the sealed closure. Structured details retain the check's codes and paths. Preserve the inventory binding and wait for the complete check-closure contract before finalization. |
+
+In the retained phase, unsafe paths, missing or changed sealed files and
+invalid or duplicate file declarations refuse with `JOB_PUBLICATION_INVALID`
+before the check runs. In the inventory phase, check refusals produce
+`JOB_RECORD_INCOMPLETE`. Neither phase changes the record or its tree.

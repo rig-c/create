@@ -5,7 +5,8 @@ import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
+import { collectAmendments } from './amend.ts';
+import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
 import { furthestStageSignoff, isSignoffIdentity, signoffIdentity, statusTransitionFinding } from './stage-progress.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -16,6 +17,7 @@ step-status:
   <step> <status> [<project dir>] --by <who>
   Record pending -> in-progress -> at-checkpoint -> done and status_history[].
   A checkpointed done needs a live human checkpoint signature.
+  An amended project also runs steps in the check's effective stage, keeping its stored stage.
 Both accept --json and validate the complete candidate before writing.`;
 
 function options(args: string[], command: string): { positional: string[]; opts: Record<string, string>; json: boolean } {
@@ -88,8 +90,16 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   const step = matches[0];
   if (matches.length !== 1 || step === undefined || (step.phase !== 'rig' && step.phase !== 'post')) refuse('STEP_STATUS_TRANSITION', `plan.steps[${positional[0]}]: no unique executable step; restore the plan before step-status`);
   const stage = stageOfStep(step.phase, String(step.id));
-  const oldOrder = !hasStageOrder(project) && project.stage === 'rigging' && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.at < Date.parse(PARTS_REVIEW_SINCE));
-  if (project.stage !== stage && !(oldOrder && step.phase === 'rig')) refuse('STEP_STATUS_TRANSITION', `plan.steps[${positional[0]}]: runs in ${stage}, current stage is ${String(project.stage)}; advance to its execution stage first`);
+  // Amend retains project.stage while its approvals lapse; the work resumes at the check's effective stage (PROJECT.md).
+  const resumes = project.stage !== PAUSED_STAGE && collectAmendments(project, []).length > 0
+    ? checkProject(dir, structuredClone(project), { now }).effective_stage : null;
+  const running = resumes !== null && resumes !== project.stage ? [String(project.stage), resumes] : [String(project.stage)];
+  const oldOrder = !hasStageOrder(project) && running.includes('rigging') && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.at < Date.parse(PARTS_REVIEW_SINCE));
+  if (!running.includes(stage) && !(oldOrder && step.phase === 'rig')) {
+    refuse('STEP_STATUS_TRANSITION', running.length > 1
+      ? `plan.steps[${positional[0]}]: runs in ${stage}; the amended project resumes at ${String(resumes)} (stage ${String(project.stage)} retained); sign the lapsed approvals and finish the earlier bars first`
+      : `plan.steps[${positional[0]}]: runs in ${stage}, current stage is ${String(project.stage)}; advance to its execution stage first`);
+  }
   const checkpoint = classify(step.checkpoint, { collection: null });
   const enabled = checkpoint.state === 'user' ? checkpoint.answer.value === true
     : checkpoint.state === 'delegated' && isObject(checkpoint.answer.agent_decision) && checkpoint.answer.agent_decision.value === true;

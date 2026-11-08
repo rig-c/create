@@ -148,7 +148,9 @@ time, including a permitted bar exit or the declared no-post route.
 
 `step-status` runs in the step's execution stage and records one transition
 through `pending` (also the absent status), `in-progress`, `at-checkpoint`,
-then `done`. On a legacy-order project whose plan was approved before
+then `done`. On an amended project the execution stage may also be the check's
+`effective_stage` (Forward amendments), so the reset steps can be redone while
+the stored stage is retained. On a legacy-order project whose plan was approved before
 `PARTS_REVIEW_SINCE`, rig steps also run in `rigging`. That route grants no
 authority of its own: the writer's candidate check still refuses a started
 step without a live covering stage-level approval (`STEP_RUN_UNAPPROVED`), and
@@ -285,7 +287,14 @@ while its approvals lapse, so the window would refuse every amended record,
 the amend writer's own candidate included. Judging the window against
 `effective_stage` instead fails too: that stage passes unfinished bars before
 the amended stage, which the window stops at. Re-sign the lapsed approvals and meet
-the affected steps' bars in order. Existing upstream approvals need no re-sign.
+the affected steps' bars in order. `step-status` runs a reset step when its
+execution stage is the stored stage or the `effective_stage`, which it reads from
+the same complete check, so the bars are met in order without moving `stage`.
+`effective_stage` comes from the recorded signatures and step statuses; it is not
+stored, because each re-signature or finished bar moves it. Once every lapsed
+approval is re-signed and every bar is met, `effective_stage` equals the stored
+stage again and the signature window applies as before; no `advance` is needed
+when the stored stage was already reached. Existing upstream approvals need no re-sign.
 A rig covered by the cutoff needs a new build and acceptance before handoff.
 The writer runs the same complete candidate check before writing. Any refusal
 leaves `project.json` byte-identical. Existing records and `reopen` output retain

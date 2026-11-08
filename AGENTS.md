@@ -49,6 +49,14 @@ sentence and a concrete failure scenario (input, then the wrong result):
 Leave out style, and hardening for scenarios that cannot occur. A pull
 request gets one review. A fix pushed after it is not re-reviewed.
 
+The review comes from the other model family. A pull request written by
+Claude gets Codex's automatic review when it opens. A pull request written by
+Codex (labelled `by:codex`) gets the Claude tower's review, posted on the pull
+request as a comment headed "Claude review (cross-family)". That comment names
+the reviewer, what was read (files, at which head) and the verdict, then lists
+the findings in the form above. A `by:codex` pull request merges only after
+that comment exists. Codex's own review of it does not count.
+
 ### Invariants a diff can break
 
 1. **create reads producer reports and never computes them.** It takes what

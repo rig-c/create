@@ -234,14 +234,20 @@ const eventTime = (value: Json | undefined): number => Date.parse(String(value))
 
 /**
  * Advances and reopens must chain from the initial stage, and each step's status_history must chain from
- * pending through reopen and amendment resets to its current status. A break is dated by the latest recorded
- * event the unrecorded move must follow, so a later writer entry does not turn an older hand move into a refusal.
+ * pending through reopen and amendment resets to its current status. A reopen's steps_before must hold the
+ * chained status at the reopen. A break is dated by the latest recorded event the unrecorded move must follow,
+ * so a later writer entry does not turn an older hand move into a refusal.
  */
 export function checkProgressLinkage(ctx: Ctx): void {
   const since = Date.parse(PROGRESS_HISTORY_SINCE);
+  const remedies: Record<string, string> = {
+    STAGE_MOVE_UNLINKED: 'preserve the history and record the move through advance or reopen',
+    STEP_STATUS_UNLINKED: 'preserve the history and record the move through step-status',
+    // A reopen copies the current status, so a hand-set status must be restored before the stage is reopened.
+    REOPEN_STEP_UNLINKED: 'restore the status the reopen recorded; before reopening, return a hand-set status to its last recorded one and record moves through step-status',
+  };
   const push = (code: string, path: string, why: string, after: number): void => {
-    (after >= since ? ctx.refusals : ctx.warnings).push({ code, path,
-      message: `${path}: ${why}; preserve the history and record the move through ${code === 'STAGE_MOVE_UNLINKED' ? 'advance or reopen' : 'step-status, or reopen its stage to reset it'}` });
+    (after >= since ? ctx.refusals : ctx.warnings).push({ code, path, message: `${path}: ${why}; ${remedies[code]!}` });
   };
   const signatures = collectSignoffs(ctx.project, []).filter(s => s.checkpoint === null && Number.isFinite(s.at) && stageIndex(s.stage) >= 0);
   type Move = { record: JsonObject; path: string; advance: boolean; index: number };
@@ -285,17 +291,19 @@ export function checkProgressLinkage(ctx: Ctx): void {
     if (!Array.isArray(history) || history.length === 0
       || history.some(raw => statusTransitionFinding(isObject(raw) ? raw : {}, '') !== null)) continue;
     const executes = [stageOfStep(step.phase, step.id), ...(legacy ? [stageOfStep(step.phase, '')] : [])];
-    const resets = [
-      ...asArray(ctx.project.reopens).filter(isObject).filter(r => Array.isArray(r.steps_before)
-        ? r.steps_before.some(s => isObject(s) && s.id === step.id)
-        : stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(String(r.stage))).map(r => eventTime(r.at)),
-      ...amendments.filter(a => stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(a.stage)).map(a => a.at),
-    ].filter(Number.isFinite);
+    const reopenResets = asArray(ctx.project.reopens).map((r, index) => ({ r, index })).filter(({ r }) => isObject(r)
+      && (Array.isArray(r.steps_before) ? r.steps_before.some(s => isObject(s) && s.id === step.id)
+        : stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(String(r.stage))))
+      .map(({ r, index }) => ({ index, at: eventTime((r as JsonObject).at) }));
+    const amendResets = amendments.filter(a => stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(a.stage)).map(a => a.at);
+    const resetsExcept = (reopen: number): number[] =>
+      [...reopenResets.filter(r => r.index !== reopen).map(r => r.at), ...amendResets].filter(Number.isFinite);
+    const resets = resetsExcept(-1);
     const arrivals = moves.filter(m => m.advance && executes.includes(String(m.record.stage))).map(m => eventTime(m.record.at));
-    const after = (until: number, previous: number): number => Math.max(previous, ...[...resets, ...arrivals].filter(t => t <= until));
+    const after = (until: number, previous: number, events = resets): number => Math.max(previous, ...[...events, ...arrivals].filter(t => t <= until));
     // A reset strictly between two entries forces pending; one tied with an entry may fall on either side.
-    const reset = (possible: Set<string>, from: number, to: number): Set<string> => {
-      const between = resets.filter(r => r >= from && r <= to);
+    const reset = (possible: Set<string>, from: number, to: number, events = resets): Set<string> => {
+      const between = events.filter(r => r >= from && r <= to);
       if (between.some(r => r > from && r < to)) return new Set(['pending']);
       return between.length > 0 ? new Set([...possible, 'pending']) : possible;
     };
@@ -317,6 +325,34 @@ export function checkProgressLinkage(ctx: Ctx): void {
     const current = step.record.status === undefined ? 'pending' : step.record.status;
     if (typeof current === 'string' && STEP_STATUSES.includes(current as typeof STEP_STATUSES[number]) && !possible.has(current)) {
       push('STEP_STATUS_UNLINKED', `${step.path}.status`, `${current} is not the status its last status_history entry recorded (${[...possible].join(' or ')})`, after(Infinity, previous));
+    }
+    // A reordered history has no single status at a given time; its break is already reported above.
+    if (history.some((raw, index) => index > 0 && eventTime((raw as JsonObject).at) < eventTime((history[index - 1] as JsonObject).at))) continue;
+    for (const { index: reopen, at } of reopenResets) {
+      const steps = (asArray(ctx.project.reopens)[reopen] as JsonObject).steps_before;
+      if (!Number.isFinite(at) || !Array.isArray(steps)) continue;
+      // The reopen writer copies the current, possibly hand-set status, so the reopen itself is not a dating event.
+      const events = resetsExcept(reopen);
+      for (const [index, raw] of steps.entries()) {
+        if (!isObject(raw) || raw.id !== step.id) continue;
+        const claimed = raw.status === undefined ? 'pending' : raw.status;
+        if (typeof claimed !== 'string' || !STEP_STATUSES.includes(claimed as typeof STEP_STATUSES[number])) continue;
+        // A step with no history before the reopen had no recorded chain then, as #186 leaves a step with no history unjudged.
+        // Judging it once a later redo adds history would block that redo with no writer remedy.
+        const earlier = (history as JsonObject[]).filter(entry => eventTime(entry.at) < at).at(-1);
+        if (earlier === undefined) continue;
+        // The chain at the reopen is the last earlier entry's status, then any reset after it.
+        const last = eventTime(earlier.at);
+        const chained = reset(new Set([String(earlier.status)]), last, at, events);
+        // An entry tied in time with the reopen may fall on either side of it.
+        const tied = (history as JsonObject[]).filter(entry => eventTime(entry.at) === at);
+        for (const entry of tied) chained.add(String(entry.status));
+        if (!chained.has(claimed)) {
+          push('REOPEN_STEP_UNLINKED', `reopens[${reopen}].steps_before[${index}]`,
+            `${step.id} status ${claimed} is not the status its history held at the reopen (${[...chained].join(' or ')})`,
+            after(at, last, events));
+        }
+      }
     }
   }
 }

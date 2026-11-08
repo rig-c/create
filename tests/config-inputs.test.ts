@@ -91,10 +91,12 @@ test('loader declarations exclude built-in skeleton names', () => {
   expect(configInputReferences(process.cwd(), { requirements: 'r.json', motion: { animations_from: 'a.json' }, generation: { control: { skeleton: 's.json' } } }).map(f => f.at)).toEqual(['requirements', 'motion.animations_from', 'generation.control.skeleton']);
   expect(configInputReferences(process.cwd(), { generation: { control: { skeleton: 'stand_sides' } } })).toEqual([]);
 });
+/** A rig-run/1 stamp beside rig.json, so the draft's producer is read and only config_inputs findings remain. */
+const RIG_STAMP = JSON.stringify({ spec: 'rig-run/1', package: { name: '@rig-c/parts', version: '0.0.1-synthetic' }, command: 'rig', started_at: '2026-11-04T00:00:00.000Z', finished_at: '2026-11-04T00:00:00.000Z', config: { path: '../config.json', sha256: 'a'.repeat(64) }, outputs: [{ path: 'rig.json', sha256: 'b'.repeat(64) }] });
 for (const legacy of [false, true]) test(`draft writer binds files and ${legacy ? 'legacy warns' : 'current refuses'} absent bindings`, () => {
   const dir = fixture(); const root = 'derived/drafts/named';
   mkdirSync(join(dir, root, 'out'), { recursive: true }); mkdirSync(join(dir, root, 'input/parts'), { recursive: true });
-  for (const [path, bytes] of Object.entries({ 'config.json': '{"requirements":"requirements.json","motion":{"animations_from":"animation.json"},"generation":{"control":{"skeleton":"skeleton.json"}}}', 'requirements.json': '{}', 'animation.json': '{}', 'skeleton.json': '{}', 'input/parts.json': '{}', 'input/parts/piece.png': 'synthetic', 'out/rig.json': '{}', 'out/motion.json': '{}', 'out/mesh_report.json': '{}' })) writeFileSync(join(dir, root, path), bytes);
+  for (const [path, bytes] of Object.entries({ 'config.json': '{"requirements":"requirements.json","motion":{"animations_from":"animation.json"},"generation":{"control":{"skeleton":"skeleton.json"}}}', 'requirements.json': '{}', 'animation.json': '{}', 'skeleton.json': '{}', 'input/parts.json': '{}', 'input/parts/piece.png': 'synthetic', 'out/rig.json': '{}', 'out/motion.json': '{}', 'out/mesh_report.json': '{}', 'out/run.json': RIG_STAMP })) writeFileSync(join(dir, root, path), bytes);
   const result = draftRigCommand(['named', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`, '--json']);
   const record = JSON.parse(result.stdout); expect(record.config_inputs.map((f: {path: string}) => f.path)).toEqual(['requirements.json', 'animation.json', 'skeleton.json'].map(p => `${root}/${p}`));
   const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));

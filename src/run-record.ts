@@ -31,7 +31,7 @@ const runTimestamp = (value: Json | undefined): value is string =>
   && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 
 export class RunRecordError extends Error {
-  constructor(readonly code: string, readonly path: string, why: string) {
+  constructor(readonly code: string, readonly path: string, readonly why: string) {
     super(`${path}: ${why}; retain the producer run.json with --run-record and register a new rig version`);
   }
 }

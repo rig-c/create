@@ -6,7 +6,8 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { locateParts } from './parts-sections.ts';
-import { refuse, USAGE_EXIT } from './refusal.ts';
+import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { RunRecordError, validateRunRecord } from './run-record.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -60,6 +61,17 @@ function binding(v: Json | undefined): v is JsonObject {
   return isObject(v) && typeof v.path === 'string' && hex(v.sha256);
 }
 
+/** parts' rig-run/1 stamp sits beside the rig.json it names: `<out>/run.json` of `rig --out`, which is `<root>/rig/run.json` in a build root. */
+const stampBeside = (rigJson: string): string => rigJson.replace(/rig\.json$/, 'run.json');
+
+/** The producer a rig-run/1 stamp names, read from its record and never recomputed; any other spec is not parts' rig stamp. */
+function stampProducer(bytes: Buffer, path: string): JsonObject {
+  const { spec, record } = validateRunRecord(bytes, path);
+  if (spec !== 'rig-run/1') throw new RunRecordError('RUN_RECORD_SPEC_UNKNOWN', `${path}.spec`, `expected the rig-run/1 stamp parts writes beside rig.json, found ${spec}`);
+  const pkg = record.package as JsonObject;
+  return { name: pkg.name as string, version: pkg.version as string };
+}
+
 /** Absence may be regenerable; symlinks, escaped paths and present wrong kinds are never absence. */
 export function draftFileUnavailable(dir: string, path: string, root: string): boolean {
   if (isAbsolute(path) || path.split('/').some(p => p === '..' || p === '.' || p === '')) throw new Error(`${path}: expected a literal project-relative draft path`);
@@ -108,6 +120,25 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         const bytes = readFileSync(fileAt(dir, file, root));
         if (sha(bytes) !== entry.sha256) throw new Error(`${file} changed`);
       } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
+    }
+    const stamp = stampBeside(String((rigs[0] as JsonObject).path));
+    const stampBinding = asArray(raw.files).find(f => binding(f) && f.path === stamp) as JsonObject | undefined;
+    const recorded = `${raw.producer.name}@${raw.producer.version}`;
+    if (stampBinding === undefined) {
+      warnings.push({ code: 'DRAFT_PRODUCER_ASSUMED', path: `${path}.producer`, message: `${path}.producer: no rig-run/1 run.json is bound at ${stamp}, so ${recorded} is the installed package assumed when the draft was recorded, not read from its run; rebuild the draft with parts rig, which writes run.json beside rig.json, and record it with draft-rig under a new id; the old record is kept` });
+    } else if (!unavailable.has(stamp)) {
+      try {
+        const bytes = readFileSync(fileAt(dir, stamp, root));
+        if (sha(bytes) === stampBinding.sha256) {
+          const read = stampProducer(bytes, stamp);
+          if (read.name !== raw.producer.name || read.version !== raw.producer.version) {
+            warnings.push({ code: 'DRAFT_PRODUCER_MISMATCH', path: `${path}.producer`, message: `${path}.producer: records ${recorded} but its bound ${stamp} names ${String(read.name)}@${String(read.version)}; record the draft again with draft-rig under a new id; the old record is kept` });
+          }
+        }
+      } catch (error) {
+        if (error instanceof RunRecordError) warnings.push({ code: error.code, path: `${path}.producer`, message: `${path}.producer: ${error.path}: ${error.why}; the recorded producer was not read from it; rebuild the draft with parts rig and record it with draft-rig under a new id; the old record is kept` });
+        // Unreadable, escaping or changed bytes are DRAFT_RIG_FILE above; the producer is not read from them.
+      }
     }
     try {
       if (!draftFileUnavailable(dir, String(raw.config.path), root)) {
@@ -213,8 +244,19 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
     const pkgFile = join(installed, 'package.json');
     const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { name: string; version: string };
-    record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer: { name: pkg.name, version: pkg.version }, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
-  } catch (error) { refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`); }
+    const stamp = stampBeside(`${rigPrefix}/rig.json`);
+    let producer: JsonObject = { name: pkg.name, version: pkg.version };
+    if (output.some(f => f.path === stamp)) {
+      try { producer = stampProducer(readFileSync(fileAt(dir, stamp, root)), stamp); } catch (error) {
+        if (error instanceof RunRecordError) refuse(error.code, `drafts[${id}]: ${error.path}: ${error.why}; re-run parts rig into the draft output so it writes run.json with its outputs, then record the draft`);
+        throw error;
+      }
+    }
+    record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`);
+  }
   if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
   project.drafts = [...asArray(project.drafts), record];
   const errors: Finding[] = [];

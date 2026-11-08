@@ -8,6 +8,7 @@ import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, draftRigCommand, handoff } from './clock.ts';
 import { retainedPartsFiles } from './draft-fixture.ts';
+import { locateParts } from '../src/parts-sections.ts';
 
 function write(dir: string, path: string, bytes = '{}'): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); }
 function draft(build = false): { dir: string; args: string[] } {
@@ -113,4 +114,52 @@ test('a draft recorded before the painting was carried warns by name and is not 
   expect(report.refusals).toEqual([]);
   expect(report.warnings.filter(f => f.code === 'DRAFT_DECLARED_FILE_UNBOUND').map(f => f.path)).toEqual(['drafts[0].parts.files']);
   expect(report.warnings.find(f => f.code === 'DRAFT_DECLARED_FILE_UNBOUND')!.message).toContain('derived/drafts/sample/inputs/painting_in_rig.png');
+});
+
+/** A synthetic rig-run/1 stamp in the producer's published key order; its hashes are not create's to verify. */
+function runStamp(version: string, extra: Record<string, unknown> = {}): string {
+  return `${JSON.stringify({ spec: 'rig-run/1', package: { name: '@rig-c/parts', version }, command: 'rig', started_at: '2026-11-08T00:00:00.000Z', finished_at: '2026-11-08T00:00:00.000Z', config: { path: '../config.json', sha256: 'a'.repeat(64) }, outputs: [{ path: 'rig.json', sha256: 'b'.repeat(64) }], ...extra }, null, 1)}\n`;
+}
+function installedParts(dir: string): string { return (JSON.parse(readFileSync(join(locateParts(dir)!, 'package.json'), 'utf8')) as { version: string }).version; }
+const stampAt = (build: boolean): string => `derived/drafts/sample/out/${build ? 'rig/' : ''}run.json`;
+
+test.each([false, true])('the producer is read from the rig output run.json, not the installed package, build=%s', build => {
+  const { dir, args } = draft(build);
+  expect(installedParts(dir)).not.toBe('0.0.1-synthetic');
+  write(dir, stampAt(build), runStamp('0.0.1-synthetic'));
+  const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  expect(record.producer).toEqual({ name: '@rig-c/parts', version: '0.0.1-synthetic' });
+  expect(arr(record.files).map(f => obj(f).path)).toContain(stampAt(build));
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.map(f => f.code).filter(c => c.startsWith('DRAFT_PRODUCER_'))).toEqual([]);
+});
+
+test.each([false, true])('a draft without run.json records the installed package and warns DRAFT_PRODUCER_ASSUMED, build=%s', build => {
+  const { dir, args } = draft(build);
+  const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  expect(record.producer).toEqual({ name: '@rig-c/parts', version: installedParts(dir) });
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.filter(f => f.code === 'DRAFT_PRODUCER_ASSUMED').map(f => f.path)).toEqual(['drafts[0].producer']);
+});
+
+test('a malformed or foreign run.json refuses with the run record code and leaves project.json byte-identical', () => {
+  for (const [bytes, code] of [['{"spec":"rig-run/1"}', 'RUN_RECORD_MALFORMED'], [runStamp('0.0.1-synthetic', { spec: 'other-run/1' }), 'RUN_RECORD_SPEC_UNKNOWN']] as const) {
+    const { dir, args } = draft(); write(dir, stampAt(false), bytes);
+    const before = readFileSync(join(dir, 'project.json'));
+    rejected(() => draftRigCommand(args), code);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
+});
+
+test('a recorded producer that disagrees with its bound run.json warns DRAFT_PRODUCER_MISMATCH and is kept', () => {
+  const { dir, args } = draft(); write(dir, stampAt(false), runStamp('0.0.1-synthetic'));
+  draftRigCommand(args);
+  const p = read(dir); obj(arr(p.drafts)[0]).producer = { name: '@rig-c/parts', version: '0.0.0-installed' };
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.filter(f => f.code === 'DRAFT_PRODUCER_MISMATCH').map(f => f.path)).toEqual(['drafts[0].producer']);
+  expect(report.warnings.map(f => f.code)).not.toContain('DRAFT_PRODUCER_ASSUMED');
 });

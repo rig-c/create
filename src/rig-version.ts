@@ -9,6 +9,7 @@ import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { readProject } from './feedback.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
+import { countFindings, newFindings } from './refusal-baseline.ts';
 import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
@@ -268,7 +269,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       return fail('RUN_RECORD_REQUIRED', `versions[v${n}].registration.runs`, 'version registered from the npm lock alone; retain producer run.json records with --run-record');
     }
     // Pre-existing refusals stay the project's; the candidate may not add a new one.
-    const baseline = checkProject(dir, project, { now }).refusals;
+    const baseline = countFindings(checkProject(dir, project, { now }).refusals);
     created.push(join(dir, evidence), join(dir, out));
     mkdirSync(join(dir, evidence), { recursive: true });
     const toolchain = input('--toolchain-lock', 'package-lock.json');
@@ -380,14 +381,8 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     created.push(join(dir, pkg));
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate);
     // The record must pass the same check as every other writer's before it is renamed into place.
-    const counts = new Map<string, number>();
-    for (const f of baseline) counts.set(`${f.code}:${f.path}`, (counts.get(`${f.code}:${f.path}`) ?? 0) + 1);
-    for (const f of checkProject(dir, candidate, { now }).refusals) {
-      const key = `${f.code}:${f.path}`;
-      const left = counts.get(key) ?? 0;
-      if (!left) refuse(f.code, f.message);
-      counts.set(key, left - 1);
-    }
+    const fresh = newFindings(baseline, checkProject(dir, candidate, { now }).refusals)[0];
+    if (fresh) refuse(fresh.code, fresh.message);
     for (const [path, names] of sourceDirectories) if (!isDeepStrictEqual(readdirSync(path).sort(), names)) fail('RIG_REGISTRATION_SOURCE_CHANGED', path, 'source directory changed during registration');
     for (const source of sources) if (!readFileSync(source.source).equals(source.bytes)) fail('RIG_REGISTRATION_SOURCE_CHANGED', source.source, 'source changed during registration');
     if (!readFileSync(file).equals(original)) fail('RIG_REGISTRATION_SOURCE_CHANGED', 'project.json', 'record changed during registration');

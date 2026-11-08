@@ -9,6 +9,7 @@ import { approvalStageOfGuide } from './stages.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { countFindings, findingKey, newFindings } from './refusal-baseline.ts';
 import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, refusalBaseline, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -58,15 +59,13 @@ function run(action: () => string): string {
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
 export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = []): void {
-  const before = checkProject(dir,original,{now}).refusals;
-  const after = checkProject(dir,candidate,{now}).refusals;
-  const counts = new Map<string,number>();
-  for (const f of before) { const k = `${f.code}:${f.path}`; counts.set(k,(counts.get(k) ?? 0)+1); }
+  const counts = countFindings(checkProject(dir,original,{now}).refusals);
   for (const f of baseline) {
-    const k = `${String(f.code)}:${String(f.path)}`;
+    const k = findingKey({ code: String(f.code), path: String(f.path) });
     counts.set(k,Math.max(counts.get(k) ?? 0,Number(f.count)));
   }
-  for (const f of after) { const k = `${f.code}:${f.path}`; const n = counts.get(k) ?? 0; if (!n) refuse(f.code,f.message); counts.set(k,n-1); }
+  const first = newFindings(counts,checkProject(dir,candidate,{now}).refusals)[0];
+  if (first) refuse(first.code,first.message);
   const tmp = join(dirname(file), `.interview-${process.pid}-${crypto.randomUUID()}.tmp`);
   writeFileSync(tmp,`${JSON.stringify(candidate,null,2)}\n`, { flag: 'wx' }); renameSync(tmp,file);
 }

@@ -1,11 +1,12 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { asArray, asString, checkProject, isObject, type Finding } from './check.ts';
+import { asArray, asString, isObject, type Finding } from './check.ts';
 import { collectAmendments } from './amend.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { newRefusals } from './refusal-baseline.ts';
 import { stageIndex, stageOfStep, STAGE_VALUES } from './stages.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -109,7 +110,9 @@ export function reopenCommand(args: string[], now: number): { stdout: string; ex
     else positional.push(arg);
   }
   if (positional.length < 1 || positional.length > 2 || opts['--by'] === undefined) refuse('REOPEN_OPTION_INVALID', 'reopens: supply a stage, --by and one optional project directory', USAGE_EXIT);
-  const { file, project } = readProject(resolve(positional[1] ?? process.cwd()));
+  const dir = resolve(positional[1] ?? process.cwd());
+  const { file, project } = readProject(dir);
+  const before = structuredClone(project);
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined);
   if (steps.some(s => !isObject(s) || typeof s.id !== 'string' || (s.phase !== 'rig' && s.phase !== 'post'))) {
     refuse('REOPEN_MALFORMED', 'plan.steps: each step needs id and phase; restore the plan before reopening');
@@ -129,8 +132,7 @@ export function reopenCommand(args: string[], now: number): { stdout: string; ex
   for (const step of affected) step.status = 'pending';
   project.reopens = candidate.reopens;
   project.stage = entry.stage;
-  const checked = checkProject(resolve(positional[1] ?? process.cwd()), project, { now });
-  const rejected = checked.refusals[0];
+  const rejected = newRefusals(dir, before, project, { now })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   return { stdout: json ? JSON.stringify(entry, null, 2) : `reopen: ${String(entry.stage)} by ${String(entry.by)} at ${String(entry.at)}`, exit: 0 };

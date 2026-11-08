@@ -5,6 +5,7 @@ import { asArray, checkProject, collectItems, collectSignoffs, loadCollection, i
 import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBinding, directionBytes, directionContract, directionFail, directionHash, directionJson, directionPath, directionVersion, objects, patchDirection, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { countFindings, newFindings } from './refusal-baseline.ts';
 import { handoff } from './review.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -22,8 +23,7 @@ function openReview(project:JsonObject):void {
 }
 function ownValidation(dir:string,project:JsonObject,now:number):void {const refusals:Finding[]=[];checkDirections({dir,project,refusals},now);if(refusals[0]){const f=refusals[0];directionFail(f.code,f.path,f.message);}}
 function prospective(dir:string,before:JsonObject,next:JsonObject,now:number):void {
-  const counts=new Map<string,number>();for(const f of checkProject(dir,before,{now}).refusals){const k=`${f.code}:${f.path}`;counts.set(k,(counts.get(k)??0)+1);}
-  for(const f of checkProject(dir,next,{now}).refusals){const k=`${f.code}:${f.path}`;const count=counts.get(k)??0;if(!count)directionFail(f.code,f.path,f.message);counts.set(k,count-1);}
+  const f=newFindings(countFindings(checkProject(dir,before,{now}).refusals),checkProject(dir,next,{now}).refusals)[0];if(f)directionFail(f.code,f.path,f.message);
 }
 /** A narrow seam for fault-injected transaction tests; CLI never supplies a hook. */
 export interface DirectionWriteHooks { beforeCommit?:()=>void; }

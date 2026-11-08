@@ -1044,6 +1044,9 @@ amendment grants no authority. A completed bar permits its next review.
 checkpoint approval. A new advance refuses lag and skip even for legacy signatures. Both progress writers reconcile stage_values, validate
 with checkProject and preserve bytes on refusal. The signature writer allows
 its own pending-advance lag until advance records the separate stage move.
+Arrival at rigging-interview or post-interview admits only INTERVIEW_INCOMPLETE
+for that target's silent items by code/path counts. The check still reports them,
+and signoff or departure requires the answers.
 Signoff retains its existing conditional/scoped candidate validation. Its
 additional progress guard blocks pre-existing refusal-level lag, permits
 legacy WARN lag, and rejects other candidate progress refusals.

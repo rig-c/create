@@ -113,6 +113,11 @@ A bar stage advances once every step it runs is done, using the preceding
 stage-level signature as authority. All post items marked not applicable
 allow `post-interview` to advance directly to `accepted`.
 
+Arrival at `rigging-interview` or `post-interview` permits only the target
+interview's silent-item `INTERVIEW_INCOMPLETE` findings, counted by code and
+item path, so its answers can be recorded there. The ordinary check still
+reports them, and approval or departure requires the answers.
+
 `advances[]` retains `{ stage, from_stage, by, at, verbatim, source?,
 steps_before, signoff, signoffs_before, order, post_not_passed }`. The clock supplies `at`,
 the UTF-8 words are unchanged, and `signoff` is the stable `{ stage, checkpoint, at }` approval identity.

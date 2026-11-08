@@ -9,7 +9,7 @@
       "agent draft evidence/direction-input.json",
       "rig-create direction write 2 --file evidence/direction-input.json --rig 1",
       "rig-create direction check 2 --json",
-      "seed project.stage \"direction-review\"",
+      "rig-create advance direction-review --by user --verbatim-file evidence/approval.txt",
       "rig-create review 2 --verdict accepted --by user --review direction-review --verbatim-file evidence/approval.txt --source synthetic example",
       "rig-create signoff direction-review --by user --verbatim-file evidence/approval.txt --version 2"
     ],
@@ -17,7 +17,7 @@
       "agent",
       "human",
       "agent",
-      "seed",
+      "human",
       "human",
       "human"
     ],
@@ -30,15 +30,9 @@
   },
   "expected_findings": {
     "refusals": [],
-    "warnings": [
-      {
-        "code": "STAGE_SKIPPED",
-        "path": "stage",
-        "message": "stage: post differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
-      }
-    ]
+    "warnings": []
   },
-  "project_sha256": "860e179d1c86875c03d278a1d7f2942e0c60609a1352b0207b8860479c67545c",
+  "project_sha256": "c5e33119675128723082f88068c1324cf91e83ebe2c612b8b1ad8de0177d9abb",
   "files": [
     {
       "path": ".gitignore",
@@ -250,31 +244,31 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "8f44ca88f55a460d53390aee8a58b1f6563774ff4452eee01ca0fd405bf7dba3"
+      "sha256": "cf7951d903f4fbc50ceff288c64c45fee1bb2b266b9726c1525f01fd5271131e"
     },
     {
       "path": "evidence/interview/camera_depth.json",
-      "sha256": "b0e0d3d87b06d5bf7039bae924cc0428ebe84b631a288e0de0112a701df41bc3"
+      "sha256": "4e8b2c31c36af4b898d773721e90717b79cf02bba5227ba746a59ac4f715ab20"
     },
     {
       "path": "evidence/interview/constraints.json",
-      "sha256": "d313fdd7fd305d9e91d67c325e15736ea6d1905de40fb5f7c26c1a791c3b254b"
+      "sha256": "dc3337beb67a886e85496b25810eb10d5bbe528c0c922bf81d241cd7a0ae7c1c"
     },
     {
       "path": "evidence/interview/meshes.json",
-      "sha256": "aa6ce5d84321ec4950ae5c6b32a5735080511e5ecdb8eaa0ef11811135767bee"
+      "sha256": "e567cffcf9def0eb4490b4299a31dd1959dc2eabb5108fcb719d8aa8e8abf0b8"
     },
     {
       "path": "evidence/interview/motion.json",
-      "sha256": "7d8f34c424759f231cfab6f01c420bf0bb515d6f3d776322e40e7247e9dca04d"
+      "sha256": "b5d6ee4789ffa08dfbb60bfb01eb56dd2ec91e2e0cd41207a998005ec1c86456"
     },
     {
       "path": "evidence/interview/post_composition.json",
-      "sha256": "50ce6a8d1fe1c59573a58a1994030cd618bcac49350c0f7ffff1eec145c04512"
+      "sha256": "d6f511bf5a35d6a392430bbab8a1974046ca28b7e3c7c7896e20e3802378222c"
     },
     {
       "path": "evidence/interview/post_timing.json",
-      "sha256": "643f2af9f143965b129bedbede59d3845d56b49bd3b708080a70ea9d1a3af7c4"
+      "sha256": "0baf1c87d89485d4dbcf927df31b0a6fa58c73c1bac361588751750d1a159d95"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -290,7 +284,7 @@
     },
     {
       "path": "evidence/parts-review.json",
-      "sha256": "a26b11e79c395d7cf3528fd9851592b83a9b020cbba2873ee3349b4f561ae06a"
+      "sha256": "2d932ca2391f08be8fe0346fff7ac27708c1e3f4d576f80f6d42fba2b8fb00ca"
     },
     {
       "path": "evidence/setup.png",
@@ -406,7 +400,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "860e179d1c86875c03d278a1d7f2942e0c60609a1352b0207b8860479c67545c"
+      "sha256": "c5e33119675128723082f88068c1324cf91e83ebe2c612b8b1ad8de0177d9abb"
     }
   ]
 }

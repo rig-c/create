@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from 'bun:test';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
+import { checkProject, collectItems } from '../src/check.ts';
+import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
+import { applicableAsks, optionContext, sha256 } from '../src/choices.ts';
 import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
 import { signoffCommand } from '../src/signoff.ts';
+import { reviewCommand } from '../src/feedback.ts';
 import { reopenCommand } from '../src/reopen.ts';
 import { Refusal } from '../src/refusal.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
@@ -40,8 +43,103 @@ function partsProject(stage = 'plan-approved', split = false): string {
   });
 }
 
+function interviewArrival(stage: string): string {
+  const dir = join(tempDir(), 'project');
+  const checkpoint = stage === 'rigging-interview' ? '2-rigging-answers' : '3-rig-review';
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), dir, { recursive: true });
+  if (stage === 'rigging-interview') {
+    const project = read(dir);
+    project.stage = 'parts-review';
+    project.advances = arr(project.advances ?? []).filter(raw => obj(raw).stage !== stage);
+    save(dir, project);
+  } else {
+    reviewCommand(['1', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', words(dir), '--source', 'synthetic approval']);
+    signoffCommand(['rig-review', dir, '--by', 'user', '--version', '1', '--verbatim-file', words(dir)]);
+    const project = read(dir);
+    const complete = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/project.json'), 'utf8')) as JsonObject;
+    obj(project.plan).steps = [...arr(obj(project.plan).steps), ...arr(obj(complete.plan).steps)
+      .filter(raw => obj(raw).phase === 'post').map(raw => ({ ...obj(raw), status: 'pending' }))];
+    save(dir, project);
+  }
+  return dir;
+}
+
 beforeEach(() => setSystemTime(new Date('2026-11-20T00:00:00Z')));
 afterEach(() => setSystemTime());
+
+test.each([
+  ['rigging-interview', ['bones', 'meshes', 'constraints', 'motion'].map(id => `interview.waypoints[${id}].guide`)],
+  ['post-interview', ['camera_depth', 'post_timing', 'post_composition'].map(id => `interview.post.items[${id}].guide`)],
+] as const)('advance admits only target-owned silent items on arrival at %s', (stage, paths) => {
+  const dir = interviewArrival(stage);
+  const before = read(dir);
+  advance(dir, stage);
+  const after = read(dir);
+  expect(after.stage).toBe(stage);
+  expect(after.interview).toEqual(before.interview);
+  expect(after.signoffs).toEqual(before.signoffs);
+  expect(arr(after.advances)).toHaveLength(arr(before.advances ?? []).length + 1);
+  expect(checkProject(dir).refusals.map(f => [f.code, f.path])).toEqual(paths.map(path => ['INTERVIEW_INCOMPLETE', path]));
+  expect(checkProject(dir).warnings).toEqual([]);
+  refused(dir, 'SIGNOFF_ANSWERS_UNANSWERED', () => signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]));
+});
+
+test.each(['rigging-interview', 'post-interview'])('arrival at %s preserves unrelated candidate refusals', stage => {
+  const dir = interviewArrival(stage);
+  const project = read(dir);
+  project.schema = 'invalid'; save(dir, project);
+  refused(dir, 'SCHEMA_UNKNOWN', () => advance(dir, stage));
+});
+
+test('post-interview arrival refuses a silent item owned by an earlier interview', () => {
+  const dir = interviewArrival('post-interview');
+  const project = read(dir);
+  obj(arr(obj(project.interview).waypoints).find(raw => obj(raw).id === 'bones')).guide = null;
+  save(dir, project);
+  expect(codes(dir)).toContain('WAYPOINT_SILENT');
+  refused(dir, 'SIGNOFF_ANSWERS_STALE', () => advance(dir, 'post-interview'));
+});
+
+test.each([
+  ['rigging-interview', 'rigging', 'WAYPOINT_SILENT'],
+  ['post-interview', 'post', 'POST_ITEM_SILENT'],
+] as const)('departure from %s refuses silent items', (stage, next, code) => {
+  const dir = interviewArrival(stage);
+  advance(dir, stage);
+  expect(checkProject(dir, { ...read(dir), stage: next }).refusals.map(f => f.code)).toContain(code);
+  refused(dir, 'ADVANCE_MALFORMED', () => advance(dir, next));
+});
+
+test.each([
+  ['rigging-interview', 'rigging', 'motion', 'WAYPOINT_SILENT'],
+  ['post-interview', 'post', 'composition', 'POST_ITEM_SILENT'],
+] as const)('departure from %s with valid authority still refuses a silent guide', (stage, next, unboundStep, code) => {
+  const dir = interviewArrival(stage);
+  const project = read(dir);
+  // This step rests on another guide, leaving its own guide outside the answer hashes.
+  step(project, unboundStep).rests_on = [stage === 'rigging-interview' ? 'bones' : 'camera_depth'];
+  save(dir, project);
+  advance(dir, stage);
+  const ids = stage === 'rigging-interview' ? ['bones', 'meshes', 'constraints', 'motion'] : ['camera_depth', 'post_timing', 'post_composition'];
+  for (const id of ids) {
+    const current = read(dir);
+    const item = collectItems(current, { collection: null }).find(item => item.id === id)!;
+    const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/evidence/interview', `${id}.json`), 'utf8'));
+    set.id = `departure-${id}`; set.drafted_at = new Date().toISOString();
+    set.context = optionContext(current, stage, Date.now());
+    const path = `evidence/interview/departure-${id}.json`;
+    const bytes = JSON.stringify(set); writeFileSync(join(dir, path), bytes);
+    interviewOptionsCommand([id, dir, '--file', path]);
+    interviewAnswerCommand([id, dir, '--set', path, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user',
+      ...applicableAsks(current, item, set).flatMap(ask => ['--pick', `${ask}=keep`])]);
+  }
+  signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  const approved = read(dir);
+  const item = collectItems(approved, { collection: null }).find(item => item.id === ids.at(-1))!;
+  expect(obj(obj(arr(approved.signoffs).at(-1)).answer_hashes)[item.id]).toBeUndefined();
+  item.record.guide = null; save(dir, approved);
+  refused(dir, code, () => advance(dir, next));
+});
 
 test.each([false, true])('lag control becomes green only through advance, split=%s', split => {
   const dir = partsProject('plan-approved', split);

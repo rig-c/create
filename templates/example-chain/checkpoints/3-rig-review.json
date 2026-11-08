@@ -20,15 +20,9 @@
   },
   "expected_findings": {
     "refusals": [],
-    "warnings": [
-      {
-        "code": "STAGE_SKIPPED",
-        "path": "stage",
-        "message": "stage: rig-review differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
-      }
-    ]
+    "warnings": []
   },
-  "project_sha256": "72627c77e976b380a6d178e3e2d01969ed9888286b372713828b058e28682836",
+  "project_sha256": "06d2a394389c62df7317ef4dd07b13f9abf9c41252a92264edee243fdb8af5d8",
   "files": [
     {
       "path": ".gitignore",
@@ -240,19 +234,19 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "8f44ca88f55a460d53390aee8a58b1f6563774ff4452eee01ca0fd405bf7dba3"
+      "sha256": "cf7951d903f4fbc50ceff288c64c45fee1bb2b266b9726c1525f01fd5271131e"
     },
     {
       "path": "evidence/interview/constraints.json",
-      "sha256": "d313fdd7fd305d9e91d67c325e15736ea6d1905de40fb5f7c26c1a791c3b254b"
+      "sha256": "dc3337beb67a886e85496b25810eb10d5bbe528c0c922bf81d241cd7a0ae7c1c"
     },
     {
       "path": "evidence/interview/meshes.json",
-      "sha256": "aa6ce5d84321ec4950ae5c6b32a5735080511e5ecdb8eaa0ef11811135767bee"
+      "sha256": "e567cffcf9def0eb4490b4299a31dd1959dc2eabb5108fcb719d8aa8e8abf0b8"
     },
     {
       "path": "evidence/interview/motion.json",
-      "sha256": "7d8f34c424759f231cfab6f01c420bf0bb515d6f3d776322e40e7247e9dca04d"
+      "sha256": "b5d6ee4789ffa08dfbb60bfb01eb56dd2ec91e2e0cd41207a998005ec1c86456"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -268,7 +262,7 @@
     },
     {
       "path": "evidence/parts-review.json",
-      "sha256": "a26b11e79c395d7cf3528fd9851592b83a9b020cbba2873ee3349b4f561ae06a"
+      "sha256": "2d932ca2391f08be8fe0346fff7ac27708c1e3f4d576f80f6d42fba2b8fb00ca"
     },
     {
       "path": "evidence/setup.png",
@@ -384,7 +378,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "72627c77e976b380a6d178e3e2d01969ed9888286b372713828b058e28682836"
+      "sha256": "06d2a394389c62df7317ef4dd07b13f9abf9c41252a92264edee243fdb8af5d8"
     }
   ]
 }

@@ -5,7 +5,7 @@ import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, STAGE_VALUES, hasStageOrder, stageIndex, stageOfStep } from './stages.ts';
+import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
 import { furthestStageSignoff, isSignoffIdentity, signoffIdentity, statusTransitionFinding } from './stage-progress.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -38,8 +38,20 @@ function options(args: string[], command: string): { positional: string[]; opts:
 
 function save(dir: string, file: string, project: JsonObject, forwardWrite = false): void {
   project.stage_values = [...(hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES)];
-  const first = checkProject(dir, project, { forwardWrite }).refusals[0];
-  if (first !== undefined) refuse(first.code, first.message);
+  const incomplete = new Map<string, number>();
+  if (forwardWrite && ['rigging-interview', 'post-interview'].includes(String(project.stage))) {
+    for (const item of collectItems(project, { collection: loadCollection(dir) })) {
+      if (item.state.state !== 'silent' || interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) !== project.stage) continue;
+      const key = `INTERVIEW_INCOMPLETE:${item.path}`;
+      incomplete.set(key, (incomplete.get(key) ?? 0) + 1);
+    }
+  }
+  for (const finding of checkProject(dir, project, { forwardWrite }).refusals) {
+    const key = `${finding.code}:${finding.path}`;
+    const remaining = incomplete.get(key) ?? 0;
+    if (!remaining) refuse(finding.code, finding.message);
+    incomplete.set(key, remaining - 1);
+  }
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
 }
 

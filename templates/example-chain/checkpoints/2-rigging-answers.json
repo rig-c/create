@@ -62,15 +62,9 @@
         "message": "interview.waypoints[motion].guide: not answered yet; the interview is incomplete"
       }
     ],
-    "warnings": [
-      {
-        "code": "STAGE_SKIPPED",
-        "path": "stage",
-        "message": "stage: rigging-interview differs from its latest recorded move (none); use advance for the next authorized stage or reopen the unfinished stage"
-      }
-    ]
+    "warnings": []
   },
-  "project_sha256": "1f10886466773c25ac51cd4b3dce3ad8f1abf117923284de9073049aea8093b1",
+  "project_sha256": "1b5c1f6b195f43464154edc9c3272754de9a3c0690760b7e524ebd3b36208394",
   "files": [
     {
       "path": ".gitignore",
@@ -194,7 +188,7 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "8f44ca88f55a460d53390aee8a58b1f6563774ff4452eee01ca0fd405bf7dba3"
+      "sha256": "cf7951d903f4fbc50ceff288c64c45fee1bb2b266b9726c1525f01fd5271131e"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -210,7 +204,7 @@
     },
     {
       "path": "evidence/parts-review.json",
-      "sha256": "a26b11e79c395d7cf3528fd9851592b83a9b020cbba2873ee3349b4f561ae06a"
+      "sha256": "2d932ca2391f08be8fe0346fff7ac27708c1e3f4d576f80f6d42fba2b8fb00ca"
     },
     {
       "path": "evidence/split-config.json",
@@ -234,7 +228,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "1f10886466773c25ac51cd4b3dce3ad8f1abf117923284de9073049aea8093b1"
+      "sha256": "1b5c1f6b195f43464154edc9c3272754de9a3c0690760b7e524ebd3b36208394"
     }
   ]
 }

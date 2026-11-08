@@ -40,15 +40,15 @@
       "stage": "plan-approved",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:15.000Z",
+      "at": "2026-11-06T01:00:16.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "steps": [
         "seethrough",
         "assemble"
       ],
       "step_hashes": {
-        "seethrough": "fdf6400c8a260dcee08e138c9c2125eb4f2f793ae89423baa6734dd0a0b7d648",
-        "assemble": "8c94740b2572230f118460bb1150c93190b43714cde0721a61ec099c6e34da63"
+        "seethrough": "e9ef85c8a64c77245272e44a4b88a8c948d671b08e20fe7a565808857636270c",
+        "assemble": "381fdf23fcec385e6c5d4031ead639b01c22b799b4bc9baf2fc905348f223bb6"
       },
       "answer_hashes": {
         "seethrough": "6bdef051023b59650b8339d366b26562b98b7ecd099089692e4ffca28fce0306",
@@ -59,19 +59,19 @@
       "stage": "parts",
       "checkpoint": "assemble",
       "by": "user",
-      "at": "2026-11-06T01:00:16.000Z",
+      "at": "2026-11-06T01:00:18.000Z",
       "verbatim": "Approve this synthetic geometric example.\n"
     },
     {
       "stage": "parts-review",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:18.000Z",
+      "at": "2026-11-06T01:00:21.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/parts-review.json",
-        "sha256": "a26b11e79c395d7cf3528fd9851592b83a9b020cbba2873ee3349b4f561ae06a"
+        "sha256": "2d932ca2391f08be8fe0346fff7ac27708c1e3f4d576f80f6d42fba2b8fb00ca"
       },
       "diff_map": {
         "report": {
@@ -90,7 +90,7 @@
       "stage": "rigging-interview",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:31.000Z",
+      "at": "2026-11-06T01:00:35.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "steps": [
         "bones",
@@ -99,23 +99,23 @@
         "motion"
       ],
       "step_hashes": {
-        "bones": "238307ee450351d21472b7061e0aa463c5b4dc24f0b5a2a17e4d52e731b9c067",
-        "meshes": "ee430c178ea2e9a1aaeac2066f1f08e1b939a1431e3f0413d976435806ecc2da",
-        "constraints": "f41eb1b2016792be374d4b0f9337bb2b73091a7d8070d63f989a96cd5bf973d0",
-        "motion": "23bedd087e6c8497cef1fa1dc5b863b355a1e81de21f977f0baf5ca60a0f5618"
+        "bones": "dd2af05ae668e8fad8cee031434a48cda1a2ce9e242214dd9bcbd4ba4a6f3296",
+        "meshes": "c8880068a686c78711866466e14a3d2996b32c207e612748fa3a9afd0e1fe44e",
+        "constraints": "2a5e78a842f85c58d28d9593aaae417abc15a123f5605313a76b55abb9fff7da",
+        "motion": "17dd86492211974cd2907157cf51021ab734132802529b643744b27bfcd09668"
       },
       "answer_hashes": {
-        "bones": "69deafc151f5ef33353a12deea0061b048fce330eebea57ae6569e221505296d",
-        "meshes": "b543ac7aff6ae5d47b03d5ceabbb0fc35d38eff34cd52333111fd01c56fc9ff3",
-        "constraints": "4fe890369cdc6e1a2395ffb6d39020039ad0098645f85559482c39b2feeb178d",
-        "motion": "419f9dac72053c67fc4e709c7c551b68e65d2dc294519c76a6e185c40e57e4b3"
+        "bones": "d6070826b2c30dee3ca4e69cadfd926b649bf75c895cb620aa2b5819293eef0f",
+        "meshes": "4b93c440c2f968bbb409bfcded756e8e70414aec04bfb93b04fc5a7f1c0fd75d",
+        "constraints": "2afc451e1ad129ed8951c9a2b0d5d94cab43c1f484e60eb017af214ed52565ad",
+        "motion": "4bd264d321355bb9b8bf104ac8e1e9914e3374639ea2d409e40824694b8a67b2"
       },
       "accepted_parts": {
-        "signoff_at": "2026-11-06T01:00:18.000Z",
+        "signoff_at": "2026-11-06T01:00:21.000Z",
         "evidence": {
           "kind": "parts-verdict",
           "path": "evidence/parts-review.json",
-          "sha256": "a26b11e79c395d7cf3528fd9851592b83a9b020cbba2873ee3349b4f561ae06a"
+          "sha256": "2d932ca2391f08be8fe0346fff7ac27708c1e3f4d576f80f6d42fba2b8fb00ca"
         }
       },
       "structure": {
@@ -459,14 +459,14 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:21.000Z",
+          "at": "2026-11-06T01:00:25.000Z",
           "verbatim": "Use the synthetic chains\nKeep the declared geometric example.\n\nUse the synthetic placement\nKeep the declared geometric example.\n\nUse the synthetic length\nKeep the declared geometric example.",
           "source": "review questionnaire",
           "choice": {
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/bones.json",
-              "sha256": "8f44ca88f55a460d53390aee8a58b1f6563774ff4452eee01ca0fd405bf7dba3"
+              "sha256": "cf7951d903f4fbc50ceff288c64c45fee1bb2b266b9726c1525f01fd5271131e"
             },
             "picks": [
               {
@@ -536,14 +536,14 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:24.000Z",
+          "at": "2026-11-06T01:00:28.000Z",
           "verbatim": "Use the synthetic bend\nKeep the declared geometric example.\n\nUse the synthetic rigid\nKeep the declared geometric example.\n\nUse the synthetic density\nKeep the declared geometric example.",
           "source": "review questionnaire",
           "choice": {
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/meshes.json",
-              "sha256": "aa6ce5d84321ec4950ae5c6b32a5735080511e5ecdb8eaa0ef11811135767bee"
+              "sha256": "e567cffcf9def0eb4490b4299a31dd1959dc2eabb5108fcb719d8aa8e8abf0b8"
             },
             "picks": [
               {
@@ -614,14 +614,14 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:27.000Z",
+          "at": "2026-11-06T01:00:31.000Z",
           "verbatim": "Use the synthetic effects\nKeep the declared geometric example.\n\nUse the synthetic strength\nKeep the declared geometric example.\n\nUse the synthetic extent\nKeep the declared geometric example.\n\nUse the synthetic gravity\nKeep the declared geometric example.\n\nUse the synthetic stops\nKeep the declared geometric example.",
           "source": "review questionnaire",
           "choice": {
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/constraints.json",
-              "sha256": "d313fdd7fd305d9e91d67c325e15736ea6d1905de40fb5f7c26c1a791c3b254b"
+              "sha256": "dc3337beb67a886e85496b25810eb10d5bbe528c0c922bf81d241cd7a0ae7c1c"
             },
             "picks": [
               {
@@ -727,14 +727,14 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:30.000Z",
+          "at": "2026-11-06T01:00:34.000Z",
           "verbatim": "Use the synthetic tracks\nKeep the declared geometric example.\n\nUse the synthetic extent\nKeep the declared geometric example.\n\nUse the synthetic speed\nKeep the declared geometric example.\n\nUse the synthetic loop\nKeep the declared geometric example.\n\nUse the synthetic blink\nKeep the declared geometric example.",
           "source": "review questionnaire",
           "choice": {
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/motion.json",
-              "sha256": "7d8f34c424759f231cfab6f01c420bf0bb515d6f3d776322e40e7247e9dca04d"
+              "sha256": "b5d6ee4789ffa08dfbb60bfb01eb56dd2ec91e2e0cd41207a998005ec1c86456"
             },
             "picks": [
               {
@@ -852,11 +852,11 @@
     },
     "rigging_context": {
       "accepted_parts": {
-        "signoff_at": "2026-11-06T01:00:18.000Z",
+        "signoff_at": "2026-11-06T01:00:21.000Z",
         "evidence": {
           "kind": "parts-verdict",
           "path": "evidence/parts-review.json",
-          "sha256": "a26b11e79c395d7cf3528fd9851592b83a9b020cbba2873ee3349b4f561ae06a"
+          "sha256": "2d932ca2391f08be8fe0346fff7ac27708c1e3f4d576f80f6d42fba2b8fb00ca"
         }
       },
       "structure": {
@@ -883,7 +883,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:15.000Z",
+          "at": "2026-11-06T01:00:16.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -903,7 +903,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:15.000Z",
+          "at": "2026-11-06T01:00:16.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": true
         },
@@ -923,7 +923,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:31.000Z",
+          "at": "2026-11-06T01:00:35.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -943,7 +943,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:31.000Z",
+          "at": "2026-11-06T01:00:35.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -963,7 +963,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:31.000Z",
+          "at": "2026-11-06T01:00:35.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -983,7 +983,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:31.000Z",
+          "at": "2026-11-06T01:00:35.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -1049,7 +1049,7 @@
       "n": 1,
       "kind": "rig",
       "rig_version": null,
-      "at": "2026-11-06T01:00:32.000Z",
+      "at": "2026-11-06T01:00:37.000Z",
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.16.0",
@@ -1251,11 +1251,401 @@
   ],
   "archive": null,
   "notes": [],
+  "advances": [
+    {
+      "stage": "plan-approved",
+      "from_stage": "interview",
+      "by": "user",
+      "at": "2026-11-06T01:00:15.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "interview",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:14.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "parts",
+      "from_stage": "plan-approved",
+      "by": "user",
+      "at": "2026-11-06T01:00:17.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:16.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "plan-approved",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:16.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "parts-review",
+      "from_stage": "parts",
+      "by": "user",
+      "at": "2026-11-06T01:00:20.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:16.000Z"
+        },
+        {
+          "stage": "parts",
+          "checkpoint": "assemble",
+          "at": "2026-11-06T01:00:18.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "plan-approved",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:16.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "rigging-interview",
+      "from_stage": "parts-review",
+      "by": "user",
+      "at": "2026-11-06T01:00:22.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:16.000Z"
+        },
+        {
+          "stage": "parts",
+          "checkpoint": "assemble",
+          "at": "2026-11-06T01:00:18.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:21.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "parts-review",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:21.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "rigging",
+      "from_stage": "rigging-interview",
+      "by": "user",
+      "at": "2026-11-06T01:00:36.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:16.000Z"
+        },
+        {
+          "stage": "parts",
+          "checkpoint": "assemble",
+          "at": "2026-11-06T01:00:18.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:21.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:35.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "rigging-interview",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:35.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "pending"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "stage": "rig-review",
+      "from_stage": "rigging",
+      "by": "user",
+      "at": "2026-11-06T01:00:39.000Z",
+      "post_not_passed": false,
+      "order": "split",
+      "signoffs_before": [
+        {
+          "stage": "interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:14.000Z"
+        },
+        {
+          "stage": "plan-approved",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:16.000Z"
+        },
+        {
+          "stage": "parts",
+          "checkpoint": "assemble",
+          "at": "2026-11-06T01:00:18.000Z"
+        },
+        {
+          "stage": "parts-review",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:21.000Z"
+        },
+        {
+          "stage": "rigging-interview",
+          "checkpoint": null,
+          "at": "2026-11-06T01:00:35.000Z"
+        }
+      ],
+      "verbatim": "Approve this synthetic geometric example.\n",
+      "signoff": {
+        "stage": "rigging-interview",
+        "checkpoint": null,
+        "at": "2026-11-06T01:00:35.000Z"
+      },
+      "steps_before": [
+        {
+          "id": "seethrough",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "assemble",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "bones",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "meshes",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "constraints",
+          "phase": "rig",
+          "status": "done"
+        },
+        {
+          "id": "motion",
+          "phase": "rig",
+          "status": "done"
+        }
+      ]
+    }
+  ],
   "drafts": [
     {
       "id": "chain",
       "kind": "draft-rig",
-      "at": "2026-11-06T01:00:17.000Z",
+      "at": "2026-11-06T01:00:19.000Z",
       "producer": {
         "name": "@rig-c/parts",
         "version": "2.16.0"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { partsReviewCommand } from './parts-review.ts';
 import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
 import { SCENE_HELP, sceneCommand } from './scene-writers.ts';
@@ -71,6 +72,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record a forward amendment and name lapsed approvals
   rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
                                                     record labelled draft artifacts without building or promoting
+  rig-create parts-review [<dir>] --from-review <actId> [--json]
+                                                    retain the semantic parts verdict as an independent write
   rig-create structure-snapshot [<dir>] --draft <id> --verdict <path> --out <path>
                                                     write the parts-review structure snapshot from the approved draft
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
@@ -203,6 +206,7 @@ const COMMANDS: Record<string, Command> = {
   'step-status': stepStatusCommand,
   amend: amendCommand,
   'draft-rig': draftRigCommand,
+  'parts-review': partsReviewCommand,
   'structure-snapshot': structureSnapshotCommand,
   correction: correctionCommand,
   scene: sceneCommand,

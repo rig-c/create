@@ -28,13 +28,15 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `REVIEW_API_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported API schema. Restore a live job using job-api@2 and fetch again. |
 | `REVIEW_ACT_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported act schema, explicitly including act@1. Request a new act@2 without migrating the old act. |
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <3.0.0`. Publish through an accepted installed Parts enumerator and review again. |
-| `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date or rig/post value is malformed. Restore the original act evidence or request a new act. |
-| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside rig/post review-verdict ingestion. Use the matching version and supported writer. |
+| `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date or rig/post or parts value is malformed. Restore the original act evidence or request a new act. |
+| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict or parts-verdict writer. Use the matching version and supported writer. |
 | `REVIEW_ACT_FETCH_REFUSED` | The live job refused or could not complete finalized-act fetch. The diagnostic retains the producer refusal code without exposing its private details. Restore the live job and its writer grant. |
-| `REVIEW_ACT_SOURCE_STALE` | A current source binding or retained version-entry identity differs from the displayed act. Restore the retained bytes or request a new review. Replays also refuse without changing the recorded verdict. |
+| `REVIEW_ACT_SOURCE_STALE` | A current source binding or retained version/draft-entry identity differs from the displayed act. Restore the retained bytes or request a new review. Replays also refuse without changing the recorded verdict. |
 | `REVIEW_ACT_REPLAY_CONFLICT` | A `(jobId, actId)` appears twice or its immutable value changed. Restore the original receipt and its single linked verdict. |
-| `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target or linked verdict is invalid. Restore the original receipt and verdict together. |
+| `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target, linked verdict or retained parts evidence is invalid. Restore the original receipt and verdict together. |
 | `REVIEW_ACT_VERSION_UNVERIFIED` | WARN on ingest when the acknowledged publication receipt is unavailable. The version-entry comparison was skipped, and all explicit source bindings were checked. Preserve private acknowledged receipts for future ingests. |
+| `PARTS_REVIEW_OPTION_INVALID` | `project.json.review_acts` received missing, duplicate or competing parts-review options. Use `parts-review --from-review <actId>` and submit human values through Review. |
+| `PARTS_REVIEW_EVIDENCE_CONFLICT` | The deterministic semantic evidence path contains different bytes or unsafe filesystem entries. Preserve that evidence and restore the original act before retrying. Refusal preserves the project record. |
 
 
 ```

@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
+import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion } from './job-writer.ts';
+import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
 import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
@@ -220,49 +223,64 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
   const id = positional[0];
   if (!id || !idPattern.test(id) || positional.length > 2 || !opts['--config'] || !opts['--from']) refuse('DRAFT_RIG_USAGE', DRAFT_RIG_HELP, USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
-  const { file, project } = readProject(dir);
-  const before = structuredClone(project);
-  const root = `derived/drafts/${id}`;
-  let record: JsonObject;
+  const release = acquireBoundJobWrite(dir);
+  let intent: PendingPublication | null = null;
+  const temporary = join(dir, `.draft-rig-record-${randomUUID()}.tmp`);
   try {
-    const from = opts['--from'];
-    const output = inventory(dir, from, root);
-    const has = (name: string): boolean => output.some(f => f.path === `${from}/${name}`);
-    const build = has('parts.json') && output.some(f => String(f.path).startsWith(`${from}/parts/`)) && has('rig/rig.json');
-    const standalone = has('rig.json');
-    if (build === standalone) throw new Error('ambiguous or missing build/standalone rig layout');
-    if (standalone && !opts['--parts']) throw new Error('standalone rig output needs --parts');
-    const parts = opts['--parts'] ?? from;
-    const partsFiles = partsInventory(dir, parts, root).files;
-    const rigPrefix = build ? `${from}/rig` : from;
-    for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
-    const configFile = fileAt(dir, opts['--config'], root);
-    if (!isObject(JSON.parse(readFileSync(configFile, 'utf8')))) throw new Error('config must be an object');
-    const configInputs = configInputBindings(dir, opts['--config']);
-    for (const input of configInputs) fileAt(dir, String(input.path), root);
-    const installed = locateParts(dir);
-    if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
-    const pkgFile = join(installed, 'package.json');
-    const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { name: string; version: string };
-    const stamp = stampBeside(`${rigPrefix}/rig.json`);
-    let producer: JsonObject = { name: pkg.name, version: pkg.version };
-    if (output.some(f => f.path === stamp)) {
-      try { producer = stampProducer(readFileSync(fileAt(dir, stamp, root)), stamp); } catch (error) {
-        if (error instanceof RunRecordError) refuse(error.code, `drafts[${id}]: ${error.path}: ${error.why}; re-run parts rig into the draft output so it writes run.json with its outputs, then record the draft`);
-        throw error;
+    const { file } = readProject(dir);
+    const original = readFileSync(file);
+    const project = JSON.parse(original.toString('utf8')) as JsonObject;
+    const before = structuredClone(project);
+    const root = `derived/drafts/${id}`;
+    let record: JsonObject;
+    try {
+      const from = opts['--from'];
+      const output = inventory(dir, from, root);
+      const has = (name: string): boolean => output.some(f => f.path === `${from}/${name}`);
+      const build = has('parts.json') && output.some(f => String(f.path).startsWith(`${from}/parts/`)) && has('rig/rig.json');
+      const standalone = has('rig.json');
+      if (build === standalone) throw new Error('ambiguous or missing build/standalone rig layout');
+      if (standalone && !opts['--parts']) throw new Error('standalone rig output needs --parts');
+      const parts = opts['--parts'] ?? from;
+      const partsFiles = partsInventory(dir, parts, root).files;
+      const rigPrefix = build ? `${from}/rig` : from;
+      for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
+      const configFile = fileAt(dir, opts['--config'], root);
+      if (!isObject(JSON.parse(readFileSync(configFile, 'utf8')))) throw new Error('config must be an object');
+      const configInputs = configInputBindings(dir, opts['--config']);
+      for (const input of configInputs) fileAt(dir, String(input.path), root);
+      const installed = locateParts(dir);
+      if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
+      const pkgFile = join(installed, 'package.json');
+      const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { name: string; version: string };
+      const stamp = stampBeside(`${rigPrefix}/rig.json`);
+      let producer: JsonObject = { name: pkg.name, version: pkg.version };
+      if (output.some(f => f.path === stamp)) {
+        try { producer = stampProducer(readFileSync(fileAt(dir, stamp, root)), stamp); } catch (error) {
+          if (error instanceof RunRecordError) refuse(error.code, `drafts[${id}]: ${error.path}: ${error.why}; re-run parts rig into the draft output so it writes run.json with its outputs, then record the draft`);
+          throw error;
+        }
       }
+      record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
+    } catch (error) {
+      if (error instanceof Refusal) throw error;
+      refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`);
     }
-    record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
-  } catch (error) {
-    if (error instanceof Refusal) throw error;
-    refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`);
-  }
-  if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
-  project.drafts = [...asArray(project.drafts), record];
-  const errors: Finding[] = [];
-  checkDrafts(dir, project, errors);
-  const first = errors[0] ?? newRefusals(dir, before, project, { now })[0];
-  if (first !== undefined) refuse(first.code, first.message);
-  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  return { stdout: json ? JSON.stringify(record, null, 2) : `draft-rig: recorded ${id}; no production version created`, exit: 0 };
+    if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
+    project.drafts = [...asArray(project.drafts), record];
+    const errors: Finding[] = [];
+    checkDrafts(dir, project, errors);
+    const first = errors[0] ?? newRefusals(dir, before, project, { now })[0];
+    if (first !== undefined) refuse(first.code, first.message);
+    const bytes = Buffer.from(`${JSON.stringify(project, null, 2)}\n`);
+    if (!readFileSync(file).equals(original)) refuse('DRAFT_RIG_FILE', 'project.json: draft source changed during registration; retry with frozen inputs');
+    intent = prepareDraftIntent(dir, bytes, id);
+    const fd = openSync(temporary, 'wx');
+    try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(temporary, file);
+    const directory = openSync(dir, 'r');
+    try { fsyncSync(directory); } finally { closeSync(directory); }
+    publishCommittedVersion(dir, id);
+    return { stdout: json ? JSON.stringify(record, null, 2) : `draft-rig: recorded ${id}; no production version created`, exit: 0 };
+  } finally { cancelUncommittedIntent(dir, intent); rmSync(temporary, { force: true }); release(); }
 }

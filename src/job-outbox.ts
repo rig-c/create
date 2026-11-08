@@ -218,7 +218,14 @@ export function enqueuePublication(root: string, binding: WriterBinding, result:
  */
 export function publicationVersionHash(bytes: Buffer, result: JobPublishRequest['result']): string | null {
   const selector = result.selector;
-  if (!selector || selector.kind === 'draft') refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a rig/post selector; restore the writer result');
+  if (!selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a result selector; restore the writer result');
+  if (selector.kind === 'draft') {
+    const project = JSON.parse(bytes.toString('utf8')) as { drafts?: { id: string }[] };
+    const found = project.drafts?.filter(draft => draft.id === selector.id) ?? [];
+    if (!found.length) return null;
+    if (found.length !== 1) refuse('JOB_PUBLICATION_INVALID', 'project.json: draft identity is ambiguous; restore its unique entry');
+    return jobHash(`${JSON.stringify(found[0], null, 2)}\n`);
+  }
   const project = JSON.parse(bytes.toString('utf8')) as { versions?: { n: number; kind: string }[] };
   if (!Array.isArray(project.versions)) refuse('JOB_PUBLICATION_INVALID', 'project.json: versions must be an array; restore the recorded rig/post');
   const found = project.versions.filter(version => version.n === selector.version);

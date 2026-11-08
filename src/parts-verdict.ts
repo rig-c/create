@@ -1,3 +1,4 @@
+import { checkPartsActEvidence } from './parts-act.ts';
 /**
  * The `parts-review` sign-off carries the verdict it rests on (rig-c/create#51):
  * `evidence: { kind: "parts-verdict", path, sha256 }`, where `path` is relative
@@ -17,7 +18,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
 
 import type { Finding } from './check.ts';
-import { refuse } from './refusal.ts';
+import { Refusal, refuse } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const PARTS_VERDICT_SCHEMA = 'rig-review-parts-verdict/1';
@@ -95,7 +96,7 @@ const RECORD_EVIDENCE = `the parts-review sign-off carries the verdict it rests 
  * whose source files are on disk as reviewed. Returns the covered parts.json
  * path only after a successful check, for deriving the difference-map stack.
  */
-export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, refusals: Finding[]): string | undefined {
+export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, refusals: Finding[], project?: JsonObject): string | undefined {
   const before = refusals.length;
   const push = (code: string, path: string, message: string): void => {
     refusals.push({ code, path, message });
@@ -149,6 +150,12 @@ export function checkPartsVerdict(dir: string, signoff: JsonObject, at: string, 
   }
   const v = parsed as JsonObject;
   const vAt = `${evPath} ${relPath}`;
+
+  if (v.schema === 'rig-review/act@2') {
+    try { return checkPartsActEvidence(dir, bytes, recorded, project); }
+    catch (error) { push(error instanceof Refusal ? error.code : 'PARTS_VERDICT_MALFORMED', evPath,
+      error instanceof Refusal ? error.message : `${evPath}: invalid semantic evidence; restore its recorded act`); return; }
+  }
 
   if (v.schema !== PARTS_VERDICT_SCHEMA && v.schema !== PARTS_VERDICT_SCHEMA_V2) {
     push('PARTS_VERDICT_SCHEMA_UNKNOWN', `${vAt} schema`, `${relPath}: schema is ${JSON.stringify(v.schema ?? null)}; this check reads ${PARTS_VERDICT_SCHEMA} or ${PARTS_VERDICT_SCHEMA_V2}; save a verdict with a supported rig-review parts view, as rig-review's parts view writes it`);
@@ -311,6 +318,12 @@ export function partsVerdictDraftFinding(dir: string, project: JsonObject, evide
     verdict = JSON.parse(bytes.toString('utf8')) as Json;
   } catch {
     return null;
+  }
+  if (isObj(verdict) && verdict.schema === 'rig-review/act@2') {
+    const source = isObj(verdict.source) ? verdict.source : {};
+    const selector = isObj(source.selector) ? source.selector : {};
+    return selector.kind === 'draft' && selector.id === draftId ? null : { code: 'PARTS_VERDICT_DRAFT_MISMATCH', path,
+      message: `${path}: semantic verdict names draft ${String(selector.id)} rather than ${String(draftId)}; use the reviewed draft id` };
   }
   const reviewed = isObj(verdict) && isObj(verdict.source) ? bindings(verdict.source.files) : null;
   const draft = Array.isArray(project.drafts) ? project.drafts.find(d => isObj(d) && d.id === draftId) : undefined;

@@ -66,10 +66,11 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
 /** Actual public create read contract, called only under the writer's freeze. */
 export const readPublished: JobPublicationReader = async ({ root, record, result }): Promise<JobPublishedContext> => {
   const bytes = publicationFile(root, record.path);
-  if (record.path !== 'project.json' || jobHash(bytes) !== record.sha256 || !result.selector || result.selector.kind === 'draft') {
+  if (record.path !== 'project.json' || jobHash(bytes) !== record.sha256 || !result.selector) {
     refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires the exact committed rig/post record; restore its bound bytes');
   }
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  if (result.selector.kind === 'draft') return readDraftPublished(root, project, result.selector.id, result.path);
   const selector = publicationSelector(project, result.selector.version);
   if (!isDeepStrictEqual(selector, result.selector) || result.path !== `review-live-v${selector.version}.json`) {
     refuse('JOB_PUBLICATION_INVALID', 'project.json: publication result differs from its recorded version; restore the writer result');
@@ -122,3 +123,60 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files,
   };
 };
+
+export function publishedDraft(project: JsonObject, id: string): JsonObject {
+  const drafts = Array.isArray(project.drafts) ? project.drafts as JsonObject[] : [];
+  const found = drafts.filter(draft => draft.id === id);
+  if (found.length !== 1) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: a unique retained draft is required; record a labelled draft with a new id`);
+  return found[0];
+}
+
+/** Retain the official positional inventory, including duplicate paths/roles. */
+export function draftPublishedContext(root: string, project: JsonObject, id: string): JobPublishedContext {
+  const draft = publishedDraft(project, id);
+  const parts = draft.parts as JsonObject;
+  const identities = [draft.config, ...(draft.config_inputs as JsonObject[] ?? []), ...(parts.files as JsonObject[]), ...(draft.files as JsonObject[])];
+  const files = identities.map(raw => {
+    const identity = raw as JsonObject;
+    const path = String(identity.path), sha256 = String(identity.sha256);
+    if (jobHash(publicationFile(root, path)) !== sha256) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: ${path} differs from its retained hash; restore the draft or record a new id`);
+    return { path, sha256 };
+  });
+  const manifestPath = `${String(parts.path)}/parts.json`;
+  const manifest = publicationFile(root, manifestPath);
+  const directory = dirname(join(root, manifestPath));
+  const images = partsEnumerator.enumerate(directory).map(row => ({ ...row,
+    sha256: jobHash(publicationFile(root, relative(root, resolve(directory, row.path)).split('\\').join('/'))) }));
+  const plan = project.plan as JsonObject | undefined;
+  return { selector: { kind: 'draft', id }, plan: plan ? { steps: (plan.steps as JsonObject[] ?? []).map(step => ({ id: String(step.id), hash: stepHash(step) })) } : null,
+    parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
+    subjects: [{ kind: 'parts-verdict', draftId: id }],
+    partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files };
+}
+
+export function prepareDraftManifest(root: string, project: JsonObject, id: string): string {
+  const context = draftPublishedContext(root, project, id);
+  const draft = publishedDraft(project, id);
+  const files = draft.files as JsonObject[];
+  const models = files.filter(file => String(file.path).endsWith('/skeleton.model.json'));
+  if (models.length > 1) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: multiple compiled models are ambiguous; retain one draft output`);
+  const revision = jobHash(`${JSON.stringify(draft, null, 2)}\n`);
+  const manifest = { schema: 'rig-review/1', id: `create-draft-${id}`, revision, title: `draft ${id}`,
+    ...(models.length ? { model: models[0].path } : {}),
+    references: context.parts!.images.map((image, index) => ({ id: `image-${index}`, label: `${image.role} ${image.path}`, type: 'image',
+      path: relative(root, resolve(root, dirname(context.parts!.manifest.path), image.path)).split('\\').join('/') })),
+    animations: [], checkpoints: [], authoring: files.filter(file => /\/(rig|motion|mesh_report)\.json$/.test(String(file.path)))
+      .map(file => ({ label: String(file.path).split('/').at(-1), path: file.path })) };
+  const path = `review-draft-${id}.json`;
+  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  if (existsSync(join(root, path))) {
+    if (!publicationFile(root, path).equals(bytes)) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
+  } else writeFileSync(join(root, path), bytes, { flag: 'wx' });
+  return path;
+}
+
+function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {
+  if (path !== `review-draft-${id}.json`) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its publication; restore the writer manifest`);
+  const context = draftPublishedContext(root, project, id);
+  return { ...context, files: [...context.files, { path, sha256: jobHash(publicationFile(root, path)) }] };
+}

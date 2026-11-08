@@ -1,0 +1,65 @@
+{
+  "schema": "rig-create/scene@1",
+  "n": 1,
+  "rig": {
+    "version": 2,
+    "acceptance": {
+      "signoff": {
+        "stage": "rig-review",
+        "checkpoint": null,
+        "at": "2026-11-08T00:00:51.000Z"
+      },
+      "verdict": "versions[1].verdicts[0]",
+      "review_package": {
+        "path": "versions[1].review_package",
+        "sha256": "c09df0726c6bc421e34c1ce74503f333dd8a6f6a370d1a7b449ce4b61f094c27"
+      }
+    },
+    "model": {
+      "path": "derived/review/v2/out/check/build/skeleton.model.json",
+      "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+    },
+    "animation": {
+      "name": "idle"
+    }
+  },
+  "frame": {
+    "space": "rig-world-y-up",
+    "stage": {
+      "x": -64,
+      "y": 0,
+      "width": 128,
+      "height": 128
+    }
+  },
+  "plates": [
+    {
+      "role": "background",
+      "path": "evidence/scene-background.png",
+      "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+      "width": 128,
+      "height": 128,
+      "rect": {
+        "x": -64,
+        "y": 0,
+        "width": 128,
+        "height": 128
+      },
+      "registered": {
+        "kind": "input",
+        "ref": "inputs[2]"
+      },
+      "citation": {
+        "guide": "post_composition",
+        "asks": [
+          "post_composition"
+        ],
+        "quote": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-08T00:00:56.000Z in post-interview, chat"
+      }
+    }
+  ],
+  "layers": [
+    "background",
+    "rig"
+  ]
+}

@@ -23,12 +23,12 @@ test('signed build tools match the installed draft producers', () => {
   });
 });
 
-test('signed post build tools come from the installed producers', () => {
+test('signed post tools retain producer versions and identify the authored direction writer', () => {
   const installed = Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [name,
     (JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')) as { version: string }).version,
   ]));
   const posts = (readTemplate('example-project.json').versions as { kind: string; built_with: unknown }[]).filter(version => version.kind === 'post');
-  expect(posts.map(version => version.built_with)).toEqual(posts.map(() => installed));
+  expect(posts.map(version => version.built_with)).toEqual([installed, { create: 'direction@2' }]);
 });
 
 test('retiming preserves event order and simultaneous instants from the frozen narrative', () => {

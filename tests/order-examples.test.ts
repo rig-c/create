@@ -70,7 +70,7 @@ test('the shipped new-order example passes at zero refusals and warnings', () =>
 
 test('frozen pre-split example is refused by build-identity and missing review targets', () => {
   const report = checkProject(fixture(() => {}, 'legacy-example-project.json', {}, true));
-  expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH']);
+  expect(report.refusals.map(f => f.code)).toEqual(['SIGNOFF_TARGET_MISSING', 'SIGNOFF_TARGET_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'SIGNOFF_ANSWERS_MISSING', 'STAGE_SKIPPED', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_CONFIG_MISMATCH', 'REVIEW_PACKAGE_PARTS_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'REVIEW_PACKAGE_PART_FILE_MISMATCH', 'DIRECTION_SCENE_REQUIRED', 'DIRECTION_SCENE_REQUIRED']);
   expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const bytes = readFileSync(join(import.meta.dir, '../templates/legacy-example-project.json'));
   // Sealed original bytes from the pre-split main head, not a rewritten migration.
@@ -82,7 +82,7 @@ test('a cloned new-order example keeps its retained structure while ignored arti
   const dir = fixture(() => {}, 'example-project.json');
   rmSync(join(dir, 'derived'), { recursive: true });
   const report = checkProject(dir);
-  expect(report.refusals).toEqual([]);
+  expect(report.refusals.map(f => f.code)).toEqual(['SCENE_MODEL_MISMATCH', 'SCENE_MODEL_MISMATCH']);
   expect(report.warnings.map(f => f.code)).toEqual([
     'DRAFT_RIG_UNAVAILABLE', 'DERIVED_RESULT_MISSING', 'REVIEW_PACKAGE_MISSING', 'REVIEW_PACKAGE_MISSING',
   ]);

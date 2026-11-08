@@ -82,7 +82,7 @@ test.each(['missing', 'changed'])('writer refuses %s authored document atomicall
 });
 
 test('reader catches distinct disk drift, record drift, bounced path and wrong version kind', () => {
-  const dir = fixture(() => {}, 'example-project.json'); const p = load(dir);
+  const dir = fixture(); const p = load(dir);
   const signed = arr(p.signoffs).map(obj).find(s => s.stage === 'rig-review')!;
   writeFileSync(join(dir, 'derived/review/v2/config.json'), '{"distinct":"reader disk drift"}\n');
   expect(checkProject(dir, p).refusals.map(f => f.code)).toContain('REVIEW_PACKAGE_CHANGED');
@@ -126,7 +126,7 @@ test('live target removes default candidate, while reopening makes it selectable
 });
 
 test('post config drift is stale and source locations are excluded from package content', () => {
-  const dir = fixture(() => {}, 'example-project.json'); const p = load(dir);
+  const dir = fixture(); const p = load(dir);
   const signatures = arr(p.signoffs).map(obj);
   const post = signatures.find(s => s.stage === 'direction-review')!;
   obj(obj(arr(p.versions)[3]).provenance).config = { path: 'evidence/changed-take.json', sha256: 'b'.repeat(64) };

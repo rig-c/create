@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
+import { SCENE_HELP, sceneCommand } from './scene-writers.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -39,6 +40,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
   rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
   rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
+  rig-create scene write --rig <R> --background <path> --citations-file <file> --by <human> [<dir>]
   rig-create derived add [<dir>] --source <file> --file <file> --operation <text>
                                                     record external preparation and both file hashes
   rig-create interview --check [<project dir>] [--json]
@@ -102,6 +104,8 @@ ${AMEND_HELP}
 ${DRAFT_RIG_HELP}
 
 ${CORRECTION_HELP}
+
+${SCENE_HELP}
 
 ${DIRECTION_HELP}
 
@@ -184,6 +188,7 @@ const COMMANDS: Record<string, Command> = {
   amend: amendCommand,
   'draft-rig': draftRigCommand,
   correction: correctionCommand,
+  scene: sceneCommand,
   direction: directionCommand,
 
   derived: derivedCommand,

@@ -95,7 +95,7 @@ test('candidate translation uses the supplied record without rereading or writin
 test('actual answer writer changes the next derived report, with the previous report preserved', () => {
   try {
     const dir = fixture(p => {
-      p.stage = 'rigging-interview'; p.versions = [];
+      p.stage = 'rigging-interview'; p.versions = []; p.scenes = []; delete p.direction_contract;
       retainSignoffs(p, s => stageIndex(String(obj(s).stage)) < stageIndex('rigging-interview'));
       for (const step of arr(obj(p.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
       for (const item of arr(obj(obj(p.interview).post).items).map(obj)) item.guide = null;

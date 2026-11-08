@@ -31,6 +31,7 @@ function partsProject(stage = 'plan-approved', split = false): string {
   return fixture(p => {
     p.stage = stage; p.versions = [];
     p.signoffs = arr(p.signoffs).slice(0, 2);
+    retimeFixture(p, Date.parse('2026-11-16T00:00:00Z'));
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
     if (split) {
       obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-07T00:00:00Z' };

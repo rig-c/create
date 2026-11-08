@@ -25,6 +25,7 @@ import * as progress from '../src/progress-writers.ts';
 import * as reopen from '../src/reopen.ts';
 import * as review from '../src/review.ts';
 import * as rigVersion from '../src/rig-version.ts';
+import * as sceneWriters from '../src/scene-writers.ts';
 import * as signoff from '../src/signoff.ts';
 import * as cli from '../src/cli.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -58,6 +59,8 @@ export const recordVerdict = (dir: string, input: feedback.ReviewInput): ReturnT
 export const handoff = (dir: string, rig: number | null): ReturnType<typeof review.handoff> => review.handoff(dir, rig, current);
 export const directionCommand = (args: string[], hooks?: directionWriters.DirectionWriteHooks): ReturnType<typeof directionWriters.directionCommand> =>
   directionWriters.directionCommand(args, current, hooks);
+export const sceneCommand = (args: string[], hooks?: sceneWriters.SceneWriteHooks): ReturnType<typeof sceneWriters.sceneCommand> =>
+  sceneWriters.sceneCommand(args, current, hooks);
 
 const at = <R>(command: (args: string[], now: number) => R) => (args: string[]): R => command(args, current);
 export const advanceCommand = at(progress.advanceCommand);

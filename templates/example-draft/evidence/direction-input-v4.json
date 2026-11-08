@@ -1,0 +1,64 @@
+{
+  "schema": "rig-create/direction@2",
+  "scene": {
+    "n": 1,
+    "path": "evidence/scene/s1.json",
+    "sha256": "569d970023a1dc63a19705694a05a02dc8f4e3e42aa7488524434301d56042fd"
+  },
+  "rig": {
+    "version": 2,
+    "model": {
+      "path": "derived/review/v2/out/check/build/skeleton.model.json",
+      "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+    }
+  },
+  "take": {
+    "duration": 8,
+    "loop": true
+  },
+  "camera": {
+    "space": "rig-world-y-up",
+    "keys": [
+      {
+        "time": 0,
+        "box": {
+          "x": -60,
+          "y": 0,
+          "width": 120,
+          "height": 120
+        },
+        "easing": "linear"
+      }
+    ]
+  },
+  "timing": {
+    "keys": [
+      {
+        "time": 0,
+        "source_time": 0,
+        "easing": "linear"
+      },
+      {
+        "time": 8,
+        "source_time": 8,
+        "easing": "hold"
+      }
+    ]
+  },
+  "citations": {
+    "camera": {
+      "guide": "camera_depth",
+      "asks": [
+        "camera_depth"
+      ],
+      "quote": "A slow push-in, no parallax.\nAs answered on 2026-11-08T00:00:53.000Z in post-interview, chat"
+    },
+    "timing": {
+      "guide": "post_timing",
+      "asks": [
+        "post_timing"
+      ],
+      "quote": "Eight seconds, looping. The beam sweeps past once, near the end.\nAs answered on 2026-11-08T00:00:55.000Z in post-interview, chat"
+    }
+  }
+}

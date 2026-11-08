@@ -8,7 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { PARTS_REVIEW_SINCE, STAGE_VALUES, STAGES } from '../src/stages.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, codes, fixture, historicalFixture, obj, rehashSignoffs, step, withCode } from './fixtures.ts';
+import { arr, codes, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture, step, withCode } from './fixtures.ts';
 import { checkProject } from './clock.ts';
 
 const BEFORE_RIGGING = new Set(['interview', 'plan-approved', 'parts', 'parts-review']);
@@ -28,6 +28,8 @@ function atRiggingStart(p: JsonObject): void {
   dropSignoffs(p, (s) => BEFORE_RIGGING.has(String(s.stage)) && !(s.stage === 'plan-approved' && Array.isArray(s.steps)));
   for (const s of arr(obj(p.plan).steps).map(obj)) if (s.phase === 'post' || LATER_RIG_STEPS.includes(String(s.id))) s.status = 'pending';
   p.versions = [];
+  const boundAnswers = arr(p.signoffs).some(raw => obj(raw).answer_hashes !== undefined);
+  retimeFixture(p, Date.parse('2026-11-16T00:00:00Z'), boundAnswers);
 }
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
@@ -213,7 +215,9 @@ describe('a project that passed plan-approved before the stages existed', () => 
     const report = checkProject(
       historicalFixture((p) => {
         inFlight(p);
-        arr(p.signoffs).push({ stage: 'parts-review', checkpoint: null, by: 'user', at: '2026-10-12T10:00:00Z', verbatim: 'parts are fine' });
+        const firstRig = obj(arr(p.versions)[0]);
+        const at = new Date(Date.parse(String(firstRig.at)) - 1000).toISOString();
+        arr(p.signoffs).push({ stage: 'parts-review', checkpoint: null, by: 'user', at, verbatim: 'parts are fine' });
       }),
     );
     expect(codes(report)).toEqual([]);
@@ -223,8 +227,8 @@ describe('a project that passed plan-approved before the stages existed', () => 
   test('one signed before the stages existed but still at plan-approved goes through them: no exemption', () => {
     const report = checkProject(
       historicalFixture((p) => {
-        inFlight(p);
         atRiggingStart(p);
+        inFlight(p);
         p.stage = 'plan-approved';
         dropSignoffs(p, (s) => s.stage === 'interview' || s.stage === 'plan-approved');
         for (const s of arr(obj(p.plan).steps).map(obj)) s.status = 'pending';

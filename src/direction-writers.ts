@@ -2,7 +2,7 @@
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectItems, collectSignoffs, loadCollection, isObject, type Finding } from './check.ts';
-import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBinding, directionBytes, directionContract, directionFail, directionHash, directionJson, directionPath, directionVersion, objects, patchDirection, readDirection, validateDirectionCitations, validateDirectionRig, validateDirectionShape } from './direction.ts';
+import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBinding, directionBytes, directionContract, directionFail, directionHash, directionJson, directionPath, directionVersion, objects, patchDirection, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { handoff } from './review.ts';
@@ -79,12 +79,14 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
         if(item.state.state==='user'||item.state.state==='delegated')answers.push(item.state.answer);
         for(const answer of answers)if(isObject(answer)&&isObject(answer.choice)&&isObject(answer.choice.set)&&typeof answer.choice.set.path==='string')snapshot(answer.choice.set.path);
       }
+      requireDirectionScene(doc, now, 'direction.schema');
+      validateDirectionScene(dir, project, doc, true, snapshots);
       validateDirectionRig(dir,project,doc,true);validateDirectionCitations(dir,project,doc,true);
       handoff(dir,Number((doc.rig as JsonObject).version),now);
       snapshot(String(((doc.rig as JsonObject).model as JsonObject).path));
 
       const binding={path:directionPath(n),sha256:directionHash(bytes)};
-      const version:JsonObject={n,kind:'post',rig_version:(doc.rig as JsonObject).version as number,at:new Date(now).toISOString(),built_by:'agent',built_with:{create:'direction@1'},changed:'Authored camera and timing direction',outputs:[binding],evidence:[],verdicts:[],answers_feedback:[],review_origin:null,provenance:{config:binding,direction:binding,sections:{camera:[{entry:'camera',...((doc.citations as JsonObject).camera as JsonObject)}],timing:[{entry:'timing',...((doc.citations as JsonObject).timing as JsonObject)}]}}};
+      const version:JsonObject={n,kind:'post',rig_version:(doc.rig as JsonObject).version as number,at:new Date(now).toISOString(),built_by:'agent',built_with:{create:String(doc.schema).slice('rig-create/'.length)},changed:'Authored camera and timing direction',outputs:[binding],evidence:[],verdicts:[],answers_feedback:[],review_origin:null,provenance:{config:binding,direction:binding,sections:{camera:[{entry:'camera',...((doc.citations as JsonObject).camera as JsonObject)}],timing:[{entry:'timing',...((doc.citations as JsonObject).timing as JsonObject)}]}}};
       if(action==='patch'){const patch=directionJson(snapshots.get(opts['--patch-file'] as string) as Buffer,'direction.patch');version.direction_origin={source_post:patch.source_post as number,patch:directionBinding(dir,opts['--patch-file'] as string),result:binding};}
       next.versions=[...asArray(next.versions),version];
       // Validate using the exact staged bytes at their final immutable path, before committing the record.

@@ -1,3 +1,5 @@
+import { currentScene, sceneReference } from '../src/scene.ts';
+import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
 import { retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
@@ -64,7 +66,7 @@ test('patch rejects base hash mismatch, unknown fields, empty replacements and n
 for(const kind of ['rig','draft','parts'] as const){test(`direction identity cannot be ${kind}`,()=>{const f=setup();write(f.dir);const identity=directionPostIdentity(f.dir,f.load(),2);identity.kind=kind;refuses('DIRECTION_CORRECTION_OUTCOME',()=>validateDirectionIdentity(f.dir,f.load(),identity));});}
 test('@1 cannot smuggle direction-patch',()=>{const f=setup();write(f.dir);patchFile(f);record(f);const p=f.load();objects(p.corrections)[0]!.schema='rig-create/correction@1';const ctx={dir:f.dir,project:p,refusals:[] as Finding[],warnings:[] as Finding[]};checkCorrections(ctx);expect(ctx.refusals.map(f=>f.code)).toContain('CORRECTION_MALFORMED');});
 test('current citation refuses pending delegation; decided delegation validates through provenance',()=>{const f=setup();const p=f.load();const item=objects(((p.interview as JsonObject).post as JsonObject).items)[0]!;item.guide={delegated:true,by:'user',at:'2026-11-04T08:00:00Z',verbatim:'You choose',asks:[{id:'camera_depth',state:'delegated'}]};(f.doc.citations as JsonObject).camera={guide:'camera_depth',asks:['camera_depth'],delegated:true};refuses('DIRECTION_CITATION',()=>validateDirectionCitations(f.dir,p,f.doc,true));(item.guide as JsonObject).agent_decision={by:'agent',at:'2026-11-04T08:10:00Z',reasoning:'Fixed frame',value:{camera:'fixed'}};validateDirectionCitations(f.dir,p,f.doc,true);});
-test('checker integrates new codes without changing unrelated legacy warning lists',()=>{const f=setup();const before=checkProject(f.dir).warnings.map(f=>f.code);write(f.dir);expect(checkProject(f.dir).warnings.map(f=>f.code)).toEqual(before);});
+test('historical direction adds its named scene warning to the legacy warnings',()=>{const f=setup();const before=checkProject(f.dir).warnings.map(f=>f.code);write(f.dir);expect(checkProject(f.dir).warnings.map(f=>f.code)).toEqual([...before,'DIRECTION_SCENE_REQUIRED']);});
 
 test('new post dates after setup contract still do not invent parts requirements',()=>{const f=setup();testClock.set(new Date('2026-11-07T09:00:00Z'));write(f.dir);expect(checked(f.dir)).toEqual([]);expect(checkProject(f.dir).refusals.filter(r=>r.path.includes('versions[v2]') && r.code.startsWith('SETUP_PAINTING'))).toEqual([]);});
 test('reopen releases closed review; adopted empty post list stays valid',()=>{const f=setup();const p=f.load();p.signoffs=[...objects(p.signoffs),{stage:'direction-review',checkpoint:null,by:'user',at:'2026-11-04T08:50:00Z',verbatim:'Accept'}];p.reopens=[{stage:'direction-review',from_stage:'direction-review',by:'user',at:'2026-11-04T08:55:00Z',verbatim:'Redo camera',steps_before:[]}];f.save(p);write(f.dir);expect(checked(f.dir)).toEqual([]);});
@@ -104,6 +106,7 @@ test('authored document integrates into filled project at 0/0 and packaging cann
   testClock.set(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;const f=setup();testClock.set(new Date('2026-11-21T09:10:00Z'));
   const doc=f.doc;doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
+  doc.schema=DIRECTION_SCENE_SPEC;doc.scene=sceneReference(currentScene(p)!);
   const items=collectItems(p,{collection:null});for(const[section,id]of [['camera','camera_depth'],['timing','post_timing']]){const item=items.find(i=>i.id===id)!;(doc.citations as JsonObject)[section!]={guide:id!,asks:[id!],quote:(item.raw as JsonObject).verbatim as string};}
   writeFileSync(join(dir,'evidence/input-direction.json'),JSON.stringify(doc));directionCommand(['write','5',dir,'--file','evidence/input-direction.json','--rig','2']);
   const report=checkProject(dir);expect(report.refusals).toEqual([]);expect(report.warnings).toEqual([]);
@@ -134,6 +137,7 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   const f=setup();testClock.set(new Date('2026-11-21T09:10:00Z'));const doc=f.doc;
   doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
   (doc.camera as JsonObject).keys=[objects((doc.camera as JsonObject).keys)[0]!];
+  doc.schema=DIRECTION_SCENE_SPEC;doc.scene=sceneReference(currentScene(p)!);
   const items=collectItems(p,{collection:null});for(const[section,id]of [['camera','camera_depth'],['timing','post_timing']]){const item=items.find(i=>i.id===id)!;(doc.citations as JsonObject)[section!]={guide:id!,asks:[id!],quote:(item.raw as JsonObject).verbatim as string};}
   const input=join(dir,'evidence/input-direction.json');writeFileSync(input,JSON.stringify(doc));
   expect(directionCommand(['write','5',dir,'--file','evidence/input-direction.json','--rig','2']).exit).toBe(0);

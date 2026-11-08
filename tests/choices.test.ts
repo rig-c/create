@@ -5,7 +5,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectItems, isObject, asArray } from '../src/check.ts';
-import { CHOICE_SPEC, CHOICE_ORDER_SPEC, sha256, validateSet, assembleFragments, checkChoiceConstraints, type ChoiceError } from '../src/choices.ts';
+import { CHOICE_SPEC, CHOICE_ORDER_SPEC, sha256, optionContext, validateSet, assembleFragments, checkChoiceConstraints, type ChoiceError } from '../src/choices.ts';
 import { FRAMING_IDS } from '../src/waypoints.ts';
 import { GUIDE_INTERVIEW, hasStageOrder, stageIndex } from '../src/stages.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -20,7 +20,7 @@ function code(action:()=>unknown):string {try{action();return 'NO_REFUSAL';}catc
 function working(question='motion'): {dir:string;set:JsonObject;path:string;hash:string} {
   const source=['rig_type','reference','assemble','seethrough'].includes(question);
   const dir=fixture(p=>{
-    p.stage=source?'interview':'rigging-interview';p.versions=[];
+    p.stage=source?'interview':'rigging-interview';p.versions=[];p.scenes=[];delete p.direction_contract;
     retainSignoffs(p, s => stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
     for(const s of arr(obj(p.plan).steps).map(obj))if(source||!['seethrough','assemble'].includes(String(s.id)))s.status='pending';
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
@@ -29,6 +29,7 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
   const p=load(dir);const item=current(p,question);const original=obj(obj(item.raw).choice).set as JsonObject;
   const set=JSON.parse(readFileSync(join(dir,String(original.path)),'utf8')) as JsonObject;
   set.id=`test-${question}`;set.drafted_at=source?'2026-11-10T14:10:00Z':'2026-11-11T11:20:00Z';
+  set.context=optionContext(p,String(set.stage),Date.parse(set.drafted_at as string));
   const path=`evidence/interview/test-${question}.json`;const bytes=JSON.stringify(set,null,2)+'\n';writeFileSync(join(dir,path),bytes);
   testClock.set(new Date(source?'2026-11-10T14:11:00Z':'2026-11-11T11:21:00Z'));
   interviewOptionsCommand([question,dir,'--file',path]);

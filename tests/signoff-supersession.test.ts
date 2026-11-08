@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, framing, obj, waypoint } from './fixtures.ts';
-import { checkProject, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { checkProject, directionCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -15,7 +15,9 @@ function sign(dir: string, stage: string, steps?: string): void {
 }
 
 test('feedback additions can be approved by partial rigging and post re-signatures', () => {
-  const dir = fixture(() => {}, 'example-project.json', {}, true);
+  const dir = fixture(p => { delete p.direction_contract; }, 'example-project.json', {}, true);
+  testClock.set(new Date('2026-11-19T00:00:00Z'));
+  directionCommand(['--adopt', dir]);
   const original = arr(load(dir).signoffs);
   reviewCommand(['4', dir, '--review', 'direction-review', '--verdict', 'provisional', '--by', 'user', '--source', 'chat',
     '--at', '2026-11-20T00:00:00Z', '--verbatim', 'Add a slower pause and hold the camera.', '--item', 'motion:not-asked', '--item', 'camera_depth:not-asked']);

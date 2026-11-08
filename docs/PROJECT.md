@@ -1707,3 +1707,89 @@ exactly one of `review_package`, `outputs`, `direction` or `post_config`.
 The operative verdict is the last human, non-provisional verdict for that
 review stage. It must be accepted, and the target must name that exact verdict.
 A later human bounce makes the earlier bound acceptance stale.
+
+
+## Scene composition and direction@2
+
+`scene write --rig <R> --background <path> [--foreground <path>]
+[--background-rect x,y,w,h] [--foreground-rect x,y,w,h]
+--citations-file <file> --by <human> [<dir>]` derives the latest accepted rig,
+live rig-review signoff target, compiled model and stage. It appends
+`scenes[]` entries `{n,path,sha256,at,by}` and immutable
+`evidence/scene/s<N>.json` documents with schema `rig-create/scene@1`.
+The project append commits the scene. Unreferenced files are ignored.
+The latest entry is current. Existing documents stay byte-identical.
+
+The closed document contains `schema`, `n`, `rig`, `frame`, `plates`, `layers`.
+`rig` contains `version`, `acceptance`, `model` and `animation`.
+`acceptance` retains `signoff:{stage:"rig-review",checkpoint:null,at}`,
+`verdict` and `review_package:{path,sha256}` from the live signoff target.
+`model` is the accepted package's compiled `{path,sha256}` binding.
+The writer selects `animation.name:"idle"`. `animation.frames` is present
+exactly when the version declares `registration.idle`, and equals that binding.
+Each SHA-256 binds raw file bytes.
+
+`frame.space` is `rig-world-y-up`. `frame.stage` copies the compiled model's
+stage field for field. Plate `rect:{x,y,width,height}` uses rig world units
+and its bottom-left corner. Rects default to that stage, allow extension past
+it and require uniform scale within relative 1e-9. Plate `width` and `height`
+come from PNG IHDR. Declare one background and at most one foreground, with
+distinct paths and hashes. `layers` is `["background","rig"]` or
+`["background","rig","foreground"]` accordingly. A declared foreground
+is validated fully.
+
+The citations file is a map of the declared roles to
+`{guide:"post_composition",asks:["post_composition"],quote:"recorded words"}`
+or the same citation with `delegated:true` replacing `quote`.
+Each plate stores this human designation, its path, sha256, pixel size, rect,
+and `registered:{kind:"input"|"derived",ref:"inputs[i]"|"derived[i]"}`.
+Inputs must match by path and hash. A derived registration requires every
+`prepared-input` source/sources hop to match by path and hash and terminate
+in registered inputs. Missing result hashes and cycles refuse.
+Register a plate with `input add` before `scene write` names it.
+
+`rig-create/direction@2` keeps @1's camera, timing, take and citations and adds
+required `scene:{n,path,sha256}` equal to a committed scene entry. Its rig and
+model equal the scene's. Camera boxes and plates share rig-world-y-up units.
+Current authoring and the current live post must cite the latest scene.
+With no live post, no scene is current.
+SCENE_RIG_STALE, lapsed-signoff SCENE_ACCEPTANCE_STALE and
+DIRECTION_SCENE_STALE share one currentness gate. Every committed scene
+retains its historical human acceptance and matching review-package identity,
+plus all schema, file, model, animation, frame, plate, registration and citation
+checks. Reopening preserves these historical records. The next accepted rig
+gets a new scene number.
+Post identity gains `scene:{path,sha256}`. Patches retain their existing
+whole-section schema, so a scene change is a new post.
+
+Existing direction-contract@1 adoption is preserved. Grandfathered posts
+need no document and bypass both direction schemas. Historical @1 documents
+remain readable. Earlier @1 posts warn with DIRECTION_SCENE_REQUIRED.
+Posts from DIRECTION_SCENE_SINCE require @2. The parent finalizes the one
+exported cutoff to the implementation's UTC landing day before merge and
+checks every live pilot for new same-day refusals.
+
+Post option sets drafted with a scene use
+`{kind:"scene",scene:{n,path,sha256}}`. Their freshness requires unchanged
+scene bytes and that scene still being current. Existing rig contexts keep
+their original identity and remain valid under their existing rules.
+
+### Publication and review read boundary
+
+Publication (#184) retains and raw-byte-seals the scene document, its model,
+plates and optional frames as `files[]` rows using the scene's hashes.
+Every texture page needed by the model is retained and sealed through the
+existing review-package inventory or published files[]. The scene adds no
+page field or second hash domain. Parts keep their manifest and image seals.
+`projectHash` seals raw project.json bytes in rig-review-job-source/2.
+
+Review selects the scene from the retained project, an option context or
+direction document and resolves it against that publication's retained
+project root. Every dependency is read from that same snapshot.
+The files[] inventory does not select a scene.
+
+For viewport `(vx,vy,vw,vh)` and scale `s`, Canvas projects a plate by its top
+edge. Destination left is `(rect.x-vx)*s`, top is
+`(vy+vh-rect.y-rect.height)*s`, width is `rect.width*s`, height is
+`rect.height*s`. Foreground is optional. Review #482 owns that consumer
+change and the inspection camera default. Create performs no rendering.

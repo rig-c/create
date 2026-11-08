@@ -14,7 +14,7 @@ import { type CheckReport } from '../src/check.ts';
 import { sourceSha256 } from '../src/parts-verdict.ts';
 import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { arr, fixture, historicalFixture, obj, rehashSignoffs, step, type Mutate } from './fixtures.ts';
+import { arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture, step, type Mutate } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR, EXAMPLE_VERDICT, asciiPartImage, partsPackage, type PackageOptions, type PartsPackage } from './parts-package.ts';
 import { checkProject, testClock } from './clock.ts';
@@ -28,6 +28,8 @@ function atRiggingStart(p: JsonObject): void {
   p.signoffs = arr(p.signoffs).filter((s) => BEFORE_RIGGING.has(String(obj(s).stage)) && !(obj(s).stage === 'plan-approved' && Array.isArray(obj(s).steps)));
   for (const s of arr(obj(p.plan).steps).map(obj)) if (s.phase === 'post' || LATER_RIG_STEPS.includes(String(s.id))) s.status = 'pending';
   p.versions = [];
+  const boundAnswers = arr(p.signoffs).some(raw => obj(raw).answer_hashes !== undefined);
+  retimeFixture(p, Date.parse('2026-11-16T00:00:00Z'), boundAnswers);
 }
 
 function partsReviewSignoff(p: JsonObject): JsonObject {
@@ -121,7 +123,9 @@ describe('refused, each by name', () => {
 
   test('the latest parts-review sign-off is the one read: a later one without evidence is refused', () => {
     const dir = project({}, (p) => {
-      arr(p.signoffs).push({ stage: 'parts-review', checkpoint: null, by: 'user', at: '2026-11-11T11:00:00Z', verbatim: 'looked again, fine', diff_map: partsReviewSignoff(p).diff_map });
+      const previous = partsReviewSignoff(p);
+      const at = new Date(Date.parse(String(previous.at)) + 1000).toISOString();
+      arr(p.signoffs).push({ stage: 'parts-review', checkpoint: null, by: 'user', at, verbatim: 'looked again, fine', diff_map: previous.diff_map });
     });
     expect(checkProject(dir).refusals.map((f) => [f.code, f.path])).toEqual([['PARTS_VERDICT_MISSING', `signoffs[${4}].evidence`]]);
   });

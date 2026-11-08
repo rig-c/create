@@ -471,7 +471,7 @@ describe('pilot sign-off and step status gaps', () => {
   test('a plan approval before its draft is refused by sign-off path', () => {
     const report = checkProject(fixture((p) => {
       dropSignoffs(p, (s) => !(s.stage === 'plan-approved' && Array.isArray(s.steps)));
-      signoffs(p).find((s) => s.stage === 'plan-approved')!.at = '2026-11-10T15:00:00Z';
+      signoffs(p).find((s) => s.stage === 'plan-approved')!.at = new Date(Date.parse(String(obj(p.plan).drafted_at)) - 1000).toISOString();
     }));
     const found = withCode(report, 'SIGNOFF_BEFORE_PLAN');
     expect(found.map((f) => f.path)).toEqual(['signoffs[1]']);
@@ -480,7 +480,8 @@ describe('pilot sign-off and step status gaps', () => {
 
   test('a redraft signed again preserves the earlier approval as history', () => {
     const report = checkProject(fixture((p) => {
-      obj(p.plan).drafted_at = '2026-11-12T10:00:00Z';
+      const latest = signoffs(p).filter(s => s.stage === 'plan-approved').at(-1)!;
+      obj(p.plan).drafted_at = new Date(Date.parse(String(latest.at)) - 1).toISOString();
     }));
     expect(withCode(report, 'SIGNOFF_BEFORE_PLAN')).toEqual([]);
     expect(report.ok).toBe(true);

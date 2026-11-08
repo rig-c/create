@@ -1,5 +1,10 @@
 {
-  "schema": "rig-create/direction@1",
+  "schema": "rig-create/direction@2",
+  "scene": {
+    "n": 1,
+    "path": "evidence/scene/s1.json",
+    "sha256": "dc524f2f4b7bc56c1a93bd71d4d80f99b300f07c8920adcb298d8b4d25a5bc29"
+  },
   "rig": {
     "version": 1,
     "model": {

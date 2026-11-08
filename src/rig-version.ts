@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
+import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -354,6 +355,11 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const partsDir = resolve(dir, options['--parts']!);
     copyTree(join(partsDir, 'parts.json'), `${out}/out/parts.json`, true);
     copyTree(join(partsDir, 'parts'), `${out}/out/parts`, true);
+    const partReferences = partsFileReferences(partsDir);
+    for (const reference of partReferences) {
+      const target = `${out}/out/${reference.path}`;
+      if (!copiedSources.has(target)) copyTree(join(partsDir, reference.path), target, true);
+    }
     copyTree(options['--rig']!, `${out}/out/rig`, true);
     copyTree(options['--build']!, `${out}/out/check/build`, true);
     copyTree(idleSource, `${out}/idle`, true);
@@ -386,7 +392,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const problem = rigRegistrationFindings(dir, candidate)[0];
     if (problem) refuse(problem.code, problem.message);
     created.push(join(dir, pkg));
-    prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate);
+    prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate, partReferences.map(reference => reference.path));
     // The record must pass the same check as every other writer's before it is renamed into place.
     const fresh = newFindings(baseline, checkProject(dir, candidate, { now }).refusals)[0];
     if (fresh) refuse(fresh.code, fresh.message);

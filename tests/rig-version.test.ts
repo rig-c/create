@@ -10,7 +10,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { fixture, obj } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
-import { jobHash, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { partsEnumerator, readPublished } from '../src/job-publication.ts';
 import { startJobHost } from '@rig-c/review/job-host';
 
@@ -31,7 +31,12 @@ function setup() {
   put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json' });
   put(dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: { required: true } });
   put(dir, 'source/adapter.json', []);
-  put(dir, 'source/parts/parts.json', { parts: [{ name: 'rectangle', x: 0, y: 0, w: 8, h: 16 }] });
+  const painting = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+  put(dir, 'source/parts/parts.json', { rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
+    painting_in_rig: { path: 'painting_in_rig.png', sha256: jobHash(painting), resample: 'lanczos3-rgb-opaque' },
+    parts: [{ name: 'rectangle', from: 'painting:rectangle', x: 0, y: 0, w: 8, h: 16,
+      opaque_px: 128, projected_core_px: 128, source_px_taken: 128, refused_drift_px: 0, merged_px: 0, seam_override_px: 0 }] });
+  writeFileSync(join(dir, 'source/parts/painting_in_rig.png'), painting);
   mkdirSync(join(dir, 'source/parts/parts'), { recursive: true });
   cpSync(join(dir, 'source/rig/images/rectangle.png'), join(dir, 'source/parts/parts/rectangle.png'));
   put(dir, 'source/run.json', {
@@ -65,10 +70,7 @@ function refused(args: string[], code: string): void {
 
 describe('frozen rig registration', () => {
   test.each([false, true])('writer commit owns live publication, with stopped host=%s', async stopped => {
-    const { dir, args } = setup();
-    put(dir, 'source/parts/parts.json', { rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
-      parts: [{ name: 'rectangle', from: 'painting:rectangle', x: 0, y: 0, w: 8, h: 16,
-        opaque_px: 128, projected_core_px: 128, source_px_taken: 128, refused_drift_px: 0, merged_px: 0, seam_override_px: 0 }] });
+    const { dir, args, load } = setup();
     const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
     const binding = readWriterBinding(dir)!;
     let recovery: Awaited<ReturnType<typeof startJobHost>> | undefined;
@@ -97,10 +99,15 @@ describe('frozen rig registration', () => {
         expect(exit).toBe(0);
         expect(host.session.status().publication?.source.projectHash).toBe(jobHash(bytes));
         expect(host.session.status().publication?.label).toBe('rig v1');
+        const painting = host.session.status().publication?.source.parts?.images.find(image => image.path === 'painting_in_rig.png');
+        expect(painting?.sha256).toBe(jobHash(readFileSync(join(dir, 'outputs/v1/out/painting_in_rig.png'))));
+        expect(painting?.sha256).toBe(jobHash(readFileSync(join(dir, 'derived/review/v1/out/painting_in_rig.png'))));
+        expect(((load().versions as JsonObject[])[0].review_package as JsonObject).files).toContainEqual({ path: 'out/painting_in_rig.png', sha256: painting!.sha256 });
       }
     } finally {
       recovery?.stop(); host.stop();
       rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+      rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
     }
   });
 
@@ -112,6 +119,9 @@ describe('frozen rig registration', () => {
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
     const version = JSON.parse(result.stdout) as JsonObject;
+    const paintingHash = jobHash(readFileSync(join(dir, 'source/parts/painting_in_rig.png')));
+    expect((version.outputs as JsonObject[]).find(file => file.path === 'outputs/v1/out/painting_in_rig.png')?.sha256).toBe(paintingHash);
+    expect((version.review_package as JsonObject).files).toContainEqual({ path: 'out/painting_in_rig.png', sha256: paintingHash });
     expect(version.built_with).toEqual({ '@rig-c/parts': '2.23.4', '@rig-c/core': '3.4.1' });
     expect(version.at).toBe(JSON.parse(readFileSync(join(frozen, 'at-source.json'), 'utf8')).finished_at);
     expect(version.at_basis).toBe('not-after');

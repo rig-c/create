@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
 import { closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
-import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobPrivateRoot, pendingPublications, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
 import { prepareVersionIntent } from '../src/job-writer.ts';
 import { partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
@@ -18,6 +18,7 @@ afterEach(() => {
   for (const host of hosts.splice(0)) host.stop();
   for (const root of roots.splice(0)) {
     rmSync(jobPrivateRoot(root), { recursive: true, force: true });
+    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -130,7 +131,9 @@ test('check preserves a live precommit intent and refusal cancels it without a p
   hosts.push(host);
   const original = readFileSync(join(root, 'project.json'));
   const release = acquireJobLock(root)!;
-  const intent = prepareVersionIntent(root, Buffer.from(`${original.toString()}\n`), 1)!;
+  const project = JSON.parse(original.toString());
+  project.versions.push({ ...project.versions[0], n: 2 });
+  const intent = prepareVersionIntent(root, Buffer.from(JSON.stringify(project)), 2)!;
   const path = join(jobPrivateRoot(root), 'outbox', `${intent.id}.json`);
   try {
     expect(checkProject(root, undefined, { now }).holes ?? []).toEqual([]);
@@ -139,6 +142,22 @@ test('check preserves a live precommit intent and refusal cancels it without a p
     expect(existsSync(path)).toBe(false);
     expect(readFileSync(join(root, 'project.json'))).toEqual(original);
   } finally { release(); }
+});
+
+test('private binding and discard log refuse dangling symlinks without creating their targets', async () => {
+  const { root } = setup();
+  const target = join(root, 'uncreated-target');
+  symlinkSync(target, join(root, JOB_BINDING_FILE));
+  expect(() => readWriterBinding(root)).toThrow(expect.objectContaining({ code: 'JOB_PRIVATE_STORAGE_INVALID' }));
+  rmSync(join(root, JOB_BINDING_FILE));
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  project.versions.push({ ...project.versions[0], n: 2 });
+  prepareVersionIntent(root, Buffer.from(JSON.stringify(project)), 2);
+  symlinkSync(target, join(jobPrivateRoot(root), 'discarded-intents.jsonl'));
+  expect(checkProject(root, undefined, { now }).holes?.map(hole => hole.code)).toEqual(['JOB_OUTBOX_INVALID']);
+  expect(existsSync(target)).toBe(false);
 });
 
 test('host loss after preflight stops the replacement and leaves a named pending receipt', async () => {
@@ -169,9 +188,12 @@ test('a changed live listener reader ID preserves the public mismatch field and 
   expect(changed.session.status().generation).toBe(0);
 });
 
-test('reconcile refuses stale committed bytes and preserves the receipt', async () => {
+test('check and reconcile name a changed version entry and preserve its receipt', async () => {
   const { root } = await bound();
-  writeFileSync(join(root, 'project.json'), `${readFileSync(join(root, 'project.json'), 'utf8')}\n`);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  project.versions[0].changed = 'Changed after publication intent';
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  expect(checkProject(root, undefined, { now }).holes?.map(hole => hole.code)).toEqual(['JOB_PUBLICATION_STALE']);
   await expect(reconcileCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
   expect(pendingPublications(root)[0].failure?.code).toBe('JOB_PUBLICATION_STALE');
 });
@@ -224,6 +246,63 @@ test('public job CLI opens and explicitly closes its foreground host', async () 
     if (readWriterBinding(root)) await closeCreateJob(root);
     if (opening.exitCode === null) opening.kill();
   }
+});
+
+test('durable ignored outbox survives a restart with another TMPDIR and preserves tracked ignore bytes', async () => {
+  const { root } = setup();
+  const ignore = '/derived/\n/review-live-*.json\n';
+  writeFileSync(join(root, '.gitignore'), ignore);
+  const git = (args: string[]) => Bun.spawnSync(['git', '-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', ...args],
+    { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect(git(['init', '-q']).exitCode).toBe(0);
+  expect(git(['add', '--', 'project.json', '.gitignore']).exitCode).toBe(0);
+  expect(git(['commit', '-qm', 'Synthetic initial record']).exitCode).toBe(0);
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const entry = enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  failPublication(root, entry, { code: 'JOB_PUBLISH_PENDING', message: 'project.json: planted pending publish' });
+  expect(readFileSync(join(root, '.gitignore'), 'utf8')).toBe(ignore);
+  expect(git(['add', '--', 'project.json']).exitCode).toBe(0);
+  expect(git(['commit', '-qm', 'Synthetic bound record']).exitCode).toBe(0);
+  expect(git(['check-ignore', JOB_BINDING_FILE, '.rig-create-review/outbox/receipt.json']).exitCode).toBe(0);
+  expect(git(['status', '--porcelain']).stdout.toString()).toBe('');
+  expect(lstatSync(jobPrivateRoot(root)).mode & 0o077).toBe(0);
+  expect(lstatSync(join(jobPrivateRoot(root), 'outbox', `${entry.id}.json`)).mode & 0o077).toBe(0);
+  const otherTemp = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-other-temp-')));
+  roots.push(otherTemp);
+  const before = readFileSync(join(root, 'project.json'));
+  const worker = `
+    import { readFileSync } from 'node:fs';
+    import { checkProject } from ${JSON.stringify(join(import.meta.dir, '../src/check.ts'))};
+    import { reconcileCreateJob } from ${JSON.stringify(join(import.meta.dir, '../src/job-host.ts'))};
+    const {root, now} = JSON.parse(readFileSync(0, 'utf8'));
+    const before = checkProject(root, undefined, {now}).holes?.map(hole => hole.code);
+    const count = await reconcileCreateJob(root);
+    console.log(JSON.stringify({before, count, after: checkProject(root, undefined, {now}).holes ?? []}));
+  `;
+  const child = Bun.spawn([process.execPath, '--eval', worker], { env: { ...process.env, TMPDIR: otherTemp },
+    stdin: new Blob([JSON.stringify({ root, now })]), stdout: 'pipe', stderr: 'pipe' });
+  const [exit, output, errors] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(errors).toBe('');
+  expect(exit).toBe(0);
+  expect(JSON.parse(output)).toEqual({ before: ['JOB_PUBLISH_PENDING'], count: 1, after: [] });
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(git(['status', '--porcelain']).stdout.toString()).toBe('');
+});
+
+test('existing nested projects receive project-relative private excludes in the containing repository', async () => {
+  const { root: container } = setup();
+  const root = join(container, 'member');
+  mkdirSync(root);
+  for (const path of ['project.json', 'derived']) cpSync(join(container, path), join(root, path), { recursive: true });
+  roots.unshift(root);
+  expect(Bun.spawnSync(['git', 'init', '-q'], { cwd: container, stdout: 'ignore', stderr: 'ignore' }).exitCode).toBe(0);
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(Bun.spawnSync(['git', 'check-ignore', JOB_BINDING_FILE, '.rig-create-review/outbox/receipt.json'],
+    { cwd: root, stdout: 'ignore', stderr: 'ignore' }).exitCode).toBe(0);
+  expect(existsSync(join(root, '.gitignore'))).toBe(false);
 });
 
 test('Review names the scene-answer publication boundary before invoking the producer reader', async () => {
@@ -282,24 +361,31 @@ test('unbound writer publishes nothing and allocates no outbox', async () => {
   expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
 });
 
-test.each(['before-commit', 'after-commit'])('process kill %s recovers the durable intent', async phase => {
+test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s recovers the version intent across an independent writer', async phase => {
   const { root } = setup();
   const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
   hosts.push(host);
   const original = readFileSync(join(root, 'project.json'));
-  const candidate = Buffer.from(JSON.stringify({ ...JSON.parse(original.toString()), title: 'Intent crash control' }));
+  const project = JSON.parse(original.toString());
+  project.versions.push({ ...project.versions[0], n: 2 });
+  const candidate = Buffer.from(JSON.stringify(project));
+  cpSync(join(root, 'derived/review/v1'), join(root, 'derived/review/v2'), { recursive: true });
   const worker = `
     import { readFileSync, writeFileSync, renameSync } from 'node:fs';
     import { join } from 'node:path';
-    import { acquireJobLock } from ${JSON.stringify(join(import.meta.dir, '../src/job-outbox.ts'))};
+    import { acquireJobLock, reconcilePublication, failPublication } from ${JSON.stringify(join(import.meta.dir, '../src/job-outbox.ts'))};
     import { prepareVersionIntent } from ${JSON.stringify(join(import.meta.dir, '../src/job-writer.ts'))};
     const {root, bytes, phase} = JSON.parse(readFileSync(0, 'utf8'));
     acquireJobLock(root);
     const candidate = Buffer.from(bytes);
-    prepareVersionIntent(root, candidate, 1);
-    if (phase === 'after-commit') {
+    const intent = prepareVersionIntent(root, candidate, 2);
+    if (phase !== 'before-commit') {
       writeFileSync(join(root, 'project.crash-control'), candidate);
       renameSync(join(root, 'project.crash-control'), join(root, 'project.json'));
+    }
+    if (phase === 'publish-failed') {
+      try { await reconcilePublication(root, intent, async () => { throw Error('planted publish failure'); }); }
+      catch { failPublication(root, intent, {code: 'JOB_PUBLISH_PENDING', message: 'project.json: planted publish failure'}); }
     }
     process.kill(process.pid, 'SIGKILL');
   `;
@@ -308,20 +394,28 @@ test.each(['before-commit', 'after-commit'])('process kill %s recovers the durab
   });
   await child.exited;
   expect(child.signalCode).toBe('SIGKILL');
+  if (phase !== 'before-commit') {
+    writeFileSync(join(root, 'later.txt'), 'Later independent input');
+    const input = Bun.spawnSync([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'input', 'add', 'later.txt', root, '--origin', 'synthetic later input'], { stdout: 'pipe', stderr: 'pipe' });
+    expect(input.stderr.toString()).toBe('');
+    expect(input.exitCode).toBe(0);
+  }
+  const current = readFileSync(join(root, 'project.json'));
   const report = checkProject(root, undefined, { now });
   if (phase === 'before-commit') {
     expect(report.holes ?? []).toEqual([]);
     expect(readFileSync(join(root, 'project.json'))).toEqual(original);
     const discarded = JSON.parse(readFileSync(join(jobPrivateRoot(root), 'discarded-intents.jsonl'), 'utf8').trim());
-    expect(discarded.recordHash).toBe(jobHash(candidate));
+    expect(discarded.versionHash).toBe(publicationVersionHash(candidate, { path: 'review-live-v2.json', selector: { kind: 'rig', version: 2 } }));
     expect(discarded.id).toMatch(/^[a-f0-9]{64}$/);
     expect(await reconcileCreateJob(root)).toBe(0);
   } else {
     expect(report.holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
-    expect(readFileSync(join(root, 'project.json'))).toEqual(candidate);
+    expect(jobHash(current)).not.toBe(jobHash(candidate));
     expect(await reconcileCreateJob(root)).toBe(1);
     expect(checkProject(root, undefined, { now }).holes ?? []).toEqual([]);
-    expect(host.session.status().publication?.source.projectHash).toBe(jobHash(candidate));
-    expect(readFileSync(join(root, 'project.json'))).toEqual(candidate);
+    expect(host.session.status().publication?.source.projectHash).toBe(jobHash(current));
+    expect(host.session.status().publication?.source.selector).toEqual({ kind: 'rig', version: 2 });
+    expect(readFileSync(join(root, 'project.json'))).toEqual(current);
   }
 });

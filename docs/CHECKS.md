@@ -12,9 +12,9 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | --- | --- |
 | `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. Restore its bound host and sources, then run `job reconcile` before another participating write or close. |
 | `JOB_HOST_REUSE_MISMATCH` | The private binding's host tuple or incarnation differs. The pending receipt names the field and both values. Restore the original host configuration before reconciling. |
-| `JOB_PUBLICATION_STALE` | Pending publication binds different project bytes. Restore the exact committed record before reconciling. |
+| `JOB_PUBLICATION_STALE` | The pending version entry is missing or has a different entry hash. Restore that retained version and its files before reconciling. Later surrounding-record changes do not invalidate it. The check preserves the receipt and names the HOLE. |
 | `JOB_PUBLICATION_INVALID` | A result, selector or retained file differs from the writer's recorded rig/post. Restore its declared package and direction bytes. |
-| `JOB_BINDING_INVALID` | The private sibling is malformed, tracked or unavailable, or a job command has invalid arguments. Restore the writer-owned binding through `job open`, keeping it ignored. |
+| `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed/unavailable, or a job command has invalid arguments. Restore effective private ignores and the writer-owned binding through `job open`. |
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
 | `JOB_WRITE_BUSY` | A bound writer holds the shared publication freeze. Wait for that operation before retrying. |

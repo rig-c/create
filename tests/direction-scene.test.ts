@@ -10,7 +10,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { sceneFixture } from './scene-fixture.ts';
 import { checkDirections, directionCommand, testClock } from './clock.ts';
 import { openCreateJob } from '../src/job-host.ts';
-import { jobHash, jobPrivateRoot } from '../src/job-outbox.ts';
+import { jobHash, jobHostStateRoot, jobPrivateRoot } from '../src/job-outbox.ts';
 import { clockedCli } from './helpers.ts';
 import { readPublished } from '../src/job-publication.ts';
 
@@ -57,6 +57,7 @@ test('direction CLI publishes a committed example-chain post through its bound w
   } finally {
     host?.stop();
     rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+    rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   }
 });

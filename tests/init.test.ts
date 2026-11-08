@@ -74,7 +74,7 @@ describe('init --no-install into an empty folder', () => {
 
   test('.gitignore drops derived/, outputs/, scratch/ and node_modules/', () => {
     expect(readFileSync(join(dir, '.gitignore'), 'utf8')).toBe(GITIGNORE);
-    expect(GITIGNORE.split('\n')).toEqual(['/derived/', '/outputs/', '/scratch/', 'node_modules/', '']);
+    expect(GITIGNORE.split('\n')).toEqual(['/derived/', '/outputs/', '/scratch/', 'node_modules/', '/.rig-create-review-binding.json', '/.rig-create-review/', '']);
   });
 
   test('package.json pins the rig-c packages exactly', () => {

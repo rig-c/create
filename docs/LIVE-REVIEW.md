@@ -13,14 +13,21 @@ rig-create job close <project>
 The open command prints the private owner-window URL. Keep it private. The
 versioned `review_job` stores only `jobId` and `origin`. The host installs its
 fetch grant in the owner-only sibling `.rig-create-review-binding.json` and
-adds that exact name to `.gitignore` before writing it. A tracked binding
-refuses startup. Agents invoke writers and never construct this file.
+ensures it and the durable `.rig-create-review/` outbox are ignored before
+writing either. New projects declare both root patterns in init's `.gitignore`.
+Existing Git projects receive only missing patterns in `.git/info/exclude`,
+preserving their tracked `.gitignore` bytes. A folder without Git receives a
+minimal `.gitignore` append. Effective ignores are checked before writing.
+A tracked private path refuses startup. Agents invoke writers and never construct this file.
 Explicit close revokes the grant and removes the matching binding. Listener
 shutdown alone preserves the active job. A new incarnation receives a new grant.
 
-Private managed state and the writer outbox live under the system's private
-temporary directory, outside the project. Preserve that state while a job or
-pending publication needs it. Temporary-directory cleanup can remove it.
+The outbox, intents and discard log live in the project-root
+`.rig-create-review/`, independently of the binding and TMPDIR. Its directories
+are owner-only 0700 and files 0600, with symlinks refused. Private Review host
+state stays outside the project under the system temporary directory, as its
+host contract requires. Losing that host state leaves the durable publication
+HOLE visible.
 
 ## Phase 1 results
 
@@ -40,7 +47,10 @@ The reader takes plan step hashes from create's `stepHash`, binds the retained
 package against its recorded file hashes, and calls the installed public Parts
 enumerator on the recorded `review_package.from` producer root. Its manifest
 must match the packaged manifest hash, and every packaged PNG must match too.
-This includes declared sibling PNGs omitted by the historical copied package.
+Registration copies every image returned by Parts' public enumerator into its
+retained producer output and records it in `review_package.files`. Historical
+packages retain their existing file declarations, including their earlier
+sibling omissions. Their recorded producer root remains the read path.
 A package without `from` uses its own `out` directory. Its `images` preserves every returned row, role, duplicate path and
 position. The enumerator version is read from the installed package metadata.
 Review re-enumerates and validates the supplied identity under API@2/act@2.
@@ -49,8 +59,9 @@ Review re-enumerates and validates the supplied identity under API@2/act@2.
 
 Participating bound writers hold a shared write lock as well as their existing
 writer lock until publication acknowledgment. Before replacing the project,
-the writer fsyncs a private outbox intent containing the exact candidate hash
-and result selector. After commit, the matching intent is pending until Review
+the writer fsyncs a private outbox intent containing the published `versions[]`
+entry hash and result selector. The hash uses that entry's two-space JSON
+serialization with a final newline. After commit, the matching entry is pending until Review
 acknowledges it. The pending identity and generation
 remain stable across retries, including acknowledgment loss. A publish failure
 leaves the committed result and reports `JOB_PUBLISH_PENDING` beside the write.
@@ -58,14 +69,20 @@ leaves the committed result and reports `JOB_PUBLISH_PENDING` beside the write.
 Unbound projects retain their existing report shape and writer behavior.
 
 Run `job reconcile` after restoring the host or declared package. It holds the
-same lock, publishes the original record hash and removes the acknowledged
-entry. Reconciliation never rewrites `project.json`. A changed record refuses
-with `JOB_PUBLICATION_STALE`. Another participating writer and explicit close
+same lock, verifies the retained version and files, publishes against the
+current whole-record hash and removes the acknowledged entry. Later signoffs,
+inputs and other independent writes remain in that current record.
+Reconciliation never rewrites `project.json`. A changed or missing committed
+version refuses with `JOB_PUBLICATION_STALE`. Another participating writer and explicit close
 wait until pending work is reconciled. After process loss, `check` and reconcile
-recover a dead writer's shared lock. An intent matching the current record is
-a pending HOLE. An unmatched precommit intent is dropped with its ID and hash
+recover a dead writer's shared lock. An intent with a matching version entry is
+a pending HOLE, including after other writers change the surrounding record.
+An intent whose version is absent is dropped with its ID and version hash
 in the private `discarded-intents.jsonl` log. Active writer intents stay held.
-A refused write cancels its uncommitted intent. Receipt recovery and
+A different version hash remains a named HOLE and is preserved. A refused
+write cancels its absent-version intent. Each current-record snapshot has its
+own idempotent request key, with a stable key/generation for retries of that
+snapshot. Receipt recovery and
 acknowledgment never edit project bytes.
 
 ## Host attachment and delivery

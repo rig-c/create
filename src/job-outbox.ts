@@ -1,12 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobPublishRequest, JobReviewerBinding } from '@rig-c/review/job-host';
 import { refuse } from './refusal.ts';
 
 export const JOB_BINDING_FILE = '.rig-create-review-binding.json';
+export const JOB_OUTBOX_DIRECTORY = '.rig-create-review';
 const PRIVATE_TEMP_ROOT = realpathSync(tmpdir());
 export const jobHash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
@@ -39,6 +40,7 @@ export interface PendingPublication {
   origin: string;
   identity: JobIdentity;
   recordHash: string;
+  versionHash?: string;
   result: JobPublishRequest['result'];
   failure: { code: string; message: string } | null;
   generation?: number;
@@ -87,41 +89,87 @@ export function acquireJobLock(root: string, required = true): (() => void) | nu
 
 /** Fixed independently of the binding, so close cannot hide an outstanding HOLE. */
 export function jobPrivateRoot(root: string): string {
+  return join(realpathSync(root), JOB_OUTBOX_DIRECTORY);
+}
+
+/** Review's managed host must remain outside the producer root. */
+export function jobHostStateRoot(root: string): string {
   return join(PRIVATE_TEMP_ROOT, `rig-create-review-${process.getuid?.() ?? 'user'}`, jobHash(realpathSync(root)));
+}
+
+/** Existing repositories use their local exclude so opening a job does not
+ * dirty a tracked ignore file. New projects already carry these root patterns.
+ */
+export function ensureJobPrivateIgnores(root: string): void {
+  const names = [JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY];
+  for (const name of names) {
+    const tracked = Bun.spawnSync(['git', 'ls-files', '--error-unmatch', '--', name], { cwd: root, stdout: 'ignore', stderr: 'ignore' });
+    if (tracked.exitCode === 0) refuse('JOB_BINDING_INVALID', `project.json: private ${name} is tracked; remove it from version control before opening the job`);
+  }
+  const missing = names.filter(name => Bun.spawnSync(['git', 'check-ignore', '--quiet', '--no-index', '--', name === JOB_OUTBOX_DIRECTORY ? `${name}/receipt.json` : name],
+    { cwd: root, stdout: 'ignore', stderr: 'ignore' }).exitCode !== 0);
+  if (!missing.length) return;
+  const gitPath = Bun.spawnSync(['git', 'rev-parse', '--git-path', 'info/exclude'], { cwd: root, stdout: 'pipe', stderr: 'ignore' });
+  const path = gitPath.exitCode === 0 ? resolve(root, gitPath.stdout.toString().trim()) : join(root, '.gitignore');
+  try {
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink()) refuse('JOB_BINDING_INVALID', 'project.json: private ignore destination must be a regular file; restore it before opening the job');
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const before = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  const prefix = gitPath.exitCode === 0 ? Bun.spawnSync(['git', 'rev-parse', '--show-prefix'],
+    { cwd: root, stdout: 'pipe', stderr: 'ignore' }).stdout.toString().trimEnd() : '';
+  const patterns = missing.map(name => `/${prefix}${name}${name === JOB_OUTBOX_DIRECTORY ? '/' : ''}`);
+  writeFileSync(path, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${patterns.join('\n')}\n`);
+  if (gitPath.exitCode === 0 && names.some(name => Bun.spawnSync(['git', 'check-ignore', '--quiet', '--no-index', '--', name === JOB_OUTBOX_DIRECTORY ? `${name}/receipt.json` : name],
+    { cwd: root, stdout: 'ignore', stderr: 'ignore' }).exitCode !== 0)) {
+    refuse('JOB_BINDING_INVALID', 'project.json: private binding/outbox are not effectively ignored; remove conflicting unignore rules before opening the job');
+  }
 }
 
 export function privateDirectory(path: string): void {
   if (existsSync(path)) {
     const info = lstatSync(path);
-    if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(path) !== path || (info.mode & 0o077)) {
+    if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(path) !== path || (info.mode & 0o077)
+      || process.getuid && info.uid !== process.getuid()) {
       refuse('JOB_PRIVATE_STORAGE_INVALID', 'project.json: private publication storage is unsafe; restore its owner-only real directory');
     }
     return;
   }
   const parent = dirname(path);
-  if (parent !== PRIVATE_TEMP_ROOT) privateDirectory(parent);
+  if (parent !== PRIVATE_TEMP_ROOT && basename(path) !== JOB_OUTBOX_DIRECTORY) privateDirectory(parent);
   mkdirSync(path, { mode: 0o700 });
+  syncDirectory(parent);
+}
+
+function assertPrivateFile(path: string): void {
+  const info = lstatSync(path);
+  if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) || realpathSync(path) !== path
+    || process.getuid && info.uid !== process.getuid()) {
+    refuse('JOB_PRIVATE_STORAGE_INVALID', 'project.json: private publication file is unsafe; restore its owner-only regular file');
+  }
 }
 
 export function privateJson(path: string): unknown {
-  const info = lstatSync(path);
-  if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) || realpathSync(path) !== path) {
-    refuse('JOB_PRIVATE_STORAGE_INVALID', 'project.json: private publication file is unsafe; restore its owner-only regular file');
-  }
+  assertPrivateFile(path);
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function syncDirectory(path: string): void {
+  const fd = openSync(path, 'r');
+  try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 
 export function writePrivateJson(path: string, value: unknown, projectSibling = false): void {
   if (!projectSibling) privateDirectory(dirname(path));
-  if (existsSync(path)) privateJson(path);
+  try { privateJson(path); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const temporary = `${path}.${randomUUID()}.tmp`;
   const fd = openSync(temporary, 'wx', 0o600);
   try {
     writeFileSync(fd, `${JSON.stringify(value)}\n`);
     fsyncSync(fd);
     renameSync(temporary, path);
-    const directory = openSync(dirname(path), 'r');
-    try { fsyncSync(directory); } finally { closeSync(directory); }
+    syncDirectory(dirname(path));
   } finally {
     closeSync(fd);
     rmSync(temporary, { force: true });
@@ -130,8 +178,9 @@ export function writePrivateJson(path: string, value: unknown, projectSibling = 
 
 export function readWriterBinding(root: string): WriterBinding | null {
   const path = join(realpathSync(root), JOB_BINDING_FILE);
-  if (!existsSync(path)) return null;
-  const value = privateJson(path) as WriterBinding;
+  let value: WriterBinding;
+  try { value = privateJson(path) as WriterBinding; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   if (value?.schema !== 'rig-create/job-binding@1' || !value.identity || typeof value.jobId !== 'string'
     || typeof value.origin !== 'string' || typeof value.fetchCapability !== 'string') {
     refuse('JOB_BINDING_INVALID', 'project.json: malformed private live-job binding; reopen the job through rig-create job open');
@@ -148,16 +197,38 @@ export function assertJobIdentity(expected: JobIdentity, found: JobIdentity): vo
 }
 
 export function enqueuePublication(root: string, binding: WriterBinding, result: JobPublishRequest['result'], intentBytes?: Buffer): PendingPublication {
-  const recordHash = jobHash(intentBytes ?? readFileSync(join(root, 'project.json')));
-  const id = jobHash(JSON.stringify([binding.jobId, recordHash, result]));
+  const bytes = intentBytes ?? readFileSync(join(root, 'project.json'));
+  const recordHash = jobHash(bytes);
+  const versionHash = publicationVersionHash(bytes, result);
+  if (versionHash === null) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication version is absent; restore the recorded rig/post before publishing');
+  const id = jobHash(JSON.stringify([binding.jobId, versionHash, result]));
   const pending: PendingPublication = {
     schema: 'rig-create/job-pending@1', root: realpathSync(root), id, jobId: binding.jobId, origin: binding.origin,
-    identity: binding.identity, recordHash, result, failure: null, phase: intentBytes ? 'intent' : 'pending',
+    identity: binding.identity, recordHash, versionHash, result, failure: null, phase: intentBytes ? 'intent' : 'pending',
   };
+  ensureJobPrivateIgnores(root);
   const path = pendingPath(root, id);
   if (existsSync(path)) return privateJson(path) as PendingPublication;
   writePrivateJson(path, pending);
   return pending;
+}
+
+/** The writers use the same two-space JSON serialization for version entries.
+ * Whole-record bytes are retained only for Review's current freeze/attempt.
+ */
+export function publicationVersionHash(bytes: Buffer, result: JobPublishRequest['result']): string | null {
+  const selector = result.selector;
+  if (!selector || selector.kind === 'draft') refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a rig/post selector; restore the writer result');
+  const project = JSON.parse(bytes.toString('utf8')) as { versions?: { n: number; kind: string }[] };
+  if (!Array.isArray(project.versions)) refuse('JOB_PUBLICATION_INVALID', 'project.json: versions must be an array; restore the recorded rig/post');
+  const found = project.versions.filter(version => version.n === selector.version);
+  if (!found.length) return null;
+  if (found.length !== 1) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication version is ambiguous; restore its unique rig/post entry');
+  return jobHash(`${JSON.stringify(found[0], null, 2)}\n`);
+}
+
+function currentVersionHash(root: string, entry: PendingPublication): string | null {
+  return publicationVersionHash(readFileSync(join(root, 'project.json')), entry.result);
 }
 
 function pendingPath(root: string, id: string): string {
@@ -172,10 +243,15 @@ export function pendingPublications(root: string, recoverIntents = false): Pendi
   return readdirSync(directory).filter(name => name.endsWith('.json')).sort().flatMap(name => {
     const entry = privateJson(join(directory, name)) as PendingPublication;
     if (entry?.schema !== 'rig-create/job-pending@1' || `${entry.id}.json` !== name
-      || entry.root !== realpathSync(root) || !/^[a-f0-9]{64}$/.test(entry.recordHash) || !entry.result || !entry.identity) {
+      || entry.root !== realpathSync(root) || !/^[a-f0-9]{64}$/.test(entry.recordHash)
+      || entry.versionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.versionHash) || !entry.result || !entry.identity) {
       refuse('JOB_OUTBOX_INVALID', 'project.json: malformed pending publication; restore the writer-owned outbox before reconciling');
     }
-    if (entry.phase === 'intent' && jobHash(readFileSync(join(root, 'project.json'))) !== entry.recordHash) {
+    if (!entry.versionHash) {
+      if (jobHash(readFileSync(join(root, 'project.json'))) !== entry.recordHash) refuse('JOB_OUTBOX_INVALID', 'project.json: legacy receipt cannot identify its version after later edits; restore its original receipt/source before reconciling');
+      entry.versionHash = currentVersionHash(root, entry) ?? undefined;
+    }
+    if (entry.phase === 'intent' && currentVersionHash(root, entry) === null) {
       if (recoverIntents) discardIntent(root, entry);
       return [];
     }
@@ -185,16 +261,18 @@ export function pendingPublications(root: string, recoverIntents = false): Pendi
 
 function discardIntent(root: string, entry: PendingPublication): void {
   const log = join(jobPrivateRoot(root), 'discarded-intents.jsonl');
-  const fd = openSync(log, 'a', 0o600);
+  if (existsSync(log)) assertPrivateFile(log);
+  const fd = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW, 0o600);
   try {
-    writeFileSync(fd, `${JSON.stringify({ id: entry.id, recordHash: entry.recordHash, event: 'intent-not-committed' })}\n`);
+    writeFileSync(fd, `${JSON.stringify({ id: entry.id, versionHash: entry.versionHash, event: 'intent-not-committed' })}\n`);
     fsyncSync(fd);
   } finally { closeSync(fd); }
   rmSync(pendingPath(root, entry.id), { force: true });
+  syncDirectory(join(jobPrivateRoot(root), 'outbox'));
 }
 
 export function cancelUncommittedIntent(root: string, entry: PendingPublication | null): void {
-  if (entry && existsSync(pendingPath(root, entry.id)) && jobHash(readFileSync(join(root, 'project.json'))) !== entry.recordHash) discardIntent(root, entry);
+  if (entry && existsSync(pendingPath(root, entry.id)) && currentVersionHash(root, entry) === null) discardIntent(root, entry);
 }
 
 /** Receipt updates and reconciliation never rewrite the published project. */
@@ -204,13 +282,16 @@ export function failPublication(root: string, entry: PendingPublication, failure
 
 export async function reconcilePublication(root: string, entry: PendingPublication,
   publish: (entry: PendingPublication) => Promise<void>): Promise<void> {
-  if (jobHash(readFileSync(join(root, 'project.json'))) !== entry.recordHash) {
-    refuse('JOB_PUBLICATION_STALE', 'project.json: pending publication binds an earlier record; restore that exact committed record before rig-create job reconcile');
+  if (currentVersionHash(root, entry) !== entry.versionHash) {
+    refuse('JOB_PUBLICATION_STALE', 'project.json: the pending version entry is absent or changed; restore that retained version and its files before rig-create job reconcile');
   }
+  const recordHash = jobHash(readFileSync(join(root, 'project.json')));
+  if (recordHash !== entry.recordHash) { entry.recordHash = recordHash; delete entry.generation; }
   entry.phase = 'pending';
   failPublication(root, entry, entry.failure);
   await publish(entry);
   rmSync(pendingPath(root, entry.id));
+  syncDirectory(join(jobPrivateRoot(root), 'outbox'));
 }
 
 export function pendingPublicationHoles(root: string): { code: string; path: string; message: string }[] {
@@ -220,10 +301,13 @@ export function pendingPublicationHoles(root: string): { code: string; path: str
     let entries: PendingPublication[];
     try { entries = pendingPublications(root, release !== null); }
     finally { release?.(); }
-    return entries.map(entry => ({
-      code: 'JOB_PUBLISH_PENDING', path: 'project.json',
-      message: `project.json: HOLE publication ${entry.id} for record ${entry.recordHash} is pending${entry.failure ? ` (${entry.failure.code}: ${entry.failure.message})` : ''}; run rig-create job reconcile`,
-    }));
+    return entries.map(entry => {
+      const changed = currentVersionHash(root, entry) !== entry.versionHash;
+      return {
+        code: changed ? 'JOB_PUBLICATION_STALE' : 'JOB_PUBLISH_PENDING', path: 'project.json',
+        message: `project.json: HOLE publication ${entry.id} for version hash ${entry.versionHash} ${changed ? 'has a changed or missing version' : 'is pending'}${entry.failure ? ` (${entry.failure.code}: ${entry.failure.message})` : ''}; restore the retained version/files and run rig-create job reconcile`,
+      };
+    });
   } catch {
     return [{ code: 'JOB_OUTBOX_INVALID', path: 'project.json', message: 'project.json: HOLE private publication outbox is unreadable; restore its owner-only bytes before rig-create job reconcile' }];
   }

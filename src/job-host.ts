@@ -1,23 +1,14 @@
-import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobReviewerBinding } from '@rig-c/review/job-host';
 import { checkProject } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from './job-publication.ts';
-import { acquireJobLock, assertJobIdentity, failPublication, JOB_BINDING_FILE, jobHash, jobPrivateRoot, pendingPublications, privateDirectory, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
+import { acquireJobLock, assertJobIdentity, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
-  const tracked = Bun.spawnSync(['git', 'ls-files', '--error-unmatch', '--', JOB_BINDING_FILE], { cwd: root, stdout: 'ignore', stderr: 'ignore' });
-  if (tracked.exitCode === 0) refuse('JOB_BINDING_INVALID', 'project.json: private binding is tracked; remove it from version control and revoke the old grant before opening');
-  const ignorePath = join(root, '.gitignore');
-  if (existsSync(ignorePath) && (!lstatSync(ignorePath).isFile() || lstatSync(ignorePath).isSymbolicLink())) {
-    refuse('JOB_BINDING_INVALID', 'project.json: .gitignore must be a regular file before installing the private binding; restore it and reopen');
-  }
-  const before = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
-  if (!before.split(/\r?\n/).includes(`/${JOB_BINDING_FILE}`)) {
-    writeFileSync(ignorePath, `${before}${before && !before.endsWith('\n') ? '\n' : ''}/${JOB_BINDING_FILE}\n`);
-  }
+  ensureJobPrivateIgnores(root);
   writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
 }
 
@@ -36,9 +27,9 @@ export async function openCreateJob(root: string, reviewer: JobReviewerBinding, 
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
   try {
-    const identity = currentJobIdentity({ root, stateDir: join(jobPrivateRoot(root), 'host'), fingerprint: 'rig-create/live-review/1', reviewer }, root);
-    privateDirectory(identity.stateDir);
     const existing = readWriterBinding(root);
+    const identity = currentJobIdentity({ root, stateDir: existing?.identity.stateDir ?? join(jobHostStateRoot(root), 'host'), fingerprint: 'rig-create/live-review/1', reviewer }, root);
+    privateDirectory(identity.stateDir);
     if (existing) assertJobIdentity(existing.identity, identity);
     const host = await startJobHost({ ...options(identity, true), ...(existing ? { port: Number(new URL(existing.origin).port) } : {}) });
     const file = join(root, 'project.json');
@@ -88,16 +79,21 @@ export async function publishPending(entry: PendingPublication, requested?: JobI
   beforeAttach?: () => void | Promise<void>): Promise<void> {
   const host = await attachCreateJob(entry, requested, beforeAttach);
   try {
-    const project = JSON.parse(readFileSync(join(entry.root, 'project.json'), 'utf8'));
+    const bytes = readFileSync(join(entry.root, 'project.json'));
+    if (publicationVersionHash(bytes, entry.result) !== entry.versionHash) refuse('JOB_PUBLICATION_STALE', 'project.json: pending version changed; restore its retained entry/files before reconciling');
+    const currentHash = jobHash(bytes);
+    if (currentHash !== entry.recordHash) { entry.recordHash = currentHash; delete entry.generation; }
+    const project = JSON.parse(bytes.toString('utf8'));
     if (!entry.result.selector || entry.result.selector.kind === 'draft') refuse('JOB_PUBLICATION_INVALID', 'project.json: only rig/post results can be reconciled');
     prepareLiveManifest(entry.root, project, entry.result.selector.version);
     await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result });
     entry.generation ??= host.session.status().generation;
     entry.phase = 'pending';
     failPublication(entry.root, entry, entry.failure);
+    const attempt = jobHash(JSON.stringify([entry.id, entry.recordHash]));
     const request = {
       schema: entry.identity.apiSchema, verb: 'publish', jobId: entry.jobId,
-      requestId: entry.id, idempotencyKey: entry.id, expectedGeneration: entry.generation,
+      requestId: attempt, idempotencyKey: attempt, expectedGeneration: entry.generation,
       result: entry.result, freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } },
     };
     const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${entry.jobId}/api`, {

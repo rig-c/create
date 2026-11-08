@@ -120,10 +120,20 @@ function validFiles(value: JsonObject['files']): boolean {
   return value.some((entry) => isObject(entry) && entry.path === 'config.json');
 }
 
-function sourceFiles(out: string): FileHash[] {
-  return required.flatMap((entry) => entry === 'parts.json'
+function sourceFiles(out: string, imagePaths: readonly string[]): FileHash[] {
+  const files = required.flatMap((entry) => entry === 'parts.json'
     ? [{ path: entry, sha256: hash(readFileSync(join(out, entry))) }]
     : filesAt(join(out, entry)).map((file) => ({ ...file, path: `${entry}/${file.path}` })));
+  const seen = new Set(files.map(file => file.path));
+  for (const path of imagePaths) {
+    if (seen.has(path)) continue;
+    const absolute = resolve(out, path);
+    if (!inside(out, absolute) || path.split('/').some(segment => !segment || segment === '.' || segment === '..')
+      || realpathSync(absolute) !== absolute || !lstatSync(absolute).isFile()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${path}: restore the retained regular image before packaging`);
+    files.push({ path, sha256: hash(readFileSync(absolute)) });
+    seen.add(path);
+  }
+  return files;
 }
 
 /** Reject symlinks throughout the copied tree, including otherwise-contained ones. */
@@ -220,11 +230,11 @@ export function reviewPackageCommand(args: string[]): { stdout: string; exit: nu
 }
 
 /** Prepare the normal package against a candidate, without publishing project.json. */
-export function prepareRigReviewPackage(args: string[], project: JsonObject): void {
-  packageCommand(args, project);
+export function prepareRigReviewPackage(args: string[], project: JsonObject, imagePaths?: readonly string[]): void {
+  packageCommand(args, project, imagePaths);
 }
 
-function packageCommand(args: string[], candidate?: JsonObject): { stdout: string; exit: number } {
+function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: readonly string[]): { stdout: string; exit: number } {
   const positional: string[] = [];
   const options: Record<string, string> = {};
   let json = false;
@@ -347,7 +357,12 @@ function packageCommand(args: string[], candidate?: JsonObject): { stdout: strin
         if (hash(readFileSync(join(from, 'check/build/skeleton.model.json'))) !== expected) refuse('DIRECTION_RIG_STALE', `versions[v${n}].review_package: this model is bound by a direction document; preserve it and author a new rig version`);
       } catch (error) { if (error instanceof DirectionError) refuse(error.code, error.message); throw error; }
     }
-    const inputs = sourceFiles(from);
+    // Regeneration uses the existing declaration, preserving historical packages
+    // that omitted sibling images. New registration supplies official rows.
+    const recordedFiles = isObject(version.review_package) ? asArray(version.review_package.files) : [];
+    const retainedImages = imagePaths ?? recordedFiles.filter(isObject).flatMap(file =>
+      typeof file.path === 'string' && file.path.startsWith('out/') ? [file.path.slice(4)] : []);
+    const inputs = sourceFiles(from, retainedImages);
     const pkg = join(dir, packagePath(n));
     makePackageParent(dir);
     const scratch = mkdtempSync(join(dirname(pkg), `.v${n}-`));
@@ -370,7 +385,7 @@ function packageCommand(args: string[], candidate?: JsonObject): { stdout: strin
         mkdirSync(dirname(dest), { recursive: true });
         writeFileSync(dest, bytes);
       }
-      if (!isDeepStrictEqual(sourceFiles(from), inputs) || hash(readFileSync(config)) !== hash(configBytes)) {
+      if (!isDeepStrictEqual(sourceFiles(from, retainedImages), inputs) || hash(readFileSync(config)) !== hash(configBytes)) {
         refuse('REVIEW_PACKAGE_SOURCE_CHANGED', 'producer inputs changed during copy');
       }
       for (const input of named) if (!readFileSync(input.source).equals(input.bytes)) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${input.path}: config input changed during copy`);

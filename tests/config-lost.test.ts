@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { stageIndex } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkProject } from './clock.ts';
+import { checkProject, versionCommand } from './clock.ts';
+import { Refusal } from '../src/refusal.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { arr, bindFixtureAnswers, codes, fixture, framing, obj, retainSignoffs, retimeFixture, version, type Mutate } from './fixtures.ts';
 import { cli, gitEnv } from './helpers.ts';
@@ -202,5 +203,20 @@ describe('version config-lost writer (#171)', () => {
       provenance: { config: null, sections: {} },
     });
     expect(codes(checkProject(prePost, candidateWithPost))).toContain('POST_ON_UNACCEPTED_RIG');
+  });
+
+  test('refuses on a record whose stage check stopped early, leaving project.json byte-identical', () => {
+    const dir = migratedCg();
+    const file = join(dir, 'project.json');
+    const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    project.stage = 'no-such-stage';
+    writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+    expect(codes(checkProject(dir))).toEqual(['STAGE_UNKNOWN']);
+    const before = readFileSync(file);
+    let error: unknown;
+    try { versionCommand(['config-lost', '1', '--note', LOSS.note, '--source', LOSS.source, dir]); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('STAGE_UNKNOWN');
+    expect(readFileSync(file)).toEqual(before);
   });
 });

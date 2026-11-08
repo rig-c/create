@@ -5,7 +5,7 @@ import { asArray, checkProject, collectSignoffs, isObject } from './check.ts';
 import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { countFindings, newFindings } from './refusal-baseline.ts';
+import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { approvalStageOfStep, hasStageOrder } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
@@ -119,7 +119,7 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     if (ownerships.has('rigging-interview')) plan.rigging_drafted_at = at;
 
     // Refusals the record already carries stay; a new code/path pair, or one more copy of a carried one, refuses.
-    const fresh = newFindings(countFindings(checkProject(dir, project, { now }).refusals), checkProject(dir, next, { now }).refusals)[0];
+    const fresh = newFindings(baselineOf(checkProject(dir, project, { now })), checkProject(dir, next, { now }).refusals)[0];
     if (fresh !== undefined) refuse(fresh.code, fresh.message);
     const temporary = join(dirname(file), `.plan-${process.pid}-${crypto.randomUUID()}.tmp`);
     try {

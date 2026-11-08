@@ -148,3 +148,4 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   refuses('DIRECTION_CITATION',()=>directionCommand(['write','6',dir,'--file','evidence/input-direction.json','--rig','2']));
   expect(readFileSync(join(dir,'project.json'))).toEqual(original);expect(existsSync(join(dir,'evidence/direction/v6.json'))).toBe(false);
 });
+test('the writer is refused on a record whose stage check stopped early',()=>{const f=setup();const p=f.load();p.stage='no-such-stage';f.save(p);expect(checkProject(f.dir).refusals.map(r=>r.code)).toEqual(['STAGE_UNKNOWN']);const before=readFileSync(join(f.dir,'project.json'));refuses('STAGE_UNKNOWN',()=>write(f.dir));expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);expect(existsSync(join(f.dir,'evidence/direction/v2.json'))).toBe(false);});

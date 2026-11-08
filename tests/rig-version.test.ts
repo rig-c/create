@@ -293,12 +293,27 @@ describe('frozen rig registration', () => {
   test('a pre-existing unrelated refusal does not block a valid registration', () => {
     const { dir, args, load } = setup();
     const project = load();
-    project.stage = 'no-such-stage';
+    // An input inventory that is not a list; registration never touches inputs.
+    project.inputs = 'not-a-list';
     put(dir, 'project.json', project);
-    const planted = checkProject(dir).refusals.map(f => f.code);
-    expect(planted.length).toBeGreaterThan(0);
+    const planted = checkProject(dir).refusals.map(f => `${f.code} ${f.path}`);
+    expect(planted).toEqual(['INPUTS_INVALID inputs']);
     rigVersionCommand(args);
     expect((load().versions as JsonObject[]).length).toBe(1);
-    expect(checkProject(dir).refusals.map(f => f.code)).toEqual(planted);
+    expect(checkProject(dir).refusals.map(f => `${f.code} ${f.path}`)).toEqual(planted);
+  });
+
+  test('a record whose stage check stopped early is no baseline: registration is refused', () => {
+    const { dir, args, load } = setup();
+    const project = load();
+    project.stage = 'no-such-stage';
+    put(dir, 'project.json', project);
+    expect(checkProject(dir).refusals.map(f => f.code)).toEqual(['STAGE_UNKNOWN']);
+    const before = readFileSync(join(dir, 'project.json'));
+    refused(args, 'STAGE_UNKNOWN');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
+    expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
   });
 });

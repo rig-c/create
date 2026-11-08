@@ -48,7 +48,7 @@ function transition(value: string) {
     interviewOptionsCommand(['rig_type', dir, '--file', path]);
     interviewAnswerCommand(['rig_type', dir, '--set', path, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user', '--pick', 'rig_type=auto']);
   };
-  return { dir, file, before, decide, pend };
+  return { dir, file, before, decide, pend, path, sha256: sha256(Buffer.from(bytes)) };
 }
 
 test('auto then the same decision preserves pre-transition CG refusals', () => {
@@ -133,4 +133,49 @@ test('malformed baselines are invalid in both check and decision without writing
     expect(checkProject(w.dir).refusals.some(f => f.code === 'INTERVIEW_CHOICE_INVALID')).toBe(true);
     refused(w, 'fullscreen.minimal', 'INTERVIEW_CHOICE_INVALID');
   }
+});
+
+/** A check that stopped early is no baseline (docs/PROJECT.md § Refusals a record already carries). */
+function unknownStage(w: ReturnType<typeof transition>): void {
+  rewrite(w, project => { project.stage = 'no-such-stage'; });
+  expect(checkProject(w.dir).refusals.map(f => f.code)).toEqual(['STAGE_UNKNOWN']);
+}
+function refusedWrite(w: ReturnType<typeof transition>, code: string, write: () => unknown): void {
+  const before = readFileSync(w.file);
+  let error: unknown;
+  try { write(); } catch (caught) { error = caught; }
+  expect(error).toBeInstanceOf(Refusal);
+  expect((error as Refusal).code).toBe(code);
+  expect(readFileSync(w.file)).toEqual(before);
+}
+
+test('the decision writer is refused on a record whose stage check stopped early', () => {
+  const w = transition('fullscreen.minimal');
+  unknownStage(w);
+  refused(w, 'fullscreen.minimal', 'STAGE_UNKNOWN');
+});
+
+test('a stored pending baseline does not stand in for a check that stopped early', () => {
+  const w = transition('fullscreen.minimal');
+  rewrite(w, project => {
+    const answer = obj(framing(project, 'rig_type').answer);
+    answer.refusal_baseline = [...arr(answer.refusal_baseline), { code: 'STAGE_UNKNOWN', path: 'stage', count: 1 }];
+  });
+  unknownStage(w);
+  refused(w, 'fullscreen.minimal', 'STAGE_UNKNOWN');
+});
+
+test('the options writer is refused on a record whose stage check stopped early', () => {
+  const w = transition('fullscreen.minimal');
+  w.decide('fullscreen.minimal');
+  unknownStage(w);
+  refusedWrite(w, 'STAGE_UNKNOWN', () => interviewOptionsCommand(['rig_type', w.dir, '--file', w.path]));
+});
+
+test('the answer writer is refused on a record whose stage check stopped early', () => {
+  const w = transition('fullscreen.minimal');
+  w.decide('fullscreen.minimal');
+  interviewOptionsCommand(['rig_type', w.dir, '--file', w.path]);
+  unknownStage(w);
+  refusedWrite(w, 'STAGE_UNKNOWN', () => interviewAnswerCommand(['rig_type', w.dir, '--set', w.path, '--sha256', w.sha256, '--by', 'user', '--pick', 'rig_type=keep']));
 });

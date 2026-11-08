@@ -9,7 +9,7 @@ import { approvalStageOfGuide } from './stages.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { countFindings, findingKey, newFindings } from './refusal-baseline.ts';
+import { baselineOf, findingKey, newFindings, stoppedEarly } from './refusal-baseline.ts';
 import { CHOICE_ORDER_SPEC, CHOICE_SPEC, ChoiceError, assembleFragments, choiceAdoption, choiceVerbatim, literalFile, optionFile, refusalBaseline, selection, sha256, validateChoice, validateContext, validateSet } from './choices.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -59,8 +59,10 @@ function run(action: () => string): string {
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
 export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = []): void {
-  const counts = countFindings(checkProject(dir,original,{now}).refusals);
-  for (const f of baseline) {
+  const asRead = checkProject(dir,original,{now});
+  const counts = baselineOf(asRead);
+  // A pending answer's stored baseline widens the record's own; it never stands in for a check that stopped early.
+  if (!stoppedEarly(asRead)) for (const f of baseline) {
     const k = findingKey({ code: String(f.code), path: String(f.path) });
     counts.set(k,Math.max(counts.get(k) ?? 0,Number(f.count)));
   }
@@ -184,13 +186,10 @@ export function interviewAnswerCommand(args: string[], now: number): string { re
     if (findings.length) refuse(findings[0]!.code, findings[0]!.message);
   } else if (opts.one['--why-file']) usage('--why-file applies only to a member override');
   if (result.autos.length || result.pending.length) {
-    const baseline = new Map<string,JsonObject>();
-    for (const f of checkProject(dir,project,{now}).refusals) {
-      const key = `${f.code}:${f.path}`; const entry = baseline.get(key);
-      if (entry) entry.count = Number(entry.count)+1;
-      else baseline.set(key,{code:f.code,path:f.path,count:1});
-    }
-    answer.refusal_baseline = [...baseline.values()];
+    answer.refusal_baseline = [...baselineOf(checkProject(dir,project,{now}))].map(([key,count]) => {
+      const [code,path] = JSON.parse(key) as [string,string];
+      return {code,path,count};
+    });
   }
   validateChoice(dir,next,item,answer);
   if (item.raw !== null && item.raw !== undefined) {

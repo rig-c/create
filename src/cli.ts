@@ -32,6 +32,7 @@ import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 import { VERSION_HELP, versionCommand } from './config-lost.ts';
+import { takePublishedLines } from './job-writer.ts';
 import { NEXT_HELP, nextCommand } from './next.ts';
 
 // Input registration is kept in its own CLI block.
@@ -293,9 +294,28 @@ export function main(argv: string[], now: number): number {
       if (positional.length > 1 || action === 'open' && (!options['--reviewer'] || !['owner', 'delegate'].includes(options['--role'] ?? ''))) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer <id> --role owner|delegate and one optional directory', USAGE_EXIT);
       }
-      const child = Bun.spawnSync([process.execPath, join(import.meta.dir, 'job-runtime.ts'), action!], {
-        stdin: Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], now })),
-        stdout: 'inherit', stderr: 'inherit',
+      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], now }));
+      const runtime = join(import.meta.dir, 'job-runtime.ts');
+      if (action === 'open') {
+        const child = Bun.spawn([process.execPath, runtime, action], {
+          stdin, stdout: 'inherit', stderr: 'inherit',
+        });
+        const forward = (signal: 'SIGINT' | 'SIGTERM') => {
+          if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+        };
+        const onSigint = () => forward('SIGINT');
+        const onSigterm = () => forward('SIGTERM');
+        process.on('SIGINT', onSigint);
+        process.on('SIGTERM', onSigterm);
+        void child.exited.then(code => {
+          process.off('SIGINT', onSigint);
+          process.off('SIGTERM', onSigterm);
+          process.exitCode = code;
+        });
+        return 0;
+      }
+      const child = Bun.spawnSync([process.execPath, runtime, action!], {
+        stdin, stdout: 'inherit', stderr: 'inherit',
       });
       return child.exitCode;
     }
@@ -311,15 +331,17 @@ export function main(argv: string[], now: number): number {
     if (command === undefined) {
       refuse('UNKNOWN_COMMAND', `no command named ${first} (see rig-create --help)`, USAGE_EXIT);
     }
+    takePublishedLines();
     const result = command(rest, now);
-    if (typeof result === 'string') {
-      process.stdout.write(`${result}\n`);
-      return 0;
-    }
-    process.stdout.write(`${result.stdout}\n`);
-    return result.exit;
+    const jobLines = takePublishedLines();
+    const text = typeof result === 'string' ? result : result.stdout;
+    const output = !rest.includes('--json') && jobLines.length ? `${text}\n${jobLines.join('\n')}` : text;
+    process.stdout.write(`${output}\n`);
+    return typeof result === 'string' ? 0 : result.exit;
   } catch (error) {
+    const jobLines = takePublishedLines();
     if (error instanceof Refusal) {
+      if (!rest.includes('--json') && jobLines.length) process.stdout.write(`${jobLines.join('\n')}\n`);
       process.stderr.write(`${formatRefusal(error)}\n`);
       return error.exitCode;
     }

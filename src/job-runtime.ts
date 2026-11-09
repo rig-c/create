@@ -1,7 +1,7 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { assertRequestedDraft, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
+import { askOutcomeLines, assertRequestedDraft, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, reconcilePublication } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
 
@@ -20,6 +20,8 @@ async function run(): Promise<void> {
         failPublication(root, entry, failure);
         throw new Refusal('JOB_PUBLISH_PENDING', 'project.json: committed publication is pending; run rig-create job reconcile');
       }
+      const lines = askOutcomeLines(outcomes);
+      if (lines.length) console.log(lines.join('\n'));
       refuseAskOutcomes(outcomes);
       break;
     }
@@ -28,23 +30,50 @@ async function run(): Promise<void> {
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       assertRequestedDraft(root, input.draft);
+      let stopping = false;
+      let stopHost: (() => void) | null = null;
+      const onSignal = () => {
+        stopping = true;
+        stopHost?.();
+      };
+      process.on('SIGINT', onSignal);
+      process.on('SIGTERM', onSignal);
       const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now);
+      if (stopping) {
+        process.off('SIGINT', onSignal);
+        process.off('SIGTERM', onSignal);
+        host.stop();
+        break;
+      }
       console.log(host.ownerUrl);
       // The page shows the record's current draft and its asks. A refused publish or ask is
       // named here; a foreground host keeps serving so `job reconcile` and `job open` can retry.
       try { console.log((await openDraftPublication(root, host, input.now, input.draft)).join('\n')); }
       catch (error) {
-        if (host.reused) { host.stop(); throw error; }
+        if (host.reused) {
+          process.off('SIGINT', onSignal);
+          process.off('SIGTERM', onSignal);
+          host.stop();
+          throw error;
+        }
         console.error(error instanceof Refusal ? `${error.code}: ${error.message}` : 'JOB_PUBLISH_PENDING: project.json: draft publication failed; run rig-create job reconcile');
         process.exitCode = 1;
       }
-      if (host.reused) host.stop();
-      else {
-        const stop = () => { host.stop(); process.exit(0); };
-        process.once('SIGINT', stop); process.once('SIGTERM', stop);
+      if (host.reused || stopping) {
+        process.off('SIGINT', onSignal);
+        process.off('SIGTERM', onSignal);
+        host.stop();
+      } else {
         const timer = setInterval(() => {
-          if (host.session.status().status === 'closed') { clearInterval(timer); stop(); }
+          if (host.session.status().status === 'closed') stopHost?.();
         }, 1000);
+        stopHost = () => {
+          clearInterval(timer);
+          process.off('SIGINT', onSignal);
+          process.off('SIGTERM', onSignal);
+          host.stop();
+          process.exit(process.exitCode ?? 0);
+        };
       }
       break;
     }

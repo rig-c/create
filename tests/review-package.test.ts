@@ -490,6 +490,68 @@ test('check refuses a frozen occluder plate directory that records sibling files
   expect(missingReceipt.refusals[0]?.message).toContain('inputs/plate');
 });
 
+test('package and check accept a config naming both an occluder plate directory and an explicit image inside it', () => {
+  const dir = fixture();
+  const receipt = JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'occluder plate receipt' });
+  put(dir, 'frozen/config.json', JSON.stringify({
+    assemble: { occluders: [{ image: 'inputs/plate/plate.png', plate: 'inputs/plate' }] },
+  }));
+  put(dir, 'frozen/inputs/plate/receipt.json', receipt);
+  put(dir, 'frozen/inputs/plate/plate.png', 'explicitly declared occluder image');
+  put(dir, 'frozen/inputs/plate/mask.png', 'unreferenced sibling mask');
+  const record = write(dir);
+  const files = record.files as JsonObject[];
+  expect(files).toContainEqual({ path: 'inputs/plate/plate.png', sha256: sha('explicitly declared occluder image') });
+  expect(files).toContainEqual({ path: 'inputs/plate/receipt.json', sha256: sha(receipt) });
+  expect(files.some(f => f.path === 'inputs/plate/mask.png')).toBe(false);
+  expect(existsSync(join(dir, 'derived/review/v1/inputs/plate/plate.png'))).toBe(true);
+  expect(existsSync(join(dir, 'derived/review/v1/inputs/plate/receipt.json'))).toBe(true);
+  expect(existsSync(join(dir, 'derived/review/v1/inputs/plate/mask.png'))).toBe(false);
+  expect(reviewConfigInputs(record, dir, 1)).toEqual([
+    { path: 'inputs/plate/plate.png', sha256: sha('explicitly declared occluder image') },
+    { path: 'inputs/plate/receipt.json', sha256: sha(receipt) },
+  ]);
+  expect(checked(dir).refusals).toEqual([]);
+  expect(checked(dir).warnings).toEqual([]);
+  // Regenerating a frozen-rig/1 registration preserves both the receipt and the explicit sibling while skipping unreferenced siblings.
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  project.versions[0].registration = {
+    kind: 'frozen-rig/1',
+    files: [
+      { path: 'frozen/inputs/plate/mask.png', sha256: sha('unreferenced sibling mask') },
+      { path: 'frozen/inputs/plate/plate.png', sha256: sha('explicitly declared occluder image') },
+      { path: 'frozen/inputs/plate/receipt.json', sha256: sha(receipt) },
+    ],
+  };
+  put(dir, 'project.json', JSON.stringify(project));
+  rmSync(join(dir, 'derived/review/v1'), { recursive: true });
+  expect(write(dir)).toEqual(record);
+  expect(checked(dir).refusals).toEqual([]);
+  // Unreferenced sibling injected into the frozen package inventory is still refused by REVIEW_PACKAGE_INPUT_INVALID.
+  put(dir, 'derived/review/v1/inputs/plate/mask.png', 'unreferenced sibling mask');
+  const updated = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  updated.versions[0].review_package.files.push({ path: 'inputs/plate/mask.png', sha256: sha('unreferenced sibling mask') });
+  updated.versions[0].review_package.files.sort((a: JsonObject, b: JsonObject) => String(a.path).localeCompare(String(b.path)));
+  put(dir, 'project.json', JSON.stringify(updated));
+  const withUnreferenced = checked(dir);
+  expect(withUnreferenced.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_INPUT_INVALID']);
+  expect(withUnreferenced.refusals[0]?.message).toContain('directory input inputs/plate must bind only inputs/plate/receipt.json');
+});
+
+test('writer refuses a directory input that collides with unreferenced packaged files before writing', () => {
+  const dir = fixture();
+  put(dir, 'frozen/config.json', JSON.stringify({ assemble: { occluders: [{ plate: 'out/parts' }] } }));
+  put(dir, 'frozen/out/parts/receipt.json', JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'colliding plate receipt' }));
+  const before = readFileSync(join(dir, 'project.json'));
+  let error: unknown;
+  try { write(dir); } catch (caught) { error = caught; }
+  expect(error).toBeInstanceOf(Refusal);
+  expect((error as Refusal).code).toBe('REVIEW_PACKAGE_INPUT_INVALID');
+  expect((error as Refusal).message).toContain('directory input out/parts must bind only out/parts/receipt.json');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+});
+
 for (const kind of ['missing-receipt', 'directory-receipt', 'symlink-receipt', 'untyped-receipt', 'wrong-spec', 'old-parts'] as const) {
   test(`packaging refuses an invalid occluder plate directory (${kind}) before writing`, () => {
     const dir = fixture();

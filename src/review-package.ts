@@ -83,11 +83,25 @@ const inside = (root: string, file: string): boolean => {
 interface FileHash { path: string; sha256: string }
 
 /** Named files are separate from producer outputs and required by their reader's date. */
-export function reviewConfigInputs(record: JsonObject, dir: string, n: number, missing?: (path: string) => void, unavailable?: ConfigInputsWarning): JsonObject[] {
-  const path = join(dir, packagePath(n), 'config.json');
+export function reviewConfigInputs(record: JsonObject, dir: string, n: number, missing?: (path: string) => void, unavailable?: ConfigInputsWarning, pkgDir = join(dir, packagePath(n))): JsonObject[] {
+  const path = join(pkgDir, 'config.json');
   if (!existsSync(path)) return [];
   const config = JSON.parse(readFileSync(path, 'utf8'));
   const refs = configInputReferences(dir, config, unavailable);
+  const declared = new Set(refs.flatMap(ref => {
+    const name = relative(dirname(path), resolve(dirname(path), ref.value)).split(sep).join('/');
+    return [name, `${name}/${DIRECTORY_INPUT_RECEIPT}`];
+  }));
+  if (isObject(config) && typeof config.requirements === 'string') {
+    const reqFile = resolve(dirname(path), config.requirements);
+    if (existsSync(reqFile) && lstatSync(reqFile).isFile()) {
+      try {
+        const doc = JSON.parse(readFileSync(reqFile, 'utf8'));
+        const mask = isObject(doc) && isObject(doc.setup_painting) && isObject(doc.setup_painting.figure_mask) ? doc.setup_painting.figure_mask.path : undefined;
+        if (typeof mask === 'string' && mask.trim()) declared.add(relative(dirname(path), resolve(dirname(reqFile), mask)).split(sep).join('/'));
+      } catch { /* Handled by figure-mask checks. */ }
+    }
+  }
   return refs.flatMap(ref => {
     const name = relative(dirname(path), resolve(dirname(path), ref.value)).split(sep).join('/');
     const file = asArray(record.files).find(f => isObject(f) && f.path === name);
@@ -95,14 +109,14 @@ export function reviewConfigInputs(record: JsonObject, dir: string, n: number, m
     const bound = `${name}/${DIRECTORY_INPUT_RECEIPT}`;
     const receipt = asArray(record.files).find(f => isObject(f) && f.path === bound);
     if (isObject(receipt)) {
-      if (asArray(record.files).some(f => isObject(f) && typeof f.path === 'string' && f.path.startsWith(`${name}/`) && f.path !== bound)) {
+      if (asArray(record.files).some(f => isObject(f) && typeof f.path === 'string' && f.path.startsWith(`${name}/`) && f.path !== bound && !declared.has(f.path))) {
         throw new Error(`config.${ref.at}: directory input ${name} must bind only ${bound}`);
       }
       const spec = plateReceiptSpec(dir);
       const receiptFile = join(dirname(path), bound);
       if (existsSync(receiptFile)) {
-        const declared = receiptSpec(readFileSync(receiptFile));
-        if (declared !== spec) throw new Error(`config.${ref.at}: ${bound} declares spec ${JSON.stringify(declared)}; a directory input binds a ${spec} receipt, such as a comfy plate --mode occluder output`);
+        const declaredSpec = receiptSpec(readFileSync(receiptFile));
+        if (declaredSpec !== spec) throw new Error(`config.${ref.at}: ${bound} declares spec ${JSON.stringify(declaredSpec)}; a directory input binds a ${spec} receipt, such as a comfy plate --mode occluder output`);
       }
       return [receipt];
     }
@@ -345,7 +359,7 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
       for (const binding of asArray(version.registration.files)) {
         if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(prefix)) continue;
         const rel = binding.path.slice(configDir.length + 1);
-        if ([...directories].some(d => rel.startsWith(`${d}/`) && rel !== `${d}/${DIRECTORY_INPUT_RECEIPT}`)) continue;
+        if ([...directories].some(d => rel.startsWith(`${d}/`)) && !named.some(input => input.path === rel)) continue;
         const file = source(binding.path);
         const bytes = readFileSync(file);
         if (hash(bytes) !== binding.sha256) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${binding.path}: registered runtime input changed`);
@@ -441,6 +455,8 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
       const identity = { dir, project, refusals: [] as Ctx['refusals'], warnings: [] as Ctx['warnings'] };
       checkBuildIdentity(identity, version, record);
       if (identity.refusals[0]) refuse(identity.refusals[0].code, identity.refusals[0].message);
+      try { reviewConfigInputs(record, dir, n, undefined, undefined, scratch); }
+      catch (error) { refuse('REVIEW_PACKAGE_INPUT_INVALID', `versions[v${n}].review_package: ${error instanceof Error ? error.message : String(error)}`); }
       if (packageExists(pkg)) {
         if (lstatSync(pkg).isSymbolicLink() || realpathSync(pkg) !== pkg) refuse('REVIEW_PACKAGE_PATH_INVALID', 'existing package must have no symlink parents');
         if (!isDeepStrictEqual(filesAt(pkg), files)) refuse('REVIEW_PACKAGE_EXISTS', 'existing package differs; preserve it and inspect the recorded version before regenerating');

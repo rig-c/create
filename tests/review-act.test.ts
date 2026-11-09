@@ -15,6 +15,7 @@ import { reviewCommand } from '../src/feedback.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { decodeReviewAct, decodeReviewResponse, reviewActFindings } from '../src/review-act.ts';
+import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const directories: string[] = [];
@@ -179,6 +180,30 @@ test('review verdict ingestion skips earlier interview receipts in the same job'
   const recorded = projectAt(root);
   expect(recorded.review_acts as JsonObject[]).toHaveLength(2);
   expect(reviewActFindings(recorded)).toEqual([]);
+});
+
+test('review verdict ingestion skips earlier checkpoint receipts in the same job', async () => {
+  const { root, act } = await published();
+  const project = projectAt(root);
+  const signoffs = project.signoffs as JsonObject[];
+  const index = signoffs.findIndex(signoff => typeof signoff.checkpoint === 'string');
+  const signed = signoffs[index];
+  const checkpoint = { schema: 'rig-review/act@2', kind: 'checkpoint', jobId: act.jobId,
+    actId: 'checkpoint-before-verdict', askId: 'checkpoint-ask', publicationId: act.publicationId,
+    at: signed.at, authority: act.authority,
+    source: { ...act.source, plan: { steps: ((project.plan as JsonObject).steps as JsonObject[]).map(step => ({ id: step.id, hash: stepHash(step) })) } },
+    value: { checkpointId: signed.checkpoint, planStepId: signed.checkpoint, outcome: 'pass', words: signed.verbatim },
+  };
+  signed.source = `review act ${act.jobId}/${checkpoint.actId}`;
+  const bytes = JSON.stringify(checkpoint);
+  const step = ((project.plan as JsonObject).steps as JsonObject[]).find(entry => entry.id === signed.checkpoint)!;
+  project.review_acts = [...(project.review_acts as JsonObject[]), { schema: 'rig-create/review-act@1', kind: 'checkpoint',
+    jobId: act.jobId, actId: checkpoint.actId, checkpoint: signed.checkpoint, signoff: index, bytes, sha256: jobHash(bytes), version_hash: stepHash(step) }];
+  expect(reviewActFindings(project)).toEqual([]);
+  putProject(root, project);
+  const result = await command(root, act.actId);
+  expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+  expect(reviewActFindings(projectAt(root))).toEqual([]);
 });
 
 test('replay after a displayed source change refuses REVIEW_ACT_SOURCE_STALE with record bytes identical', async () => {

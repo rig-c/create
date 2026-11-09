@@ -5,9 +5,10 @@ import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { acquireBoundJobWrite } from './job-writer.ts';
+import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { acquireBoundJobWrite } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
 import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, signoffActIdentity, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
@@ -29,12 +30,13 @@ import type { JsonObject } from './templates.ts';
 export const SIGNOFF_HELP = `signoff:
   <stage> [<project dir>]  record a human signature without moving project.stage
   --version <n>           reviewed rig or post version (single candidate defaults)
-  --from-review <actId>   fetch the person's signoff act through the live job writer binding
-                          (excludes --by, --verbatim-file, --steps and --checkpoint)
+  --from-review <actId>   without --checkpoint: record the person's Review signoff act for <stage>
+                          (excludes --by, --verbatim-file and --steps on both routes)
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
   --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
   --checkpoint <id>       sign an enabled checkpoint in this execution stage
+  --from-review <actId>   with --checkpoint: record the passed Review checkpoint act (no --by or --verbatim-file)
   --draft <id>            labelled draft with a recorded parts-review API receipt
   --structure-file <path> retained structure decisions snapshot
   --diff-report <path>    parts-review difference report, required from 2026-11-06
@@ -45,9 +47,6 @@ export const SIGNOFF_HELP = `signoff:
   Fills null checkpoints from checkpoint_proposed and hashes covered steps after filling.
   Existing checkpoints are preserved. Parts-review validates evidence and the map before recording.`;
 
-export interface SignoffHooks {
-  fetch?: (transport: ReviewActTransport) => { bytes: string };
-}
 interface FetchedSignoff { act: SignoffAct; bytes: string; human: JsonObject }
 
 /** Fetch and decode a finalized signoff act; its stage, words, identity and date are the person's, never flags. */
@@ -102,22 +101,30 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   const stage = positional[0];
   if (positional.length > 2 || stage === undefined || !STAGE_VALUES.includes(stage)) refuse('SIGNOFF_OPTION_INVALID', 'signoff takes a known stage and one optional project folder', USAGE_EXIT);
   const actId = opts['--from-review'];
-  if (actId === undefined) return recordSignoff(stage, positional, opts, components, json, now);
-  const mixed = ['--by', '--verbatim-file', '--steps', '--checkpoint'].filter(flag => opts[flag] !== undefined);
-  if (mixed.length > 0) refuse('SIGNOFF_OPTION_INVALID', `project.json.review_acts: --from-review excludes ${mixed.join(', ')}; the person's identity, words and covered steps come from the review act`, USAGE_EXIT);
+  if (actId !== undefined) {
+    const mixed = ['--by', '--verbatim-file', '--steps'].filter(flag => opts[flag] !== undefined);
+    if (mixed.length > 0) refuse('SIGNOFF_OPTION_INVALID', `project.json.review_acts: --from-review excludes ${mixed.join(', ')}; the person's identity, words and covered steps come from the review act`, USAGE_EXIT);
+  }
+  if (actId === undefined) return recordSignoff(stage, positional, opts, components, json, now, hooks);
+  // One bound write lock per route covers the fetch, validation and the write.
   const root = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(root);
-  try { return recordSignoff(stage, positional, opts, components, json, now, fetchSignoffAct(root, stage, actId, now, hooks)); }
-  finally { release(); }
+  try {
+    // With --checkpoint the passed checkpoint act is fetched inside the writer; without it, the stage signoff act.
+    const review = opts['--checkpoint'] === undefined ? fetchSignoffAct(root, stage, actId, now, hooks) : undefined;
+    return recordSignoff(stage, positional, opts, components, json, now, hooks, review);
+  } finally { release(); }
 }
 
-function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, components: JsonObject[], json: boolean, now: number, review?: FetchedSignoff): { stdout: string; exit: number } {
-  const by = review === undefined ? opts['--by'] : String(review.human.by);
-  if (by === undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
+function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, components: JsonObject[], json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff): { stdout: string; exit: number } {
+  const actId = opts['--from-review'];
+  let by = review === undefined ? opts['--by'] ?? '' : String(review.human.by);
+  if (opts['--by'] === undefined && actId === undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const { file, project } = readProject(dir);
-  const original = readFileSync(file);
+  const original = actId === undefined ? undefined : readFileSync(file);
+  let ingest: CheckpointIngest | undefined;
   if (review !== undefined) {
     // Replays dedupe before current-source checks: the recorded signoff is returned unchanged.
     const existing = asArray(project.review_acts).filter(isObject).find(entry => entry.jobId === review.act.jobId && entry.actId === review.act.actId);
@@ -158,6 +165,11 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     const on = checkpoint.state === 'user' ? checkpoint.answer.value
       : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
     if (on !== true) refuse('SIGNOFF_CHECKPOINT_INVALID', `${checkpointId}: checkpoint must be enabled before it can be signed`);
+    if (actId !== undefined) {
+      ingest = ingestCheckpointAct(dir, project, actId, checkpointId, now, hooks);
+      if (ingest.replay) return { stdout: json ? JSON.stringify(ingest.replay, null, 2) : `signoff: ${stage} checkpoint ${checkpointId} already recorded from ${ingest.source}; nothing written`, exit: 0 };
+      by = ingest.by;
+    }
   }
   if (stage === PARTS_REVIEW && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
   if ((opts['--diff-report'] !== undefined || opts['--triage-file'] !== undefined || components.length > 0) && stage !== PARTS_REVIEW) {
@@ -209,8 +221,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
     if (typeof value !== 'boolean') refuse('SIGNOFF_CHECKPOINT_INVALID', `${String(step.id)}: checkpoint needs a boolean user answer or a decided boolean delegation`);
   }
-  const verbatim = review === undefined ? readVerbatim(opts['--verbatim-file'] ?? '-') : String(review.human.verbatim);
-  const at = review === undefined ? new Date(now).toISOString() : String(review.human.at);
+  const verbatim = review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : readVerbatim(opts['--verbatim-file'] ?? '-');
+  const at = review !== undefined ? String(review.human.at) : ingest ? ingest.at : new Date(now).toISOString();
   if (evidence !== undefined) {
     const refusals: Finding[] = [];
     const record = { evidence, at, ...(diffMap === undefined ? {} : { diff_map: diffMap }) };
@@ -266,12 +278,18 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (stage === RIG_REVIEW) assertRigReviewSignable(project, `signoffs[${project.signoffs.length}]`);
   const target = selectSignoffTarget(dir, project, stage, opts['--version']);
   if (target !== undefined) signoff.target = target;
+  if (ingest) signoff.source = ingest.source;
   project.signoffs.push(signoff);
   if (review !== undefined) {
     project.review_acts = [...asArray(project.review_acts), { schema: 'rig-create/review-act@1', kind: 'signoff', jobId: review.act.jobId, actId: review.act.actId,
       stage, bytes: review.bytes, sha256: jobHash(review.bytes), version_hash: jobHash(JSON.stringify(signoffActIdentity(review.act))) }];
     const invalid = reviewActFindings(project)[0];
     if (invalid !== undefined) refuse(invalid.code, invalid.message);
+  }
+  if (ingest) {
+    project.review_acts = [...asArray(project.review_acts), checkpointReceipt(ingest, project.signoffs.length - 1)];
+    const invalid = reviewActFindings(project)[0];
+    if (invalid) refuse(invalid.code, invalid.message);
   }
   const reopens = collectReopens(project, []);
   const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
@@ -293,7 +311,10 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     });
     if (first !== undefined) refuse(first.code, first.message);
   }
-  if (review !== undefined && !readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during signoff validation; retry against the current live job');
-  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  if (ingest) commitIngestedSignoff(file, original!, project);
+  else {
+    if (review !== undefined && !readFileSync(file).equals(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during signoff validation; retry against the current live job');
+    writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  }
   return { stdout: json ? JSON.stringify(signoff, null, 2) : `signoff: recorded ${stage} by ${by} at ${at}; stage unchanged`, exit: 0 };
 }

@@ -98,7 +98,7 @@ test('the wrong act kind or stage refuses', () => {
   expect(() => decodeReviewAct(JSON.stringify(signoffAct(dir, 'interview', 'sign-decode')), 'review-verdict')).toThrow(Refusal);
 });
 
-test.each(['--by', '--verbatim-file', '--steps', '--checkpoint'])('mixed human flag %s refuses', flag => {
+test.each(['--by', '--verbatim-file', '--steps'])('mixed human flag %s refuses', flag => {
   const dir = fixture(); bindReview(dir);
   refused(dir, 'SIGNOFF_OPTION_INVALID', () => fromReview(dir, 'interview', signoffAct(dir, 'interview', 'sign-mixed'), [flag, 'bones']));
 });

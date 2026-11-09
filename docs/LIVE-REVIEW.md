@@ -133,7 +133,12 @@ The shared reader checks `rig-review/job-api@2` for semantic API responses,
 `rig-review/act@2` for historical acts and `rig-review/act@3` for rig stills, and the
 act's Parts enumerator version against `>=2.25.0 <3.0.0`. API@1 and act@1 are
 refused without migration. Rig/post `review-verdict` and draft `parts-verdict` use their respective writers.
-Interview picks, signoff and checkpoint ingestion await their follow-up cards. Image-review has no create version writer mapping. Described
+Interview picks use `interview-answer --from-review`. A passed `checkpoint` act is recorded by
+`signoff <stage> --checkpoint <id> --from-review <actId>`: the act's `planStepId` must be `<id>`, an
+enabled checkpoint `--checkpoint` accepts in that stage, and its displayed plan must be the current
+one. The sign-off takes `by`, `at` and the words from the act and names it in `source`; a `fail`
+outcome is refused (`REVIEW_ACT_CHECKPOINT_FAILED`) and writes nothing. Stage signoff ingestion awaits
+its follow-up card. Image-review has no create version writer mapping. Described
 correction and mesh-edit retain Review's reserved status.
 
 `approved`, `changes-requested` and `pending` map to the existing verdict

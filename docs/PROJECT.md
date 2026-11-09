@@ -761,25 +761,27 @@ rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <fi
 ```
 
 The `signoff` command appends `signoffs[]` and leaves `project.stage` unchanged. `at`
-comes from the clock. There is no `--at` option.
+comes from the clock. There is no `--at` option. The user's UTF-8 words come
+from the file, or stdin when omitted or `-`, preserving BOM, spaces, CRLFs and
+final newlines. Invalid UTF-8 is refused because a JSON string cannot retain
+its original bytes.
 
-`--from-review <actId>` is the review tool's route: it fetches the person's
+`--from-review <actId>` without `--checkpoint` is the review tool's stage
+sign-off route (with `--checkpoint <id>` it records a passed checkpoint act
+instead; see CHECKS.md). It fetches the person's
 finalized `signoff` act through the live job writer binding, the way
 `review --from-review` and `interview-answer --from-review` do, and validates
 it with the same decoder the check runs on the retained act bytes. The act
 supplies the stage (it must be the one named), the words, the person (`by` is
 `user` for the job owner, `delegate` otherwise) and `at`; `--by`,
-`--verbatim-file`, `--steps` and `--checkpoint` are refused with it
+`--verbatim-file` and `--steps` are refused with it on both routes
 (`SIGNOFF_OPTION_INVALID`). For `plan-approved`, `rigging-interview` and
 `post-interview` the act's `source.plan` must list the current `plan.steps`
 ids and step hashes in order, or the write refuses `REVIEW_ACT_SOURCE_STALE`;
 coverage and `step_hashes` then follow the writer's usual rules. The signature
 names its act in `source` (`review act <jobId>/<actId>`), and `review_acts[]`
 retains `{ kind: "signoff", jobId, actId, stage, bytes, sha256, version_hash }`.
-Replaying the same act returns the recorded signature unchanged. The user's UTF-8 words come
-from the file, or stdin when omitted or `-`, preserving BOM, spaces, CRLFs and
-final newlines. Invalid UTF-8 is refused because a JSON string cannot retain
-its original bytes.
+Replaying the same act returns the recorded signature unchanged.
 
 For new-order `plan-approved`, coverage is the parts steps; `rigging-interview` covers the remaining rig steps. Legacy `plan-approved` covers every rig step. For `post-interview`, it is
 every post step. `--steps` narrows coverage within that phase and stores the

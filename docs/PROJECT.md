@@ -2233,7 +2233,7 @@ ordered `{id, hash}` step identities and eligible
 Subject key order follows these declarations. Identifiers must fit the
 review record-id domain of 1–128 ASCII letters, digits, dots, underscores
 and hyphens, starting with a letter or digit. The reader identity is
-`rig-create/publication-reader/2`. Installed review 2.7.0 retains its
+`rig-create/publication-reader/2`. Installed review 2.7.1 retains its
 package-only result types.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.

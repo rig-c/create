@@ -1,24 +1,26 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from './job-host.ts';
+import { closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, reconcilePublication } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; now: number };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; now: number };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'publish': {
       const entry = pendingPublications(root).find(entry => entry.id === input.id);
       if (!entry) refuse('JOB_OUTBOX_INVALID', 'project.json: pending writer receipt is absent; restore the private outbox');
-      try { await reconcilePublication(root, entry, publishPending); }
+      let outcomes: AskOutcome[] = [];
+      try { await reconcilePublication(root, entry, async item => { outcomes = await publishPending(item); }); }
       catch (error) {
         const failure = error instanceof Refusal ? { code: error.code, message: error.message }
           : { code: 'JOB_PUBLISH_PENDING', message: 'project.json: host publication failed; restore the bound host before rig-create job reconcile' };
         failPublication(root, entry, failure);
         throw new Refusal('JOB_PUBLISH_PENDING', 'project.json: committed publication is pending; run rig-create job reconcile');
       }
+      refuseAskOutcomes(outcomes);
       break;
     }
     case 'reconcile': console.log(`job: reconciled ${await reconcileCreateJob(root)} publication(s)`); break;
@@ -27,6 +29,14 @@ async function run(): Promise<void> {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now);
       console.log(host.ownerUrl);
+      // The page shows the record's current draft and its asks. A refused publish or ask is
+      // named here; a foreground host keeps serving so `job reconcile` and `job open` can retry.
+      try { console.log((await openDraftPublication(root, host, input.now, input.draft)).join('\n')); }
+      catch (error) {
+        if (host.reused) { host.stop(); throw error; }
+        console.error(error instanceof Refusal ? `${error.code}: ${error.message}` : 'JOB_PUBLISH_PENDING: project.json: draft publication failed; run rig-create job reconcile');
+        process.exitCode = 1;
+      }
       if (host.reused) host.stop();
       else {
         const stop = () => { host.stop(); process.exit(0); };

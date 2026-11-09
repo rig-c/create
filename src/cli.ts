@@ -43,7 +43,7 @@ const INPUT_CLI = `  rig-create input add <path> [<dir>] --origin <words>
 const HELP = `rig-create — create and run a rig project
 
 Usage:
-  rig-create job open [<dir>] --reviewer <id> --role owner|delegate
+  rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id>]
   rig-create job reconcile|close [<dir>]
 ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
   rig-create init <dir> --painting <file> --origin <words> [--projects-root <dir>] [--same-artwork-reason <file>]
@@ -277,7 +277,7 @@ export function main(argv: string[], now: number): number {
       const options: Record<string, string> = {};
       for (let index = 0; index < args.length; index++) {
         const arg = args[index]!;
-        if (action === 'open' && ['--reviewer', '--role'].includes(arg)) {
+        if (action === 'open' && ['--reviewer', '--role', '--draft'].includes(arg)) {
           const value = args[++index];
           if (!value || value.startsWith('-') || options[arg]) refuse('JOB_BINDING_INVALID', 'project.json: job open requires one value for each reviewer option', USAGE_EXIT);
           options[arg] = value;
@@ -288,7 +288,7 @@ export function main(argv: string[], now: number): number {
         refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer <id> --role owner|delegate and one optional directory', USAGE_EXIT);
       }
       const child = Bun.spawnSync([process.execPath, join(import.meta.dir, 'job-runtime.ts'), action!], {
-        stdin: Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], now })),
+        stdin: Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], now })),
         stdout: 'inherit', stderr: 'inherit',
       });
       return child.exitCode;

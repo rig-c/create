@@ -1,11 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding } from '@rig-c/review/job-host';
+import { isDeepStrictEqual } from 'node:util';
+import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSubject } from '@rig-c/review/job-host';
 import { checkProject } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from './job-publication.ts';
-import { acknowledgePublication, acquireJobLock, assertJobIdentity, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
+import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
+import { draftPublicationResult } from './job-writer.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -60,10 +63,14 @@ export async function openCreateJob(
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
   try {
-    const existing = readWriterBinding(root);
+    // A binding whose root is another directory was copied with the project (a clone or a
+    // move). Its host state and port belong to that other root, so this open never reads that
+    // state or connects to that port: it starts this root's own job and replaces the copy.
+    const found = readWriterBinding(root);
+    const existing = found && found.identity.root === root ? found : null;
     const identity = currentJobIdentity({ root, stateDir: existing?.identity.stateDir ?? join(jobHostStateRoot(root), 'host'), fingerprint: 'rig-create/live-review/1', reviewer }, root);
-    privateDirectory(identity.stateDir);
     if (existing) assertJobIdentity(existing.identity, identity);
+    privateDirectory(identity.stateDir);
     let writerGrant: WriterGrant | undefined;
     const host = await startHost({
       ...options(identity, true, undefined, grant => { writerGrant = grant; }),
@@ -152,7 +159,7 @@ export async function publishPending(
   requested?: JobIdentity,
   beforeAttach?: () => void | Promise<void>,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
-): Promise<void> {
+): Promise<AskOutcome[]> {
   const host = await attachCreateJob(entry, requested, beforeAttach, startHost);
   try {
     const bytes = readFileSync(join(entry.root, 'project.json'));
@@ -185,24 +192,161 @@ export async function publishPending(
     }
     if (!result.value) refuse('JOB_OUTBOX_INVALID', 'project.json: publication response lacks its identity; reconcile the pending publication');
     acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt, subjects);
+    // The person answers on the page, so every declared subject is asked here, with the
+    // agent authority this process already holds in memory. An ask Review refuses never
+    // makes the acknowledged publication pending again; the caller names it afterwards.
+    return await askDeclaredSubjects(host, result.value.publicationId, subjects);
   } finally { host.stop(); }
 }
 
-export async function reconcileCreateJob(root: string, publish = publishPending): Promise<number> {
-  const release = acquireJobLock(root)!;
-  try {
-    const entries = pendingPublications(root, true);
-    for (const entry of entries) {
-      try { await reconcilePublication(root, entry, publish); }
-      catch (error) {
-        const failure = error instanceof Refusal ? { code: error.code, message: error.message }
-          : { code: 'JOB_PUBLISH_PENDING', message: 'project.json: host publication failed; restore the live host before rig-create job reconcile' };
-        failPublication(root, entry, failure);
-        refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} remains pending (${failure.code}: ${failure.message}); run rig-create job reconcile`);
-      }
+/** One declared subject after the ask step: asked now, asked before on this publication, or refused by Review. */
+export type AskOutcome = { readonly subject: JobSubject; readonly status: 'asked' | 'already' } | { readonly subject: JobSubject; readonly status: 'refused'; readonly code: string };
+
+type AgentReply = { ok?: boolean; error?: { code?: string }; value?: { events?: unknown; status?: unknown; cursor?: unknown } };
+
+async function agentCall(host: JobOwnerHost, body: object): Promise<AgentReply> {
+  const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+    method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ schema: 'rig-review/job-api@2', jobId: host.session.jobId, requestId: randomUUID(), ...body }),
+  }));
+  return await response.json() as AgentReply;
+}
+
+/** The subjects already asked on this publication, from the job's own event log. */
+async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise<JobSubject[]> {
+  const asked: JobSubject[] = [];
+  let after: unknown = null;
+  for (let page = 0; page < 10_000; page++) {
+    const reply = await agentCall(host, { verb: 'next', after, waitMs: 0 });
+    const events = reply.ok ? reply.value?.events : undefined;
+    if (!Array.isArray(events)) break;
+    for (const event of events as { type?: unknown; ask?: { publicationId?: unknown; subject?: JobSubject } }[]) {
+      if (event?.type === 'pending' && event.ask?.publicationId === publicationId && event.ask.subject) asked.push(event.ask.subject);
     }
-    return entries.length;
-  } finally { release(); }
+    if (reply.value?.status !== 'events' || reply.value.cursor === after) break;
+    after = reply.value.cursor;
+  }
+  return asked;
+}
+
+/**
+ * Ask each declared subject of a publication once. A subject already asked on that
+ * publication, pending or answered, is not asked again, so a re-open never shows a second
+ * control. Asks stay limited to the declared list (`REVIEW_ACT_SUBJECT_UNDECLARED`).
+ */
+export async function askDeclaredSubjects(host: JobOwnerHost, publicationId: string, subjects: readonly JobSubject[]): Promise<AskOutcome[]> {
+  const before = await askedSubjects(host, publicationId);
+  const outcomes: AskOutcome[] = [];
+  for (const subject of subjects) {
+    if (before.some(asked => isDeepStrictEqual(asked, subject))) { outcomes.push({ subject, status: 'already' }); continue; }
+    const expectedGeneration = host.session.status().generation;
+    let reply: AgentReply;
+    try {
+      reply = await agentCall(host, { verb: 'ask', expectedGeneration, publicationId, subject,
+        idempotencyKey: jobHash(JSON.stringify([publicationId, subject, expectedGeneration])) });
+    } catch { reply = { ok: false }; }
+    outcomes.push(reply.ok ? { subject, status: 'asked' } : { subject, status: 'refused', code: reply.error?.code ?? 'JOB_ASK_INVALID' });
+  }
+  return outcomes;
+}
+
+export function subjectLabel(subject: JobSubject): string {
+  switch (subject.kind) {
+    case 'parts-verdict': return `parts-verdict ${subject.draftId}`;
+    case 'checkpoint': return `checkpoint ${subject.checkpointId}`;
+    case 'interview-picks': return `interview-picks ${subject.questionId}/${subject.setId}`;
+    default: return `${subject.kind} ${subject.stage}`;
+  }
+}
+
+/** Name every ask Review refused. The publications themselves are acknowledged. */
+export function refuseAskOutcomes(outcomes: readonly AskOutcome[]): void {
+  const refused = outcomes.filter(outcome => outcome.status === 'refused');
+  if (!refused.length) return;
+  const named = refused.map(outcome => `${subjectLabel(outcome.subject)} (${outcome.status === 'refused' ? outcome.code : ''})`).join(', ');
+  refuse('JOB_ASK_REFUSED', `project.json: the publication is acknowledged but review refused the ask for ${named}; restore the published record bytes and run rig-create job open to ask again`);
+}
+
+export async function reconcileCreateJob(root: string, publish: (entry: PendingPublication) => Promise<unknown> = publishPending): Promise<number> {
+  const release = acquireJobLock(root)!;
+  let outcomes: AskOutcome[];
+  let count: number;
+  try { ({ count, outcomes } = await reconcileLocked(root, publish)); }
+  finally { release(); }
+  refuseAskOutcomes(outcomes);
+  return count;
+}
+
+/** Publish every pending entry under the caller's job lock. Ask outcomes are returned, not thrown. */
+async function reconcileLocked(root: string, publish: (entry: PendingPublication) => Promise<unknown>): Promise<{ count: number; outcomes: AskOutcome[] }> {
+  const outcomes: AskOutcome[] = [];
+  const entries = pendingPublications(root, true);
+  for (const entry of entries) {
+    try {
+      await reconcilePublication(root, entry, async item => {
+        const result = await publish(item);
+        if (Array.isArray(result)) outcomes.push(...result as AskOutcome[]);
+      });
+    } catch (error) {
+      const failure = error instanceof Refusal ? { code: error.code, message: error.message }
+        : { code: 'JOB_PUBLISH_PENDING', message: 'project.json: host publication failed; restore the live host before rig-create job reconcile' };
+      failPublication(root, entry, failure);
+      refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} remains pending (${failure.code}: ${failure.message}); run rig-create job reconcile`);
+    }
+  }
+  return { count: entries.length, outcomes };
+}
+
+/** The stages whose record consumes a draft: `job open` publishes the latest one there. */
+const DRAFT_OPEN_STAGES = ['parts', 'parts-review'];
+
+/**
+ * After `job open`: show the record's current draft on the owner's page. The latest
+ * recorded draft (or `--draft <id>`) is published unless the job's head publication is
+ * already that draft over the current record bytes, and every subject the publication
+ * declares is asked once. Returns the lines `job open` prints.
+ */
+export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string): Promise<string[]> {
+  root = realpathSync(root);
+  const bytes = readFileSync(join(root, 'project.json'));
+  const project = JSON.parse(bytes.toString('utf8')) as { drafts?: unknown };
+  const ids = (Array.isArray(project.drafts) ? project.drafts : []).map(draft => (draft as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string');
+  if (requested !== undefined && !ids.includes(requested)) {
+    refuse('JOB_DRAFT_UNKNOWN', `project.json.drafts: no recorded draft has id ${requested}; record it with rig-create draft-rig or name a recorded draft`);
+  }
+  const id = requested ?? ids.at(-1);
+  if (id === undefined) return ['job: no recorded draft to publish'];
+  if (requested === undefined) {
+    const stage = checkProject(root, JSON.parse(bytes.toString('utf8')), { now, readOnly: true }).effective_stage;
+    if (!DRAFT_OPEN_STAGES.includes(String(stage))) return [`job: stage ${stage} shows no draft; name one with --draft <id>`];
+  }
+  const result = draftPublicationResult(id);
+  const head = host.session.status().publication;
+  const source = head?.source as { selector?: unknown; projectHash?: unknown } | undefined;
+  let outcomes: AskOutcome[];
+  let published: boolean;
+  if (head && isDeepStrictEqual(source?.selector, result.selector) && source?.projectHash === jobHash(bytes)) {
+    const subjects = readAcknowledgedPublication(root, host.session.jobId, head.publicationId)?.subjects
+      ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result })).subjects;
+    outcomes = await askDeclaredSubjects(host, head.publicationId, subjects);
+    published = false;
+  } else {
+    const release = acquireJobLock(root)!;
+    try {
+      const binding = readWriterBinding(root);
+      if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no writer-owned binding; run rig-create job close, then rig-create job open');
+      enqueuePublication(root, binding, result);
+      ({ outcomes } = await reconcileLocked(root, publishPending));
+    } finally { release(); }
+    published = true;
+  }
+  const lines = [`job: draft ${id} ${published ? 'published' : 'already published'}`];
+  for (const status of ['asked', 'already'] as const) {
+    const named = outcomes.filter(outcome => outcome.status === status).map(outcome => subjectLabel(outcome.subject));
+    if (named.length) lines.push(`job: ${status === 'asked' ? 'asked' : 'already asked'} ${named.join(', ')}`);
+  }
+  refuseAskOutcomes(outcomes);
+  return lines;
 }
 
 export async function closeCreateJob(root: string): Promise<void> {

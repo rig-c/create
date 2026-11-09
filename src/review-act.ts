@@ -300,6 +300,20 @@ export function reviewActSignoff(act: SignoffAct): JsonObject {
     at: act.at, verbatim: act.value.words, source: `review act ${act.jobId}/${act.actId}` };
 }
 
+/**
+ * create's own check that the act answers a subject its publication declared. The
+ * acknowledged receipt keeps the subjects create published; a receipt that predates
+ * them, or none (a clone), leaves only Review's own ask binding to vouch for it.
+ */
+export function assertActSubjectDeclared(root: string, act: SignoffAct | CheckpointAct, path: string): void {
+  const receipt = readAcknowledgedPublication(root, act.jobId, act.publicationId);
+  if (receipt?.subjects === undefined) return;
+  const subject = act.kind === 'signoff' ? { kind: 'signoff', stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
+  if (receipt.subjects.some(declared => isDeepStrictEqual(declared, subject))) return;
+  const named = act.kind === 'signoff' ? `signs ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
+  refuse('REVIEW_ACT_SUBJECT_UNDECLARED', `${path}: act ${act.jobId}/${act.actId} ${named}, which its publication ${act.publicationId} did not declare; ask for it in Review on a publication made while the record can sign it`);
+}
+
 /** Stages whose sign-off names a reviewed version, and the version kind each one signs. */
 export const SIGNOFF_TARGET_KINDS: Readonly<Record<string, 'rig' | 'post'>> = { 'rig-review': 'rig', 'direction-review': 'post' };
 

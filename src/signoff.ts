@@ -6,11 +6,12 @@ import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { checkpointProblem } from './signable.ts';
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobHash } from './job-outbox.ts';
-import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { expandDiffTriage, readDiffTriage } from './diff-classes.ts';
@@ -20,7 +21,7 @@ import { checkStructure, riggingContext, structurePathIsIgnored } from './struct
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, RIG_REVIEW, STAGE_ORDER_SPEC, STAGES, STAGE_VALUES, stageOfStep } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, RIG_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
 import { assertRigReviewSignable } from './review.ts';
 import { furthestStageSignoff } from './stage-progress.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -71,6 +72,7 @@ function fetchSignoffAct(dir: string, stage: string, actId: string, now: number,
     refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: fetched signoff identity or date differs from the request; fetch the correct signoff act');
   }
   if (act.value.stage !== stage) refuse('REVIEW_ACT_KIND_MISMATCH', `project.json.review_acts: act signs ${act.value.stage}, not ${stage}; invoke signoff for the stage the person approved`);
+  assertActSubjectDeclared(dir, act, 'project.json.review_acts');
   return { act, bytes, human: reviewActSignoff(act) };
 }
 
@@ -163,17 +165,9 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const checkpointId = opts['--checkpoint'];
   if (checkpointId !== undefined) {
     if (opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--checkpoint and --steps cannot be combined', USAGE_EXIT);
-    const spec = STAGES.find((spec) => spec.id === stage);
-    const matches = asArray(isObject(project.plan) ? project.plan.steps : undefined)
-      .filter((step): step is JsonObject => isObject(step) && step.id === checkpointId);
-    const step = matches[0];
-    if (matches.length !== 1 || spec?.phase === undefined || step.phase !== spec.phase || stageOfStep(spec.phase, checkpointId) !== stage) {
-      refuse('SIGNOFF_CHECKPOINT_INVALID', `${checkpointId}: no unique step runs in stage ${stage}`);
-    }
-    const checkpoint = classify(step.checkpoint, { collection: null });
-    const on = checkpoint.state === 'user' ? checkpoint.answer.value
-      : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
-    if (on !== true) refuse('SIGNOFF_CHECKPOINT_INVALID', `${checkpointId}: checkpoint must be enabled before it can be signed`);
+    // The publications declare checkpoint subjects with this same rule (src/signable.ts).
+    const problem = checkpointProblem(project, stage, checkpointId);
+    if (problem !== null) refuse('SIGNOFF_CHECKPOINT_INVALID', problem);
     if (actId !== undefined) {
       ingest = ingestCheckpointAct(dir, project, actId, checkpointId, now, hooks);
       if (ingest.replay) return { stdout: json ? JSON.stringify(ingest.replay, null, 2) : `signoff: ${stage} checkpoint ${checkpointId} already recorded from ${ingest.source}; nothing written`, exit: 0 };

@@ -33,9 +33,12 @@ HOLE visible.
 
 | Writer | Published result | Review subject |
 | --- | --- | --- |
-| `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector and `parts-verdict` |
-| `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review` |
-| `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and `review-verdict` for `direction-review` |
+| `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector and `parts-verdict`, plus sign subjects |
+| `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
+| `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and `review-verdict` for `direction-review`, plus sign subjects |
+
+The sign subjects are the `signoff` and `checkpoint` subjects of
+[Live sign-off routes](#live-sign-off-routes).
 
 Writers produce `review-live-v<N>.json` over the existing model and original
 direction bytes, using project-relative paths. Its title is `rig v<N>` or
@@ -137,8 +140,9 @@ Interview picks use `interview-answer --from-review`. A passed `checkpoint` act 
 `signoff <stage> --checkpoint <id> --from-review <actId>`: the act's `planStepId` must be `<id>`, an
 enabled checkpoint `--checkpoint` accepts in that stage, and its displayed plan must be the current
 one. The sign-off takes `by`, `at` and the words from the act and names it in `source`; a `fail`
-outcome is refused (`REVIEW_ACT_CHECKPOINT_FAILED`) and writes nothing. Stage signoff ingestion awaits
-its follow-up card. Image-review has no create version writer mapping. Described
+outcome is refused (`REVIEW_ACT_CHECKPOINT_FAILED`) and writes nothing. A `signoff` act is recorded by
+`signoff <stage> --from-review <actId>` (PROJECT.md § Recording a sign-off). Which publications
+carry these two subjects is below, in Live sign-off routes. Image-review has no create version writer mapping. Described
 correction and mesh-edit retain Review's reserved status.
 
 `approved`, `changes-requested` and `pending` map to the existing verdict
@@ -207,6 +211,49 @@ path test establishes the accepted consumer access boundary.
 `--picks-file`, `--verbatim-file`, parts `--evidence`, and reshaped feedback JSON
 remain available for legacy/history workflows. The current semantic verdict
 path uses `--from-review` and preserves the fetched act directly.
+
+## Live sign-off routes
+
+Every package publication also declares the `signoff` and `checkpoint` subjects
+that its record can sign, in the stage the check reads that record in (its
+effective stage). The rules are in `src/signable.ts`:
+
+- A `checkpoint` subject is declared for each plan step whose checkpoint
+  `signoff <stage> --checkpoint <id>` accepts in that stage. The step runs in
+  the stage and its checkpoint is enabled. `signoff` uses the same function.
+- A `signoff` subject is declared for the stage itself while it closes on a
+  sign-off and has no live stage-level signature. `rig-review` is declared only
+  on a `rig` publication and `direction-review` only on a `post` one, because
+  the act's selector is the signature's target. A plan-bound stage
+  (`plan-approved`, `rigging-interview`, `post-interview`) also needs displayed
+  plan steps.
+
+Review 2.7.0 asks only for a declared subject and refuses any other with
+`JOB_ASK_INVALID` (`bindJobAsk`, `src/job-act.ts`). Both the ask and the act
+also require `project.json` to still hold the published bytes
+(`assertJobSourceCurrent`, `src/job-source.ts`). So the person signs on the
+publication of the record that can sign, before any later write.
+
+`job reconcile` keeps the declared subjects in the acknowledged receipt.
+`signoff … --from-review` compares the act's subject with that list and
+refuses one the publication did not declare (`REVIEW_ACT_SUBJECT_UNDECLARED`).
+This is create's own check, because create never sends the ask. A receipt
+without the list, or no receipt at all (a clone), leaves only Review's ask
+binding.
+
+| Sign-off | Carried by | When |
+| --- | --- | --- |
+| `parts` checkpoints | draft | `draft-rig` commits while the record is in `parts` and the checkpoint is enabled |
+| `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
+| `post` checkpoints | post version | `direction write` or `direction patch` commits in `post` |
+| `parts-review` | draft | `draft-rig` commits in `parts-review` |
+| `rig-review` | rig version | `rig-version` commits in `rig-review`, that is after the move into it |
+| `direction-review` | post version | `direction write` or `direction patch` commits in `direction-review` |
+| `rigging-interview`, `post-interview` | any package publication with plan steps | only when a package writer commits in that stage, which the usual order does not do |
+| `interview`, `plan-approved` | none | no draft or version exists before they are signed |
+
+A stage with no carrier has no live route yet. The plan-bound stages wait for
+record mode (create#317), and `interview` has no record-mode subject.
 
 ## Parts drafts and independent verdicts
 

@@ -19,7 +19,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "8cdcab1c6618ca4a8dc44c93a3f43d570391dc6a1651d78b3fa19dc8e8b41fd5",
+  "project_sha256": "27097d1de4939baa21194675a628c3a425a6358ae4b77aede16351308ce14cd1",
   "files": [
     {
       "path": ".gitignore",
@@ -71,11 +71,11 @@
     },
     {
       "path": "package.json",
-      "sha256": "cf80150574b403df80b9c337e5b57e2d09a795185a20e7c4a281d90cf09e7029"
+      "sha256": "427ed92aac8876be17e986e909290e89b6e1bca416fc5370b23fd243061a5717"
     },
     {
       "path": "project.json",
-      "sha256": "8cdcab1c6618ca4a8dc44c93a3f43d570391dc6a1651d78b3fa19dc8e8b41fd5"
+      "sha256": "27097d1de4939baa21194675a628c3a425a6358ae4b77aede16351308ce14cd1"
     }
   ]
 }

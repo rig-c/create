@@ -27,7 +27,7 @@ correction resolve <id> [<dir>]
 const common = ['--version', '--draft', '--parts-file', '--model-file', '--by'];
 function usage(why: string): never { refuse('CORRECTION_USAGE', `corrections: ${why}; ${CORRECTION_HELP}`, USAGE_EXIT); }
 function objects(v: JsonObject[string]): JsonObject[] { return asArray(v).filter(isObject); }
-function identity(dir: string, project: JsonObject, opts: Record<string, string>, stage: string, direction = false): JsonObject {
+function identity(dir: string, project: JsonObject, opts: Record<string, string>, stage: string, direction = false, partImage = false): JsonObject {
   if (direction) {
     if (!opts["--version"] || opts["--model-file"] || opts["--draft"] || opts["--parts-file"] || stage !== "direction-review") usage("direction-patch requires direction-review and only --version");
     return directionPostIdentity(dir,project,Number(opts["--version"]?.replace(/^v/,"")));
@@ -44,8 +44,9 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
     const draftParts = draft.parts;
     const model = objects(draft.files).filter(f => String(f.path).endsWith('/skeleton.model.json'));
     const manifest = objects(draftParts.files).find(f => f.path === `${String(draftParts.path)}/parts.json`);
-    if (model.length !== 1 || !manifest) throw new CorrectionError('CORRECTION_SOURCE', 'draft needs one retained compiled model and parts manifest');
-    value = { kind: 'draft', id: draft.id as string, config: draft.config as JsonObject, parts: {manifest,files:objects(draftParts.files).sort((a,b)=>String(a.path)<String(b.path)?-1:1)}, model:model[0] as JsonObject };
+    // A part-image edit is of one part file; it binds the parts inventory and no compiled model.
+    if (!manifest || !partImage && model.length !== 1) throw new CorrectionError('CORRECTION_SOURCE', partImage ? 'draft needs a retained parts manifest' : 'draft needs one retained compiled model and parts manifest');
+    value = { kind: 'draft', id: draft.id as string, config: draft.config as JsonObject, parts: {manifest,files:objects(draftParts.files).sort((a,b)=>String(a.path)<String(b.path)?-1:1)}, model:partImage ? null : model[0] as JsonObject };
   } else {
     const n = Number(opts['--version']?.replace(/^v/, ''));
     const version = versionRecord(project, n);
@@ -57,7 +58,7 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
     const model = kind === 'post' ? correctionBinding(dir, opts['--model-file'] as string) : correctionBinding(dir, `derived/review/v${n}/out/check/build/skeleton.model.json`);
     value = {kind,n,config:version.provenance.config,model};
   }
-  validateCorrectionIdentity(dir,project,value,stage);
+  validateCorrectionIdentity(dir,project,value,stage,false,partImage);
   return structuredClone(value);
 }
 function localValidation(dir: string, project: JsonObject, now: number): Finding[] {
@@ -117,7 +118,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
       if (opts['--draft'] || opts['--parts-file']) usage('select only --version for a direction description');
       on = directionPostIdentity(dir, next, version.n);
       if (opts['--model-file'] && opts['--model-file'] !== (on.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
-    } else on = identity(dir,next,opts,stage,direction);
+    } else on = identity(dir,next,opts,stage,direction,partImage);
     let artifact:JsonObject;let verbatim:string|null;
     if(path==='described') {
       if(opts['--patch-file']||opts['--feedback-file']||opts['--item']||!opts['--verbatim-file'])usage('described requires only verbatim text, not producer artifact flags');
@@ -185,7 +186,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
       record.outcome = directionPostIdentity(dir, next, Number(opts['--version'].replace(/^v/, '')));
       if (opts['--model-file'] && opts['--model-file'] !== (record.outcome.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
     } else {
-      record.outcome=identity(dir,next,opts,String(record.stage),direction);
+      record.outcome=identity(dir,next,opts,String(record.stage),direction,artifact.kind==='part-image');
       if (artifact.kind === 'description' && record.outcome.kind === 'post') {
         const version = versionRecord(next, record.outcome.n);
         if (isObject(version.provenance) && isObject(version.provenance.direction) && (record.outcome.model as JsonObject).path === version.provenance.direction.path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must not name the authored direction document; capture a new correction@2 description');

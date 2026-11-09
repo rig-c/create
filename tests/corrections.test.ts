@@ -11,6 +11,7 @@ import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
 import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, draftRigCommand, reopenCommand, testClock } from './clock.ts';
+import { clockedCli } from './helpers.ts';
 
 const requireCore = createRequire(import.meta.url);
 const { encodePng } = requireCore('@rig-c/core/plate') as { encodePng: (width: number, height: number, data: Uint8Array) => Buffer };
@@ -145,7 +146,7 @@ function syntheticPartPngs() {
   };
 }
 
-function partImageFixture() {
+function partImageFixture(opts: { modelless?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'part-image-'));
   roots.push(root);
   const dir = join(root, 'project');
@@ -163,15 +164,18 @@ function partImageFixture() {
   writeFileSync(join(dir, 'evidence/repaint/added-alpha.png'), pngs.addedAlpha);
   writeFileSync(join(dir, 'evidence/repaint/wrong-before.png'), pngs.wrongBefore);
   writeFileSync(join(dir, 'evidence/repaint/wrong-size-mask.png'), pngs.wrongSizeMask);
-  const writeDraft = (id: string, hour: string, topwearBytes: Uint8Array) => {
+  // A modelless draft is shaped like `parts rig` output: rig, motion, mesh_report, images and run.json, and no check/build compiled model.
+  const stageDraft = (id: string, hour: string, topwearBytes: Uint8Array): string[] => {
     const draftRoot = `derived/drafts/${id}`;
     cpSync(join(dir, 'derived/drafts/chain'), join(dir, draftRoot), { recursive: true });
+    if (opts.modelless) rmSync(join(dir, draftRoot, 'out/check'), { recursive: true, force: true });
     writeFileSync(join(dir, draftRoot, 'input/parts/torso.png'), topwearBytes);
     testClock.set(new Date(`2026-11-06T${hour}:00:00Z`));
-    return draftRigCommand([id, dir, '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`, '--parts', `${draftRoot}/input`]);
+    return [id, dir, '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`, '--parts', `${draftRoot}/input`];
   };
+  const writeDraft = (id: string, hour: string, topwearBytes: Uint8Array) => draftRigCommand(stageDraft(id, hour, topwearBytes));
   writeDraft('parent', '02', pngs.before);
-  return { dir, pngs, writeDraft };
+  return { dir, pngs, writeDraft, stageDraft };
 }
 
 test('part-image positive control and round trip: masked repaint records, resolves via the new draft, and checks clean (0 refusals, 0 warnings)', () => {
@@ -205,6 +209,12 @@ test('part-image positive control and round trip: masked repaint records, resolv
       tool: 'gemini-image-probe r5 + mask composite with tone match',
     },
   });
+  // The writer binds no model; a record captured before that, binding the parent draft's own model, is still read.
+  expect((recorded.on as JsonObject).model).toBeNull();
+  const withModel = load(dir);
+  const parentModel = ((withModel.drafts as JsonObject[])[0]!.files as JsonObject[]).find(f => String(f.path).endsWith('/skeleton.model.json'))!;
+  ((withModel.corrections as JsonObject[])[0]!.on as JsonObject).model = structuredClone(parentModel);
+  expect(check(dir, withModel).refusals).toEqual([]);
   // Before the new draft is registered, the correction is open (WARN) and blocks approval of the parent draft.
   expect(checkProject(dir).refusals).toEqual([]);
   expect(checkProject(dir).warnings.map(w => w.code)).toEqual(['CORRECTION_OPEN']);
@@ -228,6 +238,57 @@ test('part-image positive control and round trip: masked repaint records, resolv
   });
   testClock.set(new Date('2026-11-06T03:10:00Z'));
   expect(correctionCommand(['resolve', 'repaint-torso', dir, '--draft', 'repainted', '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt')]).exit).toBe(0);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+});
+
+const cli = (dir: string, args: string[]) => {
+  const r = Bun.spawnSync([process.execPath, ...clockedCli(), ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  return { exit: r.exitCode, stdout: r.stdout.toString(), stderr: r.stderr.toString() };
+};
+
+test('part-image on a draft with no compiled model (parts rig output): records through the CLI with model null, a later draft-rig resolves it, check is 0/0; described still needs the model', () => {
+  const { dir, pngs, stageDraft } = partImageFixture({ modelless: true });
+  const parent = (load(dir).drafts as JsonObject[])[0]!;
+  expect((parent.files as JsonObject[]).some(f => String(f.path).endsWith('/skeleton.model.json'))).toBe(false);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+
+  testClock.set(new Date('2026-11-06T02:30:00Z'));
+  const recorded = cli(dir, ['correction', 'record', dir, '--id', 'repaint-torso', '--path', 'made', '--stage', 'parts-review',
+    '--draft', 'parent', '--part', 'torso', '--part-image-file', 'evidence/repaint/after.png',
+    '--mask-file', 'evidence/repaint/mask.png', '--tool', 'hand pass', '--json']);
+  expect(recorded.stderr).toBe('');
+  expect(recorded.exit).toBe(0);
+  const on = (JSON.parse(recorded.stdout) as JsonObject).on as JsonObject;
+  expect(on).toMatchObject({ kind: 'draft', id: 'parent', model: null });
+  expect(((on.parts as JsonObject).manifest as JsonObject).path).toBe('derived/drafts/parent/input/parts.json');
+  expect(checkProject(dir).refusals).toEqual([]);
+  expect(checkProject(dir).warnings.map(w => w.code)).toEqual(['CORRECTION_OPEN']);
+
+  // A described correction on the same model-less draft is refused as before: it binds the draft's compiled model.
+  writeFileSync(join(dir, 'words.txt'), 'Smooth the torso edge.');
+  rejected(dir, 'CORRECTION_SOURCE', () => correctionCommand(['record', dir, '--id', 'described-torso', '--path', 'described', '--stage', 'parts-review', '--draft', 'parent', '--by', 'reviewer', '--verbatim-file', join(dir, 'words.txt')]));
+  // A described record carrying that model-null identity is refused by check, which shares the writer's validator.
+  const planted = load(dir);
+  planted.corrections = [...(planted.corrections as JsonObject[]), { schema: 'rig-create/correction@1', id: 'described-planted', path: 'described', by: 'reviewer', at: '2026-11-06T02:30:00Z', verbatim: 'Smooth the torso edge.', stage: 'parts-review', on: structuredClone(on), artifact: { kind: 'description' }, outcome: null, resolves: null }];
+  expect(check(dir, planted).refusals.map(f => f.code)).toEqual(['CORRECTION_MALFORMED']);
+
+  // The rebuilt draft, recorded by the draft-rig CLI, binds the after bytes and resolves the correction.
+  const drafted = cli(dir, ['draft-rig', ...stageDraft('repainted', '03', pngs.after)]);
+  expect(drafted.stderr).toBe('');
+  expect(drafted.exit).toBe(0);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+  const checked = cli(dir, ['interview', '--check', dir]);
+  expect(checked.exit).toBe(0);
+  expect(correctionApprovalFindings(load(dir), 'parts-review', { draft_id: 'repainted', at: '2026-11-06T03:30:00Z' })).toEqual([]);
+
+  // An explicit resolve writes a model-null outcome; check still reads it as changed and stays 0/0.
+  writeFileSync(join(dir, 'reasoning.txt'), 'Rebuilt draft binds the masked repaint.');
+  testClock.set(new Date('2026-11-06T03:10:00Z'));
+  rejected(dir, 'CORRECTION_OUTCOME', () => correctionCommand(['resolve', 'repaint-torso', dir, '--draft', 'parent', '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt')]));
+  const resolved = cli(dir, ['correction', 'resolve', 'repaint-torso', dir, '--draft', 'repainted', '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt')]);
+  expect(resolved.stderr).toBe('');
+  expect(resolved.exit).toBe(0);
+  expect(((load(dir).corrections as JsonObject[])[0]!.outcome as JsonObject)).toMatchObject({ kind: 'draft', id: 'repainted', model: null });
   expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
 });
 

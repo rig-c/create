@@ -134,7 +134,13 @@ function partsIdentity(dir: string, value: JsonObject): void {
   if (!equal(actual.sort(), files.map(f => f.path))) fail('CORRECTION_SOURCE', 'parts manifest/tree inventory is incomplete');
   if (!files.some(f => equal(f, value.manifest))) fail('CORRECTION_SOURCE', 'manifest missing from inventory');
 }
-export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string, direction = false): JsonObject {
+/**
+ * `partImage`: a part-image correction edits one part file at parts-review, so its draft
+ * identity binds the parts manifest and files with `model: null` (drafts recorded from a
+ * standalone `parts rig` output bind no compiled model). A non-null model is still read
+ * and must match the draft. Every other draft identity requires its retained model.
+ */
+export function validateCorrectionIdentity(dir: string, project: JsonObject, value: Json | undefined, stage: string, direction = false, partImage = false): JsonObject {
   if (direction) {
     if (stage !== "direction-review" || !isObject(value)) fail("DIRECTION_CORRECTION_OUTCOME", "direction identity requires post at direction-review");
     try { validateDirectionIdentity(dir, project, value); } catch (e) { if (e instanceof DirectionError) fail(e.code,e.message); throw e; }
@@ -149,10 +155,11 @@ export function validateCorrectionIdentity(dir: string, project: JsonObject, val
     if (stage !== 'parts-review' || !closed(value, ['kind', 'id', 'config', 'parts', 'model'])) fail('CORRECTION_SOURCE', 'draft identity belongs to parts-review');
     const draft = draftRecord(project, value.id);
     if (!sameHash(value.config, draft.config) || !isObject(value.parts) || !isObject(draft.parts)) fail('CORRECTION_SOURCE', 'draft config/parts do not match inventory');
-    correctionJson(correctionFile(dir, value.config)); correctionFile(dir, value.model);
+    const modelless = partImage && value.model === null;
+    correctionJson(correctionFile(dir, value.config)); if (!modelless) correctionFile(dir, value.model);
     partsIdentity(dir, value.parts);
     const wanted = bindings(draft.parts.files).map(f => f.sha256).sort();
-    if (!equal(bindings(value.parts.files).map(f => f.sha256).sort(), wanted) || !bindings(draft.files).some(f => sameHash(f, value.model) && String(f.path).endsWith('/skeleton.model.json'))) fail('CORRECTION_SOURCE', 'draft parts/model hashes differ from inventory');
+    if (!equal(bindings(value.parts.files).map(f => f.sha256).sort(), wanted) || !modelless && !bindings(draft.files).some(f => sameHash(f, value.model) && String(f.path).endsWith('/skeleton.model.json'))) fail('CORRECTION_SOURCE', 'draft parts/model hashes differ from inventory');
     return value;
   }
   if (!['rig', 'post'].includes(String(value.kind)) || !closed(value, ['kind', 'n', 'config', 'model'])) fail('CORRECTION_SOURCE', 'unknown version identity');
@@ -174,7 +181,8 @@ function identityTime(project: JsonObject, v: JsonObject): number {
 function changed(a: JsonObject, b: JsonObject): boolean {
   const inventory = (v: JsonObject): Json[] => bindings(v.kind === 'draft' && isObject(v.parts) ? v.parts.files : v.files).map(f => f.sha256).sort();
   if (a.kind === 'parts' || b.kind === 'parts') return !equal(inventory(a), inventory(b));
-  if (a.kind === 'draft' && b.kind === 'draft') return !sameHash(a.model, b.model) || !equal(inventory(a), inventory(b));
+  // A part-image draft identity binds no model (null); its parts inventory alone says whether the draft changed.
+  if (a.kind === 'draft' && b.kind === 'draft') return (a.model !== null && b.model !== null && !sameHash(a.model, b.model)) || !equal(inventory(a), inventory(b));
   return !sameHash(a.model, b.model);
 }
 export function correctionApplied(dir: string, artifact: JsonObject): { feedback: JsonObject; item: JsonObject; applied: JsonObject } {
@@ -580,7 +588,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
           warnings.push(correctionFinding('DESCRIBED_DIRECTION_LEGACY', path, 'historical description lacks the exact direction identity; preserve it and capture a new correction@2 request'));
         }
       }
-      const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage), direction);
+      const on = validateCorrectionIdentity(dir, project, record.on, String(record.stage), direction, partImage);
       if (identityTime(project, on) > date(record.at)) fail('CORRECTION_SOURCE', 'correction predates its source');
       if (record.resolves !== null && (on.kind === 'rig' || on.kind === 'post') && bindings(project.versions).some(v => v.kind === on.kind && Number(v.n) > Number(on.n) && date(v.at) <= date(record.at))) fail('CORRECTION_SOURCE', 'correction must name the latest reviewed version at capture');
       const artifact = record.artifact;
@@ -625,7 +633,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       }
       if (record.outcome !== null) {
         let outcome: JsonObject;
-        try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
+        try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction, partImage); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
         const closure = record.closure;
         if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > now || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? (record.path === 'described' || sameHash(on.model,outcome.model)) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
         if (partImage && (outcome.kind !== 'draft' || !partImageResolvingDraft(project, record))) {

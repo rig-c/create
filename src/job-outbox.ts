@@ -291,7 +291,7 @@ export function failPublication(root: string, entry: PendingPublication, failure
 }
 
 export async function reconcilePublication(root: string, entry: PendingPublication,
-  publish: (entry: PendingPublication) => Promise<void>): Promise<void> {
+  publish: (entry: PendingPublication) => Promise<unknown>): Promise<void> {
   if (currentVersionHash(root, entry) !== entry.versionHash) {
     refuse('JOB_PUBLICATION_STALE', 'project.json: the pending version entry is absent or changed; restore that retained version and its files before rig-create job reconcile');
   }

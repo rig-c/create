@@ -1,6 +1,6 @@
 import { draftFileUnavailable } from './drafts.ts';
 import { checkPartsActEvidence, partsActDraftHash, partsActFindings } from './parts-act.ts';
-import { realpathSync } from 'node:fs';
+import { realpathSync } from './check-reads.ts';
 import { isAbsolute, posix, resolve } from 'node:path';
 import { comparePartsVerdictBindings, type FileBinding } from './parts-verdict.ts';
 /** Review CLI stdout is retained separately from Review's private saved verdict. */

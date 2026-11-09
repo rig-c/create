@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, asString, collectSignoffs, isObject, type Finding } from './check.ts';

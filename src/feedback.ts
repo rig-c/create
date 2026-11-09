@@ -18,7 +18,8 @@ import { assertCorrectionApproval } from './correction-writers.ts';
  *   verdict, and a `not-asked` item whose sentence was never added are refused
  *   by name; per bounced verdict, its items are counted by cause.
  */
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';

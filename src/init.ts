@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from './check-reads.ts';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { writeAgentGuide } from './agent-guide.ts';

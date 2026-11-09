@@ -8,7 +8,7 @@
  * the files under the assembled root and compares them with the report's own `inputs` rows; that is a
  * binding, not a measurement. The writer and the check share `partsCheckFindings`.
  */
-import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, type Ctx, type Finding } from './check.ts';

@@ -1,7 +1,7 @@
 import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 /** Finalized semantic acts. This reader never opens Review's private state. */
 import { randomUUID } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobAct, JobModelSourceBinding } from '@rig-c/review/job-host';

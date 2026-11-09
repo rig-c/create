@@ -1,6 +1,6 @@
 /** Config input identities come from the installed loader's file declarations. */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from './check-reads.ts';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { locateParts, OWN_NODE_MODULES } from './parts-sections.ts';

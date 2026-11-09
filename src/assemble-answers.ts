@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync } from './check-reads.ts';
 import { join, resolve } from 'node:path';
 
 import { asArray, asString, isObject, itemFor, type Ctx } from './check.ts';

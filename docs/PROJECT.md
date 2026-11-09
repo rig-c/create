@@ -2120,10 +2120,11 @@ for a member override. The removed `--picks-file` flag refuses with
 implements create's local boundary for review#561 CP1. `record` binds the
 literal `project.json` path and its raw-byte `sha256`. `result` is either
 `{kind: 'option-set', questionId, setId}` or `{kind: 'plan'}`. Reader `phase`
-is `'inventory' | 'retained'`. The optional second argument is the check
+is `'inventory' | 'retained'`. A retained request also passes `parts`, the
+identity the inventory phase returned. The optional second argument is the check
 instant in epoch milliseconds, defaulting to the current clock.
 
-The return value has exactly `{label, inputs, files, plan, subjects}`. An
+The return value has exactly `{label, parts, inputs, files, plan, subjects}`. An
 option context has `plan: null` and exactly the requested
 `{kind: 'interview-picks', questionId, setId}` subject. A plan context has
 ordered `{id, hash}` step identities and eligible
@@ -2144,9 +2145,9 @@ remain eligible, and publication HOLEs refuse publication.
 
 `inputs` projects every declared input to `{path, sha256}` in project-input
 order and rehashes its bytes. `files` seals the record, inputs and selected
-option/context evidence. Plans include current answer evidence for every
-displayed step's declared basis and retained parts/structure approval
-evidence. Signoff eligibility uses the existing answer-selection and
+option/context evidence, and every project file the check read. Plans include
+current answer evidence for every displayed step's declared basis and retained
+parts/structure approval evidence. Signoff eligibility uses the existing answer-selection and
 rigging-context readers. Plan step hashes use `stepHash`.
 
 Every path is literal and project-relative. Duplicate declarations within
@@ -2156,11 +2157,36 @@ string comparison. Both phases verify closure bytes before the official
 check and write nothing, create no lock and perform no intent recovery.
 Default `checkProject` calls keep their existing recovery behavior.
 
+The check's reads come from `checkProject(..., { recordReads: true })`: the
+check modules read project files only through the recorded reader in
+`src/check-reads.ts`, which returns each file the check opened, stat'ed,
+resolved or listed as `{path, sha256}`. The job's private outbox and
+`node_modules/` are not record files and are not recorded. A retained root
+holding exactly `files` therefore gives the check the same bytes, and the
+retained phase returns the inventory phase's context. A test-only strict mode
+(`tests/strict-reads.ts`) throws `CHECK_READ_UNRECORDED` when a check module
+reads a project file around the recorder; every committed example runs
+through it.
+
+The check's waypoints come from the `@rig-c/parts` it loads, which no
+project file seals. `parts` is that package's `{name, version, integrity}`:
+the installed version and the integrity that `bun.lock` and
+`package-lock.json` beside the install record for it, each lockfile that
+exists. Only the parts entry is read, never a whole-lockfile hash, so an
+unrelated dependency bump leaves the closure valid. A missing or
+disagreeing entry refuses `JOB_RECORD_PARTS_LOCK_MISSING`. In the retained
+phase the reader compares the sealed identity with the host's parts, the
+ones the retained check loads, before it seals the closure files. A difference refuses
+`JOB_RECORD_PARTS_MISMATCH`, naming both versions; the remedy is to rebuild
+the project on the host's parts or to run the check where the sealed
+version is installed.
+
 After its seals pass, a retained-root check refusal produces
 `JOB_RECORD_CLOSURE_INCOMPLETE`, carrying structured `details` containing
-only the check's finding codes and record paths. Historical choice files
-can lie outside a selected option's closure. This limitation keeps
-finalization blocked until the complete check-read closure contract lands.
+only the check's finding codes and record paths. It fires only when the
+retained root lacks or changed a closure file. An option-set request for a
+question with no pending set refuses `JOB_RECORD_SUBJECT_INVALID` in both
+phases.
 Collection members with external collection evidence refuse with
 `JOB_RECORD_COLLECTION_EXTERNAL` until that closure has a signed binding.
 

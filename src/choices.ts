@@ -3,7 +3,7 @@ import { humanReviewVerdicts } from './review.ts';
 import { intakeContext } from './intake.ts';
 /** Per-ask proposals and human selections. No producer is run or measurement derived here. */
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isObject, type Ctx, type Finding, type Item } from './check.ts';

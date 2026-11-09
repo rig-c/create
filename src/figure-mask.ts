@@ -1,6 +1,6 @@
 /** Bind externally produced figure support without decoding or measuring it. */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { asArray, asString, isObject, type Ctx } from './check.ts';

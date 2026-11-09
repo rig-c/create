@@ -1,7 +1,8 @@
 /** Read Review through its CLI and retain the exact response bytes owned by create.
  * Every Review read (feedback and parts) spawns through one path and is bound at check time by one stored-read validator. */
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { JsonObject } from './templates.ts';

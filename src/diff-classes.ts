@@ -1,6 +1,6 @@
 /** Group only producer fields; no image measurement takes place here. */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { resolve } from 'node:path';
 
 import { diffReportBytes, reportShape } from './diff-map.ts';

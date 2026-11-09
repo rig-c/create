@@ -1,7 +1,7 @@
 import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 /** Typed semantic evidence retained by the parts-review API route. */
 import { dirname, join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { publicationFile, publishedDraft } from './job-publication.ts';
 import { jobHash, publicationVersionHash } from './job-outbox.ts';

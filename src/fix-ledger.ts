@@ -5,7 +5,8 @@
  * the ledger: coverage, build identity, the rows the predecessor draft passed, and what a draft fixes.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';

@@ -1,5 +1,6 @@
 /** Advisory intake: consume immutable producer bytes, never pixels or producer verifiers. */
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, classify, isObject, type Finding, type Item } from './check.ts';

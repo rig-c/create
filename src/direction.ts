@@ -2,7 +2,7 @@ import { SceneError, readScene, validateSceneCurrent } from './scene.ts';
 import { fixedNotApplicableCamera } from './direction-citation.ts';
 /** Create owns these authored camera/timing bytes. No renderer or external producer runs here. */
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, join } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isDecision, isObject, loadCollection, type Ctx, type Finding } from './check.ts';

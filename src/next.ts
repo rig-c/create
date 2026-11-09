@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from './check-reads.ts';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import {
   asArray,
   checkProject,
@@ -13,6 +14,13 @@ import {
   type Finding,
 } from './check.ts';
 import { collectAmendments } from './amend.ts';
+import {
+  DIFF_MAP_MAX_FLOOR_PX,
+  DIFF_MAP_MAX_THRESHOLD,
+  diffReportBytes,
+  diffStackCandidates,
+  reportShape,
+} from './diff-map.ts';
 import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
 import { isPartsCheckMove, partsCheckRecord } from './parts-check.ts';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -40,7 +48,7 @@ import {
   stageIndex,
   stageOfStep,
 } from './stages.ts';
-import type { JsonObject } from './templates.ts';
+import type { Json, JsonObject } from './templates.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -367,6 +375,120 @@ function hasApprovedPartsVerdictReceipt(dir: string, project: JsonObject, draftI
   } catch {
     return false;
   }
+}
+
+function resolveDraftStackPath(
+  dir: string,
+  partsRoot: string,
+  draftReport: JsonObject | null,
+): { stackPath: string; singleCandidate: boolean } {
+  const candidates = diffStackCandidates(resolve(dir, partsRoot, 'parts.json'));
+  const present = candidates.filter(file => existsSync(file));
+  if (present.length === 1) {
+    return {
+      stackPath: relative(dir, present[0]!).split(sep).join('/'),
+      singleCandidate: true,
+    };
+  }
+  if (isObject(draftReport?.stack) && typeof draftReport.stack.path === 'string') {
+    const recorded = draftReport.stack.path.trim();
+    if (recorded.length > 0 && existsSync(join(dir, recorded))) {
+      return { stackPath: recorded, singleCandidate: false };
+    }
+  }
+  if (basename(partsRoot) === 'rig' && existsSync(resolve(dir, partsRoot, '..', 'render'))) {
+    return {
+      stackPath: relative(dir, resolve(dir, partsRoot, '..', 'render', 'recomposite_rig.png')).split(sep).join('/'),
+      singleCandidate: false,
+    };
+  }
+  return { stackPath: `${partsRoot}/recomposite_rig.png`, singleCandidate: false };
+}
+
+function resolveDraftFigureMaskPath(dir: string, partsRoot: string, stackPath: string): string | undefined {
+  let maskName: string | undefined;
+  try {
+    const rawParts = JSON.parse(readFileSync(resolve(dir, partsRoot, 'parts.json'), 'utf8')) as Json;
+    if (isObject(rawParts) && isObject(rawParts.scene) && typeof rawParts.scene.figure_mask === 'string') {
+      const trimmed = rawParts.scene.figure_mask.trim();
+      if (trimmed.length > 0) maskName = trimmed;
+    }
+  } catch {
+    // Fallback to checking figure_rig.png presence if parts.json is unreadable.
+  }
+  const names = maskName ? [maskName] : ['figure_rig.png'];
+  const searchDirs = [dirname(stackPath), partsRoot];
+  for (const name of names) {
+    for (const base of searchDirs) {
+      const candidate = resolve(dir, base, name);
+      if (existsSync(candidate)) {
+        return relative(dir, candidate).split(sep).join('/');
+      }
+    }
+  }
+  if (maskName !== undefined) {
+    return relative(dir, resolve(dir, dirname(stackPath), maskName)).split(sep).join('/');
+  }
+  return undefined;
+}
+
+function resolveDiffComponentsMove(
+  dir: string,
+  draftId: string,
+  partsRoot: string,
+  paintingPath: string,
+): { command: string; act: string } {
+  const draftReportPath = `derived/drafts/${draftId}/diff-components.json`;
+  let draftReport: JsonObject | null = null;
+  if (existsSync(join(dir, draftReportPath))) {
+    try {
+      const bytes = diffReportBytes(dir, draftReportPath);
+      const parsed = JSON.parse(bytes.toString('utf8')) as Json;
+      if (isObject(parsed) && reportShape(parsed)) {
+        draftReport = parsed;
+      }
+    } catch {
+      draftReport = null;
+    }
+  }
+
+  const { stackPath, singleCandidate } = resolveDraftStackPath(dir, partsRoot, draftReport);
+  const figureMaskPath = resolveDraftFigureMaskPath(dir, partsRoot, stackPath);
+
+  if (draftReport !== null && singleCandidate) {
+    try {
+      const components = draftReport.components as { id: string }[];
+      const uniqueIds = new Set(components.map(c => c.id)).size === components.length;
+      const definition = draftReport.definition as {
+        floor_px: number;
+        threshold: number;
+        inside_sha256: string | null;
+      };
+      const withinPolicy =
+        definition.floor_px <= DIFF_MAP_MAX_FLOOR_PX && definition.threshold <= DIFF_MAP_MAX_THRESHOLD;
+      const maskSatisfied = figureMaskPath === undefined || definition.inside_sha256 !== null;
+      if (uniqueIds && withinPolicy && maskSatisfied) {
+        const stackSha = createHash('sha256').update(diffReportBytes(dir, stackPath)).digest('hex');
+        const paintingSha = createHash('sha256').update(diffReportBytes(dir, paintingPath)).digest('hex');
+        const recordedStackSha = (draftReport.stack as { sha256: string }).sha256;
+        const recordedPaintingSha = (draftReport.painting as { sha256: string }).sha256;
+        if (stackSha === recordedStackSha && paintingSha === recordedPaintingSha) {
+          return {
+            command: `cp ${draftReportPath} evidence/diff-components.json`,
+            act: `copy ${draftReportPath} for drafts[${draftId}] to evidence/diff-components.json`,
+          };
+        }
+      }
+    } catch {
+      // Fall through to rig-parts diff-components command if verification fails.
+    }
+  }
+
+  const figureFlag = figureMaskPath !== undefined ? ` --figure ${figureMaskPath}` : '';
+  return {
+    command: `rig-parts diff-components --stack ${stackPath} --painting ${paintingPath} --parts ${partsRoot}/parts.json${figureFlag} --floor 2 --threshold 40 --out evidence/diff-components.json`,
+    act: `run rig-parts diff-components for drafts[${draftId}]`,
+  };
 }
 
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
@@ -842,13 +964,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         paintingPath !== undefined &&
         !existsSync(join(dir, 'evidence/diff-components.json'))
       ) {
+        const diffMove = resolveDiffComponentsMove(dir, draftId, partsRoot, paintingPath);
         addAwait('evidence/diff-components.json');
         moves.push({
           role: 'producer',
           field: `drafts[${draftId}].parts`,
           awaits: 'evidence/diff-components.json',
-          command: `rig-parts diff-components --stack ${partsRoot}/recomposite_rig.png --painting ${paintingPath} --parts ${partsRoot}/parts.json --floor 2 --threshold 40 --out evidence/diff-components.json`,
-          act: `run rig-parts diff-components for drafts[${draftId}]`,
+          command: diffMove.command,
+          act: diffMove.act,
         });
       }
 

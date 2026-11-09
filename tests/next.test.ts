@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import type { JobOwnerHost } from '@rig-c/review/job-host';
@@ -844,6 +845,183 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
         review: 'direction-review',
       },
     });
+  });
+
+  test('plant 7 (build/rig + build/render draft layout with inside figure mask): reuses draft diff-components report when sha matches and carries stack + --figure when re-run is required', () => {
+    const dir = join(tempDir(), 'draft-build-layout');
+    cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
+    testClock.set(new Date(CHAIN_NOW));
+    expect(
+      runMainCapture(
+        [
+          'advance',
+          'parts-review',
+          '--parts-check',
+          'evidence/parts-check.json',
+          '--parts',
+          'derived/drafts/chain/input',
+          dir,
+        ],
+        CHAIN_NOW,
+      ).code,
+    ).toBe(0);
+
+    // Construct a draft shaped like real draft output (`build/rig/` + `build/render/`).
+    const draftId = 'scene-draft';
+    const draftRoot = join(dir, 'derived/drafts', draftId);
+    const buildRig = join(draftRoot, 'build/rig');
+    const buildRender = join(draftRoot, 'build/render');
+    const buildOut = join(draftRoot, 'build/out');
+    mkdirSync(join(buildRig, 'parts'), { recursive: true });
+    mkdirSync(buildRender, { recursive: true });
+    cpSync(join(dir, 'derived/drafts/chain/config.json'), join(draftRoot, 'config.json'));
+    cpSync(
+      join(dir, 'derived/drafts/chain/interview-requirements.json'),
+      join(draftRoot, 'interview-requirements.json'),
+    );
+    cpSync(join(dir, 'derived/drafts/chain/out'), buildOut, { recursive: true });
+    cpSync(join(dir, 'derived/drafts/chain/input/parts'), join(buildRig, 'parts'), { recursive: true });
+    cpSync(
+      join(dir, 'derived/drafts/chain/input/painting_in_rig.png'),
+      join(buildRig, 'painting_in_rig.png'),
+    );
+    // The stack sits ONLY in build/render/, not beside parts.json in build/rig/.
+    cpSync(
+      join(dir, 'derived/drafts/chain/input/recomposite_rig.png'),
+      join(buildRender, 'recomposite_rig.png'),
+    );
+
+    // Generate a binary figure_rig.png mask (128x128: top half opaque white, bottom half opaque black).
+    const load = createRequire(import.meta.url);
+    const { encodePng } = load('@rig-c/core/plate') as {
+      encodePng: (w: number, h: number, rgba: Uint8Array) => Uint8Array;
+    };
+    const W = 128;
+    const H = 128;
+    const figureRgba = new Uint8Array(W * H * 4);
+    const expectedInside = new Uint8Array(W * H);
+    for (let p = 0; p < W * H; p++) {
+      const inside = p < (W * H) / 2 ? 1 : 0;
+      expectedInside[p] = inside;
+      const v = inside === 1 ? 255 : 0;
+      figureRgba[p * 4] = v;
+      figureRgba[p * 4 + 1] = v;
+      figureRgba[p * 4 + 2] = v;
+      figureRgba[p * 4 + 3] = 255;
+    }
+    const expectedInsideSha = sha256(expectedInside);
+    const figurePng = encodePng(W, H, figureRgba);
+    writeFileSync(join(buildRender, 'figure_rig.png'), figurePng);
+    writeFileSync(join(buildRig, 'figure_rig.png'), figurePng);
+
+    const partsManifest = JSON.parse(
+      readFileSync(join(dir, 'derived/drafts/chain/input/parts.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    partsManifest.scene = {
+      figure_alpha_above: 128,
+      figure_px: (W * H) / 2,
+      figure_mask: 'figure_rig.png',
+    };
+    writeFileSync(join(buildRig, 'parts.json'), `${JSON.stringify(partsManifest, null, 2)}\n`);
+
+    // Record the draft via create's draft-rig writer.
+    const recordRes = runMainCapture(
+      [
+        'draft-rig',
+        draftId,
+        dir,
+        '--config',
+        `derived/drafts/${draftId}/config.json`,
+        '--from',
+        `derived/drafts/${draftId}/build/out`,
+        '--parts',
+        `derived/drafts/${draftId}/build/rig`,
+      ],
+      CHAIN_NOW + 1000,
+    );
+    expect(recordRes.stderr).toBe('');
+    expect(recordRes.code).toBe(0);
+
+    // Produce the draft's own diff-components report using the installed rig-parts CLI.
+    const rigPartsBin = join(REPO, 'node_modules/@rig-c/parts/bin/rig-parts.cjs');
+    const draftDiffRun = Bun.spawnSync(
+      [
+        process.execPath,
+        rigPartsBin,
+        'diff-components',
+        '--stack',
+        `derived/drafts/${draftId}/build/render/recomposite_rig.png`,
+        '--painting',
+        'inputs/painting.png',
+        '--parts',
+        `derived/drafts/${draftId}/build/rig/parts.json`,
+        '--figure',
+        `derived/drafts/${draftId}/build/render/figure_rig.png`,
+        '--floor',
+        '2',
+        '--threshold',
+        '40',
+        '--out',
+        `derived/drafts/${draftId}/diff-components.json`,
+      ],
+      { cwd: dir, stdout: 'pipe', stderr: 'pipe' },
+    );
+    expect(draftDiffRun.exitCode).toBe(0);
+
+    const beforeCheck = checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
+    expect(beforeCheck.refusals).toEqual([]);
+
+    // Route 1: Draft's own report exists over the same stack and painting sha256 -> move points at it.
+    const reportWithOwnDiff = nextProject(dir, CHAIN_NOW + 1000);
+    const copyMove = reportWithOwnDiff.moves.find(m => m.role === 'producer');
+    expect(copyMove).toMatchObject({
+      role: 'producer',
+      field: `drafts[${draftId}].parts`,
+      awaits: 'evidence/diff-components.json',
+      command: `cp derived/drafts/${draftId}/diff-components.json evidence/diff-components.json`,
+    });
+
+    const copyExec = Bun.spawnSync(copyMove!.command!.split(/\s+/), {
+      cwd: dir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(copyExec.exitCode).toBe(0);
+    const copiedReport = JSON.parse(
+      readFileSync(join(dir, 'evidence/diff-components.json'), 'utf8'),
+    ) as { definition: { inside_sha256: string | null } };
+    expect(copiedReport.definition.inside_sha256).toBe(expectedInsideSha);
+    expect(nextProject(dir, CHAIN_NOW + 1000).awaits).not.toContain('evidence/diff-components.json');
+    const afterCopyCheck = checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
+    expect(afterCopyCheck.refusals).toEqual(beforeCheck.refusals);
+
+    // Route 2: Without the draft's own report, next emits rig-parts diff-components with the real stack path and --figure.
+    rmSync(join(dir, 'evidence/diff-components.json'));
+    rmSync(join(draftRoot, 'diff-components.json'));
+
+    const reportWithoutOwnDiff = nextProject(dir, CHAIN_NOW + 1000);
+    const rerunMove = reportWithoutOwnDiff.moves.find(m => m.role === 'producer');
+    expect(rerunMove).toMatchObject({
+      role: 'producer',
+      field: `drafts[${draftId}].parts`,
+      awaits: 'evidence/diff-components.json',
+      command: `rig-parts diff-components --stack derived/drafts/${draftId}/build/render/recomposite_rig.png --painting inputs/painting.png --parts derived/drafts/${draftId}/build/rig/parts.json --figure derived/drafts/${draftId}/build/render/figure_rig.png --floor 2 --threshold 40 --out evidence/diff-components.json`,
+    });
+
+    const rerunArgs = rerunMove!.command!.slice('rig-parts '.length).split(/\s+/);
+    const rerunExec = Bun.spawnSync([process.execPath, rigPartsBin, ...rerunArgs], {
+      cwd: dir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(rerunExec.exitCode).toBe(0);
+    const rerunReport = JSON.parse(
+      readFileSync(join(dir, 'evidence/diff-components.json'), 'utf8'),
+    ) as { definition: { inside_sha256: string | null } };
+    expect(rerunReport.definition.inside_sha256).toBe(expectedInsideSha);
+    expect(nextProject(dir, CHAIN_NOW + 1000).awaits).not.toContain('evidence/diff-components.json');
+    const afterRerunCheck = checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
+    expect(afterRerunCheck.refusals).toEqual(beforeCheck.refusals);
   });
 
   test('usage errors refuse with NEXT_USAGE and exit 2', () => {

@@ -239,7 +239,9 @@ export function projectUsesCollection(project: JsonObject): boolean {
 export function extractInheritedAnswers(
   project: JsonObject,
   collection: JsonObject,
-): { readonly ok: true; readonly answers: JsonObject } | { readonly ok: false; readonly reason: string } {
+):
+  | { readonly ok: true; readonly answers: JsonObject; readonly overridden: JsonObject }
+  | { readonly ok: false; readonly reason: string } {
   const collectionName = typeof collection.name === 'string' ? collection.name : '';
   if (!collectionName) return { ok: false, reason: 'collection has no name' };
   if (project.collection !== undefined && project.collection !== null && project.collection !== collectionName) {
@@ -253,6 +255,7 @@ export function extractInheritedAnswers(
     [post.items, 'guide', 'interview.post.items'],
   ];
   const answers: JsonObject = {};
+  const overridden: JsonObject = {};
   for (const [list, key, prefix] of lists) {
     for (const item of asArray(list)) {
       if (!isObject(item) || typeof item.id !== 'string') continue;
@@ -283,10 +286,32 @@ export function extractInheritedAnswers(
         if (ovCollection !== collectionName) {
           return { ok: false, reason: `${prefix}[${item.id}].${key}: overrides.collection is ${JSON.stringify(ovCollection)}, not '${collectionName}'` };
         }
+        const ovQuestion = ov !== null && typeof ov.question === 'string' ? ov.question : null;
+        if (ovQuestion !== null && !(ovQuestion in answers)) {
+          const resolved = lookupCollectionAnswer(collection, ovQuestion);
+          if (resolved !== undefined && resolved !== null && !(isObject(resolved) && ('deferred' in resolved || resolved.value === 'per-member'))) {
+            overridden[ovQuestion] = resolved;
+          }
+        }
       }
     }
   }
-  return { ok: true, answers };
+  return { ok: true, answers, overridden };
+}
+
+function matchesBoundInheritedAnswers(
+  boundAnswers: JsonObject,
+  expected: { readonly answers: JsonObject; readonly overridden: JsonObject },
+): boolean {
+  for (const [q, val] of Object.entries(expected.answers)) {
+    if (!(q in boundAnswers) || !isDeepStrictEqual(boundAnswers[q], val)) return false;
+  }
+  for (const [q, val] of Object.entries(boundAnswers)) {
+    if (q in expected.answers) continue;
+    if (q in expected.overridden && isDeepStrictEqual(val, expected.overridden[q])) continue;
+    return false;
+  }
+  return true;
 }
 
 function failBinding(path: string, detail: string): CollectionBindingVerification {
@@ -393,7 +418,7 @@ export function verifyCollectionBinding(
   if (!fromSnapshot.ok) {
     return failBinding(pointer.path, fromSnapshot.reason);
   }
-  if (!isDeepStrictEqual(snapshot.inherited_answers, fromSnapshot.answers)) {
+  if (!matchesBoundInheritedAnswers(snapshot.inherited_answers, fromSnapshot)) {
     return failBinding(pointer.path, `${pointer.path} inherited_answers does not match the member's inherited items and bound interview`);
   }
 
@@ -424,7 +449,7 @@ export function verifyCollectionBinding(
       return failBinding(pointer.path, `${pointer.path} interview/history snapshot differs from external ../../collection.json`);
     }
     const fromExternal = extractInheritedAnswers(project, external.collection);
-    if (!fromExternal.ok || !isDeepStrictEqual(snapshot.inherited_answers, fromExternal.answers)) {
+    if (!fromExternal.ok || !matchesBoundInheritedAnswers(snapshot.inherited_answers, fromExternal)) {
       return failBinding(pointer.path, `${pointer.path} inherited_answers differs from external ../../collection.json`);
     }
   }

@@ -14,7 +14,7 @@ import { LEDGER_HELP, ledgerCommand } from './fix-ledger.ts';
 import { RESTART_HELP, restartCommand } from './restart.ts';
 import { STRUCTURE_SNAPSHOT_HELP, structureSnapshotCommand } from './structure-snapshot.ts';
 import { collectionInitCommand } from './collection.ts';
-import { collectionBindingCommand } from './collection-binding.ts';
+import { COLLECTION_BINDING_HELP, collectionBindingCommand } from './collection-binding.ts';
 import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
 import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
@@ -56,6 +56,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
   rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
   rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
+  rig-create collection-binding [<member dir>] [--out <path>]
+                                                    write and bind the member's collection interview snapshot
   rig-create scene write --rig <R> --background <path> --citations-file <file> --by <human> [<dir>]
   rig-create derived add [<dir>] --source <file> --file <file> --operation <text>
                                                     record external preparation and both file hashes
@@ -129,6 +131,8 @@ ${INTAKE_HELP}
 
 ${HANDOFF_HELP}
 ${COLLECTION_HELP}
+
+${COLLECTION_BINDING_HELP}
 
 ${REVIEW_HELP}
 

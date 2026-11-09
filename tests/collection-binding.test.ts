@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkProject, collectItems, loadCollection } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
-import { interviewOptionsCommand } from '../src/choice-writers.ts';
+import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
+import { reopenCommand } from '../src/reopen.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { main } from '../src/cli.ts';
 import {
@@ -14,8 +15,8 @@ import {
   isLiveMemberRoot,
   writeCollectionBinding,
 } from '../src/collection-binding.ts';
-import { jobHash } from '../src/job-outbox.ts';
-import { readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
+import { JOB_BINDING_FILE, acquireJobLock, jobHash, writePrivateJson } from '../src/job-outbox.ts';
+import { currentJobIdentity, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { Refusal } from '../src/refusal.ts';
 import { stageIndex } from '../src/stages.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
@@ -526,4 +527,205 @@ test('tampered or removed binding file in retained root refuses by code without 
     });
   }
   expect(snapshot(missingRetained.root)).toEqual(beforeMissing);
+});
+
+test('shared write lock is acquired before reading records so concurrent writer updates are preserved under contention', () => {
+  const { collectionFile, memberRoot } = memberFixture('interview');
+  let releaseCompeting: (() => void) | null = null;
+  let contentions = 0;
+
+  const result = writeCollectionBinding(memberRoot, {
+    now: TEST_NOW,
+    waitMs: 500,
+    hooks: {
+      beforeLock: () => {
+        // Competing writer holds the shared lock before writeCollectionBinding reads anything
+        releaseCompeting = acquireJobLock(memberRoot, true);
+      },
+      onContention: () => {
+        contentions += 1;
+        // Competing writer mutates both project.json and collection.json while holding the lock, then releases
+        const project = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;
+        project.notes = [...arr(project.notes), 'concurrent-writer-note'];
+        saveJson(join(memberRoot, 'project.json'), project);
+
+        const collection = JSON.parse(readFileSync(collectionFile, 'utf8')) as JsonObject;
+        collection.title = 'Concurrent Collection Title';
+        saveJson(collectionFile, collection);
+
+        releaseCompeting?.();
+        releaseCompeting = null;
+      },
+    },
+  });
+
+  expect(contentions).toBe(1);
+  const updatedProject = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;
+  expect(updatedProject.notes).toContain('concurrent-writer-note');
+  expect(result.binding.collection_sha256).toBe(jobHash(readFileSync(collectionFile)));
+  expect(obj(updatedProject.collection_binding).collection_sha256).toBe(result.binding.collection_sha256);
+  expect(existsSync(join(memberRoot, '.rig-create-job-write.lock'))).toBe(false);
+
+  // Unreleased lock refuses JOB_WRITE_BUSY without mutating memberRoot (including directory metadata)
+  const holdRelease = acquireJobLock(memberRoot, true)!;
+  try {
+    const beforeBusy = snapshot(memberRoot);
+    expect(() => writeCollectionBinding(memberRoot, { now: TEST_NOW, waitMs: 25 })).toThrow(
+      expect.objectContaining({ code: 'JOB_WRITE_BUSY' }),
+    );
+    expect(snapshot(memberRoot)).toEqual(beforeBusy);
+  } finally {
+    holdRelease();
+  }
+});
+
+test('cli --help exposes collection-binding usage and options', () => {
+  const chunks: string[] = [];
+  const origWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+    chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    expect(main(['--help'], TEST_NOW)).toBe(0);
+  } finally {
+    process.stdout.write = origWrite;
+  }
+  const helpText = chunks.join('');
+  expect(helpText).toContain('rig-create collection-binding [<member dir>] [--out <path>]');
+  expect(helpText).toContain('collection-binding:');
+});
+
+test('bound member supports reopen -> review-tool answer override -> check -> inventory and retained publication', () => {
+  const { memberRoot, optionPath, optionSet } = memberFixture('plan-approved');
+  writeCollectionBinding(memberRoot, { now: TEST_NOW });
+
+  // Live interview signoff requires formal reopen before changing an interview answer
+  const reopenWords = join(memberRoot, 'reopen-words.txt');
+  writeFileSync(reopenWords, 'Reopen interview to override seethrough for this member.\n');
+  reopenCommand(['interview', memberRoot, '--by', 'user', '--verbatim-file', reopenWords], TEST_NOW - 2000);
+
+  // Draft and register a pending option set for the inherited 'seethrough' waypoint question
+  const afterReopen = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;
+  const templateProject = readTemplate('example-project.json');
+  const templateSeethrough = arr(obj(templateProject.interview).waypoints)
+    .map(obj)
+    .find((q) => q.id === 'seethrough')!;
+  const origSetRef = obj(obj(templateSeethrough.guide).choice).set as JsonObject;
+  const seethroughSet = JSON.parse(readFileSync(join(memberRoot, String(origSetRef.path)), 'utf8')) as JsonObject;
+  seethroughSet.id = 'member-override-seethrough';
+  seethroughSet.drafted_at = new Date(TEST_NOW - 1000).toISOString();
+  seethroughSet.context = optionContext(afterReopen, 'interview', Date.parse(String(seethroughSet.drafted_at)), memberRoot);
+  const seethroughPath = 'evidence/interview/member-override-seethrough.json';
+  const seethroughBytes = `${JSON.stringify(seethroughSet, null, 2)}\n`;
+  writeFileSync(join(memberRoot, seethroughPath), seethroughBytes);
+  const seethroughSha = jobHash(Buffer.from(seethroughBytes));
+  interviewOptionsCommand(['seethrough', memberRoot, '--file', seethroughPath], TEST_NOW);
+  rmSync(reopenWords, { force: true });
+
+  // Bind review job and ingest the user's override through interviewAnswerCommand (--from-review + --why-file)
+  const boundProject = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;
+  const jobId = 'synthetic-member-override-job';
+  const origin = 'http://127.0.0.1:43123';
+  const identity = currentJobIdentity(
+    {
+      root: memberRoot,
+      stateDir: 'unused-private-state',
+      fingerprint: 'synthetic',
+      reviewer: { id: 'synthetic-owner', role: 'owner' },
+    },
+    memberRoot,
+  );
+  writePrivateJson(
+    join(realpathSync(memberRoot), JOB_BINDING_FILE),
+    {
+      schema: 'rig-create/job-binding@1',
+      identity,
+      jobId,
+      origin,
+      fetchCapability: 'synthetic-read-grant',
+    },
+    true,
+  );
+  boundProject.review_job = { jobId, origin };
+  saveJson(join(memberRoot, 'project.json'), boundProject);
+
+  const whyText = 'This member has a translucent veil requiring a member-specific seethrough override.\n';
+  const whyFile = join(dirname(memberRoot), 'override-why.txt');
+  writeFileSync(whyFile, whyText);
+  const actId = 'pick-member-override-seethrough';
+  const selections = arr(seethroughSet.asks)
+    .map(obj)
+    .map((ask) => ({
+      itemId: ask.id,
+      optionId: obj(arr(ask.options)[0]).id,
+      otherText: null,
+    }));
+  const act = {
+    schema: 'rig-review/act@2',
+    kind: 'interview-picks',
+    jobId,
+    actId,
+    askId: 'synthetic-ask',
+    publicationId: 'synthetic-publication',
+    at: new Date(TEST_NOW).toISOString(),
+    authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+    source: {
+      sourceHash: '1'.repeat(64),
+      projectHash: '2'.repeat(64),
+      package: { id: 'synthetic-package', revision: 'one' },
+      parts: { enumeratorVersion: '2.30.1' },
+      optionSet: { id: seethroughSet.id, sha256: seethroughSha },
+    },
+    value: {
+      questionId: 'seethrough',
+      selections,
+      note: '',
+    },
+  };
+
+  const rawSelected = interviewAnswerCommand(
+    ['seethrough', realpathSync(memberRoot), '--from-review', actId, '--why-file', whyFile],
+    TEST_NOW,
+    {
+      fetch: (transport) => {
+        expect(transport.jobId).toBe(jobId);
+        expect(transport.actId).toBe(actId);
+        expect(transport.kind).toBe('interview-picks');
+        return { bytes: JSON.stringify(act) };
+      },
+    },
+  );
+  const selected = JSON.parse(rawSelected) as JsonObject;
+  expect(selected.basis).toBe('overridden');
+  expect(selected.overrides).toEqual({
+    collection: 'harbour',
+    question: 'seethrough',
+    collection_answer_at: obj(templateSeethrough.guide).at,
+  });
+  expect(selected.why_verbatim).toBe(whyText);
+
+  // Check passes at 0 refusals and both inventory + isolated retained publication succeed
+  const checkAfter = checkProject(memberRoot, undefined, { now: TEST_NOW });
+  expect(checkAfter.ok).toBe(true);
+  expect(checkAfter.refusals).toEqual([]);
+
+  // Re-register the reference option set to publish an option-set subject on the reopened overridden member
+  const currentProject = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;
+  optionSet.context = optionContext(currentProject, 'interview', Date.parse(String(optionSet.drafted_at)), memberRoot);
+  writeFileSync(join(memberRoot, optionPath), `${JSON.stringify(optionSet, null, 2)}\n`);
+  interviewOptionsCommand(['reference', memberRoot, '--file', optionPath], TEST_NOW);
+
+  const req = optionRequest(memberRoot);
+  const inv = readRecordPublished(req, TEST_NOW);
+  expect(inv.files).toContainEqual({
+    path: DEFAULT_COLLECTION_BINDING_PATH,
+    sha256: String(obj(JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')).collection_binding).sha256),
+  });
+
+  const retReq = copyRetainedIsolated(req);
+  expect(isLiveMemberRoot(retReq.root)).toBe(false);
+  expect(existsSync(join(dirname(dirname(retReq.root)), 'collection.json'))).toBe(false);
+  const ret = readRecordPublished(retReq, TEST_NOW);
+  expect(ret).toEqual(inv);
 });

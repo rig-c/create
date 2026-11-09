@@ -1159,6 +1159,7 @@ Top-level fields of `project.json`:
 | `derived[]` | `path`, `what`, `command`, `inputs[]` (`path`, `sha256`), `bytes` |
 | `versions[]` | above |
 | `archive` | `null`, or `{ "where", "at", "by" }` if the finals were moved out of the project |
+| `collection_binding` | optional on collection members: `{ "path", "sha256", "spec": "rig-create/collection-binding@1", "collection_sha256" }` binding a project-relative snapshot of `../../collection.json` so retained checks and model-free record publication run without reading outside the member root |
 | `notes[]` | free text that is not a decision; anything that is one goes in the field it belongs to |
 
 ## How an agent resumes a project
@@ -2273,8 +2274,17 @@ only the check's finding codes and record paths. It fires only when the
 retained root lacks or changed a closure file. An option-set request for a
 question with no pending set refuses `JOB_RECORD_SUBJECT_INVALID` in both
 phases.
-Collection members with external collection evidence refuse with
-`JOB_RECORD_COLLECTION_EXTERNAL` until that closure has a signed binding.
+Collection members bind their collection interview closure into a
+project-relative artifact with
+`rig-create collection-binding [<member dir>] [--out <path>]` (default
+`evidence/collection-binding.json`) and record `collection_binding` in
+`project.json` (`{ path, sha256, spec: "rig-create/collection-binding@1", collection_sha256 }`).
+The binding file seals the raw `../../collection.json` `sha256`, the full
+collection `interview` (`questions`, `framing`, `waypoints` and `post.items`,
+preserving `history[]` so `basis: "overridden"` checks verify
+`collection_answer_at` in isolated retained roots), and the member's resolved
+`inherited_answers`. A member without a valid, up-to-date `collection_binding`
+refuses with `JOB_RECORD_COLLECTION_EXTERNAL`.
 
 
 ## Parts-review receipt selection (create#267)

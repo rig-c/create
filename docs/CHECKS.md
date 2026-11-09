@@ -597,6 +597,16 @@ collection's stages.
 | `MEMBER_UNREGISTERED` | a folder under `members/` is not in `members[]` | register it, or remove it |
 | `OUTPUT_CHANGED` | a collection output on disk does not hash to the version that recorded it | outputs are frozen when pinned: restore it, or make and pin a new version |
 
+`collection-binding` refuses, writing nothing:
+
+| Code | Fires when | Clear it by |
+| --- | --- | --- |
+| `COLLECTION_BINDING_USAGE` | `--out` is missing a value, duplicated, empty, or followed by an unknown flag or extra directory | pass at most one `<member dir>` and optional `--out <project-relative path>` |
+| `COLLECTION_BINDING_PATH_INVALID` | `--out` is absolute, leaves `<member dir>`, equals `project.json` or `collection.json`, or traverses a symlink at the member root, parent directories or destination | pass a clean project-relative path inside `<member dir>` (default `evidence/collection-binding.json`) |
+| `COLLECTION_BINDING_NOT_A_MEMBER` | `<member dir>` does not have `project.json` inside `<collection>/members/<name>/` with `../../collection.json` (`rig-create/collection@0`) | run `rig-create collection-binding` on a collection member directory |
+| `COLLECTION_BINDING_MEMBER_MISMATCH` | `project.json.name` does not match the member folder name, `project.json.collection` disagrees with `collection.json.name`, or `collection.json.members[]` does not list `{ name, project: "members/<name>/project.json" }` | align `project.json` and `../../collection.json` for this member |
+| `COLLECTION_BINDING_INHERITED_INVALID` | `../../collection.json` lacks a valid `interview` (`framing`, `waypoints`, `post.items`), a member answer with `basis: "inherited"` has no answered collection entry, or `collection-binding` cannot validate the resulting record | answer the inherited question on the collection first (`rig-create collection answer`) or fix the member's answer basis |
+
 ## Reopening stages
 
 `rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>]`
@@ -1413,7 +1423,7 @@ the record unchanged.
 | Code | Finding and remedy |
 | --- | --- |
 | `JOB_RECORD_SUBJECT_INVALID` | `project.json` does not bind the explicitly requested question, option set and effective stage, including a question whose pick is already recorded and so has no pending set, or a subject id cannot be represented by the record publication contract. Publish the exact current pending subject with its original representable id. |
-| `JOB_RECORD_COLLECTION_EXTERNAL` | A member record's inherited answers depend on `../../collection.json`, outside the project-relative closure. Publish from a standalone project until the collection binding lands. |
+| `JOB_RECORD_COLLECTION_EXTERNAL` | A collection member's `project.json` has no `collection_binding` (`rig-create/collection-binding@1`), its bound `evidence/collection-binding.json` is missing, unreadable, malformed or traverse-unsafe, its `sha256` or `collection_sha256` mismatches the sealed binding or current `../../collection.json`, its bound member/collection identity or `inherited_answers` do not match the member's `basis: "inherited"` items, or the retained snapshot differs from the sealed collection interview. Run `rig-create collection-binding <member dir>` to write and bind the current collection snapshot before publishing. |
 | `JOB_RECORD_CLOSURE_INCOMPLETE` | `project.json` passes its retained seals, but the retained check refuses. The closure holds every file the inventory check read, so this means the retained root lacks or changed one of them. Structured details retain the check's codes and paths. Restore the complete inventory closure before finalization. |
 | `JOB_RECORD_PARTS_LOCK_MISSING` | The `@rig-c/parts` the check loads (the project's install, or in the retained phase the host's) has no `bun.lock` or `package-lock.json` entry with its installed version and an integrity, or two lockfiles disagree. The version alone is never used. Install parts from a lockfile that records its integrity and publish again. |
 | `JOB_RECORD_PARTS_MISMATCH` | In the retained phase, the host loads a different `@rig-c/parts` version or integrity than the inventory phase sealed. The message names both versions. Rebuild the project on the host's parts, or run the check where the sealed version is installed. |

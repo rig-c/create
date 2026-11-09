@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'nod
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { checkDrafts, draftInputUnavailable, draftVersionFindings } from '../src/drafts.ts';
-import { configInputReferences, plateReceiptSpec } from '../src/config-inputs.ts';
+import { configInputReferences, DRAFT_CONFIG_INPUTS_SINCE, plateReceiptSpec } from '../src/config-inputs.ts';
+import { PINNED_PACKAGES } from '../src/pins.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
@@ -353,4 +354,100 @@ test('an installed parts without PLATE_RECEIPT_SPEC refuses a plate by name befo
     expect((e as Refusal).message).toContain('PLATE_RECEIPT_SPEC');
   }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+/** #322: a draft recorded with no config_inputs key on a config that names an occluder image, dated `at`. */
+function unrecordedDraft(at: string): { dir: string; args: string[]; project: JsonObject } {
+  const { dir, args } = occluderDraft(); draftRigCommand(args);
+  const project = read(dir); const record = arr(project.drafts).at(-1) as JsonObject;
+  delete record.config_inputs; record.at = at;
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  return { dir, args, project };
+}
+const beforeSince = '2026-11-08T22:39:19.613Z';
+
+test('an absent config_inputs key on a config naming an occluder image WARNs before DRAFT_CONFIG_INPUTS_SINCE and refuses from it', () => {
+  const early = unrecordedDraft(beforeSince);
+  const refusals: Finding[] = []; const warnings: Finding[] = []; checkDrafts(early.dir, early.project, refusals, warnings);
+  expect(refusals).toEqual([]);
+  expect(warnings.filter(f => f.code === 'DRAFT_CONFIG_INPUTS_UNRECORDED').map(f => f.path)).toEqual(['drafts[0].config_inputs']);
+  expect(warnings.find(f => f.code === 'DRAFT_CONFIG_INPUTS_UNRECORDED')!.message).toContain('inputs/foreground.png');
+  expect(checkProject(early.dir).refusals).toEqual([]);
+  const late = unrecordedDraft(DRAFT_CONFIG_INPUTS_SINCE);
+  const lateRefusals: Finding[] = []; const lateWarnings: Finding[] = []; checkDrafts(late.dir, late.project, lateRefusals, lateWarnings);
+  expect(lateRefusals.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(lateWarnings.map(f => f.code)).not.toContain('DRAFT_CONFIG_INPUTS_UNRECORDED');
+});
+
+test('a present config_inputs binding that is wrong refuses DRAFT_RIG_FILE on both sides of DRAFT_CONFIG_INPUTS_SINCE', () => {
+  for (const at of [beforeSince, DRAFT_CONFIG_INPUTS_SINCE]) {
+    const hashed = occluderDraft(); draftRigCommand(hashed.args);
+    const project = read(hashed.dir); const record = arr(project.drafts).at(-1) as JsonObject;
+    record.at = at; (arr(record.config_inputs)[0] as JsonObject).sha256 = '0'.repeat(64);
+    const refusals: Finding[] = []; const warnings: Finding[] = []; checkDrafts(hashed.dir, project, refusals, warnings);
+    expect(refusals.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+    expect(warnings.map(f => f.code)).not.toContain('DRAFT_CONFIG_INPUTS_UNRECORDED');
+    // A present key missing one of two named inputs is not the unrecorded route.
+    const { dir, args } = occluderDraft();
+    write(dir, 'derived/drafts/sample/config.json', JSON.stringify({ assemble: { occluders: [{ image: '../../../inputs/foreground.png' }, { image: '../../../inputs/second.png' }] } }));
+    write(dir, 'inputs/second.png', 'synthetic second matte');
+    draftRigCommand(args);
+    const partial = read(dir); const kept = arr(partial.drafts).at(-1) as JsonObject;
+    kept.at = at; kept.config_inputs = arr(kept.config_inputs).slice(0, 1);
+    const missing: Finding[] = []; const missingWarnings: Finding[] = []; checkDrafts(dir, partial, missing, missingWarnings);
+    expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+    expect(missing[0]?.message).toContain('inputs/second.png');
+    expect(missingWarnings.map(f => f.code)).not.toContain('DRAFT_CONFIG_INPUTS_UNRECORDED');
+  }
+});
+
+test('draft-rig records a new draft beside a WARN-only unrecorded draft, and check has no refusals', () => {
+  const { dir } = unrecordedDraft(beforeSince);
+  const root = 'derived/drafts/next';
+  write(dir, `${root}/config.json`, JSON.stringify({ assemble: { occluders: [{ image: '../../../inputs/foreground.png' }] } }));
+  write(dir, `${root}/inputs/recomposite_rig.png`, 'synthetic stack bytes');
+  write(dir, `${root}/inputs/parts.json`); write(dir, `${root}/inputs/parts/synthetic.png`, 'synthetic part bytes');
+  for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${file}`);
+  const result = draftRigCommand(['next', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/inputs`, '--json']);
+  expect(result.exit).toBe(0);
+  expect(arr((JSON.parse(result.stdout) as JsonObject).config_inputs).map(f => obj(f).path)).toEqual(['inputs/foreground.png']);
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.filter(f => f.code === 'DRAFT_CONFIG_INPUTS_UNRECORDED').map(f => f.path)).toEqual(['drafts[0].config_inputs']);
+});
+
+/** A synthetic project install of parts at `version`; `references` is its configFileReferences body, or none when null. */
+function installParts(dir: string, version: string, references: string | null): void {
+  write(dir, 'node_modules/@rig-c/parts/package.json', JSON.stringify({ name: '@rig-c/parts', version, type: 'module' }));
+  write(dir, 'node_modules/@rig-c/parts/src/config.ts', `export const CONFIG_SECTIONS = ["assemble"];\n${references === null ? '' : `export function configFileReferences(raw) { ${references} }\n`}`);
+}
+
+test('draft-rig refuses DRAFT_PARTS_INSTALL_BEHIND when the install cannot declare inputs its newer producer declares', () => {
+  const pinned = PINNED_PACKAGES['@rig-c/parts'];
+  for (const references of [null, 'return [];']) {
+    const { dir, args } = occluderDraft(); write(dir, stampAt(false), runStamp(pinned));
+    installParts(dir, '2.8.0', references);
+    const before = readFileSync(join(dir, 'project.json'));
+    try { draftRigCommand(args); throw Error('expected refusal'); } catch (e) {
+      expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe('DRAFT_PARTS_INSTALL_BEHIND');
+      expect((e as Refusal).message).toContain(`install @rig-c/parts ${pinned}`);
+      expect((e as Refusal).message).toContain('config.assemble.occluders[0].image');
+    }
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
+});
+
+test('without a newer producer, or with a config naming nothing, draft-rig keeps its earlier behaviour', () => {
+  const pinned = PINNED_PACKAGES['@rig-c/parts'];
+  // The producer is the old install itself: no run.json, so the unavailable loader refuses as before.
+  const same = occluderDraft(); installParts(same.dir, '2.8.0', null);
+  rejected(() => draftRigCommand(same.args), 'DRAFT_RIG_MALFORMED');
+  // A newer producer whose config names no inputs records with no config_inputs key.
+  const plain = draft(); write(plain.dir, stampAt(false), runStamp(pinned)); installParts(plain.dir, '2.8.0', null);
+  const record = JSON.parse(draftRigCommand(plain.args).stdout) as JsonObject;
+  expect(record.config_inputs).toBeUndefined();
+  expect(record.producer).toEqual({ name: '@rig-c/parts', version: pinned });
+  // An install that declares what the pinned parts declares binds as before.
+  const both = occluderDraft(); write(both.dir, stampAt(false), runStamp(pinned));
+  expect(arr((JSON.parse(draftRigCommand(both.args).stdout) as JsonObject).config_inputs)).toHaveLength(1);
 });

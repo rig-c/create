@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { correctionFixture } from './correction-fixture.ts';
 import { correctionHash } from '../src/corrections.ts';
 import { checkAppliedReview } from '../src/applied-review.ts';
-import { configInputReferences, plateReceiptSpec } from '../src/config-inputs.ts';
+import { configInputReferences, DRAFT_CONFIG_INPUTS_SINCE, plateReceiptSpec } from '../src/config-inputs.ts';
 import { checkDrafts } from '../src/drafts.ts';
 import { fixture } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
@@ -129,7 +129,8 @@ for (const legacy of [false, true]) test(`draft writer binds files and ${legacy 
   const result = draftRigCommand(['named', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`, '--json']);
   const record = JSON.parse(result.stdout); expect(record.config_inputs.map((f: {path: string}) => f.path)).toEqual(['requirements.json', 'animation.json', 'skeleton.json'].map(p => `${root}/${p}`));
   const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
-  delete p.drafts[0].config_inputs; p.drafts[0].at = legacy ? '2026-11-04T00:00:00Z' : '2026-11-06T00:00:00Z';
+  // An absent key from CONFIG_INPUTS_SINCE to DRAFT_CONFIG_INPUTS_SINCE is DRAFT_CONFIG_INPUTS_UNRECORDED; "current" is at or after both.
+  delete p.drafts[0].config_inputs; p.drafts[0].at = legacy ? '2026-11-04T00:00:00Z' : DRAFT_CONFIG_INPUTS_SINCE;
   const refusals: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, p, refusals, warnings);
   expect((legacy ? warnings : refusals).map(f => f.code)).toEqual(['DRAFT_RIG_FILE', 'DRAFT_RIG_FILE', 'DRAFT_RIG_FILE']);
   expect((legacy ? refusals : warnings)).toEqual([]);

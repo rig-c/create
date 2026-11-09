@@ -34,6 +34,18 @@ test('rig-review-parts-verdict/4 decodes and partsVerdictNames returns deduplica
   expect(approved.schema).toBe('rig-review-parts-verdict/4');
   expect(partsVerdictNames(approved)).toEqual({ flagged: [], noted: [] });
 
+  const itemView = {
+    mode: 'item',
+    camera: { zoom: 2, center: { x: 4, y: 4 }, viewport: { width: 800, height: 600 } },
+    cameraSync: true,
+    referenceCamera: null,
+    background: 'checker',
+    alpha: false,
+    footprints: true,
+    mesh: false,
+  };
+  const assembledView = { ...itemView, mode: 'assembled' };
+
   const changesRequested = decodePartsRead(
     Buffer.from(
       JSON.stringify({
@@ -41,6 +53,7 @@ test('rig-review-parts-verdict/4 decodes and partsVerdictNames returns deduplica
         status: 'changes-requested',
         issues: [
           {
+            schema: 'rig-review-parts-comment/2',
             id: 'issue-1',
             summary: 'Shoulder seam gap',
             parts: [
@@ -50,11 +63,12 @@ test('rig-review-parts-verdict/4 decodes and partsVerdictNames returns deduplica
             sourceHash: sha,
             rigRegion: { x: 0, y: 0, width: 10, height: 10 },
             imageRegion: null,
-            view: { background: 'checker' },
+            view: assembledView,
             crop: { path: `comment-crops/${sha}.png`, sha256: sha, width: 10, height: 10 },
             nativeCrop: null,
           },
           {
+            schema: 'rig-review-parts-comment/2',
             id: 'issue-2',
             summary: 'Torso and head fringe',
             parts: [
@@ -63,9 +77,21 @@ test('rig-review-parts-verdict/4 decodes and partsVerdictNames returns deduplica
             ],
             sourceHash: sha,
             rigRegion: { x: 5, y: 5, width: 8, height: 8 },
-            imageRegion: { x: 1, y: 1, width: 8, height: 8 },
-            view: { background: 'checker' },
+            imageRegion: null,
+            view: assembledView,
             crop: { path: `comment-crops/${sha}.png`, sha256: sha, width: 8, height: 8 },
+            nativeCrop: null,
+          },
+          {
+            schema: 'rig-review-parts-comment/2',
+            id: 'issue-3',
+            summary: 'Head rim nick',
+            parts: [{ name: 'head', imageHash: sha }],
+            sourceHash: sha,
+            rigRegion: { x: 6, y: 6, width: 4, height: 4 },
+            imageRegion: { x: 1, y: 1, width: 4, height: 4 },
+            view: itemView,
+            crop: { path: `comment-crops/${sha}.png`, sha256: sha, width: 4, height: 4 },
             nativeCrop: null,
           },
         ],

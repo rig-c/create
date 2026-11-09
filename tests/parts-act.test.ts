@@ -24,7 +24,7 @@ import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
 import { prepareDraftManifest } from '../src/job-publication.ts';
 import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
-import { decodeReviewAct, type PartsIssue, type PartsVerdictActV5 } from '../src/review-act.ts';
+import { decodeReviewAct, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -466,14 +466,26 @@ test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant 
     },
   };
 
-  const sampleIssue = (overrides: Partial<PartsIssue> = {}): PartsIssue => ({
+  const baseView = {
+    mode: 'item',
+    camera: { zoom: 2, center: { x: 14, y: 13 }, viewport: { width: 800, height: 600 } },
+    cameraSync: true,
+    referenceCamera: null,
+    background: 'checker',
+    alpha: false,
+    footprints: true,
+    mesh: false,
+  };
+
+  const sampleIssue = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    schema: 'rig-review-parts-comment/2',
     id: 'issue-1',
     summary: 'Ragged sleeve cuff seam',
     parts: [{ name: firstPartName, imageHash: firstPart.sha256 }],
     sourceHash: 'b'.repeat(64),
     rigRegion: { x: 10, y: 12, width: 24, height: 18 },
     imageRegion: { x: 2, y: 4, width: 24, height: 18 },
-    view: { background: 'checker' },
+    view: baseView,
     crop: { path: `comment-crops/${'c'.repeat(64)}.png`, sha256: 'c'.repeat(64), width: 24, height: 18 },
     nativeCrop: null,
     ...overrides,
@@ -519,7 +531,13 @@ test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant 
 
   // 4. act@5 changes-requested with valid subset of parts is accepted by both decodeReviewAct and assertPartsActSource
   const changesAct = decodeReviewAct(
-    JSON.stringify(makeActV5({ verdict: 'changes-requested', issues: [sampleIssue({ imageRegion: null })], words: 'Fix cuff.' })),
+    JSON.stringify(
+      makeActV5({
+        verdict: 'changes-requested',
+        issues: [sampleIssue({ imageRegion: null, view: { ...baseView, mode: 'assembled' } })],
+        words: 'Fix cuff.',
+      }),
+    ),
     'parts-verdict',
   );
   expect(changesAct.schema).toBe('rig-review/act@5');

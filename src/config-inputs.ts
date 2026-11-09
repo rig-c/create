@@ -1,6 +1,6 @@
 /** Config input identities come from the installed loader's file declarations. */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from './check-reads.ts';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { locateParts, OWN_NODE_MODULES } from './parts-sections.ts';
@@ -37,6 +37,7 @@ export function configInputBindings(dir: string, configPath: string, allowMissin
     const file = resolve(dir, dirname(configPath), ref.value);
     const path = relative(realpathSync(dir), allowMissing && !existsSync(file) ? file : realpathSync(file));
     if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${ref.at}: named input leaves the project`);
+    if (existsSync(file) && !lstatSync(realpathSync(file)).isFile()) throw new Error(`${ref.at}: named input ${path.split(sep).join('/')} is not a regular file`);
     return { path: path.split(sep).join('/'), sha256: allowMissing && !existsSync(file) ? null : createHash('sha256').update(readFileSync(file)).digest('hex') };
   });
 }

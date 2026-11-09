@@ -1,0 +1,52 @@
+{
+ "spec": "rig-run/1",
+ "package": {
+  "name": "@rig-c/parts",
+  "version": "2.34.0"
+ },
+ "command": "rig",
+ "started_at": "2026-11-09T00:01:09.000Z",
+ "finished_at": "2026-11-09T00:01:09.000Z",
+ "config": {
+  "path": "../config.json",
+  "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759"
+ },
+ "outputs": [
+  {
+   "path": "images/background.png",
+   "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
+  },
+  {
+   "path": "images/eye_l.png",
+   "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+  },
+  {
+   "path": "images/eye_r.png",
+   "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+  },
+  {
+   "path": "images/face.png",
+   "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c"
+  },
+  {
+   "path": "images/lantern.png",
+   "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041"
+  },
+  {
+   "path": "images/torso.png",
+   "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5"
+  },
+  {
+   "path": "mesh_report.json",
+   "sha256": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db"
+  },
+  {
+   "path": "motion.json",
+   "sha256": "b51d74cf0d44f62abf740dff9d4773a6b88218ade021d19139acffb149e4a2d5"
+  },
+  {
+   "path": "rig.json",
+   "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
+  }
+ ]
+}

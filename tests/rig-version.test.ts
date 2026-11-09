@@ -11,8 +11,6 @@ import { fixture, obj } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
-import { partsEnumerator, readPublished } from '../src/job-publication.ts';
-import { startJobHost } from '@rig-c/review/job-host';
 
 const roots: string[] = [];
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
@@ -73,7 +71,8 @@ describe('frozen rig registration', () => {
     const { dir, args, load } = setup();
     const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
     const binding = readWriterBinding(dir)!;
-    let recovery: Awaited<ReturnType<typeof startJobHost>> | undefined;
+    expect(binding.listenerIncarnation).toBe(host.attachment!.listenerIncarnation);
+    let recovery: Awaited<ReturnType<typeof openCreateJob>> | undefined;
     try {
       if (stopped) host.stop();
       // The agent only invokes the writer. No test/agent publish call occurs here.
@@ -85,10 +84,9 @@ describe('frozen rig registration', () => {
       if (stopped) {
         expect(exit).toBe(1);
         expect(stderr).toContain('JOB_PUBLISH_PENDING');
-        expect(pendingPublications(dir)[0].failure?.code).toBe('JOB_HOST_REUSE_MISMATCH');
+        expect(pendingPublications(dir)[0].failure?.code).toBe('JOB_HOST_ATTACH_REFUSED');
         expect(checkProject(dir).holes?.map(hole => hole.code)).toEqual(['JOB_PUBLISH_PENDING']);
-        recovery = await startJobHost({ ...binding.identity, port: Number(new URL(binding.origin).port),
-          readPublished, partsEnumerator, installWriterBinding: () => {} });
+        recovery = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
         expect(recovery.session.status().generation).toBe(0);
         await reconcileCreateJob(dir);
         expect(checkProject(dir).holes ?? []).toEqual([]);

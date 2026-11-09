@@ -1,0 +1,65 @@
+{
+  "schema": "rig-create/scene@1",
+  "n": 1,
+  "rig": {
+    "version": 3,
+    "acceptance": {
+      "signoff": {
+        "stage": "rig-review",
+        "checkpoint": null,
+        "at": "2026-11-09T00:01:13.000Z"
+      },
+      "verdict": "versions[2].verdicts[0]",
+      "review_package": {
+        "path": "versions[2].review_package",
+        "sha256": "3aecb4aaf5a3fa9920b3847fa8b2d4841112dc34d9ec373fc6f6b9f2564bb7ce"
+      }
+    },
+    "model": {
+      "path": "derived/review/v3/out/check/build/skeleton.model.json",
+      "sha256": "a324b10d0cfd819382eb4ddb9b9ec240df26049179cab2cb2ec07a2ed6825f46"
+    },
+    "animation": {
+      "name": "idle"
+    }
+  },
+  "frame": {
+    "space": "rig-world-y-up",
+    "stage": {
+      "x": -64,
+      "y": 0,
+      "width": 128,
+      "height": 128
+    }
+  },
+  "plates": [
+    {
+      "role": "background",
+      "path": "inputs/background.png",
+      "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+      "width": 128,
+      "height": 128,
+      "rect": {
+        "x": -64,
+        "y": 0,
+        "width": 128,
+        "height": 128
+      },
+      "registered": {
+        "kind": "input",
+        "ref": "inputs[1]"
+      },
+      "citation": {
+        "guide": "post_composition",
+        "asks": [
+          "post_composition"
+        ],
+        "quote": "Use the synthetic post_composition\nKeep the declared geometric example."
+      }
+    }
+  ],
+  "layers": [
+    "background",
+    "rig"
+  ]
+}

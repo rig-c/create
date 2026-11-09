@@ -95,19 +95,25 @@ differing field and both values. The writer loads Review's public
 `startJobHost` facade and publishes through its in-process `ports.handleJobApi`
 with bootstrap agent authority held only in memory.
 
-If the owner host disappears between preflight and startup, Review can briefly
-start a replacement listener. The writer checks `reused`, job ID and origin,
-stops that handle immediately and leaves a named pending receipt without
-publishing. The future Review reuse-only attach option (to be filed) will
-replace this single attachment boundary.
+`job open` stores the bound listener's `listenerIncarnation` in the private
+binding when Review returns an attested `attachment`. A `null` attachment from
+ordinary reuse means "not strictly attached": it is not an error and nothing
+is reinstalled. Every later attach is Review's strict reuse-only POST, with
+`reuseOnly.expected.{jobId, origin, listenerIncarnation, binding}` taken from
+the locked binding, so Review never starts a replacement listener for a
+reconcile. A refused attach keeps Review's `reason` and `phase` in a
+`JOB_HOST_ATTACH_REFUSED` pending receipt, including `incarnation-missing` for
+a host that predates the token. A field-level mismatch keeps its `field`,
+`expected` and `actual` values in `JOB_HOST_REUSE_MISMATCH`. A reuse-only
+attach never writes the binding.
 
 Cross-process subscription delivery uses a **30-second server wait cycle**.
-Scheduling, transport and rendering add elapsed time. Review 2.5.0 defines
+Scheduling, transport and rendering add elapsed time. Review 2.7.0 defines
 `jobWaitLimitMs = 30_000` in `src/job-api.ts` and reads durable events
 after the timer in `src/job-session.ts`. The window's previous/new label
 notice is implemented in `web/job-session.ts`.
 
-Review 2.5.0 refuses records containing answered scene-context choices or
+Review 2.7.0 refuses records containing answered scene-context choices or
 reader diagnostics with `JOB_RECORD_INCOMPLETE` before this reader runs.
 Those publications remain pending until review#555 supplies its contract.
 
@@ -181,7 +187,7 @@ Replay discounts verdicts and exact still entries appended by ingestion after
 its recorded verdict index when comparing the pre-append version-entry hash. Other original version fields and
 prior verdicts remain covered. Source changes refuse `REVIEW_ACT_SOURCE_STALE`
 with the recorded verdict untouched. This implements create#182's C4 ruling
-against the installed dedupe-first order in Review 2.5.0 `src/job-contract.ts`. C4's source-check requirement is recorded in create#182's
+against the installed dedupe-first order in Review 2.7.0 `src/job-contract.ts`. C4's source-check requirement is recorded in create#182's
 “C4 act-side checks” ruling and review#501. [Create ruling](https://github.com/rig-c/create/issues/182), [Review C4](https://github.com/rig-c/review/issues/501).
 
 ### Isolation evidence and legacy inputs

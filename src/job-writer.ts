@@ -22,10 +22,16 @@ export function prepareVersionIntent(root: string, bytes: Buffer, n: number): Pe
   return enqueuePublication(root, binding, { path: `review-live-v${n}.json`, selector: publicationSelector(project, n) }, bytes);
 }
 
+const publishedLines: string[] = [];
+
+export function takePublishedLines(): string[] {
+  return publishedLines.splice(0);
+}
+
 /** Called by the committing writer, before its own locks are released. */
-export function publishCommittedVersion(root: string, n: number | string): void {
+export function publishCommittedVersion(root: string, n: number | string): string[] {
   const binding = readWriterBinding(root);
-  if (!binding) return;
+  if (!binding) return [];
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const result = typeof n === 'string' ? draftPublicationResult(n) : { path: `review-live-v${n}.json`, selector: publicationSelector(project, n) };
   const entry = enqueuePublication(root, binding, result);
@@ -41,20 +47,27 @@ export function publishCommittedVersion(root: string, n: number | string): void 
   }
   // A separate Bun process runs asynchronous Review while this synchronous writer
   // keeps its existing call contract and retains both write locks.
-  let exit: number;
+  let child: ReturnType<typeof Bun.spawnSync<'pipe', 'pipe'>>;
   try {
-    exit = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./job-runtime.ts', import.meta.url)), 'publish'], {
+    child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./job-runtime.ts', import.meta.url)), 'publish'], {
       stdin: Buffer.from(JSON.stringify({ root, id: entry.id })), stdout: 'pipe', stderr: 'pipe',
-    }).exitCode;
+    });
   } catch {
     refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} committed but the publication process could not start; restore the runtime and run rig-create job reconcile`);
   }
-  if (exit !== 0) {
+  const lines = child.stdout.toString('utf8').split('\n').map(line => line.trim()).filter(Boolean);
+  publishedLines.push(...lines);
+  if (child.exitCode !== 0) {
     const path = join(jobPrivateRoot(root), 'outbox', `${entry.id}.json`);
-    if (!existsSync(path)) return; // The child acknowledged before its abnormal exit.
+    if (!existsSync(path)) {
+      const match = /^([A-Z][A-Z0-9_]*): ([\s\S]+)$/.exec(child.stderr.toString('utf8').trim());
+      if (match) refuse(match[1]!, match[2]!);
+      return lines; // The child acknowledged before its abnormal exit.
+    }
     const pending = JSON.parse(readFileSync(path, 'utf8')) as PendingPublication;
     refuse('JOB_PUBLISH_PENDING', `project.json: committed record ${entry.recordHash} awaits publication${pending.failure ? ` (${pending.failure.code}: ${pending.failure.message})` : ''}; run rig-create job reconcile`);
   }
+  return lines;
 }
 
 export function draftPublicationResult(id: string): { path: string; selector: { kind: 'draft'; id: string } } {

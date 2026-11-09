@@ -259,6 +259,16 @@ export function subjectLabel(subject: JobSubject): string {
   }
 }
 
+/** Format `asked` and `already` outcome lines for `job open` and bound writers. */
+export function askOutcomeLines(outcomes: readonly AskOutcome[]): string[] {
+  const lines: string[] = [];
+  for (const status of ['asked', 'already'] as const) {
+    const named = outcomes.filter(outcome => outcome.status === status).map(outcome => subjectLabel(outcome.subject));
+    if (named.length) lines.push(`job: ${status === 'asked' ? 'asked' : 'already asked'} ${named.join(', ')}`);
+  }
+  return lines;
+}
+
 /** Name every ask Review refused. The publications themselves are acknowledged. */
 export function refuseAskOutcomes(outcomes: readonly AskOutcome[]): void {
   const refused = outcomes.filter(outcome => outcome.status === 'refused');
@@ -370,11 +380,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     selector = targetSelector;
     published = true;
   }
-  const lines = [`job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`];
-  for (const status of ['asked', 'already'] as const) {
-    const named = outcomes.filter(outcome => outcome.status === status).map(outcome => subjectLabel(outcome.subject));
-    if (named.length) lines.push(`job: ${status === 'asked' ? 'asked' : 'already asked'} ${named.join(', ')}`);
-  }
+  const lines = [`job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...askOutcomeLines(outcomes)];
   refuseAskOutcomes(outcomes);
   return lines;
 }

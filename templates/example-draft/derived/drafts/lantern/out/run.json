@@ -9,7 +9,7 @@
  "finished_at": "2026-11-09T00:00:00.000Z",
  "config": {
   "path": "../config.json",
-  "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+  "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
  },
  "outputs": [
   {
@@ -42,7 +42,7 @@
   },
   {
    "path": "motion.json",
-   "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+   "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
   },
   {
    "path": "rig.json",

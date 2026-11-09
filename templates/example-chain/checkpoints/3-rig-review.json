@@ -22,7 +22,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "cfd1182b101dc1850aa31c0a10c9cb0ebbe2843375733d4b99f5cac58e89ae8a",
+  "project_sha256": "36d0f6afa37eb739fdc63cee11322880813b5fd019126bdba37f9012e0cde88c",
   "files": [
     {
       "path": ".gitignore",
@@ -38,7 +38,7 @@
     },
     {
       "path": "derived/drafts/chain/config.json",
-      "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+      "sha256": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3"
     },
     {
       "path": "derived/drafts/chain/input/painting_in_rig.png",
@@ -82,7 +82,7 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/run.json",
-      "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
+      "sha256": "ff2a82974be47673a717c6e42103f11711005f20adf3975dda3ec3c38aed05cd"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -90,11 +90,11 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.json",
-      "sha256": "a4b76fae1308a9c12822e2db2150c53c5a7103f5cf7a8f197f67825173e1a57a"
+      "sha256": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.model.json",
-      "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff"
+      "sha256": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.png",
@@ -130,7 +130,7 @@
     },
     {
       "path": "derived/drafts/chain/out/motion.json",
-      "sha256": "74df39025faec150b43ac4b6ffeab66379f5abf5192ebae521a512a1f641867e"
+      "sha256": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9"
     },
     {
       "path": "derived/drafts/chain/out/rig.json",
@@ -138,11 +138,11 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "fbaf6df7ffd9b6c2d9c302b025bdab70800dc25e0148251666009f0e610ce8f1"
+      "sha256": "ea343e27c51c07f5d191a8910cd9340749eca7b11c9802a8a144e74d5ae25b2a"
     },
     {
       "path": "derived/review/v1/config.json",
-      "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+      "sha256": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3"
     },
     {
       "path": "derived/review/v1/interview-requirements.json",
@@ -150,7 +150,7 @@
     },
     {
       "path": "derived/review/v1/out/check/build/run.json",
-      "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
+      "sha256": "ff2a82974be47673a717c6e42103f11711005f20adf3975dda3ec3c38aed05cd"
     },
     {
       "path": "derived/review/v1/out/check/build/skeleton.atlas",
@@ -158,11 +158,11 @@
     },
     {
       "path": "derived/review/v1/out/check/build/skeleton.json",
-      "sha256": "a4b76fae1308a9c12822e2db2150c53c5a7103f5cf7a8f197f67825173e1a57a"
+      "sha256": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d"
     },
     {
       "path": "derived/review/v1/out/check/build/skeleton.model.json",
-      "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff"
+      "sha256": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46"
     },
     {
       "path": "derived/review/v1/out/check/build/skeleton.png",
@@ -226,7 +226,7 @@
     },
     {
       "path": "derived/review/v1/out/rig/motion.json",
-      "sha256": "74df39025faec150b43ac4b6ffeab66379f5abf5192ebae521a512a1f641867e"
+      "sha256": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9"
     },
     {
       "path": "derived/review/v1/out/rig/rig.json",
@@ -234,7 +234,7 @@
     },
     {
       "path": "derived/review/v1/out/rig/run.json",
-      "sha256": "fbaf6df7ffd9b6c2d9c302b025bdab70800dc25e0148251666009f0e610ce8f1"
+      "sha256": "ea343e27c51c07f5d191a8910cd9340749eca7b11c9802a8a144e74d5ae25b2a"
     },
     {
       "path": "evidence/.gitkeep",
@@ -254,19 +254,19 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "0a1cfeac8bb934f3b916743a1965a55887cb686372812effe4852b904e043a08"
+      "sha256": "5273575e1d8a14dafa4475ece286d67f60eb51fb75abd801b91b3530815405c8"
     },
     {
       "path": "evidence/interview/constraints.json",
-      "sha256": "d8a7037b8be8fe97be397ddfad199a995d235c3650b208f6662ef77c07b09549"
+      "sha256": "c99264246684ad270e60f00d45946a64237d882977e5c3777b59bbe6c8ecfd47"
     },
     {
       "path": "evidence/interview/meshes.json",
-      "sha256": "e24794a12b93d9b1a78d4e3a26e28f4df2af7ccf70cbbb6bbb98c94d4f03fdfb"
+      "sha256": "ac03a2915e7d19c25f122a86810ff8d980d5de32e67b7b1162f0bb1d97e183d8"
     },
     {
       "path": "evidence/interview/motion.json",
-      "sha256": "6f38d2a82665559493d9f660b80aa2805e06e06f5974b0a060b37b2fb3f9fd3c"
+      "sha256": "2e7b342aa3d29633632a5502ea4a175212ce650ce8b7ab62173e241bceda39e6"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -302,11 +302,11 @@
     },
     {
       "path": "evidence/structure.json",
-      "sha256": "1d083d2e5d09a2038d99756fdd7af08928bb87953b38d87578cff9327ff2099f"
+      "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
     },
     {
       "path": "evidence/v1/config.json",
-      "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+      "sha256": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3"
     },
     {
       "path": "evidence/v1/interview-requirements.json",
@@ -322,7 +322,7 @@
     },
     {
       "path": "outputs/v1/out/check/build/run.json",
-      "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
+      "sha256": "ff2a82974be47673a717c6e42103f11711005f20adf3975dda3ec3c38aed05cd"
     },
     {
       "path": "outputs/v1/out/check/build/skeleton.atlas",
@@ -330,11 +330,11 @@
     },
     {
       "path": "outputs/v1/out/check/build/skeleton.json",
-      "sha256": "a4b76fae1308a9c12822e2db2150c53c5a7103f5cf7a8f197f67825173e1a57a"
+      "sha256": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d"
     },
     {
       "path": "outputs/v1/out/check/build/skeleton.model.json",
-      "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff"
+      "sha256": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46"
     },
     {
       "path": "outputs/v1/out/check/build/skeleton.png",
@@ -402,7 +402,7 @@
     },
     {
       "path": "outputs/v1/out/rig/motion.json",
-      "sha256": "74df39025faec150b43ac4b6ffeab66379f5abf5192ebae521a512a1f641867e"
+      "sha256": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9"
     },
     {
       "path": "outputs/v1/out/rig/rig.json",
@@ -410,7 +410,7 @@
     },
     {
       "path": "outputs/v1/out/rig/run.json",
-      "sha256": "fbaf6df7ffd9b6c2d9c302b025bdab70800dc25e0148251666009f0e610ce8f1"
+      "sha256": "ea343e27c51c07f5d191a8910cd9340749eca7b11c9802a8a144e74d5ae25b2a"
     },
     {
       "path": "package.json",
@@ -418,7 +418,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "cfd1182b101dc1850aa31c0a10c9cb0ebbe2843375733d4b99f5cac58e89ae8a"
+      "sha256": "36d0f6afa37eb739fdc63cee11322880813b5fd019126bdba37f9012e0cde88c"
     }
   ]
 }

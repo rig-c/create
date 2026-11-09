@@ -5,6 +5,23 @@ import { dirname, join, resolve } from 'node:path';
 import { EXAMPLE_SOURCE_DATE_EPOCH } from './example-time.ts';
 import { generateExampleParts } from './generate-example-parts.ts';
 
+/**
+ * The synthetic drafts' one breath track: `body` translatey, period 4, amplitude in rig px.
+ * Chosen by running @rig-c/parts 2.35.0 `check` on both drafts below (identical figures on each),
+ * against BREATH_VISIBLE's torso_floor 3.809, as the smallest amplitude passing with a margin of at
+ * least 5 % of the floor:
+ *
+ * | amp | torso_heat_mean | torso_floor | BREATH_VISIBLE | margin           |
+ * | --- | --------------- | ----------- | -------------- | ---------------- |
+ * | 0.5 | 2.306           | 3.809       | FAIL           | -1.503 (-39.5 %) |
+ * | 0.6 | 2.645           | 3.809       | FAIL           | -1.164 (-30.6 %) |
+ * | 0.7 | 3.267           | 3.809       | FAIL           | -0.542 (-14.2 %) |
+ * | 0.8 | 3.948           | 3.809       | PASS           | +0.139 (+3.6 %)  |
+ * | 0.9 | 4.259           | 3.809       | PASS           | +0.450 (+11.8 %) |
+ * | 1.0 | 4.912           | 3.809       | PASS           | +1.103 (+29.0 %) |
+ */
+export const EXAMPLE_BREATH_AMP = 0.9;
+
 
 export function generateExampleDraft(dir: string, parts: Record<string, Uint8Array>): Record<string, Buffer> {
   for (const [path, bytes] of Object.entries(parts)) {
@@ -22,7 +39,7 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
     bones: [{ name: 'body', parent: 'root', at: [64, 64] }],
     meshes: {},
     regions: Object.fromEntries(manifest.parts.map(part => [part.name, 'body'])),
-    motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: 0.5, period: 4, phase: 0, base: 0 }] },
+    motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: EXAMPLE_BREATH_AMP, period: 4, phase: 0, base: 0 }] },
   };
   writeFileSync(join(dir, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   writeFileSync(join(dir, 'interview-requirements.json'), `${JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }, null, 2)}\n`);
@@ -65,7 +82,7 @@ export function generateExampleMeshDraft(dir: string, parts: Record<string, Uint
     bones: [{ name: 'body', parent: 'root', at: [64, 64] }],
     meshes: { torso: { grid: 16, r: 16, segments: [['body', [64, 8], [64, 72]]] } },
     regions: Object.fromEntries(manifest.parts.filter(part => part.name !== 'torso').map(part => [part.name, 'body'])),
-    motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: 0.5, period: 4, phase: 0, base: 0 }] },
+    motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: EXAMPLE_BREATH_AMP, period: 4, phase: 0, base: 0 }] },
   };
   writeFileSync(join(dir, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   writeFileSync(join(dir, 'interview-requirements.json'), `${JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }, null, 2)}\n`);

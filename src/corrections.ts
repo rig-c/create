@@ -211,6 +211,28 @@ export function correctionApplied(dir: string, artifact: JsonObject): { feedback
   }
   return { feedback, item, applied };
 }
+/**
+ * Review writes handoff paths relative to the package it opened (`../../config.json`
+ * for a package at `<draft>/out/check`). The package is the input of the retained
+ * `rig-review feedback <input>` read: a directory, or the folder of a manifest file
+ * opened directly. Each path is rebased onto it to the project-relative form create
+ * binds; one that leaves the project is refused by name.
+ */
+function draftHandoffFiles(dir: string, artifact: JsonObject, raw: Json[]): { base: string; files: JsonObject[] } {
+  const input = String(((artifact.review_read as JsonObject).argv as Json[])[2]);
+  const outside = (p: string): boolean => p === '..' || p.startsWith('../') || posix.isAbsolute(p);
+  let base = relative(resolve(dir), resolve(dir, input)).split(sep).join('/');
+  if (outside(base) && isAbsolute(input)) base = relative(realpathSync(dir), resolve(input)).split(sep).join('/');
+  try { if (lstatSync(resolve(dir, base)).isFile()) base = posix.dirname(base); } catch { /* A missing package keeps its path; its files then fail to match. */ }
+  base = posix.normalize(base || '.');
+  if (outside(base)) fail('CORRECTION_APPLIED_INVALID', `feedback package ${input} is outside the project; read the review feedback from the package inside the project`);
+  return { base, files: bindings(raw).map(f => {
+    if (!text(f.path) || f.path.includes('\\') || posix.isAbsolute(f.path)) fail('CORRECTION_APPLIED_INVALID', `handoff path ${JSON.stringify(f.path)} is not a literal package-relative path`);
+    const path = posix.normalize(posix.join(base, f.path));
+    if (outside(path)) fail('CORRECTION_APPLIED_INVALID', `handoff path ${f.path} resolves outside the project from package ${base}`);
+    return { ...f, path };
+  }) };
+}
 function validateApplied(dir: string, project: JsonObject, record: JsonObject, artifact: JsonObject, on: JsonObject, warnings: Finding[], path: string): void {
   const { feedback, item, applied } = correctionApplied(dir, artifact);
   if (record.verbatim !== item.summary || record.by !== 'user') fail('CORRECTION_APPLIED_INVALID', 'made human fields must retain summary and by:user');
@@ -218,12 +240,12 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
   const reviewed = feedback.reviewedSource as JsonObject;
   const handoff = reviewed.handoff;
   if (!isObject(reviewed.rig) || reviewed.rig.sha256 !== on.model.sha256 || reviewed.motion !== null || !isObject(handoff) || !sameHash(handoff.config, on.config) || !Array.isArray(handoff.files) || !Array.isArray(handoff.missing) || handoff.missing.length !== 0) fail('CORRECTION_APPLIED_INVALID', 'feedback reviewed source/handoff differs');
-  const requireNamed = (named: JsonObject[], files: JsonObject[]): void => {
+  const requireNamed = (named: JsonObject[], files: JsonObject[], from = ''): void => {
     for (const input of named) {
       const matches = files.filter(f => f.path === input.path);
       if (matches.length && (!hex(input.sha256) || matches.length !== 1 || matches[0]!.sha256 !== input.sha256)) fail('CORRECTION_APPLIED_INVALID', `config-named input ${String(input.path)} has an altered hash`);
       if (!matches.length) {
-        const reason = `config-named input ${String(input.path)} is missing from handoff`;
+        const reason = `config-named input ${String(input.path)} is missing from handoff${from}`;
         if (!configInputsLegacy(record.at)) fail('CORRECTION_APPLIED_INVALID', reason);
         warnings.push(correctionFinding('CORRECTION_APPLIED_INVALID', path, `${reason}; legacy input omission`));
       }
@@ -257,8 +279,8 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
     for (const input of bindings(draft.config_inputs)) {
       if (!named.some(f => f.path === input.path && f.sha256 === input.sha256)) fail('CORRECTION_APPLIED_INVALID', `config-named input ${String(input.path)} differs from draft binding`);
     }
-    const files = bindings(handoff.files);
-    requireNamed(named, files);
+    const { base, files } = draftHandoffFiles(dir, artifact, handoff.files);
+    requireNamed(named, files, ` (handoff paths read relative to package ${base})`);
     const expected = [draft.config, ...bindings(isObject(draft.parts) ? draft.parts.files : undefined), ...bindings(draft.files), ...named];
     const required = expected.filter(x => isObject(x) && (x === draft.config || String(x.path).endsWith('/parts.json') || String(x.path).includes('/parts/') || /\/(rig|motion|mesh_report)\.json$/.test(String(x.path))));
     if (!required.every(x=>files.some(f=>sameHash(x,f))) || !files.every(f => expected.some(x => sameHash(x, f)))) fail('CORRECTION_APPLIED_INVALID', 'draft handoff contains foreign inputs');

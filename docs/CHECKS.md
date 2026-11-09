@@ -999,7 +999,7 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_HASH` | raw retained bytes differ from their recorded SHA-256 |
 | `CORRECTION_SOURCE` | unknown/ambiguous/stale source, stage/kind/config/handoff mismatch, or mutation under a live approval |
 | `CORRECTION_PATCH_INVALID` | config-patch/1 grammar, keys, flags or pointer syntax invalid; no operation is replayed |
-| `CORRECTION_APPLIED_INVALID` | a config-named input is missing from the handoff (WARN before CONFIG_INPUTS_SINCE) or has an altered hash, session/item/applied identity or embedded patch differs, optional `stageInputHash` is not a 64-lowercase-hex SHA-256, or a claimed checked result lacks its passing retained summary, has a FAIL/unknown named bar or no PASS bar, or marks a line-named skipped bar PASS |
+| `CORRECTION_APPLIED_INVALID` | a config-named input is missing from the handoff (WARN before CONFIG_INPUTS_SINCE) or has an altered hash, a draft handoff path (read relative to the feedback package) or the package itself resolves outside the project, session/item/applied identity or embedded patch differs, optional `stageInputHash` is not a 64-lowercase-hex SHA-256, or a claimed checked result lacks its passing retained summary, has a FAIL/unknown named bar or no PASS bar, or marks a line-named skipped bar PASS |
 | `CORRECTION_OUTCOME` | outcome is invalid/nonlater/unchanged, closure bytes are missing, model differs from Apply, origin differs, or closure is repeated |
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |

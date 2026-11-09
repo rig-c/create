@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { generateExampleReopened } from '../scripts/generate-example-reopened.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { exampleLedgerReport } from '../scripts/example-ledger.ts';
@@ -67,12 +67,14 @@ test('a parts-review made correction records and resolves against the reopened e
   obj(applied.patch).config_sha256 = obj(source.config).sha256!;
   applied.configHash = obj(source.config).sha256!;
   const model = arr(source.files).map(obj).find(file => String(file.path).endsWith('/skeleton.model.json'))!;
+  // Review writes handoff paths relative to the package it opened, the draft's check package.
+  const PACKAGE = 'derived/drafts/example/out/check';
   feedback.reviewedSource = { rig: { path: model.path!, sha256: model.sha256! }, motion: null,
-    handoff: { config: source.config!, files: [source.config!, ...arr(source.config_inputs), ...arr(obj(source.parts).files), ...arr(source.files)], missing: [] } };
+    handoff: { config: { path: posix.relative(PACKAGE, String(obj(source.config).path)), sha256: obj(source.config).sha256! }, files: [source.config!, ...arr(source.config_inputs), ...arr(obj(source.parts).files), ...arr(source.files)].map(obj).map(file => ({ path: posix.relative(PACKAGE, String(file.path)), sha256: file.sha256! })), missing: [] } };
   writeFileSync(join(dir, 'evidence/correction-session.json'), JSON.stringify(feedback));
   const at = Date.parse(EXAMPLE_REOPEN_AT);
   testClock.set(new Date(at + 1000));
-  expect(correctionCommand(['record', dir, '--id', 'example-fix', '--path', 'made', '--stage', 'parts-review', '--by', 'user', '--draft', 'example', '--feedback-file', 'evidence/correction-session.json', '--item', 'synthetic-apply'],()=>({stdout:readFileSync(join(dir,'evidence/correction-session.json')),stderr:'',exitCode:0,tool:{name:'@rig-c/review',version:'2.5.0'}})).exit).toBe(0);
+  expect(correctionCommand(['record', dir, '--id', 'example-fix', '--path', 'made', '--stage', 'parts-review', '--by', 'user', '--draft', 'example', '--feedback-file', PACKAGE, '--item', 'synthetic-apply'],()=>({stdout:readFileSync(join(dir,'evidence/correction-session.json')),stderr:'',exitCode:0,tool:{name:'@rig-c/review',version:'2.5.0'}})).exit).toBe(0);
   const record = obj(arr(load(dir).corrections)[0]);
   expect(validateCorrectionIdentity(dir, load(dir), record.on, 'parts-review')).toEqual(obj(record.on));
   expect(checkProject(dir).warnings.map(finding => finding.code)).toEqual(['CORRECTION_OPEN', ...PARTS_REVIEW_LAPSES.map(([code]) => code)]);

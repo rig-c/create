@@ -18,7 +18,7 @@
     },
     "structure": {
       "path": "evidence/structure.json",
-      "sha256": "1d083d2e5d09a2038d99756fdd7af08928bb87953b38d87578cff9327ff2099f"
+      "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
     },
     "draft_id": "chain",
     "parts": {

@@ -431,6 +431,19 @@ test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant 
     toolbar: ['parts.layers'],
     side: ['parts.issues', 'act.submit'],
   });
+  expect(prepareDraftManifest(root, project, 'chain')).toBe(manifestFile);
+
+  const { panels: _panels, ...legacyManifest } = publishedManifest;
+  const legacyBytes = `${JSON.stringify(legacyManifest, null, 2)}\n`;
+  writeFileSync(join(root, manifestFile), legacyBytes);
+  expect(prepareDraftManifest(root, project, 'chain')).toBe(manifestFile);
+  expect(readFileSync(join(root, manifestFile), 'utf8')).toBe(legacyBytes);
+
+  writeFileSync(join(root, manifestFile), `${JSON.stringify({ ...legacyManifest, title: 'tampered' }, null, 2)}\n`);
+  expect(() => prepareDraftManifest(root, project, 'chain')).toThrow(
+    expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }),
+  );
+  writeFileSync(join(root, manifestFile), `${JSON.stringify(publishedManifest, null, 2)}\n`);
 
   const inputDir = join(root, 'derived/drafts/chain/input');
   const images = partsEnumerator.enumerate(inputDir).map(row => ({

@@ -28,8 +28,9 @@ Existing Git projects receive only missing patterns in `.git/info/exclude`,
 preserving their tracked `.gitignore` bytes. A folder without Git receives a
 minimal `.gitignore` append. Effective ignores are checked before writing.
 A tracked private path refuses startup. Agents invoke writers and never construct this file.
-Explicit close revokes the grant and removes the matching binding. Listener
-shutdown alone preserves the active job. A new incarnation receives a new grant.
+Explicit close revokes the grant and removes the matching binding (see
+[Job retirement](JOB-RETIREMENT.md)). Listener shutdown alone preserves the
+active job. A new incarnation receives a new grant.
 
 Re-opening with an existing binding keeps its job. A running host is reused.
 A stopped host restarts on the same job, state directory and port, and the
@@ -148,12 +149,12 @@ a host that predates the token. A field-level mismatch keeps its `field`,
 attach never writes the binding.
 
 Cross-process subscription delivery uses a **30-second server wait cycle**.
-Scheduling, transport and rendering add elapsed time. Review 2.7.0 defines
+Scheduling, transport and rendering add elapsed time. Review 2.7.1 defines
 `jobWaitLimitMs = 30_000` in `src/job-api.ts` and reads durable events
 after the timer in `src/job-session.ts`. The window's previous/new label
 notice is implemented in `web/job-session.ts`.
 
-Review 2.7.0 refuses records containing answered scene-context choices or
+Review 2.7.1 refuses records containing answered scene-context choices or
 reader diagnostics with `JOB_RECORD_INCOMPLETE` before this reader runs.
 Those publications remain pending until review#555 supplies its contract.
 
@@ -233,7 +234,7 @@ Replay discounts verdicts and exact still entries appended by ingestion after
 its recorded verdict index when comparing the pre-append version-entry hash. Other original version fields and
 prior verdicts remain covered. Source changes refuse `REVIEW_ACT_SOURCE_STALE`
 with the recorded verdict untouched. This implements create#182's C4 ruling
-against the installed dedupe-first order in Review 2.7.0 `src/job-contract.ts`. C4's source-check requirement is recorded in create#182's
+against the installed dedupe-first order in Review 2.7.1 `src/job-contract.ts`. C4's source-check requirement is recorded in create#182's
 “C4 act-side checks” ruling and review#501. [Create ruling](https://github.com/rig-c/create/issues/182), [Review C4](https://github.com/rig-c/review/issues/501).
 
 ### Isolation evidence and legacy inputs
@@ -265,7 +266,7 @@ effective stage). The rules are in `src/signable.ts`:
   (`plan-approved`, `rigging-interview`, `post-interview`) also needs displayed
   plan steps.
 
-Review 2.7.0 asks only for a declared subject and refuses any other with
+Review 2.7.1 asks only for a declared subject and refuses any other with
 `JOB_ASK_INVALID` (`bindJobAsk`, `src/job-act.ts`). Both the ask and the act
 also require `project.json` to still hold the published bytes
 (`assertJobSourceCurrent`, `src/job-source.ts`). So either the owner submits

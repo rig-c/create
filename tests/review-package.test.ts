@@ -2,16 +2,19 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix } from 'node:path';
+import { checkAppliedReview } from '../src/applied-review.ts';
+import { readReview } from '../src/review-read.ts';
 import { checkReviewPackages, reviewPackageCommand, reviewConfigInputs, reviewHandoffInputs } from '../src/review-package.ts';
 import { plateReceiptSpec } from '../src/config-inputs.ts';
+import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { generateExampleReview } from '../scripts/generate-example-review.ts';
 import { fixture as exampleFixture, obj, version } from './fixtures.ts';
 import { reviewExampleFiles } from './review-fixture.ts';
 import { clockedCli, run } from './helpers.ts';
 import { Refusal } from '../src/refusal.ts';
-import { checkProject } from './clock.ts';
+import { checkCorrections, checkProject, correctionCommand, TEST_NOW, testClock } from './clock.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -430,12 +433,14 @@ test('package freezes an occluder plate directory by its receipt without copying
     { path: 'inputs/plate/receipt.json', sha256: sha(receipt) },
   ]);
   expect(reviewHandoffInputs(record, dir, 1)).toContainEqual({ path: 'inputs/plate/receipt.json', sha256: sha(receipt) });
-  const feedback = run([process.execPath, join(import.meta.dir, '../node_modules/.bin/rig-review'), 'feedback', join(dir, 'derived/review/v1/out')], dir, { ...process.env, XDG_STATE_HOME: join(dir, 'state') } as Record<string, string>);
+  const feedback = run([process.execPath, join(import.meta.dir, '../node_modules/.bin/rig-review'), 'feedback', join(dir, 'derived/review/v1/out')], join(import.meta.dir, '..'), { ...process.env, XDG_STATE_HOME: join(dir, 'state') } as Record<string, string>);
   expect(feedback.stderr).toBe('');
   expect(feedback.code).toBe(0);
   const session = JSON.parse(feedback.stdout);
   expect(session.reviewedSource.handoff.missing).toEqual([]);
   expect(session.reviewedSource.handoff.config.sha256).toBe(obj(record.config).sha256);
+  expect((session.reviewedSource.handoff.files as JsonObject[]).map((f): JsonObject => ({ path: posix.normalize(`out/check/${String(f.path)}`), sha256: String(f.sha256) }))).toEqual([...reviewHandoffInputs(record, dir, 1)].sort((a, b) => String(a.path).localeCompare(String(b.path))));
+  expect(session.reviewedSource.handoff.files).toContainEqual({ path: '../../inputs/plate/receipt.json', sha256: sha(receipt), directory: '../../inputs/plate', spec: plateReceiptSpec(dir) });
   expect(checked(dir).refusals).toEqual([]);
   expect(checked(dir).warnings).toEqual([]);
   // Editing or removing sibling rasters in the source plate directory does not affect retry or check.
@@ -581,5 +586,139 @@ for (const kind of ['missing-receipt', 'directory-receipt', 'symlink-receipt', '
     expect((error as Refusal).message).toContain(kind === 'old-parts' ? 'no PLATE_RECEIPT_SPEC export' : 'inputs/plate');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
     expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+  });
+}
+
+for (const mode of ['separate', 'overlapping'] as const) {
+  test(`installed rig-review feedback handoff for ${mode} occluder image + plate is accepted by applied-review and corrections`, () => {
+    const dir = fixture();
+    const spec = plateReceiptSpec(dir);
+    const receipt = JSON.stringify({ spec, synthetic: 'occluder plate receipt' });
+    const imagePath = mode === 'separate' ? 'inputs/occ.png' : 'inputs/plate/plate.png';
+    put(dir, 'frozen/config.json', JSON.stringify({
+      requirements: 'inputs/requirements.json',
+      assemble: { occluders: [{ image: imagePath, plate: 'inputs/plate' }] },
+    }));
+    put(dir, 'frozen/inputs/requirements.json', '{"synthetic":"requirements"}');
+    put(dir, `frozen/${imagePath}`, 'synthetic occluder image');
+    put(dir, 'frozen/inputs/plate/receipt.json', receipt);
+    put(dir, 'frozen/inputs/plate/mask.png', 'unreferenced sibling mask');
+    const record = write(dir);
+    const expectedHandoff = reviewHandoffInputs(record, dir, 1);
+    expect(expectedHandoff).toHaveLength(9);
+
+    const outcomeModel = JSON.stringify({ ...JSON.parse(model), referenceScale: 101 });
+    const configSha = String(obj(record.config).sha256);
+    const patch = {
+      schema: 'rig-review-config-patch/1', config_sha256: configSha,
+      ops: [{ op: 'replace', path: '/requirements', value: 'inputs/requirements.json' }],
+      producer: { name: '@rig-c/parts', version: PINNED_PACKAGES['@rig-c/parts'] },
+      op: { cmd: 'rig', args: [] },
+    };
+    const applied = {
+      schema: 'rig-review-applied/2', buildId: sha('synthetic-build-id'),
+      patch, patchSha256: sha(JSON.stringify(patch)), configHash: configSha,
+      producer: { package: '@rig-c/parts', version: PINNED_PACKAGES['@rig-c/parts'] },
+      compiler: { package: '@rig-c/core', version: PINNED_PACKAGES['@rig-c/core'] },
+      line: 'synthetic shape-only, not measured',
+      check: { schema: 'rig-review-check-summary/1', pass: true, exitCode: 0, line: 'check: synthetic shape-only', bars: { SYNTHETIC: 'PASS' }, gate: true },
+      diff: { count: 1, paths: ['/requirements'] },
+      modelHash: sha(outcomeModel),
+    };
+    const state = join(dir, 'state');
+    const repoRoot = join(import.meta.dir, '..');
+    const seeded = run([process.execPath, '-e', `
+      import { loadReview } from ${JSON.stringify(join(import.meta.dir, '../node_modules/@rig-c/review/src/manifest.ts'))};
+      import { freshSession, saveSession } from ${JSON.stringify(join(import.meta.dir, '../node_modules/@rig-c/review/src/session.ts'))};
+      const pkg = await loadReview(${JSON.stringify(join(dir, 'derived/review/v1/out'))});
+      const session = freshSession(pkg);
+      session.feedback = [{ id: 'apply-occluder', frameStart: 0, frameEnd: 0,
+        target: { kind: 'rig', name: pkg.feedbackCatalog.rig }, category: 'quality',
+        summary: 'Keep the occluder adjustment.', context: { applied: ${JSON.stringify(applied)} } }];
+      await saveSession(pkg, session, ${JSON.stringify(state)});
+    `], repoRoot, { ...process.env } as Record<string, string>);
+    expect(seeded.stderr).toBe('');
+    expect(seeded.code).toBe(0);
+
+    const exported = run([process.execPath, join(import.meta.dir, '../node_modules/.bin/rig-review'), 'feedback', join(dir, 'derived/review/v1/out')], repoRoot, { ...process.env, RIG_REVIEW_STATE_HOME: state, RIG_REVIEW_STATE_DIR: state } as Record<string, string>);
+    expect(exported.stderr).toBe('');
+    expect(exported.code).toBe(0);
+    const session = JSON.parse(exported.stdout) as JsonObject;
+    const handoff = obj(obj(session.reviewedSource).handoff);
+    expect(handoff.missing).toEqual([]);
+    const handoffFiles = handoff.files as JsonObject[];
+    expect(handoffFiles).toHaveLength(9);
+    expect(handoffFiles.map((f): JsonObject => ({ path: posix.normalize(`out/check/${String(f.path)}`), sha256: String(f.sha256) }))).toEqual([...expectedHandoff].sort((a, b) => String(a.path).localeCompare(String(b.path))));
+    expect(handoffFiles).toContainEqual({ path: `../../${imagePath}`, sha256: sha('synthetic occluder image') });
+    expect(handoffFiles).toContainEqual({ path: '../../inputs/plate/receipt.json', sha256: sha(receipt), directory: '../../inputs/plate', spec });
+
+    const reviewTool = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@rig-c/review/package.json'), 'utf8')).version as string;
+    const read = readReview(dir, 'derived/review/v1/out', () => ({
+      stdout: Buffer.from(exported.stdout), stderr: '', exitCode: 0,
+      tool: { name: '@rig-c/review', version: reviewTool },
+    }));
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    project.stage = 'rig-review';
+    const v1 = (project.versions as JsonObject[])[0]!;
+    v1.outputs = [{ role: 'model', path: 'derived/review/v1/out/check/build/skeleton.model.json', sha256: sha(model) }];
+    v1.provenance = { config: { path: 'frozen/config.json', sha256: configSha }, sections: {} };
+    v1.review_origin = null;
+    put(dir, 'derived/review/v2/out/check/build/skeleton.model.json', outcomeModel);
+    (project.versions as JsonObject[]).push({
+      n: 2, kind: 'rig', at: '2026-11-06T01:00:00Z', changed: 'synthetic bytes',
+      outputs: [{ role: 'model', path: 'derived/review/v2/out/check/build/skeleton.model.json', sha256: sha(outcomeModel) }],
+      verdicts: [], provenance: { config: { path: 'frozen/config.json', sha256: configSha }, sections: {} },
+      review_package: { config: { path: 'frozen/config.json', sha256: configSha }, files: [{ path: 'config.json', sha256: configSha }, { path: 'out/check/build/skeleton.model.json', sha256: sha(outcomeModel) }] },
+      review_origin: { feedback: read.file, review_read: read.receipt, source_version: 1, feedback_id: 'apply-occluder', applied },
+    });
+    put(dir, 'project.json', JSON.stringify(project, null, 2));
+
+    const appliedCtx = { dir, project: JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject, refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
+    checkAppliedReview(appliedCtx);
+    expect(appliedCtx).toMatchObject({ refusals: [], warnings: [] });
+
+    put(dir, 'reasoning.txt', 'Resolved occluder adjustment.\n');
+    try {
+      testClock.set(TEST_NOW - 1000);
+      expect(correctionCommand(['--adopt', dir]).exit).toBe(0);
+      testClock.set(TEST_NOW);
+      expect(correctionCommand(['record', dir, '--id', 'occ-fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'derived/review/v1/out', '--item', 'apply-occluder'], () => ({
+        stdout: Buffer.from(exported.stdout), stderr: '', exitCode: 0,
+        tool: { name: '@rig-c/review', version: reviewTool },
+      })).exit).toBe(0);
+      const afterRecord = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+      ((afterRecord.versions as JsonObject[])[1]!).at = new Date(TEST_NOW + 1000).toISOString();
+      put(dir, 'project.json', JSON.stringify(afterRecord, null, 2));
+      testClock.set(TEST_NOW + 2000);
+      expect(correctionCommand(['resolve', 'occ-fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--version', '2']).exit).toBe(0);
+      const corrCtx = { dir, project: JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject, refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
+      checkCorrections(corrCtx);
+      expect(corrCtx).toMatchObject({ refusals: [], warnings: [] });
+
+      // Negative control (7/9 handoff files omitting occluder image and receipt): both consumers refuse.
+      const omitted = JSON.parse(exported.stdout) as JsonObject;
+      const omittedHandoff = obj(obj(omitted.reviewedSource).handoff);
+      omittedHandoff.files = (omittedHandoff.files as JsonObject[]).filter(f => !String(f.path).endsWith(imagePath) && !String(f.path).endsWith('inputs/plate/receipt.json'));
+      expect(omittedHandoff.files).toHaveLength(7);
+      const omittedBytes = JSON.stringify(omitted);
+      const omittedBinding = { path: `evidence/review-reads/${sha(omittedBytes)}.json`, sha256: sha(omittedBytes) };
+      put(dir, omittedBinding.path, omittedBytes);
+      const brokenProject = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+      const brokenOrigin = obj(((brokenProject.versions as JsonObject[])[1]!).review_origin);
+      brokenOrigin.feedback = omittedBinding;
+      obj(brokenOrigin.review_read).stdout = omittedBinding;
+      const brokenCorrection = obj(((brokenProject.corrections as JsonObject[])[0]!).artifact);
+      brokenCorrection.feedback = omittedBinding;
+      obj(brokenCorrection.review_read).stdout = omittedBinding;
+
+      const brokenAppliedCtx = { dir, project: brokenProject, refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
+      checkAppliedReview(brokenAppliedCtx);
+      expect(brokenAppliedCtx.refusals.map(f => f.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
+      const brokenCorrCtx = { dir, project: brokenProject, refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
+      checkCorrections(brokenCorrCtx);
+      expect(brokenCorrCtx.refusals.map(f => f.code)).toEqual(['CORRECTION_APPLIED_INVALID']);
+    } finally {
+      testClock.reset();
+    }
   });
 }

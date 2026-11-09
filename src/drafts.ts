@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
-import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy, DIRECTORY_INPUT_RECEIPT } from './config-inputs.ts';
+import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy, DIRECTORY_INPUT_RECEIPT, receiptSpec } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
@@ -147,7 +147,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     const all = [raw.config, ...asArray(parts.files), ...asArray(raw.files), ...asArray(raw.config_inputs)];
     const inputs = new Set(asArray(raw.config_inputs));
     if (raw.config_inputs !== undefined && (!Array.isArray(raw.config_inputs) || raw.config_inputs.some(f => !binding(f)))) { add('DRAFT_RIG_MALFORMED', path, 'config_inputs must bind paths and sha256 hashes'); continue; }
-    if (asArray(raw.config_inputs).some(f => isObject(f) && f.directory !== undefined && (typeof f.directory !== 'string' || f.path !== `${f.directory}/${DIRECTORY_INPUT_RECEIPT}`))) { add('DRAFT_RIG_MALFORMED', path, `a config_inputs directory binding must bind <directory>/${DIRECTORY_INPUT_RECEIPT}`); continue; }
+    if (asArray(raw.config_inputs).some(f => isObject(f) && f.directory !== undefined && (typeof f.directory !== 'string' || f.path !== `${f.directory}/${DIRECTORY_INPUT_RECEIPT}` || typeof f.spec !== 'string' || !f.spec))) { add('DRAFT_RIG_MALFORMED', path, `a config_inputs directory binding must bind <directory>/${DIRECTORY_INPUT_RECEIPT} and its receipt spec`); continue; }
     if (raw.files.length === 0 || asArray(parts.files).length === 0 || all.some(f => !binding(f))
       || !asArray(parts.files).some(f => binding(f) && f.path === `${String(parts.path)}/parts.json`)) { add('DRAFT_RIG_MALFORMED', path, 'file inventories must bind config, parts.json and output'); continue; }
     const rigs = asArray(raw.files).filter(f => binding(f) && String(f.path).endsWith('/rig.json'));
@@ -161,6 +161,8 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         if (input ? draftInputUnavailable(dir, file, root) : draftFileUnavailable(dir, file, root)) { unavailable.add(file); continue; }
         const bytes = readFileSync(bindingAt(dir, file, root, input));
         if (sha(bytes) !== entry.sha256) throw new Error(`${file} changed`);
+        // A directory input's receipt is read, not re-verified: its declared spec must be the one recorded.
+        if (input && entry.directory !== undefined && receiptSpec(bytes) !== entry.spec) throw new Error(`${file} declares spec ${JSON.stringify(receiptSpec(bytes))}, not the recorded ${JSON.stringify(entry.spec)}`);
       } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     }
     const stamp = stampBeside(String((rigs[0] as JsonObject).path));

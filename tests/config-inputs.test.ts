@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { correctionFixture } from './correction-fixture.ts';
 import { correctionHash } from '../src/corrections.ts';
 import { checkAppliedReview } from '../src/applied-review.ts';
-import { configInputReferences } from '../src/config-inputs.ts';
+import { configInputReferences, plateReceiptSpec } from '../src/config-inputs.ts';
 import { checkDrafts } from '../src/drafts.ts';
 import { fixture } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
@@ -23,9 +23,9 @@ function sample(kind: 'rig' | 'draft', state: 'honest' | 'absent' | 'altered', l
   // A plate config names a synthetic occluder plate directory, bound by its receipt.
   save('evidence/source-config.json', plate ? { assemble: { occluders: [{ plate: 'plate' }] }, note: 'synthetic source' } : { requirements: 'requirements.json', note: 'synthetic source' });
   save('evidence/requirements.json', { synthetic: 'requirements input' });
-  if (plate) { mkdirSync(join(dir, 'evidence/plate'), { recursive: true }); save('evidence/plate/receipt.json', { synthetic: 'occluder plate receipt' }); writeFileSync(join(dir, 'evidence/plate/plate.png'), 'synthetic plate'); }
+  if (plate) { mkdirSync(join(dir, 'evidence/plate'), { recursive: true }); save('evidence/plate/receipt.json', { spec: plateReceiptSpec(dir), synthetic: 'occluder plate receipt' }); writeFileSync(join(dir, 'evidence/plate/plate.png'), 'synthetic plate'); }
   const config = binding('evidence/source-config.json');
-  const input: { path: string; sha256: string; directory?: string } = plate ? { ...binding('evidence/plate/receipt.json'), directory: 'evidence/plate' } : binding('evidence/requirements.json');
+  const input: { path: string; sha256: string; directory?: string; spec?: string } = plate ? { ...binding('evidence/plate/receipt.json'), directory: 'evidence/plate', spec: plateReceiptSpec(dir) } : binding('evidence/requirements.json');
   p.versions[0].provenance.config = config; p.versions[0].review_package.config = config;
   p.versions[0].review_package.files[0].sha256 = config.sha256;
   p.versions[0].review_package.files.push({ ...input, path: 'requirements.json' });
@@ -98,7 +98,7 @@ test('a missing plate directory in a draft correction keeps its recorded receipt
   expect(f.record().exit).toBe(0);
 });
 test('a changed plate receipt differs from the draft binding in a correction handoff', () => {
-  const f = sample('draft', 'honest', false, true); f.save('evidence/plate/receipt.json', { synthetic: 'another receipt' });
+  const f = sample('draft', 'honest', false, true); f.save('evidence/plate/receipt.json', { spec: plateReceiptSpec(f.dir), synthetic: 'another receipt' });
   const before = readFileSync(join(f.dir, 'project.json'));
   let error: { code?: string; message?: string } = {};
   try { f.record(); } catch (caught) { error = caught as typeof error; }

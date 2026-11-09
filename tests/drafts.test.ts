@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'nod
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { checkDrafts, draftInputUnavailable, draftVersionFindings } from '../src/drafts.ts';
-import { configInputReferences } from '../src/config-inputs.ts';
+import { configInputReferences, plateReceiptSpec } from '../src/config-inputs.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
@@ -259,7 +259,7 @@ test('check refuses a hand-bound input that escapes the project', () => {
 /** A synthetic See-through occluder plate directory, as `comfy plate --mode occluder` lays it out: its receipt beside its images. */
 function writePlate(dir: string, at: string): string {
   write(dir, `${at}/plate.png`, 'synthetic plate pixels'); write(dir, `${at}/mask.png`, 'synthetic mask pixels');
-  write(dir, `${at}/receipt.json`, JSON.stringify({ synthetic: 'occluder plate receipt', mode: 'occluder' }));
+  write(dir, `${at}/receipt.json`, JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'occluder plate receipt', mode: 'occluder' }));
   return createHash('sha256').update(readFileSync(join(dir, `${at}/receipt.json`))).digest('hex');
 }
 /** A draft whose config names an occluder plate directory: under the draft root (`plate`) or a project input (`../../../inputs/plate`). */
@@ -275,7 +275,7 @@ for (const [route, plate, at] of [['project input', '../../../inputs/plate', 'in
     // The installed parts declares the plate as a config-named input.
     expect(configInputReferences(dir, config).map(ref => ref.at)).toEqual(['assemble.occluders[0].plate']);
     const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
-    expect(record.config_inputs).toEqual([{ path: `${at}/receipt.json`, sha256, directory: at }]);
+    expect(record.config_inputs).toEqual([{ path: `${at}/receipt.json`, sha256, directory: at, spec: plateReceiptSpec(dir) }]);
     expect(checkProject(dir).refusals).toEqual([]);
     const errors: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, read(dir), errors, warnings);
     expect(errors).toEqual([]); expect(warnings.map(f => f.code)).toEqual(['DRAFT_PRODUCER_ASSUMED']);
@@ -287,7 +287,7 @@ for (const [route, plate, at] of [['project input', '../../../inputs/plate', 'in
 
   test(`a changed or deleted plate receipt as a ${route} refuses by code`, () => {
     const { dir, args } = plateDraft(plate); writePlate(dir, at); draftRigCommand(args);
-    write(dir, `${at}/receipt.json`, JSON.stringify({ synthetic: 'another receipt' }));
+    write(dir, `${at}/receipt.json`, JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'another receipt' }));
     const changed: Finding[] = []; checkDrafts(dir, read(dir), changed);
     expect(changed.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
@@ -304,12 +304,15 @@ for (const [route, plate, at] of [['project input', '../../../inputs/plate', 'in
   });
 }
 
-test('a plate directory without a regular-file receipt refuses before writing', () => {
-  for (const shape of ['absent', 'directory', 'symlink'] as const) {
+test('a plate directory without a plate receipt refuses before writing', () => {
+  for (const shape of ['absent', 'directory', 'symlink', 'empty', 'foreign-spec'] as const) {
     const { dir, args } = plateDraft('../../../inputs/plate'); writePlate(dir, 'inputs/plate');
     rmSync(join(dir, 'inputs/plate/receipt.json'));
     if (shape === 'directory') mkdirSync(join(dir, 'inputs/plate/receipt.json'));
     if (shape === 'symlink') { write(dir, 'inputs/other.json', '{}'); symlinkSync(join(dir, 'inputs/other.json'), join(dir, 'inputs/plate/receipt.json')); }
+    // A regular file that is not a plate receipt: no spec, or another producer's spec.
+    if (shape === 'empty') write(dir, 'inputs/plate/receipt.json', '{}');
+    if (shape === 'foreign-spec') write(dir, 'inputs/plate/receipt.json', JSON.stringify({ spec: 'rig-run/1', synthetic: 'unrelated report' }));
     const before = readFileSync(join(dir, 'project.json'));
     try { draftRigCommand(args); throw Error('expected refusal'); } catch (e) {
       expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe('DRAFT_RIG_MALFORMED');
@@ -330,4 +333,24 @@ test('check refuses a plate binding that does not stand for the named directory'
   const missing: Finding[] = []; checkDrafts(dir, unbound, missing);
   expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
   expect(missing[0]?.message).toContain('config.assemble.occluders[0].plate');
+  const specless = read(dir); delete (arr(obj(arr(specless.drafts).at(-1)).config_inputs)[0] as JsonObject).spec;
+  const shape: Finding[] = []; checkDrafts(dir, specless, shape);
+  expect(shape.map(f => f.code)).toEqual(['DRAFT_RIG_MALFORMED']);
+  const respecced = read(dir); (arr(obj(arr(respecced.drafts).at(-1)).config_inputs)[0] as JsonObject).spec = 'rig-run/1';
+  const wrong: Finding[] = []; checkDrafts(dir, respecced, wrong);
+  expect(wrong.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(wrong[0]?.message).toContain('declares spec');
+});
+
+test('an installed parts without PLATE_RECEIPT_SPEC refuses a plate by name before writing', () => {
+  const { dir, args } = plateDraft('../../../inputs/plate'); writePlate(dir, 'inputs/plate');
+  // A synthetic parts that declares the plate reference but no plate-receipt spec.
+  write(dir, 'node_modules/@rig-c/parts/package.json', '{"name":"@rig-c/parts","version":"0.0.1-synthetic","type":"module"}');
+  write(dir, 'node_modules/@rig-c/parts/src/config.ts', 'export const CONFIG_SECTIONS = ["assemble"];\nexport function configFileReferences(raw) { return raw.assemble.occluders.map((o, i) => ({ at: `assemble.occluders[${i}].plate`, value: o.plate })); }\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  try { draftRigCommand(args); throw Error('expected refusal'); } catch (e) {
+    expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe('DRAFT_RIG_MALFORMED');
+    expect((e as Refusal).message).toContain('PLATE_RECEIPT_SPEC');
+  }
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

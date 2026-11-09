@@ -1,4 +1,4 @@
-import { SceneError, readScene, validateSceneCurrent } from './scene.ts';
+import { SceneError, committedScene, readScene, validateSceneCurrent } from './scene.ts';
 import { fixedNotApplicableCamera } from './direction-citation.ts';
 /** Create owns these authored camera/timing bytes. No renderer or external producer runs here. */
 import { createHash } from 'node:crypto';
@@ -32,9 +32,10 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 export class DirectionError extends Error { constructor(readonly code: string, readonly path: string, why: string) { super(`${path}: ${why}; retain the source bytes, correct this record and retry direction check`); } }
 export function directionFail(code: string, path: string, why: string): never { throw new DirectionError(code, path, why); }
 export function directionFinding(e: DirectionError): Finding { return { code: e.code, path: e.path, message: e.message }; }
-export function directionBytes(dir: string, path: string): Buffer {
+export function directionBytes(dir: string, path: string): Buffer { return retainedBytes(dir, path, false); }
+function retainedBytes(dir: string, path: string, boundOutput: boolean): Buffer {
   try {
-    if (isAbsolute(path) || path.includes('\\') || path.split('/').some(p => !p || p === '.' || p === '..') || structurePathIsIgnored(dir, path) && !/^derived\/review\/v[1-9][0-9]*\/out\/check\/build\/skeleton\.model\.json$/.test(path)) throw Error('literal retained POSIX path required');
+    if (isAbsolute(path) || path.includes('\\') || path.split('/').some(p => !p || p === '.' || p === '..') || !boundOutput && structurePathIsIgnored(dir, path) && !/^derived\/review\/v[1-9][0-9]*\/out\/check\/build\/skeleton\.model\.json$/.test(path)) throw Error('literal retained POSIX path required');
     let current = realpathSync(dir);
     for (const [i, segment] of path.split('/').entries()) {
       current = join(current, segment); const stat = lstatSync(current);
@@ -42,6 +43,26 @@ export function directionBytes(dir: string, path: string): Buffer {
     }
     return readFileSync(current);
   } catch (e) { return directionFail('DIRECTION_FILE', path, e instanceof Error ? e.message : String(e)); }
+}
+/** A rig version's idle render, which lives under ignored outputs/. */
+export const directionIdlePath = (path: string): boolean => /^outputs\/v[1-9][0-9]*\/idle\//.test(path);
+/**
+ * Read a rig version's idle render only through the record that binds it (create#297): frames.json through
+ * versions[vN].registration.idle, every other idle file through versions[vN].outputs, where vN is the post's rig.
+ * The bytes stay where rig-version froze them. A missing file refuses, as the registration check refuses it.
+ */
+export function directionIdleBytes(dir: string, project: JsonObject, rig: number, binding: JsonObject): Buffer {
+  const path = String(binding.path);
+  if (!directionIdlePath(path)) directionFail('DIRECTION_FILE', path, 'literal retained POSIX path required');
+  const owner = Number(/^outputs\/v([1-9][0-9]*)\/idle\//.exec(path)?.[1]);
+  if (owner !== rig) directionFail('DIRECTION_IDLE_VERSION', path, `idle frames under outputs/v${owner}/ belong to rig v${owner}, not the post's rig v${rig}`);
+  const version = objects(project.versions).filter(v => v.kind === 'rig' && v.n === rig);
+  const registration = version.length === 1 && isObject(version[0]!.registration) ? version[0]!.registration : undefined;
+  const bound = path === `outputs/v${rig}/idle/frames.json` ? [registration?.idle] : asArray(version.length === 1 ? version[0]!.outputs : undefined);
+  if (!bound.some(b => isObject(b) && b.path === path && b.sha256 === binding.sha256)) directionFail('DIRECTION_IDLE_UNBOUND', path, `versions[v${rig}] does not bind this path and sha256 (frames.json in registration.idle, other idle files in outputs)`);
+  const bytes = retainedBytes(dir, path, true);
+  if (directionHash(bytes) !== binding.sha256) directionFail('DIRECTION_IDLE_HASH', path, `bytes differ from the sha256 versions[v${rig}] binds`);
+  return bytes;
 }
 export function directionBinding(dir: string, path: string): JsonObject { return { path, sha256: directionHash(directionBytes(dir, path)) }; }
 export function boundDirectionBytes(dir: string, binding: Json | undefined): Buffer {
@@ -153,8 +174,12 @@ export function validateDirectionScene(dir: string, project: JsonObject, doc: Js
   if (doc.schema !== DIRECTION_SCENE_SPEC) return;
   try {
     const reference = doc.scene as JsonObject;
-    const scene = readScene(dir, project, reference, snapshots);
     const rig = doc.rig as JsonObject;
+    // The post's own read of the scene's idle frames comes first: it is the one ignored path direction accepts.
+    const committed = committedScene(dir, project, reference, snapshots);
+    const frames = isObject(committed.rig) && isObject(committed.rig.animation) ? committed.rig.animation.frames : undefined;
+    if (closed(frames, ['path', 'sha256']) && typeof frames.path === 'string' && frames.path.startsWith('outputs/')) directionIdleBytes(dir, project, Number(rig.version), frames);
+    const scene = readScene(dir, project, reference, snapshots);
     const sceneRig = scene.rig as JsonObject;
     if (rig.version !== sceneRig.version || !equal(rig.model, sceneRig.model)) directionFail('DIRECTION_SCENE_MISMATCH', 'direction.scene', 'direction rig and model must equal the scene rig and model');
     validateSceneCurrent(project, sceneRig, current, reference);

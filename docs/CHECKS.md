@@ -1313,6 +1313,25 @@ and all schema, raw-byte seal, model, animation, frame, plate and citation check
 | `DIRECTION_SCENE_MISMATCH` | direction rig or model differs from the referenced scene | bind the scene's exact rig version and model |
 | `DIRECTION_SCENE_STALE` | current authoring or the latest live post cites a superseded scene | bind the current scenes[] entry in the current direction |
 
+## Registered idle frames in a direction post (create#297)
+
+A rig registered with `rig-version` keeps its idle render under the ignored
+`outputs/v<N>/idle/`. `scene write` copies `registration.idle` into
+`scene.rig.animation.frames`, and the direction post reads those frames by
+binding, not as a retained file: `direction write` and `check` read the path
+only when `versions[v<R>]` of the post's rig `R` binds it, with the same path
+and sha256 (`registration.idle` for `frames.json`, `outputs` for any other idle
+file). No other `outputs/` path is admitted; it still refuses `DIRECTION_FILE`.
+Absent frames refuse `DIRECTION_FILE`, as `RIG_REGISTRATION_FILE_INVALID`
+refuses absent frozen outputs. Records that passed before keep passing, so no
+contract date is added.
+
+| Code | Refuses when | Remedy |
+| --- | --- | --- |
+| `DIRECTION_IDLE_VERSION` | the scene's frames are under `outputs/v<M>/idle/` and the post's rig is a different version | bind a scene written on the post's rig with `scene write --rig <R>` |
+| `DIRECTION_IDLE_UNBOUND` | the frames path and sha256 are not `versions[v<R>].registration.idle` (for `frames.json`) or a `versions[v<R>].outputs` row (for other idle files) | run `scene write` again so the frames equal the registration |
+| `DIRECTION_IDLE_HASH` | the frames bytes on disk differ from the bound sha256, including a change during `direction write` | restore the frozen `outputs/v<R>/idle/` bytes, or register a new rig version |
+
 ## Pre-interview `config_lost` writer
 
 `rig-create version config-lost <n> --note <text> --source <text> [<dir>]`

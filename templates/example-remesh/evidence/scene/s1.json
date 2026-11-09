@@ -12,15 +12,19 @@
       "verdict": "versions[2].verdicts[0]",
       "review_package": {
         "path": "versions[2].review_package",
-        "sha256": "3aecb4aaf5a3fa9920b3847fa8b2d4841112dc34d9ec373fc6f6b9f2564bb7ce"
+        "sha256": "881d8a713fa0e11b8711a63578c7b94fac5380e1844be9d05e98cd574a2c21c1"
       }
     },
     "model": {
       "path": "derived/review/v3/out/check/build/skeleton.model.json",
-      "sha256": "a324b10d0cfd819382eb4ddb9b9ec240df26049179cab2cb2ec07a2ed6825f46"
+      "sha256": "df74eaf6d136a21d679863a779a2b3cd0a961ee79e2f9bba9017a92d00269f6d"
     },
     "animation": {
-      "name": "idle"
+      "name": "idle",
+      "frames": {
+        "path": "outputs/v3/idle/frames.json",
+        "sha256": "da3419523b440fed72eb7a43befaf903263c72671bc559236c3031107313a1e9"
+      }
     }
   },
   "frame": {

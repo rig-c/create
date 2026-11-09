@@ -136,7 +136,7 @@
         "verdict": "versions[2].verdicts[0]",
         "review_package": {
           "path": "versions[2].review_package",
-          "sha256": "3aecb4aaf5a3fa9920b3847fa8b2d4841112dc34d9ec373fc6f6b9f2564bb7ce"
+          "sha256": "881d8a713fa0e11b8711a63578c7b94fac5380e1844be9d05e98cd574a2c21c1"
         }
       }
     },
@@ -157,9 +157,9 @@
         "composition": "edc4ef08ddfb3e4edf6c430f064618cc49b206b2fdf28189918cf783deb43774"
       },
       "answer_hashes": {
-        "camera_depth": "2b2929cf0ecea650629cbf1f8dfb6d5d0f35236dd2936ae004fb20f9a21ade70",
-        "post_timing": "99b4e4aaabedf7ed0c0872185d7ee02d661c2837afd776a94de669e18caaa62b",
-        "post_composition": "2580b42909050c696219185af515fd9c8e323613e974546a11e21c7a58f4e71e"
+        "camera_depth": "f54e3f26794e6257b78ca2a45d0b47f71cc3f3c658d43a10912a105cd4e1edee",
+        "post_timing": "747388bc6d3f6ff21af5d08c069efcbe5e2ba36a361c3f6ed0d2f5f8054db425",
+        "post_composition": "0343b5df2a69f07fa5035d15117a14021916c0eeadec9e68f97bf31af7e062b8"
       }
     },
     {
@@ -173,7 +173,7 @@
         "verdict": "versions[4].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v5.json",
-          "sha256": "b2b19d4cbc1650488ca275debac570de324801ca1d197ce7b0227c517e8773d0"
+          "sha256": "74922451928bab3439155e3da13e0f5571135debe07e2a1fc4e98ad1959032bd"
         }
       }
     }
@@ -888,7 +888,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/camera_depth.json",
-                "sha256": "006eb7c66c182d2b7400dfc6d3add1d3b1425c79d2df93adc5fa67c1c76abebd"
+                "sha256": "e616a325c6f68aae2e3325333ecb5c1f5664161a821ed72af7c5e62bbe2f091c"
               },
               "picks": [
                 {
@@ -929,7 +929,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/post_timing.json",
-                "sha256": "a03c23e9d1bd4a22bd9fb8e32ff0ba43491c1d325face7c9c7f4414863b1a86e"
+                "sha256": "b10e5b96878a08fa7ebcb333667da3dd1360012d3864cf8bfe80a5133c040862"
               },
               "picks": [
                 {
@@ -970,7 +970,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/post_composition.json",
-                "sha256": "8e8d3120c2977d835c9219807509b33565775662db0600f16da9448f113d13ae"
+                "sha256": "0c8a670f0b8000078defd234f03d14ccb1912520e59cc16ac5babc29269886e8"
               },
               "picks": [
                 {
@@ -1511,35 +1511,180 @@
       "kind": "rig",
       "rig_version": null,
       "at": "2026-11-09T00:01:05.000Z",
+      "at_basis": "not-after",
+      "at_source": {
+        "path": "evidence/v1/registration/at-source.json",
+        "sha256": "c8ca1472b1fd975e3c2c969b6d3ca7c20e65e4ca61d14bf2c959d08647c4bcef",
+        "bytes": 1199,
+        "pointer": "/finished_at"
+      },
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.34.0",
         "@rig-c/core": "3.6.0"
       },
-      "changed": "Build synthetic mesh rig candidate v1 (amp=0.4).",
       "outputs": [
         {
-          "path": "outputs/v1/out/check/build/skeleton.model.json",
-          "sha256": "300e0e3dcdddec667c49ea87df3d4ea4ea91c994dcc014ec606daeec32f5b4b1",
-          "bytes": 22761
-        }
-      ],
-      "evidence": [
+          "path": "outputs/v1/out/parts.json",
+          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7",
+          "bytes": 4162
+        },
         {
-          "kind": "still",
-          "path": "evidence/setup.png",
+          "path": "outputs/v1/out/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+          "bytes": 300
+        },
+        {
+          "path": "outputs/v1/out/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/v1/out/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/v1/out/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7",
+          "bytes": 109
+        },
+        {
+          "path": "outputs/v1/out/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a",
+          "bytes": 87
+        },
+        {
+          "path": "outputs/v1/out/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912",
+          "bytes": 137
+        },
+        {
+          "path": "outputs/v1/out/painting_in_rig.png",
           "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-          "camera": "fixed",
-          "frame": "setup"
+          "bytes": 421
+        },
+        {
+          "path": "outputs/v1/out/rig/images/background.png",
+          "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8",
+          "bytes": 332
+        },
+        {
+          "path": "outputs/v1/out/rig/images/eye_l.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/v1/out/rig/images/eye_r.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/v1/out/rig/images/face.png",
+          "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c",
+          "bytes": 122
+        },
+        {
+          "path": "outputs/v1/out/rig/images/lantern.png",
+          "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041",
+          "bytes": 101
+        },
+        {
+          "path": "outputs/v1/out/rig/images/torso.png",
+          "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5",
+          "bytes": 150
+        },
+        {
+          "path": "outputs/v1/out/rig/mesh_report.json",
+          "sha256": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db",
+          "bytes": 189
+        },
+        {
+          "path": "outputs/v1/out/rig/motion.json",
+          "sha256": "336151c6fac0bccd3a8d26d512dfab7d1d655e5db2546ea6226b981207a618ed",
+          "bytes": 1926
+        },
+        {
+          "path": "outputs/v1/out/rig/rig.json",
+          "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3",
+          "bytes": 6967
+        },
+        {
+          "path": "outputs/v1/out/rig/run.json",
+          "sha256": "35b2bc3741c23b85113a580166d2f08975ebeddb607927ab9e047e19e7c0908e",
+          "bytes": 1411
+        },
+        {
+          "path": "outputs/v1/out/check/build/run.json",
+          "sha256": "c8ca1472b1fd975e3c2c969b6d3ca7c20e65e4ca61d14bf2c959d08647c4bcef",
+          "bytes": 1199
+        },
+        {
+          "path": "outputs/v1/out/check/build/skeleton.atlas",
+          "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
+          "bytes": 442
+        },
+        {
+          "path": "outputs/v1/out/check/build/skeleton.json",
+          "sha256": "0e55720b7b72cbe2836873897d233d7d56631de641fee39cee7729f5ff36f04f",
+          "bytes": 12448
+        },
+        {
+          "path": "outputs/v1/out/check/build/skeleton.model.json",
+          "sha256": "17e46245b31661a3b693902d1cd8acfa1878046885f4b7fcd768c0bbb6bf9248",
+          "bytes": 22767
+        },
+        {
+          "path": "outputs/v1/out/check/build/skeleton.png",
+          "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2",
+          "bytes": 571
+        },
+        {
+          "path": "outputs/v1/idle/frames.json",
+          "sha256": "7c1ada7de0a2535463edafe509763a8ef6b4a9a33a05ba33e688b8a125a12803",
+          "bytes": 487
+        },
+        {
+          "path": "outputs/v1/idle/idle@1fps/contact.png",
+          "sha256": "e96e65660730ddb289fc5b8fe0d3dbe0778894fa0facd689e7b1d838b6ba5c2c",
+          "bytes": 2334
+        },
+        {
+          "path": "outputs/v1/idle/idle@1fps/f0000.png",
+          "sha256": "3804a25dd721e6b448b388b42756ddb0b3f89cb2b972f71b37b91a9b9aff4656",
+          "bytes": 173
+        },
+        {
+          "path": "outputs/v1/idle/idle@1fps/f0001.png",
+          "sha256": "c871f8ef54b419b760d46c53b526037f08a1000abe43cc24fc55c81be39d085f",
+          "bytes": 173
+        },
+        {
+          "path": "outputs/v1/idle/idle@1fps/f0002.png",
+          "sha256": "3804a25dd721e6b448b388b42756ddb0b3f89cb2b972f71b37b91a9b9aff4656",
+          "bytes": 173
+        },
+        {
+          "path": "outputs/v1/idle/idle@1fps/f0003.png",
+          "sha256": "5bceab8c8fe755c85bacbd7a403389bea73501e4a7e2af99dedb6bb6d0ec6e75",
+          "bytes": 155
+        },
+        {
+          "path": "outputs/v1/idle/idle@1fps/f0004.png",
+          "sha256": "3804a25dd721e6b448b388b42756ddb0b3f89cb2b972f71b37b91a9b9aff4656",
+          "bytes": 173
         }
       ],
+      "evidence": [],
       "verdicts": [],
       "answers_feedback": [],
       "review_origin": null,
+      "changed": "Registered frozen producer outputs",
       "provenance": {
         "config": {
-          "path": "evidence/v1/config.json",
-          "sha256": "005c06d7831dcd53a5b540f80c709b1f98113cda006d8d88bfdae554f465af59"
+          "path": "evidence/v1/registration/config.json",
+          "sha256": "005c06d7831dcd53a5b540f80c709b1f98113cda006d8d88bfdae554f465af59",
+          "bytes": 1277
         },
         "sections": {
           "assemble": [
@@ -1610,9 +1755,93 @@
           ]
         }
       },
+      "registration": {
+        "kind": "frozen-rig/1",
+        "at": "2026-11-09T00:01:06.000Z",
+        "toolchain": {
+          "kind": "npm-lock-v3",
+          "source": {
+            "path": "evidence/v1/registration/package-lock.json",
+            "sha256": "d97536407693b3fb346c5a30e073829f5dffd040d71566b8a838ae51b1915a5e",
+            "bytes": 181
+          }
+        },
+        "runs": [
+          {
+            "spec": "rigc-run/1",
+            "source": {
+              "path": "evidence/v1/registration/rigc-run-1.json",
+              "sha256": "c8ca1472b1fd975e3c2c969b6d3ca7c20e65e4ca61d14bf2c959d08647c4bcef",
+              "bytes": 1199
+            }
+          }
+        ],
+        "files": [
+          {
+            "path": "evidence/v1/registration/at-source.json",
+            "sha256": "c8ca1472b1fd975e3c2c969b6d3ca7c20e65e4ca61d14bf2c959d08647c4bcef"
+          },
+          {
+            "path": "evidence/v1/registration/compile-report.json",
+            "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83"
+          },
+          {
+            "path": "evidence/v1/registration/config-source.json",
+            "sha256": "005c06d7831dcd53a5b540f80c709b1f98113cda006d8d88bfdae554f465af59"
+          },
+          {
+            "path": "evidence/v1/registration/config.json",
+            "sha256": "005c06d7831dcd53a5b540f80c709b1f98113cda006d8d88bfdae554f465af59"
+          },
+          {
+            "path": "evidence/v1/registration/interview-requirements.json",
+            "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+          },
+          {
+            "path": "evidence/v1/registration/package-lock.json",
+            "sha256": "d97536407693b3fb346c5a30e073829f5dffd040d71566b8a838ae51b1915a5e"
+          },
+          {
+            "path": "evidence/v1/registration/path-adapter.json",
+            "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+          },
+          {
+            "path": "evidence/v1/registration/rigc-run-1.json",
+            "sha256": "c8ca1472b1fd975e3c2c969b6d3ca7c20e65e4ca61d14bf2c959d08647c4bcef"
+          },
+          {
+            "path": "evidence/v1/registration/citations.json",
+            "sha256": "410356a5e0fe61560e0e294eddcd36d205e108c5fe1333976c00b17c8fbdde22",
+            "bytes": 2383
+          }
+        ],
+        "config_source": {
+          "path": "evidence/v1/registration/config-source.json",
+          "sha256": "005c06d7831dcd53a5b540f80c709b1f98113cda006d8d88bfdae554f465af59",
+          "bytes": 1277
+        },
+        "path_adapter": {
+          "path": "evidence/v1/registration/path-adapter.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        "idle": {
+          "path": "outputs/v1/idle/frames.json",
+          "sha256": "7c1ada7de0a2535463edafe509763a8ef6b4a9a33a05ba33e688b8a125a12803"
+        },
+        "compile": {
+          "path": "evidence/v1/registration/compile-report.json",
+          "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83",
+          "bytes": 14810
+        },
+        "copied": {
+          "files": 30,
+          "bytes": 57829
+        }
+      },
       "review_package": {
         "config": {
-          "path": "evidence/v1/config.json",
+          "path": "evidence/v1/registration/config.json",
           "sha256": "005c06d7831dcd53a5b540f80c709b1f98113cda006d8d88bfdae554f465af59"
         },
         "from": "outputs/v1/out",
@@ -1627,7 +1856,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "7f16ee3f3d04c815687ef1d608db017edf183470c61fc81c82fe2db2b3688f5d"
+            "sha256": "c8ca1472b1fd975e3c2c969b6d3ca7c20e65e4ca61d14bf2c959d08647c4bcef"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1635,15 +1864,19 @@
           },
           {
             "path": "out/check/build/skeleton.json",
-            "sha256": "084db939b3db7e4470b52054bf13aa4435a40fce30133aa59fc32e6cfa7c350b"
+            "sha256": "0e55720b7b72cbe2836873897d233d7d56631de641fee39cee7729f5ff36f04f"
           },
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "300e0e3dcdddec667c49ea87df3d4ea4ea91c994dcc014ec606daeec32f5b4b1"
+            "sha256": "17e46245b31661a3b693902d1cd8acfa1878046885f4b7fcd768c0bbb6bf9248"
           },
           {
             "path": "out/check/build/skeleton.png",
             "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+          },
+          {
+            "path": "out/painting_in_rig.png",
+            "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
           },
           {
             "path": "out/parts.json",
@@ -1722,35 +1955,180 @@
       "kind": "rig",
       "rig_version": null,
       "at": "2026-11-09T00:01:07.000Z",
+      "at_basis": "not-after",
+      "at_source": {
+        "path": "evidence/v2/registration/at-source.json",
+        "sha256": "bc28cda0cb10de58b09fa2df06149035ad08166689944e9edb93e78bfef92c83",
+        "bytes": 1199,
+        "pointer": "/finished_at"
+      },
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.34.0",
         "@rig-c/core": "3.6.0"
       },
-      "changed": "Build synthetic mesh rig candidate v2 (amp=0.5).",
       "outputs": [
         {
-          "path": "outputs/v2/out/check/build/skeleton.model.json",
-          "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff",
-          "bytes": 22757
-        }
-      ],
-      "evidence": [
+          "path": "outputs/v2/out/parts.json",
+          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7",
+          "bytes": 4162
+        },
         {
-          "kind": "still",
-          "path": "evidence/setup.png",
+          "path": "outputs/v2/out/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+          "bytes": 300
+        },
+        {
+          "path": "outputs/v2/out/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/v2/out/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/v2/out/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7",
+          "bytes": 109
+        },
+        {
+          "path": "outputs/v2/out/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a",
+          "bytes": 87
+        },
+        {
+          "path": "outputs/v2/out/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912",
+          "bytes": 137
+        },
+        {
+          "path": "outputs/v2/out/painting_in_rig.png",
           "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
-          "camera": "fixed",
-          "frame": "setup"
+          "bytes": 421
+        },
+        {
+          "path": "outputs/v2/out/rig/images/background.png",
+          "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8",
+          "bytes": 332
+        },
+        {
+          "path": "outputs/v2/out/rig/images/eye_l.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/v2/out/rig/images/eye_r.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/v2/out/rig/images/face.png",
+          "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c",
+          "bytes": 122
+        },
+        {
+          "path": "outputs/v2/out/rig/images/lantern.png",
+          "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041",
+          "bytes": 101
+        },
+        {
+          "path": "outputs/v2/out/rig/images/torso.png",
+          "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5",
+          "bytes": 150
+        },
+        {
+          "path": "outputs/v2/out/rig/mesh_report.json",
+          "sha256": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db",
+          "bytes": 189
+        },
+        {
+          "path": "outputs/v2/out/rig/motion.json",
+          "sha256": "74df39025faec150b43ac4b6ffeab66379f5abf5192ebae521a512a1f641867e",
+          "bytes": 1922
+        },
+        {
+          "path": "outputs/v2/out/rig/rig.json",
+          "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3",
+          "bytes": 6967
+        },
+        {
+          "path": "outputs/v2/out/rig/run.json",
+          "sha256": "2fa795f58c8d66cfc8cc69de957aff6a38b0f2e2ce395fa3024c060425cfd548",
+          "bytes": 1411
+        },
+        {
+          "path": "outputs/v2/out/check/build/run.json",
+          "sha256": "bc28cda0cb10de58b09fa2df06149035ad08166689944e9edb93e78bfef92c83",
+          "bytes": 1199
+        },
+        {
+          "path": "outputs/v2/out/check/build/skeleton.atlas",
+          "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
+          "bytes": 442
+        },
+        {
+          "path": "outputs/v2/out/check/build/skeleton.json",
+          "sha256": "5ad74439b86c429691147b954f78976c94f0d6c936aae9d77ded8e6310f6d23d",
+          "bytes": 12444
+        },
+        {
+          "path": "outputs/v2/out/check/build/skeleton.model.json",
+          "sha256": "3b030f43bf679c9429572dca59254332cd637494570d887063ffb522bc0f73ca",
+          "bytes": 22763
+        },
+        {
+          "path": "outputs/v2/out/check/build/skeleton.png",
+          "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2",
+          "bytes": 571
+        },
+        {
+          "path": "outputs/v2/idle/frames.json",
+          "sha256": "75b6199735f0e1cec0eea13bd6629a08a243cc889442c45e2b9bab8d0f6c8e9e",
+          "bytes": 487
+        },
+        {
+          "path": "outputs/v2/idle/idle@1fps/contact.png",
+          "sha256": "c03985a211857b7d75e37f779b1dd8316f481415958e00ad5fbb6447956d7b0b",
+          "bytes": 2343
+        },
+        {
+          "path": "outputs/v2/idle/idle@1fps/f0000.png",
+          "sha256": "9d8824353db272d1b51c94837c64f1ff1b461a9acce26b83b99bc505aa29e436",
+          "bytes": 166
+        },
+        {
+          "path": "outputs/v2/idle/idle@1fps/f0001.png",
+          "sha256": "92c5e9f6aa3a19e14e62dbc357af0e6ede811aadee0a88952c246426e6fbbfed",
+          "bytes": 177
+        },
+        {
+          "path": "outputs/v2/idle/idle@1fps/f0002.png",
+          "sha256": "9d8824353db272d1b51c94837c64f1ff1b461a9acce26b83b99bc505aa29e436",
+          "bytes": 166
+        },
+        {
+          "path": "outputs/v2/idle/idle@1fps/f0003.png",
+          "sha256": "95f0fa46a07b06dd9117905335e7d75751615dd4da0ffb84b31cc67895b215dc",
+          "bytes": 159
+        },
+        {
+          "path": "outputs/v2/idle/idle@1fps/f0004.png",
+          "sha256": "9d8824353db272d1b51c94837c64f1ff1b461a9acce26b83b99bc505aa29e436",
+          "bytes": 166
         }
       ],
+      "evidence": [],
       "verdicts": [],
       "answers_feedback": [],
       "review_origin": null,
+      "changed": "Registered frozen producer outputs",
       "provenance": {
         "config": {
-          "path": "evidence/v2/config.json",
-          "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+          "path": "evidence/v2/registration/config.json",
+          "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942",
+          "bytes": 1277
         },
         "sections": {
           "assemble": [
@@ -1821,9 +2199,93 @@
           ]
         }
       },
+      "registration": {
+        "kind": "frozen-rig/1",
+        "at": "2026-11-09T00:01:08.000Z",
+        "toolchain": {
+          "kind": "npm-lock-v3",
+          "source": {
+            "path": "evidence/v2/registration/package-lock.json",
+            "sha256": "d97536407693b3fb346c5a30e073829f5dffd040d71566b8a838ae51b1915a5e",
+            "bytes": 181
+          }
+        },
+        "runs": [
+          {
+            "spec": "rigc-run/1",
+            "source": {
+              "path": "evidence/v2/registration/rigc-run-1.json",
+              "sha256": "bc28cda0cb10de58b09fa2df06149035ad08166689944e9edb93e78bfef92c83",
+              "bytes": 1199
+            }
+          }
+        ],
+        "files": [
+          {
+            "path": "evidence/v2/registration/at-source.json",
+            "sha256": "bc28cda0cb10de58b09fa2df06149035ad08166689944e9edb93e78bfef92c83"
+          },
+          {
+            "path": "evidence/v2/registration/compile-report.json",
+            "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83"
+          },
+          {
+            "path": "evidence/v2/registration/config-source.json",
+            "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+          },
+          {
+            "path": "evidence/v2/registration/config.json",
+            "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+          },
+          {
+            "path": "evidence/v2/registration/interview-requirements.json",
+            "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+          },
+          {
+            "path": "evidence/v2/registration/package-lock.json",
+            "sha256": "d97536407693b3fb346c5a30e073829f5dffd040d71566b8a838ae51b1915a5e"
+          },
+          {
+            "path": "evidence/v2/registration/path-adapter.json",
+            "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+          },
+          {
+            "path": "evidence/v2/registration/rigc-run-1.json",
+            "sha256": "bc28cda0cb10de58b09fa2df06149035ad08166689944e9edb93e78bfef92c83"
+          },
+          {
+            "path": "evidence/v2/registration/citations.json",
+            "sha256": "410356a5e0fe61560e0e294eddcd36d205e108c5fe1333976c00b17c8fbdde22",
+            "bytes": 2383
+          }
+        ],
+        "config_source": {
+          "path": "evidence/v2/registration/config-source.json",
+          "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942",
+          "bytes": 1277
+        },
+        "path_adapter": {
+          "path": "evidence/v2/registration/path-adapter.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        "idle": {
+          "path": "outputs/v2/idle/frames.json",
+          "sha256": "75b6199735f0e1cec0eea13bd6629a08a243cc889442c45e2b9bab8d0f6c8e9e"
+        },
+        "compile": {
+          "path": "evidence/v2/registration/compile-report.json",
+          "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83",
+          "bytes": 14810
+        },
+        "copied": {
+          "files": 30,
+          "bytes": 57813
+        }
+      },
       "review_package": {
         "config": {
-          "path": "evidence/v2/config.json",
+          "path": "evidence/v2/registration/config.json",
           "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
         },
         "from": "outputs/v2/out",
@@ -1838,7 +2300,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "e9f35da1cafb739e1a726baaea8bd531d75bc735fefb6b0cc817614f7cd74759"
+            "sha256": "bc28cda0cb10de58b09fa2df06149035ad08166689944e9edb93e78bfef92c83"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1846,15 +2308,19 @@
           },
           {
             "path": "out/check/build/skeleton.json",
-            "sha256": "a4b76fae1308a9c12822e2db2150c53c5a7103f5cf7a8f197f67825173e1a57a"
+            "sha256": "5ad74439b86c429691147b954f78976c94f0d6c936aae9d77ded8e6310f6d23d"
           },
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff"
+            "sha256": "3b030f43bf679c9429572dca59254332cd637494570d887063ffb522bc0f73ca"
           },
           {
             "path": "out/check/build/skeleton.png",
             "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+          },
+          {
+            "path": "out/painting_in_rig.png",
+            "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
           },
           {
             "path": "out/parts.json",
@@ -1933,17 +2399,168 @@
       "kind": "rig",
       "rig_version": null,
       "at": "2026-11-09T00:01:09.000Z",
+      "at_basis": "not-after",
+      "at_source": {
+        "path": "evidence/v3/registration/at-source.json",
+        "sha256": "e384e56487b4adaedffc903c411622ee78349c1214dfef8314498ccb119ff6d7",
+        "bytes": 1199,
+        "pointer": "/finished_at"
+      },
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.34.0",
         "@rig-c/core": "3.6.0"
       },
-      "changed": "Build synthetic mesh rig candidate v3 (amp=0.6).",
       "outputs": [
         {
+          "path": "outputs/v3/out/parts.json",
+          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7",
+          "bytes": 4162
+        },
+        {
+          "path": "outputs/v3/out/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",
+          "bytes": 300
+        },
+        {
+          "path": "outputs/v3/out/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/v3/out/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e",
+          "bytes": 76
+        },
+        {
+          "path": "outputs/v3/out/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7",
+          "bytes": 109
+        },
+        {
+          "path": "outputs/v3/out/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a",
+          "bytes": 87
+        },
+        {
+          "path": "outputs/v3/out/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912",
+          "bytes": 137
+        },
+        {
+          "path": "outputs/v3/out/painting_in_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
+          "bytes": 421
+        },
+        {
+          "path": "outputs/v3/out/rig/images/background.png",
+          "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8",
+          "bytes": 332
+        },
+        {
+          "path": "outputs/v3/out/rig/images/eye_l.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/v3/out/rig/images/eye_r.png",
+          "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733",
+          "bytes": 84
+        },
+        {
+          "path": "outputs/v3/out/rig/images/face.png",
+          "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c",
+          "bytes": 122
+        },
+        {
+          "path": "outputs/v3/out/rig/images/lantern.png",
+          "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041",
+          "bytes": 101
+        },
+        {
+          "path": "outputs/v3/out/rig/images/torso.png",
+          "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5",
+          "bytes": 150
+        },
+        {
+          "path": "outputs/v3/out/rig/mesh_report.json",
+          "sha256": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db",
+          "bytes": 189
+        },
+        {
+          "path": "outputs/v3/out/rig/motion.json",
+          "sha256": "b51d74cf0d44f62abf740dff9d4773a6b88218ade021d19139acffb149e4a2d5",
+          "bytes": 1926
+        },
+        {
+          "path": "outputs/v3/out/rig/rig.json",
+          "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3",
+          "bytes": 6967
+        },
+        {
+          "path": "outputs/v3/out/rig/run.json",
+          "sha256": "066bf04cca2d92096da783566baf4f30e99ea3e615399fd1149c4f94feb162ed",
+          "bytes": 1411
+        },
+        {
+          "path": "outputs/v3/out/check/build/run.json",
+          "sha256": "e384e56487b4adaedffc903c411622ee78349c1214dfef8314498ccb119ff6d7",
+          "bytes": 1199
+        },
+        {
+          "path": "outputs/v3/out/check/build/skeleton.atlas",
+          "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
+          "bytes": 442
+        },
+        {
+          "path": "outputs/v3/out/check/build/skeleton.json",
+          "sha256": "ee3b77afd26cf8da9a9ed7de517266b37b76d07062a4e01c76bf9e24d1f543b8",
+          "bytes": 12448
+        },
+        {
           "path": "outputs/v3/out/check/build/skeleton.model.json",
-          "sha256": "a324b10d0cfd819382eb4ddb9b9ec240df26049179cab2cb2ec07a2ed6825f46",
-          "bytes": 22761
+          "sha256": "df74eaf6d136a21d679863a779a2b3cd0a961ee79e2f9bba9017a92d00269f6d",
+          "bytes": 22767
+        },
+        {
+          "path": "outputs/v3/out/check/build/skeleton.png",
+          "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2",
+          "bytes": 571
+        },
+        {
+          "path": "outputs/v3/idle/frames.json",
+          "sha256": "da3419523b440fed72eb7a43befaf903263c72671bc559236c3031107313a1e9",
+          "bytes": 490
+        },
+        {
+          "path": "outputs/v3/idle/idle@1fps/contact.png",
+          "sha256": "8e0bfe4ab9e76efd7a5e2bde30b90367c8a403e57f7c918eb552f0694b1701d6",
+          "bytes": 2349
+        },
+        {
+          "path": "outputs/v3/idle/idle@1fps/f0000.png",
+          "sha256": "486a3e95f6304dc2e3708699141198fb32c3d318c511f0eb80baa8cb98a17c25",
+          "bytes": 166
+        },
+        {
+          "path": "outputs/v3/idle/idle@1fps/f0001.png",
+          "sha256": "354251c70881efea98fc570f9fe7d89eca8133b66d4f15a1708051421ddcad1e",
+          "bytes": 182
+        },
+        {
+          "path": "outputs/v3/idle/idle@1fps/f0002.png",
+          "sha256": "486a3e95f6304dc2e3708699141198fb32c3d318c511f0eb80baa8cb98a17c25",
+          "bytes": 166
+        },
+        {
+          "path": "outputs/v3/idle/idle@1fps/f0003.png",
+          "sha256": "77526459a159c91310debdbcc9633d3a3e9201bc48b07fbe4b414b55b79a61d2",
+          "bytes": 166
+        },
+        {
+          "path": "outputs/v3/idle/idle@1fps/f0004.png",
+          "sha256": "486a3e95f6304dc2e3708699141198fb32c3d318c511f0eb80baa8cb98a17c25",
+          "bytes": 166
         }
       ],
       "evidence": [
@@ -1968,10 +2585,12 @@
       ],
       "answers_feedback": [],
       "review_origin": null,
+      "changed": "Registered frozen producer outputs",
       "provenance": {
         "config": {
-          "path": "evidence/v3/config.json",
-          "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759"
+          "path": "evidence/v3/registration/config.json",
+          "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759",
+          "bytes": 1277
         },
         "sections": {
           "assemble": [
@@ -2042,9 +2661,93 @@
           ]
         }
       },
+      "registration": {
+        "kind": "frozen-rig/1",
+        "at": "2026-11-09T00:01:10.000Z",
+        "toolchain": {
+          "kind": "npm-lock-v3",
+          "source": {
+            "path": "evidence/v3/registration/package-lock.json",
+            "sha256": "d97536407693b3fb346c5a30e073829f5dffd040d71566b8a838ae51b1915a5e",
+            "bytes": 181
+          }
+        },
+        "runs": [
+          {
+            "spec": "rigc-run/1",
+            "source": {
+              "path": "evidence/v3/registration/rigc-run-1.json",
+              "sha256": "e384e56487b4adaedffc903c411622ee78349c1214dfef8314498ccb119ff6d7",
+              "bytes": 1199
+            }
+          }
+        ],
+        "files": [
+          {
+            "path": "evidence/v3/registration/at-source.json",
+            "sha256": "e384e56487b4adaedffc903c411622ee78349c1214dfef8314498ccb119ff6d7"
+          },
+          {
+            "path": "evidence/v3/registration/compile-report.json",
+            "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83"
+          },
+          {
+            "path": "evidence/v3/registration/config-source.json",
+            "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759"
+          },
+          {
+            "path": "evidence/v3/registration/config.json",
+            "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759"
+          },
+          {
+            "path": "evidence/v3/registration/interview-requirements.json",
+            "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+          },
+          {
+            "path": "evidence/v3/registration/package-lock.json",
+            "sha256": "d97536407693b3fb346c5a30e073829f5dffd040d71566b8a838ae51b1915a5e"
+          },
+          {
+            "path": "evidence/v3/registration/path-adapter.json",
+            "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+          },
+          {
+            "path": "evidence/v3/registration/rigc-run-1.json",
+            "sha256": "e384e56487b4adaedffc903c411622ee78349c1214dfef8314498ccb119ff6d7"
+          },
+          {
+            "path": "evidence/v3/registration/citations.json",
+            "sha256": "410356a5e0fe61560e0e294eddcd36d205e108c5fe1333976c00b17c8fbdde22",
+            "bytes": 2383
+          }
+        ],
+        "config_source": {
+          "path": "evidence/v3/registration/config-source.json",
+          "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759",
+          "bytes": 1277
+        },
+        "path_adapter": {
+          "path": "evidence/v3/registration/path-adapter.json",
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "bytes": 3
+        },
+        "idle": {
+          "path": "outputs/v3/idle/frames.json",
+          "sha256": "da3419523b440fed72eb7a43befaf903263c72671bc559236c3031107313a1e9"
+        },
+        "compile": {
+          "path": "evidence/v3/registration/compile-report.json",
+          "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83",
+          "bytes": 14810
+        },
+        "copied": {
+          "files": 30,
+          "bytes": 57846
+        }
+      },
       "review_package": {
         "config": {
-          "path": "evidence/v3/config.json",
+          "path": "evidence/v3/registration/config.json",
           "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759"
         },
         "from": "outputs/v3/out",
@@ -2059,7 +2762,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "157595b4611b2ec692c9cb40fd9e38843a6cf51613c0cdb05ca3e6251a08fbe5"
+            "sha256": "e384e56487b4adaedffc903c411622ee78349c1214dfef8314498ccb119ff6d7"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -2067,15 +2770,19 @@
           },
           {
             "path": "out/check/build/skeleton.json",
-            "sha256": "b02017db27308fb692c3937da4d44f703bc00af0013c28bd7c1e7e1ac6501983"
+            "sha256": "ee3b77afd26cf8da9a9ed7de517266b37b76d07062a4e01c76bf9e24d1f543b8"
           },
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "a324b10d0cfd819382eb4ddb9b9ec240df26049179cab2cb2ec07a2ed6825f46"
+            "sha256": "df74eaf6d136a21d679863a779a2b3cd0a961ee79e2f9bba9017a92d00269f6d"
           },
           {
             "path": "out/check/build/skeleton.png",
             "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+          },
+          {
+            "path": "out/painting_in_rig.png",
+            "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
           },
           {
             "path": "out/parts.json",
@@ -2162,7 +2869,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v4.json",
-          "sha256": "0e6616a6cdbfb6c2fae05a3260356215299d19e38dc8861f8e5437b06dd9eebf"
+          "sha256": "974488907698836f6fc097c7db1505576454497b62be9c950559833c3059689a"
         }
       ],
       "evidence": [],
@@ -2172,11 +2879,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v4.json",
-          "sha256": "0e6616a6cdbfb6c2fae05a3260356215299d19e38dc8861f8e5437b06dd9eebf"
+          "sha256": "974488907698836f6fc097c7db1505576454497b62be9c950559833c3059689a"
         },
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "0e6616a6cdbfb6c2fae05a3260356215299d19e38dc8861f8e5437b06dd9eebf"
+          "sha256": "974488907698836f6fc097c7db1505576454497b62be9c950559833c3059689a"
         },
         "sections": {
           "camera": [
@@ -2215,7 +2922,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v5.json",
-          "sha256": "b2b19d4cbc1650488ca275debac570de324801ca1d197ce7b0227c517e8773d0"
+          "sha256": "74922451928bab3439155e3da13e0f5571135debe07e2a1fc4e98ad1959032bd"
         }
       ],
       "evidence": [],
@@ -2235,11 +2942,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v5.json",
-          "sha256": "b2b19d4cbc1650488ca275debac570de324801ca1d197ce7b0227c517e8773d0"
+          "sha256": "74922451928bab3439155e3da13e0f5571135debe07e2a1fc4e98ad1959032bd"
         },
         "direction": {
           "path": "evidence/direction/v5.json",
-          "sha256": "b2b19d4cbc1650488ca275debac570de324801ca1d197ce7b0227c517e8773d0"
+          "sha256": "74922451928bab3439155e3da13e0f5571135debe07e2a1fc4e98ad1959032bd"
         },
         "sections": {
           "camera": [
@@ -3169,7 +3876,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "d982f7639845298754734fe3772c7f2d1decba15739a6176203c9dc600e46184",
+      "sha256": "a9f45fac533e1159476b6c5e7e54a65ada866276a2b8c04648db6a46548bd9c3",
       "at": "2026-11-09T00:01:40.000Z",
       "by": "user"
     }

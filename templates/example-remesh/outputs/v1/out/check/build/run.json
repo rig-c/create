@@ -10,27 +10,31 @@
   "inputs": [
     {
       "role": "rig",
-      "path": "../../rig.json",
+      "path": "../out/rig.json",
       "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
     },
     {
       "role": "motion",
-      "path": "../../motion.json",
+      "path": "../out/motion.json",
       "sha256": "336151c6fac0bccd3a8d26d512dfab7d1d655e5db2546ea6226b981207a618ed"
     }
   ],
   "outputs": [
+    {
+      "path": "../build-report.json",
+      "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83"
+    },
     {
       "path": "skeleton.atlas",
       "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
     },
     {
       "path": "skeleton.json",
-      "sha256": "084db939b3db7e4470b52054bf13aa4435a40fce30133aa59fc32e6cfa7c350b"
+      "sha256": "0e55720b7b72cbe2836873897d233d7d56631de641fee39cee7729f5ff36f04f"
     },
     {
       "path": "skeleton.model.json",
-      "sha256": "300e0e3dcdddec667c49ea87df3d4ea4ea91c994dcc014ec606daeec32f5b4b1"
+      "sha256": "17e46245b31661a3b693902d1cd8acfa1878046885f4b7fcd768c0bbb6bf9248"
     },
     {
       "path": "skeleton.png",

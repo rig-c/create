@@ -5,7 +5,7 @@
     "y": -4,
     "width": 136.00002,
     "height": 136,
-    "images": "../../images/"
+    "images": "../out/images/"
   },
   "bones": [
     {

@@ -1,0 +1,29 @@
+{
+  "spec": "rigc-frames/1",
+  "background": [
+    232,
+    232,
+    232,
+    255
+  ],
+  "viewport": {
+    "x": -73.48000623057024,
+    "y": -9.979999999999968,
+    "width": 146.96000949088724,
+    "height": 147.9599999999999,
+    "scale": 0.2162746688294135,
+    "pixelWidth": 32,
+    "pixelHeight": 32
+  },
+  "sets": [
+    {
+      "dir": "idle@1fps",
+      "animation": "idle",
+      "fps": 1,
+      "sampled": 5,
+      "written": 5,
+      "stride": 1,
+      "duration": 4
+    }
+  ]
+}

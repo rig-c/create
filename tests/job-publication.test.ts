@@ -63,9 +63,12 @@ test('bound publication retains the committed record hash and the exact parts ro
   await readPublished({ root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result });
   await reconcilePublication(root, entry, publishPending);
   const status = host.session.status();
-  expect(status.generation).toBe(1);
-  expect(status.publication?.source.projectHash).toBe(entry.recordHash);
   const acknowledged = readAcknowledgedPublication(root, host.session.jobId, status.publication!.publicationId)!;
+  // The publication, then one ask per declared subject (#352).
+  expect(status.publication!.generation).toBe(1);
+  expect(status.generation).toBe(1 + acknowledged.subjects!.length);
+  expect(status.pending.map(ask => ask.subject)).toEqual([...acknowledged.subjects!]);
+  expect(status.publication?.source.projectHash).toBe(entry.recordHash);
   expect(acknowledged.versionHash).toBe(entry.versionHash!);
   expect(acknowledged.generation).toBe(status.publication!.generation);
   expect(lstatSync(join(root, '.rig-create-review/acknowledged-publications')).mode & 0o077).toBe(0);
@@ -216,9 +219,13 @@ test('lost acknowledgment replays the same request without a second publication'
     await publishPending(entry);
     refuse('JOB_PUBLISH_PENDING', 'project.json: planted acknowledgment loss');
   })).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
-  expect(host.session.status().generation).toBe(1);
+  // One publication and its declared asks; the replay publishes and asks nothing again.
+  const asked = host.session.status();
+  expect(asked.pending.length).toBeGreaterThan(0);
+  expect(asked.generation).toBe(1 + asked.pending.length);
   expect(await reconcileCreateJob(root)).toBe(1);
-  expect(host.session.status().generation).toBe(1);
+  expect(host.session.status().generation).toBe(asked.generation);
+  expect(host.session.status().pending).toEqual(asked.pending);
   expect(pendingPublications(root)).toEqual([]);
 });
 

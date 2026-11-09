@@ -10,7 +10,9 @@ import { signoffIdentity } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, signoffCommand, testClock } from './clock.ts';
+import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { arr, fixture, obj, retimeFixture, withdrawSignature } from './fixtures.ts';
+import { preparePartsApproval } from './parts-receipt-fixture.ts';
 
 afterEach(() => testClock.reset());
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -166,4 +168,34 @@ test('check refuses a review signature whose recorded target version differs fro
   expect(codes(dir)).not.toContain('REVIEW_ACT_LEDGER_INVALID');
   const p = read(dir); obj(obj(arr(p.signoffs).at(-1)).target).version = 1; save(dir, p);
   expect(codes(dir)).toContain('REVIEW_ACT_LEDGER_INVALID');
+});
+
+const partsDiffFlags = ['--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic painting', '--component', 'p1000-n3=in-painting:synthetic painting'];
+function partsReview(): string {
+  const dir = fixture();
+  preparePartsApproval(dir, testClock.now());
+  bindReview(dir);
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
+  return dir;
+}
+const partsAct = (dir: string, actId: string, selector: JsonObject | null): JsonObject => signoffAct(dir, 'parts-review', actId, act => { obj(act.source).selector = selector; });
+
+test('a parts-review act takes draft_id from its draft selector when --draft is absent and records draft_id on a legacy-order project', () => {
+  const dir = partsReview();
+  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-shown', { kind: 'draft', id: 'receipt-fixture' }), partsDiffFlags).exit).toBe(0);
+  const signed = obj(arr(read(dir).signoffs).at(-1));
+  expect(signed.draft_id).toBe('receipt-fixture');
+  expect(signed.structure).toBeUndefined();
+  expect(codes(dir)).toEqual([]);
+});
+
+test('a parts-review act with --draft equal to its draft selector records draft_id, and a disagreeing --draft or non-draft selector refuses', () => {
+  const dir = partsReview();
+  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-mismatch', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'other-draft', ...partsDiffFlags]));
+  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-rig', { kind: 'rig', version: 2 }), partsDiffFlags));
+  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-post', { kind: 'post', version: 2, rigVersion: 1 }), partsDiffFlags));
+  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-same', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'receipt-fixture', ...partsDiffFlags]).exit).toBe(0);
+  expect(obj(arr(read(dir).signoffs).at(-1)).draft_id).toBe('receipt-fixture');
+  expect(codes(dir)).toEqual([]);
 });

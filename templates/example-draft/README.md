@@ -3,7 +3,7 @@
 Every pixel is generated. These fixture sign-offs and the sibling reopened
 variant's synthetic fixture reopen do not represent a person's approval.
 The draft build is untouched output of the
-installed `@rig-c/parts` 2.35.0 `rig` command from this fixture's own generated
+installed `@rig-c/parts` 2.36.0 `rig` command from this fixture's own generated
 config and producer-assembled parts. The compiled files under `out/check/build/`
 are untouched output of installed `@rig-c/core` 3.6.0 `rigc build`, using the
 same packed compiler step as `rig-parts check`. The single motion track is a minimal

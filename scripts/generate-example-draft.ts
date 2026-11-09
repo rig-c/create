@@ -7,7 +7,7 @@ import { generateExampleParts } from './generate-example-parts.ts';
 
 /**
  * The synthetic drafts' one breath track: `body` translatey, period 4, amplitude in rig px.
- * Chosen by running @rig-c/parts 2.35.0 `check` on both drafts below (identical figures on each),
+ * Chosen by running @rig-c/parts 2.36.0 `check` on both drafts below (identical figures on each),
  * against BREATH_VISIBLE's torso_floor 3.809, as the smallest amplitude passing with a margin of at
  * least 5 % of the floor:
  *

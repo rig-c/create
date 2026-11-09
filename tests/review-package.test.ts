@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { checkReviewPackages, reviewPackageCommand, reviewConfigInputs } from '../src/review-package.ts';
+import { checkReviewPackages, reviewPackageCommand, reviewConfigInputs, reviewHandoffInputs } from '../src/review-package.ts';
+import { plateReceiptSpec } from '../src/config-inputs.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { generateExampleReview } from '../scripts/generate-example-review.ts';
 import { fixture as exampleFixture, obj, version } from './fixtures.ts';
@@ -402,3 +403,121 @@ test('a mask nested relative to requirements is retained at its declared locator
   expect(readFileSync(join(dir, 'derived/review/v1/inputs/masks/figure.png'), 'utf8')).toBe('matte');
   expect(checked(dir).refusals).toEqual([]);
 });
+
+test('package freezes an occluder plate directory by its receipt without copying or hashing sibling rasters', () => {
+  const dir = fixture();
+  const receipt = JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'occluder plate receipt' });
+  put(dir, 'frozen/config.json', JSON.stringify({
+    requirements: 'inputs/requirements.json',
+    assemble: { occluders: [{ image: 'inputs/occ.png', plate: 'inputs/plate' }] },
+  }));
+  put(dir, 'frozen/inputs/requirements.json', '{"synthetic":"requirements"}');
+  put(dir, 'frozen/inputs/occ.png', 'synthetic occluder image');
+  put(dir, 'frozen/inputs/plate/receipt.json', receipt);
+  put(dir, 'frozen/inputs/plate/plate.png', 'synthetic plate raster');
+  put(dir, 'frozen/inputs/plate/mask.png', 'synthetic plate mask');
+  const record = write(dir);
+  const files = record.files as JsonObject[];
+  expect(files.find(f => f.path === 'inputs/plate/receipt.json')?.sha256).toBe(sha(receipt));
+  expect(files.some(f => String(f.path).startsWith('inputs/plate/') && f.path !== 'inputs/plate/receipt.json')).toBe(false);
+  expect(existsSync(join(dir, 'derived/review/v1/inputs/plate/receipt.json'))).toBe(true);
+  expect(existsSync(join(dir, 'derived/review/v1/inputs/plate/plate.png'))).toBe(false);
+  expect(existsSync(join(dir, 'derived/review/v1/inputs/plate/mask.png'))).toBe(false);
+  const frozen = reviewConfigInputs(record, dir, 1);
+  expect(frozen).toEqual([
+    { path: 'inputs/requirements.json', sha256: sha('{"synthetic":"requirements"}') },
+    { path: 'inputs/occ.png', sha256: sha('synthetic occluder image') },
+    { path: 'inputs/plate/receipt.json', sha256: sha(receipt) },
+  ]);
+  expect(reviewHandoffInputs(record, dir, 1)).toContainEqual({ path: 'inputs/plate/receipt.json', sha256: sha(receipt) });
+  const feedback = run([process.execPath, join(import.meta.dir, '../node_modules/.bin/rig-review'), 'feedback', join(dir, 'derived/review/v1/out')], dir, { ...process.env, XDG_STATE_HOME: join(dir, 'state') } as Record<string, string>);
+  expect(feedback.stderr).toBe('');
+  expect(feedback.code).toBe(0);
+  const session = JSON.parse(feedback.stdout);
+  expect(session.reviewedSource.handoff.missing).toEqual([]);
+  expect(session.reviewedSource.handoff.config.sha256).toBe(obj(record.config).sha256);
+  expect(checked(dir).refusals).toEqual([]);
+  expect(checked(dir).warnings).toEqual([]);
+  // Editing or removing sibling rasters in the source plate directory does not affect retry or check.
+  put(dir, 'frozen/inputs/plate/plate.png', 'altered sibling raster');
+  rmSync(join(dir, 'frozen/inputs/plate/mask.png'));
+  expect(write(dir)).toEqual(record);
+  expect(checked(dir).refusals).toEqual([]);
+  // Changing the source receipt refuses overwriting the existing frozen package.
+  put(dir, 'frozen/inputs/plate/receipt.json', JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'changed receipt' }));
+  let overwriteRefusal: unknown;
+  try { write(dir); } catch (caught) { overwriteRefusal = caught; }
+  expect(overwriteRefusal).toBeInstanceOf(Refusal);
+  expect((overwriteRefusal as Refusal).code).toBe('REVIEW_PACKAGE_EXISTS');
+  // Changing the frozen receipt in derived/review/v1 refuses with REVIEW_PACKAGE_CHANGED.
+  put(dir, 'derived/review/v1/inputs/plate/receipt.json', JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'tampered frozen receipt' }));
+  expect(checked(dir).refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_CHANGED']);
+});
+
+test('check refuses a frozen occluder plate directory that records sibling files or a wrong receipt spec', () => {
+  const dir = fixture();
+  const receipt = JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'occluder plate receipt' });
+  put(dir, 'frozen/config.json', JSON.stringify({ assemble: { occluders: [{ plate: 'inputs/plate' }] } }));
+  put(dir, 'frozen/inputs/plate/receipt.json', receipt);
+  write(dir);
+  // Adding a recorded sibling file inside the plate directory is refused by REVIEW_PACKAGE_INPUT_INVALID.
+  put(dir, 'derived/review/v1/inputs/plate/plate.png', 'unexpected sibling');
+  const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  project.versions[0].review_package.files.push({ path: 'inputs/plate/plate.png', sha256: sha('unexpected sibling') });
+  project.versions[0].review_package.files.sort((a: JsonObject, b: JsonObject) => String(a.path).localeCompare(String(b.path)));
+  put(dir, 'project.json', JSON.stringify(project));
+  const extraSibling = checked(dir);
+  expect(extraSibling.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_INPUT_INVALID']);
+  expect(extraSibling.refusals[0]?.message).toContain('directory input inputs/plate must bind only inputs/plate/receipt.json');
+  // A frozen receipt whose hash matches its record but declares a foreign spec is refused by REVIEW_PACKAGE_INPUT_INVALID.
+  rmSync(join(dir, 'derived/review/v1/inputs/plate/plate.png'));
+  const wrongSpec = '{"spec":"rig-run/1"}';
+  put(dir, 'derived/review/v1/inputs/plate/receipt.json', wrongSpec);
+  project.versions[0].review_package.files = project.versions[0].review_package.files
+    .filter((f: JsonObject) => f.path !== 'inputs/plate/plate.png')
+    .map((f: JsonObject) => f.path === 'inputs/plate/receipt.json' ? { path: f.path, sha256: sha(wrongSpec) } : f);
+  put(dir, 'project.json', JSON.stringify(project));
+  const badSpec = checked(dir);
+  expect(badSpec.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_INPUT_INVALID']);
+  expect(badSpec.refusals[0]?.message).toContain('inputs/plate/receipt.json declares spec "rig-run/1"');
+  // Removing the frozen receipt from both disk and the recorded inventory refuses with REVIEW_PACKAGE_INPUT_MISSING.
+  rmSync(join(dir, 'derived/review/v1/inputs/plate/receipt.json'));
+  project.versions[0].review_package.files = project.versions[0].review_package.files
+    .filter((f: JsonObject) => f.path !== 'inputs/plate/receipt.json');
+  put(dir, 'project.json', JSON.stringify(project));
+  const missingReceipt = checked(dir);
+  expect(missingReceipt.refusals.map(f => f.code)).toEqual(['REVIEW_PACKAGE_INPUT_MISSING']);
+  expect(missingReceipt.refusals[0]?.message).toContain('inputs/plate');
+});
+
+for (const kind of ['missing-receipt', 'directory-receipt', 'symlink-receipt', 'untyped-receipt', 'wrong-spec', 'old-parts'] as const) {
+  test(`packaging refuses an invalid occluder plate directory (${kind}) before writing`, () => {
+    const dir = fixture();
+    put(dir, 'frozen/config.json', JSON.stringify({ assemble: { occluders: [{ plate: 'inputs/plate' }] } }));
+    mkdirSync(join(dir, 'frozen/inputs/plate'), { recursive: true });
+    if (kind === 'directory-receipt') mkdirSync(join(dir, 'frozen/inputs/plate/receipt.json'));
+    else if (kind === 'symlink-receipt') {
+      put(dir, 'frozen/inputs/real-receipt.json', JSON.stringify({ spec: plateReceiptSpec(dir) }));
+      symlinkSync(join(dir, 'frozen/inputs/real-receipt.json'), join(dir, 'frozen/inputs/plate/receipt.json'));
+    } else if (kind === 'untyped-receipt') {
+      put(dir, 'frozen/inputs/plate/receipt.json', '{}');
+    } else if (kind === 'wrong-spec') {
+      put(dir, 'frozen/inputs/plate/receipt.json', '{"spec":"rig-run/1"}');
+    } else if (kind === 'old-parts') {
+      put(dir, 'frozen/inputs/plate/receipt.json', JSON.stringify({ spec: plateReceiptSpec(dir) }));
+      const parts = join(dir, 'node_modules/@rig-c/parts');
+      mkdirSync(join(parts, 'src'), { recursive: true });
+      writeFileSync(join(parts, 'package.json'), '{"name":"@rig-c/parts","version":"2.35.0","type":"module"}');
+      writeFileSync(join(parts, 'src/config.ts'), 'export function configFileReferences() { return [{ at: "assemble.occluders[0].plate", value: "inputs/plate" }]; }');
+      writeFileSync(join(parts, 'src/plate.ts'), 'export const NO_SPEC = true;');
+    }
+    const before = readFileSync(join(dir, 'project.json'));
+    let error: unknown;
+    try { write(dir); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('REVIEW_PACKAGE_INPUT_INVALID');
+    expect((error as Refusal).message).toContain(kind === 'old-parts' ? 'no PLATE_RECEIPT_SPEC export' : 'inputs/plate');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+  });
+}

@@ -1,5 +1,5 @@
 import { recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
-import { configInputReferences, configInputsLegacy, type ConfigInputsWarning } from './config-inputs.ts';
+import { configInputReferences, configInputsLegacy, DIRECTORY_INPUT_RECEIPT, plateReceiptSpec, receiptSpec, type ConfigInputsWarning } from './config-inputs.ts';
 import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
 import { createHash } from 'node:crypto';
@@ -92,6 +92,20 @@ export function reviewConfigInputs(record: JsonObject, dir: string, n: number, m
     const name = relative(dirname(path), resolve(dirname(path), ref.value)).split(sep).join('/');
     const file = asArray(record.files).find(f => isObject(f) && f.path === name);
     if (isObject(file)) return [file];
+    const bound = `${name}/${DIRECTORY_INPUT_RECEIPT}`;
+    const receipt = asArray(record.files).find(f => isObject(f) && f.path === bound);
+    if (isObject(receipt)) {
+      if (asArray(record.files).some(f => isObject(f) && typeof f.path === 'string' && f.path.startsWith(`${name}/`) && f.path !== bound)) {
+        throw new Error(`config.${ref.at}: directory input ${name} must bind only ${bound}`);
+      }
+      const spec = plateReceiptSpec(dir);
+      const receiptFile = join(dirname(path), bound);
+      if (existsSync(receiptFile)) {
+        const declared = receiptSpec(readFileSync(receiptFile));
+        if (declared !== spec) throw new Error(`config.${ref.at}: ${bound} declares spec ${JSON.stringify(declared)}; a directory input binds a ${spec} receipt, such as a comfy plate --mode occluder output`);
+      }
+      return [receipt];
+    }
     if (!missing) throw new Error(`config.${ref.at}: named input ${name} is missing from source package`);
     missing(name);
     return [{ path: name, sha256: null }];
@@ -298,11 +312,27 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
     const configBytes = readFileSync(config);
     try { if (!isObject(JSON.parse(configBytes.toString()))) throw new Error(); } catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', 'config must be a JSON object'); }
     let named: { path: string; source: string; bytes: Buffer }[];
+    const directories = new Set<string>();
     try {
       named = configInputReferences(dir, JSON.parse(configBytes.toString())).map(ref => {
         const path = relative(dirname(config), resolve(dirname(config), ref.value)).split(sep).join('/');
         if (isAbsolute(ref.value) || !path || path.split('/').some(part => part === '..' || part === '.' || part === '')) refuse('REVIEW_PACKAGE_PATH_INVALID', `config.${ref.at}: ${ref.value} cannot be retained inside the package; use a config-relative input inside its directory`);
         const file = source(relative(dir, resolve(dirname(config), ref.value)));
+        if (lstatSync(file).isDirectory()) {
+          const receipt = join(file, DIRECTORY_INPUT_RECEIPT);
+          const bound = `${path}/${DIRECTORY_INPUT_RECEIPT}`;
+          if (!existsSync(receipt) || !lstatSync(receipt).isFile()) {
+            refuse('REVIEW_PACKAGE_INPUT_INVALID', `config.${ref.at}: named input directory ${path} holds no regular-file ${DIRECTORY_INPUT_RECEIPT}; a directory input binds its producer's receipt, such as a comfy plate --mode occluder output`);
+          }
+          const bytes = readFileSync(receipt);
+          const spec = plateReceiptSpec(dir);
+          const declared = receiptSpec(bytes);
+          if (declared !== spec) {
+            refuse('REVIEW_PACKAGE_INPUT_INVALID', `config.${ref.at}: ${bound} declares spec ${JSON.stringify(declared)}; a directory input binds a ${spec} receipt, such as a comfy plate --mode occluder output`);
+          }
+          directories.add(path);
+          return { path: bound, source: receipt, bytes };
+        }
         if (!lstatSync(file).isFile()) refuse('REVIEW_PACKAGE_INPUT_INVALID', `config.${ref.at}: ${path} must be a regular file`);
         return { path, source: file, bytes: readFileSync(file) };
       });
@@ -310,9 +340,12 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
     // Registered builds retain adapter-relocated runtime inputs as well as the
     // loader's three config-file declarations. Preserve them on regeneration.
     if (isObject(version.registration) && version.registration.kind === 'frozen-rig/1') {
-      const prefix = `${relative(dir, dirname(config)).split(sep).join('/')}/inputs/`;
+      const configDir = relative(dir, dirname(config)).split(sep).join('/');
+      const prefix = `${configDir}/inputs/`;
       for (const binding of asArray(version.registration.files)) {
         if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(prefix)) continue;
+        const rel = binding.path.slice(configDir.length + 1);
+        if ([...directories].some(d => rel.startsWith(`${d}/`) && rel !== `${d}/${DIRECTORY_INPUT_RECEIPT}`)) continue;
         const file = source(binding.path);
         const bytes = readFileSync(file);
         if (hash(bytes) !== binding.sha256) refuse('REVIEW_PACKAGE_SOURCE_CHANGED', `${binding.path}: registered runtime input changed`);

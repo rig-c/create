@@ -163,7 +163,8 @@ export async function publishPending(
     if (!entry.result.selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: a result selector is required for reconciliation');
     if (entry.result.selector.kind === 'draft') prepareDraftManifest(entry.root, project, entry.result.selector.id);
     else prepareLiveManifest(entry.root, project, entry.result.selector.version);
-    await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result });
+    // The subjects this record declares; ingest refuses an act for one it did not (REVIEW_ACT_SUBJECT_UNDECLARED).
+    const { subjects } = await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result });
     entry.generation ??= host.session.status().generation;
     entry.phase = 'pending';
     failPublication(entry.root, entry, entry.failure);
@@ -183,7 +184,7 @@ export async function publishPending(
       refuse(code, `project.json: publication of record ${entry.recordHash} was refused by review (${code}); run rig-create job reconcile after restoring the bound sources`);
     }
     if (!result.value) refuse('JOB_OUTBOX_INVALID', 'project.json: publication response lacks its identity; reconcile the pending publication');
-    acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt);
+    acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt, subjects);
   } finally { host.stop(); }
 }
 

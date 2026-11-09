@@ -693,15 +693,11 @@
       "command": [
         "rig-create",
         "advance",
-        "plan-approved",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "plan-approved"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "27097d1de4939baa21194675a628c3a425a6358ae4b77aede16351308ce14cd1",
+      "output_sha256": "6f30c9ec74b75b4dfca5a2670c6e3df2a92a194a036167c6c85ec5d0aec261bd",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -722,7 +718,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "6071070552eb09fe858a6a54a09f57a1353f5c5e5a3c723030859be51f11d538",
+      "output_sha256": "f34714910bb4cc164737fa15b6cde102d4eda002709ff248f15c7bc600ad2a1f",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -737,15 +733,11 @@
       "command": [
         "rig-create",
         "advance",
-        "parts",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "parts"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "dd0a850c6d1ef7dacd89e8451744547a9922ec406a2b500ac62cb44d0dda32a6",
+      "output_sha256": "b7fb92ac782525e20c74895a8fc08b3328a914da1ca78e03d96f0ad5f32928b5",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -767,7 +759,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "aa93f4b08eb7d30605a7e3e05d244b6cd234b8419ad5905091258cad8a84e57f",
+      "output_sha256": "24bb6830aa317f99bbe01223c810d3648b3f4b6ca3b1947bb1a6adfec19cac32",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -789,7 +781,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "eac785a6dc098cd3c17ba8df07a58f11cd8260cadc2929e0d43124a4ddb64dfc",
+      "output_sha256": "951a721d7e110a20f4777536914e545ba4ff59618042e77d96120f9e96132740",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -811,7 +803,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f726bba870c4c8c406b9c503f4a54b9981f2963d5b541e470129f8c64047ff75",
+      "output_sha256": "af3cca620e3c3d76847320ff3bd215d32f4981c9d42079ef713be190a530fcb2",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -833,7 +825,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "9b0a92f217f0927aac36238cb8e747e1a768ccdbea4401b169eb250b2a4d5efc",
+      "output_sha256": "04b408fae028ad4b5be91c8eb18dd78ad723e4e461ba15359fde63690ab8b46c",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -855,7 +847,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "57bbe00053e9658714a9d6e3e5ffef244a064e4869d4f7715f9bf328d9ed3a2e",
+      "output_sha256": "11ca75c02813884c8410899574b363a4865fa6ca0f1bd06c460fedb1971b08a6",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -880,7 +872,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0a11a828f1999675851ef695185a3e60405c0920c149ffd3a5ee877c3f7f85ff",
+      "output_sha256": "d3d62deaa88e1a7cfb5012a124568450125dafc72692c4cb0042915e8c5194ac",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -902,7 +894,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a62a23ff34923b9bab992c3147fe57303ed396a90fa5c0eb0c0adb0bdc630ab4",
+      "output_sha256": "a3c1c9cc05e072016ee5de7be2d651c7476bd66e08fc8f10fb1db04e312279cf",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1000,7 +992,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "942da5e3607d2adebde0bded62d9c5f3b377e700eb94983a2e4a05bed8d448de",
+      "output_sha256": "944f0aef7c7743e9ad97ce10e61af76dc48ad1ee2cd41894315914bfc5a05846",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1063,7 +1055,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "953828ba6c3fd3ce03b9ff69225a20149935f74b5ebee2a05451513d7f86c707",
+      "output_sha256": "44b0cb5dd3b08fbdfc5afba04de435a036b7fdbe4407b465f6a76817c8ac8094",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1129,10 +1121,6 @@
         "rig-create",
         "advance",
         "parts-review",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt",
         "--parts-check",
         "evidence/parts-check.json",
         "--parts",
@@ -1140,7 +1128,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "44259acd84834f5e2ec791fe3410c72ddd312ddd5df9c0f58f9edffd21651d2f",
+      "output_sha256": "86d11412003af976f8e1a21537952b9b8e7dcc1173491b420049b5da1886a1ff",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1169,7 +1157,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ba16cd3b5c4d5008b82f85cb4d7250843ea7f950bbd7c12601df38172a18e921",
+      "output_sha256": "daae2cdc49e04987004d46133b6d5a6f4ecb29b63e324e988f9b2fdeda1f2bb7",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1184,15 +1172,11 @@
       "command": [
         "rig-create",
         "advance",
-        "rigging-interview",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "rigging-interview"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f24aca945ef4d302390bc2b96bf1f6fa15a99481540bc51ae4aa3d2c585d3da1",
+      "output_sha256": "e10d4b3101bf3c820e38d56edd6899f4bd35e0f3ff6a188a1df80647c6fc78e0",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1231,7 +1215,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "89e26091c0ccba8c5838d5cfa31083a25856096165880864817a9e3fd27b68c4",
+      "output_sha256": "8a71808f2040485691b8e10b6dc65afcbc11b3ae62776a10042d2d1b77c08029",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1262,7 +1246,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ea3e09ad4d95a81fd5aae180029a93e9b014d16a8b6535260e2dd36cdb71d3ac",
+      "output_sha256": "b1382d374cfd7d039abc8979ede50b60e1a2e86888229ce8ae63ef01e84cfb68",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1301,7 +1285,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "2ad8bba501149a9c08486d5c1312df6e90dcd393bf6a9541a954f9941e0960f8",
+      "output_sha256": "14257c12f7c22bfdb7e7615aaeaeef4365eb81453855e026794555564a3babb8",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1332,7 +1316,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "274867568bec0f09862cb1dcdc588e270a3267dc8722cb0da93cdaa963a12210",
+      "output_sha256": "b1944fdd783a713ec90ca5cf76f7be58bc6aedd26bd0c87b1979033e3a528b7e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1371,7 +1355,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "3afaa75c429cd4b2efece85f251d7b1623b6b6d612f5457cc5737c5e10dcc55d",
+      "output_sha256": "63650171498515cd2abfbcb9cae19ffecb6ca770c525d88bdbcc49cb9709cf24",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1406,7 +1390,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "050a2ea08363ab3ddf75fe67364e0723d9a51315404e23db28f56af53d767130",
+      "output_sha256": "54c9cd6785d6231534614c29c92a89d96370541b4c7a5d5ef83ef86eb98128aa",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1445,7 +1429,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "044bb96ee427a47d357487677da494eb0acfd95147f1e19d895cd900bde7ff1c",
+      "output_sha256": "24c35a391a33d434af76630f56aa4a9d26fefc0b3290d346aaa5dee4cbc502c4",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1480,7 +1464,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "4cc168cac183bdabba886ced02df660dd520a131bb465fce0137e0b102e46f98",
+      "output_sha256": "2c6b04ddbab5ce2392ae8e51e8a7066b38ab78d91d0b7c79fc8443f4c82c7cbf",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1503,7 +1487,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "343f317236326fb5ebd3b317097b1b36c4b1afec9a8be0ea2d96f45dd3ea6c39",
+      "output_sha256": "d0e7a2fcc76ee57b4e2527635f24dc6025e2c918004ffee8f3f470e962e511c2",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1522,15 +1506,11 @@
       "command": [
         "rig-create",
         "advance",
-        "rigging",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "rigging"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "bcf3087df13d4891476e6dc5ec89d6253533445b079efecca180b6481c49eb7f",
+      "output_sha256": "5fe9b169904cb78688b73d487ea12b1a0f76d60e27080473f1a66e9aa290245a",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1650,7 +1630,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a65eef224dddd6513714c11383cd02dbd8dc0b285a4bf3bb7cf33ccc8448df58",
+      "output_sha256": "f0543e4a6846f7140f89e38806d2b1e0f3e95ad94b1bbfeae5d88e522e65d236",
       "consumes": [
         "seed-60",
         "seed-61",
@@ -1883,7 +1863,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "e10e56f0a9b28a15999734b7e4e7f36fa55078b3153bf5202a0cdeaa76bae148",
+      "output_sha256": "13387f862eee9de2a7611bc7568b508bcfcdb0f602d3a2e4eec573a78e47e21a",
       "consumes": [
         "seed-67"
       ],
@@ -1904,15 +1884,11 @@
       "command": [
         "rig-create",
         "advance",
-        "rig-review",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "rig-review"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "36d0f6afa37eb739fdc63cee11322880813b5fd019126bdba37f9012e0cde88c",
+      "output_sha256": "3b4789519d912f5c4d08365c538d224dce76a6df3d72710188b47797b8e090ec",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1945,7 +1921,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "be53277731d866226e76bc2ed39872c4eb8ae4d56b7df9a29689898861fbab51",
+      "output_sha256": "2b7c2c36626e5119a30b71845ff32814a33049731ae5e94590845d6632520d52",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1974,7 +1950,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "e2055f606b3fb1fc728b81bf10f79149737ea64a08eabbf4de912d5367d5b17f",
+      "output_sha256": "d4b78a771f3e5e4aed32f416c62c17b1e8518085c9ada3de478d7cc268162bcb",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1993,15 +1969,11 @@
       "command": [
         "rig-create",
         "advance",
-        "post-interview",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "post-interview"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "b54e7f12391f5551ba6f8871a4f4ef786906c3cc4b4e31f67c5d4d8a87117406",
+      "output_sha256": "74cf787822d925dfa549707f4a14e031abf3f8bedfd9935cf42b45225317c324",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2155,7 +2127,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "52423ef3605131f7c7bf83f9832aeadf9fdc806f5604ae939db4161684c152e2",
+      "output_sha256": "40f4a5b82e63f063ab3647fd4babc714ba8b49b70fd22fdd112973e23610b561",
       "consumes": [
         "seed-73",
         "seed-74",
@@ -2190,7 +2162,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "fa127cabda3f8c25b2b2e21f7d6aee887dda97030e14d66c16388bcfbf9b44b7",
+      "output_sha256": "3a1557221f9438879c4e14cbd8197099961c73d009ba63c23705d8889371ec05",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2233,7 +2205,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "114e5bf16218c5c9b47730db47af273b4ffc5f68769a8876419a7e1e12d6dd0a",
+      "output_sha256": "1948928e17d613d7fe495491e3f30464abbb8cd938246b29974fd8ab695d6a76",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2264,7 +2236,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ece6d5728f840f91b047d27c94028fae71bdf8d250d15c1870ea4f4d55d43d4d",
+      "output_sha256": "5930fb71f6882fb5b76f8dabaf4f709020f247bc5817120b28267e9a4ceb33a4",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2307,7 +2279,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "52534e2f66358b6f5e98d6a6540a1ef427afadab3dd0808444b87466ea3a386b",
+      "output_sha256": "66277e887df09f3ccad4eb112322291cc196602b90236d5403fdd6797af78cd7",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2338,7 +2310,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "d4ac829b0f8f3ee7ba96e85a7407a63072e79c2191e5edcfeada02f1162aaa3b",
+      "output_sha256": "963fb036e86ac6d3ba548250bd0ef8e162b9fb7ab5da2624499577519bda2ff8",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2365,7 +2337,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "f42b621f5926aeb69749464948f0e4231531d19dace749f9386bca56e8b94504",
+      "output_sha256": "8e7afc14f7502e021d787b340f4dfd95d092f010dfaffd119e030ff83157c1f9",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2387,15 +2359,11 @@
       "command": [
         "rig-create",
         "advance",
-        "post",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "post"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "5a02e1ab692fbfed6204e9ba32574f40b2b9ad19c8087ac5a881603af8f05db3",
+      "output_sha256": "211b1273ff7a8da314e37191556af85bed56b98eb4ec5178f1f4e07eb3ae6b50",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2493,7 +2461,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "776ba0abd09aae6c6d314512f345388128ac79472ba9607ca6868511db310c03",
+      "output_sha256": "37d8519f75cb2c875bfd74a2051c26f74a4877d2b9dd30f368e4e5c5f5563309",
       "consumes": [
         "seed-87",
         "seed-88",
@@ -2543,7 +2511,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "aa4923b0abd97f5fe142e3dd6ba8c84db6c278f8d8e177a9aee6c810bf0abf8b",
+      "output_sha256": "12d23d9c672104b21ba68d0b2830e8afde490227bdb8012d91a7fdd66387086c",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2596,7 +2564,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "32f6556ea32663c1a1fc0002384ca7a254407723657d443f0641b9cedff0ffb5",
+      "output_sha256": "a945e3a1912c061a7b4d804f8b3326aedffce7c3c1f1d404b44bebd2d2b5bebe",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2646,7 +2614,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "8f45c8075873a159c9ed79a7ec5d2cbab073014b06b0be58090406d50c8691a0",
+      "output_sha256": "0630f21b765b960cbd825c2c999162cffcbdf52c162aec7a34571c1e4aca4349",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2675,7 +2643,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "8f45c8075873a159c9ed79a7ec5d2cbab073014b06b0be58090406d50c8691a0",
+      "output_sha256": "0630f21b765b960cbd825c2c999162cffcbdf52c162aec7a34571c1e4aca4349",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2698,15 +2666,11 @@
       "command": [
         "rig-create",
         "advance",
-        "direction-review",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "direction-review"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0a1f41cff27dd8c49b990b77a0936553a476119e35d7a53ab4239fd6cd11624a",
+      "output_sha256": "774ad5d68e27d97f0c291c41e7be052b6c7f5a5acdea6c1c486e9546a5795eca",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2743,7 +2707,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "c8efe2c79199df47cf30be2003aa25cec7dd71934faa085e5964765bddbc480e",
+      "output_sha256": "ecc2dd65483fd826c45b7c760d86feafdeea3a5111396532cb0a391354a17389",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2776,7 +2740,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "e128b79ab60d13dae5486c7ba471adf678471d9a5a639de872db9745ce1181aa",
+      "output_sha256": "7fad6a337370671e0bdaadba32646b62ddbbecac61b373a5563d98aed9814dc1",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2799,15 +2763,11 @@
       "command": [
         "rig-create",
         "advance",
-        "accepted",
-        "--by",
-        "user",
-        "--verbatim-file",
-        "evidence/approval.txt"
+        "accepted"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7b76f73d4c38e3dc0234e15dc55841762e52040c87c1419f3987420a04263640",
+      "output_sha256": "5191f5abfbd82d1a1abacb9c372c7966910a53fdeb9752f02dba4a869d4d0f5f",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2835,7 +2795,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7b76f73d4c38e3dc0234e15dc55841762e52040c87c1419f3987420a04263640",
+      "output_sha256": "5191f5abfbd82d1a1abacb9c372c7966910a53fdeb9752f02dba4a869d4d0f5f",
       "consumes": [],
       "bindings": {
         "inputs[]": "56765453c9f4c3db276d0c27747d3158f310c842cc4f523ade46fd20b6f50db7",
@@ -2863,7 +2823,7 @@
       ],
       "exit": 0,
       "output_path": "evidence/captions.json",
-      "output_sha256": "80aba6ee6ffe7ffd38ad01463f1faa3cc00ee064e9f8575bbf12c82503116590",
+      "output_sha256": "691092b7fa122f6b9c862e1d890f658a9919f2ef0b191f19a3f914157e20d13c",
       "consumes": [
         "seed-5"
       ],

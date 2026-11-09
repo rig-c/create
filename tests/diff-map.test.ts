@@ -89,7 +89,7 @@ describe('B0 normal writer and both producer layouts', () => {
     expect(obj(arr(obj(signed.diff_map).components)[0]).why).toBe('observed: synthetic difference');
     // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-    advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    advanceCommand(['rigging', dir]);
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
     expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'FIX_LEDGER_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
@@ -175,7 +175,7 @@ test('a directory not named rig has only the build candidate', () => {
 test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
   const dir = project((s, p) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; p.stage = 'parts-review'; p.advances = []; });
   writeFileSync(join(dir, 'words.txt'), 'Advance the historical synthetic approval.');
-  advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  advanceCommand(['rigging', dir]);
   const report = checkProject(dir);
   expect(report.refusals).toEqual([]);
   expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'FIX_LEDGER_MISSING', 'DIFF_MAP_PREDATES', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);

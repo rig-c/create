@@ -10,7 +10,7 @@
       "rig-create parts-review --draft chain --from-review-cli --by user -- derived/drafts/chain/input --verdict evidence/parts-review.json",
       "rig-create structure-snapshot --draft chain --out evidence/structure.json",
       "rig-parts diff-components --stack assembled/render/recomposite_rig.png --painting painting.png --parts assembled/rig/parts.json --floor 2 --threshold 40 --out diff-components.json",
-      "rig-create advance parts-review --by user --verbatim-file evidence/approval.txt --parts-check evidence/parts-check.json --parts derived/drafts/chain/input",
+      "rig-create advance parts-review --parts-check evidence/parts-check.json --parts derived/drafts/chain/input",
       "rig-create signoff parts-review --by user --verbatim-file evidence/approval.txt --draft chain --structure-file evidence/structure.json --diff-report evidence/diff-components.json"
     ],
     "command_roles": [
@@ -32,7 +32,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "942da5e3607d2adebde0bded62d9c5f3b377e700eb94983a2e4a05bed8d448de",
+  "project_sha256": "944f0aef7c7743e9ad97ce10e61af76dc48ad1ee2cd41894315914bfc5a05846",
   "files": [
     {
       "path": ".gitignore",
@@ -196,7 +196,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "942da5e3607d2adebde0bded62d9c5f3b377e700eb94983a2e4a05bed8d448de"
+      "sha256": "944f0aef7c7743e9ad97ce10e61af76dc48ad1ee2cd41894315914bfc5a05846"
     }
   ]
 }

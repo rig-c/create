@@ -45,7 +45,7 @@ function parts(start: number): string {
     retimeFixture(p, start);
     for (const raw of arr(obj(p.plan).steps)) obj(raw).status = 'pending';
   });
-  at(start); advanceCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  at(start); advanceCommand(['parts', dir]);
   expect(read(dir).stage).toBe('parts');
   return dir;
 }

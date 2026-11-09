@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
-import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
 import { collectAmendments } from './amend.ts';
@@ -13,9 +12,9 @@ import { isPartsCheckMove, partsCheckLines, partsCheckRecord } from './parts-che
 import type { JsonObject } from './templates.ts';
 
 export const PROGRESS_HELP = `advance:
-  <stage> [<project dir>] --by <who> [--verbatim-file <file>] [--source <text>]
-         [--parts-check <report> --parts <assembled dir>]
+  <stage> [<project dir>] [--source <text>] [--parts-check <report> --parts <assembled dir>]
   Move one authorized stage forward and append advances[] with its stable signoff identity.
+  The person's signoff is the move's authority; advance takes no --by or words of its own.
   parts -> parts-review requires both: a passing rig-parts check-parts report retained
   under the project and the project-relative assembled root it was run on.
 step-status:
@@ -32,14 +31,16 @@ function options(args: string[], command: string): { positional: string[]; opts:
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') json = true;
-    else if (['--by', ...(command === 'advance' ? ['--verbatim-file', '--source', '--parts-check', '--parts'] : [])].includes(arg)) {
+    else if (command === 'advance' && (arg === '--by' || arg === '--verbatim-file')) {
+      refuse('ADVANCE_WORDS_REMOVED', `advances: advance no longer takes ${arg}; the move records the live stage signoff it rests on, so record the person's approval with signoff (from the review tool: signoff <stage> --from-review <actId>) and advance without words`, USAGE_EXIT);
+    } else if ((command === 'advance' ? ['--source', '--parts-check', '--parts'] : ['--by']).includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value.trim() === '') refuse('PROGRESS_OPTION_INVALID', `${command}: ${arg} needs one value; see help`, USAGE_EXIT);
       opts[arg] = value;
     } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `${command}: unsupported ${arg}; see help`, USAGE_EXIT);
     else positional.push(arg);
   }
-  if (opts['--by'] === undefined) refuse('PROGRESS_OPTION_INVALID', `${command}: supply --by; see help`, USAGE_EXIT);
+  if (command !== 'advance' && opts['--by'] === undefined) refuse('PROGRESS_OPTION_INVALID', `${command}: supply --by; see help`, USAGE_EXIT);
   return { positional, opts, json };
 }
 
@@ -76,9 +77,10 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
   const preParts = !hasStageOrder(project) && stageIndex(String(project.stage)) > stageIndex('parts-review')
     && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null && s.at < Date.parse(PARTS_REVIEW_SINCE));
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
-  const entry: JsonObject = { stage: positional[0]!, from_stage: project.stage ?? null, by: opts['--by']!, at: new Date(now).toISOString(),
+  // The entry records the signoff it rests on and no person's words: the authority is that signature.
+  const entry: JsonObject = { stage: positional[0]!, from_stage: project.stage ?? null, at: new Date(now).toISOString(),
     post_not_passed: postNotPassed({ items: collectItems(project, { collection: loadCollection(dir) }) }),
-    order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), verbatim: readVerbatim(opts['--verbatim-file'] ?? '-'), signoff: signoffIdentity(latest.record),
+    order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), signoff: signoffIdentity(latest.record),
     steps_before: steps.map(s => ({ id: s.id ?? null, phase: s.phase ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   // A live signature at an earlier stage is not this move's authority; name the stage to sign, not the candidate.

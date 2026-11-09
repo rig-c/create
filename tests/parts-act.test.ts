@@ -88,7 +88,7 @@ async function submit(root: string, host: JobOwnerHost, verdict: JobVerdict = 'a
 
 function prepareSignoff(root: string, _evidence: string): void {
   structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure.json']);
-  advanceCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'),
+  advanceCommand(['parts-review', root,
     '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
 }
 function sign(root: string, _evidence: string): void {
@@ -274,7 +274,7 @@ test('competing human value flags refuse without record mutation', async () => {
 });
 
 function answerRiggingInterview(root: string): void {
-  advanceCommand(['rigging-interview', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt')], Date.now());
+  advanceCommand(['rigging-interview', root], Date.now());
   const items = collectItems(read(root), { collection: null })
     .filter(item => interviewStageOfGuide(item.id, item.kind === 'post', true) === 'rigging-interview');
   for (const item of items) {

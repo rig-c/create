@@ -88,13 +88,13 @@ test('a write that adds a refusal is refused with only the new code and leaves t
 test('advance still requires check to pass: a carried refusal blocks the stage boundary', () => {
   const clean = chain('3-rig-review', false);
   acceptRig(clean);
-  tick(); advanceCommand(['post-interview', clean, '--by', 'owner', '--verbatim-file', words(clean)]);
+  tick(); advanceCommand(['post-interview', clean]);
   expect(read(clean).stage).toBe('post-interview');
   minute = 0;
   const dir = chain('3-rig-review', true);
   acceptRig(dir);
   tick();
-  refused(dir, PLANTED.code, () => advanceCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
+  refused(dir, PLANTED.code, () => advanceCommand(['post-interview', dir]));
   expect(read(dir).stage).toBe('rig-review');
 });
 

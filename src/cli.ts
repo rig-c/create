@@ -65,11 +65,12 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record what a person said about a shown version, word for word
   rig-create diff-classes [<dir>] --diff-report <path>
                                                     read measured component classes for triage
+  rig-create signoff <stage> --from-review <actId> [<project dir>]
   rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>]
                                                     record a signature without moving the stage
   rig-create plan add|revise|remove <id> --by <drafter> [<project dir>]
                                                     draft steps and retain replaced definitions
-  rig-create advance <stage> --by <who> [--verbatim-file <file>] [<project dir>]
+  rig-create advance <stage> [<project dir>]
                                                     move to the next stage authorized by a live signoff
   rig-create step-status <step> <status> --by <who> [<project dir>]
                                                     record an audited forward step status

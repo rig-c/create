@@ -118,13 +118,16 @@ stand in for it.
 ### Recording forward progress
 
 ```sh
-rig-create advance <stage> --by <who> --verbatim-file words.txt [<project dir>] [--json]
-rig-create advance parts-review --by <who> --verbatim-file words.txt --parts-check evidence/parts-check.json --parts <assembled dir>
+rig-create advance <stage> [<project dir>] [--json]
+rig-create advance parts-review --parts-check evidence/parts-check.json --parts <assembled dir>
 rig-create step-status <step> <status> --by <who> [<project dir>] [--json]
 ```
 
-`signoff` records approval, then `advance` records the human move. The stage
-level signature closes its named stage. `plan-approved` authorizes `parts`
+`signoff` records approval, then `advance` records the move that approval
+authorizes. The move's authority is the person's stage-level signature, so
+`advance` takes no `--by` or words of its own (`ADVANCE_WORDS_REMOVED`): its
+entry names the signature it rests on. The stage level signature closes its
+named stage. `plan-approved` authorizes `parts`
 for both the split-interview order and the legacy order that includes parts.
 Only an already-passed pre-parts project keeps the historical route to rigging.
 The legacy order omits `rigging-interview`; explicit adoption adds it.
@@ -147,11 +150,13 @@ classes parts cannot measure yet, are printed one named line each and stored;
 a HOLE is not a pass and does not block (CHECKS.md § Parts-stage check at the
 parts → parts-review move).
 
-`advances[]` retains `{ stage, from_stage, by, at, verbatim, source?,
+`advances[]` retains `{ stage, from_stage, at, source?,
 steps_before, signoff, signoffs_before, order, post_not_passed, parts_check? }`,
 with `parts_check { path, sha256, spec, parts, exit_code, holes, reported }` on
 a `parts` → `parts-review` move, copied from the report and bound by its sha256. The clock supplies `at`,
-the UTF-8 words are unchanged, and `signoff` is the stable `{ stage, checkpoint, at }` approval identity.
+and `signoff` is the stable `{ stage, checkpoint, at }` identity of the human approval the move rests on.
+Entries written before advance stopped taking words also carry the mover's `by` and UTF-8 `verbatim`;
+they stay valid when both are strings and `by` is not `agent`.
 `steps_before` retains each step id, required phase and original status so a historical bar exit still requires completed work after replanning.
 `signoffs_before` preserves the approval identities present at the move,
 including tied timestamps. Reordering signatures preserves these references. `order` retains `legacy`, `split` or `pre-parts` so later
@@ -751,6 +756,7 @@ checkpoints against history. Live approvals bind current steps.
 ## Recording a sign-off
 
 ```sh
+rig-create signoff <stage> --from-review <actId> [<project dir>] [--json]
 rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>] [<project dir>] [--json]
 ```
 
@@ -759,6 +765,28 @@ comes from the clock. There is no `--at` option. The user's UTF-8 words come
 from the file, or stdin when omitted or `-`, preserving BOM, spaces, CRLFs and
 final newlines. Invalid UTF-8 is refused because a JSON string cannot retain
 its original bytes.
+
+`--from-review <actId>` without `--checkpoint` is the review tool's stage
+sign-off route (with `--checkpoint <id>` it records a passed checkpoint act
+instead; see CHECKS.md). It fetches the person's
+finalized `signoff` act through the live job writer binding, the way
+`review --from-review` and `interview-answer --from-review` do, and validates
+it with the same decoder the check runs on the retained act bytes. The act
+supplies the stage (it must be the one named), the words, the person (`by` is
+`user` for the job owner, `delegate` otherwise) and `at`; `--by`,
+`--verbatim-file` and `--steps` are refused with it on both routes
+(`SIGNOFF_OPTION_INVALID`). For `plan-approved`, `rigging-interview` and
+`post-interview` the act's `source.plan` must list the current `plan.steps`
+ids and step hashes in order, or the write refuses `REVIEW_ACT_SOURCE_STALE`;
+coverage and `step_hashes` then follow the writer's usual rules. For
+`rig-review` and `direction-review` the act's `source.selector` names the
+version the person was shown (a `rig` version, or a `post` version), and that
+version is the signature's `target`; `--version` may only repeat it. A missing
+or other-kind selector, or a different `--version`, refuses
+`REVIEW_ACT_TARGET_MISMATCH`. The signature
+names its act in `source` (`review act <jobId>/<actId>`), and `review_acts[]`
+retains `{ kind: "signoff", jobId, actId, stage, bytes, sha256, version_hash }`.
+Replaying the same act returns the recorded signature unchanged.
 
 For new-order `plan-approved`, coverage is the parts steps; `rigging-interview` covers the remaining rig steps. Legacy `plan-approved` covers every rig step. For `post-interview`, it is
 every post step. `--steps` narrows coverage within that phase and stores the

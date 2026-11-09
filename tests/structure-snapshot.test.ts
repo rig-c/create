@@ -56,14 +56,14 @@ function setup(): string {
   reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words]);
   testClock.set(new Date('2026-11-19T00:00:02Z'));
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words]);
-  advanceCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words]);
+  advanceCommand(['parts', dir]);
   testClock.set(new Date('2026-11-19T00:00:03Z'));
   for (const id of ['seethrough', 'assemble']) {
     for (const status of ['in-progress', 'at-checkpoint']) stepStatusCommand([id, status, dir, '--by', 'agent']);
     if (id === 'assemble') signoffCommand(['parts', dir, '--checkpoint', id, '--by', 'owner', '--verbatim-file', words]);
     stepStatusCommand([id, 'done', dir, '--by', 'agent']);
   }
-  advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', words, ...withPartsCheck(dir)]);
+  advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]);
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   draft(dir, 'shape', { meshes: MESHES, bones: { root: {} } });
   recordPartsReceipt(dir, 'shape', testClock.now());

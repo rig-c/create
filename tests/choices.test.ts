@@ -342,7 +342,7 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');testClock.set(new Date('2026-11-10T16:10:00Z'));
   signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
   expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-  advanceCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
+  advanceCommand(['plan-approved',w.dir]);
   const beforeApproval=readFileSync(join(w.dir,'project.json'));
   expect(code(()=>signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('DELEGATION_UNDECIDED');
   expect(readFileSync(join(w.dir,'project.json'))).toEqual(beforeApproval);
@@ -353,7 +353,7 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   writeFileSync(fragment,JSON.stringify({ground}));expect(JSON.parse(decide()).value).toEqual({ground});expect(checkProject(w.dir).refusals).toEqual([]);
   signoffCommand(['plan-approved',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
   expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-  advanceCommand(['parts',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
+  advanceCommand(['parts',w.dir]);
   expect(checkProject(w.dir).refusals).toEqual([]);
 });
 

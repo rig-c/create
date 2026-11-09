@@ -17,6 +17,9 @@ export type InterviewPicksAct = Extract<JobAct, { kind: 'interview-picks' }>;
 export type PartsVerdictAct = Extract<JobAct, { kind: 'parts-verdict' }>;
 export type ReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
 export type CheckpointAct = Extract<JobAct, { kind: 'checkpoint' }>;
+export type SignoffAct = Extract<JobAct, { kind: 'signoff' }>;
+/** Review requires a displayed plan before it creates a signoff act for these stages (job-contract JOB_PLAN_BOUND_SIGNOFF_STAGES). */
+export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'rigging-interview', 'post-interview'];
 export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string }
 const object = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -31,8 +34,9 @@ export function decodeReviewAct(bytes: string): ReviewVerdictAct;
 export function decodeReviewAct(bytes: string, kind: 'interview-picks'): InterviewPicksAct;
 export function decodeReviewAct(bytes: string, kind: 'parts-verdict'): PartsVerdictAct;
 export function decodeReviewAct(bytes: string, kind: 'checkpoint'): CheckpointAct;
-export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct;
-export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' = 'review-verdict'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct {
+export function decodeReviewAct(bytes: string, kind: 'signoff'): SignoffAct;
+export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct;
+export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' = 'review-verdict'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct {
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
@@ -53,7 +57,7 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
     || !object(reviewer) || typeof reviewer.id !== 'string' || !reviewer.id.trim() || !['owner', 'delegate'].includes(String(reviewer.role))
     || !object(source) || !sha(source.sourceHash) || !sha(source.projectHash)
     || !object(source.package) || !id(source.package.id) || typeof source.package.revision !== 'string'
-    || !object(value) || kind !== 'interview-picks' && kind !== 'checkpoint' && (typeof value.words !== 'string' || !['pending', 'approved', 'changes-requested'].includes(String(value.verdict)))) {
+    || !object(value) || kind !== 'interview-picks' && kind !== 'checkpoint' && kind !== 'signoff' && (typeof value.words !== 'string' || !['pending', 'approved', 'changes-requested'].includes(String(value.verdict)))) {
     failure('REVIEW_ACT_INVALID', 'act identity, authority, source or verdict is malformed');
   }
   if (kind === 'interview-picks') {
@@ -75,6 +79,18 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
       failure('REVIEW_ACT_INVALID', 'checkpoint plan, step identity, outcome or words are malformed');
     }
     return act as unknown as CheckpointAct;
+  }
+  if (kind === 'signoff') {
+    // The stage is the writer's to validate; a plan-bound stage carries the displayed step identities.
+    const plan = source.plan;
+    if (!id(value.stage) || value.decision !== 'approved' || typeof value.words !== 'string'
+      || Object.keys(value).some(key => !['stage', 'decision', 'words'].includes(key))
+      || plan !== null && plan !== undefined && (!object(plan) || !Array.isArray(plan.steps)
+        || plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))
+      || PLAN_BOUND_SIGNOFF_STAGES.includes(value.stage) && (!object(plan) || !Array.isArray(plan.steps) || !plan.steps.length)) {
+      failure('REVIEW_ACT_INVALID', 'signoff stage, decision, words or displayed plan is malformed');
+    }
+    return act as unknown as SignoffAct;
   }
   if (kind === 'parts-verdict') {
     const selector = source.selector;
@@ -123,7 +139,7 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   return act as unknown as ReviewVerdictAct;
 }
 
-export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' = 'review-verdict'): { act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct; bytes: string } {
+export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' = 'review-verdict'): { act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct; bytes: string } {
   let response: JsonObject;
   try { const parsed: unknown = JSON.parse(text); if (!object(parsed)) throw Error(); response = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'Review response is not JSON'); }
@@ -143,7 +159,7 @@ export interface ReviewActTransport {
   jobId: string;
   actId: string;
   fetchCapability: string;
-  kind?: 'parts-verdict' | 'interview-picks' | 'checkpoint';
+  kind?: 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff';
 }
 
 /** Only the route and fetch grant leave the binding reader. Never attach a host. */
@@ -160,7 +176,7 @@ export function reviewActTransport(root: string, actId: string): ReviewActTransp
   return { origin: origin.origin, jobId: binding.jobId, actId, fetchCapability: binding.fetchCapability };
 }
 
-export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct; bytes: string; stillBytes?: string }> {
+export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct; bytes: string; stillBytes?: string }> {
   const requestId = randomUUID();
   const request = JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId });
   async function read(accept: string): Promise<Response> {
@@ -173,7 +189,7 @@ export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter
       return response;
     } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
   }
-  if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks' || transport.kind === 'checkpoint') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
+  if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks' || transport.kind === 'checkpoint' || transport.kind === 'signoff') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
   const bytes = await (await read('application/vnd.rig-review.act+json')).text();
   const act = decodeReviewAct(bytes);
   if (act.jobId !== transport.jobId || act.actId !== transport.actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
@@ -207,7 +223,7 @@ export function reviewActVersionHash(project: JsonObject, act: ReviewVerdictAct,
 function previousPublicationVerdict(project: JsonObject, act: ReviewVerdictAct): number | undefined {
   if (!Array.isArray(project.review_acts)) return undefined;
   const receipts = project.review_acts.filter(object).filter(entry => {
-    if (entry.kind === 'parts-verdict' || entry.kind === 'interview-picks' || entry.kind === 'checkpoint' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
+    if (entry.kind === 'parts-verdict' || entry.kind === 'interview-picks' || entry.kind === 'checkpoint' || entry.kind === 'signoff' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
     return decodeReviewAct(entry.bytes).publicationId === act.publicationId;
   });
   return receipts.length ? Math.min(...receipts.map(entry => Number(entry.verdict))) : undefined;
@@ -278,6 +294,28 @@ export function checkpointActSignoff(act: CheckpointAct): { by: string; at: stri
     verbatim: act.value.words, source: `review act ${act.jobId}/${act.actId}` };
 }
 
+/** The human values a signoff act records. The act names itself in source; the stage is the writer's, never Review's. */
+export function reviewActSignoff(act: SignoffAct): JsonObject {
+  return { stage: act.value.stage, checkpoint: null, by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate',
+    at: act.at, verbatim: act.value.words, source: `review act ${act.jobId}/${act.actId}` };
+}
+
+/** Stages whose sign-off names a reviewed version, and the version kind each one signs. */
+export const SIGNOFF_TARGET_KINDS: Readonly<Record<string, 'rig' | 'post'>> = { 'rig-review': 'rig', 'direction-review': 'post' };
+
+/** The version a target-stage signoff act displayed, or null when its selector names no version of that stage's kind. */
+export function signoffActVersion(act: SignoffAct): number | null {
+  const kind = SIGNOFF_TARGET_KINDS[act.value.stage];
+  const selector = act.source.selector;
+  if (kind === undefined || !object(selector) || selector.kind !== kind) return null;
+  return Number.isSafeInteger(selector.version) && Number(selector.version) >= 1 ? Number(selector.version) : null;
+}
+
+/** The stable { stage, checkpoint, at } identity its receipt binds. */
+export function signoffActIdentity(act: SignoffAct): JsonObject {
+  return { stage: act.value.stage, checkpoint: null, at: act.at };
+}
+
 /** Ledger validation deliberately checks retained evidence, not current sources. */
 export function reviewActFindings(project: JsonObject): { code: string; path: string; message: string }[] {
   if (project.review_acts === undefined) return [];
@@ -292,7 +330,7 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
     try {
       if (!object(entry) || entry.schema !== 'rig-create/review-act@1' || typeof entry.bytes !== 'string'
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
-      const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : 'review-verdict');
+      const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : 'review-verdict');
       if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
       const key = JSON.stringify([act.jobId, act.actId]);
       if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
@@ -328,6 +366,18 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded checkpoint sign-off differs from the immutable passed act');
         }
         // The sign-off's source names this act, so a second receipt cannot point at it.
+        return;
+      }
+      if (act.kind === 'signoff') {
+        const expected = reviewActSignoff(act);
+        const recorded = asArray(project.signoffs).filter(object).filter(signoff => signoff.source === expected.source);
+        const target = recorded.length === 1 && object(recorded[0]!.target) ? recorded[0]!.target : null;
+        if (entry.stage !== act.value.stage || entry.version_hash !== jobHash(JSON.stringify(signoffActIdentity(act))) || recorded.length !== 1
+          || Object.entries(expected).some(([key, value]) => recorded[0]![key] !== value)
+          // A target stage's signature belongs to the version the person was shown.
+          || act.value.stage in SIGNOFF_TARGET_KINDS && (target === null || target.version !== signoffActVersion(act))) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded signoff differs from the immutable act');
+        }
         return;
       }
       if (!Number.isSafeInteger(entry.verdict) || Number(entry.verdict) < 0 || entry.version !== ('version' in act.source.selector! ? act.source.selector.version : null)) failure('REVIEW_ACT_LEDGER_INVALID', 'verdict receipt target is invalid');

@@ -140,9 +140,20 @@ test.each([
   expect(calls).toEqual([]);
 });
 
-test('--from-review without --checkpoint refuses as usage', () => {
-  const { dir } = bound();
-  expect(refused(dir, () => rawSignoff(['rigging', dir, '--from-review', 'checkpoint-act-1'], testClock.now(), {}))).toMatchObject({ code: 'SIGNOFF_OPTION_INVALID', exitCode: 2 });
+test('--from-review without --checkpoint takes the stage sign-off route, so a checkpoint act there is the wrong kind', () => {
+  const { dir, at } = bound();
+  const kinds: string[] = [];
+  const hooks: SignoffHooks = { fetch: transport => { kinds.push(String(transport.kind)); return { bytes: JSON.stringify(checkpointAct(dir, at)) }; } };
+  expect(refused(dir, () => rawSignoff(['rigging', dir, '--from-review', 'checkpoint-act-1'], testClock.now(), hooks))).toMatchObject({ code: 'REVIEW_ACT_KIND_MISMATCH' });
+  expect(kinds).toEqual(['signoff']);
+});
+
+test('--steps refuses with --from-review on the checkpoint route before fetching', () => {
+  const { dir, at } = bound();
+  const calls: string[] = [];
+  const error = refused(dir, () => ingest(dir, checkpointAct(dir, at), ['--steps', 'constraints'], 'rigging', 'constraints', calls));
+  expect(error).toMatchObject({ code: 'SIGNOFF_OPTION_INVALID', exitCode: 2 });
+  expect(calls).toEqual([]);
 });
 
 test('check refuses a tampered sign-off, a failed act behind a receipt and a second act receipt on the same sign-off', () => {

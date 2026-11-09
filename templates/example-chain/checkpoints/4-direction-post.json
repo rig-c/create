@@ -13,7 +13,7 @@
       "agent draft evidence/direction-input.json",
       "rig-create direction write 2 --file evidence/direction-input.json --rig 1",
       "rig-create direction check 2 --json",
-      "rig-create advance direction-review --by user --verbatim-file evidence/approval.txt",
+      "rig-create advance direction-review",
       "rig-create review 2 --verdict accepted --by user --review direction-review --verbatim-file evidence/approval.txt --source synthetic example",
       "rig-create signoff direction-review --by user --verbatim-file evidence/approval.txt --version 2"
     ],
@@ -42,7 +42,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "776ba0abd09aae6c6d314512f345388128ac79472ba9607ca6868511db310c03",
+  "project_sha256": "37d8519f75cb2c875bfd74a2051c26f74a4877d2b9dd30f368e4e5c5f5563309",
   "files": [
     {
       "path": ".gitignore",
@@ -450,7 +450,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "776ba0abd09aae6c6d314512f345388128ac79472ba9607ca6868511db310c03"
+      "sha256": "37d8519f75cb2c875bfd74a2051c26f74a4877d2b9dd30f368e4e5c5f5563309"
     }
   ]
 }

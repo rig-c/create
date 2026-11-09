@@ -60,7 +60,7 @@ function acceptNewRig(dir: string, start = 0): void {
   tick(2); expect(main(['review-package', '3', dir, '--config', 'evidence/v1/config.json', '--from', 'outputs/v1/out'])).toBe(0);
   tick(3); reviewCommand(['3', dir, '--verdict', 'accepted', '--by', 'user', '--review', 'rig-review', '--verbatim-file', words(dir), '--source', 'synthetic example']);
   tick(4); signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words(dir), '--version', '3']);
-  tick(5); advanceCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
+  tick(5); advanceCommand(['post-interview', dir]);
 }
 
 test('(a) a rig accepted after the scene anchors post sets on that rig, never on the previous rig\'s scene', () => {

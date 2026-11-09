@@ -133,7 +133,7 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   signoffCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
   expect(checkProject(dir).refusals.map(f=>f.code)).toContain('STAGE_LAGGING');
-  advanceCommand(['post',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+  advanceCommand(['post',dir]);
   testClock.set(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
   const f=setup();testClock.set(new Date('2026-11-21T09:10:00Z'));const doc=f.doc;

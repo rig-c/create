@@ -192,7 +192,7 @@ test('the finished chain binds its own approved parts, package model and signed 
   const stages = ['plan-approved', 'parts', 'parts-review', 'rigging-interview', 'rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'];
   expect(moves.map(move => move.stage)).toEqual(stages);
   expect(receipt.steps.filter(step => step.command[1] === 'advance').map(step => step.command)).toEqual(
-    stages.map(stage => ['rig-create', 'advance', stage, '--by', 'user', '--verbatim-file', 'evidence/approval.txt',
+    stages.map(stage => ['rig-create', 'advance', stage,
       ...(stage === 'parts-review' ? ['--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'] : [])]));
   const partsCheck = receipt.steps.find(step => step.step === 'parts-stage check report')!;
   expect(partsCheck.kind).toBe('producer');
@@ -359,7 +359,7 @@ test.each([
   }
   if (stage === 1 || stage === 4) {
     expect(declaration.pending.awaits).toContain('project.stage');
-    expect(declaration.pending.commands).toContain(`rig-create advance ${stage === 1 ? 'parts-review' : 'direction-review'} --by user --verbatim-file evidence/approval.txt${stage === 1 ? ' --parts-check evidence/parts-check.json --parts derived/drafts/chain/input' : ''}`);
+    expect(declaration.pending.commands).toContain(`rig-create advance ${stage === 1 ? 'parts-review' : 'direction-review'}${stage === 1 ? ' --parts-check evidence/parts-check.json --parts derived/drafts/chain/input' : ''}`);
   }
   if (stage === 4) {
     expect(report.refusals).toEqual([]);

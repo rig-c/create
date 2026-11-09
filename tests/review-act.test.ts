@@ -48,7 +48,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate'], EXAMPLE_NOW);
     sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', root], EXAMPLE_NOW);
     directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
-    advanceCommand(['direction-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt')], EXAMPLE_NOW);
+    advanceCommand(['direction-review', root], EXAMPLE_NOW);
   }
   const hidden = temporary('create-act-hidden-');
   // The actual host state path is never installed in the consumer binding.

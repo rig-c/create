@@ -94,7 +94,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words, ...flags], clock.now); reload();
     if (p.stage === stage && !['parts-review', 'rig-review'].includes(stage)) {
       const next = STAGES[STAGES.findIndex(s => s.id === stage) + 1]!.id;
-      advanceCommand([next, dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
+      advanceCommand([next, dir], clock.now); reload();
     }
   };
   const finish = (phase: string, ids?: string[]): void => {
@@ -140,7 +140,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   // The producer's parts-stage check on the retained assembled root, bound by the advance.
   files[EXAMPLE_PARTS_CHECK] = checkExampleParts(join(dir, `${EXAMPLE_DRAFT}/input`), join(dir, 'parts-check-producer'));
   write(EXAMPLE_PARTS_CHECK, files[EXAMPLE_PARTS_CHECK]!);
-  advanceCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words, '--parts-check', EXAMPLE_PARTS_CHECK, '--parts', `${EXAMPLE_DRAFT}/input`], clock.now); reload();
+  advanceCommand(['parts-review', dir, '--parts-check', EXAMPLE_PARTS_CHECK, '--parts', `${EXAMPLE_DRAFT}/input`], clock.now); reload();
   sign('parts-review', '2026-11-11T10:20:00Z', ['--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
     '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);
@@ -153,7 +153,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     guide.at = exampleTime('2026-11-11T11:00:00Z'); guide.verbatim = `Synthetic ${String(w.id)} answer after viewing the approved parts and structure.`; w.guide = guide;
   }
   save(); Object.assign(files,writeExampleChoices(dir,'rigging-interview',clock)); reload();
-  advanceCommand(['rigging-interview', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
+  advanceCommand(['rigging-interview', dir], clock.now); reload();
   sign('rigging-interview', '2026-11-11T11:10:00Z');
   sign('rigging-interview', '2026-11-12T10:30:00Z', ['--steps', 'bones,constraints']);
   // Retain the already writer-shaped synthetic execution/review history; new approvals are all writer-generated.
@@ -178,13 +178,13 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   p.versions = arr(original.versions).filter(v => obj(v).kind === 'rig');
   save(); clock.now = Date.parse(String(arr(original.signoffs).map(obj).filter(s => s.stage === 'rigging').at(-1)!.at));
   finish('rig', ['bones', 'meshes', 'constraints', 'motion']);
-  advanceCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
+  advanceCommand(['rig-review', dir], clock.now); reload();
   sign('rig-review', '2026-11-13T09:15:00Z', ['--version', '2']);
   p.versions = arr(original.versions).filter(v => obj(v).kind === 'rig');
   obj(p.interview).post = structuredClone(obj(original.interview).post as Json);
   for (const s of arr(obj(p.plan).steps).map(obj)) s.status = s.phase === 'post' ? 'pending' : 'done';
   save(); Object.assign(files,writeExampleChoices(dir,'post-interview',clock)); reload();
-  advanceCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
+  advanceCommand(['post-interview', dir], clock.now); reload();
   save(); sign('post-interview', '2026-11-13T10:30:00Z');
   // The plate bytes are producer-generated and registered through input add.
   const background = 'evidence/scene-background.png';
@@ -226,7 +226,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   save();
   clock.now = Date.parse(exampleTime('2026-11-15T11:00:00Z'));
   finish('post');
-  advanceCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
+  advanceCommand(['direction-review', dir], clock.now); reload();
   sign('direction-review', '2026-11-15T11:00:00Z', ['--version', '4']);
   // The owner fix the v1 bounce asked for goes into the fix ledger, and a later draft is recorded with a passing report.
   Object.assign(files, writeExampleLedger(dir, files, clock)); reload();

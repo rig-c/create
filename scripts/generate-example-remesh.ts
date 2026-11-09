@@ -119,7 +119,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
     if (outputPath) write(outputPath, output);
   };
   const advance = (value: string, flags: string[] = []): void =>
-    writer(['advance', value, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', ...flags]);
+    writer(['advance', value, ...flags]);
   const sign = (name: string, flags: string[] = []): void =>
     writer(['signoff', name, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', ...flags]);
   const addPlanStep = (id: string, phase: 'rig' | 'post', order: number, restsOn: string, checkpointProposed: boolean): void => {

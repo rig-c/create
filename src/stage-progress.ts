@@ -119,7 +119,9 @@ export function checkAdvances(ctx: Ctx): void {
   if (ctx.project.advances !== undefined && !Array.isArray(ctx.project.advances)) push('advances', 'must be a list');
   for (const [index, entry] of asArray(ctx.project.advances).entries()) {
     const path = `advances[${index}]`;
-    if (!isObject(entry) || ['stage', 'from_stage', 'by', 'at', 'verbatim'].some(k => asString(entry[k]) === null)
+    // An advance records the signoff it rests on. Entries written before that carry the mover's by and verbatim, both or neither.
+    if (!isObject(entry) || ['stage', 'from_stage', 'at'].some(k => asString(entry[k]) === null)
+      || ('by' in entry || 'verbatim' in entry) && ['by', 'verbatim'].some(k => asString(entry[k]) === null)
       || !Number.isFinite(Date.parse(String(entry.at))) || (entry.source !== undefined && typeof entry.source !== 'string')
       || typeof entry.post_not_passed !== 'boolean'
       || !isSignoffIdentity(entry.signoff) || !Array.isArray(entry.signoffs_before)
@@ -137,7 +139,7 @@ export function checkAdvances(ctx: Ctx): void {
     const signature = resolveSignoff(ctx.project, entry.signoff);
     const owner = moveOwner(order, entry.from_stage);
     if (entry.steps_before.some(s => !isObject(s) || typeof s.id !== 'string' || !['rig', 'post'].includes(String(s.phase)) || (s.status !== undefined && !STEP_STATUSES.includes(s.status as typeof STEP_STATUSES[number])))) push(path, 'steps_before must retain step ids, phases and original statuses');
-    if ((entry.by as string).trim() === '' || (entry.by as string).toLowerCase() === 'agent' || from < 0 || target <= from
+    if (typeof entry.by === 'string' && (entry.by.trim() === '' || entry.by.toLowerCase() === 'agent') || from < 0 || target <= from
       || !['legacy', 'split', 'pre-parts'].includes(String(entry.order)) || !historicalOrder
       || (target !== from + 1 && !noPost) || !isObject(signature) || signature.checkpoint !== null
       || typeof signature.by !== 'string' || signature.by.toLowerCase() === 'agent'

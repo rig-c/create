@@ -1530,7 +1530,6 @@
     {
       "stage": "plan-approved",
       "from_stage": "interview",
-      "by": "user",
       "at": "2026-11-06T01:00:22.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -1541,7 +1540,6 @@
           "at": "2026-11-06T01:00:21.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "interview",
         "checkpoint": null,
@@ -1583,7 +1581,6 @@
     {
       "stage": "parts",
       "from_stage": "plan-approved",
-      "by": "user",
       "at": "2026-11-06T01:00:24.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -1599,7 +1596,6 @@
           "at": "2026-11-06T01:00:23.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
@@ -1641,7 +1637,6 @@
     {
       "stage": "parts-review",
       "from_stage": "parts",
-      "by": "user",
       "at": "2026-11-06T01:00:35.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -1662,7 +1657,6 @@
           "at": "2026-11-06T01:00:30.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
@@ -1762,7 +1756,6 @@
     {
       "stage": "rigging-interview",
       "from_stage": "parts-review",
-      "by": "user",
       "at": "2026-11-06T01:00:37.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -1788,7 +1781,6 @@
           "at": "2026-11-06T01:00:36.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "parts-review",
         "checkpoint": null,
@@ -1830,7 +1822,6 @@
     {
       "stage": "rigging",
       "from_stage": "rigging-interview",
-      "by": "user",
       "at": "2026-11-06T01:00:51.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -1861,7 +1852,6 @@
           "at": "2026-11-06T01:00:50.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
@@ -1903,7 +1893,6 @@
     {
       "stage": "rig-review",
       "from_stage": "rigging",
-      "by": "user",
       "at": "2026-11-06T01:00:54.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -1934,7 +1923,6 @@
           "at": "2026-11-06T01:00:50.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
@@ -1976,7 +1964,6 @@
     {
       "stage": "post-interview",
       "from_stage": "rig-review",
-      "by": "user",
       "at": "2026-11-06T01:00:57.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -2012,7 +1999,6 @@
           "at": "2026-11-06T01:00:56.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "rig-review",
         "checkpoint": null,
@@ -2054,7 +2040,6 @@
     {
       "stage": "post",
       "from_stage": "post-interview",
-      "by": "user",
       "at": "2026-11-06T01:01:08.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -2095,7 +2080,6 @@
           "at": "2026-11-06T01:01:07.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "post-interview",
         "checkpoint": null,

@@ -15,7 +15,7 @@ const report = (): JsonObject => JSON.parse(partsCheckBytes().toString('utf8')) 
 const bytesOf = (value: JsonObject): string => `${JSON.stringify(value, null, 2)}\n`;
 function words(dir: string): string { const path = join(dir, 'words.txt'); writeFileSync(path, 'Move the synthetic parts to review.\n'); return path; }
 function advance(dir: string, flags: string[] = [], stage = 'parts-review', json = false): string {
-  return advanceCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir), ...flags, ...(json ? ['--json'] : [])]).stdout;
+  return advanceCommand([stage, dir, ...flags, ...(json ? ['--json'] : [])]).stdout;
 }
 function refused(dir: string, code: string, action: () => unknown): void {
   const before = readFileSync(join(dir, 'project.json'));

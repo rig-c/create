@@ -25,7 +25,7 @@ test('the user approves an honestly empty post phase and every N/A post answer',
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-  advanceCommand(['accepted', dir, '--by', 'user', '--verbatim-file', words(dir)]);
+  advanceCommand(['accepted', dir]);
   const p = load(dir), signed = obj(arr(p.signoffs).at(-1));
   expect(p.stage).toBe('accepted');
   expect(signed.steps).toEqual([]);
@@ -53,7 +53,7 @@ test('after N/A replacement, reopen moves to post-interview and its empty approv
   testClock.set(new Date('2030-01-01T00:00:02Z'));
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-  advanceCommand(['accepted', dir, '--by', 'user', '--verbatim-file', words(dir)]);
+  advanceCommand(['accepted', dir]);
   expect(checkProject(dir).refusals).toEqual([]);
   expect(arr(load(dir).signoffs).slice(0, arr(original).length)).toEqual(original);
 });

@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject } from './check.ts';
 import { jobHash } from './job-outbox.ts';
 import { refuse } from './refusal.ts';
-import { checkpointActSignoff, decodeReviewAct, reviewActFindings, reviewActTransport, type CheckpointAct, type ReviewActTransport } from './review-act.ts';
+import { assertActSubjectDeclared, checkpointActSignoff, decodeReviewAct, reviewActFindings, reviewActTransport, type CheckpointAct, type ReviewActTransport } from './review-act.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -52,6 +52,7 @@ export function ingestCheckpointAct(dir: string, project: JsonObject, actId: str
   if (act.value.planStepId !== checkpointId || act.value.checkpointId !== act.value.planStepId) {
     refuse('REVIEW_ACT_CHECKPOINT_MISMATCH', `signoffs.checkpoint ${checkpointId}: act ${act.jobId}/${act.actId} names checkpoint ${act.value.checkpointId} on plan step ${act.value.planStepId}; sign the checkpoint the act names, or ask Review for checkpoint ${checkpointId}`);
   }
+  assertActSubjectDeclared(dir, act, `signoffs.checkpoint ${checkpointId}`);
   const fields = { act, bytes, ...checkpointActSignoff(act) };
   const existing = asArray(project.review_acts).filter(isObject).find(entry => entry.jobId === act.jobId && entry.actId === act.actId);
   if (existing) {

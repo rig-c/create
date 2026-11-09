@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { correctionFixture } from './correction-fixture.ts';
 import { correctionHash } from '../src/corrections.ts';
 import { checkAppliedReview } from '../src/applied-review.ts';
-import { configInputReferences } from '../src/config-inputs.ts';
+import { configInputReferences, DRAFT_CONFIG_INPUTS_SINCE, plateReceiptSpec } from '../src/config-inputs.ts';
 import { checkDrafts } from '../src/drafts.ts';
 import { fixture } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
@@ -14,15 +14,18 @@ import { correctionCommand, checkCorrections, draftRigCommand, testClock } from 
 
 const roots: string[] = [];
 afterEach(() => { testClock.reset(); for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-function sample(kind: 'rig' | 'draft', state: 'honest' | 'absent' | 'altered', legacy: boolean) {
+function sample(kind: 'rig' | 'draft', state: 'honest' | 'absent' | 'altered', legacy: boolean, plate = false) {
   const dir = mkdtempSync(join(tmpdir(), 'named-inputs-')); roots.push(dir); correctionFixture(dir, 'rig');
   const load = (path: string) => JSON.parse(readFileSync(join(dir, path), 'utf8'));
   const save = (path: string, value: unknown) => writeFileSync(join(dir, path), JSON.stringify(value, null, 2) + '\n');
   const binding = (path: string) => ({ path, sha256: correctionHash(readFileSync(join(dir, path))) });
   const p = load('project.json'); const s = load('evidence/feedback.json');
-  save('evidence/source-config.json', { requirements: 'requirements.json', note: 'synthetic source' });
+  // A plate config names a synthetic occluder plate directory, bound by its receipt.
+  save('evidence/source-config.json', plate ? { assemble: { occluders: [{ plate: 'plate' }] }, note: 'synthetic source' } : { requirements: 'requirements.json', note: 'synthetic source' });
   save('evidence/requirements.json', { synthetic: 'requirements input' });
-  const config = binding('evidence/source-config.json'); const input = binding('evidence/requirements.json');
+  if (plate) { mkdirSync(join(dir, 'evidence/plate'), { recursive: true }); save('evidence/plate/receipt.json', { spec: plateReceiptSpec(dir), synthetic: 'occluder plate receipt' }); writeFileSync(join(dir, 'evidence/plate/plate.png'), 'synthetic plate'); }
+  const config = binding('evidence/source-config.json');
+  const input: { path: string; sha256: string; directory?: string; spec?: string } = plate ? { ...binding('evidence/plate/receipt.json'), directory: 'evidence/plate', spec: plateReceiptSpec(dir) } : binding('evidence/requirements.json');
   p.versions[0].provenance.config = config; p.versions[0].review_package.config = config;
   p.versions[0].review_package.files[0].sha256 = config.sha256;
   p.versions[0].review_package.files.push({ ...input, path: 'requirements.json' });
@@ -77,6 +80,31 @@ for (const kind of ['rig', 'draft'] as const) for (const legacy of [false, true]
     }
   });
 }
+for (const state of ['honest', 'absent', 'altered'] as const) test(`draft correction handoff binds an occluder plate by its receipt: ${state}`, () => {
+  const f = sample('draft', state, false, true); const before = readFileSync(join(f.dir, 'project.json'));
+  if (state === 'honest') {
+    expect(f.record().exit).toBe(0);
+    const ctx = { dir: f.dir, project: f.load('project.json'), refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkCorrections(ctx); expect(ctx.refusals).toEqual([]);
+    return;
+  }
+  let error: { code?: string; message?: string } = {};
+  try { f.record(); } catch (caught) { error = caught as typeof error; }
+  expect(error.code).toBe('CORRECTION_APPLIED_INVALID'); expect(error.message).toContain('evidence/plate/receipt.json');
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+});
+test('a missing plate directory in a draft correction keeps its recorded receipt binding', () => {
+  const f = sample('draft', 'honest', false, true); rmSync(join(f.dir, 'evidence/plate'), { recursive: true });
+  expect(f.record().exit).toBe(0);
+});
+test('a changed plate receipt differs from the draft binding in a correction handoff', () => {
+  const f = sample('draft', 'honest', false, true); f.save('evidence/plate/receipt.json', { spec: plateReceiptSpec(f.dir), synthetic: 'another receipt' });
+  const before = readFileSync(join(f.dir, 'project.json'));
+  let error: { code?: string; message?: string } = {};
+  try { f.record(); } catch (caught) { error = caught as typeof error; }
+  expect(error.code).toBe('CORRECTION_APPLIED_INVALID'); expect(error.message).toContain('differs from draft binding');
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+});
 for (const legacy of [false, true]) for (const state of ['honest', 'absent', 'altered'] as const) {
   test(`applied version ${legacy ? 'legacy' : 'current'} ${state} named input`, () => {
     const f = sample('rig', state, legacy); const p = f.load('project.json');
@@ -101,7 +129,8 @@ for (const legacy of [false, true]) test(`draft writer binds files and ${legacy 
   const result = draftRigCommand(['named', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`, '--json']);
   const record = JSON.parse(result.stdout); expect(record.config_inputs.map((f: {path: string}) => f.path)).toEqual(['requirements.json', 'animation.json', 'skeleton.json'].map(p => `${root}/${p}`));
   const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
-  delete p.drafts[0].config_inputs; p.drafts[0].at = legacy ? '2026-11-04T00:00:00Z' : '2026-11-06T00:00:00Z';
+  // An absent key from CONFIG_INPUTS_SINCE to DRAFT_CONFIG_INPUTS_SINCE is DRAFT_CONFIG_INPUTS_UNRECORDED; "current" is at or after both.
+  delete p.drafts[0].config_inputs; p.drafts[0].at = legacy ? '2026-11-04T00:00:00Z' : DRAFT_CONFIG_INPUTS_SINCE;
   const refusals: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, p, refusals, warnings);
   expect((legacy ? warnings : refusals).map(f => f.code)).toEqual(['DRAFT_RIG_FILE', 'DRAFT_RIG_FILE', 'DRAFT_RIG_FILE']);
   expect((legacy ? refusals : warnings)).toEqual([]);

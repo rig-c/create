@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'nod
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { checkDrafts, draftInputUnavailable, draftVersionFindings } from '../src/drafts.ts';
-import { configInputReferences } from '../src/config-inputs.ts';
+import { configInputReferences, DRAFT_CONFIG_INPUTS_SINCE, plateReceiptSpec } from '../src/config-inputs.ts';
+import { PINNED_PACKAGES } from '../src/pins.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
@@ -254,4 +255,199 @@ test('check refuses a hand-bound input that escapes the project', () => {
   record.config_inputs = [{ path: '../foreground.png', sha256: '0'.repeat(64) }];
   const errors: Finding[] = []; checkDrafts(dir, project, errors);
   expect(errors.map(f => f.code)).toEqual(['DRAFT_RIG_FILE', 'DRAFT_RIG_FILE']);
+});
+
+/** A synthetic See-through occluder plate directory, as `comfy plate --mode occluder` lays it out: its receipt beside its images. */
+function writePlate(dir: string, at: string): string {
+  write(dir, `${at}/plate.png`, 'synthetic plate pixels'); write(dir, `${at}/mask.png`, 'synthetic mask pixels');
+  write(dir, `${at}/receipt.json`, JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'occluder plate receipt', mode: 'occluder' }));
+  return createHash('sha256').update(readFileSync(join(dir, `${at}/receipt.json`))).digest('hex');
+}
+/** A draft whose config names an occluder plate directory: under the draft root (`plate`) or a project input (`../../../inputs/plate`). */
+function plateDraft(plate: string): { dir: string; args: string[]; config: JsonObject } {
+  const { dir, args } = draft(); const config = { assemble: { occluders: [{ plate }] } };
+  write(dir, 'derived/drafts/sample/config.json', JSON.stringify(config));
+  return { dir, args, config };
+}
+
+for (const [route, plate, at] of [['project input', '../../../inputs/plate', 'inputs/plate'], ['draft-root input', 'plate', 'derived/drafts/sample/plate']] as const) {
+  test(`an occluder plate directory as a ${route} binds its receipt, records and checks clean`, () => {
+    const { dir, args, config } = plateDraft(plate); const sha256 = writePlate(dir, at);
+    // The installed parts declares the plate as a config-named input.
+    expect(configInputReferences(dir, config).map(ref => ref.at)).toEqual(['assemble.occluders[0].plate']);
+    const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+    expect(record.config_inputs).toEqual([{ path: `${at}/receipt.json`, sha256, directory: at, spec: plateReceiptSpec(dir) }]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    const errors: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, read(dir), errors, warnings);
+    expect(errors).toEqual([]); expect(warnings.map(f => f.code)).toEqual(['DRAFT_PRODUCER_ASSUMED']);
+    expect(draftInputUnavailable(dir, `${at}/receipt.json`, 'derived/drafts/sample')).toBe(false);
+    // The receipt binds its siblings; create reads the receipt and never re-hashes them.
+    write(dir, `${at}/plate.png`, 'regenerated plate pixels');
+    const siblings: Finding[] = []; checkDrafts(dir, read(dir), siblings); expect(siblings).toEqual([]);
+  });
+
+  test(`a changed or deleted plate receipt as a ${route} refuses by code`, () => {
+    const { dir, args } = plateDraft(plate); writePlate(dir, at); draftRigCommand(args);
+    write(dir, `${at}/receipt.json`, JSON.stringify({ spec: plateReceiptSpec(dir), synthetic: 'another receipt' }));
+    const changed: Finding[] = []; checkDrafts(dir, read(dir), changed);
+    expect(changed.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
+    rmSync(join(dir, `${at}/receipt.json`));
+    const missing: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, read(dir), missing, warnings);
+    if (route === 'project input') {
+      expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+      expect(warnings.map(f => f.code)).not.toContain('DRAFT_RIG_UNAVAILABLE');
+    } else {
+      // A draft-root plate is a regenerable draft artifact, as a draft-root file input is.
+      expect(missing).toEqual([]);
+      expect(warnings.map(f => f.code)).toContain('DRAFT_RIG_UNAVAILABLE');
+    }
+  });
+}
+
+test('a plate directory without a plate receipt refuses before writing', () => {
+  for (const shape of ['absent', 'directory', 'symlink', 'empty', 'foreign-spec'] as const) {
+    const { dir, args } = plateDraft('../../../inputs/plate'); writePlate(dir, 'inputs/plate');
+    rmSync(join(dir, 'inputs/plate/receipt.json'));
+    if (shape === 'directory') mkdirSync(join(dir, 'inputs/plate/receipt.json'));
+    if (shape === 'symlink') { write(dir, 'inputs/other.json', '{}'); symlinkSync(join(dir, 'inputs/other.json'), join(dir, 'inputs/plate/receipt.json')); }
+    // A regular file that is not a plate receipt: no spec, or another producer's spec.
+    if (shape === 'empty') write(dir, 'inputs/plate/receipt.json', '{}');
+    if (shape === 'foreign-spec') write(dir, 'inputs/plate/receipt.json', JSON.stringify({ spec: 'rig-run/1', synthetic: 'unrelated report' }));
+    const before = readFileSync(join(dir, 'project.json'));
+    try { draftRigCommand(args); throw Error('expected refusal'); } catch (e) {
+      expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe('DRAFT_RIG_MALFORMED');
+      expect((e as Refusal).message).toContain('assemble.occluders[0].plate');
+    }
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
+});
+
+test('check refuses a plate binding that does not stand for the named directory', () => {
+  const { dir, args } = plateDraft('../../../inputs/plate'); writePlate(dir, 'inputs/plate'); draftRigCommand(args);
+  const forged = read(dir); const input = arr(obj(arr(forged.drafts).at(-1)).config_inputs)[0] as JsonObject;
+  input.directory = 'inputs/elsewhere';
+  const malformed: Finding[] = []; checkDrafts(dir, forged, malformed);
+  expect(malformed.map(f => f.code)).toEqual(['DRAFT_RIG_MALFORMED']);
+  const unbound = read(dir); const record = arr(unbound.drafts).at(-1) as JsonObject;
+  record.config_inputs = [{ path: 'inputs/plate/receipt.json', sha256: (input.sha256 as string) }];
+  const missing: Finding[] = []; checkDrafts(dir, unbound, missing);
+  expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(missing[0]?.message).toContain('config.assemble.occluders[0].plate');
+  const specless = read(dir); delete (arr(obj(arr(specless.drafts).at(-1)).config_inputs)[0] as JsonObject).spec;
+  const shape: Finding[] = []; checkDrafts(dir, specless, shape);
+  expect(shape.map(f => f.code)).toEqual(['DRAFT_RIG_MALFORMED']);
+  const respecced = read(dir); (arr(obj(arr(respecced.drafts).at(-1)).config_inputs)[0] as JsonObject).spec = 'rig-run/1';
+  const wrong: Finding[] = []; checkDrafts(dir, respecced, wrong);
+  expect(wrong.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(wrong[0]?.message).toContain('declares spec');
+});
+
+test('an installed parts without PLATE_RECEIPT_SPEC refuses a plate by name before writing', () => {
+  const { dir, args } = plateDraft('../../../inputs/plate'); writePlate(dir, 'inputs/plate');
+  // A synthetic parts that declares the plate reference but no plate-receipt spec.
+  write(dir, 'node_modules/@rig-c/parts/package.json', '{"name":"@rig-c/parts","version":"0.0.1-synthetic","type":"module"}');
+  write(dir, 'node_modules/@rig-c/parts/src/config.ts', 'export const CONFIG_SECTIONS = ["assemble"];\nexport function configFileReferences(raw) { return raw.assemble.occluders.map((o, i) => ({ at: `assemble.occluders[${i}].plate`, value: o.plate })); }\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  try { draftRigCommand(args); throw Error('expected refusal'); } catch (e) {
+    expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe('DRAFT_RIG_MALFORMED');
+    expect((e as Refusal).message).toContain('PLATE_RECEIPT_SPEC');
+  }
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+/** #322: a draft recorded with no config_inputs key on a config that names an occluder image, dated `at`. */
+function unrecordedDraft(at: string): { dir: string; args: string[]; project: JsonObject } {
+  const { dir, args } = occluderDraft(); draftRigCommand(args);
+  const project = read(dir); const record = arr(project.drafts).at(-1) as JsonObject;
+  delete record.config_inputs; record.at = at;
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  return { dir, args, project };
+}
+const beforeSince = '2026-11-08T22:39:19.613Z';
+
+test('an absent config_inputs key on a config naming an occluder image WARNs before DRAFT_CONFIG_INPUTS_SINCE and refuses from it', () => {
+  const early = unrecordedDraft(beforeSince);
+  const refusals: Finding[] = []; const warnings: Finding[] = []; checkDrafts(early.dir, early.project, refusals, warnings);
+  expect(refusals).toEqual([]);
+  expect(warnings.filter(f => f.code === 'DRAFT_CONFIG_INPUTS_UNRECORDED').map(f => f.path)).toEqual(['drafts[0].config_inputs']);
+  expect(warnings.find(f => f.code === 'DRAFT_CONFIG_INPUTS_UNRECORDED')!.message).toContain('inputs/foreground.png');
+  expect(checkProject(early.dir).refusals).toEqual([]);
+  const late = unrecordedDraft(DRAFT_CONFIG_INPUTS_SINCE);
+  const lateRefusals: Finding[] = []; const lateWarnings: Finding[] = []; checkDrafts(late.dir, late.project, lateRefusals, lateWarnings);
+  expect(lateRefusals.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(lateWarnings.map(f => f.code)).not.toContain('DRAFT_CONFIG_INPUTS_UNRECORDED');
+});
+
+test('a present config_inputs binding that is wrong refuses DRAFT_RIG_FILE on both sides of DRAFT_CONFIG_INPUTS_SINCE', () => {
+  for (const at of [beforeSince, DRAFT_CONFIG_INPUTS_SINCE]) {
+    const hashed = occluderDraft(); draftRigCommand(hashed.args);
+    const project = read(hashed.dir); const record = arr(project.drafts).at(-1) as JsonObject;
+    record.at = at; (arr(record.config_inputs)[0] as JsonObject).sha256 = '0'.repeat(64);
+    const refusals: Finding[] = []; const warnings: Finding[] = []; checkDrafts(hashed.dir, project, refusals, warnings);
+    expect(refusals.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+    expect(warnings.map(f => f.code)).not.toContain('DRAFT_CONFIG_INPUTS_UNRECORDED');
+    // A present key missing one of two named inputs is not the unrecorded route.
+    const { dir, args } = occluderDraft();
+    write(dir, 'derived/drafts/sample/config.json', JSON.stringify({ assemble: { occluders: [{ image: '../../../inputs/foreground.png' }, { image: '../../../inputs/second.png' }] } }));
+    write(dir, 'inputs/second.png', 'synthetic second matte');
+    draftRigCommand(args);
+    const partial = read(dir); const kept = arr(partial.drafts).at(-1) as JsonObject;
+    kept.at = at; kept.config_inputs = arr(kept.config_inputs).slice(0, 1);
+    const missing: Finding[] = []; const missingWarnings: Finding[] = []; checkDrafts(dir, partial, missing, missingWarnings);
+    expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+    expect(missing[0]?.message).toContain('inputs/second.png');
+    expect(missingWarnings.map(f => f.code)).not.toContain('DRAFT_CONFIG_INPUTS_UNRECORDED');
+  }
+});
+
+test('draft-rig records a new draft beside a WARN-only unrecorded draft, and check has no refusals', () => {
+  const { dir } = unrecordedDraft(beforeSince);
+  const root = 'derived/drafts/next';
+  write(dir, `${root}/config.json`, JSON.stringify({ assemble: { occluders: [{ image: '../../../inputs/foreground.png' }] } }));
+  write(dir, `${root}/inputs/recomposite_rig.png`, 'synthetic stack bytes');
+  write(dir, `${root}/inputs/parts.json`); write(dir, `${root}/inputs/parts/synthetic.png`, 'synthetic part bytes');
+  for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${file}`);
+  const result = draftRigCommand(['next', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/inputs`, '--json']);
+  expect(result.exit).toBe(0);
+  expect(arr((JSON.parse(result.stdout) as JsonObject).config_inputs).map(f => obj(f).path)).toEqual(['inputs/foreground.png']);
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.filter(f => f.code === 'DRAFT_CONFIG_INPUTS_UNRECORDED').map(f => f.path)).toEqual(['drafts[0].config_inputs']);
+});
+
+/** A synthetic project install of parts at `version`; `references` is its configFileReferences body, or none when null. */
+function installParts(dir: string, version: string, references: string | null): void {
+  write(dir, 'node_modules/@rig-c/parts/package.json', JSON.stringify({ name: '@rig-c/parts', version, type: 'module' }));
+  write(dir, 'node_modules/@rig-c/parts/src/config.ts', `export const CONFIG_SECTIONS = ["assemble"];\n${references === null ? '' : `export function configFileReferences(raw) { ${references} }\n`}`);
+}
+
+test('draft-rig refuses DRAFT_PARTS_INSTALL_BEHIND when the install cannot declare inputs its newer producer declares', () => {
+  const pinned = PINNED_PACKAGES['@rig-c/parts'];
+  for (const references of [null, 'return [];']) {
+    const { dir, args } = occluderDraft(); write(dir, stampAt(false), runStamp(pinned));
+    installParts(dir, '2.8.0', references);
+    const before = readFileSync(join(dir, 'project.json'));
+    try { draftRigCommand(args); throw Error('expected refusal'); } catch (e) {
+      expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe('DRAFT_PARTS_INSTALL_BEHIND');
+      expect((e as Refusal).message).toContain(`install @rig-c/parts ${pinned}`);
+      expect((e as Refusal).message).toContain('config.assemble.occluders[0].image');
+    }
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
+});
+
+test('without a newer producer, or with a config naming nothing, draft-rig keeps its earlier behaviour', () => {
+  const pinned = PINNED_PACKAGES['@rig-c/parts'];
+  // The producer is the old install itself: no run.json, so the unavailable loader refuses as before.
+  const same = occluderDraft(); installParts(same.dir, '2.8.0', null);
+  rejected(() => draftRigCommand(same.args), 'DRAFT_RIG_MALFORMED');
+  // A newer producer whose config names no inputs records with no config_inputs key.
+  const plain = draft(); write(plain.dir, stampAt(false), runStamp(pinned)); installParts(plain.dir, '2.8.0', null);
+  const record = JSON.parse(draftRigCommand(plain.args).stdout) as JsonObject;
+  expect(record.config_inputs).toBeUndefined();
+  expect(record.producer).toEqual({ name: '@rig-c/parts', version: pinned });
+  // An install that declares what the pinned parts declares binds as before.
+  const both = occluderDraft(); write(both.dir, stampAt(false), runStamp(pinned));
+  expect(arr((JSON.parse(draftRigCommand(both.args).stdout) as JsonObject).config_inputs)).toHaveLength(1);
 });

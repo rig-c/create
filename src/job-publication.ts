@@ -7,11 +7,11 @@ import partsPackage from '@rig-c/parts/package.json';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
-import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed } from './check.ts';
+import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed } from './check.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
-import { approvalStageOfStep, hasStageOrder, STAGES, stageOfStep } from './stages.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
+import { approvalStageOfStep, hasStageOrder, stageOfStep } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
+import { packageSignSubjects, stageSignable } from './signable.ts';
 import { latestPartsApproval, riggingContext } from './structure.ts';
 import { jobHash, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -207,11 +207,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       if (!plan) throw Error('the requested plan is absent');
       const planPhase = stage === 'post-interview' ? 'post' : 'rig';
       const covered = steps.filter(step => step.phase === planPhase && approvalStageOfStep(planPhase, String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage);
-      const reopens = collectReopens(project, []);
-      const signoffs = collectSignoffs(project, []).filter(signature => liveSignoff(reopens, signature.stage, signature.at));
-      const signable = stage !== null && ['plan-approved', 'rigging-interview', 'post-interview'].includes(stage)
-        && STAGES.some(spec => spec.id === stage && spec.closed_by === 'signoff')
-        && !signoffs.some(signature => signature.stage === stage && signature.checkpoint === null);
+      const signable = stage !== null && ['plan-approved', 'rigging-interview', 'post-interview'].includes(stage) && stageSignable(project, stage);
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
       if (signable && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
       const signature: JsonObject = { stage, steps: covered.map(step => step.id!) };
@@ -351,7 +347,8 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
-    subjects: [{ kind: 'review-verdict', stage: selector.kind === 'post' ? 'direction-review' : 'rig-review' }],
+    subjects: [{ kind: 'review-verdict', stage: selector.kind === 'post' ? 'direction-review' : 'rig-review' },
+      ...packageSignSubjects(project, effectiveStage(root, project), selector, steps.length)],
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files,
   };
 };
@@ -410,5 +407,11 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {
   if (path !== `review-draft-${id}.json`) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its publication; restore the writer manifest`);
   const context = draftPublishedContext(root, project, id);
-  return { ...context, files: [...context.files, { path, sha256: jobHash(publicationFile(root, path)) }] };
+  return { ...context, files: [...context.files, { path, sha256: jobHash(publicationFile(root, path)) }],
+    subjects: [...context.subjects, ...packageSignSubjects(project, effectiveStage(root, project), context.selector!, context.plan?.steps.length ?? 0)] };
+}
+
+/** The stage the check reads the published record in: the stage its `signoff` and `checkpoint` subjects sign. */
+function effectiveStage(root: string, project: JsonObject): string | null {
+  return checkProject(root, project, { now: Date.now(), readOnly: true }).effective_stage;
 }

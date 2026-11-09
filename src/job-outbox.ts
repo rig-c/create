@@ -4,7 +4,7 @@ import { existsSync, JOB_PRIVATE_DIRECTORY, lstatSync, readFileSync, readdirSync
 import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import type { JobPublishRequest, JobReviewerBinding } from '@rig-c/review/job-host';
+import type { JobPublishRequest, JobReviewerBinding, JobSubject } from '@rig-c/review/job-host';
 import { refuse } from './refusal.ts';
 
 export const JOB_BINDING_FILE = '.rig-create-review-binding.json';
@@ -331,6 +331,8 @@ export interface AcknowledgedPublication {
   requestId: string;
   result: PendingPublication['result'];
   versionHash: string;
+  /** The subjects the published context declared. Receipts written before they were retained omit it. */
+  subjects?: readonly JobSubject[];
 }
 
 function acknowledgedPath(root: string, jobId: string, publicationId: string): string {
@@ -338,12 +340,12 @@ function acknowledgedPath(root: string, jobId: string, publicationId: string): s
 }
 
 /** Persist the version identity before the pending publication is removed. */
-export function acknowledgePublication(entry: PendingPublication, publicationId: string, generation: number, requestId: string): void {
+export function acknowledgePublication(entry: PendingPublication, publicationId: string, generation: number, requestId: string, subjects?: readonly JobSubject[]): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(publicationId) || !Number.isSafeInteger(generation) || generation < 0 || !entry.versionHash) {
     refuse('JOB_OUTBOX_INVALID', 'project.json: publication acknowledgment lacks its identity; reconcile the original pending publication');
   }
   const receipt: AcknowledgedPublication = { schema: 'rig-create/job-acknowledged@1', jobId: entry.jobId,
-    publicationId, generation, requestId, result: entry.result, versionHash: entry.versionHash };
+    publicationId, generation, requestId, result: entry.result, versionHash: entry.versionHash, ...(subjects === undefined ? {} : { subjects }) };
   const path = acknowledgedPath(entry.root, entry.jobId, publicationId);
   let existing: unknown;
   try { existing = privateJson(path); }
@@ -363,7 +365,8 @@ export function readAcknowledgedPublication(root: string, jobId: string, publica
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   if (value?.schema !== 'rig-create/job-acknowledged@1' || value.jobId !== jobId || value.publicationId !== publicationId
     || !/^[a-f0-9]{64}$/.test(value.versionHash) || !Number.isSafeInteger(value.generation) || value.generation < 0
-    || typeof value.requestId !== 'string' || !value.result?.selector) {
+    || typeof value.requestId !== 'string' || !value.result?.selector
+    || value.subjects !== undefined && (!Array.isArray(value.subjects) || value.subjects.some(subject => subject === null || typeof subject !== 'object' || typeof subject.kind !== 'string'))) {
     refuse('JOB_OUTBOX_INVALID', 'project.json: acknowledged publication receipt is malformed; restore its owner-only original');
   }
   return value;

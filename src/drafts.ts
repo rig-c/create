@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
-import { ConfigInputsUnavailable, configInputBindings, configInputReferences, configInputsLegacy } from './config-inputs.ts';
+import { ConfigInputsUnavailable, configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, DRAFT_CONFIG_INPUTS_SINCE, draftUnboundInputs, inputsUndeclaredByInstall, receiptSpec, releaseAfter } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
@@ -147,6 +147,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     const all = [raw.config, ...asArray(parts.files), ...asArray(raw.files), ...asArray(raw.config_inputs)];
     const inputs = new Set(asArray(raw.config_inputs));
     if (raw.config_inputs !== undefined && (!Array.isArray(raw.config_inputs) || raw.config_inputs.some(f => !binding(f)))) { add('DRAFT_RIG_MALFORMED', path, 'config_inputs must bind paths and sha256 hashes'); continue; }
+    if (asArray(raw.config_inputs).some(f => isObject(f) && f.directory !== undefined && (typeof f.directory !== 'string' || f.path !== `${f.directory}/${DIRECTORY_INPUT_RECEIPT}` || typeof f.spec !== 'string' || !f.spec))) { add('DRAFT_RIG_MALFORMED', path, `a config_inputs directory binding must bind <directory>/${DIRECTORY_INPUT_RECEIPT} and its receipt spec`); continue; }
     if (raw.files.length === 0 || asArray(parts.files).length === 0 || all.some(f => !binding(f))
       || !asArray(parts.files).some(f => binding(f) && f.path === `${String(parts.path)}/parts.json`)) { add('DRAFT_RIG_MALFORMED', path, 'file inventories must bind config, parts.json and output'); continue; }
     const rigs = asArray(raw.files).filter(f => binding(f) && String(f.path).endsWith('/rig.json'));
@@ -160,6 +161,8 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         if (input ? draftInputUnavailable(dir, file, root) : draftFileUnavailable(dir, file, root)) { unavailable.add(file); continue; }
         const bytes = readFileSync(bindingAt(dir, file, root, input));
         if (sha(bytes) !== entry.sha256) throw new Error(`${file} changed`);
+        // A directory input's receipt is read, not re-verified: its declared spec must be the one recorded.
+        if (input && entry.directory !== undefined && receiptSpec(bytes) !== entry.spec) throw new Error(`${file} declares spec ${JSON.stringify(receiptSpec(bytes))}, not the recorded ${JSON.stringify(entry.spec)}`);
       } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     }
     const stamp = stampBeside(String((rigs[0] as JsonObject).path));
@@ -181,19 +184,24 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         // Unreadable, escaping or changed bytes are DRAFT_RIG_FILE above; the producer is not read from them.
       }
     }
+    const unbound = draftUnboundInputs(raw);
+    const unrecorded = (why: string): void => { warnings.push({ code: 'DRAFT_CONFIG_INPUTS_UNRECORDED', path: `${path}.config_inputs`, message: `${path}.config_inputs: ${why}; the draft was recorded before ${DRAFT_CONFIG_INPUTS_SINCE} with no config_inputs key, so the parts install that recorded it could not declare its config-named inputs; the record is kept; record a new draft with draft-rig under a new id to bind them` }); };
     try {
       if (!draftFileUnavailable(dir, String(raw.config.path), root)) {
         const config = JSON.parse(readFileSync(fileAt(dir, String(raw.config.path), root), 'utf8'));
         for (const ref of configInputReferences(dir, config)) {
           const named = relative(resolve(dir), resolve(dir, String(raw.config.path), '..', ref.value)).split(sep).join('/');
-          if (!asArray(raw.config_inputs).some(f => binding(f) && f.path === named)) {
+          // A directory input (an occluder plate) is bound by its receipt and names the directory it stands for.
+          if (!asArray(raw.config_inputs).some(f => binding(f) && (f.directory === undefined ? f.path === named : f.directory === named))) {
+            if (unbound === 'unrecorded') { unrecorded(`config.${ref.at} names ${named}`); continue; }
             const finding = { code: 'DRAFT_RIG_FILE', path, message: `${path}.config_inputs: missing config.${ref.at} input ${named}; preserve the old draft and record a new draft with draft-rig` };
-            (configInputsLegacy(raw.at) ? warnings : refusals).push(finding);
+            (unbound === 'legacy' ? warnings : refusals).push(finding);
           }
         }
       }
     } catch (error) {
-      if (error instanceof ConfigInputsUnavailable && configInputsLegacy(raw.at)) warnings.push({ code: 'DRAFT_RIG_FILE', path, message: `${path}: ${error.message}` });
+      if (error instanceof ConfigInputsUnavailable && unbound === 'legacy') warnings.push({ code: 'DRAFT_RIG_FILE', path, message: `${path}: ${error.message}` });
+      else if (error instanceof ConfigInputsUnavailable && unbound === 'unrecorded') unrecorded(error.message);
       else add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error));
     }
     try {
@@ -303,9 +311,8 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       const rigPrefix = build ? `${from}/rig` : from;
       for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
       const configFile = fileAt(dir, opts['--config'], root);
-      if (!isObject(JSON.parse(readFileSync(configFile, 'utf8')))) throw new Error('config must be an object');
-      // Named inputs bind wherever they sit inside the project; checkDrafts below reads them as check does.
-      const configInputs = configInputBindings(dir, opts['--config']);
+      const config = JSON.parse(readFileSync(configFile, 'utf8')) as Json;
+      if (!isObject(config)) throw new Error('config must be an object');
       const installed = locateParts(dir);
       if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
       const pkgFile = join(installed, 'package.json');
@@ -317,7 +324,14 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
           if (error instanceof RunRecordError) refuse(error.code, `drafts[${id}]: ${error.path}: ${error.why}; re-run parts rig into the draft output so it writes run.json with its outputs, then record the draft`);
           throw error;
         }
+        // A producer newer than the install may declare inputs the install cannot; recording without them would leave the key absent.
+        if (releaseAfter(String(producer.version), pkg.version)) {
+          const undeclared = inputsUndeclaredByInstall(dir, config);
+          if (undeclared.refs.length) refuse('DRAFT_PARTS_INSTALL_BEHIND', `drafts[${id}].config_inputs: the project's @rig-c/parts ${undeclared.version} cannot declare config-named inputs (${undeclared.refs.map(ref => `config.${ref.at}`).join(', ')}) that its producer @rig-c/parts ${String(producer.version)}, read from ${stamp}, declares; install @rig-c/parts ${String(producer.version)} in the project, then record the draft again`);
+        }
       }
+      // Named inputs bind wherever they sit inside the project; checkDrafts below reads them as check does.
+      const configInputs = configInputBindings(dir, opts['--config']);
       record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
     } catch (error) {
       if (error instanceof Refusal) throw error;

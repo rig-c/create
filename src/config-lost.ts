@@ -12,8 +12,8 @@ export const VERSION_HELP = `version config-lost <n> --note <text> --source <tex
   Record config_lost: { note, source } on a pre-interview version whose build config did not survive.
   Refuses when the version is not pre_interview: true, carries provenance.config, already declares config_lost, or adds a check refusal.
 version outputs-lost <n> --note <text> --source <text> [<dir>] [--json]
-  Record outputs_lost: { note, source, recorded } and outputs: [] on a pre-interview version whose frozen outputs did not survive.
-  Refuses when the version is not pre_interview: true, has a readable output, already declares outputs_lost, or adds a check refusal.`;
+  Record outputs_lost: { note, source, recorded } on a pre-interview version whose frozen outputs did not survive, keeping any readable outputs in outputs[].
+  Refuses when the version is not pre_interview: true, no output is lost, already declares outputs_lost, or adds a check refusal.`;
 
 type VersionSubcommand = 'config-lost' | 'outputs-lost';
 
@@ -78,21 +78,22 @@ export function versionCommand(args: string[], now: number): { stdout: string; e
     if (malformed !== undefined) {
       refuse(malformed.code, malformed.message);
     }
-    if (inspected.readable.length > 0) {
-      refuse('OUTPUTS_LOST_HAS_OUTPUTS', `${label}.outputs: version ${n} has readable frozen output(s) (${inspected.readable.join(', ')}); keep surviving outputs instead of declaring outputs_lost`);
-    }
     const other = inspected.otherRefusals[0];
     if (other !== undefined) {
       refuse(other.code, other.message);
     }
+    if (inspected.missing.length === 0) {
+      refuse('OUTPUTS_LOST_HAS_OUTPUTS', `${label}.outputs: no output is lost on version ${n} (${inspected.readable.join(', ')}); keep surviving outputs instead of declaring outputs_lost`);
+    }
     const next = structuredClone(project);
     const target = asArray(next.versions).find((v): v is JsonObject => isObject(v) && v.n === n)!;
+    const missingPaths = new Set(inspected.missing.map((m) => m.path));
     const loss: JsonObject = {
       note,
       source,
-      recorded: inspected.bindings.map((b) => ({ path: b.path, sha256: b.sha256 })),
+      recorded: inspected.missing.map((b) => ({ path: b.path, sha256: b.sha256 })),
     };
-    target.outputs = [];
+    target.outputs = asArray(target.outputs).filter((o) => isObject(o) && typeof o.path === 'string' && !missingPaths.has(o.path));
     target.outputs_lost = loss;
     if (!validOutputsLoss(target, dir)) {
       refuse('PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED', `${label}.outputs_lost: ${OUTPUTS_LOST_MALFORMED_MESSAGE}`);

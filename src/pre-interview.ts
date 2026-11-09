@@ -57,22 +57,29 @@ export interface PreInterviewOutputsInspection {
   readonly malformed: Finding[];
   readonly otherRefusals: Finding[];
   readonly bindings: OutputBinding[];
+  readonly missing: OutputBinding[];
   readonly readable: string[];
   readonly allMissing: boolean;
 }
 
-/** A loss declaration is usable only on a pre-interview version with empty outputs and optional valid recorded bindings. */
+/** A loss declaration is usable on a pre-interview version with recorded missing bindings disjoint from surviving outputs, or legacy { note, source } beside outputs: []. */
 export function validOutputsLoss(version: JsonObject, dir: string): boolean {
   const loss = version.outputs_lost;
   if (version.pre_interview !== true || !isObject(loss)
     || !Object.keys(loss).every((k) => k === 'note' || k === 'source' || k === 'recorded')
     || typeof loss.note !== 'string' || loss.note.trim() === ''
     || typeof loss.source !== 'string' || loss.source.trim() === ''
-    || !Array.isArray(version.outputs) || version.outputs.length !== 0) {
+    || !Array.isArray(version.outputs)) {
     return false;
   }
-  if (loss.recorded === undefined) return true;
+  if (loss.recorded === undefined) return version.outputs.length === 0;
   if (!Array.isArray(loss.recorded) || loss.recorded.length === 0) return false;
+  const outputFiles = new Set<string>();
+  for (const out of version.outputs) {
+    if (isObject(out) && typeof out.path === 'string' && out.path.trim() !== '') {
+      outputFiles.add(resolve(dir, out.path));
+    }
+  }
   const paths = new Set<string>();
   for (const raw of loss.recorded) {
     if (!isObject(raw) || !Object.keys(raw).every((k) => k === 'path' || k === 'sha256')
@@ -81,14 +88,21 @@ export function validOutputsLoss(version: JsonObject, dir: string): boolean {
       return false;
     }
     const file = resolve(dir, raw.path);
-    if (isAbsolute(raw.path) || !inside(dir, file) || paths.has(file)) return false;
+    if (isAbsolute(raw.path) || !inside(dir, file) || paths.has(file) || outputFiles.has(file)) return false;
     paths.add(file);
+    try {
+      if (!inside(realpathSync(dir), realpathSync(file))) return false;
+      readFileSync(file);
+      return false;
+    } catch {
+      // Missing on disk.
+    }
   }
   return true;
 }
 
 export const OUTPUTS_LOST_MALFORMED_MESSAGE =
-  'record { note, source, recorded? } with nonempty strings only beside outputs: [] on a pre-interview version; restore surviving output records otherwise';
+  'record { note, source, recorded } with nonempty strings and missing { path, sha256 } bindings disjoint from surviving outputs (or { note, source } beside outputs: []) on a pre-interview version; restore surviving output records otherwise';
 
 /** Shared output validator for check and `version outputs-lost`. */
 export function inspectPreInterviewOutputs(dir: string, version: JsonObject, label: string): PreInterviewOutputsInspection {
@@ -96,21 +110,24 @@ export function inspectPreInterviewOutputs(dir: string, version: JsonObject, lab
   const malformed: Finding[] = [];
   const otherRefusals: Finding[] = [];
   const bindings: OutputBinding[] = [];
+  const missing: OutputBinding[] = [];
   const readable: string[] = [];
   const push = (target: Finding[], code: string, path: string, message: string): void => {
     const finding = { code, path, message: `${path}: ${message}` };
     refusals.push(finding);
     target.push(finding);
   };
-  if (Object.hasOwn(version, 'outputs_lost')) {
+  const hasOutputsLost = Object.hasOwn(version, 'outputs_lost');
+  if (hasOutputsLost) {
     if (!validOutputsLoss(version, dir)) {
       push(malformed, 'PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED', `${label}.outputs_lost`, OUTPUTS_LOST_MALFORMED_MESSAGE);
     }
-    return { refusals, malformed, otherRefusals, bindings, readable, allMissing: false };
-  }
-  if (!Array.isArray(version.outputs) || version.outputs.length === 0) {
+    if (!Array.isArray(version.outputs) || version.outputs.length === 0) {
+      return { refusals, malformed, otherRefusals, bindings, missing, readable, allMissing: false };
+    }
+  } else if (!Array.isArray(version.outputs) || version.outputs.length === 0) {
     push(malformed, 'PRE_INTERVIEW_OUTPUT_MALFORMED', `${label}.outputs`, 'a pre-interview version lists its frozen output files with path, sha256 and bytes');
-    return { refusals, malformed, otherRefusals, bindings, readable, allMissing: false };
+    return { refusals, malformed, otherRefusals, bindings, missing, readable, allMissing: false };
   }
   const paths = new Set<string>();
   const outcomes: (
@@ -120,7 +137,6 @@ export function inspectPreInterviewOutputs(dir: string, version: JsonObject, lab
     | { kind: 'changed'; path: string; rawPath: string; actual: string; length: number }
     | { kind: 'ok' }
   )[] = [];
-  let missingCount = 0;
   version.outputs.forEach((raw, index) => {
     const path = `${label}.outputs[${index}]`;
     if (!isObject(raw) || typeof raw.path !== 'string' || raw.path.trim() === '' || typeof raw.sha256 !== 'string'
@@ -143,20 +159,24 @@ export function inspectPreInterviewOutputs(dir: string, version: JsonObject, lab
       }
       bytes = readFileSync(file);
     } catch {
-      missingCount++;
+      missing.push({ path: raw.path, sha256: raw.sha256 });
       outcomes.push({ kind: 'missing', path, rawPath: raw.path });
       return;
     }
     const actual = createHash('sha256').update(bytes).digest('hex');
-    if (actual === raw.sha256) readable.push(raw.path);
     if (actual !== raw.sha256 || bytes.length !== raw.bytes) {
       outcomes.push({ kind: 'changed', path, rawPath: raw.path, actual, length: bytes.length });
       return;
     }
+    readable.push(raw.path);
     outcomes.push({ kind: 'ok' });
   });
-  const allMissing = version.pre_interview === true && missingCount === version.outputs.length && readable.length === 0;
-  const lostRemedy = allMissing && typeof version.n === 'number'
+  const allMissing = version.pre_interview === true && !hasOutputsLost && missing.length === version.outputs.length && readable.length === 0;
+  const canRecordLoss = version.pre_interview === true
+    && !hasOutputsLost
+    && missing.length > 0
+    && outcomes.every((o) => o.kind === 'missing' || o.kind === 'ok');
+  const lostRemedy = canRecordLoss && typeof version.n === 'number'
     ? `; if this pre-interview version's frozen outputs did not survive, record the loss with rig-create version outputs-lost ${String(version.n)} --note <text> --source <text>`
     : '';
   for (const outcome of outcomes) {
@@ -174,7 +194,7 @@ export function inspectPreInterviewOutputs(dir: string, version: JsonObject, lab
       push(otherRefusals, 'PRE_INTERVIEW_OUTPUT_CHANGED', outcome.path, `${outcome.rawPath} has sha256 ${outcome.actual} and ${outcome.length} bytes, different from its frozen record`);
     }
   }
-  return { refusals, malformed, otherRefusals, bindings, readable, allMissing };
+  return { refusals, malformed, otherRefusals, bindings, missing, readable, allMissing };
 }
 
 function checkOutputs(ctx: HistoryCtx, version: JsonObject, label: string): void {

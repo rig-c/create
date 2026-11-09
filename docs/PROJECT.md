@@ -867,7 +867,7 @@ both kinds:
 | `n` | the version number, `1, 2, …` |
 | `original_n` | on pre-interview versions only, the unchanged source id as a number, string or `null`; non-null ids are unique |
 | `config_lost` | on pre-interview versions only, `{ note, source }` with nonempty strings when the build config did not survive; cannot accompany `provenance.config` or authorize post work |
-| `outputs_lost` | on pre-interview versions only, `{ note, source, recorded? }` with nonempty strings and optional `recorded: [{ path, sha256 }]` bindings beside `outputs: []` when frozen outputs did not survive; cannot authorize post work |
+| `outputs_lost` | on pre-interview versions only, `{ note, source, recorded? }` with nonempty strings and missing `recorded: [{ path, sha256 }]` bindings disjoint from surviving `outputs` (or `{ note, source }` beside `outputs: []`) when frozen outputs did not survive; cannot authorize post work |
 | `kind` | `rig` or `post` |
 | `rig_version` | for a post version, the `n` of the accepted rig it is built on (accepted before the post version's `at`); `null` for a rig version |
 | `at`, `built_by`, `built_with` | when, which agent or tool, and the package versions used (`{ "@rig-c/parts": "…", "@rig-c/core": "…" }`) |
@@ -1045,18 +1045,20 @@ that disagrees with the table is `PRE_INTERVIEW_VERDICT_MISMATCH`.
 
 Every historical version lists its frozen `outputs[]` with project-relative
 `path`, `sha256` and `bytes`. The check reads every file and compares its hash
-and size. If no frozen output survived, declare `outputs: []` with
+and size. If frozen outputs did not survive, declare
 `outputs_lost: { note, source, recorded }` via
-`rig-create version outputs-lost <n> --note <text> --source <text>`, recording
-what was lost, the source record that says so, and the dropped
-`recorded: [{ path, sha256 }]` bindings so the loss remains auditable. Both
+`rig-create version outputs-lost <n> --note <text> --source <text>`, keeping any
+outputs still readable with their recorded sha256 in `outputs` (`outputs: []` when
+none survived) and moving the missing ones into `recorded: [{ path, sha256 }]`
+alongside what was lost and the source record that says so. Both
 `note` and `source` must be nonempty strings. Earlier `{ note, source }`
-declarations without `recorded` remain valid, so no contract date is added. A
-loss declaration beside nonempty `outputs` or on a create-built version is
-refused (`PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED`). If any recorded output is
-still readable on disk with its sha256 (including a partial loss), the writer
-refuses (`OUTPUTS_LOST_HAS_OUTPUTS`) and names the readable outputs rather than
-dropping surviving bindings. Handoff refuses a selected rig with `outputs_lost`
+declarations beside `outputs: []` without `recorded` remain valid, so no contract
+date is added. A loss declaration without `recorded` beside nonempty `outputs`,
+a `recorded` entry overlapping `outputs` or readable on disk, or `outputs_lost`
+on a create-built version is refused (`PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED`). If
+no output is lost (every recorded output is readable on disk with its sha256),
+the writer refuses (`OUTPUTS_LOST_HAS_OUTPUTS`) and names the readable outputs.
+Handoff refuses a selected rig with `outputs_lost`
 as `PRE_INTERVIEW_OUTPUTS_LOST`, and post records cannot use it as their rig
 basis (`POST_ON_UNACCEPTED_RIG`). All
 pre-interview versions precede the first create-built version, with positive,
@@ -1119,10 +1121,11 @@ perform the following migration on its own decision record.
    version cannot authorize post work. `rig-create version config-lost <n> --note <text> --source <text>`
    writes this declaration.
    Restore each frozen output and record its actual `path`, `sha256` and
-   `bytes`. When none survived, declare `outputs: []` and `outputs_lost`
+   `bytes`. When some or all frozen outputs did not survive, declare `outputs_lost`
    with the known loss in `note` and its record in `source`;
-   `rig-create version outputs-lost <n> --note <text> --source <text>` writes
-   this declaration and retains the dropped `{ path, sha256 }` bindings in
+   `rig-create version outputs-lost <n> --note <text> --source <text>` keeps
+   any readable outputs in `outputs` (`outputs: []` when none survived) and
+   moves the missing `{ path, sha256 }` bindings into
    `outputs_lost.recorded`. Check that all
    `answers_feedback` and `rig_version` references use the new `n`, including
    references from create-built entries. Retain acceptance stills and genuine

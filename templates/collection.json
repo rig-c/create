@@ -16,7 +16,7 @@
   ],
   "signoffs": [],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.30.1)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.34.0)",
     "held": false,
     "date": null,
     "interviewer": null,

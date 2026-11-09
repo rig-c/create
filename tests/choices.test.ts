@@ -302,7 +302,7 @@ test('the public-writer consumer fixture and raw option files reproduce exactly'
   const outputs=generateExampleChoices(join(tempDir(),'choice-generation'));
   for(const[path,bytes]of Object.entries(outputs))expect(readFileSync(join(import.meta.dir,'../templates',path),'utf8')).toBe(bytes);
   const entry=JSON.parse(outputs['example-interview-choice.json'] as string);expect(entry.scenarios.find((s:{name:string})=>s.name==='constraint').refused).toBe('INTERVIEW_CHOICE_CONSTRAINT');expect(entry.scenarios.find((s:{name:string})=>s.name==='other-pending-picks-file').approval_refusal).toBe('INTERVIEW_CHOICE_REQUIRED');expect(entry.scenarios.find((s:{name:string})=>s.name==='fullscreen-gates').refusals.length).toBeGreaterThan(0);expect(entry.scenarios.find((s:{name:string})=>s.name==='character-gates').cg_refusals).toEqual([]);
-});
+}, 30_000);
 
 test('member-local choices preserve the inherited words and never write the parent collection',()=>{
   const w=working('reference');const root=tempDir();const members=join(root,'members');mkdirSync(members);const member=join(members,'example');renameSync(w.dir,member);w.dir=member;

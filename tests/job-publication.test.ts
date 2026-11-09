@@ -2,9 +2,9 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
-import { closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
-import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication } from '../src/job-outbox.ts';
+import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
+import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
 import { prepareVersionIntent } from '../src/job-writer.ts';
 import { partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
@@ -164,13 +164,13 @@ test('private binding and discard log refuse dangling symlinks without creating 
   expect(existsSync(target)).toBe(false);
 });
 
-test('host loss after preflight stops the replacement and leaves a named pending receipt', async () => {
+test('host loss after preflight refuses strict attach without starting a replacement and leaves a named pending receipt', async () => {
   const { root, host, entry } = await bound();
   await expect(reconcileCreateJob(root, item => publishPending(item, undefined, () => host.stop())))
     .rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
   const failure = pendingPublications(root)[0].failure!;
-  expect(failure.code).toBe('JOB_HOST_REUSE_MISMATCH');
-  expect(failure.message).toContain('host incarnation');
+  expect(failure.code).toBe('JOB_HOST_ATTACH_REFUSED');
+  expect(failure.message).toContain('reason=probe, phase=probe');
   const fresh = await startJobHost({ ...entry.identity, readPublished, partsEnumerator,
     installWriterBinding: () => {}, partsEnumeratorId: entry.identity.partsEnumeratorId });
   hosts.push(fresh);
@@ -178,15 +178,23 @@ test('host loss after preflight stops the replacement and leaves a named pending
   expect(fresh.session.status().generation).toBe(0);
 });
 
-test('a changed live listener reader ID preserves the public mismatch field and values', async () => {
-  const { root, entry, host } = await bound();
+test('a changed live listener incarnation or reader ID preserves the public mismatch field and values', async () => {
+  const { root, entry, host, binding } = await bound();
   host.stop();
-  const changed = await startJobHost({ ...entry.identity, readerId: 'changed-reader', readPublished, partsEnumerator, installWriterBinding: () => {} });
+  const changed = await startJobHost({ ...entry.identity, port: Number(new URL(entry.origin).port),
+    readerId: 'changed-reader', readPublished, partsEnumerator, installWriterBinding: () => {} });
   hosts.push(changed);
+  await expect(reconcileCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  const incarnationFailure = pendingPublications(root)[0].failure!;
+  expect(incarnationFailure.code).toBe('JOB_HOST_REUSE_MISMATCH');
+  expect(incarnationFailure.message).toContain('listenerIncarnation');
+  expect(incarnationFailure.message).toContain(binding.listenerIncarnation);
+  expect(incarnationFailure.message).toContain(changed.attachment!.listenerIncarnation);
+  writePrivateJson(join(root, JOB_BINDING_FILE), { ...binding, listenerIncarnation: changed.attachment!.listenerIncarnation }, true);
   await expect(reconcileCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
   const failure = pendingPublications(root)[0].failure!;
   expect(failure.code).toBe('JOB_HOST_REUSE_MISMATCH');
-  expect(failure.message).toContain('readPublished');
+  expect(failure.message).toContain('readerId');
   expect(failure.message).toContain('changed-reader');
   expect(failure.message).toContain(entry.identity.readerId);
   expect(changed.session.status().generation).toBe(0);
@@ -422,4 +430,264 @@ test.each(['before-commit', 'after-commit', 'publish-failed'])('process kill %s 
     expect(host.session.status().publication?.source.selector).toEqual({ kind: 'rig', version: 2 });
     expect(readFileSync(join(root, 'project.json'))).toEqual(current);
   }
+});
+
+function mockedOwnerHost(
+  jobId: string,
+  origin: string,
+  reused: boolean,
+  attachment: JobOwnerHost['attachment'],
+): JobOwnerHost {
+  return {
+    session: {
+      jobId,
+      status: () => ({ jobId, generation: 0, status: 'active' as const, publication: null, pending: [], cursor: null, enabledActKinds: [] }),
+      hostCredentials: () => ({ agent: 'a'.repeat(64), ui: 'b'.repeat(64) }),
+      dispose: () => {},
+    } as unknown as JobOwnerHost['session'],
+    ports: {
+      handleJobApi: async () => Response.json({
+        schema: 'rig-review/job-api@2', verb: 'publish', jobId, requestId: 'synthetic-req', generation: 1,
+        ok: true, value: { publicationId: 'pub-synthetic-1', generation: 1 },
+      }),
+      subscribeJob: () => { throw Error('unused'); },
+      readPublication: () => { throw Error('unused'); },
+      commitUIAct: () => { throw Error('unused'); },
+      ackDisplayed: () => { throw Error('unused'); },
+      jobLiveness: async () => ({ ok: true as const, value: { active: true, busy: false } }),
+    },
+    origin,
+    ownerUrl: `${origin}/jobs/${jobId}/#cap=${'b'.repeat(64)}`,
+    reused,
+    attachment,
+    stop: () => {},
+  };
+}
+
+test('strict reuseOnly attach passes expected jobId, origin, listenerIncarnation and binding from the locked WriterBinding', async () => {
+  const { root, project } = setup();
+  const jobId = 'job-synthetic-strict';
+  const origin = 'http://127.0.0.1:43111';
+  const initialIncarnation = '11111111-1111-4111-8111-111111111111';
+  const rotatedIncarnation = '22222222-2222-4222-8222-222222222222';
+  const openMock = async (opts: JobHostOptions): Promise<JobOwnerHost> => {
+    expect(opts.reuseOnly).toBeUndefined();
+    await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'c'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, false, {
+      jobId,
+      origin,
+      listenerIncarnation: initialIncarnation,
+      binding: {
+        root: opts.root,
+        stateDir: opts.stateDir,
+        fingerprint: opts.fingerprint,
+        reviewer: opts.reviewer,
+        readerId: opts.readerId ?? null,
+        bindingId: opts.bindingId ?? null,
+        partsEnumeratorId: opts.partsEnumeratorId ?? null,
+        partsEnumeratorVersion: opts.partsEnumerator?.version ?? null,
+        apiSchema: 'rig-review/job-api@2',
+        actSchema: 'rig-review/act@2',
+      },
+    });
+  };
+  await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now, openMock);
+  const binding = readWriterBinding(root)!;
+  expect(binding.listenerIncarnation).toBe(initialIncarnation);
+  const path = prepareLiveManifest(root, project, 1);
+  const entry = enqueuePublication(root, binding, { path, selector: { kind: 'rig', version: 1 } });
+  expect('listenerIncarnation' in entry).toBe(false);
+  writePrivateJson(join(root, JOB_BINDING_FILE), { ...binding, listenerIncarnation: rotatedIncarnation }, true);
+  let capturedOptions: JobHostOptions | undefined;
+  let lockHeldDuringAttach = false;
+  const attachMock = async (opts: JobHostOptions): Promise<JobOwnerHost> => {
+    capturedOptions = opts;
+    lockHeldDuringAttach = acquireJobLock(root, false) === null;
+    return mockedOwnerHost(jobId, origin, true, opts.reuseOnly!.expected);
+  };
+  expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, attachMock))).toBe(1);
+  expect(lockHeldDuringAttach).toBe(true);
+  expect(capturedOptions?.reuseOnly).toEqual({
+    expected: {
+      jobId,
+      origin,
+      listenerIncarnation: rotatedIncarnation,
+      binding: {
+        root: entry.identity.root,
+        stateDir: entry.identity.stateDir,
+        fingerprint: entry.identity.fingerprint,
+        reviewer: entry.identity.reviewer,
+        readerId: entry.identity.readerId,
+        bindingId: entry.identity.bindingId,
+        partsEnumeratorId: entry.identity.partsEnumeratorId,
+        partsEnumeratorVersion: entry.identity.enumeratorVersion,
+        apiSchema: 'rig-review/job-api@2',
+        actSchema: 'rig-review/act@2',
+      },
+    },
+  });
+});
+
+test('ordinary GET reuse returning attachment: null is not strictly attached, not an error, and does not reinstall', async () => {
+  const { root } = setup();
+  const jobId = 'job-synthetic-get-reuse';
+  const origin = 'http://127.0.0.1:43112';
+  const incarnation = '11111111-1111-4111-8111-111111111111';
+  await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now, async opts => {
+    await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'c'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, false, {
+      jobId,
+      origin,
+      listenerIncarnation: incarnation,
+      binding: {
+        root: opts.root,
+        stateDir: opts.stateDir,
+        fingerprint: opts.fingerprint,
+        reviewer: opts.reviewer,
+        readerId: opts.readerId ?? null,
+        bindingId: opts.bindingId ?? null,
+        partsEnumeratorId: opts.partsEnumeratorId ?? null,
+        partsEnumeratorVersion: opts.partsEnumerator?.version ?? null,
+        apiSchema: 'rig-review/job-api@2',
+        actSchema: 'rig-review/act@2',
+      },
+    });
+  });
+  const bindingPath = join(root, JOB_BINDING_FILE);
+  const beforeSha256 = jobHash(readFileSync(bindingPath));
+  let calls = 0;
+  const reusedHost = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now, async opts => {
+    calls++;
+    await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'd'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, true, null);
+  });
+  expect(calls).toBe(1);
+  expect(reusedHost.reused).toBe(true);
+  expect(reusedHost.attachment).toBeNull();
+  expect(jobHash(readFileSync(bindingPath))).toBe(beforeSha256);
+  expect(readWriterBinding(root)!.listenerIncarnation).toBe(incarnation);
+
+  const { root: unboundRoot } = setup();
+  let unboundCalls = 0;
+  const unboundHost = await openCreateJob(unboundRoot, { id: 'reviewer', role: 'owner' }, now, async opts => {
+    unboundCalls++;
+    await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'e'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, true, null);
+  });
+  expect(unboundCalls).toBe(1);
+  expect(unboundHost.reused).toBe(true);
+  expect(unboundHost.attachment).toBeNull();
+  expect(existsSync(join(unboundRoot, JOB_BINDING_FILE))).toBe(false);
+});
+
+test('JOB_HOST_ATTACH_REFUSED and field-level JOB_HOST_REUSE_MISMATCH map to named Refusals and preserve reasons in pending receipts', async () => {
+  const { root, project } = setup();
+  const jobId = 'job-synthetic-refusals';
+  const origin = 'http://127.0.0.1:43113';
+  const incarnation = '11111111-1111-4111-8111-111111111111';
+  await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now, async opts => {
+    await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'c'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, false, {
+      jobId,
+      origin,
+      listenerIncarnation: incarnation,
+      binding: {
+        root: opts.root,
+        stateDir: opts.stateDir,
+        fingerprint: opts.fingerprint,
+        reviewer: opts.reviewer,
+        readerId: opts.readerId ?? null,
+        bindingId: opts.bindingId ?? null,
+        partsEnumeratorId: opts.partsEnumeratorId ?? null,
+        partsEnumeratorVersion: opts.partsEnumerator?.version ?? null,
+        apiSchema: 'rig-review/job-api@2',
+        actSchema: 'rig-review/act@2',
+      },
+    });
+  });
+  const binding = readWriterBinding(root)!;
+  const path = prepareLiveManifest(root, project, 1);
+  enqueuePublication(root, binding, { path, selector: { kind: 'rig', version: 1 } });
+
+  const attachRefusals: Extract<JobHostAttachFailure, { code: 'JOB_HOST_ATTACH_REFUSED' }>[] = [
+    { code: 'JOB_HOST_ATTACH_REFUSED', reason: 'incarnation-missing', phase: 'record' },
+    { code: 'JOB_HOST_ATTACH_REFUSED', reason: 'incarnation-missing', phase: 'probe' },
+    { code: 'JOB_HOST_ATTACH_REFUSED', reason: 'closed', phase: 'acceptance' },
+    { code: 'JOB_HOST_ATTACH_REFUSED', reason: 'stopped', phase: 'acceptance' },
+    { code: 'JOB_HOST_ATTACH_REFUSED', reason: 'race', phase: 'adoption' },
+  ];
+  for (const refusal of attachRefusals) {
+    const thrown = Object.assign(new Error(`${refusal.code}: ${refusal.reason} (${refusal.phase})`), refusal);
+    await expect(attachCreateJob(pendingPublications(root)[0]!, undefined, undefined, async () => { throw thrown; }))
+      .rejects.toMatchObject({ code: 'JOB_HOST_ATTACH_REFUSED' });
+    await expect(reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async () => { throw thrown; })))
+      .rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+    const receipt = pendingPublications(root)[0]!.failure!;
+    expect(receipt.code).toBe('JOB_HOST_ATTACH_REFUSED');
+    expect(receipt.message).toContain(refusal.reason);
+    expect(receipt.message).toContain(refusal.phase);
+  }
+
+  const mismatchFailures: Extract<JobHostAttachFailure, { code: 'JOB_HOST_REUSE_MISMATCH' }>[] = [
+    { code: 'JOB_HOST_REUSE_MISMATCH', field: 'listenerIncarnation', expected: incarnation, actual: '33333333-3333-4333-8333-333333333333' },
+    { code: 'JOB_HOST_REUSE_MISMATCH', field: 'readerId', expected: binding.identity.readerId, actual: 'different-reader' },
+    { code: 'JOB_HOST_REUSE_MISMATCH', field: 'origin', expected: origin, actual: 'http://127.0.0.1:43199' },
+  ];
+  for (const mismatch of mismatchFailures) {
+    const thrown = Object.assign(new Error(`${mismatch.code}: ${mismatch.field}`), mismatch);
+    await expect(attachCreateJob(pendingPublications(root)[0]!, undefined, undefined, async () => { throw thrown; }))
+      .rejects.toMatchObject({ code: 'JOB_HOST_REUSE_MISMATCH' });
+    await expect(reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async () => { throw thrown; })))
+      .rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+    const receipt = pendingPublications(root)[0]!.failure!;
+    expect(receipt.code).toBe('JOB_HOST_REUSE_MISMATCH');
+    expect(receipt.message).toContain(mismatch.field);
+    expect(receipt.message).toContain(String(mismatch.expected));
+    expect(receipt.message).toContain(String(mismatch.actual));
+  }
+});
+
+test('reuse-only attach never writes the binding and leaves its sha256 identical before and after', async () => {
+  const { root, project } = setup();
+  const jobId = 'job-synthetic-readonly-binding';
+  const origin = 'http://127.0.0.1:43114';
+  const incarnation = '44444444-4444-4444-8444-444444444444';
+  await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now, async opts => {
+    await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'c'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, false, {
+      jobId,
+      origin,
+      listenerIncarnation: incarnation,
+      binding: {
+        root: opts.root,
+        stateDir: opts.stateDir,
+        fingerprint: opts.fingerprint,
+        reviewer: opts.reviewer,
+        readerId: opts.readerId ?? null,
+        bindingId: opts.bindingId ?? null,
+        partsEnumeratorId: opts.partsEnumeratorId ?? null,
+        partsEnumeratorVersion: opts.partsEnumerator?.version ?? null,
+        apiSchema: 'rig-review/job-api@2',
+        actSchema: 'rig-review/act@2',
+      },
+    });
+  });
+  const bindingPath = join(root, JOB_BINDING_FILE);
+  const beforeSha256 = jobHash(readFileSync(bindingPath));
+  const binding = readWriterBinding(root)!;
+  const path = prepareLiveManifest(root, project, 1);
+  const entry = enqueuePublication(root, binding, { path, selector: { kind: 'rig', version: 1 } });
+  const attached = await attachCreateJob(entry, undefined, undefined, async opts => {
+    await opts.installWriterBinding?.({ jobId: 'tampered', origin: 'http://127.0.0.1:49999', fetchCapability: 'f'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, true, opts.reuseOnly!.expected);
+  });
+  attached.stop();
+  const afterAttachSha256 = jobHash(readFileSync(bindingPath));
+  expect(afterAttachSha256).toBe(beforeSha256);
+  expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async opts => {
+    await opts.installWriterBinding?.({ jobId: 'tampered', origin: 'http://127.0.0.1:49999', fetchCapability: 'f'.repeat(64) });
+    return mockedOwnerHost(jobId, origin, true, opts.reuseOnly!.expected);
+  }))).toBe(1);
+  const afterReconcileSha256 = jobHash(readFileSync(bindingPath));
+  expect(afterReconcileSha256).toBe(beforeSha256);
 });

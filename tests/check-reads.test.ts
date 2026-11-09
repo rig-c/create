@@ -45,7 +45,7 @@ test('no check module imports a read function from node:fs', () => {
 
 /** Each committed example as a fresh project folder: the example folders copied, the record templates materialized. */
 const EXAMPLES: [string, () => string][] = [
-  ...['example-chain', ...readdirSync(join(TEMPLATES, 'example-chain', 'checkpoints'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => `example-chain/checkpoints/${entry.name}`), 'example-direction']
+  ...['example-chain', ...readdirSync(join(TEMPLATES, 'example-chain', 'checkpoints'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => `example-chain/checkpoints/${entry.name}`), 'example-direction', 'example-remesh']
     .map(name => [name, () => {
       const dir = join(tempDir(), 'project');
       cpSync(join(TEMPLATES, name), dir, { recursive: true });

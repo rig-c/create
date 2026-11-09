@@ -21,6 +21,7 @@ const addedEvents = [
   '2026-11-11T11:00:00Z', '2026-11-11T11:01:00Z', '2026-11-11T11:02:00Z',
   '2026-11-11T11:03:00Z', '2026-11-11T11:04:00Z', '2026-11-11T11:05:00Z', '2026-11-11T11:10:00Z',
   '2026-11-13T10:01:00Z', '2026-11-13T10:03:00Z',
+  '2026-11-16T10:00:00Z', '2026-11-16T10:05:00Z',
 ];
 const events = [...new Set([...legacyEvents, ...addedEvents].map(value => Date.parse(value)))].sort((a, b) => a - b);
 if (events.length > 121) throw new Error('example events exceed the two-minute timeline');

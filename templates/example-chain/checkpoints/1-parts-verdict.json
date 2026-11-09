@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 1,
   "name": "1-parts-verdict",
-  "chain_step": 30,
+  "chain_step": 39,
   "pending": {
     "act": "Export the synthetic review-tool parts verdict, then approve the parts",
     "commands": [
@@ -32,7 +32,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "951033ff301062f6d007b0d2bb1f92e55a5ad856f05132543d9f8b9739aafa7f",
+  "project_sha256": "f50bde6a6c8337e603c101271631188289034b938f2baf99a76c1cc05221489b",
   "files": [
     {
       "path": ".gitignore",
@@ -92,7 +92,7 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/run.json",
-      "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
+      "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -148,7 +148,7 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "3e98f53ecb461b64256268106d760d6529ae5ac42bdc28f0419341ba0e50ff6d"
+      "sha256": "aa0b66760b0373a240a4499c93787cc0c521a9b82c43c50095ce7af0c72b4592"
     },
     {
       "path": "evidence/.gitkeep",
@@ -192,11 +192,11 @@
     },
     {
       "path": "package.json",
-      "sha256": "d3ec766c347c65a78941f322fa3814829685fe2a4cc5cf8fbff23157fe00fd9f"
+      "sha256": "cf80150574b403df80b9c337e5b57e2d09a795185a20e7c4a281d90cf09e7029"
     },
     {
       "path": "project.json",
-      "sha256": "951033ff301062f6d007b0d2bb1f92e55a5ad856f05132543d9f8b9739aafa7f"
+      "sha256": "f50bde6a6c8337e603c101271631188289034b938f2baf99a76c1cc05221489b"
     }
   ]
 }

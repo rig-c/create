@@ -5,8 +5,8 @@
     "": {
       "name": "@rig-c/create",
       "dependencies": {
-        "@rig-c/parts": "2.30.1",
-        "@rig-c/review": "2.5.0",
+        "@rig-c/parts": "2.34.0",
+        "@rig-c/review": "2.7.0",
       },
       "devDependencies": {
         "@types/bun": "^1.3.0",
@@ -75,11 +75,11 @@
 
     "@rig-c/core": ["@rig-c/core@3.6.0", "", { "bin": { "rigc": "bin/rigc.cjs" } }, "sha512-Rl2MvS8rlnoe2k4RsDWKa6fC2ZADXKvuGKvgnmcaukds/7KkLBkyltsHPEfcoMEY2owF9fzgVFtR+LZK98AMIw=="],
 
-    "@rig-c/parts": ["@rig-c/parts@2.30.1", "", { "dependencies": { "@rig-c/core": "3.6.0", "ag-psd": "^31.0.2" }, "bin": { "rig-parts": "bin/rig-parts.cjs", "spine-parts": "bin/rig-parts.cjs" } }, "sha512-KLNe/AodgM/xLsU1kCynfOdtA7NJvp8PPndCZgUYR8ewmwcUDXDz6DIZEf88+s24XEogavEFCpUhxgKocCwj0Q=="],
+    "@rig-c/parts": ["@rig-c/parts@2.34.0", "", { "dependencies": { "@rig-c/core": "3.6.0", "ag-psd": "^31.0.2" }, "bin": { "rig-parts": "bin/rig-parts.cjs", "spine-parts": "bin/rig-parts.cjs" } }, "sha512-PuSqSTt/MoL3CtimcZml2tVUdnS+Ak3vuzk+LSfe1BSISkTX+aGdcaQZpAot3PPwaxYCMlHGNbq/bf1seeWRmw=="],
 
     "@rig-c/play": ["@rig-c/play@1.23.0", "", {}, "sha512-IvDpgLfWV8HtoSQ6wELvaQ5zrzNdvBEKbdO8OUUxK/47RXVbLIyp2At1iRtrJmZKbd2L5OpSFNrn4sGsGBcOyw=="],
 
-    "@rig-c/review": ["@rig-c/review@2.5.0", "", { "dependencies": { "@napi-rs/canvas": "1.0.11", "@rig-c/play": "1.23.0", "@types/pngjs": "6.0.5", "pngjs": "7.0.0" }, "bin": { "rig-review": "src/entry.ts" } }, "sha512-hCff1UTe3xc0cECG7K2p0O0QSegyNBsVKFtqleLnH0z5UIYpqQb9Afx9qKoFPTbzQxH7GnaL/BJd9CT0dB8xUQ=="],
+    "@rig-c/review": ["@rig-c/review@2.7.0", "", { "dependencies": { "@napi-rs/canvas": "1.0.11", "@rig-c/play": "1.23.0", "@types/pngjs": "6.0.5", "pngjs": "7.0.0" }, "bin": { "rig-review": "src/entry.ts" } }, "sha512-JuxI9r7XYx19Awzcfp/5QdjDNfL7HFIrdh5IyQRgc7El29oVukQWf1nhjYRh+gVxGbDl1UV4AbSqohXRxBD1lQ=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

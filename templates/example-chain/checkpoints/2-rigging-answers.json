@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 2,
   "name": "2-rigging-answers",
-  "chain_step": 39,
+  "chain_step": 48,
   "pending": {
     "act": "Choose the rigging interview answers and approve their plan",
     "commands": [
@@ -64,7 +64,7 @@
     ],
     "warnings": []
   },
-  "project_sha256": "500a3b342fee2abf64108af4c7e0ad36cac7e436c74ba6adafcf283443af9ba1",
+  "project_sha256": "0be90d4255d9d5156e0699df2297006247c56b99df334b7c3d4c0d1a26fd6a69",
   "files": [
     {
       "path": ".gitignore",
@@ -124,7 +124,7 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/run.json",
-      "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
+      "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -180,7 +180,7 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "3e98f53ecb461b64256268106d760d6529ae5ac42bdc28f0419341ba0e50ff6d"
+      "sha256": "aa0b66760b0373a240a4499c93787cc0c521a9b82c43c50095ce7af0c72b4592"
     },
     {
       "path": "evidence/.gitkeep",
@@ -200,7 +200,7 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "2f6f7ff81f70469688f3263235ba5626d047701e4dd39d2f5d9274e61098d7ae"
+      "sha256": "0a1cfeac8bb934f3b916743a1965a55887cb686372812effe4852b904e043a08"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -220,11 +220,11 @@
     },
     {
       "path": "evidence/parts-review.json",
-      "sha256": "dd83cb30576b3e7c94860cde0104df895526c766b1baf0eb5a723c00f768a79c"
+      "sha256": "ec87618dcb99bdf9a636245132a6e5455edbe62b40e80c830e83decb2e978611"
     },
     {
-      "path": "evidence/review-reads/8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9.json",
-      "sha256": "8dacba66909bcda31dec15c1284edb9dede37ce82baef9a47ce44b030a1d34e9"
+      "path": "evidence/review-reads/5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180.json",
+      "sha256": "5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180"
     },
     {
       "path": "evidence/split-config.json",
@@ -244,11 +244,11 @@
     },
     {
       "path": "package.json",
-      "sha256": "d3ec766c347c65a78941f322fa3814829685fe2a4cc5cf8fbff23157fe00fd9f"
+      "sha256": "cf80150574b403df80b9c337e5b57e2d09a795185a20e7c4a281d90cf09e7029"
     },
     {
       "path": "project.json",
-      "sha256": "500a3b342fee2abf64108af4c7e0ad36cac7e436c74ba6adafcf283443af9ba1"
+      "sha256": "0be90d4255d9d5156e0699df2297006247c56b99df334b7c3d4c0d1a26fd6a69"
     }
   ]
 }

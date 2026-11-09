@@ -36,6 +36,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkRiggingContext } from './structure.ts';
 import { checkDrafts, draftVersionFindings } from './drafts.ts';
+import { checkFixLedger, type LedgerSummary } from './fix-ledger.ts';
 import { checkCgGates } from './cg-gates.ts';
 import { checkFigureMask } from './figure-mask.ts';
 import { checkSetupPainting } from './setup-painting.ts';
@@ -146,6 +147,8 @@ export interface CheckReport {
   readonly feedback: FeedbackSummary[];
   /** Present only on amended records, preserving the report shape of older projects. */
   readonly amendments?: AmendmentSummary[];
+  /** Per draft bound to a ledger report: the fix_ledger rows it fixes and its known regressions (docs/CHECKS.md § Fix ledger). Present only when one is. */
+  readonly ledger?: LedgerSummary[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
   /** Local delivery gaps, distinct from record-validation refusals. */
@@ -944,6 +947,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     refusals.push({ code: e.code, path: '@rig-c/parts', message: e.message });
   }
   checkDrafts(dir, project, refusals, warnings);
+  const ledger = checkFixLedger(dir, project, refusals, warnings, options.now);
   refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);
   checkPartsVerdictDrafts(ctx, historySignoffs);
@@ -999,6 +1003,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     provenance,
     feedback,
     ...(amendments.length === 0 ? {} : { amendments: amendmentSummaries(project, amendments, reopens) }),
+    ...(ledger.length === 0 ? {} : { ledger }),
     refusals,
     warnings,
     ...(holes.length ? { holes } : {}),
@@ -1025,6 +1030,9 @@ export function formatReport(report: CheckReport): string {
     lines.push(`    upstream live (${amendment.upstream.length})`);
     for (const a of amendment.upstream) lines.push(`      ${a.path} ${a.stage}: ${a.reason}`);
     lines.push(`    keep-by-binding (${amendment.keep_by_binding.length})`);
+  }
+  for (const entry of report.ledger ?? []) {
+    lines.push(`  drafts[${entry.draft}] fixes [${entry.fixes.join(', ')}]${entry.known_regressions.length ? `; known regressions [${entry.known_regressions.join(', ')}]` : ''}`);
   }
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);

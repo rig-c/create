@@ -1,0 +1,15 @@
+[
+ {
+  "part": "torso",
+  "vertices": 30,
+  "triangles": 40,
+  "hull": 18,
+  "bones": [
+   "body"
+  ],
+  "max_influences": 1,
+  "mean_influences": 1,
+  "art_coverage": 1,
+  "grid": 16
+ }
+]

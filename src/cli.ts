@@ -10,6 +10,8 @@ import { join } from 'node:path';
 import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
 import { CORRECTION_HELP, correctionCommand } from './correction-writers.ts';
 import { DRAFT_RIG_HELP, draftRigCommand } from './drafts.ts';
+import { LEDGER_HELP, ledgerCommand } from './fix-ledger.ts';
+import { RESTART_HELP, restartCommand } from './restart.ts';
 import { STRUCTURE_SNAPSHOT_HELP, structureSnapshotCommand } from './structure-snapshot.ts';
 import { collectionInitCommand } from './collection.ts';
 import { describeInit, initProject } from './init.ts';
@@ -43,6 +45,12 @@ Usage:
   rig-create job open [<dir>] --reviewer <id> --role owner|delegate
   rig-create job reconcile|close [<dir>]
 ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
+  rig-create init <dir> --painting <file> --origin <words> [--projects-root <dir>] [--same-artwork-reason <file>]
+                                                    also register the painting; refuse a second project for one artwork
+  rig-create restart [<dir>] --by <human> --reason-file <file>
+                                                    restart the record at v1, keeping inputs and the fix ledger
+  rig-create ledger add|retire <id> [<dir>] --by <who> …
+                                                    record or retire an owner fix every version inherits
   rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
   rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
   rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
@@ -93,6 +101,15 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
 init:
   <dir>          an empty or missing folder; a non-empty one is refused
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
+  --painting <file> --origin <words>
+                 copy the painting into inputs/ and register it; refused (INIT_ARTWORK_EXISTS) when a
+                 project directly under --projects-root (default: the parent folder) binds the same sha256
+  --same-artwork-reason <file>
+                 record why this artwork needs a second project (a different rig kind)
+
+${RESTART_HELP}
+
+${LEDGER_HELP}
 
 ${INPUT_HELP}
 
@@ -167,16 +184,28 @@ function initCommand(args: string[], now: number): string {
   }
   let install = true;
   const positional: string[] = [];
-  for (const arg of args) {
+  const artwork: Record<string, string> = {};
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
     if (arg === '--no-install') install = false;
-    else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `init does not take ${arg}`, USAGE_EXIT);
+    else if (['--painting', '--origin', '--projects-root', '--same-artwork-reason'].includes(arg)) {
+      const value = args[++i];
+      if (value === undefined || value.startsWith('--') || value.trim() === '' || artwork[arg] !== undefined) refuse('INIT_ARTWORK_USAGE', `init: ${arg} needs one value`, USAGE_EXIT);
+      artwork[arg] = value;
+    } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `init does not take ${arg}`, USAGE_EXIT);
     else positional.push(arg);
+  }
+  if (Object.keys(artwork).length > 0 && (artwork['--painting'] === undefined || artwork['--origin'] === undefined)) {
+    refuse('INIT_ARTWORK_USAGE', 'init: --origin, --projects-root and --same-artwork-reason go with --painting <file> --origin <words>', USAGE_EXIT);
   }
   if (positional.length === 0) refuse('INIT_DIR_MISSING', 'init needs a folder: rig-create init <dir>', USAGE_EXIT);
   if (positional.length > 1) {
     refuse('INIT_TOO_MANY_ARGUMENTS', `init takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
   }
-  const result = initProject(positional[0] as string, { install, now });
+  const painting = artwork['--painting'] === undefined ? undefined : {
+    file: artwork['--painting'], origin: artwork['--origin']!, projectsRoot: artwork['--projects-root'], sameArtworkReason: artwork['--same-artwork-reason'],
+  };
+  const result = initProject(positional[0] as string, { install, now, ...(painting === undefined ? {} : { painting }) });
   if (result.installError !== null) {
     process.stdout.write(`${describeInit(result)}\n`);
     refuse(
@@ -212,6 +241,8 @@ const COMMANDS: Record<string, Command> = {
   'step-status': stepStatusCommand,
   amend: amendCommand,
   'draft-rig': draftRigCommand,
+  ledger: ledgerCommand,
+  restart: restartCommand,
   'parts-review': partsReviewCommand,
   'structure-snapshot': structureSnapshotCommand,
   correction: correctionCommand,

@@ -1,0 +1,9 @@
+{
+  "name": "project",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rig-c/core": "3.6.0",
+    "@rig-c/parts": "2.34.0"
+  }
+}

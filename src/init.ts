@@ -1,12 +1,14 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { existsSync, readdirSync, statSync } from './check-reads.ts';
-import { basename, join, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from './check-reads.ts';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { writeAgentGuide } from './agent-guide.ts';
 import { PINNED_PACKAGES } from './pins.ts';
-import { refuse } from './refusal.ts';
+import { readVerbatim } from './record-input.ts';
+import { refuse, USAGE_EXIT } from './refusal.ts';
 import { CHOICE_ORDER_SPEC } from './stages.ts';
-import { readTemplate } from './templates.ts';
+import { readTemplate, type JsonObject } from './templates.ts';
 import { JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY } from './job-outbox.ts';
 
 export const INTERVIEW_DOC_URL = 'https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md';
@@ -25,6 +27,58 @@ export interface InitOptions {
   install: boolean;
   /** The instant the record's adoption dates carry (ms since the epoch). */
   now: number;
+  /** The painting the project is for, registered as its first input; with it init refuses a second project for the same artwork. */
+  painting?: PaintingOption;
+}
+
+export interface PaintingOption {
+  file: string;
+  origin: string;
+  /** Where sibling projects live; default the new project's parent folder. */
+  projectsRoot?: string;
+  /** A file saying why this is a new project for an artwork another project already binds. */
+  sameArtworkReason?: string;
+}
+
+interface Artwork { readonly path: string; readonly bytes: Buffer; readonly entry: JsonObject; readonly same: JsonObject | null }
+
+/**
+ * One artwork is one project (create#285): refuse before writing anything when a project directly
+ * under the projects root binds an input with the painting's sha256, unless a reason is given.
+ */
+function artworkFor(dir: string, painting: PaintingOption, now: number): Artwork {
+  let bytes: Buffer;
+  try {
+    if (!statSync(painting.file).isFile()) throw new Error('not a file');
+    bytes = readFileSync(painting.file);
+  } catch { refuse('INIT_ARTWORK_USAGE', `--painting ${painting.file}: not a readable file`, USAGE_EXIT); }
+  const name = basename(painting.file);
+  if (name.startsWith('.') || name === 'references') refuse('INIT_ARTWORK_USAGE', `--painting ${painting.file}: name the painting file so it can sit in inputs/`, USAGE_EXIT);
+  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const root = resolve(painting.projectsRoot ?? dirname(dir));
+  let siblings: string[] = [];
+  try { siblings = readdirSync(root).sort(); } catch {
+    if (painting.projectsRoot !== undefined) refuse('INIT_ARTWORK_USAGE', `--projects-root ${root}: not a readable folder`, USAGE_EXIT);
+  }
+  const matches = siblings.filter(sibling => {
+    if (resolve(root, sibling) === dir) return false;
+    let record: unknown;
+    try { record = JSON.parse(readFileSync(join(root, sibling, 'project.json'), 'utf8')); } catch { return false; }
+    const inputs = record !== null && typeof record === 'object' && 'inputs' in record && Array.isArray(record.inputs) ? record.inputs as unknown[] : [];
+    return inputs.some(input => input !== null && typeof input === 'object' && (input as JsonObject).sha256 === sha256);
+  });
+  if (matches.length > 0 && painting.sameArtworkReason === undefined) {
+    refuse('INIT_ARTWORK_EXISTS', `inputs[0]: ${name} (sha256 ${sha256}) is already an input of ${matches.join(', ')} under ${root}; one artwork is one project, so record a redo, a new source or a new tool as a version there, or give --same-artwork-reason <file> for a different rig kind`);
+  }
+  let same: JsonObject | null = null;
+  if (painting.sameArtworkReason !== undefined) {
+    if (matches.length === 0) refuse('INIT_ARTWORK_USAGE', `--same-artwork-reason: no project under ${root} binds ${name}; drop the reason`, USAGE_EXIT);
+    const reason = readVerbatim(painting.sameArtworkReason).trim();
+    if (!reason) refuse('INIT_ARTWORK_USAGE', '--same-artwork-reason: the reason file is empty; say why this artwork needs a second project', USAGE_EXIT);
+    same = { reason, at: new Date(now).toISOString(), projects: matches };
+  }
+  const path = `inputs/${name}`;
+  return { path, bytes, same, entry: { path, sha256, bytes: bytes.length, origin: painting.origin, at: new Date(now).toISOString() } };
 }
 
 export interface InitResult {
@@ -66,15 +120,16 @@ export function checkTarget(dir: string): void {
   }
 }
 
-function writeProjectJson(dir: string, name: string, now: number): void {
+/** The record init writes, and restart starts from: the template with its contracts adopted at `now`. */
+export function freshProjectRecord(name: string, now: number): JsonObject {
   const record = readTemplate('project.json');
   record.name = name;
   const at = new Date(now).toISOString();
   record.corrections_contract = { schema: 'rig-create/corrections@1', adopted_at: at };
   record.corrections = [];
-  const interview = record.interview as import('./templates.ts').JsonObject;
+  const interview = record.interview as JsonObject;
   interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: at, choices_adopted_at: at };
-  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
+  return record;
 }
 
 export function writePackageJson(dir: string, name: string): void {
@@ -102,11 +157,20 @@ export function initProject(target: string, options: InitOptions): InitResult {
   const dir = resolve(target);
   checkTarget(dir);
   const name = basename(dir);
+  const artwork = options.painting === undefined ? null : artworkFor(dir, options.painting, options.now);
 
   mkdirSync(dir, { recursive: true });
   const written: string[] = [];
 
-  writeProjectJson(dir, name, options.now);
+  const record = freshProjectRecord(name, options.now);
+  if (artwork !== null) {
+    mkdirSync(join(dir, 'inputs'), { recursive: true });
+    writeFileSync(join(dir, artwork.path), artwork.bytes);
+    written.push(artwork.path);
+    record.inputs = [artwork.entry];
+    if (artwork.same !== null) record.same_artwork = artwork.same;
+  }
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
   written.push('project.json');
   writePackageJson(dir, name);
   written.push('package.json');
@@ -183,6 +247,9 @@ export function describeInit(result: InitResult): string {
   if (!result.installed) {
     lines.push(`  ${step++}. cd ${result.dir} && bun install, then commit bun.lock`);
   }
-  lines.push(`  ${step++}. put the painting in inputs/, then start the interview: ${INTERVIEW_DOC_URL}`);
+  const painting = result.committed.find(path => path.startsWith('inputs/') && !path.endsWith('.gitkeep'));
+  lines.push(painting === undefined
+    ? `  ${step++}. put the painting in inputs/, then start the interview: ${INTERVIEW_DOC_URL}`
+    : `  ${step++}. ${painting} is registered; start the interview: ${INTERVIEW_DOC_URL}`);
   return lines.join('\n');
 }

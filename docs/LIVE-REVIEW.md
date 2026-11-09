@@ -5,12 +5,21 @@ running while writers commit results. The reviewer identity is the trusted
 bootstrap identity used by Review.
 
 ```sh
-rig-create job open <project> --reviewer <id> --role owner
+rig-create job open <project> --reviewer <id> --role owner [--draft <id>]
 rig-create job reconcile <project>
 rig-create job close <project>
 ```
 
-The open command prints the private owner-window URL. Keep it private. The
+The open command prints the private owner-window URL. Keep it private.
+It then shows the record's current draft on that page: in `parts` and
+`parts-review` it publishes the latest recorded draft (or the one `--draft`
+names, in any stage) and asks every subject that publication declares (see
+[Asks](#asks)). It prints `job: draft <id> published`, or `already published`
+when the job's head publication is already that draft (or an acknowledged `rig`
+or `post` version) over the current record,
+then `job: asked …` and `job: already asked …` with each subject. A `--draft` id
+the record does not hold refuses `JOB_DRAFT_UNKNOWN` before writing `review_job`. A refused publish or ask
+is printed while the foreground host keeps serving. The
 versioned `review_job` stores only `jobId` and `origin`. The host installs its
 fetch grant in the owner-only sibling `.rig-create-review-binding.json` and
 ensures it and the durable `.rig-create-review/` outbox are ignored before
@@ -21,6 +30,17 @@ minimal `.gitignore` append. Effective ignores are checked before writing.
 A tracked private path refuses startup. Agents invoke writers and never construct this file.
 Explicit close revokes the grant and removes the matching binding. Listener
 shutdown alone preserves the active job. A new incarnation receives a new grant.
+
+Re-opening with an existing binding keeps its job. A running host is reused.
+A stopped host restarts on the same job, state directory and port, and the
+draft is published again only when the head publication no longer matches the
+current record bytes. A binding whose root is another directory was copied
+with the project (a clone or a move). `job open` never reads that binding's
+host state or connects to its port: it opens this root's own job in its own
+state directory, replaces the copied binding and rewrites `review_job`. Before
+that, `job close` with the copied binding refuses `JOB_HOST_REUSE_MISMATCH` on
+`root` before any attach, and a copied outbox entry refuses
+`JOB_OUTBOX_INVALID`.
 
 The outbox, intents and discard log live in the project-root
 `.rig-create-review/`, independently of the binding and TMPDIR. Its directories
@@ -237,9 +257,27 @@ publication of the record that can sign, before any later write.
 `job reconcile` keeps the declared subjects in the acknowledged receipt.
 `signoff … --from-review` compares the act's subject with that list and
 refuses one the publication did not declare (`REVIEW_ACT_SUBJECT_UNDECLARED`).
-This is create's own check, because create never sends the ask. A receipt
-without the list, or no receipt at all (a clone), leaves only Review's ask
-binding.
+create asks only declared subjects, but an act can also answer an ask sent by
+another holder of the agent authority, so the check stays. A receipt without
+the list, or no receipt at all (a clone), leaves only Review's ask binding.
+
+### Asks
+
+Every publication create acknowledges is followed, in the same process, by an
+ask for each subject it declares. That covers `draft-rig`, `rig-version`,
+`direction write|patch`, `job reconcile` and `job open`. The process already
+holds Review's agent authority in memory for the publish, so the ask needs no
+other transport. The authority never enters argv, the environment or a project
+file, and agents never handle it. A subject already asked on that publication,
+pending or answered, is not asked again (create reads the job's own `pending`
+events), so a retry or re-open shows no second control. A new publication
+supersedes the previous one's pending asks, as Review defines.
+
+An ask Review refuses never makes the acknowledged publication pending again.
+`job open` and `job reconcile` name it `JOB_ASK_REFUSED`, with each subject and
+Review's code. A writer's own publish step reports only publication failures,
+so after a writer run whose page lacks a control, run `job open` to ask
+again.
 
 | Sign-off | Carried by | When |
 | --- | --- | --- |

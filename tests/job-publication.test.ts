@@ -324,7 +324,7 @@ test('existing nested projects receive project-relative private excludes in the 
   expect(existsSync(join(root, '.gitignore'))).toBe(false);
 });
 
-test('Review names the scene-answer publication boundary before invoking the producer reader', async () => {
+test('Review carries completed scene-answer diagnostics on publication and refuses invalid editable pending_options with JOB_RECORD_INCOMPLETE', async () => {
   const { root, host } = await bound();
   const options = { schema: 'rig-create/interview-options@1', id: 'scene-options', question: 'post_timing', stage: 'post-interview',
     drafted_by: 'agent', drafted_at: '2026-11-06T00:00:00Z', context: { kind: 'scene' }, assembly: { rule: 'single' },
@@ -335,14 +335,48 @@ test('Review names the scene-answer publication boundary before invoking the pro
       { id: 'auto', kind: 'auto', label: 'Auto', effect: 'Delegate timing', recommended: false },
     ] }] };
   const optionBytes = Buffer.from(JSON.stringify(options));
+  const setRef = { path: 'scene-options.json', sha256: jobHash(optionBytes) };
   writeFileSync(join(root, 'scene-options.json'), optionBytes);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
   project.interview = { post: { items: [{ id: 'post_timing', guide: { at: '2026-11-07T00:00:00Z',
-    choice: { spec: 'rig-create/interview-choice@1', set: { path: 'scene-options.json', sha256: jobHash(optionBytes) } } } }] } };
+    choice: { spec: 'rig-create/interview-choice@1', set: setRef } } }] } };
   writeFileSync(join(root, 'project.json'), JSON.stringify(project));
   const entry = enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
-  await expect(publishPending(entry)).rejects.toMatchObject({ code: 'JOB_RECORD_INCOMPLETE' });
-  expect(host.session.status().generation).toBe(0);
+  await publishPending(entry);
+  const status = host.session.status();
+  const acknowledged = readAcknowledgedPublication(root, host.session.jobId, status.publication!.publicationId)!;
+  expect(status.publication?.generation).toBe(1);
+  expect(status.generation).toBe(1 + acknowledged.subjects!.length);
+  expect(status.publication?.source).toMatchObject({
+    projectHash: entry.recordHash,
+    selector: { kind: 'rig', version: 1 },
+  });
+  expect(status.publication?.interview).toMatchObject({
+    schema: 'rig-review/job-interview@1',
+    project: { path: 'project.json', sha256: entry.recordHash },
+    records: [{
+      questionId: 'post_timing',
+      record: 'interview.post.items[0].guide',
+      setId: 'scene-options',
+      ref: setRef,
+      observedSet: setRef,
+      timeKind: 'answer',
+      at: '2026-11-07T00:00:00Z',
+    }],
+    diagnostics: [{
+      record: 'interview.post.items[0].guide',
+      at: '2026-11-07T00:00:00Z',
+      code: 'INTERVIEW_OPTIONS_STALE',
+      severity: 'error',
+    }],
+  });
+
+  const generationBeforeInvalid = status.generation;
+  project.interview = { post: { items: [{ id: 'post_timing', pending_options: setRef }] } };
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  const invalidEntry = enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  await expect(publishPending(invalidEntry)).rejects.toMatchObject({ code: 'JOB_RECORD_INCOMPLETE' });
+  expect(host.session.status().generation).toBe(generationBeforeInvalid);
 });
 
 test.each(['drop', 'reorder', 'version'])('review refuses the C4 %s control', async control => {

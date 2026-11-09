@@ -44,7 +44,10 @@ export function assertPartsActSource(root: string, project: JsonObject, act: Par
   for (const image of act.source.parts.images) check({ path: join(dirname(act.source.parts.manifest.path), image.path), sha256: image.sha256 });
   const manifest = JSON.parse(publicationFile(root, act.source.parts.manifest.path).toString('utf8')) as { parts: { name: string }[] };
   const names = manifest.parts.map(part => part.name).sort();
-  if (!isDeepStrictEqual(names, act.value.parts.map(part => part.partId).sort())) fail('verdict part membership differs from the bound manifest');
+  if (act.schema === 'rig-review/act@5') {
+    const manifestNames = new Set(names);
+    if (act.value.issues.some(issue => issue.parts.some(part => !manifestNames.has(part.name)))) fail('verdict part membership differs from the bound manifest');
+  } else if (!isDeepStrictEqual(names, act.value.parts.map(part => part.partId).sort())) fail('verdict part membership differs from the bound manifest');
   if (act.source.model) {
     if (!(draft.files as JsonObject[]).some(file => file.path === act.source.model!.path && file.sha256 === act.source.model!.sha256)) fail('displayed model is outside the selected draft');
     check(act.source.model);

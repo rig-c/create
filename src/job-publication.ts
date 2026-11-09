@@ -441,16 +441,20 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   const models = files.filter(file => String(file.path).endsWith('/skeleton.model.json'));
   if (models.length > 1) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: multiple compiled models are ambiguous; retain one draft output`);
   const revision = jobHash(`${JSON.stringify(draft, null, 2)}\n`);
-  const manifest = { schema: 'rig-review/1', id: `create-draft-${id}`, revision, title: `draft ${id}`,
+  const legacyManifest = { schema: 'rig-review/1', id: `create-draft-${id}`, revision, title: `draft ${id}`,
     ...(models.length ? { model: models[0].path } : {}),
     references: context.parts!.images.map((image, index) => ({ id: `image-${index}`, label: `${image.role} ${image.path}`, type: 'image',
       path: relative(root, resolve(root, dirname(context.parts!.manifest.path), image.path)).split('\\').join('/') })),
     animations: [], checkpoints: [], authoring: files.filter(file => /\/(rig|motion|mesh_report)\.json$/.test(String(file.path)))
       .map(file => ({ label: String(file.path).split('/').at(-1), path: file.path })) };
+  const manifest = { ...legacyManifest,
+    panels: { schema: 'rig-review/panels@1', left: ['parts.list'], stage: ['parts.canvas'], toolbar: ['parts.layers'], side: ['parts.issues', 'act.submit'] } };
   const path = `review-draft-${id}.json`;
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
   if (existsSync(join(root, path))) {
-    if (!publicationFile(root, path).equals(bytes)) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
+    const existing = publicationFile(root, path);
+    if (!existing.equals(bytes) && !existing.equals(legacyBytes)) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
   } else writeFileSync(join(root, path), bytes, { flag: 'wx' });
   return path;
 }

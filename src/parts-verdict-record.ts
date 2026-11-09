@@ -23,11 +23,30 @@ export function decodePartsRead(bytes: Buffer): JsonObject {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
   catch { return fail('PARTS_REVIEW_CLI_INVALID', 'CLI stdout must be a UTF-8 JSON object'); }
-  if (!object(value) || !['rig-review-parts-verdict/1', 'rig-review-parts-verdict/2'].includes(String(value.schema))
+  if (!object(value) || !['rig-review-parts-verdict/1', 'rig-review-parts-verdict/2', 'rig-review-parts-verdict/4'].includes(String(value.schema))
     || !['approved', 'changes-requested', 'pending'].includes(String(value.status))
     || !object(value.tool) || typeof value.tool.name !== 'string' || !value.tool.name || typeof value.tool.version !== 'string' || !value.tool.version
     || !object(value.source) || !sha(value.source.sha256) || !Array.isArray(value.source.files) || !value.source.files.length
-    || !value.source.files.every(file => object(file) && sha(file.sha256)) || !object(value.parts)) {
+    || !value.source.files.every(file => object(file) && sha(file.sha256))) {
+    return fail('PARTS_REVIEW_CLI_INVALID', 'CLI response needs a supported schema, status, tool, source hashes and per-part outcomes');
+  }
+  if (value.schema === 'rig-review-parts-verdict/4') {
+    if (typeof value.mode !== 'string' || !value.mode || typeof value.updatedAt !== 'string' || !value.updatedAt
+      || !['approved', 'changes-requested'].includes(String(value.status)) || !Array.isArray(value.issues)
+      || (value.status === 'approved') !== (value.issues.length === 0)) {
+      return fail('PARTS_REVIEW_CLI_INVALID', 'CLI response needs a supported schema, status, tool, source hashes and issues');
+    }
+    for (const issue of value.issues) {
+      if (!object(issue) || typeof issue.id !== 'string' || !issue.id || typeof issue.summary !== 'string' || !issue.summary.trim()
+        || !Array.isArray(issue.parts) || !issue.parts.length
+        || !issue.parts.every(part => object(part) && typeof part.name === 'string' && part.name.length > 0 && sha(part.imageHash))
+        || new Set(issue.parts.map(part => (part as JsonObject).name)).size !== issue.parts.length) {
+        return fail('PARTS_REVIEW_CLI_INVALID', 'each CLI issue needs id, summary and unique part bindings');
+      }
+    }
+    return value;
+  }
+  if (!object(value.parts)) {
     return fail('PARTS_REVIEW_CLI_INVALID', 'CLI response needs a supported schema, status, tool, source hashes and per-part outcomes');
   }
   for (const part of Object.values(value.parts)) {
@@ -49,6 +68,11 @@ function partsStdout(root: string, evidence: JsonObject, path: string): Buffer {
 }
 
 export function partsVerdictNames(verdict: JsonObject): { flagged: string[]; noted: string[] } {
+  if (Array.isArray(verdict.issues)) {
+    const names = [...new Set(verdict.issues.flatMap(issue => object(issue) && Array.isArray(issue.parts)
+      ? issue.parts.filter(object).map(part => String(part.name)) : []))];
+    return { flagged: names, noted: [...names] };
+  }
   const entries = Object.entries(verdict.parts as JsonObject);
   return {
     flagged: entries.filter(([, part]) => (part as JsonObject).outcome === 'flagged').map(([name]) => name),
@@ -182,10 +206,11 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
   const bytes = receipt.schema === PARTS_CLI_RECEIPT ? partsStdout(root, binding, 'signoffs.parts-review')
     : publicationFile(realpathSync(root), String(binding.path));
   let partsFile: string;
-  const spec = receipt.schema === PARTS_CLI_RECEIPT ? PARTS_CLI_RECEIPT : 'rig-review/act@2';
-  if (evidence !== undefined && (!object(evidence) || evidence.kind !== 'parts-verdict'
-    || (evidence.spec !== undefined && evidence.spec !== spec))) return fail('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence has an invalid receipt spec');
+  let spec: string;
   if (receipt.schema === PARTS_CLI_RECEIPT) {
+    spec = PARTS_CLI_RECEIPT;
+    if (evidence !== undefined && (!object(evidence) || evidence.kind !== 'parts-verdict'
+      || (evidence.spec !== undefined && evidence.spec !== spec))) return fail('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence has an invalid receipt spec');
     const verdict = decodePartsRead(bytes);
     assertPartsReadDraft(root, project, verdict, draftId, options);
     if (verdict.status !== 'approved') return fail('PARTS_VERDICT_NOT_APPROVED', `signoffs.parts-review.evidence for draft ${draftId} is not approved`);
@@ -194,6 +219,9 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
   } else {
     if (receipt.schema !== 'rig-create/review-act@1') return fail('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence names an unsupported receipt spec');
     const act = decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
+    spec = act.schema;
+    if (evidence !== undefined && (!object(evidence) || evidence.kind !== 'parts-verdict'
+      || (evidence.spec !== undefined && evidence.spec !== spec))) return fail('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence has an invalid receipt spec');
     if (act.source.selector.id !== draftId) return fail('PARTS_VERDICT_DRAFT_MISMATCH', `signoffs.parts-review.draft_id differs from the retained act for ${draftId}`);
     const draft = (project.drafts as JsonObject[]).find(draft => draft.id === draftId);
     const draftRoot = `derived/drafts/${draftId}`;

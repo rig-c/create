@@ -105,7 +105,7 @@ write time and is never stored. Findings match by code and path with
 multiplicity, so a carried code at a new path is new, and the refusal names only
 the new code. `reopen`, `signoff`, `step-status`, `pause`, `resume`, `amend` and
 `draft-rig` and `review` follow this rule; the interview, plan, scene, direction, correction,
-`rig-version` and `version config-lost` writers already did. Each writer's own
+`rig-version`, `version config-lost` and `version outputs-lost` writers already did. Each writer's own
 pre-checks are unchanged (`signoff` still refuses a carried lag, and a carried
 `GUIDE_CHANGED_UNSIGNED` on a step it covers), and `check` still reports every
 carried refusal.
@@ -867,7 +867,7 @@ both kinds:
 | `n` | the version number, `1, 2, …` |
 | `original_n` | on pre-interview versions only, the unchanged source id as a number, string or `null`; non-null ids are unique |
 | `config_lost` | on pre-interview versions only, `{ note, source }` with nonempty strings when the build config did not survive; cannot accompany `provenance.config` or authorize post work |
-| `outputs_lost` | on pre-interview versions only, `{ note, source }` with nonempty strings beside `outputs: []` when frozen outputs did not survive |
+| `outputs_lost` | on pre-interview versions only, `{ note, source, recorded? }` with nonempty strings and optional `recorded: [{ path, sha256 }]` bindings beside `outputs: []` when frozen outputs did not survive; cannot authorize post work |
 | `kind` | `rig` or `post` |
 | `rig_version` | for a post version, the `n` of the accepted rig it is built on (accepted before the post version's `at`); `null` for a rig version |
 | `at`, `built_by`, `built_with` | when, which agent or tool, and the package versions used (`{ "@rig-c/parts": "…", "@rig-c/core": "…" }`) |
@@ -1045,10 +1045,20 @@ that disagrees with the table is `PRE_INTERVIEW_VERDICT_MISMATCH`.
 
 Every historical version lists its frozen `outputs[]` with project-relative
 `path`, `sha256` and `bytes`. The check reads every file and compares its hash
-and size. If no frozen output survived, use `outputs: []` with
-`outputs_lost: { note, source }`, recording what was lost and the record that
-says so. Both strings must be nonempty. A loss declaration beside nonempty
-outputs is refused. Such a version can never authorize post work. All
+and size. If no frozen output survived, declare `outputs: []` with
+`outputs_lost: { note, source, recorded }` via
+`rig-create version outputs-lost <n> --note <text> --source <text>`, recording
+what was lost, the source record that says so, and the dropped
+`recorded: [{ path, sha256 }]` bindings so the loss remains auditable. Both
+`note` and `source` must be nonempty strings. Earlier `{ note, source }`
+declarations without `recorded` remain valid, so no contract date is added. A
+loss declaration beside nonempty `outputs` or on a create-built version is
+refused (`PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED`). If any recorded output is
+still readable on disk with its sha256 (including a partial loss), the writer
+refuses (`OUTPUTS_LOST_HAS_OUTPUTS`) and names the readable outputs rather than
+dropping surviving bindings. Handoff refuses a selected rig with `outputs_lost`
+as `PRE_INTERVIEW_OUTPUTS_LOST`, and post records cannot use it as their rig
+basis (`POST_ON_UNACCEPTED_RIG`). All
 pre-interview versions precede the first create-built version, with positive,
 strictly increasing `n` across the combined history.
 
@@ -1110,7 +1120,10 @@ perform the following migration on its own decision record.
    writes this declaration.
    Restore each frozen output and record its actual `path`, `sha256` and
    `bytes`. When none survived, declare `outputs: []` and `outputs_lost`
-   with the known loss in `note` and its record in `source`. Check that all
+   with the known loss in `note` and its record in `source`;
+   `rig-create version outputs-lost <n> --note <text> --source <text>` writes
+   this declaration and retains the dropped `{ path, sha256 }` bindings in
+   `outputs_lost.recorded`. Check that all
    `answers_feedback` and `rig_version` references use the new `n`, including
    references from create-built entries. Retain acceptance stills and genuine
    stage sign-offs. The flag

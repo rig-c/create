@@ -98,6 +98,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     generate caption data from the config and split.parts
   rig-create version config-lost <n> --note <text> --source <text> [<dir>]
                                                     record a pre-interview version's lost build config
+  rig-create version outputs-lost <n> --note <text> --source <text> [<dir>]
+                                                    record a pre-interview version's lost frozen outputs
   rig-create --help                                 show this help
   rig-create --version                              show the version
 

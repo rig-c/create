@@ -83,4 +83,44 @@ test('rig-review-parts-verdict/4 decodes and partsVerdictNames returns deduplica
   expect(() =>
     decodePartsRead(Buffer.from(JSON.stringify({ ...baseV4, status: 'changes-requested', issues: [] }))),
   ).toThrow(expect.objectContaining({ code: 'PARTS_REVIEW_CLI_INVALID' }));
+  expect(() =>
+    decodePartsRead(
+      Buffer.from(
+        JSON.stringify({
+          ...baseV4,
+          status: 'changes-requested',
+          issues: [
+            {
+              id: 'issue-dup',
+              summary: 'Duplicate part name',
+              parts: [
+                { name: 'torso', imageHash: sha },
+                { name: 'torso', imageHash: sha },
+              ],
+            },
+          ],
+        }),
+      ),
+    ),
+  ).toThrow(expect.objectContaining({ code: 'PARTS_REVIEW_CLI_INVALID' }));
+  expect(() =>
+    decodePartsRead(
+      Buffer.from(
+        JSON.stringify({
+          ...baseV4,
+          status: 'changes-requested',
+          issues: [
+            {
+              id: 'issue-blank',
+              summary: '   ',
+              parts: [{ name: 'torso', imageHash: sha }],
+            },
+          ],
+        }),
+      ),
+    ),
+  ).toThrow(expect.objectContaining({ code: 'PARTS_REVIEW_CLI_INVALID' }));
+  expect(() =>
+    decodePartsRead(Buffer.from(JSON.stringify({ ...baseV4, status: 'pending', issues: [] }))),
+  ).toThrow(expect.objectContaining({ code: 'PARTS_REVIEW_CLI_INVALID' }));
 });

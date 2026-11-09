@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
+import { acquireAdvanceJobWrite, commitAdvance } from './job-advance.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
@@ -61,56 +62,62 @@ function save(dir: string, file: string, project: JsonObject, now: number, forwa
   }
   const first = newFindings(allowed, checkProject(dir, project, { now, forwardWrite }).refusals)[0];
   if (first !== undefined) refuse(first.code, first.message);
-  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  if (forwardWrite) commitAdvance(dir, file, project);
+  else writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
 }
 
 export function advanceCommand(args: string[], now: number): { stdout: string; exit: number } {
   const { positional, opts, json } = options(args, 'advance');
   if (positional.length < 1 || positional.length > 2) refuse('PROGRESS_OPTION_INVALID', 'stage: advance needs a target and optional project directory; see help', USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
-  const { file, project } = readProject(dir);
-  const history: Finding[] = [];
-  const reopens = collectReopens(project, history);
-  const latest = furthestStageSignoff(collectSignoffs(project, history).filter(s => liveSignoff(reopens, s.stage, s.at)));
-  if (latest !== undefined && !Number.isFinite(latest.at)) refuse('STAGE_SIGNOFF_DATE_INVALID', `signoffs[${latest.index}].at: frontier approval needs a readable date; restore its original date before advancing`);
-  if (latest === undefined) refuse('ADVANCE_UNAUTHORIZED', 'stage: no live stage-level human signoff authorizes a move; sign the current stage first');
-  const preParts = !hasStageOrder(project) && stageIndex(String(project.stage)) > stageIndex('parts-review')
-    && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null && s.at < Date.parse(PARTS_REVIEW_SINCE));
-  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
-  // The entry records the signoff it rests on and no person's words: the authority is that signature.
-  const entry: JsonObject = { stage: positional[0]!, from_stage: project.stage ?? null, at: new Date(now).toISOString(),
-    post_not_passed: postNotPassed({ items: collectItems(project, { collection: loadCollection(dir) }) }),
-    order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), signoff: signoffIdentity(latest.record),
-    steps_before: steps.map(s => ({ id: s.id ?? null, phase: s.phase ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
-  if (opts['--source'] !== undefined) entry.source = opts['--source'];
-  // A live signature at an earlier stage is not this move's authority; name the stage to sign, not the candidate.
-  // A malformed signoff or reopen may be that signature, so the candidate check names it instead.
-  const order = advanceOrder(entry.order);
-  const owner = moveOwner(order, entry.from_stage);
-  if (history.length === 0 && owner !== undefined && order.findIndex(s => s.id === latest.stage) < order.findIndex(s => s.id === owner)) {
-    refuse('ADVANCE_UNAUTHORIZED', `stage: no live ${owner} signoff authorizes the move from ${String(entry.from_stage)}; the latest live stage signoff is ${latest.stage} (signoffs[${latest.index}]); record rig-create signoff ${owner} first, then advance`);
+  const releaseJob = acquireAdvanceJobWrite(dir, positional[0]!);
+  try {
+    const { file, project } = readProject(dir);
+    const history: Finding[] = [];
+    const reopens = collectReopens(project, history);
+    const latest = furthestStageSignoff(collectSignoffs(project, history).filter(s => liveSignoff(reopens, s.stage, s.at)));
+    if (latest !== undefined && !Number.isFinite(latest.at)) refuse('STAGE_SIGNOFF_DATE_INVALID', `signoffs[${latest.index}].at: frontier approval needs a readable date; restore its original date before advancing`);
+    if (latest === undefined) refuse('ADVANCE_UNAUTHORIZED', 'stage: no live stage-level human signoff authorizes a move; sign the current stage first');
+    const preParts = !hasStageOrder(project) && stageIndex(String(project.stage)) > stageIndex('parts-review')
+      && collectSignoffs(project, []).some(s => s.stage === 'plan-approved' && s.checkpoint === null && s.at < Date.parse(PARTS_REVIEW_SINCE));
+    const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
+    // The entry records the signoff it rests on and no person's words: the authority is that signature.
+    const entry: JsonObject = { stage: positional[0]!, from_stage: project.stage ?? null, at: new Date(now).toISOString(),
+      post_not_passed: postNotPassed({ items: collectItems(project, { collection: loadCollection(dir) }) }),
+      order: preParts ? 'pre-parts' : hasStageOrder(project) ? 'split' : 'legacy', signoffs_before: asArray(project.signoffs).filter(isObject).map(signoffIdentity).filter(isSignoffIdentity), signoff: signoffIdentity(latest.record),
+      steps_before: steps.map(s => ({ id: s.id ?? null, phase: s.phase ?? null, ...(s.status === undefined ? {} : { status: s.status }) })) };
+    if (opts['--source'] !== undefined) entry.source = opts['--source'];
+    // A live signature at an earlier stage is not this move's authority; name the stage to sign, not the candidate.
+    // A malformed signoff or reopen may be that signature, so the candidate check names it instead.
+    const order = advanceOrder(entry.order);
+    const owner = moveOwner(order, entry.from_stage);
+    if (history.length === 0 && owner !== undefined && order.findIndex(s => s.id === latest.stage) < order.findIndex(s => s.id === owner)) {
+      refuse('ADVANCE_UNAUTHORIZED', `stage: no live ${owner} signoff authorizes the move from ${String(entry.from_stage)}; the latest live stage signoff is ${latest.stage} (signoffs[${latest.index}]); record rig-create signoff ${owner} first, then advance`);
+    }
+    if (project.advances !== undefined && !Array.isArray(project.advances)) refuse('ADVANCE_MALFORMED', 'advances: must be a list; preserve existing history');
+    const checkPath = `advances[${asArray(project.advances).length}].parts_check`;
+    const report = opts['--parts-check'];
+    const root = opts['--parts']?.replace(/\/+$/, '');
+    if (!isPartsCheckMove(entry) && (report !== undefined || root !== undefined)) {
+      refuse('PROGRESS_OPTION_INVALID', `${checkPath}: --parts-check and --parts are accepted only on the move from parts to parts-review; see help`, USAGE_EXIT);
+    }
+    if ((report === undefined) !== (root === undefined)) {
+      refuse('PROGRESS_OPTION_INVALID', `${checkPath}: supply --parts-check and --parts together; see help`, USAGE_EXIT);
+    }
+    // Without both flags the check refuses the move as PARTS_CHECK_MISSING, in check order.
+    if (report !== undefined && root !== undefined) {
+      const read = partsCheckRecord(dir, report, root, checkPath);
+      if ('refusal' in read) refuse(read.refusal.code, read.refusal.message);
+      entry.parts_check = read.record;
+    }
+    project.advances = [...asArray(project.advances), entry];
+    project.stage = entry.stage!;
+    save(dir, file, project, now, true);
+    const lines = isObject(entry.parts_check) ? partsCheckLines(entry.parts_check, checkPath) : [];
+    return { stdout: json ? JSON.stringify(entry, null, 2) : [`advance: ${String(entry.from_stage)} -> ${String(entry.stage)}`, ...lines].join('\n'), exit: 0 };
+  } finally {
+    releaseJob();
   }
-  if (project.advances !== undefined && !Array.isArray(project.advances)) refuse('ADVANCE_MALFORMED', 'advances: must be a list; preserve existing history');
-  const checkPath = `advances[${asArray(project.advances).length}].parts_check`;
-  const report = opts['--parts-check'];
-  const root = opts['--parts']?.replace(/\/+$/, '');
-  if (!isPartsCheckMove(entry) && (report !== undefined || root !== undefined)) {
-    refuse('PROGRESS_OPTION_INVALID', `${checkPath}: --parts-check and --parts are accepted only on the move from parts to parts-review; see help`, USAGE_EXIT);
-  }
-  if ((report === undefined) !== (root === undefined)) {
-    refuse('PROGRESS_OPTION_INVALID', `${checkPath}: supply --parts-check and --parts together; see help`, USAGE_EXIT);
-  }
-  // Without both flags the check refuses the move as PARTS_CHECK_MISSING, in check order.
-  if (report !== undefined && root !== undefined) {
-    const read = partsCheckRecord(dir, report, root, checkPath);
-    if ('refusal' in read) refuse(read.refusal.code, read.refusal.message);
-    entry.parts_check = read.record;
-  }
-  project.advances = [...asArray(project.advances), entry];
-  project.stage = entry.stage!;
-  save(dir, file, project, now, true);
-  const lines = isObject(entry.parts_check) ? partsCheckLines(entry.parts_check, checkPath) : [];
-  return { stdout: json ? JSON.stringify(entry, null, 2) : [`advance: ${String(entry.from_stage)} -> ${String(entry.stage)}`, ...lines].join('\n'), exit: 0 };
 }
 
 export function stepStatusCommand(args: string[], now: number): { stdout: string; exit: number } {

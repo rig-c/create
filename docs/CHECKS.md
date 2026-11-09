@@ -30,7 +30,9 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `REVIEW_ACT_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported act schema, explicitly including act@1. Request a new act@2 without migrating the old act. |
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <3.0.0`. Publish through an accepted installed Parts enumerator and review again. |
 | `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date or rig/post or parts value is malformed. Restore the original act evidence or request a new act. |
-| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict or parts-verdict writer. Use the matching version and supported writer. |
+| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict, parts-verdict, interview-picks or checkpoint writer. Use the matching version and supported writer. |
+| `REVIEW_ACT_CHECKPOINT_MISMATCH` | `signoff <stage> --checkpoint <id> --from-review <actId>` fetched a checkpoint act whose `planStepId` is not `<id>`, or whose `checkpointId` differs from its `planStepId` (create publishes no checkpoint alias). Sign the checkpoint the act names, or ask Review for this one. Refusal preserves the project record. |
+| `REVIEW_ACT_CHECKPOINT_FAILED` | The fetched checkpoint act's outcome is `fail`. A failed checkpoint is feedback, never a sign-off: nothing is written. Fix the step from the act's words and ask for the checkpoint again in the live Review job. |
 | `REVIEW_FILE_ROUTE_REMOVED` | `project.json.review_acts` cannot ingest saved act files (exit 2). Use `review <version> --from-review <actId>` through the live Review job API. |
 | `REVIEW_ACT_FETCH_REFUSED` | The live job refused or could not complete finalized-act fetch. The diagnostic retains the producer refusal code without exposing its private details. Restore the live job and its writer grant. |
 | `REVIEW_ACT_SOURCE_STALE` | A current source binding or retained version/draft-entry identity differs from the displayed act. Restore the retained bytes or request a new review. Replays also refuse without changing the recorded verdict. |
@@ -661,7 +663,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 
 | Code | Fires when |
 | --- | --- |
-| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, missing parts-review `--evidence`, evidence or diff options on another stage, duplicate component ids, malformed component flags, or `--component` without `--diff-report` (exit 2) |
+| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, `--from-review` without `--checkpoint` or with `--by` or `--verbatim-file`, missing parts-review `--evidence`, evidence or diff options on another stage, duplicate component ids, malformed component flags, or `--component` without `--diff-report` (exit 2) |
 | `SIGNOFF_NOT_HUMAN` | `--by` is `agent`, case-insensitively |
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_STEP_INVALID` | coverage is empty, ids are missing or repeated, or a requested step is outside the stage's phase (malformed `--steps` exits 2) |

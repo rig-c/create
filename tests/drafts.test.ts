@@ -255,3 +255,79 @@ test('check refuses a hand-bound input that escapes the project', () => {
   const errors: Finding[] = []; checkDrafts(dir, project, errors);
   expect(errors.map(f => f.code)).toEqual(['DRAFT_RIG_FILE', 'DRAFT_RIG_FILE']);
 });
+
+/** A synthetic See-through occluder plate directory, as `comfy plate --mode occluder` lays it out: its receipt beside its images. */
+function writePlate(dir: string, at: string): string {
+  write(dir, `${at}/plate.png`, 'synthetic plate pixels'); write(dir, `${at}/mask.png`, 'synthetic mask pixels');
+  write(dir, `${at}/receipt.json`, JSON.stringify({ synthetic: 'occluder plate receipt', mode: 'occluder' }));
+  return createHash('sha256').update(readFileSync(join(dir, `${at}/receipt.json`))).digest('hex');
+}
+/** A draft whose config names an occluder plate directory: under the draft root (`plate`) or a project input (`../../../inputs/plate`). */
+function plateDraft(plate: string): { dir: string; args: string[]; config: JsonObject } {
+  const { dir, args } = draft(); const config = { assemble: { occluders: [{ plate }] } };
+  write(dir, 'derived/drafts/sample/config.json', JSON.stringify(config));
+  return { dir, args, config };
+}
+
+for (const [route, plate, at] of [['project input', '../../../inputs/plate', 'inputs/plate'], ['draft-root input', 'plate', 'derived/drafts/sample/plate']] as const) {
+  test(`an occluder plate directory as a ${route} binds its receipt, records and checks clean`, () => {
+    const { dir, args, config } = plateDraft(plate); const sha256 = writePlate(dir, at);
+    // The installed parts declares the plate as a config-named input.
+    expect(configInputReferences(dir, config).map(ref => ref.at)).toEqual(['assemble.occluders[0].plate']);
+    const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+    expect(record.config_inputs).toEqual([{ path: `${at}/receipt.json`, sha256, directory: at }]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    const errors: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, read(dir), errors, warnings);
+    expect(errors).toEqual([]); expect(warnings.map(f => f.code)).toEqual(['DRAFT_PRODUCER_ASSUMED']);
+    expect(draftInputUnavailable(dir, `${at}/receipt.json`, 'derived/drafts/sample')).toBe(false);
+    // The receipt binds its siblings; create reads the receipt and never re-hashes them.
+    write(dir, `${at}/plate.png`, 'regenerated plate pixels');
+    const siblings: Finding[] = []; checkDrafts(dir, read(dir), siblings); expect(siblings).toEqual([]);
+  });
+
+  test(`a changed or deleted plate receipt as a ${route} refuses by code`, () => {
+    const { dir, args } = plateDraft(plate); writePlate(dir, at); draftRigCommand(args);
+    write(dir, `${at}/receipt.json`, JSON.stringify({ synthetic: 'another receipt' }));
+    const changed: Finding[] = []; checkDrafts(dir, read(dir), changed);
+    expect(changed.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
+    rmSync(join(dir, `${at}/receipt.json`));
+    const missing: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, read(dir), missing, warnings);
+    if (route === 'project input') {
+      expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+      expect(warnings.map(f => f.code)).not.toContain('DRAFT_RIG_UNAVAILABLE');
+    } else {
+      // A draft-root plate is a regenerable draft artifact, as a draft-root file input is.
+      expect(missing).toEqual([]);
+      expect(warnings.map(f => f.code)).toContain('DRAFT_RIG_UNAVAILABLE');
+    }
+  });
+}
+
+test('a plate directory without a regular-file receipt refuses before writing', () => {
+  for (const shape of ['absent', 'directory', 'symlink'] as const) {
+    const { dir, args } = plateDraft('../../../inputs/plate'); writePlate(dir, 'inputs/plate');
+    rmSync(join(dir, 'inputs/plate/receipt.json'));
+    if (shape === 'directory') mkdirSync(join(dir, 'inputs/plate/receipt.json'));
+    if (shape === 'symlink') { write(dir, 'inputs/other.json', '{}'); symlinkSync(join(dir, 'inputs/other.json'), join(dir, 'inputs/plate/receipt.json')); }
+    const before = readFileSync(join(dir, 'project.json'));
+    try { draftRigCommand(args); throw Error('expected refusal'); } catch (e) {
+      expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe('DRAFT_RIG_MALFORMED');
+      expect((e as Refusal).message).toContain('assemble.occluders[0].plate');
+    }
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
+});
+
+test('check refuses a plate binding that does not stand for the named directory', () => {
+  const { dir, args } = plateDraft('../../../inputs/plate'); writePlate(dir, 'inputs/plate'); draftRigCommand(args);
+  const forged = read(dir); const input = arr(obj(arr(forged.drafts).at(-1)).config_inputs)[0] as JsonObject;
+  input.directory = 'inputs/elsewhere';
+  const malformed: Finding[] = []; checkDrafts(dir, forged, malformed);
+  expect(malformed.map(f => f.code)).toEqual(['DRAFT_RIG_MALFORMED']);
+  const unbound = read(dir); const record = arr(unbound.drafts).at(-1) as JsonObject;
+  record.config_inputs = [{ path: 'inputs/plate/receipt.json', sha256: (input.sha256 as string) }];
+  const missing: Finding[] = []; checkDrafts(dir, unbound, missing);
+  expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(missing[0]?.message).toContain('config.assemble.occluders[0].plate');
+});

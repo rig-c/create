@@ -31,14 +31,38 @@ export function configInputReferences(dir: string, config: unknown, unavailable?
   }
   return mod.configFileReferences(config);
 }
+/**
+ * The file a directory reference binds: a See-through occluder plate directory
+ * (`comfy plate --mode occluder`) is bound by its producer's receipt, which
+ * itself binds the plate's sibling files; create never hashes those siblings.
+ */
+export const DIRECTORY_INPUT_RECEIPT = 'receipt.json';
+/**
+ * One binding per config-named input. A file binds `{path, sha256}`; a
+ * directory binds `{path: <dir>/receipt.json, sha256, directory: <dir>}`, so
+ * every reader that hashes `path` reads a regular file either way.
+ */
 export function configInputBindings(dir: string, configPath: string, allowMissing = false, unavailable?: ConfigInputsWarning): JsonObject[] {
   const config = JSON.parse(readFileSync(resolve(dir, configPath), 'utf8'));
-  return configInputReferences(dir, config, unavailable).map(ref => {
+  const root = realpathSync(dir);
+  const contained = (at: string, path: string): string => {
+    if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${at}: named input leaves the project`);
+    return path.split(sep).join('/');
+  };
+  return configInputReferences(dir, config, unavailable).map((ref): JsonObject => {
     const file = resolve(dir, dirname(configPath), ref.value);
-    const path = relative(realpathSync(dir), allowMissing && !existsSync(file) ? file : realpathSync(file));
-    if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${ref.at}: named input leaves the project`);
-    if (existsSync(file) && !lstatSync(realpathSync(file)).isFile()) throw new Error(`${ref.at}: named input ${path.split(sep).join('/')} is not a regular file`);
-    return { path: path.split(sep).join('/'), sha256: allowMissing && !existsSync(file) ? null : createHash('sha256').update(readFileSync(file)).digest('hex') };
+    if (allowMissing && !existsSync(file)) return { path: contained(ref.at, relative(root, file)), sha256: null };
+    const real = realpathSync(file);
+    const path = contained(ref.at, relative(root, real));
+    if (lstatSync(real).isDirectory()) {
+      const receipt = join(real, DIRECTORY_INPUT_RECEIPT);
+      const bound = `${path}/${DIRECTORY_INPUT_RECEIPT}`;
+      if (allowMissing && !existsSync(receipt)) return { path: bound, sha256: null, directory: path };
+      if (!existsSync(receipt) || !lstatSync(receipt).isFile()) throw new Error(`${ref.at}: named input directory ${path} holds no regular-file ${DIRECTORY_INPUT_RECEIPT}; a directory input binds its producer's receipt, such as a comfy plate --mode occluder output`);
+      return { path: bound, sha256: createHash('sha256').update(readFileSync(receipt)).digest('hex'), directory: path };
+    }
+    if (!lstatSync(real).isFile()) throw new Error(`${ref.at}: named input ${path} is not a regular file`);
+    return { path, sha256: createHash('sha256').update(readFileSync(file)).digest('hex') };
   });
 }
 export function configInputsLegacy(at: unknown): boolean {

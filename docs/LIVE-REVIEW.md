@@ -56,6 +56,7 @@ HOLE visible.
 | `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector and `parts-verdict`, plus sign subjects |
 | `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
 | `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and `review-verdict` for `direction-review`, plus sign subjects |
+| `advance rig-review` and `advance direction-review` | The current live rig or post version at the entered review stage | `rig` or `post` selector, `review-verdict`, and the stage's `signoff` subject |
 
 The sign subjects are the `signoff` and `checkpoint` subjects of
 [Live sign-off routes](#live-sign-off-routes).
@@ -91,6 +92,22 @@ remain stable across retries, including acknowledgment loss. A publish failure
 leaves the committed result and reports `JOB_PUBLISH_PENDING` beside the write.
 `interview --check` includes every pending entry in `holes[]` and exits 1.
 Unbound projects retain their existing report shape and writer behavior.
+
+On a bound job, `advance rig-review` and `advance direction-review` follow the
+same commit-then-durable-outbox order for the current live `rig` or `post`
+version: holding the shared job write lock, the writer validates the post-advance
+candidate and live version before writing, records the outbox intent for the
+post-advance record bytes, atomically replaces `project.json`, and publishes the
+version with its `review-verdict` and stage `signoff` subjects. If publication
+fails after `project.json` is committed, the stage advance stays committed in
+`project.json`, `JOB_PUBLISH_PENDING` remains in the durable outbox and is
+reported in `interview --check` `holes[]`, and `rig-create job reconcile`
+publishes and clears it. If the atomic record write itself fails before
+`project.json` is replaced, the uncommitted advance intent is removed and
+`project.json` stays byte-identical, so there is never a silent half-advance
+where the stage is advanced without either an acknowledged publication or a
+durable pending outbox entry. Advances into any other stage and advances when no
+job is bound do not publish or touch the outbox.
 
 Run `job reconcile` after restoring the host or declared package. It holds the
 same lock, verifies the retained version and files, publishes against the
@@ -265,7 +282,8 @@ the list, or no receipt at all (a clone), leaves only Review's ask binding.
 
 Every publication create acknowledges is followed, in the same process, by an
 ask for each subject it declares. That covers `draft-rig`, `rig-version`,
-`direction write|patch`, `job reconcile` and `job open`. The process already
+`direction write|patch`, `advance rig-review|direction-review`, `job reconcile`
+and `job open`. The process already
 holds Review's agent authority in memory for the publish, so the ask needs no
 other transport. The authority never enters argv, the environment or a project
 file, and agents never handle it. A subject already asked on that publication,
@@ -285,8 +303,8 @@ again.
 | `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
 | `post` checkpoints | post version | `direction write` or `direction patch` commits in `post` |
 | `parts-review` | draft | `draft-rig` commits in `parts-review` |
-| `rig-review` | rig version | `rig-version` commits in `rig-review`, that is after the move into it |
-| `direction-review` | post version | `direction write` or `direction patch` commits in `direction-review` |
+| `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, or `rig-version` commits in `rig-review` |
+| `direction-review` | post version | `advance direction-review` commits the move into `direction-review`, or `direction write` / `direction patch` commits in `direction-review` |
 | `rigging-interview`, `post-interview` | any package publication with plan steps | only when a package writer commits in that stage, which the usual order does not do |
 | `interview`, `plan-approved` | none | no draft or version exists before they are signed |
 

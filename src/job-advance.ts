@@ -1,6 +1,6 @@
-import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { jobPrivateRoot, readWriterBinding } from './job-outbox.ts';
+import { jobHash, jobPrivateRoot, readWriterBinding } from './job-outbox.ts';
 import { publicationSelector } from './job-publication.ts';
 import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { refuse } from './refusal.ts';
@@ -31,7 +31,17 @@ function currentAdvanceVersion(project: JsonObject, stage: 'rig-review' | 'direc
   return current.n;
 }
 
-export function commitAdvance(dir: string, file: string, project: JsonObject): void {
+function defaultWriteRecord(temp: string, target: string, bytes: Buffer): void {
+  writeFileSync(temp, bytes, { flag: 'wx' });
+  renameSync(temp, target);
+}
+
+export function commitAdvance(
+  dir: string,
+  file: string,
+  project: JsonObject,
+  writeRecord: (temp: string, target: string, bytes: Buffer) => void = defaultWriteRecord,
+): void {
   const stage = String(project.stage);
   const serialized = `${JSON.stringify(project, null, 2)}\n`;
   if (!isPublishAdvanceStage(stage) || !readWriterBinding(dir)) {
@@ -43,14 +53,11 @@ export function commitAdvance(dir: string, file: string, project: JsonObject): v
   const recordBytes = Buffer.from(serialized);
   const publicationIntent = prepareVersionIntent(dir, recordBytes, n);
   const temp = join(dir, `.project.json.advance-${process.pid}-${Date.now()}`);
-  let committed = false;
   try {
-    writeFileSync(temp, recordBytes, { flag: 'wx' });
-    renameSync(temp, file);
-    committed = true;
+    writeRecord(temp, file, recordBytes);
   } finally {
     rmSync(temp, { force: true });
-    if (publicationIntent && !committed) {
+    if (publicationIntent && (!existsSync(file) || jobHash(readFileSync(file)) !== publicationIntent.recordHash)) {
       rmSync(join(jobPrivateRoot(dir), 'outbox', `${publicationIntent.id}.json`), { force: true });
     }
   }

@@ -8,6 +8,14 @@ import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPubl
 import { stepHash } from './step-hash.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed } from './check.ts';
+import {
+  COLLECTION_BINDING_SPEC,
+  isLiveMemberRoot,
+  isValidCollectionBindingPath,
+  projectUsesCollection,
+  verifyCollectionBinding,
+  withCandidateProject,
+} from './collection-binding-reader.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { approvalStageOfStep, hasStageOrder, stageOfStep } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
@@ -113,8 +121,18 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     if (record.path !== 'project.json' || jobHash(bytes) !== record.sha256) refuse('JOB_PUBLICATION_INVALID', 'project.json: the committed record binding changed; restore its exact sealed bytes');
     const project: JsonObject = JSON.parse(bytes.toString('utf8'));
     if (phase !== 'inventory' && phase !== 'retained') throw Error('phase must be inventory or retained');
-    if (loadCollection(root) !== null) {
-      refuse('JOB_RECORD_COLLECTION_EXTERNAL', "project.json: a member record's inherited answers depend on ../../collection.json, which the project-relative closure cannot seal; publish from a standalone project until the collection binding lands");
+    const needsCollectionBinding = isLiveMemberRoot(root) || project.collection_binding !== undefined || projectUsesCollection(project);
+    let verifiedCollection: JsonObject | null = null;
+    if (phase === 'inventory' && needsCollectionBinding) {
+      const verified = verifyCollectionBinding(root, project, { requireBindingWhenExternal: true });
+      if (!verified.valid) {
+        refuse(
+          'JOB_RECORD_COLLECTION_EXTERNAL',
+          verified.finding?.message ??
+            "project.json: a member record's inherited answers depend on ../../collection.json, which the project-relative closure cannot seal; bind ../../collection.json with rig-create collection-binding <member dir>",
+        );
+      }
+      verifiedCollection = verified.boundCollection;
     }
     // The check's waypoints come from the parts it loads, which no project file seals.
     let parts = loadedPartsIdentity(root, phase === 'inventory' ? 'project' : 'host');
@@ -152,8 +170,41 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       for (const binding of optionContextFiles(context)) seal(binding);
     };
     seal({ path: record.path, sha256: record.sha256 });
+    if (project.collection_binding !== undefined) {
+      if (
+        !isObject(project.collection_binding) ||
+        project.collection_binding.spec !== COLLECTION_BINDING_SPEC ||
+        typeof project.collection_binding.path !== 'string' ||
+        !isValidCollectionBindingPath(project.collection_binding.path) ||
+        typeof project.collection_binding.sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(project.collection_binding.sha256) ||
+        typeof project.collection_binding.collection_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(project.collection_binding.collection_sha256)
+      ) {
+        refuse('JOB_PUBLICATION_INVALID', 'project.json: retained collection_binding identity is malformed; restore its path, sha256, spec, and collection_sha256');
+      }
+      if (phase === 'inventory' || existsSync(join(root, project.collection_binding.path))) {
+        seal({ path: project.collection_binding.path, sha256: project.collection_binding.sha256 });
+        if (phase === 'retained') {
+          const verified = verifyCollectionBinding(root, project, { requireBindingWhenExternal: true });
+          if (!verified.valid) {
+            refuse(
+              isLiveMemberRoot(root) ? 'JOB_RECORD_COLLECTION_EXTERNAL' : 'JOB_PUBLICATION_INVALID',
+              verified.finding?.message ?? 'project.json: retained collection_binding is invalid',
+            );
+          }
+          verifiedCollection = verified.boundCollection;
+        }
+      }
+    } else if (phase === 'retained' && needsCollectionBinding) {
+      refuse(
+        'JOB_RECORD_COLLECTION_EXTERNAL',
+        "project.json: a member record's inherited answers depend on ../../collection.json, which the project-relative closure cannot seal without collection_binding",
+      );
+    }
     const inputs = list(project.inputs);
-    const items = collectItems(project, { collection: null });
+    const collection = verifiedCollection ?? loadCollection(root, project);
+    const items = collectItems(project, { collection });
     const plan = isObject(project.plan) ? project.plan : null;
     const steps = asArray(plan?.steps).filter(isObject);
     const ids = result.kind === 'option-set' ? [result.questionId, result.setId] : steps.map(step => step.id);
@@ -201,7 +252,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       if (set.id !== result.setId || set.question !== result.questionId || set.stage !== stage) {
         refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: requested option set does not match its question, set id and effective stage; publish the exact current pending set');
       }
-      validateContext(root, project, set, now, true);
+      withCandidateProject(root, project, () => validateContext(root, project, set, now, true));
       label = `option-set ${result.questionId} / ${result.setId}`;
     } else if (result.kind === 'plan') {
       if (!plan) throw Error('the requested plan is absent');
@@ -211,10 +262,10 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
       if (signable && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
       const signature: JsonObject = { stage, steps: covered.map(step => step.id!) };
-      if (signable) selectAnswerHashes(root, project, signature);
+      if (signable) withCandidateProject(root, project, () => selectAnswerHashes(root, project, signature));
       if (signable && stage === 'rigging-interview') {
         const errors: Parameters<typeof riggingContext>[3] = [];
-        const context = riggingContext(root, project, new Date(now).toISOString(), errors);
+        const context = withCandidateProject(root, project, () => riggingContext(root, project, new Date(now).toISOString(), errors));
         if (errors.length || !context) throw Error(errors[0]?.code ?? 'rigging evidence is missing');
       }
       subjects = steps.filter(step => {

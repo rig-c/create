@@ -14,6 +14,7 @@ import { LEDGER_HELP, ledgerCommand } from './fix-ledger.ts';
 import { RESTART_HELP, restartCommand } from './restart.ts';
 import { STRUCTURE_SNAPSHOT_HELP, structureSnapshotCommand } from './structure-snapshot.ts';
 import { collectionInitCommand } from './collection.ts';
+import { collectionBindingCommand } from './collection-binding.ts';
 import { describeInit, initProject } from './init.ts';
 import { INTERVIEW_HELP, interviewCommand, type CommandResult } from './interview.ts';
 import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
@@ -238,6 +239,7 @@ const COMMANDS: Record<string, Command> = {
   'review-package': reviewPackageCommand,
   'rig-version': rigVersionCommand,
   collection: collectionCommand,
+  'collection-binding': collectionBindingCommand,
   review: reviewCommand,
   signoff: signoffCommand,
   'diff-classes': diffClassesCommand,

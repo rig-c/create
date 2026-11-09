@@ -1,22 +1,25 @@
 /**
- * The synthetic drafts' idle must pass parts' own BREATH_VISIBLE bar, or review's Stage 1 refuses the draft
- * as unchecked. create runs the producer's `check` and reads its named result; it never measures heat itself.
+ * The synthetic drafts' and remesh rig versions' idle must pass parts' own BREATH_VISIBLE bar, or review's
+ * Stage 1 (STAGE_DRAFT_UNCHECKED) and Stage 3 correction gate (EDIT_SUBMIT_UNCHECKED / CORRECTION_CHECK_FAILED)
+ * refuse them as unchecked. create runs the producer's `check` and reads its named result; it never measures heat itself.
  */
 import { expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 import { EXAMPLE_BREATH_AMP } from '../scripts/generate-example-draft.ts';
+import { REMESH_RIG_BREATH_AMPS } from '../scripts/generate-example-remesh.ts';
 import { tempDir } from './helpers.ts';
 
 const PARTS = join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs');
 const DRAFT = join(import.meta.dir, '../templates/example-remesh/derived/drafts/remesh');
+const REMESH_REVIEW = join(import.meta.dir, '../templates/example-remesh/derived/review');
 
 interface PartsCheck { exitCode: number; codes: string[]; breath: string }
 
 /** parts' `check` with review's argv (less `--environment`); the codes are the named `FAIL  CODE:` lines it prints. */
-function partsCheck(root: string): PartsCheck {
-  const run = Bun.spawnSync([process.execPath, PARTS, 'check', '--rig', 'out', '--out', 'check-run', '--parts', 'input', '--page-edges', 'free', '--pack-shape', 'polygon'],
+function partsCheck(root: string, rig = 'out', parts = 'input'): PartsCheck {
+  const run = Bun.spawnSync([process.execPath, PARTS, 'check', '--rig', rig, '--out', 'check-run', '--parts', parts, '--page-edges', 'free', '--pack-shape', 'polygon'],
     { cwd: root, stdout: 'pipe', stderr: 'pipe', timeout: 120_000 });
   const stdout = `${run.stdout}${run.stderr}`;
   const codes = [...stdout.matchAll(/^\s*FAIL\s+([A-Z][A-Z0-9_]*):/gm)].map(match => match[1]!);
@@ -31,6 +34,17 @@ test('the shipped mesh draft carries the shared breath amplitude and passes part
   for (const path of ['input', 'out']) cpSync(join(DRAFT, path), join(root, path), { recursive: true });
   expect(partsCheck(root)).toEqual({ exitCode: 0, codes: [], breath: 'PASS' });
 }, 120_000);
+
+test('the shipped remesh rig versions v1–v3 carry the shared breath amplitudes and pass parts check', () => {
+  for (const [index, expectedAmp] of REMESH_RIG_BREATH_AMPS.entries()) {
+    const version = `v${index + 1}`;
+    const config = JSON.parse(readFileSync(join(REMESH_REVIEW, version, 'config.json'), 'utf8')) as { motion: { tracks: { amp: number }[] } };
+    expect(config.motion.tracks.map(track => track.amp)).toEqual([expectedAmp]);
+    const root = tempDir();
+    cpSync(join(REMESH_REVIEW, version, 'out'), join(root, 'out'), { recursive: true });
+    expect(partsCheck(root, 'out/rig', 'out')).toEqual({ exitCode: 0, codes: [], breath: 'PASS' });
+  }
+}, 180_000);
 
 test('plant: the old amp-0.5 idle fails parts check by CHECK_BREATH_VISIBLE alone', () => {
   const root = tempDir();

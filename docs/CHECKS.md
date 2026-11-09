@@ -1001,6 +1001,11 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_PATCH_INVALID` | config-patch/1 grammar, keys, flags or pointer syntax invalid; no operation is replayed |
 | `CORRECTION_APPLIED_INVALID` | a config-named input is missing from the handoff (WARN before CONFIG_INPUTS_SINCE) or has an altered hash, session/item/applied identity or embedded patch differs, optional `stageInputHash` is not a 64-lowercase-hex SHA-256, or a claimed checked result lacks its passing retained summary, has a FAIL/unknown named bar or no PASS bar, or marks a line-named skipped bar PASS |
 | `CORRECTION_OUTCOME` | outcome is invalid/nonlater/unchanged, closure bytes are missing, model differs from Apply, origin differs, or closure is repeated |
+| `CORRECTION_PART_IMAGE_BEFORE` | `part-image` artifact does not name a `parts-review` parent draft's bound `<parts.path>/parts/<part>.png`, `artifact.draft` disagrees with `on.id`, or `after` has no pixel changes from `before` |
+| `CORRECTION_PART_IMAGE_MASK_SIZE` | `part-image` `before`, `after` or `mask` is not a readable PNG or `mask`/`after` dimensions differ from `before` |
+| `CORRECTION_PART_IMAGE_OUTSIDE_MASK` | `part-image` `after` differs from `before` outside `mask` |
+| `CORRECTION_PART_IMAGE_ADDED_ALPHA` | `part-image` `after` increases alpha (`afterA > beforeA`) at any pixel |
+| `DRAFT_PART_REPAINT_UNRECORDED` | a draft's bound `parts/<part>.png` carries repainted `after` bytes differing from an earlier draft without a live `part-image` correction record |
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |
 | `CORRECTION_PATH_LEGACY` | WARN once when explicit corrections adoption is absent |

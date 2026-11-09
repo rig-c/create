@@ -1677,6 +1677,33 @@ file uses its real byte hash. The frozen legacy example's exact warning set is
 `CORRECTION_PATH_LEGACY`, and it is refused by the build-identity gate and by
 `SIGNOFF_TARGET_MISSING` twice and `SIGNOFF_ANSWERS_MISSING` four times as described above; the current filled example stays at 0/0.
 
+### Masked part-image repaints
+
+When `assemble` levers are exhausted and one part image needs a bounded hand pass
+before `parts rig`, record the edit as a `made` correction at `parts-review` on
+the parent draft before registering the rebuilt draft:
+
+```sh
+rig-create correction record <dir> --id repaint-topwear --path made --stage parts-review \
+  --draft <parent-id> --part topwear --part-image-file evidence/topwear-after.png \
+  --mask-file evidence/topwear-mask.png --tool "gemini-image-probe r5 + mask composite with tone match"
+```
+
+The record carries `by: "agent"`, `verbatim: null`, and
+`artifact: { kind: "part-image", draft, part, before, after, mask, tool }`, where
+`before`, `after` and `mask` are `{ path, sha256 }` bindings and `tool` is free
+text naming the lever used. Both the writer and `check` decode the PNGs and
+refuse when `before` is not the parent draft's bound `<parts.path>/parts/<part>.png`
+or `after` makes no change (`CORRECTION_PART_IMAGE_BEFORE`), when `mask` or
+`after` dimensions differ from `before` (`CORRECTION_PART_IMAGE_MASK_SIZE`), when
+`after` differs from `before` outside `mask` (`CORRECTION_PART_IMAGE_OUTSIDE_MASK`),
+or when `after` increases alpha at any pixel (`CORRECTION_PART_IMAGE_ADDED_ALPHA`).
+A later `draft-rig` (new id) whose bound `<parts.path>/parts/<part>.png` matches
+`after.sha256` resolves the correction automatically (or explicitly via
+`correction resolve --draft <new-id> --by agent --reasoning-file <file>`). A draft
+whose part bytes change to `after` without a matching live `part-image`
+correction refuses as `DRAFT_PART_REPAINT_UNRECORDED`.
+
 ### Authored camera direction (create#92)
 
 Create owns the authored camera and timing document, not depth or `config.turn`.

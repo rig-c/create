@@ -385,24 +385,4 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   return lines;
 }
 
-export async function closeCreateJob(root: string): Promise<void> {
-  const release = acquireJobLock(root)!;
-  try {
-    if (pendingPublications(root).length) refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile before closing');
-    const binding = readWriterBinding(root);
-    if (!binding) refuse('JOB_BINDING_INVALID', 'project.json: no writer-owned job binding; open the live job first');
-    const entry: PendingPublication = { schema: 'rig-create/job-pending@1', root: realpathSync(root), id: jobHash('close'), jobId: binding.jobId, origin: binding.origin,
-      identity: binding.identity, recordHash: jobHash(readFileSync(join(root, 'project.json'))), result: { path: 'unused', selector: null }, failure: null };
-    const host = await attachCreateJob(entry);
-    try {
-      const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${binding.jobId}/api`, {
-        method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ schema: binding.identity.apiSchema, verb: 'close', jobId: binding.jobId, requestId: 'create-close',
-          idempotencyKey: 'create-close', expectedGeneration: host.session.status().generation, reason: 'producer-close' }),
-      }));
-      const result = await response.json() as { ok: boolean };
-      if (!result.ok) refuse('JOB_BINDING_INVALID', 'project.json: review refused close; restore the bound live host and retry rig-create job close');
-      rmSync(join(root, JOB_BINDING_FILE));
-    } finally { host.stop(); }
-  } finally { release(); }
-}
+export { closeCreateJob } from './job-close.ts';

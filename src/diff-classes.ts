@@ -1,11 +1,12 @@
 /** Group only producer fields; no image measurement takes place here. */
 import { createHash } from 'node:crypto';
-import { existsSync, writeFileSync } from 'node:fs';
-import { readFileSync } from './check-reads.ts';
+import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from './check-reads.ts';
 import { join, resolve } from 'node:path';
 
 import { checkProject, readJsonObject, type Finding } from './check.ts';
 import { diffReportBytes, reportShape, resolveDiffMapPartsFile, validateDiffMapRecord } from './diff-map.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -171,40 +172,45 @@ export function diffClassesCommand(args: string[], now: number = Date.now()): { 
   if (!existsSync(projectFile)) {
     refuse('PROJECT_JSON_MISSING', `${projectFile} does not exist; run diff-classes in a project folder or name one`);
   }
-  const read = readJsonObject(projectFile);
-  if (!read.ok) refuse('PROJECT_JSON_INVALID', `${projectFile}: ${read.error}`);
-  const project = read.value;
-  let reportBytes: Buffer;
-  let parsedReport: unknown;
+  const release = acquireBoundJobWrite(root);
   try {
-    reportBytes = diffReportBytes(root, report);
-    parsedReport = JSON.parse(reportBytes.toString('utf8'));
-  } catch (error) {
-    refuse('DIFF_MAP_REPORT', `diff_map.report ${report}: ${error instanceof Error ? error.message : String(error)}; generate a report under the project`);
+    const read = readJsonObject(projectFile);
+    if (!read.ok) refuse('PROJECT_JSON_INVALID', `${projectFile}: ${read.error}`);
+    const project = read.value;
+    let reportBytes: Buffer;
+    let parsedReport: unknown;
+    try {
+      reportBytes = diffReportBytes(root, report);
+      parsedReport = JSON.parse(reportBytes.toString('utf8'));
+    } catch (error) {
+      refuse('DIFF_MAP_REPORT', `diff_map.report ${report}: ${error instanceof Error ? error.message : String(error)}; generate a report under the project`);
+    }
+    const expanded = triageFile !== undefined
+      ? expandDiffTriage(parsedReport, readDiffTriage(resolve(root, triageFile)), 'diff_map')
+      : { components };
+    const diffMap: JsonObject = {
+      by: 'agent',
+      at: new Date(now).toISOString(),
+      report: { path: report, sha256: createHash('sha256').update(reportBytes).digest('hex') },
+      ...expanded,
+    };
+    const partsFile = resolveDiffMapPartsFile(root, project);
+    const errors: Finding[] = [];
+    validateDiffMapRecord(root, diffMap, 'diff_map', partsFile, errors, {
+      requireAgent: true,
+      label: 'signoffs[parts-review] diff_map',
+    });
+    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
+    const asRead = structuredClone(project);
+    project.diff_map = diffMap;
+    const baseline = new Set(checkProject(root, asRead, { now, readOnly: true }).refusals.map(f => `${f.code}\0${f.path}\0${f.message}`));
+    const fresh = checkProject(root, project, { now, readOnly: true }).refusals.find(f => !baseline.has(`${f.code}\0${f.path}\0${f.message}`));
+    if (fresh !== undefined) refuse(fresh.code, fresh.message);
+    writeFileSync(projectFile, `${JSON.stringify(project, null, 2)}\n`);
+    return { stdout: JSON.stringify({ diff_map: diffMap }, null, 2), exit: 0 };
+  } finally {
+    release();
   }
-  const expanded = triageFile !== undefined
-    ? expandDiffTriage(parsedReport, readDiffTriage(resolve(root, triageFile)), 'diff_map')
-    : { components };
-  const diffMap: JsonObject = {
-    by: 'agent',
-    at: new Date(now).toISOString(),
-    report: { path: report, sha256: createHash('sha256').update(reportBytes).digest('hex') },
-    ...expanded,
-  };
-  const partsFile = resolveDiffMapPartsFile(root, project);
-  const errors: Finding[] = [];
-  validateDiffMapRecord(root, diffMap, 'diff_map', partsFile, errors, {
-    requireAgent: true,
-    label: 'signoffs[parts-review] diff_map',
-  });
-  if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
-  const asRead = structuredClone(project);
-  project.diff_map = diffMap;
-  const baseline = new Set(checkProject(root, asRead, { now, readOnly: true }).refusals.map(f => `${f.code}\0${f.path}\0${f.message}`));
-  const fresh = checkProject(root, project, { now, readOnly: true }).refusals.find(f => !baseline.has(`${f.code}\0${f.path}\0${f.message}`));
-  if (fresh !== undefined) refuse(fresh.code, fresh.message);
-  writeFileSync(projectFile, `${JSON.stringify(project, null, 2)}\n`);
-  return { stdout: JSON.stringify({ diff_map: diffMap }, null, 2), exit: 0 };
 }
 
 export function readDiffTriage(file: string): unknown {

@@ -1,13 +1,15 @@
 import { preparePartsApproval } from './parts-receipt-fixture.ts';
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { generateExampleDiff } from '../scripts/generate-example-diff.ts';
 import { deriveDiffClasses, expandDiffTriage, diffClassesCommand } from '../src/diff-classes.ts';
 import { DIFF_MAP_AGENT_SINCE, DIFF_MAP_SINCE } from '../src/diff-map.ts';
 import { diffStackCandidates } from '../src/diff-map.ts';
+import { acquireJobLock, enqueuePublication, JOB_BINDING_FILE, jobPrivateRoot, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
+import { currentJobIdentity } from '../src/job-publication.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
 import { arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
@@ -375,5 +377,56 @@ describe('class triage from measured producer properties', () => {
     const result = writer(dir, ['--triage-file', file]);
     expect(result.code).toBe(1); expect(result.stderr).toContain('DIFF_MAP_STATUS');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+  test('bound job lock and pending publication gate diff-classes writer while keeping read-only mode unlocked', () => {
+    const { dir, file } = prepared();
+    const jobId = 'synthetic-diff-classes-job';
+    const identity = currentJobIdentity(
+      { root: dir, stateDir: 'unused-private-state', fingerprint: 'synthetic', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+      dir,
+    );
+    writePrivateJson(
+      join(realpathSync(dir), JOB_BINDING_FILE),
+      { schema: 'rig-create/job-binding@1', identity, jobId, origin: 'http://127.0.0.1:43123', fetchCapability: 'synthetic-read-grant' },
+      true,
+    );
+    const projectPath = join(dir, 'project.json');
+    const p = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
+    delete p.diff_map;
+    p.review_job = { jobId, origin: 'http://127.0.0.1:43123' };
+    writeFileSync(projectPath, `${JSON.stringify(p, null, 2)}\n`);
+    const before = readFileSync(projectPath);
+
+    // 1. When another bound writer holds the job lock, writer refuses with JOB_WRITE_BUSY and leaves project.json byte-identical; read-only mode still works.
+    const release = acquireJobLock(dir)!;
+    try {
+      expect(diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT]).exit).toBe(0);
+      const busy = writer(dir, ['--triage-file', file]);
+      expect(busy.code).toBe(1);
+      expect(busy.stderr).toContain('JOB_WRITE_BUSY');
+      expect(readFileSync(projectPath)).toEqual(before);
+    } finally {
+      release();
+    }
+
+    // 2. When a committed publication is pending in the outbox, writer refuses with JOB_PUBLISH_PENDING and leaves project.json byte-identical; read-only mode still works.
+    enqueuePublication(dir, readWriterBinding(dir)!, {
+      path: 'review-draft-receipt-fixture.json',
+      selector: { kind: 'draft', id: 'receipt-fixture' },
+    });
+    expect(diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT]).exit).toBe(0);
+    const pending = writer(dir, ['--triage-file', file]);
+    expect(pending.code).toBe(1);
+    expect(pending.stderr).toContain('JOB_PUBLISH_PENDING');
+    expect(readFileSync(projectPath)).toEqual(before);
+
+    // 3. Once the pending publication is cleared, the bound writer succeeds and records project.diff_map.
+    rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+    const succeeded = writer(dir, ['--triage-file', file]);
+    expect(succeeded.code).toBe(0);
+    const after = JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
+    expect(obj(after.diff_map).by).toBe('agent');
+    expect(arr(obj(after.diff_map).components)).toHaveLength(400);
+    expect(checkProject(dir).refusals).toEqual([]);
   });
 });

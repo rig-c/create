@@ -5,7 +5,7 @@ import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPostIdentity, valid
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
-import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, validateCorrectionIdentity, versionRecord } from './corrections.ts';
+import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -137,7 +137,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
         artifact={kind:'direction-patch',patch:correctionBinding(dir,opts['--direction-patch-file'] as string),state:'preview/pending',result:null};verbatim=readVerbatim(opts['--verbatim-file']);
       }else {
         if(!opts['--item']||opts['--verbatim-file'])usage('API capture requires item and uses its summary verbatim');
-        const input = (opts['--feedback-file'] ?? opts['--patch-file']) as string;
+        const input = feedbackPackageInput(dir, (opts['--feedback-file'] ?? opts['--patch-file']) as string, on.kind === 'draft');
         const read = readReview(dir,input,runner);
         const feedback=read.value;
         const items=objects(feedback.feedback).filter(i=>i.id===opts['--item']);const item=items[0];
@@ -166,7 +166,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
     if(artifact.kind==='config-patch') {
       if(opts['--applied-feedback']) {
         const previousPatch = artifact.review_read === undefined ? undefined : correctionApplied(dir,artifact).applied.patch;
-        const read=readReview(dir,opts['--applied-feedback'],runner);
+        const read=readReview(dir,feedbackPackageInput(dir,opts['--applied-feedback'],isObject(record.on)&&record.on.kind==='draft'),runner);
         const selected=objects(read.value.feedback).filter(item=>item.id===opts['--feedback-id']);
         const selectedApplied=selected.length===1 && isObject(selected[0]?.context) ? selected[0].context.applied : undefined;
         if(previousPatch !== undefined && (!isObject(selectedApplied) || !isDeepStrictEqual(previousPatch,selectedApplied.patch)))throw new CorrectionError('CORRECTION_APPLIED_INVALID','selected Apply patch differs from the captured correction');

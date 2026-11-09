@@ -89,7 +89,66 @@ describe('version outputs-lost writer (#344)', () => {
     expect(handoffRes.stdout).toContain(`v1 (pre-interview) outputs lost: ${LOSS.note}; source: ${LOSS.source}`);
   });
 
-  test('Bar 3: refuses non-pre-interview version, readable output (all or partial), already set outputs_lost, empty note/source, unknown version, and changed/malformed/escaping outputs, leaving project.json byte-identical', () => {
+  test('partial loss (#346): a version with 2 readable and 2 missing outputs keeps the 2 readable in outputs, records the 2 missing in outputs_lost.recorded, and clears both PRE_INTERVIEW_OUTPUT_UNREAD', () => {
+    const THIRD_BYTES = '{"build":1,"part":"third"}\n';
+    const THIRD_SHA = createHash('sha256').update(THIRD_BYTES).digest('hex');
+    const FOURTH_BYTES = '{"build":1,"part":"fourth"}\n';
+    const FOURTH_SHA = createHash('sha256').update(FOURTH_BYTES).digest('hex');
+
+    const dir = migratedOutputs((p) => {
+      arr(version(p, 1).outputs).push(
+        { path: 'outputs/v1/third.json', sha256: THIRD_SHA, bytes: Buffer.byteLength(THIRD_BYTES) },
+        { path: 'outputs/v1/fourth.json', sha256: FOURTH_SHA, bytes: Buffer.byteLength(FOURTH_BYTES) },
+      );
+    }, {
+      ...historical.files,
+      'outputs/v1/third.json': THIRD_BYTES,
+      'outputs/v1/fourth.json': FOURTH_BYTES,
+    });
+
+    // Remove 2 of the 4 outputs; keep outputs/v1/extra.json and outputs/v1/fourth.json readable with their sha256
+    rmSync(join(dir, 'outputs/v1/rig.json'));
+    rmSync(join(dir, 'outputs/v1/third.json'));
+    const file = join(dir, 'project.json');
+    const beforeBytes = readFileSync(file);
+
+    const beforeCheck = checkProject(dir);
+    expect(beforeCheck.refusals.map((f) => `${f.code}@${f.path}`)).toEqual([
+      'PRE_INTERVIEW_OUTPUT_UNREAD@versions[v1].outputs[0]',
+      'PRE_INTERVIEW_OUTPUT_UNREAD@versions[v1].outputs[2]',
+    ]);
+
+    const expectedRecord = JSON.parse(beforeBytes.toString('utf8')) as JsonObject;
+    const expectedLoss = {
+      note: LOSS.note,
+      source: LOSS.source,
+      recorded: [
+        { path: 'outputs/v1/rig.json', sha256: '59e8937fd590eb1fa3c4afb64e78d21707354372f88286931b445279d91058ae' },
+        { path: 'outputs/v1/third.json', sha256: THIRD_SHA },
+      ],
+    };
+    version(expectedRecord, 1).outputs = [
+      { path: 'outputs/v1/extra.json', sha256: SECOND_SHA, bytes: Buffer.byteLength(SECOND_BYTES) },
+      { path: 'outputs/v1/fourth.json', sha256: FOURTH_SHA, bytes: Buffer.byteLength(FOURTH_BYTES) },
+    ];
+    version(expectedRecord, 1).outputs_lost = expectedLoss;
+    const expectedBytes = Buffer.from(`${JSON.stringify(expectedRecord, null, 2)}\n`);
+
+    const write = cli(['version', 'outputs-lost', '1', '--note', LOSS.note, '--source', LOSS.source, '--json', dir], dir, env);
+    expect(write.stderr).toBe('');
+    expect(write.code).toBe(0);
+    expect(JSON.parse(write.stdout)).toEqual(expectedLoss);
+    expect(readFileSync(file)).toEqual(expectedBytes);
+    expect(codes(checkProject(dir))).toEqual([]);
+
+    // Remaining outputs in outputs[] are still checked for sha256 and readability
+    writeFileSync(join(dir, 'outputs/v1/extra.json'), '{"corrupted":true}\n');
+    expect(codes(checkProject(dir))).toEqual(['PRE_INTERVIEW_OUTPUT_CHANGED']);
+    writeFileSync(join(dir, 'outputs/v1/extra.json'), SECOND_BYTES);
+    expect(codes(checkProject(dir))).toEqual([]);
+  });
+
+  test('Bar 3: refuses non-pre-interview version, no lost output, already set outputs_lost, empty note/source, unknown version, and changed/malformed/escaping outputs, leaving project.json byte-identical', () => {
     // 1. Version is not pre_interview: true
     {
       const dir = migratedOutputs();
@@ -101,7 +160,7 @@ describe('version outputs-lost writer (#344)', () => {
       expect(readFileSync(file)).toEqual(before);
     }
 
-    // 2. All recorded outputs are still readable with their sha256
+    // 2. Nothing is missing (all recorded outputs are still readable with their sha256)
     {
       const dir = migratedOutputs();
       const file = join(dir, 'project.json');
@@ -109,25 +168,12 @@ describe('version outputs-lost writer (#344)', () => {
       const res = cli(['version', 'outputs-lost', '1', '--note', LOSS.note, '--source', LOSS.source, dir], dir, env);
       expect(res.code).toBe(1);
       expect(res.stderr).toContain('OUTPUTS_LOST_HAS_OUTPUTS');
+      expect(res.stderr).toContain('no output is lost');
       expect(res.stderr).toContain('outputs/v1/rig.json, outputs/v1/extra.json');
       expect(readFileSync(file)).toEqual(before);
     }
 
-    // 3. Partial loss: one output missing, one output still readable with its sha256
-    {
-      const dir = migratedOutputs();
-      rmSync(join(dir, 'outputs/v1/rig.json'));
-      const file = join(dir, 'project.json');
-      const before = readFileSync(file);
-      const res = cli(['version', 'outputs-lost', '1', '--note', LOSS.note, '--source', LOSS.source, dir], dir, env);
-      expect(res.code).toBe(1);
-      expect(res.stderr).toContain('OUTPUTS_LOST_HAS_OUTPUTS');
-      expect(res.stderr).toContain('outputs/v1/extra.json');
-      expect(res.stderr).not.toContain('outputs/v1/rig.json');
-      expect(readFileSync(file)).toEqual(before);
-    }
-
-    // 4. outputs_lost is already set
+    // 3. outputs_lost is already set
     {
       const dir = migratedOutputs((p) => {
         version(p, 1).outputs = [];
@@ -279,7 +325,7 @@ describe('version outputs-lost writer (#344)', () => {
     expect(codes(checkProject(prePost, candidateWithPost))).toContain('POST_ON_UNACCEPTED_RIG');
   });
 
-  test('Bar 5: check accepts recorded bindings and legacy { note, source }, and refuses malformed recorded shapes and create-built declarations', () => {
+  test('Bar 5: check accepts recorded bindings and legacy { note, source }, and refuses overlapping, readable or malformed recorded shapes and create-built declarations', () => {
     const validWithRecorded = migratedOutputs((p) => {
       version(p, 1).outputs = [];
       version(p, 1).outputs_lost = {
@@ -288,7 +334,65 @@ describe('version outputs-lost writer (#344)', () => {
         recorded: [{ path: 'outputs/v1/rig.json', sha256: 'a'.repeat(64) }],
       };
     });
+    rmSync(join(validWithRecorded, 'outputs/v1/rig.json'));
     expect(codes(checkProject(validWithRecorded))).toEqual([]);
+
+    // Legacy { note, source } without recorded beside outputs: [] stays valid
+    const validLegacy = migratedOutputs((p) => {
+      version(p, 1).outputs = [];
+      version(p, 1).outputs_lost = {
+        note: LOSS.note,
+        source: LOSS.source,
+      };
+    });
+    expect(codes(checkProject(validLegacy))).toEqual([]);
+
+    // Legacy { note, source } without recorded beside non-empty outputs refuses PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED
+    const legacyBesideNonEmpty = migratedOutputs((p) => {
+      version(p, 1).outputs_lost = {
+        note: LOSS.note,
+        source: LOSS.source,
+      };
+    });
+    expect(codes(checkProject(legacyBesideNonEmpty))).toEqual(['PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED']);
+
+    // recorded overlapping outputs refuses PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED
+    const overlapping = migratedOutputs((p) => {
+      version(p, 1).outputs = [
+        { path: 'outputs/v1/extra.json', sha256: SECOND_SHA, bytes: Buffer.byteLength(SECOND_BYTES) },
+      ];
+      version(p, 1).outputs_lost = {
+        note: LOSS.note,
+        source: LOSS.source,
+        recorded: [{ path: 'outputs/v1/extra.json', sha256: SECOND_SHA }],
+      };
+    });
+    expect(codes(checkProject(overlapping))).toEqual(['PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED']);
+
+    // A recorded path that is readable on disk (matching sha256 or different sha256) refuses PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED
+    const readableMatchingSha = migratedOutputs((p) => {
+      version(p, 1).outputs = [
+        { path: 'outputs/v1/extra.json', sha256: SECOND_SHA, bytes: Buffer.byteLength(SECOND_BYTES) },
+      ];
+      version(p, 1).outputs_lost = {
+        note: LOSS.note,
+        source: LOSS.source,
+        recorded: [{ path: 'outputs/v1/rig.json', sha256: '59e8937fd590eb1fa3c4afb64e78d21707354372f88286931b445279d91058ae' }],
+      };
+    });
+    expect(codes(checkProject(readableMatchingSha))).toEqual(['PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED']);
+
+    const readableDifferentSha = migratedOutputs((p) => {
+      version(p, 1).outputs = [
+        { path: 'outputs/v1/extra.json', sha256: SECOND_SHA, bytes: Buffer.byteLength(SECOND_BYTES) },
+      ];
+      version(p, 1).outputs_lost = {
+        note: LOSS.note,
+        source: LOSS.source,
+        recorded: [{ path: 'outputs/v1/rig.json', sha256: 'a'.repeat(64) }],
+      };
+    });
+    expect(codes(checkProject(readableDifferentSha))).toEqual(['PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED']);
 
     const malformedLosses: Json[] = [
       { note: LOSS.note, source: LOSS.source, extra: true },
@@ -313,6 +417,7 @@ describe('version outputs-lost writer (#344)', () => {
         version(p, 1).outputs = [];
         version(p, 1).outputs_lost = bad;
       });
+      rmSync(join(dir, 'outputs/v1/rig.json'));
       expect(codes(checkProject(dir))).toContain('PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED');
     }
 
@@ -345,7 +450,7 @@ describe('version outputs-lost writer (#344)', () => {
     expect(readFileSync(file)).toEqual(before);
   });
 
-  test('PRE_INTERVIEW_OUTPUT_UNREAD names version outputs-lost only when all outputs of the version are missing, and next surfaces the remedy', () => {
+  test('PRE_INTERVIEW_OUTPUT_UNREAD names version outputs-lost on full and partial loss, and next surfaces the remedy', () => {
     const dir = migratedOutputs();
     rmSync(join(dir, 'outputs/v1/rig.json'));
     rmSync(join(dir, 'outputs/v1/extra.json'));
@@ -362,19 +467,19 @@ describe('version outputs-lost writer (#344)', () => {
     versionCommand(['outputs-lost', '1', '--note', LOSS.note, '--source', LOSS.source, dir]);
     expect(codes(checkProject(dir))).not.toContain('PRE_INTERVIEW_OUTPUT_UNREAD');
 
-    // On partial loss (one output still readable), the writer refuses, so the check message does not suggest outputs-lost.
+    // On partial loss (one output missing, one still readable), the writer accepts it, so check suggests outputs-lost and the writer clears the refusal.
     const partial = migratedOutputs();
     rmSync(join(partial, 'outputs/v1/rig.json'));
     const partialUnread = checkProject(partial).refusals.filter((f) => f.code === 'PRE_INTERVIEW_OUTPUT_UNREAD');
     expect(partialUnread.map((f) => f.path)).toEqual(['versions[v1].outputs[0]']);
-    expect(partialUnread[0]?.message).not.toContain('outputs-lost');
-    const before = readFileSync(join(partial, 'project.json'));
-    try {
-      versionCommand(['outputs-lost', '1', '--note', LOSS.note, '--source', LOSS.source, partial]);
-      throw new Error('expected OUTPUTS_LOST_HAS_OUTPUTS');
-    } catch (error) {
-      expect((error as Refusal).code).toBe('OUTPUTS_LOST_HAS_OUTPUTS');
-    }
-    expect(readFileSync(join(partial, 'project.json'))).toEqual(before);
+    expect(partialUnread[0]?.message).toContain('rig-create version outputs-lost 1 --note <text> --source <text>');
+    versionCommand(['outputs-lost', '1', '--note', LOSS.note, '--source', LOSS.source, partial]);
+    expect(codes(checkProject(partial))).toEqual([]);
+
+    // Once outputs_lost is already set, if a remaining output later goes missing, the writer would refuse (OUTPUTS_LOST_ALREADY_SET), so check does not suggest outputs-lost again.
+    rmSync(join(partial, 'outputs/v1/extra.json'));
+    const secondLossUnread = checkProject(partial).refusals.filter((f) => f.code === 'PRE_INTERVIEW_OUTPUT_UNREAD');
+    expect(secondLossUnread.map((f) => f.path)).toEqual(['versions[v1].outputs[0]']);
+    expect(secondLossUnread[0]?.message).not.toContain('outputs-lost');
   });
 });

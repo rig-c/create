@@ -28,8 +28,9 @@ Existing Git projects receive only missing patterns in `.git/info/exclude`,
 preserving their tracked `.gitignore` bytes. A folder without Git receives a
 minimal `.gitignore` append. Effective ignores are checked before writing.
 A tracked private path refuses startup. Agents invoke writers and never construct this file.
-Explicit close revokes the grant and removes the matching binding. Listener
-shutdown alone preserves the active job. A new incarnation receives a new grant.
+Explicit close revokes the grant and removes the matching binding (see
+[Job retirement](JOB-RETIREMENT.md)). Listener shutdown alone preserves the
+active job. A new incarnation receives a new grant.
 
 Re-opening with an existing binding keeps its job. A running host is reused.
 A stopped host restarts on the same job, state directory and port, and the

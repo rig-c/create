@@ -5,6 +5,7 @@
     "": {
       "name": "@rig-c/create",
       "dependencies": {
+        "@rig-c/core": "3.6.0",
         "@rig-c/parts": "2.36.0",
         "@rig-c/review": "2.8.0",
       },

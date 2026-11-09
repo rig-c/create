@@ -448,13 +448,13 @@ Exit `1`. Each names its object in `path`.
 | `PRE_INTERVIEW_ORIGINAL_N_MISSING` | a pre-interview version omits its source id or it is not a number, string or null | copy its original id unchanged into `original_n` |
 | `PRE_INTERVIEW_ORIGINAL_N_DUPLICATE` | two migrated versions have the same non-null `original_n` | restore their distinct source ids; repeated nulls are allowed |
 | `PRE_INTERVIEW_CONFIG_LOST_MALFORMED` | `config_lost` lacks nonempty note and source strings, accompanies a non-null `provenance.config`, or is on a create-built version | record `{ note, source }` only on a pre-interview version whose config was lost, or restore its surviving config |
-| `PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED` | `outputs_lost` lacks nonempty note and source strings, or is beside anything other than `outputs: []` | record the loss and source beside empty outputs, or restore the surviving output list |
+| `PRE_INTERVIEW_OUTPUTS_LOST_MALFORMED` | `outputs_lost` lacks nonempty note and source strings, has an unknown key or malformed/empty `recorded` `{ path, sha256 }` bindings, is beside anything other than `outputs: []`, or is on a create-built version | record `{ note, source, recorded? }` with `version outputs-lost <n>` beside empty outputs on a pre-interview version, or restore the surviving output list |
 | `PRE_INTERVIEW_HISTORY_MISSING` | a pre-interview version has no `original_verdicts` array | preserve its complete original verdict array |
 | `PRE_INTERVIEW_VERDICT_LOST` | an original verdict has no unchanged `as_recorded` at the matching index, or an extra `as_recorded` has no original | restore the complete original history and its order |
 | `PRE_INTERVIEW_VERDICT_UNKNOWN` | an original verdict string has no exact entry in `PRE_INTERVIEW_VERDICTS` | retain it and obtain an explicit mapping, without guessing |
 | `PRE_INTERVIEW_VERDICT_MISMATCH` | a converted verdict disagrees with that table | apply the stated mapping and retain the original string |
 | `PRE_INTERVIEW_OUTPUT_MALFORMED` | historical outputs are empty without a loss declaration, or lack a distinct project-relative path, lowercase sha256 or nonnegative integer size | list each frozen file with its path, sha256 and bytes |
-| `PRE_INTERVIEW_OUTPUT_UNREAD` | a historical output is unreadable or resolves outside the project | restore the frozen file under the project |
+| `PRE_INTERVIEW_OUTPUT_UNREAD` | a historical output is unreadable or resolves outside the project | restore the frozen file under the project; if none of a `pre_interview: true` version's frozen outputs survived, record the loss with `rig-create version outputs-lost <n> --note <text> --source <text>` |
 | `PRE_INTERVIEW_OUTPUT_CHANGED` | a historical output's hash or size differs from the recorded value | restore the frozen bytes and inspect the migration record |
 | `VERDICT_MALFORMED` (pre-interview) | an imported verdict lacks create-shaped fields, a valid date or a nonempty source, or `verbatim: null` lacks a nonempty note recording the user | preserve the source and write the record in `note`. A create-built version still requires the user's words |
 | `FEEDBACK_REF_UNKNOWN` | an `answers_feedback` entry is not `{ version, verdict }` integers, names no version or no verdict index, or names a version not earlier than its own | point it at the verdict it answers |
@@ -1345,12 +1345,23 @@ contract date is added.
 | `DIRECTION_IDLE_UNBOUND` | the frames path and sha256 are not `versions[v<R>].registration.idle` (for `frames.json`) or a `versions[v<R>].outputs` row (for other idle files) | run `scene write` again so the frames equal the registration |
 | `DIRECTION_IDLE_HASH` | the frames bytes on disk differ from the bound sha256, including a change during `direction write` | restore the frozen `outputs/v<R>/idle/` bytes, or register a new rig version |
 
-## Pre-interview `config_lost` writer
+## Pre-interview `config_lost` and `outputs_lost` writers
 
 `rig-create version config-lost <n> --note <text> --source <text> [<dir>]`
 records `config_lost: { note, source }` on a migrated pre-interview version
 whose build config did not survive, validating the candidate with `checkProject`
 before writing. A refused write leaves `project.json` byte-identical.
+
+`rig-create version outputs-lost <n> --note <text> --source <text> [<dir>]`
+records `outputs_lost: { note, source, recorded }` and sets `outputs: []` on a
+migrated pre-interview version whose frozen outputs did not survive. `recorded`
+retains the dropped `{ path, sha256 }` bindings so the loss stays auditable;
+existing `{ note, source }` declarations without `recorded` remain valid, so no
+`*_SINCE` cutoff is added. Partial loss (any recorded output still readable with
+its sha256) is refused by `OUTPUTS_LOST_HAS_OUTPUTS`, naming the readable
+outputs. The writer validates with `inspectPreInterviewOutputs`,
+`validOutputsLoss` and `checkProject`, and a refused write leaves `project.json`
+byte-identical.
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
@@ -1360,6 +1371,12 @@ before writing. A refused write leaves `project.json` byte-identical.
 | `CONFIG_LOST_NOT_PRE_INTERVIEW` | the target version does not carry `pre_interview: true` | record `config_lost` only on a migrated `pre_interview: true` version; keep `provenance.config` on create-built versions |
 | `CONFIG_LOST_HAS_CONFIG` | the target version carries a non-null `provenance.config` | retain the surviving build config instead of declaring `config_lost` |
 | `CONFIG_LOST_ALREADY_SET` | `config_lost` is already present on the target version | preserve the existing `config_lost` declaration |
+| `OUTPUTS_LOST_USAGE` | version number or required `--note` / `--source` flags are missing, repeated or malformed (exit 2) | supply `rig-create version outputs-lost <n> --note <text> --source <text> [<dir>]` |
+| `OUTPUTS_LOST_EMPTY` | `--note` or `--source` is empty or whitespace | supply non-empty `--note` and `--source` strings explaining the loss and naming its source record |
+| `OUTPUTS_LOST_VERSION_UNKNOWN` | `versions[]` has no entry with that `n` | name an existing pre-interview version in `versions[]` |
+| `OUTPUTS_LOST_NOT_PRE_INTERVIEW` | the target version does not carry `pre_interview: true` | record `outputs_lost` only on a migrated `pre_interview: true` version; keep `outputs[]` on create-built versions |
+| `OUTPUTS_LOST_HAS_OUTPUTS` | one or more recorded outputs on the target version are still readable with their recorded sha256 (including partial loss) | restore all frozen outputs or keep the surviving outputs instead of declaring `outputs_lost` |
+| `OUTPUTS_LOST_ALREADY_SET` | `outputs_lost` is already present on the target version | preserve the existing `outputs_lost` declaration |
 | `REVIEW_ACT_STILL_INVALID` | `project.json.review_acts`: the exported still PNG is missing, mismatched or conflicts with retained bytes | fetch the complete original act and PNG pair |
 
 ## Review CLI response receipts

@@ -13,6 +13,7 @@ import { checkExampleParts, generateExampleParts } from './generate-example-part
 import { correctionCommand } from '../src/correction-writers.ts';
 /** Reproduce the new-order example's declarations through public writers on synthetic dated input. */
 import { writeExampleChoices } from './example-choices.ts';
+import { writeExampleLedger } from './example-ledger.ts';
 import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -227,6 +228,8 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   finish('post');
   advanceCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', words], clock.now); reload();
   sign('direction-review', '2026-11-15T11:00:00Z', ['--version', '4']);
+  // The owner fix the v1 bounce asked for goes into the fix ledger, and a later draft is recorded with a passing report.
+  Object.assign(files, writeExampleLedger(dir, files, clock)); reload();
   p.stage = original.stage as Json; save();
   const checked = checkProject(dir, undefined, { now: clock.now });
   if (checked.refusals.length || checked.warnings.length) throw new Error(JSON.stringify({ refusals: checked.refusals, warnings: checked.warnings }));
@@ -255,7 +258,7 @@ if (import.meta.main) {
   const generated = generateExampleOrder(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
-  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'derived', 'versions', 'review_acts', 'advances', 'scenes', 'direction_contract']) text = replaceValue(text, key, generated.project[key] as Json);
+  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'derived', 'versions', 'review_acts', 'advances', 'scenes', 'direction_contract', 'fix_ledger']) text = replaceValue(text, key, generated.project[key] as Json);
   text = text.replace(/("proposed_at":\s*)"([^"]+)"/, (_match, prefix: string, at: string) => `${prefix}${JSON.stringify(exampleTime(at))}`);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
   const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };

@@ -136,7 +136,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "a43671ccd147aeaeaea4189d154ffaa896862ee64ce078f1495d1e4b86d40ab2"
+          "sha256": "0ab0a706364bacc5fe8a44efeb6e9fb79d0be78ff6fa6f5a7c567a45640d7c61"
         }
       }
     },
@@ -1299,6 +1299,7 @@
       "at": "2026-11-06T01:00:02.000Z"
     }
   ],
+  "fix_ledger": [],
   "derived": [],
   "versions": [
     {
@@ -1432,7 +1433,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
+            "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1516,7 +1517,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "5e9b0d073aa7c2fc89be613fd99d8202b4ee2bb55b2f69d1dae7eda3710a423d"
+            "sha256": "aa0b66760b0373a240a4499c93787cc0c521a9b82c43c50095ce7af0c72b4592"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2202,7 +2203,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "4bd246d97bfa1c84416899a2d7dc54a4d5b7b672530202b3514d6a8ddc327e0b"
+          "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -2258,7 +2259,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "5e9b0d073aa7c2fc89be613fd99d8202b4ee2bb55b2f69d1dae7eda3710a423d"
+          "sha256": "aa0b66760b0373a240a4499c93787cc0c521a9b82c43c50095ce7af0c72b4592"
         }
       ],
       "config_inputs": [

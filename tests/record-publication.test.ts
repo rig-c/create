@@ -22,6 +22,9 @@ function pending(stage = 'interview') {
     project.stage = stage;
     project.versions = [];
     project.scenes = [];
+    // Rewind the narrative's later ledger row and the draft recorded for it with the versions.
+    project.drafts = arr(project.drafts).filter(draft => obj(draft).id === 'example');
+    project.fix_ledger = [];
     delete project.direction_contract;
     retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex(stage));
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex(stage));

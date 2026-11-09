@@ -85,7 +85,7 @@ describe('plan-approved → parts → parts-review → rigging', () => {
   test('green: parts done and a person signed parts-review, rigging starts with nothing refused', () => {
     const report = checkProject(fixture(atRiggingStart));
     expect(codes(report)).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'FIX_LEDGER_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
 
   test('a project at plan-approved advances to parts: the parts steps run there, nothing refused', () => {

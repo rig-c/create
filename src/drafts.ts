@@ -13,6 +13,8 @@ import { locateParts } from './parts-sections.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import { newRefusals } from './refusal-baseline.ts';
+import { readVerbatim } from './record-input.ts';
+import { checkFixLedger, draftLedgerFields } from './fix-ledger.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -202,19 +204,28 @@ export function draftVersionFindings(dir: string, project: JsonObject): Finding[
 }
 
 export const DRAFT_RIG_HELP = `draft-rig:
-  <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--json]
+  <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--ledger-report <file>] [--known-regression <row id>=<reason file>]... [--json]
   Record existing labelled draft artifacts under derived/drafts/<id>/; run no producer.
   Standalone rig output requires --parts; only an unambiguous build root supplies it implicitly.
-  Config/output association is declared, not measured reproducibility or producer provenance.`;
+  Config/output association is declared, not measured reproducibility or producer provenance.
+  --ledger-report binds the project's own fix-ledger check report (rig-create/fix-ledger-report@1) by sha256;
+  a row the previous draft passed that does not pass here is refused unless named by --known-regression.`;
 
 export function draftRigCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
+  const known: [string, string][] = [];
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--json') json = true;
-    else if (['--config', '--from', '--parts'].includes(arg)) {
+    else if (arg === '--known-regression') {
+      const value = args[++i];
+      const split = value === undefined ? -1 : value.indexOf('=');
+      const row = split > 0 ? value!.slice(0, split) : '';
+      if (!idPattern.test(row) || split === value!.length - 1 || known.some(([id]) => id === row)) refuse('DRAFT_RIG_USAGE', 'drafts: --known-regression needs <row id>=<reason file>, once per row; see draft-rig help', USAGE_EXIT);
+      known.push([row, value!.slice(split + 1)]);
+    } else if (['--config', '--from', '--parts', '--ledger-report'].includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith('--') || opts[arg] !== undefined) refuse('DRAFT_RIG_USAGE', `drafts: ${arg} requires one value; see draft-rig help`, USAGE_EXIT);
       opts[arg] = value;
@@ -223,6 +234,12 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
   }
   const id = positional[0];
   if (!id || !idPattern.test(id) || positional.length > 2 || !opts['--config'] || !opts['--from']) refuse('DRAFT_RIG_USAGE', DRAFT_RIG_HELP, USAGE_EXIT);
+  if (known.length && !opts['--ledger-report']) refuse('DRAFT_RIG_USAGE', 'drafts: --known-regression names rows of a --ledger-report; supply the report', USAGE_EXIT);
+  const reasons: [string, string][] = known.map(([row, file]) => {
+    const reason = readVerbatim(file).trim();
+    if (!reason) refuse('DRAFT_RIG_USAGE', `drafts: the --known-regression reason file for ${row} is empty; say why the regression is accepted`, USAGE_EXIT);
+    return [row, reason];
+  });
   const dir = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(dir);
   let intent: PendingPublication | null = null;
@@ -273,9 +290,13 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     }
     if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
     project.drafts = [...asArray(project.drafts), record];
+    if (opts['--ledger-report']) Object.assign(record, draftLedgerFields(dir, project, asArray(project.drafts).length - 1, opts['--ledger-report'], reasons, now));
     const errors: Finding[] = [];
     checkDrafts(dir, project, errors);
-    const first = errors[0] ?? newRefusals(dir, before, project, { now })[0];
+    const ledger: Finding[] = [];
+    checkFixLedger(dir, project, ledger, [], now);
+    const index = asArray(project.drafts).length - 1;
+    const first = errors[0] ?? ledger.find(f => f.path === `drafts[${index}]` || f.path.startsWith(`drafts[${index}].`)) ?? newRefusals(dir, before, project, { now })[0];
     if (first !== undefined) refuse(first.code, first.message);
     const bytes = Buffer.from(`${JSON.stringify(project, null, 2)}\n`);
     if (!readFileSync(file).equals(original)) refuse('DRAFT_RIG_FILE', 'project.json: draft source changed during registration; retry with frozen inputs');

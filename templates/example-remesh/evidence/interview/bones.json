@@ -4,15 +4,15 @@
   "question": "bones",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-08T00:00:34.000Z",
+  "drafted_at": "2026-11-09T00:00:34.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-08T00:00:32.000Z",
+      "signoff_at": "2026-11-09T00:00:32.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/b2a940928aa74bcec551a8afa04516e44a7c9d3694cbed6eb09721cbeab5363b.json",
-        "sha256": "b2a940928aa74bcec551a8afa04516e44a7c9d3694cbed6eb09721cbeab5363b",
+        "path": "evidence/review-reads/3cb6aa228c0e8a727b714b663389e0b40dea575b424388ea61e1b7709e83560d.json",
+        "sha256": "3cb6aa228c0e8a727b714b663389e0b40dea575b424388ea61e1b7709e83560d",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },

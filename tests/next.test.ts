@@ -1,15 +1,21 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { cpSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { cpSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import type { JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { checkProject } from '../src/check.ts';
+import { openCreateJob } from '../src/job-host.ts';
+import { jobHostStateRoot } from '../src/job-outbox.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/next.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { amendCommand, reopenCommand, testClock } from './clock.ts';
+import { amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 import { fixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
+import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 
 const REPO = join(import.meta.dir, '..');
 const CHAIN_DIR = join(REPO, 'templates/example-chain');
@@ -470,6 +476,374 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(textRes.exit).toBe(0);
       expect(textRes.stdout).toContain('no remaining move (project is accepted)');
     }
+  });
+
+  test('plant 4 (STAGE_LAGGING): after human signoff, STAGE_LAGGING stays in refusals while the resolving advance is emitted as an agent move that clears it on a scratch copy', () => {
+    const dir = join(tempDir(), 'stage-lagging');
+    cpSync(join(CHECKPOINTS_DIR, '0b-plan-pending'), dir, { recursive: true });
+    testClock.set(new Date(CHAIN_NOW));
+    signoffCommand(['plan-approved', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+
+    const report = nextProject(dir, CHAIN_NOW);
+    expect(report.refusals.map(r => r.code)).toContain('STAGE_LAGGING');
+    const advanceMove = report.moves.find(m => m.role === 'agent');
+    expect(advanceMove).toMatchObject({
+      role: 'agent',
+      field: 'stage',
+      awaits: 'project.stage',
+      command: 'rig-create advance parts',
+    });
+
+    const scratch = join(tempDir(), 'stage-lagging-scratch');
+    cpSync(dir, scratch, { recursive: true });
+    const argv = advanceMove!.command!.slice('rig-create '.length).split(/\s+/);
+    const run = runMainCapture([...argv, scratch], CHAIN_NOW);
+    expect(run.stderr).toBe('');
+    expect(run.code).toBe(0);
+    const afterCheck = checkProject(scratch, undefined, { now: CHAIN_NOW, readOnly: true });
+    expect(afterCheck.refusals).toEqual([]);
+  });
+
+  test('plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move', async () => {
+    // Route 1: CLI parts-verdict receipt (`rig-create/parts-verdict-cli@1`, uses `status: "approved"`).
+    const cliDir = join(tempDir(), 'parts-cli-route');
+    cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), cliDir, { recursive: true });
+    recordPartsReceipt(cliDir, 'chain', CHAIN_NOW, 'approved');
+
+    const cliReport = nextProject(cliDir, CHAIN_NOW);
+    const cliSnapshotMove = cliReport.moves.find(
+      m => m.role === 'agent' && m.command?.startsWith('rig-create structure-snapshot'),
+    );
+    expect(cliSnapshotMove).toMatchObject({
+      role: 'agent',
+      field: 'drafts[chain]',
+      awaits: 'evidence/structure.json',
+      command: 'rig-create structure-snapshot --draft chain --out evidence/structure.json',
+    });
+    const cliScratch = join(tempDir(), 'parts-cli-scratch');
+    cpSync(cliDir, cliScratch, { recursive: true });
+    const cliRun = runMainCapture(
+      [...cliSnapshotMove!.command!.slice('rig-create '.length).split(/\s+/), cliScratch],
+      CHAIN_NOW,
+    );
+    expect(cliRun.stderr).toBe('');
+    expect(cliRun.code).toBe(0);
+    expect(checkProject(cliScratch, undefined, { now: CHAIN_NOW, readOnly: true }).refusals).toEqual([]);
+
+    // Route 2: API parts-verdict receipt (`rig-create/review-act@1`, uses serialized `bytes`).
+    const apiDir = realpathSync(mkdtempSync(join(tmpdir(), 'create-next-parts-api-')));
+    let host: JobOwnerHost | undefined;
+    try {
+      cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), apiDir, { recursive: true });
+      cpSync(join(CHAIN_DIR, 'evidence/diff-components.json'), join(apiDir, 'evidence/diff-components.json'));
+      const proj = JSON.parse(readFileSync(join(apiDir, 'project.json'), 'utf8')) as Record<string, unknown>;
+      proj.drafts = [];
+      writeFileSync(join(apiDir, 'project.json'), `${JSON.stringify(proj, null, 2)}\n`);
+
+      host = await openCreateJob(apiDir, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+      const draftChild = Bun.spawn(
+        [
+          process.execPath,
+          join(REPO, 'src/cli.ts'),
+          'draft-rig',
+          'chain',
+          '--config',
+          'derived/drafts/chain/config.json',
+          '--from',
+          'derived/drafts/chain/out',
+          '--parts',
+          'derived/drafts/chain/input',
+          '--json',
+        ],
+        { cwd: apiDir, stdout: 'pipe', stderr: 'pipe' },
+      );
+      const [, draftStderr, draftExit] = await Promise.all([
+        new Response(draftChild.stdout).text(),
+        new Response(draftChild.stderr).text(),
+        draftChild.exited,
+      ]);
+      expect(draftStderr).toBe('');
+      expect(draftExit).toBe(0);
+
+      const publication = host.session.status().publication!;
+      const askReq = {
+        schema: 'rig-review/job-api@2',
+        verb: 'ask',
+        jobId: host.session.jobId,
+        requestId: randomUUID(),
+        idempotencyKey: randomUUID(),
+        expectedGeneration: host.session.status().generation,
+        publicationId: publication.publicationId,
+        subject: { kind: 'parts-verdict', draftId: 'chain' },
+      };
+      const askRes = await host.ports.handleJobApi(
+        new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${host.session.hostCredentials().agent}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(askReq),
+        }),
+      );
+      const asked = (await askRes.json()) as { ok: boolean; value: { askId: string } };
+      expect(asked.ok).toBe(true);
+
+      const pageId = randomUUID();
+      const uiReq = (route: string, body: object) =>
+        new Request(`${host!.origin}/jobs/${host!.session.jobId}/ui/${route}`, {
+          method: 'POST',
+          headers: {
+            origin: host!.origin,
+            'X-Review-Capability': host!.session.hostCredentials().ui,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+      const displayed = await host.ports.ackDisplayed(
+        host.session.jobId,
+        uiReq('displayed', {
+          publicationId: publication.publicationId,
+          pageId,
+          sourceHash: publication.source.sourceHash,
+        }),
+      );
+      expect(displayed.ok).toBe(true);
+      if (!displayed.ok) throw new Error(displayed.error.code);
+
+      const manifest = JSON.parse(readFileSync(join(apiDir, publication.source.parts!.manifest.path), 'utf8')) as {
+        parts: { name: string }[];
+      };
+      const names = manifest.parts.map(p => p.name);
+      const committed = await host.ports.commitUIAct(
+        host.session.jobId,
+        uiReq('acts', {
+          publicationId: publication.publicationId,
+          askId: asked.value.askId,
+          pageId,
+          displayedNonce: displayed.value.displayedNonce,
+          expectedGeneration: host.session.status().generation,
+          submissionId: randomUUID(),
+          kind: 'parts-verdict',
+          value: {
+            verdict: 'approved',
+            words: 'Synthetic API parts review.\n',
+            parts: names.map(partId => ({
+              partId,
+              part: { outcome: 'clean', note: '' },
+              mesh: { outcome: 'clean', note: '' },
+            })),
+          },
+        }),
+      );
+      expect(committed.ok).toBe(true);
+      if (!committed.ok) throw new Error(committed.error.code);
+
+      const prChild = Bun.spawn(
+        [
+          process.execPath,
+          join(REPO, 'src/cli.ts'),
+          'parts-review',
+          '--from-review',
+          committed.value.actId,
+          '--json',
+        ],
+        { cwd: apiDir, stdout: 'pipe', stderr: 'pipe' },
+      );
+      const [, prStderr, prExit] = await Promise.all([
+        new Response(prChild.stdout).text(),
+        new Response(prChild.stderr).text(),
+        prChild.exited,
+      ]);
+      expect(prStderr).toBe('');
+      expect(prExit).toBe(0);
+
+      const apiNow = Date.now();
+      const apiReport = nextProject(apiDir, apiNow);
+      const apiSnapshotMove = apiReport.moves.find(
+        m => m.role === 'agent' && m.command?.startsWith('rig-create structure-snapshot'),
+      );
+      expect(apiSnapshotMove).toMatchObject({
+        role: 'agent',
+        field: 'drafts[chain]',
+        awaits: 'evidence/structure.json',
+        command: 'rig-create structure-snapshot --draft chain --out evidence/structure.json',
+      });
+
+      const apiScratch = join(tempDir(), 'parts-api-scratch');
+      cpSync(apiDir, apiScratch, { recursive: true });
+      const apiRun = runMainCapture(
+        [...apiSnapshotMove!.command!.slice('rig-create '.length).split(/\s+/), apiScratch],
+        apiNow,
+      );
+      expect(apiRun.stderr).toBe('');
+      expect(apiRun.code).toBe(0);
+      expect(checkProject(apiScratch, undefined, { now: apiNow, readOnly: true }).refusals).toEqual([]);
+    } finally {
+      host?.stop();
+      rmSync(jobHostStateRoot(apiDir), { recursive: true, force: true });
+      rmSync(apiDir, { recursive: true, force: true });
+    }
+  });
+
+  test('plant 6 (withdrawn acceptance): when changes-requested follows accepted on rig-review or direction-review, the human review-verdict move reappears', () => {
+    // rig-review: accepted followed by changes-requested
+    const rigDir = join(tempDir(), 'rig-withdrawn');
+    cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), rigDir, { recursive: true });
+    const bounceWords = join(rigDir, 'bounce.txt');
+    writeFileSync(bounceWords, 'Please adjust the shoulder pivot.\n');
+    testClock.set(new Date(CHAIN_NOW));
+    reviewCommand([
+      '1',
+      rigDir,
+      '--verdict',
+      'accepted',
+      '--by',
+      'user',
+      '--review',
+      'rig-review',
+      '--verbatim-file',
+      join(rigDir, 'evidence/approval.txt'),
+      '--source',
+      'synthetic example',
+    ]);
+    // After acceptance alone, review-verdict is no longer awaited.
+    expect(nextProject(rigDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=rig-review]']);
+
+    // Now a human changes-requested (bounced) verdict withdraws the earlier acceptance.
+    testClock.set(new Date(CHAIN_NOW + 1000));
+    reviewCommand([
+      '1',
+      rigDir,
+      '--verdict',
+      'bounced',
+      '--by',
+      'user',
+      '--review',
+      'rig-review',
+      '--verbatim-file',
+      bounceWords,
+      '--source',
+      'synthetic bounce',
+      '--item',
+      'bones:user',
+    ]);
+    const rigReport = nextProject(rigDir, CHAIN_NOW + 1000);
+    expect(rigReport.awaits).toContain('versions[n=1].verdicts[review=rig-review]');
+    expect(rigReport.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({
+      role: 'human',
+      field: 'versions[v1].verdicts',
+      awaits: 'versions[n=1].verdicts[review=rig-review]',
+      command: null,
+      review_act: {
+        kind: 'review-verdict',
+        stage: 'rig-review',
+        version_id: 'v1',
+        review: 'rig-review',
+      },
+    });
+
+    // direction-review: accepted followed by changes-requested (bounced) on post v2
+    const postDir = join(tempDir(), 'post-withdrawn');
+    cpSync(join(CHECKPOINTS_DIR, '4-direction-post'), postDir, { recursive: true });
+    for (const rel of [
+      'inputs/background.png',
+      'evidence/scene-citations.json',
+      'evidence/direction-input.json',
+    ]) {
+      cpSync(join(CHAIN_DIR, rel), join(postDir, rel));
+    }
+    testClock.set(new Date(CHAIN_NOW));
+    expect(
+      runMainCapture(
+        [
+          'input',
+          'add',
+          'inputs/background.png',
+          '--origin',
+          'synthetic background plate, generated by generateExampleParts',
+          postDir,
+        ],
+        CHAIN_NOW,
+      ).code,
+    ).toBe(0);
+    expect(
+      runMainCapture(
+        [
+          'scene',
+          'write',
+          postDir,
+          '--rig',
+          '1',
+          '--background',
+          'inputs/background.png',
+          '--citations-file',
+          'evidence/scene-citations.json',
+          '--by',
+          'user',
+        ],
+        CHAIN_NOW,
+      ).code,
+    ).toBe(0);
+    expect(
+      runMainCapture(
+        ['direction', 'write', '2', postDir, '--file', 'evidence/direction-input.json', '--rig', '1'],
+        CHAIN_NOW,
+      ).code,
+    ).toBe(0);
+    expect(runMainCapture(['direction', 'check', '2', postDir, '--json'], CHAIN_NOW).code).toBe(0);
+    expect(runMainCapture(['advance', 'direction-review', postDir], CHAIN_NOW).code).toBe(0);
+
+    reviewCommand([
+      '2',
+      postDir,
+      '--verdict',
+      'accepted',
+      '--by',
+      'user',
+      '--review',
+      'direction-review',
+      '--verbatim-file',
+      join(postDir, 'evidence/approval.txt'),
+      '--source',
+      'synthetic example',
+    ]);
+    expect(nextProject(postDir, CHAIN_NOW).awaits).toEqual(['signoffs[stage=direction-review]']);
+
+    const postBounceWords = join(postDir, 'bounce-post.txt');
+    writeFileSync(postBounceWords, 'Tighten the final camera hold.\n');
+    testClock.set(new Date(CHAIN_NOW + 2000));
+    reviewCommand([
+      '2',
+      postDir,
+      '--verdict',
+      'bounced',
+      '--by',
+      'user',
+      '--review',
+      'direction-review',
+      '--verbatim-file',
+      postBounceWords,
+      '--source',
+      'synthetic direction bounce',
+      '--item',
+      'camera_depth:user',
+    ]);
+
+    const postReport = nextProject(postDir, CHAIN_NOW + 2000);
+    expect(postReport.awaits).toContain('versions[n=2].verdicts[review=direction-review]');
+    expect(postReport.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({
+      role: 'human',
+      field: 'versions[v2].verdicts',
+      awaits: 'versions[n=2].verdicts[review=direction-review]',
+      command: null,
+      review_act: {
+        kind: 'review-verdict',
+        stage: 'direction-review',
+        version_id: 'v2',
+        review: 'direction-review',
+      },
+    });
   });
 
   test('usage errors refuse with NEXT_USAGE and exit 2', () => {

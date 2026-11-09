@@ -15,11 +15,13 @@ import {
 import { collectAmendments } from './amend.ts';
 import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
 import { isPartsCheckMove, partsCheckRecord } from './parts-check.ts';
+import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { pausedFrom } from './pause.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
+import { acceptedReviewVerdict } from './review.ts';
 import {
   advanceOrder,
   furthestStageSignoff,
@@ -329,6 +331,44 @@ function nextStageInOrder(project: JsonObject, currentStage: string): string | n
   return candidate === PAUSED_STAGE ? null : candidate;
 }
 
+function resolveLaggingAdvance(
+  dir: string,
+  project: JsonObject,
+  stage: string,
+  now: number,
+): { targetStage: string; command: string } | null {
+  const nextStage = nextStageInOrder(project, stage);
+  if (nextStage === null) return null;
+  if (stage === 'parts' && nextStage === 'parts-review') {
+    const drafts = asArray(project.drafts).filter(isObject);
+    const latestDraft = drafts[drafts.length - 1];
+    const partsRoot =
+      isObject(latestDraft?.parts) && typeof latestDraft.parts.path === 'string'
+        ? latestDraft.parts.path
+        : undefined;
+    if (partsRoot !== undefined && existsSync(join(dir, 'evidence/parts-check.json'))) {
+      const cmd = candidateAdvance(dir, project, nextStage, now, {
+        report: 'evidence/parts-check.json',
+        root: partsRoot,
+      });
+      if (cmd !== null) return { targetStage: nextStage, command: cmd };
+    }
+    return null;
+  }
+  const cmd = candidateAdvance(dir, project, nextStage, now);
+  return cmd !== null ? { targetStage: nextStage, command: cmd } : null;
+}
+
+function hasApprovedPartsVerdictReceipt(dir: string, project: JsonObject, draftId: string | undefined): boolean {
+  if (draftId === undefined) return false;
+  try {
+    recordedPartsVerdict(dir, project, draftId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
   const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true });
@@ -349,8 +389,15 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     fix: remedyForFinding(r.code, r.message),
   }));
 
+  const laggingAdvance = report.refusals.some(r => r.code === 'STAGE_LAGGING')
+    ? resolveLaggingAdvance(dir, project, stage, now)
+    : null;
+  const isResolvableLagging = (finding: Finding): boolean =>
+    finding.code === 'STAGE_LAGGING' && laggingAdvance !== null;
+
   const hasBlockingRefusal =
-    holes.length > 0 || report.refusals.some(r => !isOpenInterviewTodo(r, effectiveStage));
+    holes.length > 0 ||
+    report.refusals.some(r => !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
   if (hasBlockingRefusal) {
     return {
       schema: NEXT_SCHEMA,
@@ -519,7 +566,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
   const drafts = asArray(project.drafts).filter(isObject);
   const versions = asArray(project.versions).filter(isObject);
-  const reviewActs = asArray(project.review_acts).filter(isObject);
 
   if (stage === PAUSED_STAGE) {
     const resumeTarget = pausedFrom(project);
@@ -733,11 +779,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         isObject(latestDraft?.parts) && typeof latestDraft.parts.path === 'string'
           ? latestDraft.parts.path
           : undefined;
-      const hasApprovedPartsVerdict =
-        draftId !== undefined &&
-        reviewActs.some(
-          act => act.kind === 'parts-verdict' && act.draft_id === draftId && act.verdict === 'approved',
-        );
+      const hasApprovedPartsVerdict = hasApprovedPartsVerdictReceipt(dir, project, draftId);
 
       if (effectiveStage === 'parts' && partsRoot !== undefined && existsSync(join(dir, 'evidence/parts-check.json'))) {
         const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
@@ -944,13 +986,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           unanswered_by_record: 'versions[kind=rig]',
         });
       } else {
-        const verdicts = asArray(latestRig?.verdicts).filter(isObject);
-        const hasLiveAcceptedRigVerdict = verdicts.some(
-          v =>
-            v.review === 'rig-review' &&
-            v.verdict === 'accepted' &&
-            liveSignoff(reopens, 'rigging', Date.parse(String(v.at))),
-        );
+        const acceptedIdx = latestRig !== undefined ? acceptedReviewVerdict(latestRig, 'rig-review') : -1;
+        const acceptedEntry = acceptedIdx >= 0 ? asArray(latestRig?.verdicts)[acceptedIdx] : undefined;
+        const hasLiveAcceptedRigVerdict =
+          isObject(acceptedEntry) &&
+          liveSignoff(reopens, 'rigging', Date.parse(String(acceptedEntry.at)));
         const verdictAwait = `versions[n=${rigN}].verdicts[review=rig-review]`;
         if (!hasLiveAcceptedRigVerdict && !recordedLapseTargets.has(verdictAwait)) {
           addAwait(verdictAwait);
@@ -1107,13 +1147,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           unanswered_by_record: scenes.length === 0 ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
         });
       } else {
-        const verdicts = asArray(latestPost?.verdicts).filter(isObject);
-        const hasLiveAcceptedPostVerdict = verdicts.some(
-          v =>
-            v.review === 'direction-review' &&
-            v.verdict === 'accepted' &&
-            liveSignoff(reopens, 'post', Date.parse(String(v.at))),
-        );
+        const acceptedIdx = latestPost !== undefined ? acceptedReviewVerdict(latestPost, 'direction-review') : -1;
+        const acceptedEntry = acceptedIdx >= 0 ? asArray(latestPost?.verdicts)[acceptedIdx] : undefined;
+        const hasLiveAcceptedPostVerdict =
+          isObject(acceptedEntry) &&
+          liveSignoff(reopens, 'post', Date.parse(String(acceptedEntry.at)));
         const verdictAwait = `versions[n=${postN}].verdicts[review=direction-review]`;
         if (!hasLiveAcceptedPostVerdict && !recordedLapseTargets.has(verdictAwait)) {
           addAwait(verdictAwait);
@@ -1180,6 +1218,17 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
     }
+  }
+
+  if (laggingAdvance !== null && !moves.some(m => m.role === 'agent' && m.command === laggingAdvance.command)) {
+    addAwait('project.stage');
+    moves.unshift({
+      role: 'agent',
+      field: 'stage',
+      awaits: 'project.stage',
+      command: laggingAdvance.command,
+      act: `advance stage from ${stage} to ${laggingAdvance.targetStage}`,
+    });
   }
 
   return {

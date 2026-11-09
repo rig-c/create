@@ -12,18 +12,18 @@
       "verdict": "versions[2].verdicts[0]",
       "review_package": {
         "path": "versions[2].review_package",
-        "sha256": "27bc72d6077690a2906279edf4d83d11a60332725f6cd272b177ffbde8f3378b"
+        "sha256": "2c5e7e900f304443d366592c85bc1fb9650ce2b5709afbaf6a6deebe41993648"
       }
     },
     "model": {
       "path": "derived/review/v3/out/check/build/skeleton.model.json",
-      "sha256": "df74eaf6d136a21d679863a779a2b3cd0a961ee79e2f9bba9017a92d00269f6d"
+      "sha256": "f978c74189cc8130f802b7b7238394f159d64ee6db378cb91adf38dd0ea5b5ea"
     },
     "animation": {
       "name": "idle",
       "frames": {
         "path": "outputs/v3/idle/frames.json",
-        "sha256": "da3419523b440fed72eb7a43befaf903263c72671bc559236c3031107313a1e9"
+        "sha256": "8f0a171615985f5ea55a857fd762dbe8953e59cafcb6ea2f3deec61cb48045ca"
       }
     }
   },

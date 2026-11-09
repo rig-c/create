@@ -11,7 +11,7 @@ import type { Json, JsonObject } from '../src/templates.ts';
 import { partsPackage } from '../tests/parts-package.ts';
 import { EXAMPLE_ANCHOR } from './example-time.ts';
 import { generatorArgs } from './generator-args.ts';
-import { generateExampleMeshDraft } from './generate-example-draft.ts';
+import { EXAMPLE_BREATH_AMP, generateExampleMeshDraft } from './generate-example-draft.ts';
 import { checkExampleParts, generateExampleParts } from './generate-example-parts.ts';
 
 export const REMESH_PARTS_REVIEW_LAPSES: readonly [string, string][] = [
@@ -34,6 +34,18 @@ export function remeshFiles(dir: string, prefix = ''): Record<string, Buffer> {
   }
   return files;
 }
+
+/**
+ * Distinct breath amplitudes for rig versions v1–v3, derived from EXAMPLE_BREATH_AMP (0.9) across the
+ * passing range of scripts/generate-example-draft.ts's BREATH_VISIBLE curve (0.8 -> torso_heat_mean 3.948,
+ * 0.9 -> 4.259, 1.0 -> 4.912 vs torso_floor 3.809) so review's Stage 3 correction gate
+ * (EDIT_SUBMIT_UNCHECKED / CORRECTION_CHECK_FAILED) passes on every version.
+ */
+export const REMESH_RIG_BREATH_AMPS: readonly [number, number, number] = [
+  Math.round((EXAMPLE_BREATH_AMP - 0.1) * 10) / 10,
+  EXAMPLE_BREATH_AMP,
+  Math.round((EXAMPLE_BREATH_AMP + 0.1) * 10) / 10,
+];
 
 /** Producer folders for rig-version: input/ (assembled parts), out/ (rig), build/ (compiled), idle/ (render). */
 function buildMeshRigCandidate(
@@ -328,7 +340,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
       { version: JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version as string },
     ])) };
 
-    for (const [index, amp] of [0.4, 0.5, 0.6].entries()) {
+    for (const [index, amp] of REMESH_RIG_BREATH_AMPS.entries()) {
       const n = index + 1;
       tick();
       const buildEpoch = String(Math.trunc(now / 1000));

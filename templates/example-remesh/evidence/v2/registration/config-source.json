@@ -78,7 +78,7 @@
       {
         "bone": "body",
         "prop": "translatey",
-        "amp": 0.5,
+        "amp": 0.9,
         "period": 4,
         "phase": 0,
         "base": 0

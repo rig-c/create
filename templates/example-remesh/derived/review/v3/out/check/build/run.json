@@ -16,7 +16,7 @@
     {
       "role": "motion",
       "path": "../out/motion.json",
-      "sha256": "b51d74cf0d44f62abf740dff9d4773a6b88218ade021d19139acffb149e4a2d5"
+      "sha256": "d49802804689406e83374c375943a5b27073f1b04e5c975f7474240f85c48070"
     }
   ],
   "outputs": [
@@ -30,11 +30,11 @@
     },
     {
       "path": "skeleton.json",
-      "sha256": "ee3b77afd26cf8da9a9ed7de517266b37b76d07062a4e01c76bf9e24d1f543b8"
+      "sha256": "1df8b70e51d305173f313abcdb40b2bd9fafc0c6afd9c4c131676d7bf6f4156a"
     },
     {
       "path": "skeleton.model.json",
-      "sha256": "df74eaf6d136a21d679863a779a2b3cd0a961ee79e2f9bba9017a92d00269f6d"
+      "sha256": "f978c74189cc8130f802b7b7238394f159d64ee6db378cb91adf38dd0ea5b5ea"
     },
     {
       "path": "skeleton.png",

@@ -446,7 +446,8 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
     references: context.parts!.images.map((image, index) => ({ id: `image-${index}`, label: `${image.role} ${image.path}`, type: 'image',
       path: relative(root, resolve(root, dirname(context.parts!.manifest.path), image.path)).split('\\').join('/') })),
     animations: [], checkpoints: [], authoring: files.filter(file => /\/(rig|motion|mesh_report)\.json$/.test(String(file.path)))
-      .map(file => ({ label: String(file.path).split('/').at(-1), path: file.path })) };
+      .map(file => ({ label: String(file.path).split('/').at(-1), path: file.path })),
+    panels: { schema: 'rig-review/panels@1', left: ['parts.list'], stage: ['parts.canvas'], toolbar: ['parts.layers'], side: ['parts.issues', 'act.submit'] } };
   const path = `review-draft-${id}.json`;
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
   if (existsSync(join(root, path))) {

@@ -13,8 +13,28 @@ import { collectItems, asArray, isObject } from './check.ts';
 import { stepHash } from './step-hash.ts';
 import type { Json, JsonObject } from './templates.ts';
 
+export type PartsIssue = {
+  readonly id: string;
+  readonly summary: string;
+  readonly parts: readonly { readonly name: string; readonly imageHash: string }[];
+  readonly sourceHash: string;
+  readonly rigRegion: JsonObject;
+  readonly imageRegion: JsonObject | null;
+  readonly view: JsonObject;
+  readonly crop: JsonObject;
+  readonly nativeCrop: JsonObject | null;
+};
 export type InterviewPicksAct = Extract<JobAct, { kind: 'interview-picks' }>;
-export type PartsVerdictAct = Extract<JobAct, { kind: 'parts-verdict' }>;
+export type PartsVerdictActV2 = Extract<JobAct, { kind: 'parts-verdict' }>;
+export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
+  readonly schema: 'rig-review/act@5';
+  readonly value: {
+    readonly verdict: 'approved' | 'changes-requested';
+    readonly issues: readonly PartsIssue[];
+    readonly words: string;
+  };
+};
+export type PartsVerdictAct = PartsVerdictActV2 | PartsVerdictActV5;
 export type ReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
 export type CheckpointAct = Extract<JobAct, { kind: 'checkpoint' }>;
 export type SignoffAct = Extract<JobAct, { kind: 'signoff' }>;
@@ -40,7 +60,8 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
-  if (act.schema !== 'rig-review/act@2' && !(kind === 'review-verdict' && act.schema === 'rig-review/act@3')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
+  if (act.schema !== 'rig-review/act@2' && !(kind === 'review-verdict' && act.schema === 'rig-review/act@3')
+    && !(kind === 'parts-verdict' && act.schema === 'rig-review/act@5')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
   const source = act.source;
   const parts = object(source) ? source.parts : null;
   const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
@@ -98,8 +119,35 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
       || !Array.isArray(parts.images) || parts.images.some(row => !file(row) || typeof row.role !== 'string')
       || source.model !== null && !file(source.model) || source.direction !== null && !file(source.direction)
       || source.plan !== null && (!object(source.plan) || !Array.isArray(source.plan.steps)
-        || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))
-      || !Array.isArray(value.parts) || !value.parts.length) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed');
+        || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed');
+    if (act.schema === 'rig-review/act@5') {
+      if (!['approved', 'changes-requested'].includes(String(value.verdict)) || !Array.isArray(value.issues)
+        || value.parts !== undefined) failure('REVIEW_ACT_INVALID', 'parts verdict source or issues are malformed');
+      const issueIds = new Set<string>();
+      for (const issue of value.issues) {
+        if (!object(issue) || !id(issue.id) || issueIds.has(issue.id)
+          || typeof issue.summary !== 'string' || !issue.summary.trim()
+          || !Array.isArray(issue.parts) || !issue.parts.length
+          || !sha(issue.sourceHash) || !object(issue.rigRegion)
+          || !('imageRegion' in issue) || (issue.imageRegion !== null && !object(issue.imageRegion))
+          || !object(issue.view) || !object(issue.crop)
+          || !('nativeCrop' in issue) || (issue.nativeCrop !== null && !object(issue.nativeCrop))) {
+          failure('REVIEW_ACT_INVALID', 'parts verdict issue is malformed');
+        }
+        issueIds.add(issue.id);
+        const partNames = new Set<string>();
+        for (const part of issue.parts) {
+          if (!object(part) || !id(part.name) || !sha(part.imageHash) || partNames.has(part.name)
+            || !parts.images.some(img => object(img) && img.role === 'part' && img.path === `parts/${part.name}.png` && img.sha256 === part.imageHash)) {
+            failure('REVIEW_ACT_INVALID', 'parts verdict issue part is invalid, duplicated or outside the bound parts manifest');
+          }
+          partNames.add(part.name);
+        }
+      }
+      if ((value.verdict === 'approved') !== (value.issues.length === 0)) failure('REVIEW_ACT_INVALID', 'parts verdict contradicts its issues');
+      return act as unknown as PartsVerdictAct;
+    }
+    if (!Array.isArray(value.parts) || !value.parts.length) failure('REVIEW_ACT_INVALID', 'parts verdict source or rows are malformed');
     const rows = value.parts as JsonObject[];
     const ids = new Set<string>();
     for (const row of rows) {

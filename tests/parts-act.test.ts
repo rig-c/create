@@ -2,7 +2,7 @@ import { reviewStdout } from './review-read-fixture.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/review/src/job-contract.ts';
@@ -21,8 +21,10 @@ import { advanceCommand } from '../src/progress-writers.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
-import { partsActFindings } from '../src/parts-act.ts';
-import { decodeReviewAct } from '../src/review-act.ts';
+import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
+import { prepareDraftManifest } from '../src/job-publication.ts';
+import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
+import { decodeReviewAct, type PartsIssue, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -204,6 +206,7 @@ for (const [verdict, part, mesh] of [
   const recorded = JSON.parse(result.stdout);
   expect(recorded.verdict).toBe(verdict);
   const evidence = decodeReviewAct(readFileSync(join(root, recorded.evidence.path), 'utf8'), 'parts-verdict');
+  if (evidence.schema !== 'rig-review/act@2') throw Error(evidence.schema);
   expect(evidence.value.parts.every(row => row.part.outcome === part && row.mesh.outcome === mesh)).toBe(true);
   expect(evidence.value.words).toBe('  Synthetic parts review.\r\n');
   expect(read(root).signoffs).toEqual(before.signoffs); expect(read(root).stage).toBe(before.stage);
@@ -415,3 +418,194 @@ test('CLI and act receipts share current-verdict ordering', async () => {
   expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')?.code).toBe('PARTS_VERDICT_LATEST_NOT_APPROVED');
   expect(partsActFindings(root, read(root))).toEqual([]);
 }, MULTI_SPAWN_TIMEOUT_MS);
+
+test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant and checks manifest inclusion and draft panels', () => {
+  const root = fixture(true);
+  const project = read(root);
+  const manifestFile = prepareDraftManifest(root, project, 'chain');
+  const publishedManifest = JSON.parse(readFileSync(join(root, manifestFile), 'utf8')) as JsonObject;
+  expect(publishedManifest.panels).toEqual({
+    schema: 'rig-review/panels@1',
+    left: ['parts.list'],
+    stage: ['parts.canvas'],
+    toolbar: ['parts.layers'],
+    side: ['parts.issues', 'act.submit'],
+  });
+
+  const inputDir = join(root, 'derived/drafts/chain/input');
+  const images = partsEnumerator.enumerate(inputDir).map(row => ({
+    ...row,
+    sha256: jobHash(readFileSync(join(inputDir, row.path))),
+  }));
+  const partImages = images.filter(img => img.role === 'part');
+  const firstPart = partImages[0]!;
+  const firstPartName = firstPart.path.slice('parts/'.length, -'.png'.length);
+  const manifestPath = 'derived/drafts/chain/input/parts.json';
+  const manifestSha = jobHash(readFileSync(join(root, manifestPath)));
+  const modelPath = 'derived/drafts/chain/out/check/build/skeleton.model.json';
+  const modelSha = jobHash(readFileSync(join(root, modelPath)));
+  const steps = ((project.plan as JsonObject).steps as JsonObject[]).map(step => ({
+    id: String(step.id),
+    hash: stepHash(step),
+  }));
+
+  const baseSource = {
+    sourceHash: 'a'.repeat(64),
+    projectHash: jobHash(readFileSync(join(root, 'project.json'))),
+    package: { id: 'create-draft-chain', revision: String(publishedManifest.revision) },
+    selector: { kind: 'draft' as const, id: 'chain' },
+    model: { path: modelPath, sha256: modelSha },
+    direction: null,
+    optionSet: null,
+    appliedResult: null,
+    plan: { steps },
+    parts: {
+      enumeratorVersion: partsEnumerator.version,
+      manifest: { path: manifestPath, sha256: manifestSha },
+      images,
+    },
+  };
+
+  const sampleIssue = (overrides: Partial<PartsIssue> = {}): PartsIssue => ({
+    id: 'issue-1',
+    summary: 'Ragged sleeve cuff seam',
+    parts: [{ name: firstPartName, imageHash: firstPart.sha256 }],
+    sourceHash: 'b'.repeat(64),
+    rigRegion: { x: 10, y: 12, width: 24, height: 18 },
+    imageRegion: { x: 2, y: 4, width: 24, height: 18 },
+    view: { background: 'checker' },
+    crop: { path: `comment-crops/${'c'.repeat(64)}.png`, sha256: 'c'.repeat(64), width: 24, height: 18 },
+    nativeCrop: null,
+    ...overrides,
+  });
+
+  const makeActV5 = (value: Record<string, unknown>, sourceOverrides: Partial<typeof baseSource> = {}): Record<string, unknown> => ({
+    schema: 'rig-review/act@5',
+    actId: 'act-v5-1',
+    jobId: 'job-v5-1',
+    askId: 'ask-v5-1',
+    publicationId: 'pub-v5-1',
+    kind: 'parts-verdict',
+    authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+    at: new Date(EXAMPLE_NOW).toISOString(),
+    source: { ...baseSource, ...sourceOverrides },
+    value,
+  });
+
+  // 1. act@5 approved with zero issues is accepted
+  const approvedBytes = JSON.stringify(makeActV5({ verdict: 'approved', issues: [], words: 'All parts clean.' }));
+  const approvedAct = decodeReviewAct(approvedBytes, 'parts-verdict');
+  expect(approvedAct.schema).toBe('rig-review/act@5');
+  expect(approvedAct.value.verdict).toBe('approved');
+  if (approvedAct.schema !== 'rig-review/act@5') throw Error(approvedAct.schema);
+  expect(approvedAct.value.issues).toEqual([]);
+  assertPartsActSource(root, project, approvedAct);
+
+  // 2. act@5 approved with one or more issues is refused
+  expect(() =>
+    decodeReviewAct(
+      JSON.stringify(makeActV5({ verdict: 'approved', issues: [sampleIssue()], words: 'Contradictory.' })),
+      'parts-verdict',
+    ),
+  ).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+
+  // 3. act@5 changes-requested with zero issues is refused
+  expect(() =>
+    decodeReviewAct(
+      JSON.stringify(makeActV5({ verdict: 'changes-requested', issues: [], words: 'No issues.' })),
+      'parts-verdict',
+    ),
+  ).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+
+  // 4. act@5 changes-requested with valid subset of parts is accepted by both decodeReviewAct and assertPartsActSource
+  const changesAct = decodeReviewAct(
+    JSON.stringify(makeActV5({ verdict: 'changes-requested', issues: [sampleIssue({ imageRegion: null })], words: 'Fix cuff.' })),
+    'parts-verdict',
+  );
+  expect(changesAct.schema).toBe('rig-review/act@5');
+  assertPartsActSource(root, project, changesAct);
+
+  // 5. an issue naming a part outside the bound manifest is refused in decodeReviewAct and in assertPartsActSource
+  expect(() =>
+    decodeReviewAct(
+      JSON.stringify(
+        makeActV5({
+          verdict: 'changes-requested',
+          issues: [sampleIssue({ parts: [{ name: 'nonexistent_part', imageHash: firstPart.sha256 }] })],
+          words: 'Unknown part.',
+        }),
+      ),
+      'parts-verdict',
+    ),
+  ).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+
+  expect(() =>
+    decodeReviewAct(
+      JSON.stringify(
+        makeActV5({
+          verdict: 'changes-requested',
+          issues: [
+            sampleIssue({
+              parts: [
+                { name: firstPartName, imageHash: firstPart.sha256 },
+                { name: firstPartName, imageHash: firstPart.sha256 },
+              ],
+            }),
+          ],
+          words: 'Duplicate part in one issue.',
+        }),
+      ),
+      'parts-verdict',
+    ),
+  ).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+
+  const forgedUnboundAct = makeActV5({
+    verdict: 'changes-requested',
+    issues: [sampleIssue({ parts: [{ name: 'nonexistent_part', imageHash: firstPart.sha256 }] })],
+    words: 'Forged manifest mismatch.',
+  }) as unknown as PartsVerdictActV5;
+  expect(() => assertPartsActSource(root, project, forgedUnboundAct)).toThrow(
+    expect.objectContaining({ code: 'REVIEW_ACT_SOURCE_STALE' }),
+  );
+
+  // 6. act@2 per-part rows still decode unchanged
+  const actV2 = decodeReviewAct(
+    JSON.stringify({
+      ...makeActV5({}),
+      schema: 'rig-review/act@2',
+      value: {
+        verdict: 'approved',
+        parts: partImages.map(img => ({
+          partId: img.path.slice('parts/'.length, -'.png'.length),
+          part: { outcome: 'clean', note: '' },
+          mesh: { outcome: 'clean', note: '' },
+        })),
+        words: 'Legacy v2 approved.',
+      },
+    }),
+    'parts-verdict',
+  );
+  expect(actV2.schema).toBe('rig-review/act@2');
+  assertPartsActSource(root, project, actV2);
+
+  // 7. recordedPartsVerdict preserves rig-review/act@5 as the evidence spec
+  const evidencePath = `evidence/review-acts/${jobHash(JSON.stringify([approvedAct.jobId, approvedAct.actId]))}.json`;
+  mkdirSync(join(root, 'evidence/review-acts'), { recursive: true });
+  writeFileSync(join(root, evidencePath), approvedBytes);
+  project.review_acts = [
+    {
+      schema: 'rig-create/review-act@1',
+      kind: 'parts-verdict',
+      jobId: approvedAct.jobId,
+      actId: approvedAct.actId,
+      draft_id: 'chain',
+      version_hash: partsActDraftHash(project, approvedAct),
+      bytes: approvedBytes,
+      sha256: jobHash(approvedBytes),
+      evidence: { path: evidencePath, sha256: jobHash(approvedBytes) },
+    },
+  ];
+  write(root, project);
+  const recorded = recordedPartsVerdict(root, project, 'chain');
+  expect(recorded.evidence.spec).toBe('rig-review/act@5');
+});

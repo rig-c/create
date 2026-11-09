@@ -1,7 +1,7 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
+import { assertRequestedDraft, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, reconcilePublication } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
 
@@ -27,6 +27,7 @@ async function run(): Promise<void> {
     case 'close': await closeCreateJob(root); console.log('job: closed'); break;
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
+      assertRequestedDraft(root, input.draft);
       const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now);
       console.log(host.ownerUrl);
       // The page shows the record's current draft and its asks. A refused publish or ask is

@@ -15,9 +15,10 @@ It then shows the record's current draft on that page: in `parts` and
 `parts-review` it publishes the latest recorded draft (or the one `--draft`
 names, in any stage) and asks every subject that publication declares (see
 [Asks](#asks)). It prints `job: draft <id> published`, or `already published`
-when the job's head publication is that draft over the current record bytes,
-then `job: asked …` and `job: already asked …` with each subject. A draft id
-the record does not hold refuses `JOB_DRAFT_UNKNOWN`. A refused publish or ask
+when the job's head publication is already that draft (or an acknowledged `rig`
+or `post` version) over the current record,
+then `job: asked …` and `job: already asked …` with each subject. A `--draft` id
+the record does not hold refuses `JOB_DRAFT_UNKNOWN` before writing `review_job`. A refused publish or ask
 is printed while the foreground host keeps serving. The
 versioned `review_job` stores only `jobId` and `origin`. The host installs its
 fetch grant in the owner-only sibling `.rig-create-review-binding.json` and

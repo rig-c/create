@@ -5,11 +5,18 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { askDeclaredSubjects, openCreateJob, openDraftPublication, refuseAskOutcomes } from '../src/job-host.ts';
-import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
+import { startJobHost, type JobSelector } from '@rig-c/review/job-host';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
+import { directionCommand } from '../src/direction-writers.ts';
+import { inputCommand } from '../src/inputs.ts';
+import { askDeclaredSubjects, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
+import { enqueuePublication, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { prepareLiveManifest } from '../src/job-publication.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
+import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
@@ -147,16 +154,71 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect(after.stdout.trim().split('\n').slice(1)).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
 });
 
-test('a --draft that the record does not hold refuses by name and the host keeps serving', async () => {
+test('a --draft that the record does not hold refuses before writing project.json or starting a host', async () => {
   const root = await partsReview();
-  const proc = Bun.spawn([process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'absent'],
-    { cwd: root, stdout: 'pipe', stderr: 'pipe' });
-  opened.push({ proc, root });
-  const reader = proc.stderr.getReader();
-  const text = new TextDecoder().decode((await reader.read()).value);
-  reader.releaseLock();
-  expect(text).toStartWith('JOB_DRAFT_UNKNOWN: ');
-  expect(proc.exitCode).toBeNull();
+  const before = readFileSync(join(root, 'project.json'));
+  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'absent']);
+  expect(refused.exit).toBe(1);
+  expect(refused.stdout).toBe('');
+  expect(refused.stderr).toStartWith('JOB_DRAFT_UNKNOWN: ');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(read(root).review_job).toBeUndefined();
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+});
+
+test.each(['rig', 'post'] as const)('job open retries a refused ask on an acknowledged %s head without overwriting it with a draft or duplicating pending or answered asks', async kind => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), `create-job-open-${kind}-`)));
+  roots.push(root);
+  const stage = kind === 'rig' ? 'rig-review' : 'direction-review';
+  const version = kind === 'rig' ? 1 : 2;
+  const selector: JobSelector = kind === 'rig' ? { kind: 'rig', version: 1 } : { kind: 'post', version: 2, rigVersion: 1 };
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', kind === 'rig' ? '3-rig-review' : '4-direction-post'), root, { recursive: true });
+  if (kind === 'post') {
+    mkdirSync(join(root, 'inputs'), { recursive: true });
+    for (const path of ['inputs/background.png', 'evidence/scene-citations.json', 'evidence/direction-input.json']) {
+      cpSync(join(import.meta.dir, '../templates/example-chain', path), join(root, path));
+    }
+    inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate'], EXAMPLE_NOW);
+    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', root], EXAMPLE_NOW);
+    directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
+    advanceCommand(['direction-review', root], EXAMPLE_NOW);
+  }
+  expect((read(root).drafts as JsonObject[]).map(draft => draft.id)).toEqual(['chain']);
+  const opening = await open(root);
+  expect(opening.lines).toEqual([`job: stage ${stage} shows no draft; name one with --draft <id>`]);
+  const path = prepareLiveManifest(root, read(root), version);
+  enqueuePublication(root, readWriterBinding(root)!, { path, selector });
+  const saved = readFileSync(join(root, 'project.json'));
+  await expect(reconcileCreateJob(root, entry => publishPending(entry, undefined, undefined, async options => {
+    const attached = await startJobHost(options);
+    const handleJobApi = attached.ports.handleJobApi.bind(attached.ports);
+    attached.ports.handleJobApi = async request => {
+      const body = JSON.parse(await request.clone().text()) as { verb?: string; subject?: { kind?: string } };
+      if (body.verb === 'ask' && body.subject?.kind === 'signoff') {
+        writeFileSync(join(root, 'project.json'), `${JSON.stringify({ ...read(root), stage: 'paused' }, null, 2)}\n`);
+      }
+      return await handleJobApi(request);
+    };
+    return attached;
+  }))).rejects.toMatchObject({ code: 'JOB_ASK_REFUSED' });
+  writeFileSync(join(root, 'project.json'), saved);
+  expect(pendingPublications(root)).toEqual([]);
+  const reconciled = await cli(root, ['job', 'reconcile', root]);
+  expect({ exit: reconciled.exit, stdout: reconciled.stdout.trim(), stderr: reconciled.stderr }).toEqual({ exit: 0, stdout: 'job: reconciled 0 publication(s)', stderr: '' });
+
+  const retried = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  expect({ exit: retried.exit, stderr: retried.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(retried.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: asked signoff ${stage}`, `job: already asked review-verdict ${stage}`]);
+  const person = await page(opening.url);
+  expect((person.head.source as { selector: unknown }).selector).toEqual(selector);
+  expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage }, { kind: 'signoff', stage }]);
+  await person.act('signoff', 'signoff', { stage, decision: 'approved', words: WORDS });
+
+  const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: already asked review-verdict ${stage}, signoff ${stage}`]);
+  expect((await page(opening.url)).asks).toHaveLength(2);
 });
 
 test('a binding copied from another root is replaced: the copy opens its own job and never attaches the original host', async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSubject } from '@rig-c/review/job-host';
+import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector, type JobSubject } from '@rig-c/review/job-host';
 import { checkProject } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -300,13 +300,7 @@ async function reconcileLocked(root: string, publish: (entry: PendingPublication
 /** The stages whose record consumes a draft: `job open` publishes the latest one there. */
 const DRAFT_OPEN_STAGES = ['parts', 'parts-review'];
 
-/**
- * After `job open`: show the record's current draft on the owner's page. The latest
- * recorded draft (or `--draft <id>`) is published unless the job's head publication is
- * already that draft over the current record bytes, and every subject the publication
- * declares is asked once. Returns the lines `job open` prints.
- */
-export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string): Promise<string[]> {
+export function assertRequestedDraft(root: string, requested?: string): { bytes: Buffer; ids: string[] } {
   root = realpathSync(root);
   const bytes = readFileSync(join(root, 'project.json'));
   const project = JSON.parse(bytes.toString('utf8')) as { drafts?: unknown };
@@ -314,23 +308,57 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   if (requested !== undefined && !ids.includes(requested)) {
     refuse('JOB_DRAFT_UNKNOWN', `project.json.drafts: no recorded draft has id ${requested}; record it with rig-create draft-rig or name a recorded draft`);
   }
-  const id = requested ?? ids.at(-1);
-  if (id === undefined) return ['job: no recorded draft to publish'];
-  if (requested === undefined) {
-    const stage = checkProject(root, JSON.parse(bytes.toString('utf8')), { now, readOnly: true }).effective_stage;
-    if (!DRAFT_OPEN_STAGES.includes(String(stage))) return [`job: stage ${stage} shows no draft; name one with --draft <id>`];
-  }
-  const result = draftPublicationResult(id);
+  return { bytes, ids };
+}
+
+function selectorResult(selector: JobSelector): PendingPublication['result'] {
+  return selector.kind === 'draft'
+    ? draftPublicationResult(selector.id)
+    : { path: `review-live-v${selector.version}.json`, selector };
+}
+
+function selectorLabel(selector: JobSelector): string {
+  return selector.kind === 'draft' ? `draft ${selector.id}` : `${selector.kind} v${selector.version}`;
+}
+
+/**
+ * After `job open`: show the record's current draft on the owner's page. The latest
+ * recorded draft (or `--draft <id>`) is published unless the job's head publication is
+ * already that draft over the current record bytes, and every subject the publication
+ * declares is asked once. An already-acknowledged `rig` or `post` head also retries any
+ * unasked declared subject without being overwritten by a draft. Returns the lines `job open` prints.
+ */
+export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string): Promise<string[]> {
+  root = realpathSync(root);
+  const { bytes, ids } = assertRequestedDraft(root, requested);
+  const stage = checkProject(root, JSON.parse(bytes.toString('utf8')), { now, readOnly: true }).effective_stage;
+  const draftId = requested ?? (DRAFT_OPEN_STAGES.includes(String(stage)) ? ids.at(-1) : undefined);
   const head = host.session.status().publication;
-  const source = head?.source as { selector?: unknown; projectHash?: unknown } | undefined;
+  const source = head?.source as { selector?: JobSelector; projectHash?: unknown } | undefined;
+  const acknowledged = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
+  const headSelector = acknowledged?.result.selector ?? source?.selector ?? null;
+  const reuseHead = Boolean(head && headSelector && (
+    requested !== undefined
+      ? isDeepStrictEqual(headSelector, { kind: 'draft', id: requested }) && source?.projectHash === jobHash(bytes)
+      : headSelector.kind !== 'draft'
+        ? draftId === undefined || source?.projectHash === jobHash(bytes)
+        : source?.projectHash === jobHash(bytes) && (draftId === undefined || headSelector.id === draftId)
+  ));
+  let selector: JobSelector;
   let outcomes: AskOutcome[];
   let published: boolean;
-  if (head && isDeepStrictEqual(source?.selector, result.selector) && source?.projectHash === jobHash(bytes)) {
-    const subjects = readAcknowledgedPublication(root, host.session.jobId, head.publicationId)?.subjects
+  if (reuseHead && head && headSelector) {
+    const result = acknowledged?.result ?? selectorResult(headSelector);
+    const subjects = acknowledged?.subjects
       ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result })).subjects;
     outcomes = await askDeclaredSubjects(host, head.publicationId, subjects);
+    selector = headSelector;
     published = false;
   } else {
+    if (draftId === undefined) {
+      return ids.length === 0 ? ['job: no recorded draft to publish'] : [`job: stage ${stage} shows no draft; name one with --draft <id>`];
+    }
+    const result = draftPublicationResult(draftId);
     const release = acquireJobLock(root)!;
     try {
       const binding = readWriterBinding(root);
@@ -338,9 +366,10 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     } finally { release(); }
+    selector = result.selector;
     published = true;
   }
-  const lines = [`job: draft ${id} ${published ? 'published' : 'already published'}`];
+  const lines = [`job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`];
   for (const status of ['asked', 'already'] as const) {
     const named = outcomes.filter(outcome => outcome.status === status).map(outcome => subjectLabel(outcome.subject));
     if (named.length) lines.push(`job: ${status === 'asked' ? 'asked' : 'already asked'} ${named.join(', ')}`);

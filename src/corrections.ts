@@ -3,6 +3,7 @@ import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from './check-reads.ts';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
@@ -19,6 +20,10 @@ export const DESCRIBED_DIRECTION_SINCE = '2026-11-06T00:00:00Z';
 export const CORRECTION_STAGES = ['parts-review', 'rig-review', 'direction-review'];
 // @rig-c/parts 2.16.0, src/check.ts:3094 (CheckStatus), read from the installed producer.
 const PRODUCER_CHECK_STATUSES = new Set(['PASS', 'FAIL', 'SKIP', 'WARN', 'CLEAR', 'REPORTED', 'UNCLASSIFIED']);
+const requireCore = createRequire(import.meta.url);
+const { assertPng } = requireCore('@rig-c/core/png') as { assertPng: (bytes: Uint8Array, label: string) => void };
+const { decodePng } = requireCore('@rig-c/core/plate') as { decodePng: (bytes: Uint8Array) => { width: number; height: number; data: Uint8Array } };
+const partNamePattern = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 
 /** Count retained PASS statuses only; preserve every other named status and the producer line. */
 export function correctionCheckCoverage(summary: JsonObject): string {
@@ -329,6 +334,180 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
   }
 }
 
+function decodePartPng(bytes: Uint8Array, label: string): { width: number; height: number; data: Uint8Array } {
+  try {
+    assertPng(bytes, label);
+    return decodePng(bytes);
+  } catch (e) {
+    return fail('CORRECTION_PART_IMAGE_MASK_SIZE', `${label}: invalid PNG (${e instanceof Error ? e.message : String(e)})`);
+  }
+}
+
+export function draftPartBinding(draft: JsonObject, part: string): JsonObject | null {
+  if (!isObject(draft.parts) || typeof draft.parts.path !== 'string' || !Array.isArray(draft.parts.files)) return null;
+  const expectedPath = `${draft.parts.path}/parts/${part}.png`;
+  const match = bindings(draft.parts.files).find(f => f.path === expectedPath && hex(f.sha256));
+  return match ?? null;
+}
+
+export function validatePartImageArtifact(dir: string, project: JsonObject, record: JsonObject, art: JsonObject, on: JsonObject): void {
+  if (record.stage !== 'parts-review' || on.kind !== 'draft') fail('CORRECTION_MALFORMED', 'part-image requires parts-review and a parent draft');
+  if (!closed(art, ['kind', 'draft', 'part', 'before', 'after', 'mask', 'tool']) || !id(art.draft) || typeof art.part !== 'string' || !partNamePattern.test(art.part) || !text(art.tool)) {
+    fail('CORRECTION_MALFORMED', 'part-image requires {kind,draft,part,before,after,mask,tool}');
+  }
+  if (art.draft !== on.id) fail('CORRECTION_PART_IMAGE_BEFORE', `artifact.draft ${String(art.draft)} differs from parent draft ${String(on.id)}`);
+  const parentDraft = draftRecord(project, on.id);
+  const expectedBefore = draftPartBinding(parentDraft, art.part);
+  if (!expectedBefore) fail('CORRECTION_PART_IMAGE_BEFORE', `parent draft ${String(on.id)} has no bound part ${art.part}`);
+  if (!isObject(art.before) || !closed(art.before, ['path', 'sha256']) || !text(art.before.path) || !hex(art.before.sha256)) {
+    fail('CORRECTION_MALFORMED', 'before requires file {path,sha256}');
+  }
+  const beforeBytes = correctionFile(dir, art.before);
+  if (art.before.path !== expectedBefore.path || art.before.sha256 !== expectedBefore.sha256) {
+    fail('CORRECTION_PART_IMAGE_BEFORE', `before ${String(art.before.path)} is not parent draft ${String(on.id)}'s bound ${String(expectedBefore.path)}`);
+  }
+  const afterBytes = correctionFile(dir, art.after);
+  const maskBytes = correctionFile(dir, art.mask);
+  const beforePng = decodePartPng(beforeBytes, String(art.before.path));
+  const afterPng = decodePartPng(afterBytes, String((art.after as JsonObject).path));
+  const maskPng = decodePartPng(maskBytes, String((art.mask as JsonObject).path));
+  if (maskPng.width !== beforePng.width || maskPng.height !== beforePng.height) {
+    fail('CORRECTION_PART_IMAGE_MASK_SIZE', `mask ${String((art.mask as JsonObject).path)} (${maskPng.width}x${maskPng.height}) differs from part ${String(art.before.path)} (${beforePng.width}x${beforePng.height})`);
+  }
+  if (afterPng.width !== beforePng.width || afterPng.height !== beforePng.height) {
+    fail('CORRECTION_PART_IMAGE_MASK_SIZE', `after ${String((art.after as JsonObject).path)} (${afterPng.width}x${afterPng.height}) differs from before ${String(art.before.path)} (${beforePng.width}x${beforePng.height})`);
+  }
+  const maskData = maskPng.data;
+  let hasAlphaVariation = false;
+  let hasNonZeroRgb = false;
+  for (let i = 0; i < maskData.length; i += 4) {
+    const a = maskData[i + 3]!;
+    if (a < 255) hasAlphaVariation = true;
+    if (a > 0 && (maskData[i]! > 0 || maskData[i + 1]! > 0 || maskData[i + 2]! > 0)) hasNonZeroRgb = true;
+  }
+  const insideMask = (offset: number): boolean => {
+    const a = maskData[offset + 3]!;
+    if (a === 0) return false;
+    if (hasNonZeroRgb) return maskData[offset]! > 0 || maskData[offset + 1]! > 0 || maskData[offset + 2]! > 0;
+    return hasAlphaVariation;
+  };
+  const beforeData = beforePng.data;
+  const afterData = afterPng.data;
+  let changedPixels = 0;
+  let outsideAt: { x: number; y: number } | null = null;
+  let addedAlphaAt: { x: number; y: number; beforeA: number; afterA: number } | null = null;
+  for (let y = 0; y < beforePng.height; y++) {
+    for (let x = 0; x < beforePng.width; x++) {
+      const offset = (y * beforePng.width + x) * 4;
+      const bR = beforeData[offset]!, bG = beforeData[offset + 1]!, bB = beforeData[offset + 2]!, bA = beforeData[offset + 3]!;
+      const aR = afterData[offset]!, aG = afterData[offset + 1]!, aB = afterData[offset + 2]!, aA = afterData[offset + 3]!;
+      if (bR === aR && bG === aG && bB === aB && bA === aA) continue;
+      changedPixels++;
+      if (!insideMask(offset) && outsideAt === null) outsideAt = { x, y };
+      if (aA > bA && addedAlphaAt === null) addedAlphaAt = { x, y, beforeA: bA, afterA: aA };
+    }
+  }
+  if (outsideAt !== null) {
+    fail('CORRECTION_PART_IMAGE_OUTSIDE_MASK', `after ${String((art.after as JsonObject).path)} differs from before ${String(art.before.path)} outside mask ${String((art.mask as JsonObject).path)} at (${outsideAt.x},${outsideAt.y})`);
+  }
+  if (addedAlphaAt !== null) {
+    fail('CORRECTION_PART_IMAGE_ADDED_ALPHA', `after ${String((art.after as JsonObject).path)} adds alpha at (${addedAlphaAt.x},${addedAlphaAt.y}) (${addedAlphaAt.beforeA} -> ${addedAlphaAt.afterA})`);
+  }
+  if (changedPixels === 0) {
+    fail('CORRECTION_PART_IMAGE_BEFORE', `after ${String((art.after as JsonObject).path)} has no pixel changes from before ${String(art.before.path)}`);
+  }
+}
+
+export function partImageResolvingDraft(project: JsonObject, record: JsonObject): JsonObject | null {
+  if (!isObject(record.artifact) || record.artifact.kind !== 'part-image' || record.verdict === 'withdrawn') return null;
+  const art = record.artifact;
+  if (!id(art.draft) || typeof art.part !== 'string' || !isObject(art.after) || !hex(art.after.sha256)) return null;
+  const drafts = bindings(project.drafts);
+  if (isObject(record.outcome)) {
+    if (record.outcome.kind !== 'draft' || record.outcome.id === art.draft) return null;
+    const target = drafts.find(d => d.id === (record.outcome as JsonObject).id);
+    if (!target) return null;
+    const partBinding = draftPartBinding(target, art.part);
+    return partBinding && partBinding.sha256 === art.after.sha256 ? target : null;
+  }
+  const parentIdx = drafts.findIndex(d => d.id === art.draft);
+  const candidates = (parentIdx >= 0 ? drafts.slice(parentIdx + 1) : drafts).filter(d =>
+    d.id !== art.draft && Number.isFinite(date(d.at)) && date(d.at) >= date(record.at)
+  );
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const candidate = candidates[i]!;
+    const partBinding = draftPartBinding(candidate, art.part);
+    if (partBinding && partBinding.sha256 === art.after.sha256) return candidate;
+  }
+  return null;
+}
+
+export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, refusals: Finding[]): void {
+  if (!Array.isArray(project.drafts)) return;
+  const drafts = bindings(project.drafts);
+  const corrections = bindings(project.corrections);
+  const allPartImage = corrections.filter(c =>
+    isObject(c.artifact) && c.artifact.kind === 'part-image'
+    && isObject(c.artifact.before) && isObject(c.artifact.after)
+    && hex(c.artifact.after.sha256) && c.artifact.before.sha256 !== c.artifact.after.sha256
+  );
+  if (allPartImage.length === 0) return;
+  const reopens = collectReopens(project, []);
+  const firstResolutionTime = (c: JsonObject): number => {
+    const art = c.artifact as JsonObject;
+    const parentIdx = drafts.findIndex(d => d.id === art.draft);
+    for (const d of parentIdx >= 0 ? drafts.slice(parentIdx + 1) : drafts) {
+      if (d.id === art.draft || !(date(d.at) >= date(c.at))) continue;
+      const pb = draftPartBinding(d, String(art.part));
+      if (pb && pb.sha256 === (art.after as JsonObject).sha256) return date(d.at);
+    }
+    return Infinity;
+  };
+  const isWithdrawnAt = (c: JsonObject, draftAt: number): boolean =>
+    c.verdict === 'withdrawn' && (!Number.isFinite(date(c.withdrawn_at)) || date(c.withdrawn_at) <= draftAt);
+  const isSupersededAt = (c: JsonObject, draftAt: number): boolean => {
+    const checkUntil = Math.min(draftAt, firstResolutionTime(c));
+    const reopenByThen = reopenTime(reopens.filter(r => r.at <= checkUntil), String(c.stage));
+    if (date(c.at) <= reopenByThen) return true;
+    return corrections.some(r => r.resolves === c.id && r.verdict !== 'withdrawn' && date(r.at) <= draftAt);
+  };
+  for (const [index, draft] of drafts.entries()) {
+    if (!isObject(draft.parts) || typeof draft.parts.path !== 'string' || !Array.isArray(draft.parts.files)) continue;
+    const partsRoot = draft.parts.path;
+    const prefix = `${partsRoot}/parts/`;
+    const partFiles = bindings(draft.parts.files).filter(f => typeof f.path === 'string' && f.path.startsWith(prefix) && f.path.endsWith('.png') && hex(f.sha256));
+    for (const pf of partFiles) {
+      const partName = String(pf.path).slice(prefix.length, -4);
+      const matchingRepaints = allPartImage.filter(c => ((c.artifact as JsonObject).after as JsonObject).sha256 === pf.sha256);
+      if (matchingRepaints.length === 0) continue;
+      const draftAt = date(draft.at);
+      const covered = matchingRepaints.some(c => {
+        if (c.stage !== 'parts-review' || c.path !== 'made' || isWithdrawnAt(c, draftAt) || isSupersededAt(c, draftAt)) return false;
+        if (!(date(c.at) <= draftAt)) return false;
+        const art = c.artifact as JsonObject;
+        if (art.part !== partName || art.draft === draft.id) return false;
+        const parent = drafts.slice(0, index).find(prev => prev.id === art.draft);
+        if (!parent) return false;
+        const parentPf = draftPartBinding(parent, partName);
+        return parentPf !== null && isObject(art.before) && art.before.sha256 === parentPf.sha256;
+      });
+      if (!covered) {
+        const ref = matchingRepaints[0]!;
+        const refArt = ref.artifact as JsonObject;
+        const parentId = typeof refArt.draft === 'string' ? refArt.draft : '<draft-id>';
+        const path = `drafts[${index}].parts.files`;
+        if (!refusals.some(r => r.code === 'DRAFT_PART_REPAINT_UNRECORDED' && r.path === path)) {
+          refusals.push({
+            code: 'DRAFT_PART_REPAINT_UNRECORDED',
+            path,
+            message: `${path}: part ${partName} (${String(pf.path)}) binds part-image after bytes (${String(pf.sha256)}) from correction ${String(ref.id)} without a live covering part-image correction record; record a live masked repaint with correction record --path made --stage parts-review --draft ${parentId} --part ${partName} --part-image-file <after.png> --mask-file <mask.png> --tool <text> before recording the draft`,
+          });
+        }
+      }
+    }
+  }
+}
+
 export function correctionsAdopted(project: JsonObject): boolean { return isObject(project.corrections_contract) && project.corrections_contract.schema === CORRECTIONS_SPEC; }
 export function correctionIsLive(project: JsonObject, r: JsonObject): boolean {
   return date(r.at) > reopenTime(collectReopens(project, []), String(r.stage));
@@ -337,11 +516,27 @@ export function correctionApprovalFindings(project: JsonObject, stage: string, s
   const out: Finding[] = [];
   if (!correctionsAdopted(project)) return out;
   const records = bindings(project.corrections);
-  const relevant = records.filter(r => r.stage === stage && correctionIsLive(project, r) && date(r.at) >= date((project.corrections_contract as JsonObject).adopted_at));
+  const relevant = records.filter(r => r.stage === stage && r.verdict !== 'withdrawn' && correctionIsLive(project, r) && date(r.at) >= date((project.corrections_contract as JsonObject).adopted_at));
   for (const r of relevant) {
-    const replacement = relevant.find(next => next.resolves === r.id && next.outcome !== null);
+    const replacement = relevant.find(next => next.resolves === r.id && (next.outcome !== null || partImageResolvingDraft(project, next) !== null));
     if (replacement) continue;
     const path = `corrections[${String(r.id)}]`;
+    if (isObject(r.artifact) && r.artifact.kind === 'part-image') {
+      const resolving = partImageResolvingDraft(project, r);
+      const resolvedAt = isObject(r.closure) ? date(r.closure.at) : resolving ? date(resolving.at) : Infinity;
+      if (!resolving || (signoff && resolvedAt > date(signoff.at))) {
+        out.push(correctionFinding('CORRECTION_PENDING', path, `resolve active correction before approving ${stage}`));
+        continue;
+      }
+      if (stage === 'parts-review' && signoff) {
+        const signedDraft = bindings(project.drafts).find(d => d.id === signoff.draft_id);
+        const signedPart = signedDraft ? draftPartBinding(signedDraft, String(r.artifact.part)) : null;
+        if (!signedDraft || (isObject(r.outcome) && r.outcome.id !== signoff.draft_id) || !signedPart || !isObject(r.artifact.after) || signedPart.sha256 !== r.artifact.after.sha256) {
+          out.push(correctionFinding('CORRECTION_OUTCOME', path, 'approved draft does not bind the repainted part image'));
+        }
+      }
+      continue;
+    }
     if (!isObject(r.outcome) || signoff && (!isObject(r.closure) || date(r.closure.at) > date(signoff.at))) { out.push(correctionFinding('CORRECTION_PENDING', path, `resolve active correction before approving ${stage}`)); continue; }
     if (stage === 'parts-review' && signoff) {
       const outcome = r.outcome;
@@ -366,7 +561,8 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
   for (const [index, raw] of project.corrections.entries()) {
     const path = `corrections[${index}]`;
     try {
-      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || !text(raw.by) || raw.by.toLowerCase() === 'agent' || !Number.isFinite(date(raw.at)) || date(raw.at) > now || !text(raw.verbatim) || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
+      const partImage = isObject(raw) && isObject(raw.artifact) && raw.artifact.kind === 'part-image';
+      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || (partImage ? raw.by !== 'agent' || raw.verbatim !== null : !text(raw.by) || raw.by.toLowerCase() === 'agent' || !text(raw.verbatim)) || !Number.isFinite(date(raw.at)) || date(raw.at) > now || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string') || (raw.verdict !== undefined && raw.verdict !== 'withdrawn')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
       const record = raw as JsonObject;
       if (record.resolves !== null) {
         const prior = seen.get(String(record.resolves));
@@ -376,7 +572,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       const direction = record.schema === DIRECTION_CORRECTION_SPEC;
       const describedDirection = record.path === 'described' && record.stage === 'direction-review' && isObject(record.on) && record.on.kind === 'post';
       const directionPatch = isObject(record.artifact) && record.artifact.kind === 'direction-patch';
-      if (direction && !describedDirection && !directionPatch || !direction && directionPatch) fail('CORRECTION_MALFORMED', 'correction@2 requires a direction description or direction-patch');
+      if (direction && !describedDirection && !directionPatch || !direction && directionPatch || direction && partImage) fail('CORRECTION_MALFORMED', 'correction@2 requires a direction description or direction-patch');
       if (!direction && describedDirection) {
         const version = versionRecord(project, (record.on as JsonObject).n);
         if (isObject(version.provenance) && isObject(version.provenance.direction)) {
@@ -390,7 +586,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       const artifact = record.artifact;
       if (!isObject(artifact)) fail('CORRECTION_MALFORMED', 'missing artifact');
       const art = artifact as JsonObject;
-      const apiArtifact = record.path === 'made' && !direction;
+      const apiArtifact = record.path === 'made' && !direction && !partImage;
       const legacyRead = apiArtifact && art.review_read === undefined && reviewReadLegacy(record.at);
       if (legacyRead) warnings.push(correctionFinding('REVIEW_READ_LEGACY', path, 'historical correction has no CLI response receipt; preserve history and capture new results through Review feedback'));
       if (legacyRead) {
@@ -409,6 +605,9 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       } else if (direction) {
         if (record.by !== 'user') fail('CORRECTION_MALFORMED','made requires by:user');
         try { validateDirectionOutcome(dir,project,record,art); } catch(e) { if(e instanceof DirectionError) fail(e.code,e.message); throw e; }
+      } else if (partImage) {
+        if (record.path !== 'made') fail('CORRECTION_MALFORMED', 'part-image requires made path');
+        validatePartImageArtifact(dir, project, record, art, on);
       } else if (!legacyRead) {
         if (record.by !== 'user') fail('CORRECTION_MALFORMED', 'made requires by:user');
         if (art.kind === 'unsupported') {
@@ -429,19 +628,34 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
         try { outcome = validateCorrectionIdentity(dir, project, record.outcome, String(record.stage), direction); } catch (e) { if (e instanceof CorrectionError && e.code === 'CORRECTION_SOURCE') fail('CORRECTION_OUTCOME', e.message); throw e; }
         const closure = record.closure;
         if (!isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning) || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > now || outcome.kind !== 'parts' && identityTime(project, outcome) < date(record.at) || identityTime(project, outcome) > date(closure.at) || !(direction && on.kind === 'post' && outcome.kind === 'post' ? (record.path === 'described' || sameHash(on.model,outcome.model)) && !sameHash(on.direction,outcome.direction) : changed(on, outcome)) || equal(on, outcome) || (on.kind === 'rig' || on.kind === 'post') && (outcome.kind !== on.kind || Number(outcome.n) <= Number(on.n)) || on.kind === 'draft' && outcome.kind === 'draft' && on.id === outcome.id) fail('CORRECTION_OUTCOME', 'outcome must be distinct/later/changed with one labelled agent closure');
+        if (partImage && (outcome.kind !== 'draft' || !partImageResolvingDraft(project, record))) {
+          fail('CORRECTION_OUTCOME', 'part-image outcome must be a later draft whose bound part file equals after');
+        }
         if (record.path === 'made' && !legacyRead && on.kind === 'rig' && outcome.kind === 'rig') {
           const target = versionRecord(project, outcome.n); const { applied } = correctionApplied(dir, art);
           const origin = target.review_origin;
           if (!isObject(origin) || origin.source_version !== on.n || !equal(origin.applied, applied) || !isObject(art.feedback) || !equal(origin.feedback, art.feedback.file) || origin.feedback_id !== art.feedback.item_id) fail('CORRECTION_OUTCOME', 'result version must preserve the same review_origin');
         }
       } else if (record.closure !== undefined) fail('CORRECTION_MALFORMED', 'open record cannot carry closure');
-      const replacement = bindings(project.corrections).some(r => r.resolves === record.id && r.outcome !== null && correctionIsLive(project, r));
-      if (record.outcome === null && correctionIsLive(project, record) && !replacement) warnings.push(correctionFinding(art.kind === 'unsupported' ? 'CORRECTION_UNSUPPORTED' : 'CORRECTION_OPEN', path, art.kind === 'unsupported' ? 'operation has no checked adapter' : 'correction awaits its outcome'));
+      const replacement = bindings(project.corrections).some(r => r.resolves === record.id && r.verdict !== 'withdrawn' && (r.outcome !== null || partImageResolvingDraft(project, r) !== null) && correctionIsLive(project, r));
+      if (record.verdict === 'withdrawn') {
+        // Withdrawn corrections impose no open/pending obligations; checkUnrecordedPartRepaints refuses drafts that still bind their after bytes.
+      } else if (partImage) {
+        const resolving = partImageResolvingDraft(project, record);
+        if (!resolving && correctionIsLive(project, record) && !replacement) {
+          const laterDraftExists = bindings(project.drafts).some(d => d.id !== art.draft && Number.isFinite(date(d.at)) && date(d.at) >= date(record.at));
+          if (laterDraftExists) fail('CORRECTION_PENDING', 'open part-image correction has no resolving draft binding its after bytes');
+          warnings.push(correctionFinding('CORRECTION_OPEN', path, 'part-image correction awaits its resolving draft'));
+        }
+      } else if (record.outcome === null && correctionIsLive(project, record) && !replacement) {
+        warnings.push(correctionFinding(art.kind === 'unsupported' ? 'CORRECTION_UNSUPPORTED' : 'CORRECTION_OPEN', path, art.kind === 'unsupported' ? 'operation has no checked adapter' : 'correction awaits its outcome'));
+      }
     } catch (e) {
       if (!(e instanceof CorrectionError)) throw e;
       refusals.push(correctionFinding(e.code, path, e.message));
     }
   }
+  checkUnrecordedPartRepaints(dir, project, refusals);
   const reopens = collectReopens(project, []);
   for (const signoff of collectSignoffs(project, []).filter(s => s.checkpoint === null && liveSignoff(reopens, s.stage, s.at))) {
     if (!CORRECTION_STAGES.includes(signoff.stage) || !isObject(contract) || signoff.at <= date(contract.adopted_at)) continue;

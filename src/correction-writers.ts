@@ -5,7 +5,7 @@ import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPostIdentity, valid
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
-import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, validateCorrectionIdentity, versionRecord } from './corrections.ts';
+import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -16,8 +16,8 @@ import type { JsonObject } from './templates.ts';
 export const CORRECTION_HELP = `correction --adopt [<dir>]
 correction record [<dir>] --id <id> --path described|made --stage <review-stage>
   (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
-  --by <human> [--verbatim-file <UTF-8 file>] [--source <text>] [--resolves <id>]
-  made: --direction-patch-file <retained direction patch> (post@2) | (--patch-file <review package> | --feedback-file <review package>) --item <id>
+  --by <human|agent> [--verbatim-file <UTF-8 file>] [--source <text>] [--resolves <id>]
+  made: --direction-patch-file <retained direction patch> (post@2) | (--patch-file <review package> | --feedback-file <review package>) --item <id> | --part-image-file <after.png> --part <name> --mask-file <mask.png> --tool <text> [--before-file <before.png>]
 correction resolve <id> [<dir>]
   (--version <n> | --draft <id> | --parts-file <inventory JSON>) [--model-file <post output>]
   --by agent --reasoning-file <file> [--applied-feedback <review package> --feedback-id <id>]
@@ -83,7 +83,7 @@ export function correctionCommand(args: string[], now: number, runner?: ReviewRe
 }
 function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:string;exit:number} {
   const action=args[0];const opts:Record<string,string>={};const positional:string[]=[];let json=false;
-  const allowed=action==='record'?[...common,'--id','--path','--stage','--verbatim-file','--source','--resolves','--patch-file','--direction-patch-file','--feedback-file','--item']:action==='resolve'?[...common,'--reasoning-file','--applied-feedback','--feedback-id']:[];
+  const allowed=action==='record'?[...common,'--id','--path','--stage','--verbatim-file','--source','--resolves','--patch-file','--direction-patch-file','--feedback-file','--item','--part-image-file','--part','--mask-file','--tool','--before-file']:action==='resolve'?[...common,'--reasoning-file','--applied-feedback','--feedback-id']:[];
   for(let i=1;i<args.length;i++) {const arg=args[i] as string;if(arg==='--json'){if(json)usage('duplicate --json');json=true;}else if(allowed.includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`${arg} requires one value`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
   if(!['--adopt','record','resolve'].includes(action??'')||positional.length>(action==='resolve'?2:1))usage('invalid action or directory count');
   if(action==='resolve'&&!positional[0])usage('resolve requires correction id');
@@ -102,10 +102,13 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
   let coverage = '';
   if(action==='record') {
     const stage=opts['--stage'];const path=opts['--path'];
-    if(!opts['--id']||!stage||!CORRECTION_STAGES.includes(stage)||!['described','made'].includes(path??'')||!opts['--by'])usage('record requires id/path/stage/by');
+    const partImage=['--part-image-file','--part','--mask-file','--tool','--before-file'].some(f=>opts[f]!==undefined);
+    const by=partImage ? (opts['--by']??'agent') : opts['--by'];
+    if(!opts['--id']||!stage||!CORRECTION_STAGES.includes(stage)||!['described','made'].includes(path??'')||!by)usage('record requires id/path/stage/by');
     openStage(next,stage);
     const direction=Boolean(opts['--direction-patch-file']);
     if(direction && path!=='made')usage('direction-patch-file is made-only');
+    if(partImage && (path!=='made'||stage!=='parts-review'||!opts['--draft']||opts['--version']||opts['--parts-file']||opts['--model-file']||!opts['--part-image-file']||!opts['--part']||!opts['--mask-file']||!opts['--tool']||opts['--patch-file']||opts['--feedback-file']||opts['--direction-patch-file']||opts['--item']||opts['--verbatim-file']))usage('part-image requires made at parts-review with --draft, --part, --part-image-file, --mask-file and --tool');
     const version = path === 'described' && stage === 'direction-review' && opts['--version'] && !opts['--draft'] && !opts['--parts-file']
       ? versionRecord(next, Number(opts['--version'].replace(/^v/, ''))) : null;
     const describedDirection = path === 'described' && stage === 'direction-review' && version?.kind === 'post' && isObject(version.provenance) && isObject(version.provenance.direction);
@@ -115,12 +118,19 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
       on = directionPostIdentity(dir, next, version.n);
       if (opts['--model-file'] && opts['--model-file'] !== (on.model as JsonObject).path) throw new CorrectionError('CORRECTION_SOURCE', '--model-file must name the direction source compiled model');
     } else on = identity(dir,next,opts,stage,direction);
-    let artifact:JsonObject;let verbatim:string;
+    let artifact:JsonObject;let verbatim:string|null;
     if(path==='described') {
       if(opts['--patch-file']||opts['--feedback-file']||opts['--item']||!opts['--verbatim-file'])usage('described requires only verbatim text, not producer artifact flags');
       artifact={kind:'description'};verbatim=readVerbatim(opts['--verbatim-file']);
+    } else if (partImage) {
+      if(by!=='agent')throw new CorrectionError('CORRECTION_MALFORMED','part-image requires --by agent');
+      const parentDraft=objects(next.drafts).find(d=>d.id===opts['--draft']);
+      const beforeBinding=opts['--before-file']?correctionBinding(dir,opts['--before-file']):parentDraft?draftPartBinding(parentDraft,opts['--part'] as string):null;
+      if(!beforeBinding)throw new CorrectionError('CORRECTION_PART_IMAGE_BEFORE',`parent draft ${String(opts['--draft'])} has no bound part ${String(opts['--part'])}`);
+      artifact={kind:'part-image',draft:String(on.id),part:opts['--part'] as string,before:structuredClone(beforeBinding),after:correctionBinding(dir,opts['--part-image-file'] as string),mask:correctionBinding(dir,opts['--mask-file'] as string),tool:(opts['--tool'] as string).trim()};
+      verbatim=null;
     }else {
-      if(opts['--by']!=='user')throw new CorrectionError('CORRECTION_MALFORMED','made requires --by user');
+      if(by!=='user')throw new CorrectionError('CORRECTION_MALFORMED','made requires --by user');
       if(Number(Boolean(opts['--patch-file']))+Number(Boolean(opts['--feedback-file']))+Number(direction)!==1)usage('made requires exactly one patch-file or feedback-file');
       if(direction) {
         if(opts['--item'] || !opts['--verbatim-file'])usage('direction capture needs verbatim-file and no item');
@@ -138,7 +148,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
         else artifact={kind:'unsupported',operation:applied.schema==='rig-review-applied/3'?'mesh-delta':String(applied.op).includes('retarget')?'retarget':String(applied.op).includes('key')?'keyed-animation':'other',reason:'No checked create adapter for this producer-owned operation',files:[read.file],producer_schema:String(applied.schema),review_read:read.receipt};
       }
     }
-    record={schema:direction || describedDirection?DIRECTION_CORRECTION_SPEC:CORRECTION_SPEC,id:opts['--id'],path:path as string,by:opts['--by'],at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
+    record={schema:direction || describedDirection?DIRECTION_CORRECTION_SPEC:CORRECTION_SPEC,id:opts['--id'],path:path as string,by,at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
     if(opts['--source']!==undefined)record.source=opts['--source'];
     next.corrections=[...asArray(next.corrections),record];
   } else {
@@ -152,7 +162,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
     const artifact=record.artifact as JsonObject;
     if(artifact.kind==='unsupported')throw new CorrectionError('CORRECTION_UNSUPPORTED_OUTCOME','unsupported operation cannot claim checked completion');
     if((opts['--applied-feedback']===undefined)!==(opts['--feedback-id']===undefined))usage('applied-feedback and feedback-id are paired');
-    if(artifact.kind==='description'&&(opts['--applied-feedback']||opts['--feedback-id']))usage('described closure takes no Apply flags');
+    if((artifact.kind==='description'||artifact.kind==='part-image')&&(opts['--applied-feedback']||opts['--feedback-id']))usage('described and part-image closures take no Apply flags');
     if(artifact.kind==='config-patch') {
       if(opts['--applied-feedback']) {
         const previousPatch = artifact.review_read === undefined ? undefined : correctionApplied(dir,artifact).applied.patch;

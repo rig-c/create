@@ -15,6 +15,7 @@ import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { readVerbatim } from './record-input.ts';
+import { checkUnrecordedPartRepaints } from './corrections.ts';
 import { checkFixLedger, draftLedgerFields } from './fix-ledger.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -219,6 +220,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     if (unavailable.size > 0) warnings.push({ code: 'DRAFT_RIG_UNAVAILABLE', path, message: `${path}: regenerable draft artifacts are unavailable (${[...unavailable].join(', ')}); restore the recorded bytes before inspecting or rebuilding this draft` });
   }
+  checkUnrecordedPartRepaints(dir, project, refusals);
 }
 
 /** Check declared identity/paths, including real paths; identical model bytes alone prove nothing. */

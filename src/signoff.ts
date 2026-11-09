@@ -153,6 +153,15 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       }
     }
   }
+  if (review !== undefined && stage === PARTS_REVIEW) {
+    const selector = review.act.source.selector;
+    const shown = isObject(selector) && selector.kind === 'draft' && typeof selector.id === 'string' && selector.id !== '' ? selector.id : null;
+    const at = `signoffs[${asArray(project.signoffs).length}].draft_id`;
+    if (selector !== null && (shown === null || (opts['--draft'] !== undefined && opts['--draft'] !== shown))) {
+      refuse('REVIEW_ACT_DRAFT_MISMATCH', `${at}: --draft ${opts['--draft'] ?? '<absent>'} differs from draft ${shown ?? '<non-draft>'} the person approved in Review; drop --draft or ask for parts-review on the reviewed draft in Review`);
+    }
+    if (shown !== null) opts['--draft'] = shown;
+  }
   if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) {
     const finding = latestPartsVerdictFinding(project, opts['--draft'], `signoffs[${asArray(project.signoffs).length}].draft_id`);
     if (finding) refuse(finding.code, finding.message);
@@ -250,8 +259,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   const answerHashes = selectAnswerHashes(dir, project, signoff);
   if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
+  if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) signoff.draft_id = opts['--draft'];
   if (stage === PARTS_REVIEW && (hasStageOrder(project) || opts['--structure-file'] !== undefined)) {
-    signoff.draft_id = opts['--draft'] ?? null;
     const path = opts['--structure-file'];
     if (path !== undefined) {
       try {

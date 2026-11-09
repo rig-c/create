@@ -6,7 +6,8 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 
 1. Read `project.json` first. Only its decisions count. Copy chat decisions
    verbatim, with speaker and time.
-2. Resume per [PROJECT.md § How an agent resumes a project](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
+2. Run `rig-create next` to derive the next moves and whose they are.
+3. Resume per [PROJECT.md § How an agent resumes a project](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
 
 ## The order, and what you may not do
 

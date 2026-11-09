@@ -1692,7 +1692,14 @@ rig-create correction record <dir> --id repaint-topwear --path made --stage part
 The record carries `by: "agent"`, `verbatim: null`, and
 `artifact: { kind: "part-image", draft, part, before, after, mask, tool }`, where
 `before`, `after` and `mask` are `{ path, sha256 }` bindings and `tool` is free
-text naming the lever used. Both the writer and `check` decode the PNGs and
+text naming the lever used. Its `on` (and an explicit `outcome`) is the draft
+identity `{ kind: "draft", id, config, parts, model: null }`: a part-image edit
+changes one part file, so it binds the draft's parts manifest and parts files and
+no compiled model, and the parent draft may be one recorded from a standalone
+`parts rig` output with no `skeleton.model.json`. Whether a later draft changed
+is read from its parts inventory. A part-image record that bound a model is
+still read, and its model must match the draft. Other draft corrections (`described`, a config
+patch Apply) still bind the draft's one retained compiled model. Both the writer and `check` decode the PNGs and
 refuse when `before` is not the parent draft's bound `<parts.path>/parts/<part>.png`
 or `after` makes no change (`CORRECTION_PART_IMAGE_BEFORE`), when `mask` or
 `after` dimensions differ from `before` (`CORRECTION_PART_IMAGE_MASK_SIZE`), when

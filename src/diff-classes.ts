@@ -1,9 +1,11 @@
 /** Group only producer fields; no image measurement takes place here. */
 import { createHash } from 'node:crypto';
+import { existsSync, writeFileSync } from 'node:fs';
 import { readFileSync } from './check-reads.ts';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { diffReportBytes, reportShape } from './diff-map.ts';
+import { checkProject, readJsonObject, type Finding } from './check.ts';
+import { diffReportBytes, reportShape, resolveDiffMapPartsFile, validateDiffMapRecord } from './diff-map.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -116,23 +118,93 @@ export function checkDiffClasses(report: unknown, map: Record<string, unknown>, 
   }
 }
 
-export const DIFF_CLASSES_HELP = `diff-classes [<project dir>] --diff-report <path>
+export const DIFF_CLASSES_HELP = `diff-classes [<project dir>] --diff-report <path> [--triage-file <file> | --component '<id>=<status>:<why>'] [--by agent] [--json]
   Read derived classes as JSON: id, key, members, member_count, px_range and uncovered_fraction_range.
+  With --triage-file, --component or --by: validate and record the agent's component classification in project.json.diff_map.
   Triage JSON: {"classes":{"<class id>":{"status":"left","why":"<property and observation>"}},"components":{}}.
   Mixed bands have width 0.25; the lower bound is inclusive and upper bound exclusive.`;
 
-export function diffClassesCommand(args: string[]): { stdout: string; exit: number } {
-  let dir: string | undefined, report: string | undefined;
+export function diffClassesCommand(args: string[], now: number = Date.now()): { stdout: string; exit: number } {
+  let dir: string | undefined;
+  let report: string | undefined;
+  let triageFile: string | undefined;
+  let by: string | undefined;
+  const components: JsonObject[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--diff-report' && report === undefined) report = args[++i];
-    else if (args[i].startsWith('-') || dir !== undefined) refuse('DIFF_MAP_TRIAGE', `diff_map.report: ${DIFF_CLASSES_HELP}`, USAGE_EXIT);
-    else dir = args[i];
+    const arg = args[i]!;
+    if (arg === '--json') continue;
+    if (arg === '--diff-report' && report === undefined) report = args[++i];
+    else if (arg === '--triage-file' && triageFile === undefined) triageFile = args[++i];
+    else if (arg === '--by' && by === undefined) by = args[++i];
+    else if (arg === '--component') {
+      const value = args[++i] ?? '';
+      const eq = value.indexOf('=');
+      const colon = value.indexOf(':', eq + 1);
+      if (eq < 1 || colon < eq + 2) refuse('DIFF_MAP_STATUS', 'diff_map: --component needs <id>=<status>:<why>', USAGE_EXIT);
+      const id = value.slice(0, eq);
+      if (components.some((c) => c.id === id)) refuse('DIFF_MAP_STATUS', `diff_map: duplicate component ${id}`, USAGE_EXIT);
+      components.push({ id, status: value.slice(eq + 1, colon), why: value.slice(colon + 1) });
+    } else if (arg.startsWith('-') || dir !== undefined) {
+      refuse('DIFF_MAP_TRIAGE', `diff_map.report: ${DIFF_CLASSES_HELP}`, USAGE_EXIT);
+    } else {
+      dir = arg;
+    }
   }
-  if (!report) refuse('DIFF_MAP_TRIAGE', `diff_map.report: ${DIFF_CLASSES_HELP}`, USAGE_EXIT);
+  if (!report || triageFile === '' || by === '' || (triageFile !== undefined && components.length > 0)) {
+    refuse('DIFF_MAP_TRIAGE', `diff_map.report: ${DIFF_CLASSES_HELP}`, USAGE_EXIT);
+  }
+  const root = resolve(dir ?? process.cwd());
+  const isWrite = triageFile !== undefined || components.length > 0 || by !== undefined;
+  if (!isWrite) {
+    try {
+      const classes = deriveDiffClasses(JSON.parse(diffReportBytes(root, report).toString('utf8')));
+      return { stdout: JSON.stringify(classes.map(c => ({ ...c, member_count: c.members.length })), null, 2), exit: 0 };
+    } catch (error) {
+      refuse('DIFF_MAP_REPORT', `diff_map.report ${report}: ${error instanceof Error ? error.message : String(error)}; generate a report under the project and read it again`);
+    }
+  }
+  const author = (by ?? 'agent').trim();
+  if (author.toLowerCase() !== 'agent') {
+    refuse('DIFF_MAP_NOT_AGENT', `diff_map.by: component classification is agent-authored ('--by agent', never a person); received ${JSON.stringify(by)}`);
+  }
+  const projectFile = join(root, 'project.json');
+  if (!existsSync(projectFile)) {
+    refuse('PROJECT_JSON_MISSING', `${projectFile} does not exist; run diff-classes in a project folder or name one`);
+  }
+  const read = readJsonObject(projectFile);
+  if (!read.ok) refuse('PROJECT_JSON_INVALID', `${projectFile}: ${read.error}`);
+  const project = read.value;
+  let reportBytes: Buffer;
+  let parsedReport: unknown;
   try {
-    const classes = deriveDiffClasses(JSON.parse(diffReportBytes(resolve(dir ?? process.cwd()), report).toString('utf8')));
-    return { stdout: JSON.stringify(classes.map(c => ({ ...c, member_count: c.members.length })), null, 2), exit: 0 };
-  } catch (error) { refuse('DIFF_MAP_REPORT', `diff_map.report ${report}: ${error instanceof Error ? error.message : String(error)}; generate a report under the project and read it again`); }
+    reportBytes = diffReportBytes(root, report);
+    parsedReport = JSON.parse(reportBytes.toString('utf8'));
+  } catch (error) {
+    refuse('DIFF_MAP_REPORT', `diff_map.report ${report}: ${error instanceof Error ? error.message : String(error)}; generate a report under the project`);
+  }
+  const expanded = triageFile !== undefined
+    ? expandDiffTriage(parsedReport, readDiffTriage(resolve(root, triageFile)), 'diff_map')
+    : { components };
+  const diffMap: JsonObject = {
+    by: 'agent',
+    at: new Date(now).toISOString(),
+    report: { path: report, sha256: createHash('sha256').update(reportBytes).digest('hex') },
+    ...expanded,
+  };
+  const partsFile = resolveDiffMapPartsFile(root, project);
+  const errors: Finding[] = [];
+  validateDiffMapRecord(root, diffMap, 'diff_map', partsFile, errors, {
+    requireAgent: true,
+    label: 'signoffs[parts-review] diff_map',
+  });
+  if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
+  const asRead = structuredClone(project);
+  project.diff_map = diffMap;
+  const baseline = new Set(checkProject(root, asRead, { now, readOnly: true }).refusals.map(f => `${f.code}\0${f.path}\0${f.message}`));
+  const fresh = checkProject(root, project, { now, readOnly: true }).refusals.find(f => !baseline.has(`${f.code}\0${f.path}\0${f.message}`));
+  if (fresh !== undefined) refuse(fresh.code, fresh.message);
+  writeFileSync(projectFile, `${JSON.stringify(project, null, 2)}\n`);
+  return { stdout: JSON.stringify({ diff_map: diffMap }, null, 2), exit: 0 };
 }
 
 export function readDiffTriage(file: string): unknown {

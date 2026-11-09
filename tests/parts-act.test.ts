@@ -18,6 +18,7 @@ import { interviewStageOfGuide } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { planCommand } from '../src/plan-writers.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
+import { diffClassesCommand } from '../src/diff-classes.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { partsActFindings } from '../src/parts-act.ts';
@@ -90,10 +91,11 @@ function prepareSignoff(root: string, _evidence: string): void {
   structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure.json']);
   advanceCommand(['parts-review', root,
     '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], Date.now());
 }
 function sign(root: string, _evidence: string): void {
   signoffCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'), '--draft', 'chain',
-    '--structure-file', 'evidence/structure.json', '--diff-report', 'evidence/diff-components.json'], Date.now());
+    '--structure-file', 'evidence/structure.json'], Date.now());
 }
 
 test('bound draft publishes its rows, ingests independent evidence and then signs explicitly', async () => {

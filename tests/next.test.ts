@@ -1024,6 +1024,56 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(afterRerunCheck.refusals).toEqual(beforeCheck.refusals);
   });
 
+  test('plant 8 (parts-review agent diff-classes move): when evidence/diff-components.json is present without project.diff_map, next emits the agent diff-classes move and keeps signoff human-only', () => {
+    const dir = join(tempDir(), 'diff-classes-move');
+    cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
+    cpSync(join(CHAIN_DIR, 'evidence/diff-components.json'), join(dir, 'evidence/diff-components.json'));
+    testClock.set(new Date(CHAIN_NOW));
+    expect(
+      runMainCapture(
+        [
+          'advance',
+          'parts-review',
+          '--parts-check',
+          'evidence/parts-check.json',
+          '--parts',
+          'derived/drafts/chain/input',
+          dir,
+        ],
+        CHAIN_NOW,
+      ).code,
+    ).toBe(0);
+
+    const report = nextProject(dir, CHAIN_NOW + 1000);
+    expect(report.awaits).toContain('diff_map');
+    const diffMove = report.moves.find(m => m.field === 'diff_map');
+    expect(diffMove).toEqual({
+      role: 'agent',
+      field: 'diff_map',
+      awaits: 'diff_map',
+      act: 'record agent component classification for evidence/diff-components.json in diff_map',
+      command:
+        'rig-create diff-classes --diff-report evidence/diff-components.json --by agent',
+    });
+    const signoffMove = report.moves.find(m => m.review_act?.kind === 'signoff');
+    expect(signoffMove).toMatchObject({
+      role: 'human',
+      field: 'signoffs',
+      awaits: 'signoffs[stage=parts-review]',
+      command: null,
+      review_act: { kind: 'signoff', stage: 'parts-review', draft_id: 'chain' },
+    });
+
+    const execArgs = diffMove!.command!.slice('rig-create '.length).split(/\s+/);
+    const execRes = runMainCapture([execArgs[0]!, dir, ...execArgs.slice(1)], CHAIN_NOW + 1000);
+    expect(execRes.stderr).toBe('');
+    expect(execRes.code).toBe(0);
+
+    const afterReport = nextProject(dir, CHAIN_NOW + 1000);
+    expect(afterReport.awaits).not.toContain('diff_map');
+    expect(afterReport.moves.find(m => m.field === 'diff_map')).toBeUndefined();
+  });
+
   test('usage errors refuse with NEXT_USAGE and exit 2', () => {
     expect(() => nextCommand(['--bogus'], CHAIN_NOW)).toThrow(Refusal);
     try {

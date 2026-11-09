@@ -66,20 +66,13 @@
       "stage": "parts-review",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:36.000Z",
+      "at": "2026-11-06T01:00:37.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/review-reads/5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180.json",
         "sha256": "5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180",
         "spec": "rig-create/parts-verdict-cli@1"
-      },
-      "diff_map": {
-        "report": {
-          "path": "evidence/diff-components.json",
-          "sha256": "6727d1165b72f75c2e18d7734854be6939f6339849f42378588ee90bf3a8f39d"
-        },
-        "components": []
       },
       "draft_id": "chain",
       "structure": {
@@ -424,7 +417,7 @@
         "history": [],
         "pending_options": {
           "path": "evidence/interview/bones.json",
-          "sha256": "5273575e1d8a14dafa4475ece286d67f60eb51fb75abd801b91b3530815405c8"
+          "sha256": "89cd8ba95f9753a83e8d1940efb85a32572ae8b2398db6f7797d536c09bd5f32"
         }
       },
       {
@@ -982,7 +975,7 @@
     {
       "stage": "rigging-interview",
       "from_stage": "parts-review",
-      "at": "2026-11-06T01:00:37.000Z",
+      "at": "2026-11-06T01:00:38.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -1004,13 +997,13 @@
         {
           "stage": "parts-review",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:36.000Z"
+          "at": "2026-11-06T01:00:37.000Z"
         }
       ],
       "signoff": {
         "stage": "parts-review",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:36.000Z"
+        "at": "2026-11-06T01:00:37.000Z"
       },
       "steps_before": [
         {
@@ -1192,5 +1185,14 @@
       "by": "user",
       "at": "2026-11-06T01:00:33.000Z"
     }
-  ]
+  ],
+  "diff_map": {
+    "by": "agent",
+    "at": "2026-11-06T01:00:36.000Z",
+    "report": {
+      "path": "evidence/diff-components.json",
+      "sha256": "6727d1165b72f75c2e18d7734854be6939f6339849f42378588ee90bf3a8f39d"
+    },
+    "components": []
+  }
 }

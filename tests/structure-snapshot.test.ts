@@ -8,7 +8,7 @@ import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, draftRigCommand, main, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, main, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
 import { EXAMPLE_VERDICT, writeReviewedInput } from './parts-package.ts';
@@ -67,14 +67,16 @@ function setup(): string {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   draft(dir, 'shape', { meshes: MESHES, bones: { root: {} } });
   recordPartsReceipt(dir, 'shape', testClock.now());
+  diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT,
+    '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic', '--by', 'agent']);
   return dir;
 }
 
 const snapshot = (dir: string): { stdout: string; exit: number } =>
   structureSnapshotCommand([dir, '--draft', 'shape', '--out', OUT]);
-const partsSign = (dir: string, structure = OUT): ReturnType<typeof signoffCommand> => signoffCommand(['parts-review', dir, '--by', 'owner',
-  '--verbatim-file', join(dir, 'words.txt'), '--diff-report', EXAMPLE_DIFF_REPORT,
-  '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic', '--draft', 'shape', '--structure-file', structure]);
+const partsSign = (dir: string, structure = OUT): ReturnType<typeof signoffCommand> =>
+  signoffCommand(['parts-review', dir, '--by', 'owner',
+    '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape', '--structure-file', structure]);
 
 function refused(run: () => unknown, code: string): Refusal {
   try { run(); } catch (error) {

@@ -11,7 +11,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { clockedCli, tempDir } from './helpers.ts';
 import { partsPackage } from './parts-package.ts';
-import { advanceCommand, checkProject, reviewCommand, handoffCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, reviewCommand, handoffCommand, signoffCommand, testClock } from './clock.ts';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -34,9 +34,10 @@ function approveParts(dir: string): void {
   const versions = original.versions;
   original.versions = [];
   put(dir, 'project.json', JSON.stringify(original));
+  diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT,
+    '--component', 'p10-n3=in-painting:synthetic source', '--component', 'p1000-n3=in-painting:synthetic source', '--by', 'agent']);
   signoffCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt'),
-    ...flags, '--diff-report', EXAMPLE_DIFF_REPORT,
-    '--component', 'p10-n3=in-painting:synthetic source', '--component', 'p1000-n3=in-painting:synthetic source']);
+    ...flags]);
   const approved = load(dir);
   approved.versions = versions!;
   put(dir, 'project.json', JSON.stringify(approved));

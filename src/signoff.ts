@@ -14,8 +14,7 @@ import { jobHash } from './job-outbox.ts';
 import { assertActSubjectDeclared, decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
-import { expandDiffTriage, readDiffTriage } from './diff-classes.ts';
-import { checkDiffMap, diffReportBytes } from './diff-map.ts';
+import { checkDiffMap } from './diff-map.ts';
 import { readProject } from './feedback.ts';
 import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
@@ -40,13 +39,10 @@ export const SIGNOFF_HELP = `signoff:
   --from-review <actId>   with --checkpoint: record the passed Review checkpoint act (no --by or --verbatim-file)
   --draft <id>            labelled draft with a recorded parts-review API receipt
   --structure-file <path> retained structure decisions snapshot
-  --diff-report <path>    parts-review difference report, required from 2026-11-06
-  --triage-file <file>    JSON class/component decisions from diff-classes (parts-review only)
-  --component <id>=<status>:<why>  repeat for every report component (parts-review only)
   --json                  print the signature as JSON
   The clock supplies at. With no --steps, signs all steps of the stage's phase.
   Fills null checkpoints from checkpoint_proposed and hashes covered steps after filling.
-  Existing checkpoints are preserved. Parts-review validates evidence and the map before recording.`;
+  Existing checkpoints are preserved. Parts-review validates evidence before recording.`;
 
 interface FetchedSignoff { act: SignoffAct; bytes: string; human: JsonObject }
 
@@ -81,19 +77,16 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
-  const components: JsonObject[] = [];
+  let hasDiffFlag = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') json = true;
-    else if (arg === '--component') {
-      const value = args[++i] ?? '';
-      const eq = value.indexOf('=');
-      const colon = value.indexOf(':', eq + 1);
-      if (eq < 1 || colon < eq + 2) refuse('SIGNOFF_OPTION_INVALID', '--component needs <id>=<status>:<why>', USAGE_EXIT);
-      const id = value.slice(0, eq);
-      if (components.some((c) => c.id === id)) refuse('SIGNOFF_OPTION_INVALID', `duplicate component ${id}`, USAGE_EXIT);
-      components.push({ id, status: value.slice(eq + 1, colon), why: value.slice(colon + 1) });
-    } else if (['--version', '--draft', '--structure-file', '--diff-report', '--triage-file', '--by', '--verbatim-file', '--steps', '--checkpoint', '--from-review'].includes(arg)) {
+    else if (arg === '--component' || arg === '--diff-report' || arg === '--triage-file') {
+      hasDiffFlag = true;
+      i++;
+    } else if (arg.startsWith('--component=') || arg.startsWith('--diff-report=') || arg.startsWith('--triage-file=')) {
+      hasDiffFlag = true;
+    } else if (['--version', '--draft', '--structure-file', '--by', '--verbatim-file', '--steps', '--checkpoint', '--from-review'].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -102,23 +95,31 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   }
   const stage = positional[0];
   if (positional.length > 2 || stage === undefined || !STAGE_VALUES.includes(stage)) refuse('SIGNOFF_OPTION_INVALID', 'signoff takes a known stage and one optional project folder', USAGE_EXIT);
+  if (hasDiffFlag) {
+    if (stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--diff-report, --triage-file and --component are not accepted on signoff', USAGE_EXIT);
+    refuse(
+      'SIGNOFF_DIFF_MAP_REMOVED',
+      "project.json.signoffs.diff_map: --diff-report, --triage-file and --component were removed from signoff; component classification is agent-authored — record it with 'rig-create diff-classes --diff-report <path> --triage-file <file> --by agent' (or '--component <id>=<status>:<why> --by agent')",
+      USAGE_EXIT,
+    );
+  }
   const actId = opts['--from-review'];
   if (actId !== undefined) {
     const mixed = ['--by', '--verbatim-file', '--steps'].filter(flag => opts[flag] !== undefined);
     if (mixed.length > 0) refuse('SIGNOFF_OPTION_INVALID', `project.json.review_acts: --from-review excludes ${mixed.join(', ')}; the person's identity, words and covered steps come from the review act`, USAGE_EXIT);
   }
-  if (actId === undefined) return recordSignoff(stage, positional, opts, components, json, now, hooks);
+  if (actId === undefined) return recordSignoff(stage, positional, opts, json, now, hooks);
   // One bound write lock per route covers the fetch, validation and the write.
   const root = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(root);
   try {
     // With --checkpoint the passed checkpoint act is fetched inside the writer; without it, the stage signoff act.
     const review = opts['--checkpoint'] === undefined ? fetchSignoffAct(root, stage, actId, now, hooks) : undefined;
-    return recordSignoff(stage, positional, opts, components, json, now, hooks, review);
+    return recordSignoff(stage, positional, opts, json, now, hooks, review);
   } finally { release(); }
 }
 
-function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, components: JsonObject[], json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff): { stdout: string; exit: number } {
+function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff): { stdout: string; exit: number } {
   const actId = opts['--from-review'];
   let by = review === undefined ? opts['--by'] ?? '' : String(review.human.by);
   if (opts['--by'] === undefined && actId === undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
@@ -175,28 +176,6 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     }
   }
   if (stage === PARTS_REVIEW && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
-  if ((opts['--diff-report'] !== undefined || opts['--triage-file'] !== undefined || components.length > 0) && stage !== PARTS_REVIEW) {
-    refuse('SIGNOFF_OPTION_INVALID', '--diff-report, --triage-file and --component are only accepted on parts-review', USAGE_EXIT);
-  }
-  if (components.length > 0 && opts['--diff-report'] === undefined) refuse('SIGNOFF_OPTION_INVALID', '--component requires --diff-report', USAGE_EXIT);
-  if (opts['--triage-file'] !== undefined && (opts['--diff-report'] === undefined || components.length > 0)) refuse('SIGNOFF_OPTION_INVALID', '--triage-file requires --diff-report and cannot be combined with --component', USAGE_EXIT);
-  let diffMap: JsonObject | undefined;
-  if (opts['--diff-report'] !== undefined) {
-    const path = opts['--diff-report'];
-    let bytes: Buffer;
-    try {
-      bytes = diffReportBytes(dir, path);
-      diffMap = { report: { path, sha256: createHash('sha256').update(bytes).digest('hex') }, components };
-    } catch (error) {
-      refuse('DIFF_MAP_REPORT', `signoffs[${project.signoffs.length}].diff_map ${path}: ${error instanceof Error ? error.message : String(error)}; generate the report under the project and sign again with --diff-report`);
-    }
-    if (opts['--triage-file'] !== undefined) {
-      let report: unknown;
-      try { report = JSON.parse(bytes!.toString('utf8')); }
-      catch { refuse('DIFF_MAP_REPORT', `signoffs[${project.signoffs.length}].diff_map.report ${path}: invalid JSON; regenerate the report`); }
-      Object.assign(diffMap!, expandDiffTriage(report, readDiffTriage(opts['--triage-file']), `signoffs[${project.signoffs.length}].diff_map`));
-    }
-  }
   let evidence: JsonObject | undefined;
   const recorded = stage === PARTS_REVIEW ? recordedPartsVerdict(dir, project, opts['--draft']) : undefined;
   evidence = recorded?.evidence;
@@ -226,13 +205,6 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   const verbatim = review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : readVerbatim(opts['--verbatim-file'] ?? '-');
   const at = review !== undefined ? String(review.human.at) : ingest ? ingest.at : new Date(now).toISOString();
-  if (evidence !== undefined) {
-    const refusals: Finding[] = [];
-    const record = { evidence, at, ...(diffMap === undefined ? {} : { diff_map: diffMap }) };
-    checkDiffMap(dir, record, `signoffs[${project.signoffs.length}]`, recorded?.partsFile, refusals, []);
-    const first = refusals[0];
-    if (first !== undefined) refuse(first.code, first.message);
-  }
   const hashes: JsonObject = Object.create(null) as JsonObject;
   for (const step of covered) {
     if (step.checkpoint === null || step.checkpoint === undefined) {
@@ -243,13 +215,17 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const signoff: JsonObject = { stage, checkpoint: checkpointId ?? null, by, at, verbatim };
   if (review !== undefined) signoff.source = review.human.source!;
   if (evidence !== undefined) signoff.evidence = evidence;
-  if (diffMap !== undefined) signoff.diff_map = diffMap;
   if (phase !== undefined) {
     signoff.steps = ids;
     signoff.step_hashes = hashes;
   }
   const answerHashes = selectAnswerHashes(dir, project, signoff);
   if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
+  if (stage === PARTS_REVIEW && checkpointId === undefined) {
+    const errors: Finding[] = [];
+    checkDiffMap(dir, signoff, `signoffs[${project.signoffs.length}]`, recorded?.partsFile, errors, [], project);
+    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
+  }
   if (stage === PARTS_REVIEW && (hasStageOrder(project) || opts['--structure-file'] !== undefined)) {
     signoff.draft_id = opts['--draft'] ?? null;
     const path = opts['--structure-file'];

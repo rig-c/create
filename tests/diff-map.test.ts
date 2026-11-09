@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 
 import { generateExampleDiff } from '../scripts/generate-example-diff.ts';
 import { deriveDiffClasses, expandDiffTriage, diffClassesCommand } from '../src/diff-classes.ts';
-import { DIFF_MAP_SINCE } from '../src/diff-map.ts';
+import { DIFF_MAP_AGENT_SINCE, DIFF_MAP_SINCE } from '../src/diff-map.ts';
 import { diffStackCandidates } from '../src/diff-map.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
@@ -41,11 +41,23 @@ function project(edit: (s: JsonObject, project: JsonObject) => void = () => {}, 
   const dir = materialize((p) => {
     rigging(p);
     const s = signoff(p);
-    s.diff_map = { report: { path: EXAMPLE_DIFF_REPORT, sha256: sha(report) },
-      components: (JSON.parse(report) as { components: { id: string }[] }).components.map((c) => ({ id: c.id, status: 'left', why: 'the synthetic difference is accepted' })) };
+    const baseMap: JsonObject = {
+      report: { path: EXAMPLE_DIFF_REPORT, sha256: sha(report) },
+      components: (JSON.parse(report) as { components: { id: string }[] }).components.map((c) => ({ id: c.id, status: 'left', why: 'the synthetic difference is accepted' })),
+    };
+    if (historical) {
+      s.diff_map = baseMap;
+    } else {
+      delete s.diff_map;
+      p.diff_map = {
+        by: 'agent',
+        at: String(s.at ?? '2026-11-09T00:00:00Z'),
+        ...baseMap,
+      };
+    }
     edit(s, p);
   }, 'legacy-example-project.json', { [EXAMPLE_DIFF_REPORT]: report });
-  preparePartsApproval(dir, testClock.now());
+  preparePartsApproval(dir, historical ? Date.parse('2026-11-05T00:00:00Z') : testClock.now());
   return dir;
 }
 function componentFlags(dir: string): string[] {
@@ -53,15 +65,12 @@ function componentFlags(dir: string): string[] {
   return report.components.flatMap((c, i) => ['--component', `${c.id}=${['in-painting', 'fixed', 'left'][i % 3]}:observed: synthetic difference`]);
 }
 function writer(dir: string, flags = componentFlags(dir)) {
-  writeFileSync(join(dir, 'words.txt'), 'reviewed the synthetic assembly');
-  return cli(['signoff', 'parts-review', '--by', 'user', ...RECEIPT_FLAGS,
-    '--diff-report', EXAMPLE_DIFF_REPORT, ...flags, '--verbatim-file', join(dir, 'words.txt'), '--json'], dir, gitEnv());
+  return cli(['diff-classes', dir, '--diff-report', EXAMPLE_DIFF_REPORT, ...flags, '--by', 'agent', '--json'], dir, gitEnv());
 }
 function only(dir: string, code: string): string {
   const report = checkProject(dir);
   expect(report.refusals.map((f) => f.code)).toEqual([code]);
   const finding = report.refusals[0]!;
-  expect(finding.message).toContain('signoffs[');
   expect(finding.message).toContain('diff_map');
   return finding.message;
 }
@@ -84,9 +93,15 @@ describe('B0 normal writer and both producer layouts', () => {
     testClock.set(testClock.now() + 1000);
     const result = writer(dir);
     expect(result.code).toBe(0);
-    const signed = JSON.parse(result.stdout) as JsonObject;
-    expect(arr(obj(signed.diff_map).components)).toHaveLength(2);
-    expect(obj(arr(obj(signed.diff_map).components)[0]).why).toBe('observed: synthetic difference');
+    const classified = JSON.parse(result.stdout) as JsonObject;
+    expect(obj(classified.diff_map).by).toBe('agent');
+    expect(arr(obj(classified.diff_map).components)).toHaveLength(2);
+    expect(obj(arr(obj(classified.diff_map).components)[0]).why).toBe('observed: synthetic difference');
+    writeFileSync(join(dir, 'words.txt'), 'reviewed the synthetic assembly');
+    const signResult = cli(['signoff', 'parts-review', '--by', 'user', ...RECEIPT_FLAGS, '--verbatim-file', join(dir, 'words.txt'), '--json'], dir, gitEnv());
+    expect(signResult.code).toBe(0);
+    const signed = JSON.parse(signResult.stdout) as JsonObject;
+    expect(signed.diff_map).toBeUndefined();
     // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
     advanceCommand(['rigging', dir]);
@@ -106,7 +121,7 @@ describe('B0 normal writer and both producer layouts', () => {
 });
 
 test('B1 missing id is named and the writer leaves project.json unchanged', () => {
-  const dir = project((s) => { obj(s.diff_map).components = arr(obj(s.diff_map).components).slice(1); });
+  const dir = project((_s, p) => { obj(p.diff_map).components = arr(obj(p.diff_map).components).slice(1); });
   expect(only(dir, 'DIFF_MAP_COMPONENT_UNLISTED')).toContain('p10-n3');
   const before = readFileSync(join(dir, 'project.json'));
   const result = writer(dir, componentFlags(dir).slice(2));
@@ -115,7 +130,7 @@ test('B1 missing id is named and the writer leaves project.json unchanged', () =
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
 test('B1b unknown id', () => {
-  only(project((s) => { arr(obj(s.diff_map).components).push({ id: 'extra', status: 'left', why: 'synthetic' }); }), 'DIFF_MAP_COMPONENT_UNKNOWN');
+  only(project((_s, p) => { arr(obj(p.diff_map).components).push({ id: 'extra', status: 'left', why: 'synthetic' }); }), 'DIFF_MAP_COMPONENT_UNKNOWN');
 });
 test('B2 other stack is refused at check and write time without changing project.json', () => {
   const dir = project(() => {}, 'other');
@@ -130,9 +145,9 @@ test.each(['floor', 'threshold'])('B2b producer %s exceeds policy', (name) => {
   only(project(() => {}, name), 'DIFF_MAP_POLICY');
 });
 
-test('B3 absent diff_map', () => { only(project((s) => { delete s.diff_map; }), 'DIFF_MAP_MISSING'); });
+test('B3 absent diff_map', () => { only(project((_s, p) => { delete p.diff_map; }), 'DIFF_MAP_MISSING'); });
 test('B3 wrong report hash', () => {
-  only(project((s) => { obj(obj(s.diff_map).report).sha256 = '0'.repeat(64); }), 'DIFF_MAP_REPORT');
+  only(project((_s, p) => { obj(obj(p.diff_map).report).sha256 = '0'.repeat(64); }), 'DIFF_MAP_REPORT');
 });
 test.each(['spec', 'shape', 'json', 'duplicate'])('B3 bad report %s', (kind) => {
   const parsed = JSON.parse(reports.normal) as JsonObject;
@@ -140,7 +155,7 @@ test.each(['spec', 'shape', 'json', 'duplicate'])('B3 bad report %s', (kind) => 
   if (kind === 'shape') delete parsed.definition;
   if (kind === 'duplicate') arr(parsed.components).push(arr(parsed.components)[0]);
   const text = kind === 'json' ? '{' : JSON.stringify(parsed);
-  const dir = project((s) => { obj(obj(s.diff_map).report).sha256 = sha(text); });
+  const dir = project((_s, p) => { obj(obj(p.diff_map).report).sha256 = sha(text); });
   writeFileSync(join(dir, EXAMPLE_DIFF_REPORT), text);
   only(dir, 'DIFF_MAP_REPORT');
 });
@@ -148,13 +163,13 @@ test('B3 report absent', () => {
   const dir = project(); rmSync(join(dir, EXAMPLE_DIFF_REPORT)); only(dir, 'DIFF_MAP_REPORT');
 });
 test.each(['left', 'fixed', 'in-painting'])('B3 empty why for %s', (status) => {
-  only(project((s) => { const c = obj(arr(obj(s.diff_map).components)[0]); c.status = status; c.why = '  '; }), 'DIFF_MAP_STATUS');
+  only(project((_s, p) => { const c = obj(arr(obj(p.diff_map).components)[0]); c.status = status; c.why = '  '; }), 'DIFF_MAP_STATUS');
 });
 test('B3 bad status', () => {
-  only(project((s) => { obj(arr(obj(s.diff_map).components)[0]).status = 'accepted'; }), 'DIFF_MAP_STATUS');
+  only(project((_s, p) => { obj(arr(obj(p.diff_map).components)[0]).status = 'accepted'; }), 'DIFF_MAP_STATUS');
 });
 test('duplicate sign-off id is refused', () => {
-  only(project((s) => { arr(obj(s.diff_map).components).push(arr(obj(s.diff_map).components)[0]); }), 'DIFF_MAP_STATUS');
+  only(project((_s, p) => { arr(obj(p.diff_map).components).push(arr(obj(p.diff_map).components)[0]); }), 'DIFF_MAP_STATUS');
 });
 test('neither stack candidate names both paths', () => {
   const dir = project(); rmSync(join(dir, EXAMPLE_PARTS_DIR, 'recomposite_rig.png'));
@@ -173,15 +188,24 @@ test('a directory not named rig has only the build candidate', () => {
   expect(diffStackCandidates('/synthetic/build/parts.json')).toEqual(['/synthetic/build/recomposite_rig.png']);
 });
 test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
-  const dir = project((s, p) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; p.stage = 'parts-review'; p.advances = []; });
+  const dir = project((s, p) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; delete p.diff_map; p.stage = 'parts-review'; p.advances = []; });
   writeFileSync(join(dir, 'words.txt'), 'Advance the historical synthetic approval.');
   advanceCommand(['rigging', dir]);
   const report = checkProject(dir);
   expect(report.refusals).toEqual([]);
   expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'FIX_LEDGER_MISSING', 'DIFF_MAP_PREDATES', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
 });
-test('an old sign-off with a map is checked fully', () => {
-  only(project((s, p) => { s.at = '2026-11-05T00:00:00Z'; p.advances = []; obj(arr(obj(s.diff_map).components)[0]).why = ''; }), 'DIFF_MAP_STATUS');
+test('an old sign-off with a map emits DIFF_MAP_ON_SIGNOFF_LEGACY and is checked fully', () => {
+  const dir = project((s, p) => {
+    s.at = '2026-11-05T00:00:00Z';
+    const { by: _by, at: _at, ...legacyMap } = obj(p.diff_map);
+    s.diff_map = legacyMap;
+    delete p.diff_map;
+    p.advances = [];
+    obj(arr(obj(s.diff_map).components)[0]).why = '';
+  });
+  only(dir, 'DIFF_MAP_STATUS');
+  expect(checkProject(dir).warnings.map(f => f.code)).toContain('DIFF_MAP_ON_SIGNOFF_LEGACY');
 });
 test('a pre-stage legacy project still validates a map it carries while rigging', () => {
   const dir = project((s) => { obj(arr(obj(s.diff_map).components)[0]).why = ''; }, 'normal', true);
@@ -197,13 +221,13 @@ test('a pre-stage legacy project still validates a map it carries while rigging'
   only(dir, 'DIFF_MAP_STATUS');
   expect(checkProject(dir).warnings.filter(f => f.code === 'SIGNOFF_ANSWERS_MISSING_LEGACY')).toHaveLength(2);
 });
-test('the latest sign-off is read', () => {
+test('a post-DIFF_MAP_AGENT_SINCE sign-off carrying diff_map is refused with SIGNOFF_DIFF_MAP_REMOVED', () => {
   const dir = project();
   const file = join(dir, 'project.json');
   const p = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
-  arr(p.signoffs).push({ ...signoff(p), at: '2026-11-12T00:00:00Z', diff_map: null });
+  arr(p.signoffs).push({ ...signoff(p), at: '2026-11-12T00:00:00Z', diff_map: p.diff_map! });
   writeFileSync(file, JSON.stringify(p));
-  only(dir, 'DIFF_MAP_REPORT');
+  only(dir, 'SIGNOFF_DIFF_MAP_REMOVED');
 });
 test('report symlinks cannot leave the project', () => {
   const dir = project(); const path = join(dir, EXAMPLE_DIFF_REPORT);
@@ -216,29 +240,47 @@ test('B5 example has no findings and generation reproduces all shipped bytes', (
   expect(report.refusals).toEqual([]); expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   const generated = generateExampleDiff(join(tempDir(), 'generated'));
   expect(generated.report).toBe(reports.normal);
-  const p = JSON.parse(readFileSync(join(fixture(), 'project.json'), 'utf8')) as JsonObject;
-  expect(generated.record).toEqual(obj(signoff(p).diff_map));
+  const p = JSON.parse(readFileSync(join(fixture(() => {}, 'example-project.json'), 'project.json'), 'utf8')) as JsonObject;
+  expect(generated.record).toEqual(obj(p.diff_map));
 });
 
 describe('writer usage and cutoff', () => {
   test.each([
-    { name: 'report on interview', flags: ['interview', '--diff-report', EXAMPLE_DIFF_REPORT] },
-    { name: 'component on interview', flags: ['interview', '--component', 'x=left:why'] },
-    { name: 'component without report', flags: ['parts-review', '--component', 'x=left:why'] },
-    { name: 'duplicate id', flags: ['parts-review', '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'x=left:why', '--component', 'x=fixed:why'] },
-    { name: 'malformed component', flags: ['parts-review', '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'bad'] },
-  ])('rejects invalid options $name', ({ flags }) => {
+    { name: 'report on interview', flags: ['interview', '--diff-report', EXAMPLE_DIFF_REPORT], code: 'SIGNOFF_OPTION_INVALID' },
+    { name: 'component on interview', flags: ['interview', '--component', 'x=left:why'], code: 'SIGNOFF_OPTION_INVALID' },
+    { name: 'report on parts-review', flags: ['parts-review', '--diff-report', EXAMPLE_DIFF_REPORT], code: 'SIGNOFF_DIFF_MAP_REMOVED' },
+    { name: 'component on parts-review', flags: ['parts-review', '--component', 'x=left:why'], code: 'SIGNOFF_DIFF_MAP_REMOVED' },
+    { name: 'triage-file on parts-review', flags: ['parts-review', '--triage-file', 'triage.json'], code: 'SIGNOFF_DIFF_MAP_REMOVED' },
+  ])('signoff rejects $name with $code and leaves project.json byte-identical', ({ flags, code }) => {
     const dir = project(); writeFileSync(join(dir, 'words.txt'), 'reviewed');
     const before = readFileSync(join(dir, 'project.json'));
     try {
       signoffCommand([...flags, dir, '--by', 'user', ...(flags[0] === 'parts-review' ? RECEIPT_FLAGS : []), '--verbatim-file', join(dir, 'words.txt')]);
       throw new Error('writer accepted invalid options');
-    } catch (error) { expect((error as { code: string }).code).toBe('SIGNOFF_OPTION_INVALID'); }
+    } catch (error) { expect((error as { code: string }).code).toBe(code); }
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
-  test('from the cutoff the writer requires the report and preserves the file', () => {
-    testClock.set(new Date(DIFF_MAP_SINCE));
-    const dir = project(); writeFileSync(join(dir, 'words.txt'), 'reviewed');
+  test.each([
+    { name: 'duplicate id', flags: ['--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'x=left:why', '--component', 'x=fixed:why', '--by', 'agent'], code: 'DIFF_MAP_STATUS' },
+    { name: 'malformed component', flags: ['--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'bad', '--by', 'agent'], code: 'DIFF_MAP_STATUS' },
+    { name: 'non-agent --by user', flags: ['--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=left:why', '--component', 'p1000-n3=left:why', '--by', 'user'], code: 'DIFF_MAP_NOT_AGENT' },
+  ])('diff-classes rejects $name with $code and leaves project.json byte-identical', ({ flags, code }) => {
+    const dir = project();
+    const before = readFileSync(join(dir, 'project.json'));
+    try {
+      diffClassesCommand([dir, ...flags]);
+      throw new Error('diff-classes accepted invalid options');
+    } catch (error) { expect((error as { code: string }).code).toBe(code); }
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+  test('check refuses project.diff_map when by is not agent', () => {
+    const dir = project((_s, p) => { obj(p.diff_map).by = 'user'; });
+    only(dir, 'DIFF_MAP_NOT_AGENT');
+  });
+  test('from the cutoff signoff parts-review requires project.diff_map and preserves the file when missing', () => {
+    testClock.set(new Date(DIFF_MAP_AGENT_SINCE));
+    const dir = project((_s, p) => { delete p.diff_map; });
+    writeFileSync(join(dir, 'words.txt'), 'reviewed');
     const before = readFileSync(join(dir, 'project.json'));
     try {
       signoffCommand(['parts-review', dir, '--by', 'user', ...RECEIPT_FLAGS, '--verbatim-file', join(dir, 'words.txt')]);
@@ -309,7 +351,7 @@ describe('class triage from measured producer properties', () => {
     const { dir, file } = prepared();
     expect(writer(dir, ['--triage-file', file]).code).toBe(0);
     const path = join(dir, 'project.json'), p = JSON.parse(readFileSync(path, 'utf8')) as JsonObject;
-    const map = obj(signoff(p).diff_map), classes = arr(map.classes).map(obj), c = classes[0];
+    const map = obj(p.diff_map), classes = arr(map.classes).map(obj), c = classes[0];
     const member = arr(map.components).map(obj).find(m => m.class_id === c.id)!;
     if (kind === 'foreign member') (c.members as string[])[0] = (classes[1].members as string[])[0];
     if (kind === 'spread') obj(c.key).coverage_band = 'mixed:0.00-1.00';

@@ -778,7 +778,7 @@ function checkPartsStages(ctx: Ctx): void {
       });
     }
     // A legacy project may omit a map, but a map it does carry is checked in full.
-    if (latestSignoff(ctx, PARTS_REVIEW)?.record.diff_map !== undefined) checkPartsReviewEvidence(ctx);
+    if (latestSignoff(ctx, PARTS_REVIEW)?.record.diff_map !== undefined || ctx.project.diff_map !== undefined) checkPartsReviewEvidence(ctx);
     return;
   }
   for (const step of ctx.steps) {
@@ -802,13 +802,13 @@ function checkPartsReviewEvidence(ctx: Ctx): void {
   // The parts gate rigging until a rig version is accepted at rig-review; after that a part change is a new rig
   // version, which RIG_VERSION_UNACCEPTED refuses (src/review.ts), and derived/ need not survive a clone.
   const gating = cur <= stageIndex('rigging') || latestAccepted(readVersions(ctx.project)) === null;
+  if (!riggingStarted || !gating) return;
   const latest = latestSignoff(ctx, PARTS_REVIEW);
-  if (riggingStarted && gating && latest !== undefined) {
-    const at = `signoffs[${latest.index}]`;
-    let partsFile: string | undefined;
-    if (!recordedPartsFinding(ctx.dir, ctx.project, latest.record, at)) partsFile = recordedPartsVerdict(ctx.dir, ctx.project, latest.record.draft_id, latest.record.evidence, { requireAvailable: false }).partsFile;
-    checkDiffMap(ctx.dir, latest.record, at, partsFile, ctx.refusals, ctx.warnings);
-  }
+  if (latest === undefined) return;
+  const at = `signoffs[${latest.index}]`;
+  let partsFile: string | undefined;
+  if (!recordedPartsFinding(ctx.dir, ctx.project, latest.record, at)) partsFile = recordedPartsVerdict(ctx.dir, ctx.project, latest.record.draft_id, latest.record.evidence, { requireAvailable: false }).partsFile;
+  checkDiffMap(ctx.dir, latest.record, at, partsFile, ctx.refusals, ctx.warnings, ctx.project);
 }
 
 /**

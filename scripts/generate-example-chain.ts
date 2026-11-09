@@ -361,8 +361,9 @@ export function generateExampleChain(destination: string): Record<string, Buffer
       '--parts', 'assembled/rig/parts.json', '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'], { 'evidence/diff-components.json': reportBytes });
     const diffReport = JSON.parse(reportBytes.toString()) as { stack: { sha256: string }; painting: { sha256: string }; components: { id: string }[] };
     advance('parts-review', ['--parts-check', 'evidence/parts-check.json', '--parts', partsDir]);
-    sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure.json', '--diff-report', 'evidence/diff-components.json',
+    writer(['diff-classes', '--diff-report', 'evidence/diff-components.json', '--by', 'agent',
       ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`])]);
+    sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure.json']);
     advance('rigging-interview'); choices('rigging-interview'); sign('rigging-interview');
     advance('rigging'); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
     writer(['interview', '--check', '--json']);
@@ -472,7 +473,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
         if (step.kind === 'seed') return 'seed';
         if (step.authored_by === 'agent') return 'agent';
         if (step.kind === 'producer') return 'producer';
-        if (step.command[1] === 'parts-review' || step.command[1] === 'interview-options' || step.command[1] === 'plan' || step.command[1] === 'structure-snapshot' || step.command[1] === 'direction' && step.command[2] === 'check') return 'agent';
+        if (step.command[1] === 'parts-review' || step.command[1] === 'interview-options' || step.command[1] === 'plan' || step.command[1] === 'structure-snapshot' || step.command[1] === 'diff-classes' || step.command[1] === 'direction' && step.command[2] === 'check') return 'agent';
         return 'human';
       });
       const report = checkProject(join(dir, 'checkpoints', saved.name), undefined, { now });

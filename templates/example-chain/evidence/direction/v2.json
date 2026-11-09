@@ -3,13 +3,13 @@
   "scene": {
     "n": 1,
     "path": "evidence/scene/s1.json",
-    "sha256": "653dc9c7fae30f604097533482d54021416dc7b0c820a9d24872d9961767bf32"
+    "sha256": "0e524ccd688ce7dd685eddf38afa54ab27eea5a73c092c968f5e1dfb49909258"
   },
   "rig": {
     "version": 1,
     "model": {
       "path": "derived/review/v1/out/check/build/skeleton.model.json",
-      "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff"
+      "sha256": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46"
     }
   },
   "take": {

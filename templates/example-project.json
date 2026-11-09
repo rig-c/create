@@ -23,14 +23,14 @@
     {"stage":"interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:18.000Z","verbatim":"that's everything","answer_hashes":{"rig_type":"7dadbbfeb6bde120d27feb2341992af442fb223a640179e4f3d9e14bfdb8f6e2","reference":"c24369dae210ceaaaeac0c3e7404eaf0b630ddbfd465942b0052d70f5f12cfa6","seethrough":"bfd55531ccb6c75f1e39c26d9e792512bc740a28896eab6e41ddf77e443d81cc","assemble":"56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b"}},
     {"stage":"plan-approved","checkpoint":null,"by":"user","at":"2026-11-09T00:00:30.000Z","verbatim":"Approve the synthetic plan-approved record.\n","steps":["seethrough","assemble"],"step_hashes":{"seethrough":"fb80a8476afa09a4589bbf8fc3f0a644310c51a2f56b16691120ff27ba8968fd","assemble":"86f6af331ecd8d73b07aa8f650f0c7f53e7a80932b06b1812d13fc53cabfda1e"},"answer_hashes":{"seethrough":"c4ec03e2e3c5e5ff78e171ff11659e94101a9117978999b119d682d8848f17e6","assemble":"56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b"}},
     {"stage":"parts","checkpoint":"assemble","by":"user","at":"2026-11-09T00:00:34.000Z","verbatim":"the cut is fine"},
-    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-09T00:00:37.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"},"diff_map":{"report":{"path":"evidence/diff-components.json","sha256":"6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"},"components":[{"id":"p10-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"},{"id":"p1000-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"}]},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"}},
-    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:44.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","meshes","constraints","motion"],"step_hashes":{"bones":"ad4173f71847a9a5747832a4ebf578503fbea776c3fca817e59c21098fc5fab5","meshes":"75aa38463e70a159ea2e685275f77969038fe16d4307716503a0db6454acda1c","constraints":"c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327","motion":"0fc852ec4e95499d17f6ee8c28f4192219c057dd55f4e0543b61d3eda939ee65"},"answer_hashes":{"bones":"346bc9adabbd968f8c78005f1b0e335a3de7931d739523c50dc29b8d180f21f2","meshes":"e89a8a12a5ea62dde5ee771a91c519b5c13900fbfb28a76592a719aad7efd767","assemble":"56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b","constraints":"5f22e17c6b89aa0122e38fab9d82be5a5e0a953042794d1520a80a837385e083","motion":"a6398e664ca276ed705b10b01dc60572b6db3b36bc0008f4518ade8c8a8d31d1","rig_type":"7dadbbfeb6bde120d27feb2341992af442fb223a640179e4f3d9e14bfdb8f6e2"},"accepted_parts":{"signoff_at":"2026-11-09T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"}},
-    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:48.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"ad4173f71847a9a5747832a4ebf578503fbea776c3fca817e59c21098fc5fab5","constraints":"c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327"},"answer_hashes":{"bones":"346bc9adabbd968f8c78005f1b0e335a3de7931d739523c50dc29b8d180f21f2","constraints":"5f22e17c6b89aa0122e38fab9d82be5a5e0a953042794d1520a80a837385e083"},"accepted_parts":{"signoff_at":"2026-11-09T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"}},
+    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-09T00:00:37.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"},"diff_map":{"report":{"path":"evidence/diff-components.json","sha256":"6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"},"components":[{"id":"p10-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"},{"id":"p1000-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"}]},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
+    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:44.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","meshes","constraints","motion"],"step_hashes":{"bones":"ad4173f71847a9a5747832a4ebf578503fbea776c3fca817e59c21098fc5fab5","meshes":"75aa38463e70a159ea2e685275f77969038fe16d4307716503a0db6454acda1c","constraints":"c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327","motion":"0fc852ec4e95499d17f6ee8c28f4192219c057dd55f4e0543b61d3eda939ee65"},"answer_hashes":{"bones":"3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7","meshes":"e5b60b9dd25f3b314ee4199cdb0b5cfd476f87aeccae8adc36bd6a98431a443b","assemble":"56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b","constraints":"3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51","motion":"ca951d0a752a5e83f3a1841fe87f50c617c8be888a4721849b3f2d374f976d78","rig_type":"7dadbbfeb6bde120d27feb2341992af442fb223a640179e4f3d9e14bfdb8f6e2"},"accepted_parts":{"signoff_at":"2026-11-09T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
+    {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:48.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"ad4173f71847a9a5747832a4ebf578503fbea776c3fca817e59c21098fc5fab5","constraints":"c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327"},"answer_hashes":{"bones":"3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7","constraints":"3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51"},"accepted_parts":{"signoff_at":"2026-11-09T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-09T00:00:45.000Z","verbatim":"ok, the scarf looks right in the sketch"},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-09T00:00:49.000Z","verbatim":"better"},
-    {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-09T00:00:51.000Z","verbatim":"yes, that's her","target":{"version":2,"verdict":"versions[1].verdicts[0]","review_package":{"path":"versions[1].review_package","sha256":"0dc44bda700d68c8ce442cc403ead24f1bba78f12c4e6c08d99feaf42c67db23"}}},
-    {"stage":"post-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:01:00.000Z","verbatim":"go","steps":["camera","timing","composition"],"step_hashes":{"camera":"e4cd2ce19e3e0b79f718a52865d64618444ad3e27c34d056e67837cc31c0ff39","timing":"80b7b9d9643de05f407b9b0ddd2136302b43e6630ae978bb5d42c2264b5e14fa","composition":"07e07d80cf21f7cdc65caf6bc6056986fc31c637fa7345c3c5cdf1515624d111"},"answer_hashes":{"camera_depth":"3dd327104c5aecd8396ad09063cb98dee0f8ff7ba32f144be7fcf7e808d2d674","post_timing":"57229cf77c69c4fab286d1e1d9b124bef4528af67edf32b882c71f31f597c7a0","motion":"a6398e664ca276ed705b10b01dc60572b6db3b36bc0008f4518ade8c8a8d31d1","post_composition":"067eab49598f2217de733f0640eb7b470526be3e79fd513ff4a9dee5294cfa45"}},
-    {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-09T00:01:04.000Z","verbatim":"done, I like it","target":{"version":4,"verdict":"versions[3].verdicts[0]","direction":{"path":"evidence/direction/v4.json","sha256":"456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"}}}
+    {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-09T00:00:51.000Z","verbatim":"yes, that's her","target":{"version":2,"verdict":"versions[1].verdicts[0]","review_package":{"path":"versions[1].review_package","sha256":"07a8cd833d008145ef524b2a8a053c87772c66f12df26a24cc84071bfc3fc25f"}}},
+    {"stage":"post-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:01:00.000Z","verbatim":"go","steps":["camera","timing","composition"],"step_hashes":{"camera":"e4cd2ce19e3e0b79f718a52865d64618444ad3e27c34d056e67837cc31c0ff39","timing":"80b7b9d9643de05f407b9b0ddd2136302b43e6630ae978bb5d42c2264b5e14fa","composition":"07e07d80cf21f7cdc65caf6bc6056986fc31c637fa7345c3c5cdf1515624d111"},"answer_hashes":{"camera_depth":"cfbe6b6a888fa0efddf882f7c7b8b01f1e52d7249169504252c0a66969f5b765","post_timing":"dab49f2a0a86044df285dc54438c28dd4d98935706bad1636b1009b71b3ad23d","motion":"ca951d0a752a5e83f3a1841fe87f50c617c8be888a4721849b3f2d374f976d78","post_composition":"da958055b6e985886046f1cacd0759563de3f83e2f2664e0a0d7ccccd6839245"}},
+    {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-09T00:01:04.000Z","verbatim":"done, I like it","target":{"version":4,"verdict":"versions[3].verdicts[0]","direction":{"path":"evidence/direction/v4.json","sha256":"bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"}}}
   ],
   "interview": {
     "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.35.0)",
@@ -567,7 +567,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-bones.json",
-              "sha256": "e32073b351ec7acd6401986f37bb92b43bd94e20aad051a8fd8d6258fba51c1e"
+              "sha256": "505053926025d22455cdf5bdbe68e5ed37a72f97cfdef701ecab940dc445e72b"
             },
             "picks": [
               {
@@ -763,7 +763,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-meshes.json",
-              "sha256": "4ed92683dfb6964cfb80de40abca4df987aa3975dadbc139ee18c36218d02e91"
+              "sha256": "ee67f8a6443083043da65cc610f1951d538262834e9666a07cd56ff3408f7155"
             },
             "picks": [
               {
@@ -920,7 +920,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-constraints.json",
-              "sha256": "0e5a647db1b4423f2ae8e75f089f8214db5a12244a097045def2de38b8355274"
+              "sha256": "5aab254fbdc739341b84fe53094134ef57fbba11065db60cfe9af6d0e8836432"
             },
             "picks": [
               {
@@ -1166,7 +1166,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-motion.json",
-              "sha256": "2a0d7dfe11990bf252dff435d28da2222f1cd5044958dc5b322c0599f54423f9"
+              "sha256": "fe21190c6dc857e9881fc8f33bd6517c4e3e318570fb768bfd1f3842267b1a9a"
             },
             "picks": [
               {
@@ -1371,7 +1371,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-camera-depth.json",
-                "sha256": "6a89fbaa23d357b8774e9c3098099aa18f4b39bb414042f42d4302470ed8b560"
+                "sha256": "1842e01c935f0f7caf585ea5eafd28f047108aa564c7eeabf0c245623fa9c8ad"
               },
               "picks": [
                 {
@@ -1424,7 +1424,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-post-timing.json",
-                "sha256": "fb0ebfec298df2ce1cf858b77974e8acb9dc787eee961470dfbdb3b92cce72db"
+                "sha256": "dcdc62960dbe5b763b1f0494ab5b8842f9a723e05878f6e6b7c3b5e5203fc85e"
               },
               "picks": [
                 {
@@ -1489,7 +1489,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-post-composition.json",
-                "sha256": "58444efe22fc2f215fc267f7e8df2dce482921483472a2c2a0000c095ad287bf"
+                "sha256": "f2051efe680e8683e87d5bd6fa6a8b7f39d188408855e242c94254aff9127a61"
               },
               "picks": [
                 {
@@ -1546,7 +1546,7 @@
       },
       "structure": {
         "path": "evidence/structure-decisions.json",
-        "sha256": "4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"
+        "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
       }
     }
   },
@@ -2094,13 +2094,13 @@
       "review_package": {
         "config": {
           "path": "evidence/v1/review-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "from": "outputs/v1/out",
         "files": [
           {
             "path": "config.json",
-            "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+            "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
           },
           {
             "path": "interview-requirements.json",
@@ -2108,7 +2108,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+            "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -2116,11 +2116,11 @@
           },
           {
             "path": "out/check/build/skeleton.json",
-            "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+            "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
           },
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+            "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
           },
           {
             "path": "out/check/build/skeleton.png",
@@ -2184,7 +2184,7 @@
           },
           {
             "path": "out/rig/motion.json",
-            "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+            "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
           },
           {
             "path": "out/rig/rig.json",
@@ -2192,7 +2192,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+            "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2222,7 +2222,7 @@
       "provenance": {
         "config": {
           "path": "evidence/v1/interview-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "sections": {
           "seethrough": [
@@ -2429,13 +2429,13 @@
       "review_package": {
         "config": {
           "path": "evidence/v2/review-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "from": "outputs/v2/out",
         "files": [
           {
             "path": "config.json",
-            "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+            "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
           },
           {
             "path": "interview-requirements.json",
@@ -2443,7 +2443,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+            "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -2451,11 +2451,11 @@
           },
           {
             "path": "out/check/build/skeleton.json",
-            "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+            "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
           },
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+            "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
           },
           {
             "path": "out/check/build/skeleton.png",
@@ -2519,7 +2519,7 @@
           },
           {
             "path": "out/rig/motion.json",
-            "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+            "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
           },
           {
             "path": "out/rig/rig.json",
@@ -2527,7 +2527,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+            "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
           }
         ],
         "open": "rig-review open 'derived/review/v2/out'"
@@ -2557,7 +2557,7 @@
       "provenance": {
         "config": {
           "path": "evidence/v2/interview-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "sections": {
           "seethrough": [
@@ -2871,7 +2871,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v4.json",
-          "sha256": "456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"
+          "sha256": "bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"
         }
       ],
       "evidence": [
@@ -2902,11 +2902,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v4.json",
-          "sha256": "456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"
+          "sha256": "bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"
         },
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"
+          "sha256": "bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"
         },
         "sections": {
           "camera": [
@@ -2948,7 +2948,7 @@
       },
       "config": {
         "path": "derived/drafts/example/config.json",
-        "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+        "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
       },
       "parts": {
         "path": "derived/drafts/example/input",
@@ -2990,7 +2990,7 @@
       "files": [
         {
           "path": "derived/drafts/example/out/check/build/run.json",
-          "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+          "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.atlas",
@@ -2998,11 +2998,11 @@
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.json",
-          "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+          "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.model.json",
-          "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+          "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.png",
@@ -3038,7 +3038,7 @@
         },
         {
           "path": "derived/drafts/example/out/motion.json",
-          "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+          "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
         },
         {
           "path": "derived/drafts/example/out/rig.json",
@@ -3046,7 +3046,7 @@
         },
         {
           "path": "derived/drafts/example/out/run.json",
-          "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+          "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
         }
       ],
       "config_inputs": [
@@ -3066,7 +3066,7 @@
       },
       "config": {
         "path": "derived/drafts/lantern/config.json",
-        "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+        "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
       },
       "parts": {
         "path": "derived/drafts/lantern/input",
@@ -3108,7 +3108,7 @@
       "files": [
         {
           "path": "derived/drafts/lantern/out/check/build/run.json",
-          "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+          "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.atlas",
@@ -3116,11 +3116,11 @@
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.json",
-          "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+          "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.model.json",
-          "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+          "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.png",
@@ -3156,7 +3156,7 @@
         },
         {
           "path": "derived/drafts/lantern/out/motion.json",
-          "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+          "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
         },
         {
           "path": "derived/drafts/lantern/out/rig.json",
@@ -3164,7 +3164,7 @@
         },
         {
           "path": "derived/drafts/lantern/out/run.json",
-          "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+          "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
         }
       ],
       "config_inputs": [
@@ -4200,7 +4200,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "766d2e711b2738c35ba0d5a5e7814f1493a5c387b44893310bd65ad4f73818c0",
+      "sha256": "5ba602120055b4f6a650424db7fed5b5c9f34adc593b8b9e64983e941ab815e3",
       "at": "2026-11-09T00:01:00.000Z",
       "by": "user"
     }

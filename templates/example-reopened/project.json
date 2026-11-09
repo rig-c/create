@@ -95,7 +95,7 @@
       "draft_id": "example",
       "structure": {
         "path": "evidence/structure-decisions.json",
-        "sha256": "4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"
+        "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
       }
     },
     {
@@ -117,11 +117,11 @@
         "motion": "0fc852ec4e95499d17f6ee8c28f4192219c057dd55f4e0543b61d3eda939ee65"
       },
       "answer_hashes": {
-        "bones": "346bc9adabbd968f8c78005f1b0e335a3de7931d739523c50dc29b8d180f21f2",
-        "meshes": "e89a8a12a5ea62dde5ee771a91c519b5c13900fbfb28a76592a719aad7efd767",
+        "bones": "3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7",
+        "meshes": "e5b60b9dd25f3b314ee4199cdb0b5cfd476f87aeccae8adc36bd6a98431a443b",
         "assemble": "56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b",
-        "constraints": "5f22e17c6b89aa0122e38fab9d82be5a5e0a953042794d1520a80a837385e083",
-        "motion": "a6398e664ca276ed705b10b01dc60572b6db3b36bc0008f4518ade8c8a8d31d1",
+        "constraints": "3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51",
+        "motion": "ca951d0a752a5e83f3a1841fe87f50c617c8be888a4721849b3f2d374f976d78",
         "rig_type": "7dadbbfeb6bde120d27feb2341992af442fb223a640179e4f3d9e14bfdb8f6e2"
       },
       "accepted_parts": {
@@ -135,7 +135,7 @@
       },
       "structure": {
         "path": "evidence/structure-decisions.json",
-        "sha256": "4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"
+        "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
       }
     },
     {
@@ -153,8 +153,8 @@
         "constraints": "c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327"
       },
       "answer_hashes": {
-        "bones": "346bc9adabbd968f8c78005f1b0e335a3de7931d739523c50dc29b8d180f21f2",
-        "constraints": "5f22e17c6b89aa0122e38fab9d82be5a5e0a953042794d1520a80a837385e083"
+        "bones": "3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7",
+        "constraints": "3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-09T00:00:37.000Z",
@@ -167,7 +167,7 @@
       },
       "structure": {
         "path": "evidence/structure-decisions.json",
-        "sha256": "4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"
+        "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
       }
     },
     {
@@ -195,7 +195,7 @@
         "verdict": "versions[1].verdicts[0]",
         "review_package": {
           "path": "versions[1].review_package",
-          "sha256": "0dc44bda700d68c8ce442cc403ead24f1bba78f12c4e6c08d99feaf42c67db23"
+          "sha256": "07a8cd833d008145ef524b2a8a053c87772c66f12df26a24cc84071bfc3fc25f"
         }
       }
     },
@@ -216,10 +216,10 @@
         "composition": "07e07d80cf21f7cdc65caf6bc6056986fc31c637fa7345c3c5cdf1515624d111"
       },
       "answer_hashes": {
-        "camera_depth": "3dd327104c5aecd8396ad09063cb98dee0f8ff7ba32f144be7fcf7e808d2d674",
-        "post_timing": "57229cf77c69c4fab286d1e1d9b124bef4528af67edf32b882c71f31f597c7a0",
-        "motion": "a6398e664ca276ed705b10b01dc60572b6db3b36bc0008f4518ade8c8a8d31d1",
-        "post_composition": "067eab49598f2217de733f0640eb7b470526be3e79fd513ff4a9dee5294cfa45"
+        "camera_depth": "cfbe6b6a888fa0efddf882f7c7b8b01f1e52d7249169504252c0a66969f5b765",
+        "post_timing": "dab49f2a0a86044df285dc54438c28dd4d98935706bad1636b1009b71b3ad23d",
+        "motion": "ca951d0a752a5e83f3a1841fe87f50c617c8be888a4721849b3f2d374f976d78",
+        "post_composition": "da958055b6e985886046f1cacd0759563de3f83e2f2664e0a0d7ccccd6839245"
       }
     },
     {
@@ -233,7 +233,7 @@
         "verdict": "versions[3].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"
+          "sha256": "bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"
         }
       }
     }
@@ -773,7 +773,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-bones.json",
-              "sha256": "e32073b351ec7acd6401986f37bb92b43bd94e20aad051a8fd8d6258fba51c1e"
+              "sha256": "505053926025d22455cdf5bdbe68e5ed37a72f97cfdef701ecab940dc445e72b"
             },
             "picks": [
               {
@@ -969,7 +969,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-meshes.json",
-              "sha256": "4ed92683dfb6964cfb80de40abca4df987aa3975dadbc139ee18c36218d02e91"
+              "sha256": "ee67f8a6443083043da65cc610f1951d538262834e9666a07cd56ff3408f7155"
             },
             "picks": [
               {
@@ -1126,7 +1126,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-constraints.json",
-              "sha256": "0e5a647db1b4423f2ae8e75f089f8214db5a12244a097045def2de38b8355274"
+              "sha256": "5aab254fbdc739341b84fe53094134ef57fbba11065db60cfe9af6d0e8836432"
             },
             "picks": [
               {
@@ -1372,7 +1372,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-motion.json",
-              "sha256": "2a0d7dfe11990bf252dff435d28da2222f1cd5044958dc5b322c0599f54423f9"
+              "sha256": "fe21190c6dc857e9881fc8f33bd6517c4e3e318570fb768bfd1f3842267b1a9a"
             },
             "picks": [
               {
@@ -1577,7 +1577,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-camera-depth.json",
-                "sha256": "6a89fbaa23d357b8774e9c3098099aa18f4b39bb414042f42d4302470ed8b560"
+                "sha256": "1842e01c935f0f7caf585ea5eafd28f047108aa564c7eeabf0c245623fa9c8ad"
               },
               "picks": [
                 {
@@ -1630,7 +1630,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-post-timing.json",
-                "sha256": "fb0ebfec298df2ce1cf858b77974e8acb9dc787eee961470dfbdb3b92cce72db"
+                "sha256": "dcdc62960dbe5b763b1f0494ab5b8842f9a723e05878f6e6b7c3b5e5203fc85e"
               },
               "picks": [
                 {
@@ -1695,7 +1695,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-post-composition.json",
-                "sha256": "58444efe22fc2f215fc267f7e8df2dce482921483472a2c2a0000c095ad287bf"
+                "sha256": "f2051efe680e8683e87d5bd6fa6a8b7f39d188408855e242c94254aff9127a61"
               },
               "picks": [
                 {
@@ -1752,7 +1752,7 @@
       },
       "structure": {
         "path": "evidence/structure-decisions.json",
-        "sha256": "4e2964e3640dd01d2daa1b19582af7465c3f6f5de2d64c62bb07d30c3e59fea2"
+        "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
       }
     }
   },
@@ -2382,13 +2382,13 @@
       "review_package": {
         "config": {
           "path": "evidence/v1/review-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "from": "outputs/v1/out",
         "files": [
           {
             "path": "config.json",
-            "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+            "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
           },
           {
             "path": "interview-requirements.json",
@@ -2396,7 +2396,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+            "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -2404,11 +2404,11 @@
           },
           {
             "path": "out/check/build/skeleton.json",
-            "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+            "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
           },
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+            "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
           },
           {
             "path": "out/check/build/skeleton.png",
@@ -2472,7 +2472,7 @@
           },
           {
             "path": "out/rig/motion.json",
-            "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+            "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
           },
           {
             "path": "out/rig/rig.json",
@@ -2480,7 +2480,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+            "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2510,7 +2510,7 @@
       "provenance": {
         "config": {
           "path": "evidence/v1/interview-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "sections": {
           "seethrough": [
@@ -2717,13 +2717,13 @@
       "review_package": {
         "config": {
           "path": "evidence/v2/review-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "from": "outputs/v2/out",
         "files": [
           {
             "path": "config.json",
-            "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+            "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
           },
           {
             "path": "interview-requirements.json",
@@ -2731,7 +2731,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+            "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -2739,11 +2739,11 @@
           },
           {
             "path": "out/check/build/skeleton.json",
-            "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+            "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
           },
           {
             "path": "out/check/build/skeleton.model.json",
-            "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+            "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
           },
           {
             "path": "out/check/build/skeleton.png",
@@ -2807,7 +2807,7 @@
           },
           {
             "path": "out/rig/motion.json",
-            "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+            "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
           },
           {
             "path": "out/rig/rig.json",
@@ -2815,7 +2815,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+            "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
           }
         ],
         "open": "rig-review open 'derived/review/v2/out'"
@@ -2845,7 +2845,7 @@
       "provenance": {
         "config": {
           "path": "evidence/v2/interview-config.json",
-          "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+          "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
         },
         "sections": {
           "seethrough": [
@@ -3159,7 +3159,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v4.json",
-          "sha256": "456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"
+          "sha256": "bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"
         }
       ],
       "evidence": [
@@ -3190,11 +3190,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v4.json",
-          "sha256": "456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"
+          "sha256": "bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"
         },
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "456ff312b82632c2ee1db851d7730894940d28d27c6f04c557a2de140a445364"
+          "sha256": "bc90a091c52f83de1c15e74b863097026824306ecbaa2aab73f3ad0bb12079f4"
         },
         "sections": {
           "camera": [
@@ -3236,7 +3236,7 @@
       },
       "config": {
         "path": "derived/drafts/example/config.json",
-        "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+        "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
       },
       "parts": {
         "path": "derived/drafts/example/input",
@@ -3278,7 +3278,7 @@
       "files": [
         {
           "path": "derived/drafts/example/out/check/build/run.json",
-          "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+          "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.atlas",
@@ -3286,11 +3286,11 @@
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.json",
-          "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+          "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.model.json",
-          "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+          "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.png",
@@ -3326,7 +3326,7 @@
         },
         {
           "path": "derived/drafts/example/out/motion.json",
-          "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+          "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
         },
         {
           "path": "derived/drafts/example/out/rig.json",
@@ -3334,7 +3334,7 @@
         },
         {
           "path": "derived/drafts/example/out/run.json",
-          "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+          "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
         }
       ],
       "config_inputs": [
@@ -3354,7 +3354,7 @@
       },
       "config": {
         "path": "derived/drafts/lantern/config.json",
-        "sha256": "b7a59851f3849bc10728d4fe2e489e39b7aa524d571a1d41928571b8f8e88c0a"
+        "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
       },
       "parts": {
         "path": "derived/drafts/lantern/input",
@@ -3396,7 +3396,7 @@
       "files": [
         {
           "path": "derived/drafts/lantern/out/check/build/run.json",
-          "sha256": "02cec13eccc0dc1c200e190566cc66503263c3d8c3f5dd97bbbe91d146636cf4"
+          "sha256": "499e8e4b76d951139cfc063f14c135c0afdff5ecd21a57ca7fded1a359166d94"
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.atlas",
@@ -3404,11 +3404,11 @@
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.json",
-          "sha256": "110abc0afd20fcb9521483f1b27b98524d79e01ffafe8260017560b5ea392b6b"
+          "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.model.json",
-          "sha256": "8ad677dd4cab64d533093bd303847531edecff21a193f429ff08df1f1711b31b"
+          "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.png",
@@ -3444,7 +3444,7 @@
         },
         {
           "path": "derived/drafts/lantern/out/motion.json",
-          "sha256": "abfea241017c2cf96713a063015831e06218ea710596ac38f694446a75246d7a"
+          "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
         },
         {
           "path": "derived/drafts/lantern/out/rig.json",
@@ -3452,7 +3452,7 @@
         },
         {
           "path": "derived/drafts/lantern/out/run.json",
-          "sha256": "d0241124c2c5e20d420d01139daea72660ea1b9f9ec6f493a0c2aeeccadc8f4e"
+          "sha256": "52b66f19fd23e2b3d23c3a92fac0fac5f1fd2687812d6ab1cd151caa5565257d"
         }
       ],
       "config_inputs": [
@@ -4488,7 +4488,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "766d2e711b2738c35ba0d5a5e7814f1493a5c387b44893310bd65ad4f73818c0",
+      "sha256": "5ba602120055b4f6a650424db7fed5b5c9f34adc593b8b9e64983e941ab815e3",
       "at": "2026-11-09T00:01:00.000Z",
       "by": "user"
     }

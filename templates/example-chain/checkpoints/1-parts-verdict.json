@@ -32,7 +32,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "035c610efdae1f06b9623da69cfce518b955cb5a001549a66a5fbba167f23454",
+  "project_sha256": "944f0aef7c7743e9ad97ce10e61af76dc48ad1ee2cd41894315914bfc5a05846",
   "files": [
     {
       "path": ".gitignore",
@@ -48,7 +48,7 @@
     },
     {
       "path": "derived/drafts/chain/config.json",
-      "sha256": "dc601dd5477e09fc757ec41c688a4affbb4e89ab7ecbf1390a820beb9e761942"
+      "sha256": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3"
     },
     {
       "path": "derived/drafts/chain/input/painting_in_rig.png",
@@ -92,7 +92,7 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/run.json",
-      "sha256": "4d7f5812b1081017d8134b8feb1868b0ecbf8a7a0f7ac29b38d4684fecbf45cd"
+      "sha256": "ff2a82974be47673a717c6e42103f11711005f20adf3975dda3ec3c38aed05cd"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -100,11 +100,11 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.json",
-      "sha256": "a4b76fae1308a9c12822e2db2150c53c5a7103f5cf7a8f197f67825173e1a57a"
+      "sha256": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.model.json",
-      "sha256": "50c55f40de375955d41de83afe6d00f90272fd85683f4083f388b9e99851f7ff"
+      "sha256": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.png",
@@ -140,7 +140,7 @@
     },
     {
       "path": "derived/drafts/chain/out/motion.json",
-      "sha256": "74df39025faec150b43ac4b6ffeab66379f5abf5192ebae521a512a1f641867e"
+      "sha256": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9"
     },
     {
       "path": "derived/drafts/chain/out/rig.json",
@@ -148,7 +148,7 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "fbaf6df7ffd9b6c2d9c302b025bdab70800dc25e0148251666009f0e610ce8f1"
+      "sha256": "ea343e27c51c07f5d191a8910cd9340749eca7b11c9802a8a144e74d5ae25b2a"
     },
     {
       "path": "evidence/.gitkeep",
@@ -196,7 +196,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "035c610efdae1f06b9623da69cfce518b955cb5a001549a66a5fbba167f23454"
+      "sha256": "944f0aef7c7743e9ad97ce10e61af76dc48ad1ee2cd41894315914bfc5a05846"
     }
   ]
 }

@@ -18,7 +18,7 @@
     },
     "structure": {
       "path": "evidence/structure.json",
-      "sha256": "5123152c728770533cc8ffff2a80d6b3a8f5f84246da90ba7be238b2f58ee6cb"
+      "sha256": "1bf096d7e3c14575c2436d67e751d54a2f67e056e6b9179888531f8445976434"
     },
     "draft_id": "remesh",
     "parts": {

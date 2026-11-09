@@ -250,11 +250,16 @@ export function validateScene(dir: string, project: JsonObject, doc: JsonObject,
   const layers = plates.some(plate => plate.role === 'foreground') ? ['background', 'rig', 'foreground'] : ['background', 'rig'];
   if (!equal(doc.layers, layers)) sceneFail('SCENE_LAYER_ORDER', 'scene.layers', 'use background, rig and foreground only when declared, in that order');
 }
-export function readScene(dir: string, project: JsonObject, reference: JsonObject, snapshots?: Map<string, Buffer>, current = false): JsonObject {
+/** The committed document a reference names, sealed by its scenes[] entry and not yet validated. */
+export function committedScene(dir: string, project: JsonObject, reference: JsonObject, snapshots?: Map<string, Buffer>): JsonObject {
   const entry = sceneEntries(project).find(value => equal(sceneReference(value), reference));
   if (!entry) sceneFail('SCENE_MALFORMED', 'scenes', 'reference must equal a committed scenes[] entry');
   const doc = json(boundBytes(dir, entry, 'SCENE_FILE_CHANGED', snapshots), String(entry.path));
   if (doc.n !== entry.n) sceneFail('SCENE_MALFORMED', String(entry.path), 'document n differs from its committed entry');
+  return doc;
+}
+export function readScene(dir: string, project: JsonObject, reference: JsonObject, snapshots?: Map<string, Buffer>, current = false): JsonObject {
+  const doc = committedScene(dir, project, reference, snapshots);
   validateScene(dir, project, doc, snapshots, current);
   return doc;
 }

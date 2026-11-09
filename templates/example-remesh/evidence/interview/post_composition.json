@@ -10,8 +10,9 @@
     "rig_version": 3,
     "signoff_at": "2026-11-09T00:01:13.000Z",
     "config": {
-      "path": "evidence/v3/config.json",
-      "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759"
+      "path": "evidence/v3/registration/config.json",
+      "sha256": "5093a71b3a2380b4659674dbbdaf3abfdaa67a51ba094bfb19764ce641d5b759",
+      "bytes": 1277
     },
     "parts": {
       "path": "derived/drafts/remesh/input",

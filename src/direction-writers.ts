@@ -2,7 +2,7 @@
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectItems, collectSignoffs, loadCollection, isObject, type Finding } from './check.ts';
-import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBinding, directionBytes, directionContract, directionFail, directionHash, directionJson, directionPath, directionVersion, objects, patchDirection, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
+import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBinding, directionBytes, directionContract, directionFail, directionHash, directionIdleBytes, directionIdlePath, directionJson, directionPath, directionVersion, objects, patchDirection, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
@@ -103,7 +103,8 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
     ownValidation(dir,next,now);prospective(dir,project,next,now);
     hooks.beforeCommit?.();
     if(collectionRoot && collectionBytes && !directionBytes(collectionRoot,'collection.json').equals(collectionBytes))directionFail('DIRECTION_SOURCE_CHANGED','collection.json','inherited answer context changed during publication');
-    for(const[path,expected]of snapshots)if(!directionBytes(dir,path).equals(expected))directionFail('DIRECTION_SOURCE_CHANGED',path,'source bytes changed during publication');
+    // The scene's idle frames are re-read through the record binding that admitted them, not as a retained path.
+    for(const[path,expected]of snapshots)if(!(doc&&directionIdlePath(path)?directionIdleBytes(dir,project,Number((doc.rig as JsonObject).version),{path,sha256:directionHash(expected)}):directionBytes(dir,path)).equals(expected))directionFail('DIRECTION_SOURCE_CHANGED',path,'source bytes changed during publication');
     if(bytes&&doc){const target=directionPath(n);if(!directionBytes(dir,target).equals(bytes))directionFail('DIRECTION_SOURCE_CHANGED',target,'published document changed before commit');}
     const recordBytes = Buffer.from(`${JSON.stringify(next,null,2)}\n`);
     if (action !== '--adopt') publicationIntent = prepareVersionIntent(dir, recordBytes, n);

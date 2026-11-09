@@ -1,0 +1,368 @@
+{
+  "spec": "build-report/1",
+  "command": "build",
+  "supplier": "model",
+  "gates": [
+    {
+      "atlas": "compiled",
+      "passed": [
+        "A00_MODEL_READ",
+        "A00_MODEL_REGIONS_ON_PAGES",
+        "A08_REGION_NAMES_MATCH_ATTACHMENTS",
+        "A12_NO_DARK_COLOR",
+        "A03_REGION_WIDTH_HEIGHT_FINITE",
+        "A04_MESH_TRIANGLES_AND_ENCODING",
+        "A14_NO_FULL_FRAME_MESH",
+        "A15_IDLE_NO_MESH_BONE_KEYS",
+        "A20_MESH_WEIGHTS_COHERENT",
+        "A22_MESH_UVS_IN_UNIT_RANGE",
+        "A09_ANIMATION_DURATION_MATCHES_SPEC",
+        "A10_NO_NAN_AFTER_STEPPING",
+        "A17_ATLAS_PAGE_FILES_EXIST",
+        "A06_ATLAS_PAGE_SIZE_MATCHES_PNG",
+        "A19_OVERLAY_PNGS_HAVE_ALPHA",
+        "A26_SLOT_DRAW_ORDER",
+        "A07_ATLAS_TEXT_SHAPE",
+        "A52_WEIGHTED_VERTICES_SHARE_ONE_BONE_ORDER",
+        "A16_SKELETON_VERSION_4_3",
+        "A01_NO_LEGACY_TOPLEVEL_CONSTRAINT_ARRAYS",
+        "A02_NO_BONE_TRANSFORM_KEY",
+        "A05_CURVE_ARRAY_LENGTH",
+        "A18_DETERMINISTIC_EMIT"
+      ],
+      "skipped": [
+        {
+          "code": "A32_EVENT_KEYS_RESOLVE",
+          "reason": "no animation carries an event timeline"
+        },
+        {
+          "code": "A34_CONSTRAINT_TIMELINE_TARGETS",
+          "reason": "no animation carries a constraint timeline"
+        },
+        {
+          "code": "A33_VERTEX_ATTACHMENT_GEOMETRY",
+          "reason": "the skeleton carries no bounding box, clipping attachment or path"
+        },
+        {
+          "code": "A13_MESH_BUDGET",
+          "reason": "the rig \"synthetic_painting\" declares no `invariants.meshSlots` or `invariants.meshTriangles` budget"
+        },
+        {
+          "code": "A21_MESH_RIM_PINNED",
+          "reason": "every weighted mesh here is authored or linked geometry (\"torso\"), not a rigc ring or ribbon — rigc did not place its rim, so it has no rim of its own to find unpinned"
+        },
+        {
+          "code": "A39_DEFORM_KEEPS_TRIANGLE_WINDING",
+          "reason": "no animation carries a deform timeline"
+        },
+        {
+          "code": "A23_PHYSICS_CONSTRAINT_EFFECTIVE",
+          "reason": "the skeleton declares no physics constraint"
+        },
+        {
+          "code": "A36_PATH_CONSTRAINT_EFFECTIVE",
+          "reason": "the skeleton declares no path constraint"
+        },
+        {
+          "code": "A37_SLIDER_CONSTRAINT_EFFECTIVE",
+          "reason": "the skeleton declares no slider constraint"
+        },
+        {
+          "code": "A47_IK_CONSTRAINT_NOT_MUTED_THROUGHOUT",
+          "reason": "the skeleton declares no ik constraint"
+        },
+        {
+          "code": "A48_TRANSFORM_CONSTRAINT_NOT_MUTED_THROUGHOUT",
+          "reason": "the skeleton declares no transform constraint"
+        },
+        {
+          "code": "A40_SLIDERS_COMPOSE_ON_A_SHARED_TARGET",
+          "reason": "the skeleton declares 0 slider constraints, and one slider has nothing to compose with"
+        },
+        {
+          "code": "A42_DRIVEN_CONSTRAINTS_UPDATE_AFTER_THEIR_DRIVER",
+          "reason": "the skeleton declares no slider constraint"
+        },
+        {
+          "code": "A38_SKIN_MEMBERS_ARE_SKIN_REQUIRED",
+          "reason": "no skin activates a bone or a constraint, and nothing declares itself skinRequired"
+        },
+        {
+          "code": "A43_TWO_COLOR_TINT_LOADS_AND_POSES_AS_WRITTEN",
+          "reason": "no slot declares a \"dark\" colour and no animation keys an \"rgba2\" or \"rgb2\" timeline, so there is no two-colour tint to read back"
+        },
+        {
+          "code": "A45_SEPARABLE_COLOR_TIMELINES_OWN_THEIR_CHANNELS_AND_POSE_AS_WRITTEN",
+          "reason": "no animation keys an \"rgb\" or \"alpha\" timeline, so there is no separable slot colour to read back"
+        },
+        {
+          "code": "A44_LINKED_MESH_STATES_NO_GEOMETRY_OF_ITS_OWN",
+          "reason": "no attachment in this skeleton takes its geometry from another one"
+        },
+        {
+          "code": "A46_SEQUENCE_ATTACHMENTS_SHOW_THE_FRAME_THE_FILE_STATES",
+          "reason": "no attachment carries a \"sequence\" block and no animation keys a \"sequence\" timeline, so there is no numbered series to read back"
+        },
+        {
+          "code": "A49_PACKED_FOOTPRINTS_DO_NOT_OVERLAP",
+          "reason": "no page of the atlas carries two regions, so there is no pair of footprints to hold apart"
+        },
+        {
+          "code": "A50_STAGE_BOX_IS_THE_STAGE",
+          "reason": "nothing asks for a stage box: no rigc-compiled/3 model document beside this skeleton states one (stage.box, from the rig spec's skeleton.stageBox) — a rig that does not ask, or an export, carries no stage in its Spine files to measure"
+        },
+        {
+          "code": "A24_AXIS_SPACE_STROKE",
+          "reason": "the rig \"synthetic_painting\" declares no axis bone, so there is no axis space for a stroke to leave"
+        },
+        {
+          "code": "A25_DETACHED_BONE_PARENTAGE",
+          "reason": "the rig \"synthetic_painting\" declares no forbidden parentage"
+        },
+        {
+          "code": "A28_RIBBON_ROWS_SHARE_WEIGHTS",
+          "reason": "the rig \"synthetic_painting\" declares no ribbon mesh on this cut — its mesh slot(s) \"torso\" (authored) have no rows to pair: authored geometry is somebody else's topology, a contour is one silhouette loop, and a segments lattice has cells rather than cross rows"
+        },
+        {
+          "code": "A29_STROKE_WITHIN_CONTACT_DEPTH",
+          "reason": "the manifest declares no `stroke.contact_depth`, so this cut has no measured contact ceiling to hold the stroke to"
+        },
+        {
+          "code": "A30_STROKE_WITHIN_CAP_CONTAINMENT",
+          "reason": "the manifest declares no `stroke.cap_containment_ceiling`, so this cut has no measured containment ceiling"
+        },
+        {
+          "code": "A51_BONES_LIE_ALONG_THEIR_DECLARED_AXIS",
+          "reason": "the rig \"synthetic_painting\" declares no axes (invariants.axes)"
+        },
+        {
+          "code": "A31_DRAW_ORDER_OFFSETS_RESOLVE",
+          "reason": "no animation carries a drawOrder timeline"
+        },
+        {
+          "code": "A35_DEFORM_KEYS_FIT_THE_ATTACHMENT",
+          "reason": "no animation carries a deform timeline"
+        },
+        {
+          "code": "A00_ROUNDTRIP_PARSE",
+          "reason": "spine-core's parser is the subject of this rule and this entry links none of it — the entry that links it runs the round trip on build and validate (installed, the same `rigc` once @esotericsoftware/spine-core is installed beside the package; from a source checkout, `bun cli.ts`), and the selftest and CI run it on every corpus build"
+        }
+      ],
+      "failures": [],
+      "summary": {
+        "assertions": 52,
+        "measured": 23,
+        "passed": 23,
+        "failed": 0,
+        "skipped": 29,
+        "notInProfile": 0,
+        "profile": "rig-play"
+      },
+      "stats": {
+        "pages": 6,
+        "regions": 6,
+        "bones": 3,
+        "slots": 6,
+        "animations": 1,
+        "version": "4.3.13",
+        "regionAttachments": 5,
+        "meshAttachments": 1,
+        "physicsConstraints": 0,
+        "rig": "synthetic_painting",
+        "profile": "rig-play"
+      },
+      "here": {
+        "modelSide": 42,
+        "restated": 9,
+        "notRun": [
+          "A00_ROUNDTRIP_PARSE"
+        ]
+      }
+    },
+    {
+      "atlas": "packed",
+      "passed": [
+        "A00_MODEL_READ",
+        "A00_MODEL_REGIONS_ON_PAGES",
+        "A08_REGION_NAMES_MATCH_ATTACHMENTS",
+        "A12_NO_DARK_COLOR",
+        "A03_REGION_WIDTH_HEIGHT_FINITE",
+        "A04_MESH_TRIANGLES_AND_ENCODING",
+        "A14_NO_FULL_FRAME_MESH",
+        "A15_IDLE_NO_MESH_BONE_KEYS",
+        "A20_MESH_WEIGHTS_COHERENT",
+        "A22_MESH_UVS_IN_UNIT_RANGE",
+        "A09_ANIMATION_DURATION_MATCHES_SPEC",
+        "A10_NO_NAN_AFTER_STEPPING",
+        "A17_ATLAS_PAGE_FILES_EXIST",
+        "A06_ATLAS_PAGE_SIZE_MATCHES_PNG",
+        "A19_OVERLAY_PNGS_HAVE_ALPHA",
+        "A49_PACKED_FOOTPRINTS_DO_NOT_OVERLAP",
+        "A26_SLOT_DRAW_ORDER",
+        "A07_ATLAS_TEXT_SHAPE",
+        "A52_WEIGHTED_VERTICES_SHARE_ONE_BONE_ORDER",
+        "A16_SKELETON_VERSION_4_3",
+        "A01_NO_LEGACY_TOPLEVEL_CONSTRAINT_ARRAYS",
+        "A02_NO_BONE_TRANSFORM_KEY",
+        "A05_CURVE_ARRAY_LENGTH",
+        "A18_DETERMINISTIC_EMIT"
+      ],
+      "skipped": [
+        {
+          "code": "A32_EVENT_KEYS_RESOLVE",
+          "reason": "no animation carries an event timeline"
+        },
+        {
+          "code": "A34_CONSTRAINT_TIMELINE_TARGETS",
+          "reason": "no animation carries a constraint timeline"
+        },
+        {
+          "code": "A33_VERTEX_ATTACHMENT_GEOMETRY",
+          "reason": "the skeleton carries no bounding box, clipping attachment or path"
+        },
+        {
+          "code": "A13_MESH_BUDGET",
+          "reason": "the rig \"synthetic_painting\" declares no `invariants.meshSlots` or `invariants.meshTriangles` budget"
+        },
+        {
+          "code": "A21_MESH_RIM_PINNED",
+          "reason": "every weighted mesh here is authored or linked geometry (\"torso\"), not a rigc ring or ribbon — rigc did not place its rim, so it has no rim of its own to find unpinned"
+        },
+        {
+          "code": "A39_DEFORM_KEEPS_TRIANGLE_WINDING",
+          "reason": "no animation carries a deform timeline"
+        },
+        {
+          "code": "A23_PHYSICS_CONSTRAINT_EFFECTIVE",
+          "reason": "the skeleton declares no physics constraint"
+        },
+        {
+          "code": "A36_PATH_CONSTRAINT_EFFECTIVE",
+          "reason": "the skeleton declares no path constraint"
+        },
+        {
+          "code": "A37_SLIDER_CONSTRAINT_EFFECTIVE",
+          "reason": "the skeleton declares no slider constraint"
+        },
+        {
+          "code": "A47_IK_CONSTRAINT_NOT_MUTED_THROUGHOUT",
+          "reason": "the skeleton declares no ik constraint"
+        },
+        {
+          "code": "A48_TRANSFORM_CONSTRAINT_NOT_MUTED_THROUGHOUT",
+          "reason": "the skeleton declares no transform constraint"
+        },
+        {
+          "code": "A40_SLIDERS_COMPOSE_ON_A_SHARED_TARGET",
+          "reason": "the skeleton declares 0 slider constraints, and one slider has nothing to compose with"
+        },
+        {
+          "code": "A42_DRIVEN_CONSTRAINTS_UPDATE_AFTER_THEIR_DRIVER",
+          "reason": "the skeleton declares no slider constraint"
+        },
+        {
+          "code": "A38_SKIN_MEMBERS_ARE_SKIN_REQUIRED",
+          "reason": "no skin activates a bone or a constraint, and nothing declares itself skinRequired"
+        },
+        {
+          "code": "A43_TWO_COLOR_TINT_LOADS_AND_POSES_AS_WRITTEN",
+          "reason": "no slot declares a \"dark\" colour and no animation keys an \"rgba2\" or \"rgb2\" timeline, so there is no two-colour tint to read back"
+        },
+        {
+          "code": "A45_SEPARABLE_COLOR_TIMELINES_OWN_THEIR_CHANNELS_AND_POSE_AS_WRITTEN",
+          "reason": "no animation keys an \"rgb\" or \"alpha\" timeline, so there is no separable slot colour to read back"
+        },
+        {
+          "code": "A44_LINKED_MESH_STATES_NO_GEOMETRY_OF_ITS_OWN",
+          "reason": "no attachment in this skeleton takes its geometry from another one"
+        },
+        {
+          "code": "A46_SEQUENCE_ATTACHMENTS_SHOW_THE_FRAME_THE_FILE_STATES",
+          "reason": "no attachment carries a \"sequence\" block and no animation keys a \"sequence\" timeline, so there is no numbered series to read back"
+        },
+        {
+          "code": "A50_STAGE_BOX_IS_THE_STAGE",
+          "reason": "nothing asks for a stage box: no rigc-compiled/3 model document beside this skeleton states one (stage.box, from the rig spec's skeleton.stageBox) — a rig that does not ask, or an export, carries no stage in its Spine files to measure"
+        },
+        {
+          "code": "A24_AXIS_SPACE_STROKE",
+          "reason": "the rig \"synthetic_painting\" declares no axis bone, so there is no axis space for a stroke to leave"
+        },
+        {
+          "code": "A25_DETACHED_BONE_PARENTAGE",
+          "reason": "the rig \"synthetic_painting\" declares no forbidden parentage"
+        },
+        {
+          "code": "A28_RIBBON_ROWS_SHARE_WEIGHTS",
+          "reason": "the rig \"synthetic_painting\" declares no ribbon mesh on this cut — its mesh slot(s) \"torso\" (authored) have no rows to pair: authored geometry is somebody else's topology, a contour is one silhouette loop, and a segments lattice has cells rather than cross rows"
+        },
+        {
+          "code": "A29_STROKE_WITHIN_CONTACT_DEPTH",
+          "reason": "the manifest declares no `stroke.contact_depth`, so this cut has no measured contact ceiling to hold the stroke to"
+        },
+        {
+          "code": "A30_STROKE_WITHIN_CAP_CONTAINMENT",
+          "reason": "the manifest declares no `stroke.cap_containment_ceiling`, so this cut has no measured containment ceiling"
+        },
+        {
+          "code": "A51_BONES_LIE_ALONG_THEIR_DECLARED_AXIS",
+          "reason": "the rig \"synthetic_painting\" declares no axes (invariants.axes)"
+        },
+        {
+          "code": "A31_DRAW_ORDER_OFFSETS_RESOLVE",
+          "reason": "no animation carries a drawOrder timeline"
+        },
+        {
+          "code": "A35_DEFORM_KEYS_FIT_THE_ATTACHMENT",
+          "reason": "no animation carries a deform timeline"
+        },
+        {
+          "code": "A00_ROUNDTRIP_PARSE",
+          "reason": "spine-core's parser is the subject of this rule and this entry links none of it — the entry that links it runs the round trip on build and validate (installed, the same `rigc` once @esotericsoftware/spine-core is installed beside the package; from a source checkout, `bun cli.ts`), and the selftest and CI run it on every corpus build"
+        }
+      ],
+      "failures": [],
+      "summary": {
+        "assertions": 52,
+        "measured": 24,
+        "passed": 24,
+        "failed": 0,
+        "skipped": 28,
+        "notInProfile": 0,
+        "profile": "rig-play"
+      },
+      "stats": {
+        "pages": 1,
+        "regions": 6,
+        "bones": 3,
+        "slots": 6,
+        "animations": 1,
+        "version": "4.3.13",
+        "regionAttachments": 5,
+        "meshAttachments": 1,
+        "physicsConstraints": 0,
+        "rig": "synthetic_painting",
+        "profile": "rig-play"
+      },
+      "here": {
+        "modelSide": 42,
+        "restated": 9,
+        "notRun": [
+          "A00_ROUNDTRIP_PARSE"
+        ]
+      }
+    }
+  ],
+  "pack": [
+    {
+      "page": "skeleton.png",
+      "width": 140,
+      "height": 216,
+      "regions": 6,
+      "coveredPct": 85.1,
+      "padding": 2,
+      "pageEdges": "free",
+      "packShape": "polygon"
+    }
+  ]
+}

@@ -1733,6 +1733,13 @@ the record and previously published artifacts byte-identical. Source documents
 and patches are literal retained POSIX paths below the selected project, without
 symlinks, traversal or ignored roots. Only the explicitly bound compiled-model
 path above is allowed in regenerable `derived/`. Clone it when using this gate.
+The scene's idle frames are the one path admitted under `outputs/`: a post on
+rig `vN` reads `outputs/vN/idle/frames.json` only with the path and sha256 of
+`versions[vN].registration.idle`, and any other file under `outputs/vN/idle/`
+only with a `versions[vN].outputs` binding. The bytes stay where `rig-version`
+froze them; no second copy is retained. Present bytes are verified on every
+write and check. Absent bytes refuse, as the registration check refuses absent
+frozen outputs, so restore `outputs/vN/` before writing or checking the post.
 
 ### Review reads; create ingests direction patches
 

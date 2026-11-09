@@ -1,0 +1,44 @@
+{
+  "spec": "rigc-run/1",
+  "package": {
+    "name": "@rig-c/core",
+    "version": "3.6.0"
+  },
+  "command": "build",
+  "started_at": "2026-11-09T00:01:09.000Z",
+  "finished_at": "2026-11-09T00:01:09.000Z",
+  "inputs": [
+    {
+      "role": "rig",
+      "path": "../out/rig.json",
+      "sha256": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3"
+    },
+    {
+      "role": "motion",
+      "path": "../out/motion.json",
+      "sha256": "b51d74cf0d44f62abf740dff9d4773a6b88218ade021d19139acffb149e4a2d5"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "../build-report.json",
+      "sha256": "3fd0f41092375359cf6291a8805f1e5b7d114111756576f581a21cca8ce1ce83"
+    },
+    {
+      "path": "skeleton.atlas",
+      "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+    },
+    {
+      "path": "skeleton.json",
+      "sha256": "ee3b77afd26cf8da9a9ed7de517266b37b76d07062a4e01c76bf9e24d1f543b8"
+    },
+    {
+      "path": "skeleton.model.json",
+      "sha256": "df74eaf6d136a21d679863a779a2b3cd0a961ee79e2f9bba9017a92d00269f6d"
+    },
+    {
+      "path": "skeleton.png",
+      "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+    }
+  ]
+}

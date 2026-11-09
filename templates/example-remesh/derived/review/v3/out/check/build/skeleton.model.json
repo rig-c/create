@@ -871,7 +871,7 @@
   "images": [
     {
       "region": "background",
-      "page": "../../images/background.png",
+      "page": "../out/images/background.png",
       "width": 136,
       "height": 136,
       "hasAlpha": true,
@@ -879,7 +879,7 @@
     },
     {
       "region": "torso",
-      "page": "../../images/torso.png",
+      "page": "../out/images/torso.png",
       "width": 56,
       "height": 72,
       "hasAlpha": true,
@@ -887,7 +887,7 @@
     },
     {
       "region": "lantern",
-      "page": "../../images/lantern.png",
+      "page": "../out/images/lantern.png",
       "width": 24,
       "height": 32,
       "hasAlpha": true,
@@ -895,7 +895,7 @@
     },
     {
       "region": "face",
-      "page": "../../images/face.png",
+      "page": "../out/images/face.png",
       "width": 48,
       "height": 40,
       "hasAlpha": true,
@@ -903,7 +903,7 @@
     },
     {
       "region": "eye_r",
-      "page": "../../images/eye_r.png",
+      "page": "../out/images/eye_r.png",
       "width": 16,
       "height": 16,
       "hasAlpha": true,
@@ -911,7 +911,7 @@
     },
     {
       "region": "eye_l",
-      "page": "../../images/eye_l.png",
+      "page": "../out/images/eye_l.png",
       "width": 16,
       "height": 16,
       "hasAlpha": true,
@@ -1067,6 +1067,6 @@
     }
   ],
   "spine": {
-    "sha256": "b02017db27308fb692c3937da4d44f703bc00af0013c28bd7c1e7e1ac6501983"
+    "sha256": "ee3b77afd26cf8da9a9ed7de517266b37b76d07062a4e01c76bf9e24d1f543b8"
   }
 }

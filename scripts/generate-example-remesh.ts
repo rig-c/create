@@ -35,12 +35,13 @@ export function remeshFiles(dir: string, prefix = ''): Record<string, Buffer> {
   return files;
 }
 
+/** Producer folders for rig-version: input/ (assembled parts), out/ (rig), build/ (compiled), idle/ (render). */
 function buildMeshRigCandidate(
   dir: string,
   parts: Record<string, Uint8Array>,
   amp: number,
   epochSeconds: string,
-): Record<string, Buffer> {
+): void {
   mkdirSync(dir, { recursive: true });
   for (const [path, bytes] of Object.entries(parts)) {
     const file = join(dir, 'input', path);
@@ -78,18 +79,14 @@ function buildMeshRigCandidate(
     { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 },
   );
   if (rigResult.exitCode !== 0) throw new Error(`rig exit ${rigResult.exitCode}\n${rigResult.stdout}\n${rigResult.stderr}`);
-  const buildResult = Bun.spawnSync(
-    [process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'),
-      'build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'out/check/build',
-      '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon'],
-    { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 },
-  );
-  if (buildResult.exitCode !== 0) throw new Error(`rigc build exit ${buildResult.exitCode}\n${buildResult.stdout}\n${buildResult.stderr}`);
-  return {
-    'config.json': readFileSync(join(dir, 'config.json')),
-    'interview-requirements.json': readFileSync(join(dir, 'interview-requirements.json')),
-    ...remeshFiles(join(dir, 'out'), 'out'),
+  const rigc = (args: string[]): void => {
+    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs'), ...args],
+      { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
+    if (result.exitCode !== 0) throw new Error(`rigc ${args[0]} exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
   };
+  rigc(['build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'build',
+    '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon', '--report', 'build-report.json']);
+  rigc(['render', '--candidate', 'build', '--out', 'idle', '--animation', 'idle', '--fps', '1', '--max', '32', '--poser', 'core']);
 }
 
 export function generateExampleRemesh(destination: string): Record<string, Buffer> {
@@ -320,49 +317,34 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
       const answer = item.raw as JsonObject;
       sections[name] = [{ entry: name, guide, quote: answer.verbatim as string, asks: asArray(answer.asks).filter(isObject).map(ask => ask.id) }];
     }
-    const builtWith = Object.fromEntries(
-      ['@rig-c/parts', '@rig-c/core'].map(name => [
-        name,
-        JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version as string,
-      ]),
-    );
+    // The toolchain the producers ran with, declared as an npm v3 lock for rig-version.
+    const lock = { lockfileVersion: 3, packages: Object.fromEntries(['@rig-c/parts', '@rig-c/core'].map(name => [
+      `node_modules/${name}`,
+      { version: JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version as string },
+    ])) };
 
     for (const [index, amp] of [0.4, 0.5, 0.6].entries()) {
       const n = index + 1;
       tick();
       const buildEpoch = String(Math.trunc(now / 1000));
-      const built = buildMeshRigCandidate(join(scratch, `rig-producer-v${n}`), input, amp, buildEpoch);
-      for (const [path, bytes] of Object.entries(input)) {
-        write(`outputs/v${n}/out/${path}`, bytes);
-      }
-      for (const [path, bytes] of Object.entries(built)) {
-        if (!path.startsWith('out/')) write(`evidence/v${n}/${path}`, bytes);
-        else {
-          const suffix = path.slice(4);
-          write(`outputs/v${n}/out/${suffix.startsWith('check/') ? suffix : `rig/${suffix}`}`, bytes);
-        }
-      }
-      const modelRelPath = `outputs/v${n}/out/check/build/skeleton.model.json`;
-      const version: JsonObject = {
-        n,
-        kind: 'rig',
-        rig_version: null,
-        at: new Date(now).toISOString(),
-        built_by: 'agent',
-        built_with: builtWith,
-        changed: `Build synthetic mesh rig candidate v${n} (amp=${amp}).`,
-        outputs: [{ ...binding(modelRelPath), bytes: built['out/check/build/skeleton.model.json']!.length }],
-        evidence: [{ kind: 'still', ...binding('evidence/setup.png'), camera: 'fixed', frame: 'setup' }],
-        verdicts: [],
-        answers_feedback: [],
-        review_origin: null,
-        provenance: { config: binding(`evidence/v${n}/config.json`), sections },
-      };
-      // Declared seed, as in example-chain's versions[] seed: rig-version cannot feed the later direction post yet (create#297).
+      const producer = join(scratch, `rig-producer-v${n}`);
+      buildMeshRigCandidate(producer, input, amp, buildEpoch);
+      writeFileSync(join(producer, 'path-adapter.json'), '[]\n');
+      writeFileSync(join(producer, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
+      writeFileSync(join(producer, 'citations.json'), `${JSON.stringify(sections, null, 2)}\n`);
+      writer(['rig-version', String(n), '--parts', join(producer, 'input'), '--rig', join(producer, 'out'), '--build', join(producer, 'build'),
+        '--idle', join(producer, 'idle'), '--config', join(producer, 'config.json'), '--path-adapter', join(producer, 'path-adapter.json'),
+        '--compile-report', join(producer, 'build-report.json'), '--toolchain-lock', join(producer, 'package-lock.json'),
+        '--run-record', join(producer, 'build/run.json'), '--at-source', join(producer, 'build/run.json'), '--at-pointer', '/finished_at',
+        '--citations', join(producer, 'citations.json'), '--by', 'agent']);
+    }
+    // Declared seed: the still the user accepts v3 on. Its writer is a displayed review-tool act (review --from-review),
+    // which a deterministic generator cannot record.
+    {
       const project = load();
-      project.versions = [...asArray(project.versions), version];
+      const v3 = asArray(project.versions).filter(isObject).find(version => version.n === 3)!;
+      v3.evidence = [{ kind: 'still', ...binding('evidence/setup.png'), camera: 'fixed', frame: 'setup' }];
       json('project.json', project);
-      writer(['review-package', String(n), '--config', `evidence/v${n}/config.json`, '--from', `outputs/v${n}/out`]);
     }
 
     advance('rig-review');

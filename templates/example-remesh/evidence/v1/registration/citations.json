@@ -1,0 +1,68 @@
+{
+  "assemble": [
+    {
+      "entry": "assemble",
+      "guide": "assemble",
+      "quote": "Use the synthetic projection\nKeep the declared geometric example.\n\nUse the synthetic cut\nKeep the declared geometric example.\n\nUse the synthetic emphasis\nKeep the declared geometric example.\n\nUse the synthetic draw_order\nKeep the declared geometric example.\n\nUse the synthetic authored\nKeep the declared geometric example.\n\nUse the synthetic occluders\nKeep the declared geometric example.\n\nUse the synthetic outfits\nKeep the declared geometric example.",
+      "asks": [
+        "projection",
+        "cut",
+        "emphasis",
+        "draw_order",
+        "authored",
+        "occluders",
+        "outfits"
+      ]
+    }
+  ],
+  "bones": [
+    {
+      "entry": "bones",
+      "guide": "bones",
+      "quote": "Use the synthetic chains\nKeep the declared geometric example.\n\nUse the synthetic placement\nKeep the declared geometric example.\n\nUse the synthetic length\nKeep the declared geometric example.",
+      "asks": [
+        "chains",
+        "placement",
+        "length"
+      ]
+    }
+  ],
+  "meshes": [
+    {
+      "entry": "meshes",
+      "guide": "meshes",
+      "quote": "Use the synthetic bend\nKeep the declared geometric example.\n\nUse the synthetic rigid\nKeep the declared geometric example.\n\nUse the synthetic density\nKeep the declared geometric example.",
+      "asks": [
+        "bend",
+        "rigid",
+        "density"
+      ]
+    }
+  ],
+  "regions": [
+    {
+      "entry": "regions",
+      "guide": "meshes",
+      "quote": "Use the synthetic bend\nKeep the declared geometric example.\n\nUse the synthetic rigid\nKeep the declared geometric example.\n\nUse the synthetic density\nKeep the declared geometric example.",
+      "asks": [
+        "bend",
+        "rigid",
+        "density"
+      ]
+    }
+  ],
+  "motion": [
+    {
+      "entry": "motion",
+      "guide": "motion",
+      "quote": "Use the synthetic tracks\nKeep the declared geometric example.\n\nUse the synthetic extent\nKeep the declared geometric example.\n\nUse the synthetic speed\nKeep the declared geometric example.\n\nUse the synthetic loop\nKeep the declared geometric example.\n\nUse the synthetic blink\nKeep the declared geometric example.",
+      "asks": [
+        "tracks",
+        "extent",
+        "speed",
+        "loop",
+        "blink"
+      ]
+    }
+  ]
+}

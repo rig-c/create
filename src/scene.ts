@@ -7,9 +7,11 @@ import { closed, directionHash, hex, objects } from './direction.ts';
 import { answersOf, checkEntry } from './provenance.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
+import { SCENE_CHOICE_MISMATCH, SCENE_CHOICE_MISSING, sceneAuthor, validateAgentSceneAuthority } from './scene-authority.ts';
 import { reviewPackageHash } from './signoff-target.ts';
 import type { Json, JsonObject } from './templates.ts';
 
+export { SCENE_CHOICE_MISMATCH, SCENE_CHOICE_MISSING, sceneAuthor };
 export const SCENE_SPEC = 'rig-create/scene@1';
 export const scenePath = (n: number): string => `evidence/scene/s${n}.json`;
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
@@ -18,11 +20,16 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 const pathShape = (value: unknown): value is string => text(value) && !value.startsWith('/') && !value.includes('\\') && !/^[A-Za-z]:/.test(value) && value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 export const sceneBinding = (value: unknown): value is JsonObject => closed(value, ['path', 'sha256']) && pathShape(value.path) && hex(value.sha256);
 export class SceneError extends Error {
-  constructor(readonly code: string, readonly path: string, why: string) {
-    super(`${path}: ${why}; restore the retained sources and record a new scene with scene write`);
+  constructor(
+    readonly code: string,
+    readonly path: string,
+    why: string,
+    remedy = 'restore the retained sources and record a new scene with scene write',
+  ) {
+    super(`${path}: ${why}; ${remedy}`);
   }
 }
-export function sceneFail(code: string, path: string, why: string): never { throw new SceneError(code, path, why); }
+export function sceneFail(code: string, path: string, why: string, remedy?: string): never { throw new SceneError(code, path, why, remedy); }
 export function sceneFinding(error: SceneError): Finding { return { code: error.code, path: error.path, message: error.message }; }
 
 /** Every read is relative to this one project root, including optional source snapshots for writers. */
@@ -50,8 +57,8 @@ export function sceneEntries(project: JsonObject): JsonObject[] {
   if (!Array.isArray(project.scenes)) sceneFail('SCENE_MALFORMED', 'scenes', 'expected an append-only array');
   for (const [index, entry] of project.scenes.entries()) {
     if (!closed(entry, ['n', 'path', 'sha256', 'at', 'by']) || entry.n !== index + 1 || !positive(entry.n)
-      || entry.path !== scenePath(entry.n) || !hex(entry.sha256) || !text(entry.at) || !/Z$/.test(entry.at) || !Number.isFinite(Date.parse(entry.at)) || !text(entry.by) || entry.by.toLowerCase() === 'agent') {
-      sceneFail('SCENE_MALFORMED', `scenes[${index}]`, 'expected consecutive n, immutable scene path, sha256, UTC at and a human by');
+      || entry.path !== scenePath(entry.n) || !hex(entry.sha256) || !text(entry.at) || !/Z$/.test(entry.at) || !Number.isFinite(Date.parse(entry.at)) || !sceneAuthor(entry.by)) {
+      sceneFail('SCENE_MALFORMED', `scenes[${index}]`, 'expected consecutive n, immutable scene path, sha256, UTC at and by ("agent" or a human identifier)');
     }
   }
   return project.scenes as JsonObject[];
@@ -146,6 +153,7 @@ export function sceneCurrentAt(dir: string, project: JsonObject, at: number): Js
   const doc = json(boundBytes(dir, entry, 'SCENE_FILE_CHANGED'), String(entry.path));
   if (doc.n !== entry.n) sceneFail('SCENE_MALFORMED', String(entry.path), 'document n differs from its committed entry');
   validateSceneShape(doc, String(entry.path));
+  if (entry.by === 'agent') validateScene(dir, recordsAt(project, at), doc, undefined, false, 'agent');
   try { validateSceneCurrent(recordsAt(project, at), doc.rig as JsonObject, true); }
   catch (error) {
     if (error instanceof SceneError && ['SCENE_RIG_STALE', 'SCENE_ACCEPTANCE_STALE'].includes(error.code)) return undefined;
@@ -200,7 +208,7 @@ export function pngDimensions(bytes: Buffer, path: string): { width: number; hei
     || bytes.readUInt32BE(16) === 0 || bytes.readUInt32BE(20) === 0) sceneFail('SCENE_PLATE_DIMENSIONS', path, 'retain a PNG with a valid IHDR');
   return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
-export function validateScene(dir: string, project: JsonObject, doc: JsonObject, snapshots?: Map<string, Buffer>, current = false): void {
+export function validateScene(dir: string, project: JsonObject, doc: JsonObject, snapshots?: Map<string, Buffer>, current = false, by?: string): void {
   validateSceneShape(doc);
   const rig = doc.rig as JsonObject;
   const version = validateSceneAcceptance(project, rig);
@@ -249,6 +257,8 @@ export function validateScene(dir: string, project: JsonObject, doc: JsonObject,
   }
   const layers = plates.some(plate => plate.role === 'foreground') ? ['background', 'rig', 'foreground'] : ['background', 'rig'];
   if (!equal(doc.layers, layers)) sceneFail('SCENE_LAYER_ORDER', 'scene.layers', 'use background, rig and foreground only when declared, in that order');
+  const author = by ?? sceneEntries(project).find(entry => entry.n === doc.n)?.by;
+  if (author === 'agent') validateAgentSceneAuthority(dir, project, doc, ctx, snapshots, current);
 }
 /** The committed document a reference names, sealed by its scenes[] entry and not yet validated. */
 export function committedScene(dir: string, project: JsonObject, reference: JsonObject, snapshots?: Map<string, Buffer>): JsonObject {
@@ -259,8 +269,9 @@ export function committedScene(dir: string, project: JsonObject, reference: Json
   return doc;
 }
 export function readScene(dir: string, project: JsonObject, reference: JsonObject, snapshots?: Map<string, Buffer>, current = false): JsonObject {
+  const entry = sceneEntries(project).find(value => equal(sceneReference(value), reference));
   const doc = committedScene(dir, project, reference, snapshots);
-  validateScene(dir, project, doc, snapshots, current);
+  validateScene(dir, project, doc, snapshots, current, entry ? String(entry.by) : undefined);
   return doc;
 }
 export function checkScenes(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'>): void {

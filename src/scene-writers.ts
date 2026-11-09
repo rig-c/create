@@ -6,12 +6,13 @@ import { closed, directionHash } from './direction.ts';
 import { checkPlateRegistrations } from './plate-receipt.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
+import { SCENE_CHOICE_MISMATCH, resolveAgentCitationSpec, sceneAuthor } from './scene-authority.ts';
 import { SCENE_SPEC, SceneError, checkScenes, plateRegistration, pngDimensions, sceneBytes, sceneEntries, sceneFail, scenePath, sceneRig, validateScene } from './scene.ts';
 import type { JsonObject } from './templates.ts';
 
 export const SCENE_HELP = `scene write --rig <R> --background <path> [--foreground <path>]
   [--background-rect x,y,w,h] [--foreground-rect x,y,w,h]
-  --citations-file <file> --by <human> [<dir>]
+  --citations-file <file> --by <human|agent> [<dir>]
   Citations are a role map {background: citation, foreground?: citation}.
   Each citation names post_composition, asks:["post_composition"], and quote or delegated:true.
   Paths are project-relative. Rects default to the compiled model stage in rig-world-y-up.
@@ -36,7 +37,7 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
     else positional.push(arg);
   }
   if (positional.length > 1 || ['--rig', '--background', '--citations-file', '--by'].some(key => !opts[key])
-    || !/^[1-9][0-9]*$/.test(opts['--rig']!) || !Number.isSafeInteger(Number(opts['--rig'])) || !opts['--by']!.trim() || opts['--by']!.toLowerCase() === 'agent'
+    || !/^[1-9][0-9]*$/.test(opts['--rig']!) || !Number.isSafeInteger(Number(opts['--rig'])) || !sceneAuthor(opts['--by'])
     || opts['--foreground-rect'] && !opts['--foreground']) usage();
   const dir = resolve(positional[0] ?? process.cwd());
   const snapshots = new Map<string, Buffer>();
@@ -80,11 +81,26 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
         if (parts.length !== 4 || parts.some(part => !part.trim())) sceneFail('SCENE_PLACEMENT_INVALID', `${path}.rect`, 'supply x,y,width,height');
         const [x, y, width, height] = parts.map(Number);
         rect = { x: x!, y: y!, width: width!, height: height! };
+      } else if (opts['--by'] === 'agent') {
+        const spec = resolveAgentCitationSpec(dir, project, citations[role]!, snapshots);
+        if (role === 'foreground') {
+          if (!spec.foreground) {
+            sceneFail(
+              SCENE_CHOICE_MISMATCH,
+              'scene.plates[1]',
+              'scene declares a foreground plate not present in post_composition value.scene',
+              'match the exact roles, paths and rects from the cited post_composition choice in the Review tool (or record a new post_composition choice in the Review tool) and run scene write',
+            );
+          }
+          rect = spec.foreground.rect;
+        } else {
+          rect = spec.background.rect;
+        }
       }
       plates.push({ role, ...identity, ...size, rect, registered, citation: citations[role]! });
     }
     const doc: JsonObject = { schema: SCENE_SPEC, n, rig: binding.rig, frame: { space: 'rig-world-y-up', stage: binding.stage }, plates, layers: opts['--foreground'] ? ['background', 'rig', 'foreground'] : ['background', 'rig'] };
-    validateScene(dir, project, doc, snapshots, true);
+    validateScene(dir, project, doc, snapshots, true, opts['--by']!);
     const bytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
     const entry = { n, path: scenePath(n), sha256: directionHash(bytes), at: new Date(now).toISOString(), by: opts['--by']! };
     const next = { ...project, scenes: [...entries, entry] };

@@ -249,7 +249,8 @@ function validateApplied(dir: string, project: JsonObject, record: JsonObject, a
       if (!configInputsLegacy(record.at)) fail('CORRECTION_APPLIED_INVALID', error.message);
       warnings.push(correctionFinding('CORRECTION_APPLIED_INVALID', path, error.message));
     }).map(input => {
-      const bound = bindings(draft.config_inputs).find(f => f.path === input.path);
+      // A missing directory input names its directory; its binding is the receipt that stands for it.
+      const bound = bindings(draft.config_inputs).find(f => f.path === input.path || f.directory === input.path);
       if (bound && input.sha256 === null) return bound;
       return input;
     });

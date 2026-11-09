@@ -31,14 +31,66 @@ export function configInputReferences(dir: string, config: unknown, unavailable?
   }
   return mod.configFileReferences(config);
 }
+/**
+ * The file a directory reference binds: a See-through occluder plate directory
+ * (`comfy plate --mode occluder`) is bound by its producer's receipt, which
+ * itself binds the plate's sibling files; create never hashes those siblings.
+ */
+export const DIRECTORY_INPUT_RECEIPT = 'receipt.json';
+/**
+ * The plate-receipt spec the project's installed parts declares
+ * (`PLATE_RECEIPT_SPEC` in `src/plate.ts`), read from the producer and never
+ * copied into create.
+ */
+export function plateReceiptSpec(dir: string): string {
+  const parts = locateParts(dir);
+  if (parts === null) throw new Error('install @rig-c/parts to read config-named inputs');
+  let spec: unknown;
+  try { spec = (load(join(parts, 'src/plate.ts')) as { PLATE_RECEIPT_SPEC?: unknown }).PLATE_RECEIPT_SPEC; } catch { spec = undefined; }
+  if (typeof spec !== 'string' || !spec) {
+    const pkg = JSON.parse(readFileSync(join(parts, 'package.json'), 'utf8')) as { version: string };
+    throw new Error(`@rig-c/parts ${pkg.version} has no PLATE_RECEIPT_SPEC export in src/plate.ts; install a version declaring the plate receipt spec before binding a directory input`);
+  }
+  return spec;
+}
+/** The `spec` a receipt's bytes declare, or null when they are not a JSON object with a string spec. */
+export function receiptSpec(bytes: Uint8Array): string | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { return null; }
+  return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && typeof (parsed as { spec?: unknown }).spec === 'string' ? (parsed as { spec: string }).spec : null;
+}
+/**
+ * One binding per config-named input. A file binds `{path, sha256}`; a
+ * directory binds `{path: <dir>/receipt.json, sha256, directory: <dir>, spec}`,
+ * so every reader that hashes `path` reads a regular file either way. The
+ * receipt must declare the installed parts' plate-receipt spec; its siblings
+ * and measurements are parts' to verify, not create's.
+ */
 export function configInputBindings(dir: string, configPath: string, allowMissing = false, unavailable?: ConfigInputsWarning): JsonObject[] {
   const config = JSON.parse(readFileSync(resolve(dir, configPath), 'utf8'));
-  return configInputReferences(dir, config, unavailable).map(ref => {
+  const root = realpathSync(dir);
+  const contained = (at: string, path: string): string => {
+    if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${at}: named input leaves the project`);
+    return path.split(sep).join('/');
+  };
+  return configInputReferences(dir, config, unavailable).map((ref): JsonObject => {
     const file = resolve(dir, dirname(configPath), ref.value);
-    const path = relative(realpathSync(dir), allowMissing && !existsSync(file) ? file : realpathSync(file));
-    if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${ref.at}: named input leaves the project`);
-    if (existsSync(file) && !lstatSync(realpathSync(file)).isFile()) throw new Error(`${ref.at}: named input ${path.split(sep).join('/')} is not a regular file`);
-    return { path: path.split(sep).join('/'), sha256: allowMissing && !existsSync(file) ? null : createHash('sha256').update(readFileSync(file)).digest('hex') };
+    if (allowMissing && !existsSync(file)) return { path: contained(ref.at, relative(root, file)), sha256: null };
+    const real = realpathSync(file);
+    const path = contained(ref.at, relative(root, real));
+    if (lstatSync(real).isDirectory()) {
+      const receipt = join(real, DIRECTORY_INPUT_RECEIPT);
+      const bound = `${path}/${DIRECTORY_INPUT_RECEIPT}`;
+      if (allowMissing && !existsSync(receipt)) return { path: bound, sha256: null, directory: path };
+      if (!existsSync(receipt) || !lstatSync(receipt).isFile()) throw new Error(`${ref.at}: named input directory ${path} holds no regular-file ${DIRECTORY_INPUT_RECEIPT}; a directory input binds its producer's receipt, such as a comfy plate --mode occluder output`);
+      const bytes = readFileSync(receipt);
+      const spec = plateReceiptSpec(dir);
+      const declared = receiptSpec(bytes);
+      if (declared !== spec) throw new Error(`${ref.at}: ${bound} declares spec ${JSON.stringify(declared)}; a directory input binds a ${spec} receipt, such as a comfy plate --mode occluder output`);
+      return { path: bound, sha256: createHash('sha256').update(bytes).digest('hex'), directory: path, spec };
+    }
+    if (!lstatSync(real).isFile()) throw new Error(`${ref.at}: named input ${path} is not a regular file`);
+    return { path, sha256: createHash('sha256').update(readFileSync(file)).digest('hex') };
   });
 }
 export function configInputsLegacy(at: unknown): boolean {

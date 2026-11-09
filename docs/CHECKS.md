@@ -1005,7 +1005,7 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_PART_IMAGE_MASK_SIZE` | `part-image` `before`, `after` or `mask` is not a readable PNG or `mask`/`after` dimensions differ from `before` |
 | `CORRECTION_PART_IMAGE_OUTSIDE_MASK` | `part-image` `after` differs from `before` outside `mask` |
 | `CORRECTION_PART_IMAGE_ADDED_ALPHA` | `part-image` `after` increases alpha (`afterA > beforeA`) at any pixel |
-| `DRAFT_PART_REPAINT_UNRECORDED` | a draft's bound `parts/<part>.png` carries repainted `after` bytes differing from an earlier draft without a live `part-image` correction record |
+| `DRAFT_PART_REPAINT_UNRECORDED` | a draft's bound `parts/<part>.png` matches a `part-image` correction's `after.sha256` whose correction is withdrawn, superseded, dated after the draft, or on another part/draft |
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |
 | `CORRECTION_PATH_LEGACY` | WARN once when explicit corrections adoption is absent |

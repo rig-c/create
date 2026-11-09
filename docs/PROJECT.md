@@ -1701,8 +1701,9 @@ or when `after` increases alpha at any pixel (`CORRECTION_PART_IMAGE_ADDED_ALPHA
 A later `draft-rig` (new id) whose bound `<parts.path>/parts/<part>.png` matches
 `after.sha256` resolves the correction automatically (or explicitly via
 `correction resolve --draft <new-id> --by agent --reasoning-file <file>`). A draft
-whose part bytes change to `after` without a matching live `part-image`
-correction refuses as `DRAFT_PART_REPAINT_UNRECORDED`.
+whose bound `parts/<part>.png` matches a `part-image` correction's `after.sha256`
+whose correction is withdrawn, superseded, dated after the draft, or on another
+part/draft refuses as `DRAFT_PART_REPAINT_UNRECORDED`.
 
 ### Authored camera direction (create#92)
 

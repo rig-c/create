@@ -249,24 +249,37 @@ test('part-image plants: edit outside mask, added alpha, wrong before, wrong mas
   rejected(dir, 'CORRECTION_MALFORMED', () => correctionCommand([...baseArgs, '--part-image-file', 'evidence/repaint/after.png', '--by', 'user']));
 });
 
-test('part-image plant: a draft with after bytes but no correction record refuses by name', () => {
+test('part-image negative control and plant: ordinary producer rebuilds with no part-image correction pass, while a draft binding withdrawn/superseded/post-dated part-image after bytes refuses as DRAFT_PART_REPAINT_UNRECORDED', () => {
+  // Negative control: two drafts with different part PNG bytes and no part-image correction at all (ordinary producer rebuild) -> 0 refusals.
   const { dir, pngs, writeDraft } = partImageFixture();
-  // Writer refuses to record the new draft when the part bytes were repainted without a correction record.
-  rejected(dir, 'DRAFT_PART_REPAINT_UNRECORDED', () => writeDraft('unrecorded', '03', pngs.after));
+  expect(writeDraft('rebuilt-by-parts', '03', pngs.after).exit).toBe(0);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
 
-  // If a record is hand-edited or its correction is missing, checkProject also refuses by name.
+  // Plant: a draft binding the after bytes of a withdrawn, superseded, or post-dated part-image correction -> refuses DRAFT_PART_REPAINT_UNRECORDED.
+  const { dir: dir2, pngs: pngs2, writeDraft: writeDraft2 } = partImageFixture();
   testClock.set(new Date('2026-11-06T02:30:00Z'));
-  correctionCommand([
-    'record', dir, '--id', 'repaint-torso', '--path', 'made', '--stage', 'parts-review',
+  expect(correctionCommand([
+    'record', dir2, '--id', 'repaint-torso', '--path', 'made', '--stage', 'parts-review',
     '--draft', 'parent', '--part', 'torso',
     '--part-image-file', 'evidence/repaint/after.png',
     '--mask-file', 'evidence/repaint/mask.png',
     '--tool', 'hand pass',
-  ]);
-  writeDraft('repainted', '03', pngs.after);
-  expect(checkProject(dir).refusals).toEqual([]);
-  const tampered = load(dir);
-  tampered.corrections = [];
-  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(tampered, null, 2)}\n`);
-  expect(checkProject(dir).refusals.map(f => [f.code, f.path])).toContainEqual(['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[1].parts.files']);
+  ]).exit).toBe(0);
+  const withdrawnProject = load(dir2);
+  ((withdrawnProject.corrections as JsonObject[])[0] as JsonObject).verdict = 'withdrawn';
+  writeFileSync(join(dir2, 'project.json'), `${JSON.stringify(withdrawnProject, null, 2)}\n`);
+  // Writer refuses to record a draft that still binds the withdrawn correction's after bytes.
+  rejected(dir2, 'DRAFT_PART_REPAINT_UNRECORDED', () => writeDraft2('uses-withdrawn-after', '03', pngs2.after));
+
+  // And if a draft was recorded before the correction was withdrawn or before the correction timestamp, checkProject refuses by name.
+  const restoredProject = load(dir2);
+  delete ((restoredProject.corrections as JsonObject[])[0] as JsonObject).verdict;
+  writeFileSync(join(dir2, 'project.json'), `${JSON.stringify(restoredProject, null, 2)}\n`);
+  expect(writeDraft2('repainted', '03', pngs2.after).exit).toBe(0);
+  expect(checkProject(dir2).refusals).toEqual([]);
+
+  const postWithdrawn = load(dir2);
+  ((postWithdrawn.corrections as JsonObject[])[0] as JsonObject).verdict = 'withdrawn';
+  writeFileSync(join(dir2, 'project.json'), `${JSON.stringify(postWithdrawn, null, 2)}\n`);
+  expect(checkProject(dir2).refusals.map(f => [f.code, f.path])).toEqual([['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[1].parts.files']]);
 });

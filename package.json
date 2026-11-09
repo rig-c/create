@@ -14,7 +14,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@rig-c/parts": "2.34.0",
+    "@rig-c/parts": "2.35.0",
     "@rig-c/review": "2.7.0"
   },
   "devDependencies": {

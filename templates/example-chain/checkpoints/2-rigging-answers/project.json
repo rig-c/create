@@ -89,7 +89,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.34.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.35.0)",
     "held": false,
     "date": null,
     "interviewer": null,
@@ -1061,7 +1061,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.34.0"
+        "version": "2.35.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -1163,7 +1163,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "aa0b66760b0373a240a4499c93787cc0c521a9b82c43c50095ce7af0c72b4592"
+          "sha256": "fbaf6df7ffd9b6c2d9c302b025bdab70800dc25e0148251666009f0e610ce8f1"
         }
       ],
       "config_inputs": [

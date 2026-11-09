@@ -1,16 +1,20 @@
 import { syntheticReviewRunner } from './review-read-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CorrectionError, correctionApprovalFindings, correctionHash, validateCorrectionPatch } from '../src/corrections.ts';
 import { fixture as projectFixture } from './fixtures.ts';
+import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { Refusal } from '../src/refusal.ts';
+import { selectAnswerHashes } from '../src/signoff-answers.ts';
+import { hasStageOrder, LEGACY_STAGE_VALUES } from '../src/stages.ts';
+import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
-import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, draftRigCommand, reopenCommand, testClock } from './clock.ts';
+import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, draftRigCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
 
 const requireCore = createRequire(import.meta.url);
@@ -146,13 +150,36 @@ function syntheticPartPngs() {
   };
 }
 
-function partImageFixture(opts: { modelless?: boolean } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'part-image-'));
+function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean } = {}) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'part-image-')));
   roots.push(root);
   const dir = join(root, 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), dir, { recursive: true });
+  if (opts.legacyOrder) {
+    const legacy = load(dir);
+    const interview = legacy.interview as JsonObject;
+    delete interview.order;
+    legacy.stage_values = [...LEGACY_STAGE_VALUES];
+    for (const raw of interview.waypoints as JsonObject[]) {
+      if (raw.guide === null) raw.guide = { not_applicable: true, because: 'synthetic legacy-order fixture' };
+    }
+    const signoffs = legacy.signoffs as JsonObject[];
+    const stepHashes = signoffs[1]!.step_hashes as JsonObject;
+    for (const step of (legacy.plan as JsonObject).steps as JsonObject[]) {
+      if (step.phase !== 'rig') continue;
+      if (step.checkpoint === null) step.checkpoint = { delegated: false, by: 'user', at: signoffs[1]!.at, verbatim: signoffs[1]!.verbatim, value: step.checkpoint_proposed };
+      stepHashes[String(step.id)] = stepHash(step);
+    }
+    delete signoffs[1]!.steps;
+    signoffs[0]!.answer_hashes = selectAnswerHashes(dir, legacy, signoffs[0]!)!;
+    signoffs[1]!.answer_hashes = selectAnswerHashes(dir, legacy, signoffs[1]!)!;
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(legacy, null, 2)}\n`);
+  }
   testClock.set(new Date('2026-11-06T01:02:05Z'));
   advanceCommand(['parts-review', dir, ...withPartsCheck(dir, 'derived/drafts/chain/input')]);
+  const diffReport = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), 'utf8')) as JsonObject;
+  (diffReport.stack as JsonObject).sha256 = correctionHash(readFileSync(join(dir, 'derived/drafts/chain/input/recomposite_rig.png')));
+  writeFileSync(join(dir, 'evidence/diff-components.json'), `${JSON.stringify(diffReport, null, 2)}\n`);
   const initial = load(dir);
   initial.drafts = [];
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(initial, null, 2)}\n`);
@@ -351,4 +378,38 @@ test('part-image negative control and plant: ordinary producer rebuilds with no 
   ((postWithdrawn.corrections as JsonObject[])[0] as JsonObject).verdict = 'withdrawn';
   writeFileSync(join(dir2, 'project.json'), `${JSON.stringify(postWithdrawn, null, 2)}\n`);
   expect(checkProject(dir2).refusals.map(f => [f.code, f.path])).toEqual([['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[1].parts.files']]);
+});
+
+test('legacy-order project with a resolved part-image correction on a model-less draft signs parts-review with --draft alone and passes check', () => {
+  const { dir, pngs, stageDraft } = partImageFixture({ modelless: true, legacyOrder: true });
+  expect(hasStageOrder(load(dir))).toBe(false);
+  testClock.set(new Date('2026-11-06T02:30:00Z'));
+  expect(correctionCommand([
+    'record', dir, '--id', 'repaint-torso', '--path', 'made', '--stage', 'parts-review',
+    '--draft', 'parent', '--part', 'torso',
+    '--part-image-file', 'evidence/repaint/after.png',
+    '--mask-file', 'evidence/repaint/mask.png',
+    '--tool', 'hand pass',
+  ]).exit).toBe(0);
+  expect(cli(dir, ['draft-rig', ...stageDraft('repainted', '03', pngs.after)]).exit).toBe(0);
+  recordPartsReceipt(dir, 'parent', Date.parse('2026-11-06T02:15:00Z'));
+  recordPartsReceipt(dir, 'repainted', Date.parse('2026-11-06T03:15:00Z'));
+  writeFileSync(join(dir, 'words.txt'), 'Approve the repainted parts.\n');
+  testClock.set(new Date('2026-11-06T03:30:00Z'));
+  // Plant: signing the unfixed parent draft without --structure-file refuses CORRECTION_OUTCOME and preserves project.json.
+  rejected(dir, 'CORRECTION_OUTCOME', () => signoffCommand([
+    'parts-review', dir, '--by', 'user', '--draft', 'parent',
+    '--diff-report', 'evidence/diff-components.json', '--verbatim-file', join(dir, 'words.txt'),
+  ]));
+  // Signing the resolving draft with --draft alone (no --structure-file) records draft_id and passes check.
+  const signed = cli(dir, [
+    'signoff', 'parts-review', dir, '--by', 'user', '--draft', 'repainted',
+    '--diff-report', 'evidence/diff-components.json', '--verbatim-file', join(dir, 'words.txt'), '--json',
+  ]);
+  expect(signed.stderr).toBe('');
+  expect(signed.exit).toBe(0);
+  const record = JSON.parse(signed.stdout) as JsonObject;
+  expect(record.draft_id).toBe('repainted');
+  expect(record.structure).toBeUndefined();
+  expect(checkProject(dir).refusals).toEqual([]);
 });

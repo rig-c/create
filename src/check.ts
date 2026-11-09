@@ -31,7 +31,8 @@ import { amendmentSummaries, collectAmendments, type AmendmentSummary } from './
  * bust's default or reasoned exclusion at `meshes` (src/meshes-bust.ts).
  */
 import { existsSync, readFileSync, recordCheckReads, type CheckRead } from './check-reads.ts';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { checkCollectionBinding, loadCollectionForDir, withCandidateProject } from './collection-binding-reader.ts';
 
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkRiggingContext } from './structure.ts';
@@ -337,12 +338,8 @@ export function answered(state: AnswerState): boolean {
 
 // ------------------------------------------------------------------ loading
 
-export function loadCollection(dir: string): JsonObject | null {
-  if (basename(dirname(dir)) !== 'members') return null;
-  const file = join(dirname(dirname(dir)), 'collection.json');
-  if (!existsSync(file)) return null;
-  const read = readJsonObject(file);
-  return read.ok ? read.value : null;
+export function loadCollection(dir: string, project?: JsonObject): JsonObject | null {
+  return loadCollectionForDir(dir, project);
 }
 
 export function collectItems(project: JsonObject, ctx: Pick<Ctx, 'collection'>): Item[] {
@@ -843,8 +840,11 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
  * With `options.recordReads`, the report also lists every project file the check read (`reads`).
  */
 export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean; recordReads?: boolean }): CheckReport {
-  if (!options.recordReads) return checkProjectOnce(projectDirArg, candidate, options);
-  const { value, reads } = recordCheckReads(projectDirArg, () => checkProjectOnce(projectDirArg, candidate, options));
+  const run = (): CheckReport => candidate === undefined
+    ? checkProjectOnce(projectDirArg, candidate, options)
+    : withCandidateProject(projectDirArg, candidate, () => checkProjectOnce(projectDirArg, candidate, options));
+  if (!options.recordReads) return run();
+  const { value, reads } = recordCheckReads(projectDirArg, run);
   return { ...value, reads };
 }
 
@@ -897,7 +897,8 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the order in src/stages.ts is [${expectedValues.join(', ')}]` });
   }
 
-  const collection = loadCollection(dir);
+  checkCollectionBinding(dir, project, refusals);
+  const collection = loadCollection(dir, project);
   const reopens = collectReopens(project, refusals);
   const historySignoffs = collectSignoffs(project, refusals).filter(s => {
     if (STAGE_VALUES.includes(s.stage)) return true;

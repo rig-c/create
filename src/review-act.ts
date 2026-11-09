@@ -67,7 +67,7 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
   // Only stable releases in the frozen range are accepted. Prereleases are outside it.
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
-  if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || Number(match[1]) !== 2 || Number(match[2]) < 25) failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <3.0.0`);
+  if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3)) failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
   if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${String(act.kind)} does not match ${kind}`);
   const authority = act.authority;
   const reviewer = object(authority) ? authority.reviewer : null;

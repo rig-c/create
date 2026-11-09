@@ -2,7 +2,7 @@
   "spec": "rigc-run/1",
   "package": {
     "name": "@rig-c/core",
-    "version": "3.6.0"
+    "version": "3.7.0"
   },
   "command": "build",
   "started_at": "2026-11-09T00:01:10.000Z",

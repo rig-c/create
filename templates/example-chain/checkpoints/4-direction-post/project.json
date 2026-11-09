@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "6c3f7afa06b119232425c9c3dc5549785e79d23f03727de557c32dba97cb854e"
+          "sha256": "f34d0c4e63aedba0cfaadfdef77b29853d6bd54cdcad3cf4a4b2ee1617fe6179"
         }
       }
     },
@@ -157,7 +157,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.36.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 3.7.0)",
     "held": false,
     "date": null,
     "interviewer": null,
@@ -1302,8 +1302,8 @@
       "at": "2026-11-06T01:00:53.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.36.0",
-        "@rig-c/core": "3.6.0"
+        "@rig-c/parts": "3.7.0",
+        "@rig-c/core": "3.7.0"
       },
       "changed": "Build the synthetic approved parts.",
       "outputs": [
@@ -1426,7 +1426,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "ff2a82974be47673a717c6e42103f11711005f20adf3975dda3ec3c38aed05cd"
+            "sha256": "9ff4b765bc7f84587c8f0d1c7dbdde2f5c4ba36cc1924948e5ef6b28f439b796"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1510,7 +1510,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "ae216e16c23a5a1d52c7f15ed121271d795b7f93d5d7cf628cb5f711a118df30"
+            "sha256": "ac3c761caccc4673f072a63172e3e1aa773041b55f1cd20d13663c0f0230bd65"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2134,7 +2134,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.36.0"
+        "version": "3.7.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -2180,7 +2180,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "ff2a82974be47673a717c6e42103f11711005f20adf3975dda3ec3c38aed05cd"
+          "sha256": "9ff4b765bc7f84587c8f0d1c7dbdde2f5c4ba36cc1924948e5ef6b28f439b796"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -2236,7 +2236,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "ae216e16c23a5a1d52c7f15ed121271d795b7f93d5d7cf628cb5f711a118df30"
+          "sha256": "ac3c761caccc4673f072a63172e3e1aa773041b55f1cd20d13663c0f0230bd65"
         }
       ],
       "config_inputs": [

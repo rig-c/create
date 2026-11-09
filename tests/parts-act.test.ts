@@ -139,6 +139,7 @@ async function submit(root: string, host: JobOwnerHost, verdict: JobVerdict = 'a
           mesh: { outcome: mesh, note: mesh === 'flagged' ? 'Synthetic mesh finding.' : '' } })) } }));
     expect(result.ok ? undefined : result.error.code).toBeUndefined();
     expect(result.ok).toBe(true); if (!result.ok) throw Error(result.error.code);
+    if (result.value.schema === 'rig-review/act@4') throw Error(result.value.schema);
     return result.value;
 }
 

@@ -388,7 +388,7 @@ test.each(['drop', 'reorder', 'version'])('review refuses the C4 %s control', as
     const images = [...identity.images];
     if (control === 'drop') images.pop();
     if (control === 'reorder') images.reverse();
-    return { ...context, parts: { ...identity, images, enumeratorVersion: control === 'version' ? '3.0.0' : identity.enumeratorVersion } };
+    return { ...context, parts: { ...identity, images, enumeratorVersion: control === 'version' ? '4.0.0' : identity.enumeratorVersion } };
   };
   host.stop();
   const corruptedHost = await startJobHost({ ...entry.identity, readPublished: corrupt, partsEnumerator,

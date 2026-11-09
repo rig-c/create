@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,6 +11,39 @@ import { readTemplate } from '../src/templates.ts';
 const EXACT = /^\d+\.\d+\.\d+$/;
 const REPO = join(import.meta.dir, '..');
 const CLI = join(REPO, 'src/cli.ts');
+
+function linkSourcePackages(baseDir: string): {
+  cliPath: string;
+  jobWriterPath: string;
+  playSourceEntry: string;
+} {
+  const wsRoot = join(baseDir, 'linked-ws');
+  const createRoot = join(wsRoot, 'packages/create');
+  mkdirSync(join(wsRoot, 'node_modules/@rig-c'), { recursive: true });
+  mkdirSync(join(createRoot, 'node_modules/@rig-c'), { recursive: true });
+  for (const entry of readdirSync(join(REPO, 'node_modules')).filter(name => name !== '@rig-c')) {
+    symlinkSync(join(REPO, 'node_modules', entry), join(wsRoot, 'node_modules', entry));
+    symlinkSync(join(REPO, 'node_modules', entry), join(createRoot, 'node_modules', entry));
+  }
+  for (const name of ['core', 'parts', 'play', 'review'] as const) {
+    const pkgTarget = join(wsRoot, 'packages', name);
+    cpSync(join(REPO, 'node_modules/@rig-c', name), pkgTarget, { recursive: true });
+    if (name === 'play') {
+      mkdirSync(join(pkgTarget, 'src'), { recursive: true });
+      writeFileSync(join(pkgTarget, 'src/index.ts'), "export * from '../dist/index.js';\nexport const PLAY_SOURCE_LINKED = true;\n");
+    }
+    symlinkSync(pkgTarget, join(wsRoot, 'node_modules/@rig-c', name), 'dir');
+    symlinkSync(pkgTarget, join(createRoot, 'node_modules/@rig-c', name), 'dir');
+  }
+  cpSync(join(REPO, 'package.json'), join(createRoot, 'package.json'));
+  cpSync(join(REPO, 'src'), join(createRoot, 'src'), { recursive: true });
+  symlinkSync(join(REPO, 'templates'), join(createRoot, 'templates'), 'dir');
+  return {
+    cliPath: join(createRoot, 'src/cli.ts'),
+    jobWriterPath: join(createRoot, 'src/job-writer.ts'),
+    playSourceEntry: realpathSync(join(wsRoot, 'packages/play/src/index.ts')),
+  };
+}
 
 test('every pin is an exact version, no range', () => {
   expect(Object.keys(PINNED_PACKAGES).sort()).toEqual(['@rig-c/core', '@rig-c/parts']);
@@ -149,6 +182,7 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
       stderr: '',
     });
 
+    const linkedWs = linkSourcePackages(dir);
     const childScript = join(dir, 'child-runtime.ts');
     writeFileSync(
       childScript,
@@ -158,20 +192,36 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
       ].join('\n'),
     );
 
-    const parentScript = join(dir, 'parent.ts');
+    const sourceParentScript = join(dir, 'parent-source.ts');
     writeFileSync(
-      parentScript,
+      sourceParentScript,
       [
+        "import { realpathSync } from 'node:fs';",
         "import { PLAY_MODE } from '@rig-c/synth-play';",
-        `import { jobRuntimeCommand } from ${JSON.stringify(join(REPO, 'src/job-writer.ts'))};`,
+        `import { jobRuntimeCommand } from ${JSON.stringify(linkedWs.jobWriterPath)};`,
+        `const resolvedPlay = realpathSync(Bun.resolveSync('@rig-c/play', ${JSON.stringify(join(dir, 'linked-ws/packages/create/node_modules/@rig-c/review/src'))}));`,
         `const child = Bun.spawnSync(jobRuntimeCommand('publish', ${JSON.stringify(childScript)}), { cwd: ${JSON.stringify(dir)}, stdout: 'pipe', stderr: 'pipe' });`,
         'if (child.exitCode !== 0) { process.stderr.write(child.stderr); process.exit(child.exitCode); }',
-        "console.log(JSON.stringify({ parentMode: PLAY_MODE, parentExecArgv: process.execArgv, child: JSON.parse(child.stdout.toString('utf8')) }));",
+        "console.log(JSON.stringify({ parentMode: PLAY_MODE, resolvedPlay, parentExecArgv: process.execArgv, child: JSON.parse(child.stdout.toString('utf8')) }));",
+      ].join('\n'),
+    );
+
+    const distParentScript = join(dir, 'parent-dist.ts');
+    writeFileSync(
+      distParentScript,
+      [
+        "import { realpathSync } from 'node:fs';",
+        "import { PLAY_MODE } from '@rig-c/synth-play';",
+        `import { jobRuntimeCommand } from ${JSON.stringify(join(REPO, 'src/job-writer.ts'))};`,
+        `const resolvedPlay = realpathSync(Bun.resolveSync('@rig-c/play', ${JSON.stringify(join(REPO, 'node_modules/@rig-c/review/src'))}));`,
+        `const child = Bun.spawnSync(jobRuntimeCommand('publish', ${JSON.stringify(childScript)}), { cwd: ${JSON.stringify(dir)}, stdout: 'pipe', stderr: 'pipe' });`,
+        'if (child.exitCode !== 0) { process.stderr.write(child.stderr); process.exit(child.exitCode); }',
+        "console.log(JSON.stringify({ parentMode: PLAY_MODE, resolvedPlay, parentExecArgv: process.execArgv, child: JSON.parse(child.stdout.toString('utf8')) }));",
       ].join('\n'),
     );
 
     for (const parentFlags of [[SOURCE_CONDITION_FLAG, '--smol', '--conditions=other'], ['--conditions', SOURCE_CONDITION, '--smol']]) {
-      const linked = Bun.spawnSync([process.execPath, ...parentFlags, parentScript], {
+      const linked = Bun.spawnSync([process.execPath, ...parentFlags, sourceParentScript], {
         cwd: dir,
         stdout: 'pipe',
         stderr: 'pipe',
@@ -179,6 +229,7 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
       expect({ exit: linked.exitCode, stderr: linked.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
       expect(JSON.parse(linked.stdout.toString('utf8'))).toEqual({
         parentMode: 'source',
+        resolvedPlay: linkedWs.playSourceEntry,
         parentExecArgv: parentFlags,
         child: {
           mode: 'source',
@@ -188,7 +239,7 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
       });
     }
 
-    const distDefault = Bun.spawnSync([process.execPath, '--smol', '--conditions=other', parentScript], {
+    const distDefault = Bun.spawnSync([process.execPath, '--smol', '--conditions=other', distParentScript], {
       cwd: dir,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -196,6 +247,7 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
     expect({ exit: distDefault.exitCode, stderr: distDefault.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
     expect(JSON.parse(distDefault.stdout.toString('utf8'))).toEqual({
       parentMode: 'dist',
+      resolvedPlay: realpathSync(join(REPO, 'node_modules/@rig-c/play/dist/index.js')),
       parentExecArgv: ['--smol', '--conditions=other'],
       child: {
         mode: 'dist',
@@ -211,14 +263,17 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
 test.each([
   ['linked source condition', [SOURCE_CONDITION_FLAG]],
   ['default dist mode', []],
-] as const)('CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in %s', async (_label, execFlags) => {
+] as const)('CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in %s', async (label, execFlags) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-cond-')));
+  const ws = label === 'linked source condition' ? linkSourcePackages(root) : null;
+  const activeCli = ws ? ws.cliPath : CLI;
+  const projectRoot = join(root, 'project');
   let proc: Bun.Subprocess | null = null;
   try {
-    cpSync(join(REPO, 'templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
-    cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/chain-2'), { recursive: true });
-    const spawned = Bun.spawn([process.execPath, ...execFlags, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
-      cwd: root,
+    cpSync(join(REPO, 'templates/example-chain/checkpoints/1-parts-verdict'), projectRoot, { recursive: true });
+    cpSync(join(projectRoot, 'derived/drafts/chain'), join(projectRoot, 'derived/drafts/chain-2'), { recursive: true });
+    const spawned = Bun.spawn([process.execPath, ...execFlags, activeCli, 'job', 'open', projectRoot, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+      cwd: projectRoot,
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -240,10 +295,10 @@ test.each([
       [
         process.execPath,
         ...execFlags,
-        CLI,
+        activeCli,
         'draft-rig',
         'chain-2',
-        root,
+        projectRoot,
         '--config',
         'derived/drafts/chain-2/config.json',
         '--from',
@@ -251,7 +306,7 @@ test.each([
         '--parts',
         'derived/drafts/chain-2/input',
       ],
-      { cwd: root, stdout: 'pipe', stderr: 'pipe' },
+      { cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
     );
     expect({ exit: drafted.exitCode, stderr: drafted.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
     expect(drafted.stdout.toString('utf8').trim().split('\n')).toEqual([
@@ -259,8 +314,8 @@ test.each([
       'job: asked parts-verdict chain-2, checkpoint assemble',
     ]);
 
-    const reconciled = Bun.spawnSync([process.execPath, ...execFlags, CLI, 'job', 'reconcile', root], {
-      cwd: root,
+    const reconciled = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'reconcile', projectRoot], {
+      cwd: projectRoot,
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -270,8 +325,8 @@ test.each([
       stderr: '',
     });
 
-    const closed = Bun.spawnSync([process.execPath, ...execFlags, CLI, 'job', 'close', root], {
-      cwd: root,
+    const closed = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'close', projectRoot], {
+      cwd: projectRoot,
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -281,14 +336,14 @@ test.each([
       stderr: '',
     });
     expect(await proc.exited).toBe(0);
-    expect(readWriterBinding(root)).toBeNull();
+    expect(readWriterBinding(projectRoot)).toBeNull();
   } finally {
     if (proc && proc.exitCode === null) {
       proc.kill();
       await proc.exited;
     }
-    rmSync(jobPrivateRoot(root), { recursive: true, force: true });
-    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
+    rmSync(jobPrivateRoot(projectRoot), { recursive: true, force: true });
+    rmSync(jobHostStateRoot(projectRoot), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

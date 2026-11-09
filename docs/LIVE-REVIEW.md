@@ -173,7 +173,7 @@ Human-value and feedback flags are exclusive with `--from-review`.
 
 The shared reader checks `rig-review/job-api@2` for semantic API responses,
 `rig-review/act@2` for historical acts and `rig-review/act@3` for rig stills, and the
-act's Parts enumerator version against `>=2.25.0 <3.0.0`. API@1 and act@1 are
+act's Parts enumerator version against `>=2.25.0 <4.0.0`. API@1 and act@1 are
 refused without migration. Rig/post `review-verdict` and draft `parts-verdict` use their respective writers.
 Interview picks use `interview-answer --from-review`. A passed `checkpoint` act is recorded by
 `signoff <stage> --checkpoint <id> --from-review <actId>`: the act's `planStepId` must be `<id>`, an

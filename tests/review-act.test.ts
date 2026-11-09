@@ -221,7 +221,10 @@ test('API and act schemas, @1, enumerator range and unsupported kinds have disti
   const response = (value: object, schema = 'rig-review/job-api@2') => JSON.stringify({ schema, verb: 'fetch-act', jobId: act.jobId, requestId: 'request', ok: true, value });
   expect(() => decodeReviewResponse(response(act, 'rig-review/job-api@1'), act.jobId, act.actId, 'request')).toThrow(expect.objectContaining({ code: 'REVIEW_API_SCHEMA_UNSUPPORTED' }));
   expect(() => decodeReviewAct(JSON.stringify({ ...act, schema: 'rig-review/act@1' }))).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SCHEMA_UNSUPPORTED' }));
-  for (const enumeratorVersion of ['2.24.9', '3.0.0', '2.25.0-beta.1', 'absent']) {
+  for (const enumeratorVersion of ['2.25.0', '2.36.0', '3.0.0', '3.7.0']) {
+    expect(decodeReviewAct(JSON.stringify({ ...act, source: { ...act.source, parts: { ...act.source.parts, enumeratorVersion } } })).source.parts?.enumeratorVersion).toBe(enumeratorVersion);
+  }
+  for (const enumeratorVersion of ['2.24.9', '4.0.0', '2.25.0-beta.1', '3.7.0-beta.1', 'absent']) {
     expect(() => decodeReviewAct(JSON.stringify({ ...act, source: { ...act.source, parts: { ...act.source.parts, enumeratorVersion } } }))).toThrow(expect.objectContaining({ code: 'REVIEW_PARTS_ENUMERATOR_UNSUPPORTED' }));
   }
   expect(() => decodeReviewAct(JSON.stringify({ ...act, kind: 'signoff' }))).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
@@ -317,7 +320,7 @@ test('unsupported fetched schemas and enumerator refuse at the CLI before any re
     const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${act.jobId}/api`, request));
     const value = await response.json() as { schema: string; source: { parts: { enumeratorVersion: string } } };
     if (planted === 'act') value.schema = 'rig-review/act@1';
-    if (planted === 'enumerator') value.source.parts.enumeratorVersion = '3.0.0';
+    if (planted === 'enumerator') value.source.parts.enumeratorVersion = '4.0.0';
     return Response.json(value);
 
   } });

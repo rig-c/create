@@ -51,6 +51,7 @@ function setup(density?: number, reopen = true): string {
   if (!reopen) return dir;
   draftRigCommand(['shape', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   recordPartsReceipt(dir, 'shape', testClock.now());
+  diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic', '--by', 'agent']);
   const draft = obj(arr(read(dir).drafts)[0]);
   write(dir, 'evidence/structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'shape', config: draft.config, entries: [{ path: '/meshes/torso', value: entry }] }));
   return dir;
@@ -64,7 +65,6 @@ function completeParts(dir: string): void {
 }
 function partsSign(dir: string, draft = 'shape', snapshot = 'evidence/structure.json'): void {
   signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'),
-    '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic',
     '--draft', draft, '--structure-file', snapshot]);
 }
 function freshRigInterview(dir: string, answerAt = '2026-11-21T00:00:00Z', approvalAt = '2026-11-22T00:00:00Z'): void {
@@ -93,7 +93,7 @@ test('human snapshot and rigging approval bind exact declarations without rewrit
 
 test('missing snapshot, changed bytes, early guide and contradictory declaration refuse before write', () => {
   const dir = setup(); const before = readFileSync(join(dir, 'project.json'));
-  try { signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape', '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic']); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('STRUCTURE_DECISIONS_MISSING'); }
+  try { signoffCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape']); throw Error('expected refusal'); } catch (e) { expect((e as Refusal).code).toBe('STRUCTURE_DECISIONS_MISSING'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   partsSign(dir); freshRigInterview(dir);
   const p = read(dir); obj(waypoint(p, 'bones').guide).at = '2026-11-19T00:00:00Z'; save(dir, p);
@@ -127,7 +127,7 @@ test.each([false, true])('structure writer refuses ignored storage, including a 
   try { partsSign(dir, 'shape', path); throw Error('expected refusal'); } catch (error) { expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_INVALID'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
-import { checkProject, draftRigCommand, advanceCommand, stepStatusCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
+import { checkProject, diffClassesCommand, draftRigCommand, advanceCommand, stepStatusCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
 
 test('reopen and re-approved density preserve v1 and bind v2 to its own build-time structure', () => {
   const dir = setup(10); partsSign(dir); freshRigInterview(dir);

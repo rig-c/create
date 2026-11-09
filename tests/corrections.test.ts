@@ -14,7 +14,7 @@ import { hasStageOrder, LEGACY_STAGE_VALUES } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
-import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, draftRigCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, diffClassesCommand, draftRigCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
 
 const requireCore = createRequire(import.meta.url);
@@ -396,15 +396,16 @@ test('legacy-order project with a resolved part-image correction on a model-less
   recordPartsReceipt(dir, 'repainted', Date.parse('2026-11-06T03:15:00Z'));
   writeFileSync(join(dir, 'words.txt'), 'Approve the repainted parts.\n');
   testClock.set(new Date('2026-11-06T03:30:00Z'));
+  diffClassesCommand([dir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
   // Plant: signing the unfixed parent draft without --structure-file refuses CORRECTION_OUTCOME and preserves project.json.
   rejected(dir, 'CORRECTION_OUTCOME', () => signoffCommand([
     'parts-review', dir, '--by', 'user', '--draft', 'parent',
-    '--diff-report', 'evidence/diff-components.json', '--verbatim-file', join(dir, 'words.txt'),
+    '--verbatim-file', join(dir, 'words.txt'),
   ]));
   // Signing the resolving draft with --draft alone (no --structure-file) records draft_id and passes check.
   const signed = cli(dir, [
     'signoff', 'parts-review', dir, '--by', 'user', '--draft', 'repainted',
-    '--diff-report', 'evidence/diff-components.json', '--verbatim-file', join(dir, 'words.txt'), '--json',
+    '--verbatim-file', join(dir, 'words.txt'), '--json',
   ]);
   expect(signed.stderr).toBe('');
   expect(signed.exit).toBe(0);

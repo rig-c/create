@@ -23,7 +23,7 @@
     {"stage":"interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:18.000Z","verbatim":"that's everything","answer_hashes":{"rig_type":"7dadbbfeb6bde120d27feb2341992af442fb223a640179e4f3d9e14bfdb8f6e2","reference":"c24369dae210ceaaaeac0c3e7404eaf0b630ddbfd465942b0052d70f5f12cfa6","seethrough":"bfd55531ccb6c75f1e39c26d9e792512bc740a28896eab6e41ddf77e443d81cc","assemble":"56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b"}},
     {"stage":"plan-approved","checkpoint":null,"by":"user","at":"2026-11-09T00:00:30.000Z","verbatim":"Approve the synthetic plan-approved record.\n","steps":["seethrough","assemble"],"step_hashes":{"seethrough":"fb80a8476afa09a4589bbf8fc3f0a644310c51a2f56b16691120ff27ba8968fd","assemble":"86f6af331ecd8d73b07aa8f650f0c7f53e7a80932b06b1812d13fc53cabfda1e"},"answer_hashes":{"seethrough":"c4ec03e2e3c5e5ff78e171ff11659e94101a9117978999b119d682d8848f17e6","assemble":"56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b"}},
     {"stage":"parts","checkpoint":"assemble","by":"user","at":"2026-11-09T00:00:34.000Z","verbatim":"the cut is fine"},
-    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-09T00:00:37.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"},"diff_map":{"report":{"path":"evidence/diff-components.json","sha256":"6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"},"components":[{"id":"p10-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"},{"id":"p1000-n3","status":"in-painting","why":"the synthetic painting deliberately differs here"}]},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
+    {"stage":"parts-review","checkpoint":null,"by":"user","at":"2026-11-09T00:00:37.000Z","verbatim":"Approve the synthetic parts-review record.\n","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"},"draft_id":"example","structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
     {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:44.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","meshes","constraints","motion"],"step_hashes":{"bones":"ad4173f71847a9a5747832a4ebf578503fbea776c3fca817e59c21098fc5fab5","meshes":"75aa38463e70a159ea2e685275f77969038fe16d4307716503a0db6454acda1c","constraints":"c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327","motion":"0fc852ec4e95499d17f6ee8c28f4192219c057dd55f4e0543b61d3eda939ee65"},"answer_hashes":{"bones":"3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7","meshes":"e5b60b9dd25f3b314ee4199cdb0b5cfd476f87aeccae8adc36bd6a98431a443b","assemble":"56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b","constraints":"3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51","motion":"ca951d0a752a5e83f3a1841fe87f50c617c8be888a4721849b3f2d374f976d78","rig_type":"7dadbbfeb6bde120d27feb2341992af442fb223a640179e4f3d9e14bfdb8f6e2"},"accepted_parts":{"signoff_at":"2026-11-09T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
     {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-09T00:00:48.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"ad4173f71847a9a5747832a4ebf578503fbea776c3fca817e59c21098fc5fab5","constraints":"c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327"},"answer_hashes":{"bones":"3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7","constraints":"3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51"},"accepted_parts":{"signoff_at":"2026-11-09T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json","sha256":"2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d","spec":"rig-create/parts-verdict-cli@1"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-09T00:00:45.000Z","verbatim":"ok, the scarf looks right in the sketch"},
@@ -2937,6 +2937,26 @@
   "notes": [
     "A made-up painting and a made-up conversation, for the shape of the record only."
   ],
+  "diff_map": {
+    "by": "agent",
+    "at": "2026-11-09T00:00:37.000Z",
+    "report": {
+      "path": "evidence/diff-components.json",
+      "sha256": "6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"
+    },
+    "components": [
+      {
+        "id": "p10-n3",
+        "status": "in-painting",
+        "why": "the synthetic painting deliberately differs here"
+      },
+      {
+        "id": "p1000-n3",
+        "status": "in-painting",
+        "why": "the synthetic painting deliberately differs here"
+      }
+    ]
+  },
   "drafts": [
     {
       "id": "example",

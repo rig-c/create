@@ -4,11 +4,11 @@
   "question": "bones",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-06T01:00:38.000Z",
+  "drafted_at": "2026-11-06T01:00:39.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-06T01:00:36.000Z",
+      "signoff_at": "2026-11-06T01:00:37.000Z",
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/review-reads/5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180.json",

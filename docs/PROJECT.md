@@ -477,36 +477,45 @@ assembled parts before `rigging` starts.
   operation without external crop state, and applies source/mode refusal
   controls to both schema versions. Existing `/1` fixture bytes are unchanged.
 
-- **The same sign-off carries a whole-figure difference map**, beside `evidence`.
-  Generate its report with the installed `rig-parts diff-components --out` on
-  the assembled stack and the painting in the same native canvas. create reads
-  the report and binds its exact bytes by SHA-256.
+- **The project record carries an agent-authored whole-figure difference map**
+  at `project.json.diff_map`, while the `parts-review` sign-off records only the
+  person's approval (`draft_id`, `evidence`, `structure`, `verbatim`).
+  Generate the report with the installed `rig-parts diff-components --out` on
+  the assembled stack and the painting in the same native canvas, then record
+  the agent's component classifications with `rig-create diff-classes`. create
+  reads the report and binds its exact bytes by SHA-256.
 
   ```json
   "diff_map": {
+    "by": "agent",
+    "at": "2026-11-09T00:00:50.000Z",
     "report": { "path": "evidence/diff-components.json", "sha256": "<report sha256>" },
     "components": [ { "id": "<report component id>", "status": "in-painting", "why": "<what was observed>" } ]
   }
   ```
 
   ```sh
-  rig-create signoff parts-review --by user --evidence evidence/parts-review.json --diff-report evidence/diff-components.json --component 'p10-n3=in-painting:the painting contains this edge' --verbatim-file approval.txt
+  rig-create diff-classes --diff-report evidence/diff-components.json --component 'p10-n3=in-painting:the painting contains this edge' --by agent
+  rig-create signoff parts-review --by user --draft <id> --structure-file evidence/structure-decisions.json --verbatim-file approval.txt
   ```
 
-  The writer hashes the report and validates the entire map before recording
-  anything. Repeat `--component <id>=<status>:<why>` for every component. The
-  first `=` and first following `:` separate fields, so `why` may contain colons.
-  Every report id must appear exactly once, with no extra ids. Status is
-  `in-painting`, `fixed` or `left`, and every status requires a nonempty `why`.
-  For a large report, read `rig-create diff-classes --diff-report <path>` first.
-  It prints JSON rows with deterministic ids, derived keys, member ids and counts,
+  The `diff-classes` writer hashes the report and validates the entire map
+  before recording anything (`by` must be `agent`, refused otherwise with
+  `DIFF_MAP_NOT_AGENT`). Repeat `--component <id>=<status>:<why>` for every
+  component. The first `=` and first following `:` separate fields, so `why` may
+  contain colons. Every report id must appear exactly once, with no extra ids.
+  Status is `in-painting`, `fixed` or `left`, and every status requires a
+  nonempty `why`. For a large report, run `rig-create diff-classes --diff-report <path>`
+  without `--triage-file`, `--component` or `--by` first: in read-only mode it
+  prints JSON rows with deterministic ids, derived keys, member ids and counts,
   pixel-count ranges and uncovered-fraction ranges. Keys use the exact sorted
   border-part set and coverage band. Covered and uncovered bands have fractions
   0 and 1; mixed bands are [0,0.25), [0.25,0.50), [0.50,0.75), [0.75,1).
   This caps mixed spread below 0.25 without combining different border sets.
   create groups producer fields; it never measures image pixels.
 
-  Supply `--triage-file triage.json` instead of component flags:
+  Supply `--triage-file triage.json` to `diff-classes --diff-report <path> --by agent`
+  instead of component flags:
   `{"classes":{"<derived id>":{"status":"left","why":"covered edge observed in the painting"}},"components":{}}`.
   Each decision contains only status and why; the writer derives the key and full
   member list. A class reason must name at least one exact border part or its
@@ -520,25 +529,30 @@ assembled parts before `rigging` starts.
   class and requires disjoint members and identical expanded status and why.
   Per-component records remain compatible and do not acquire class requirements.
 
-  A report with no components needs no component flags. Its spec must be
+  A report with no components needs only `--diff-report <path> --by agent`. Its spec must be
   `rig-parts-diff-components/1`, `definition.floor_px` at most 2 and
   `definition.threshold` at most 40. The stack is derived from the verdict's
-  covered `parts.json`, resolved relative to that verdict. For its directory D,
-  build writes `D/recomposite_rig.png`, while standalone assemble writes
-  `D/../render/recomposite_rig.png` only when D is named `rig`.
-  Exactly one candidate must exist and hash to the report's `stack.sha256`.
-  Neither or both candidates refuse rigging. create never computes the map or
-  runs the producer's `--verify`. This uses the latest sign-off and the same
-  rigging gate and acceptance boundary as the parts verdict above.
-  From `DIFF_MAP_SINCE` (2026-11-06T00:00:00Z), a missing map refuses writing
-  the sign-off and rigging. An earlier sign-off without one gets only
-  `DIFF_MAP_PREDATES`; a map carried by an earlier sign-off is checked fully.
-  Both flags are accepted only on `parts-review`; component flags require a report.
+  covered `parts.json`, resolved relative to that verdict (or the latest draft
+  before sign-off). For its directory D, build writes `D/recomposite_rig.png`,
+  while standalone assemble writes `D/../render/recomposite_rig.png` only when D
+  is named `rig`. Exactly one candidate must exist and hash to the report's
+  `stack.sha256`. Neither or both candidates refuse rigging. create never
+  computes the map or runs the producer's `--verify`. This uses the latest
+  sign-off and the same rigging gate and acceptance boundary as the parts
+  verdict above. From `DIFF_MAP_SINCE` (2026-11-06T00:00:00Z), a missing map
+  refuses writing the sign-off and rigging. An earlier sign-off without one gets
+  only `DIFF_MAP_PREDATES`. From `DIFF_MAP_AGENT_SINCE` (2026-11-09T00:00:00Z),
+  `signoff parts-review` refuses `--diff-report`, `--triage-file` and
+  `--component` (`SIGNOFF_DIFF_MAP_REMOVED`), and a `parts-review` sign-off dated
+  from that boundary carrying `diff_map` is refused (`SIGNOFF_DIFF_MAP_REMOVED`);
+  an earlier `parts-review` sign-off carrying `diff_map` emits a
+  `DIFF_MAP_ON_SIGNOFF_LEGACY` warning and its map is still checked in full.
 
   The filled example's report and stack are synthetic, with two listed
   components. `bun scripts/generate-example-diff.ts <fresh scratch directory>`
-  regenerates them through the installed parts CLI and the sign-off writer.
-  Add `--check` to reproduce the shipped report, stack and inline record bytes.
+  regenerates them through the installed parts CLI and the `diff-classes` and
+  `signoff` writers. Add `--check` to reproduce the shipped report, stack and
+  inline record bytes.
 - **A project that passed `plan-approved` before these two stages existed**
   (its first `plan-approved` sign-off is dated before 2026-11-04, the
   `PARTS_REVIEW_SINCE` in `src/stages.ts`) is not given a sign-off nobody made.

@@ -29,7 +29,7 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 1. **Parts and meshes**. Ask framing/source. Review a labelled draft's parts and
    mesh/chest structure. `parts-review` records its Review API response.
    The latest receipt must approve the draft for `structure-snapshot --draft <id> --out <f>`
-   and `signoff parts-review --draft <id> --structure-file <f>` ({{DRAFTS_LINK}}).
+   and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ({{DRAFTS_LINK}}).
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
    against approved parts/structure; use interview-options/answer/decision.
 3. **Rig and animation**. Hand pass is rig-review's correction loop; keep feedback.

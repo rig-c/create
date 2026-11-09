@@ -268,8 +268,13 @@ effective stage). The rules are in `src/signable.ts`:
 Review 2.7.0 asks only for a declared subject and refuses any other with
 `JOB_ASK_INVALID` (`bindJobAsk`, `src/job-act.ts`). Both the ask and the act
 also require `project.json` to still hold the published bytes
-(`assertJobSourceCurrent`, `src/job-source.ts`). So the person signs on the
-publication of the record that can sign, before any later write.
+(`assertJobSourceCurrent`, `src/job-source.ts`). So either the owner submits
+both the verdict and `signoff` acts in the Review UI before any writer mutates
+`project.json`, or after a CLI writer (`parts-review --from-review`,
+`diff-classes`, or `review <n> --from-review`) updates `project.json`, the
+agent runs `rig-create job open` to republish the current selector (`draft`,
+`rig`, or `post`) over the updated `project.json` bytes and re-ask the stage's
+declared subjects before the owner signs off in the UI.
 
 `job reconcile` keeps the declared subjects in the acknowledged receipt.
 `signoff … --from-review` compares the act's subject with that list and
@@ -302,9 +307,9 @@ again.
 | `parts` checkpoints | draft | `draft-rig` commits while the record is in `parts` and the checkpoint is enabled |
 | `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
 | `post` checkpoints | post version | `direction write` or `direction patch` commits in `post` |
-| `parts-review` | draft | `draft-rig` commits in `parts-review` |
-| `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, or `rig-version` commits in `rig-review` |
-| `direction-review` | post version | `advance direction-review` commits the move into `direction-review`, or `direction write` / `direction patch` commits in `direction-review` |
+| `parts-review` | draft | `draft-rig` commits in `parts-review`, or the agent runs `job open` to refresh the draft after `parts-review --from-review` / `diff-classes` |
+| `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, `rig-version` commits in `rig-review`, or the agent runs `job open` to refresh the live `rig` head after `review <n> --from-review` |
+| `direction-review` | post version | `advance direction-review` commits the move into `direction-review`, `direction write` / `direction patch` commits in `direction-review`, or the agent runs `job open` to refresh the live `post` head after `review <n> --from-review` |
 | `rigging-interview`, `post-interview` | any package publication with plan steps | only when a package writer commits in that stage, which the usual order does not do |
 | `interview`, `plan-approved` | none | no draft or version exists before they are signed |
 

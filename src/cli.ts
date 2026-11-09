@@ -31,6 +31,7 @@ import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 import { VERSION_HELP, versionCommand } from './config-lost.ts';
+import { NEXT_HELP, nextCommand } from './next.ts';
 
 // Input registration is kept in its own CLI block.
 import { INPUT_HELP, inputCommand } from './inputs.ts';
@@ -59,6 +60,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record external preparation and both file hashes
   rig-create interview --check [<project dir>] [--json]
                                                     refuse by name every hole the interview and plan still have
+  rig-create next [<project dir>] [--json]          derive the next moves and whose they are from project.json
   rig-create handoff [<project dir>] [--rig <n>] [--json]
                                                     name the accepted rig version post work runs on, or refuse
   rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s> [--item <id>[:<answer_was>]]... [<project dir>]
@@ -115,6 +117,8 @@ ${LEDGER_HELP}
 ${INPUT_HELP}
 
 ${INTERVIEW_HELP}
+
+${NEXT_HELP}
 
 ${CHOICE_HELP}
 
@@ -224,6 +228,7 @@ const COMMANDS: Record<string, Command> = {
   intake: intakeCommand,
   'intake-report': intakeReportCommand,
   interview: interviewCommand,
+  next: nextCommand,
   'interview-options': interviewOptionsCommand,
   'interview-answer': interviewAnswerCommand,
   'interview-decision': interviewDecisionCommand,

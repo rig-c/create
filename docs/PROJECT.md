@@ -2327,3 +2327,69 @@ ledger, so the inherited fixes are checked on day one. A restarted record
 checks the same as a fresh `init` record: the same codes, which include the
 open interview's `INTERVIEW_INCOMPLETE` refusals, and 0 warnings. Codes are in
 [CHECKS.md § Fix ledger, ledger reports and restarts](CHECKS.md#fix-ledger-ledger-reports-and-restarts-create285).
+
+## Deriving the next moves: `rig-create next` (create#329)
+
+`rig-create next [<project dir>] [--json]` is a read-only command that derives
+the project's next moves and whose they are from `project.json`:
+
+- **Derived, never guessed.** Each item comes from a record field: `stage` and
+  its exit requirement, open `plan.steps[]` and their `status`, lapsed
+  approvals (`reopens[]` and `amendments[]` lapse lists), pending review jobs
+  and `review_acts[]`, bound inputs and drafts, and the current `check`
+  findings. Each item names the `field` it came from and what the record
+  `awaits`. When required authored input is not yet in `project.json`, the item
+  names the missing record field in `unanswered_by_record` and does not guess.
+- **Role ownership.** Every move names `role`:
+  - `agent`: a complete, runnable `rig-create` command the agent may run now.
+  - `producer`: a command of a pinned package (`rig-parts`, `rigc`).
+  - `human`: a person's act collected through the review tool (`review_act`),
+    with `command: null` and never a `--by user` writer.
+- **Refusals come first.** When `check` reports refusals (or publication holes),
+  `next` lists each in `refusals[]` with its `CHECKS.md` remedy (`fix`) before
+  any forward move. A project with a blocking refusal has `moves: []` and
+  `awaits: []`.
+- **Read-only and deterministic.** `project.json` and the project tree remain
+  byte-identical. An `accepted` project with no lapsed approvals reports
+  `accepted: true`, `moves: []` and exits `0`.
+
+`--json` emits a `rig-create/next@1` document:
+
+```json
+{
+  "schema": "rig-create/next@1",
+  "project_id": "<project.name>",
+  "stage": "<project.stage>",
+  "effective_stage": "<check effective_stage>",
+  "accepted": false,
+  "refusals": [
+    {
+      "code": "<CHECK_CODE>",
+      "field": "<record path>",
+      "message": "<finding message>",
+      "fix": "<CHECKS.md remedy>"
+    }
+  ],
+  "awaits": ["<awaited record target>"],
+  "moves": [
+    {
+      "role": "agent|producer|human",
+      "field": "<source record field>",
+      "awaits": "<awaited record target>",
+      "command": "<complete runnable command or null>",
+      "act": "<description of the move or review-tool act>",
+      "review_act": {
+        "kind": "parts-verdict|interview-picks|review-verdict|signoff|signoff-checkpoint",
+        "stage": "<stage>"
+      },
+      "lapse": {
+        "code": "REOPEN_SIGNOFF_LAPSED|REOPEN_VERDICT_LAPSED|AMENDED_STEP",
+        "source_field": "reopens[0]",
+        "target_field": "signoffs[2]",
+        "message": "<warning message>"
+      },
+      "unanswered_by_record": "<missing record field when not derivable>"
+    }
+  ]
+}
+```

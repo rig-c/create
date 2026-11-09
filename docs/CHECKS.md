@@ -1451,6 +1451,7 @@ and known regressions under `ledger`.
 | `RESTART_PART_SET_INCOMPLETE` | a kept part set (inputs under `<set>/parts/*.png` or `<set>/parts.json`) lacks `<set>/parts.json`, a part PNG, or its rig: `rig.json` and `mesh_report.json` at `<set>/rig/` or `<set>/` | register the missing files with `input add`, or stop keeping the set |
 | `RESTART_MALFORMED` | `restarts` is not a list, or an entry lacks `{ at, by, reason, previous_record_sha256 }` | restore the entry `restart` wrote |
 | `RESTART_SOURCE_CHANGED` | `project.json` changed while `restart` was validating | retry against the current record |
+| `NEXT_USAGE` | `next` receives an unsupported option or more than one project directory argument (exit 2) | use `rig-create next [<project dir>] [--json]` |
 
 `restart` does not keep the record it replaces; git history holds it, so
 restart refuses before it writes unless `project.json` is committed: tracked

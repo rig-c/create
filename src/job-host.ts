@@ -332,11 +332,11 @@ function selectorLabel(selector: JobSelector): string {
 }
 
 /**
- * After `job open`: show the record's current draft on the owner's page. The latest
- * recorded draft (or `--draft <id>`) is published unless the job's head publication is
- * already that draft over the current record bytes, and every subject the publication
- * declares is asked once. An already-acknowledged `rig` or `post` head also retries any
- * unasked declared subject without being overwritten by a draft. Returns the lines `job open` prints.
+ * After `job open`: show or refresh the record's current publication on the owner's page.
+ * The latest recorded draft (or `--draft <id>`), or the head's `rig` / `post` selector at
+ * later stages, is published unless the job's head publication already covers that selector
+ * over the current record bytes, and every subject the publication declares is asked once.
+ * Returns the lines `job open` prints.
  */
 export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string): Promise<string[]> {
   root = realpathSync(root);
@@ -347,12 +347,13 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   const source = head?.source as { selector?: JobSelector; projectHash?: unknown } | undefined;
   const acknowledged = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
   const headSelector = acknowledged?.result.selector ?? source?.selector ?? null;
-  const reuseHead = Boolean(head && headSelector && (
-    requested !== undefined
-      ? isDeepStrictEqual(headSelector, { kind: 'draft', id: requested }) && source?.projectHash === jobHash(bytes)
-      : headSelector.kind !== 'draft'
-        ? draftId === undefined || source?.projectHash === jobHash(bytes)
-        : source?.projectHash === jobHash(bytes) && (draftId === undefined || headSelector.id === draftId)
+  const targetSelector: JobSelector | undefined = draftId !== undefined
+    ? { kind: 'draft', id: draftId }
+    : headSelector && headSelector.kind !== 'draft'
+      ? headSelector
+      : undefined;
+  const reuseHead = Boolean(head && headSelector && source?.projectHash === jobHash(bytes) && (
+    targetSelector === undefined || isDeepStrictEqual(headSelector, targetSelector)
   ));
   let selector: JobSelector;
   let outcomes: AskOutcome[];
@@ -365,10 +366,10 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     selector = headSelector;
     published = false;
   } else {
-    if (draftId === undefined) {
+    if (targetSelector === undefined) {
       return ids.length === 0 ? ['job: no recorded draft to publish'] : [`job: stage ${stage} shows no draft; name one with --draft <id>`];
     }
-    const result = draftPublicationResult(draftId);
+    const result = selectorResult(targetSelector);
     const release = acquireJobLock(root)!;
     try {
       const binding = readWriterBinding(root);
@@ -376,7 +377,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     } finally { release(); }
-    selector = result.selector;
+    selector = targetSelector;
     published = true;
   }
   const lines = [`job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...askOutcomeLines(outcomes)];

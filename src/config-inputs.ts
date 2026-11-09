@@ -32,6 +32,31 @@ export function configInputReferences(dir: string, config: unknown, unavailable?
   return mod.configFileReferences(config);
 }
 /**
+ * The config-named inputs the pinned parts declares for `config` that the
+ * project's install does not, with the install's version. The pinned
+ * declaration stands in for a newer producer's, which create cannot load; it
+ * is used only to refuse a writer, never to bind on the install's behalf.
+ */
+export function inputsUndeclaredByInstall(dir: string, config: unknown): { version: string; refs: { at: string; value: string }[] } {
+  const parts = locateParts(dir);
+  if (parts === null) throw new Error('install @rig-c/parts to read config-named inputs');
+  type Loader = { configFileReferences?: (config: unknown) => { at: string; value: string }[] };
+  const mod = load(join(parts, 'src/config.ts')) as Loader;
+  const own = load(join(OWN_NODE_MODULES, '@rig-c/parts/src/config.ts')) as Loader;
+  const version = (JSON.parse(readFileSync(join(parts, 'package.json'), 'utf8')) as { version: string }).version;
+  if (typeof own.configFileReferences !== 'function') return { version, refs: [] };
+  const declared = typeof mod.configFileReferences === 'function' ? new Set(mod.configFileReferences(config).map(ref => ref.at)) : new Set<string>();
+  return { version, refs: own.configFileReferences(config).filter(ref => !declared.has(ref.at)) };
+}
+/** Whether release `a` is later than release `b`; a version that is not plain major.minor.patch is never later. */
+export function releaseAfter(a: string, b: string): boolean {
+  const x = /^(\d+)\.(\d+)\.(\d+)$/.exec(a);
+  const y = /^(\d+)\.(\d+)\.(\d+)$/.exec(b);
+  if (x === null || y === null) return false;
+  for (let i = 1; i <= 3; i++) if (Number(x[i]) !== Number(y[i])) return Number(x[i]) > Number(y[i]);
+  return false;
+}
+/**
  * The file a directory reference binds: a See-through occluder plate directory
  * (`comfy plate --mode occluder`) is bound by its producer's receipt, which
  * itself binds the plate's sibling files; create never hashes those siblings.
@@ -95,4 +120,22 @@ export function configInputBindings(dir: string, configPath: string, allowMissin
 }
 export function configInputsLegacy(at: unknown): boolean {
   return typeof at !== 'string' || !Number.isFinite(Date.parse(at)) || Date.parse(at) < Date.parse(CONFIG_INPUTS_SINCE);
+}
+/**
+ * Drafts recorded before this date with no `config_inputs` key, on a config
+ * that names inputs, WARN DRAFT_CONFIG_INPUTS_UNRECORDED: the config is bound
+ * by sha256, so the absent key came from an install that could not declare the
+ * inputs, which draft-rig refuses from this date (DRAFT_PARTS_INSTALL_BEHIND).
+ */
+export const DRAFT_CONFIG_INPUTS_SINCE = '2026-11-09T00:00:00Z';
+/**
+ * How a draft's unbound config-named input is reported, the one rule for check
+ * and every reader that runs it (the job record's inventory phase included):
+ * `legacy` WARNs DRAFT_RIG_FILE before CONFIG_INPUTS_SINCE, `unrecorded` WARNs
+ * DRAFT_CONFIG_INPUTS_UNRECORDED for an absent key before
+ * DRAFT_CONFIG_INPUTS_SINCE, and `refused` is a DRAFT_RIG_FILE refusal.
+ */
+export function draftUnboundInputs(draft: { at?: unknown; config_inputs?: unknown }): 'legacy' | 'unrecorded' | 'refused' {
+  if (configInputsLegacy(draft.at)) return 'legacy';
+  return draft.config_inputs === undefined && Date.parse(String(draft.at)) < Date.parse(DRAFT_CONFIG_INPUTS_SINCE) ? 'unrecorded' : 'refused';
 }

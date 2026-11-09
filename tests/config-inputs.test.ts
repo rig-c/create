@@ -1,6 +1,6 @@
 import { syntheticReviewRunner, syntheticReviewOrigin } from './review-read-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { correctionFixture } from './correction-fixture.ts';
@@ -10,6 +10,7 @@ import { configInputBindings, configInputReferences, DRAFT_CONFIG_INPUTS_SINCE, 
 import { checkDrafts } from '../src/drafts.ts';
 import { fixture } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
+import type { JsonObject } from '../src/templates.ts';
 import { correctionCommand, checkCorrections, draftRigCommand, testClock } from './clock.ts';
 
 const roots: string[] = [];
@@ -139,6 +140,34 @@ test('a draft handoff path that resolves outside the project is refused by name'
 test('a draft feedback package outside the project is refused by name', () => {
   const error = refused(sample('draft', 'honest', false, 'occluder'), '../elsewhere/out/check');
   expect(error.code).toBe('CORRECTION_APPLIED_INVALID'); expect(error.message).toContain('feedback package ../elsewhere/out/check is outside the project');
+});
+function checked(dir: string, project: unknown): Finding[] {
+  const ctx = { dir, project: project as JsonObject, refusals: [] as Finding[], warnings: [] as Finding[] };
+  checkCorrections(ctx); return ctx.refusals;
+}
+test('an absolute feedback package inside the project is retained relative and checks after the project moves', () => {
+  const f = sample('draft', 'honest', false, 'occluder');
+  expect(f.record(join(f.dir, DRAFT_PACKAGE)).exit).toBe(0);
+  expect(f.load('project.json').corrections[0].artifact.review_read.argv[2]).toBe(DRAFT_PACKAGE);
+  const moved = mkdtempSync(join(tmpdir(), 'named-inputs-moved-')); roots.push(moved);
+  cpSync(f.dir, moved, { recursive: true }); rmSync(f.dir, { recursive: true, force: true });
+  expect(checked(moved, JSON.parse(readFileSync(join(moved, 'project.json'), 'utf8')))).toEqual([]);
+});
+test('a manifest feedback input reads its folder as the package after the manifest is deleted', () => {
+  const f = sample('draft', 'honest', false, 'occluder'); const manifest = `${DRAFT_PACKAGE}/review.json`;
+  writeFileSync(join(f.dir, manifest), '{}\n');
+  expect(f.record(manifest).exit).toBe(0);
+  expect(f.load('project.json').corrections[0].artifact.review_read.argv[2]).toBe(manifest);
+  rmSync(join(f.dir, manifest));
+  expect(checked(f.dir, f.load('project.json'))).toEqual([]);
+});
+test('a draft feedback input whose form disagrees with its kind on disk is refused before writing', () => {
+  const f = sample('draft', 'honest', false, 'occluder');
+  mkdirSync(join(f.dir, 'evidence/package.json')); writeFileSync(join(f.dir, 'evidence/manifest'), '{}\n');
+  for (const input of ['evidence/package.json', 'evidence/manifest']) {
+    const error = refused(f, input);
+    expect(error.code).toBe('CORRECTION_APPLIED_INVALID'); expect(error.message).toContain(`--feedback-file ${input} is a`);
+  }
 });
 test('a changed plate receipt differs from the draft binding in a correction handoff', () => {
   const f = sample('draft', 'honest', false, true); f.save('evidence/plate/receipt.json', { spec: plateReceiptSpec(f.dir), synthetic: 'another receipt' });

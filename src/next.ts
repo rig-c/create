@@ -15,11 +15,14 @@ import {
 } from './check.ts';
 import { collectAmendments } from './amend.ts';
 import {
+  DIFF_MAP_AGENT_SINCE,
   DIFF_MAP_MAX_FLOOR_PX,
   DIFF_MAP_MAX_THRESHOLD,
   diffReportBytes,
   diffStackCandidates,
   reportShape,
+  resolveDiffMapPartsFile,
+  validateDiffMapRecord,
 } from './diff-map.ts';
 import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
 import { isPartsCheckMove, partsCheckRecord } from './parts-check.ts';
@@ -489,6 +492,49 @@ function resolveDiffComponentsMove(
     command: `rig-parts diff-components --stack ${stackPath} --painting ${paintingPath} --parts ${partsRoot}/parts.json${figureFlag} --floor 2 --threshold 40 --out evidence/diff-components.json`,
     act: `run rig-parts diff-components for drafts[${draftId}]`,
   };
+}
+
+function hasValidDiffMap(dir: string, project: JsonObject): boolean {
+  const partsFile = resolveDiffMapPartsFile(dir, project);
+  if (isObject(project.diff_map)) {
+    const errors: Finding[] = [];
+    validateDiffMapRecord(dir, project.diff_map, 'diff_map', partsFile, errors, {
+      requireAgent: true,
+    });
+    if (errors.length === 0) return true;
+  }
+  const reopens = collectReopens(project, []);
+  const livePartsReview = collectSignoffs(project, []).filter(
+    s => s.stage === 'parts-review' && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at),
+  );
+  const latest = livePartsReview[livePartsReview.length - 1];
+  if (
+    latest !== undefined &&
+    latest.at < Date.parse(DIFF_MAP_AGENT_SINCE) &&
+    isObject(latest.record.diff_map)
+  ) {
+    const errors: Finding[] = [];
+    validateDiffMapRecord(dir, latest.record.diff_map, `signoffs[${latest.index}].diff_map`, partsFile, errors, {
+      requireAgent: false,
+    });
+    if (errors.length === 0) return true;
+  }
+  return false;
+}
+
+function resolveDiffClassesCommand(dir: string): string {
+  if (!existsSync(join(dir, 'evidence/diff-triage.json'))) {
+    try {
+      const bytes = diffReportBytes(dir, 'evidence/diff-components.json');
+      const parsed = JSON.parse(bytes.toString('utf8')) as Json;
+      if (isObject(parsed) && reportShape(parsed) && (parsed.components as unknown[]).length === 0) {
+        return 'rig-create diff-classes --diff-report evidence/diff-components.json --by agent';
+      }
+    } catch {
+      // Fall through to default command with --triage-file.
+    }
+  }
+  return 'rig-create diff-classes --diff-report evidence/diff-components.json --triage-file evidence/diff-triage.json --by agent';
 }
 
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
@@ -972,6 +1018,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           awaits: 'evidence/diff-components.json',
           command: diffMove.command,
           act: diffMove.act,
+        });
+      } else if (
+        existsSync(join(dir, 'evidence/diff-components.json')) &&
+        !hasValidDiffMap(dir, project)
+      ) {
+        addAwait('diff_map');
+        moves.push({
+          role: 'agent',
+          field: 'diff_map',
+          awaits: 'diff_map',
+          command: resolveDiffClassesCommand(dir),
+          act: 'record agent component classification for evidence/diff-components.json in diff_map',
         });
       }
 

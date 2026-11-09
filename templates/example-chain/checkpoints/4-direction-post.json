@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 4,
   "name": "4-direction-post",
-  "chain_step": 91,
+  "chain_step": 92,
   "pending": {
     "act": "Author the direction post and approve its review",
     "commands": [
@@ -42,7 +42,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "60b81ecef712f772e8ce580bf6bfc9df3c2f606569a9a493ee1d048656cbfe7b",
+  "project_sha256": "f47d46f70d057b66c31f2552e8dbb6b6ce879c3d83e9e12867da638e0b477a5f",
   "files": [
     {
       "path": ".gitignore",
@@ -50,7 +50,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "e445037bf14ccad32498717183a65f8c5a15a8a4e200b4e551f8480eef422f9f"
+      "sha256": "a3ca95660e85c1609fb828eec842a99601b12155ad8201836adcb4028ce253cc"
     },
     {
       "path": "CLAUDE.md",
@@ -274,31 +274,31 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "5273575e1d8a14dafa4475ece286d67f60eb51fb75abd801b91b3530815405c8"
+      "sha256": "89cd8ba95f9753a83e8d1940efb85a32572ae8b2398db6f7797d536c09bd5f32"
     },
     {
       "path": "evidence/interview/camera_depth.json",
-      "sha256": "e4a3dc7304d722be7e82a0b8fde22d2e52d628f7f4e1e8ffcfc0b07a3798d3b4"
+      "sha256": "b0466597a8c07ef9dc21ae415b23b68e6c56be125f40e98caf2bcf41ca4c8fcd"
     },
     {
       "path": "evidence/interview/constraints.json",
-      "sha256": "c99264246684ad270e60f00d45946a64237d882977e5c3777b59bbe6c8ecfd47"
+      "sha256": "88ce9f21b30247846a4715c138e2f4314a1f79b4fb3ad28a959113ccbf42584b"
     },
     {
       "path": "evidence/interview/meshes.json",
-      "sha256": "ac03a2915e7d19c25f122a86810ff8d980d5de32e67b7b1162f0bb1d97e183d8"
+      "sha256": "e1fb554babd0087a7dccb05b8ac016a4608ad02d24e4f0926a465f20670d203f"
     },
     {
       "path": "evidence/interview/motion.json",
-      "sha256": "2e7b342aa3d29633632a5502ea4a175212ce650ce8b7ab62173e241bceda39e6"
+      "sha256": "755e3846ca75b10f27afd2ab1c6d1db5327267d2caa847b3dc29453702f97998"
     },
     {
       "path": "evidence/interview/post_composition.json",
-      "sha256": "219dd10a5e1923e0de95a89b3eb49d05fa378d31eef6a7d84cd7e663852f688c"
+      "sha256": "4829da07e02a2858f101292ddfbe5003360eb2a7ff4b2f4243d022f92ca2de84"
     },
     {
       "path": "evidence/interview/post_timing.json",
-      "sha256": "cb38b5547a2f506623d5d6ac26d1eb3ad0f0d16eeb3d73883082677cfdb9a6f5"
+      "sha256": "6350f87f72e89da36cbdd9690ea967343fc424d5d9e9a4b926d61457f8dad53f"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -450,7 +450,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "60b81ecef712f772e8ce580bf6bfc9df3c2f606569a9a493ee1d048656cbfe7b"
+      "sha256": "f47d46f70d057b66c31f2552e8dbb6b6ce879c3d83e9e12867da638e0b477a5f"
     }
   ]
 }

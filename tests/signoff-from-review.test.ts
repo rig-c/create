@@ -9,7 +9,7 @@ import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { signoffIdentity } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, signoffCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { arr, fixture, obj, retimeFixture, withdrawSignature } from './fixtures.ts';
 import { preparePartsApproval } from './parts-receipt-fixture.ts';
@@ -174,16 +174,17 @@ const partsDiffFlags = ['--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p1
 function partsReview(): string {
   const dir = fixture();
   preparePartsApproval(dir, testClock.now());
-  bindReview(dir);
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
+  diffClassesCommand([dir, ...partsDiffFlags, '--by', 'agent']);
+  bindReview(dir);
   return dir;
 }
 const partsAct = (dir: string, actId: string, selector: JsonObject | null): JsonObject => signoffAct(dir, 'parts-review', actId, act => { obj(act.source).selector = selector; });
 
 test('a parts-review act takes draft_id from its draft selector when --draft is absent and records draft_id on a legacy-order project', () => {
   const dir = partsReview();
-  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-shown', { kind: 'draft', id: 'receipt-fixture' }), partsDiffFlags).exit).toBe(0);
+  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-shown', { kind: 'draft', id: 'receipt-fixture' })).exit).toBe(0);
   const signed = obj(arr(read(dir).signoffs).at(-1));
   expect(signed.draft_id).toBe('receipt-fixture');
   expect(signed.structure).toBeUndefined();
@@ -192,10 +193,33 @@ test('a parts-review act takes draft_id from its draft selector when --draft is 
 
 test('a parts-review act with --draft equal to its draft selector records draft_id, and a disagreeing --draft or non-draft selector refuses', () => {
   const dir = partsReview();
-  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-mismatch', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'other-draft', ...partsDiffFlags]));
-  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-rig', { kind: 'rig', version: 2 }), partsDiffFlags));
-  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-post', { kind: 'post', version: 2, rigVersion: 1 }), partsDiffFlags));
-  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-same', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'receipt-fixture', ...partsDiffFlags]).exit).toBe(0);
+  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-mismatch', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'other-draft']));
+  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-rig', { kind: 'rig', version: 2 })));
+  refused(dir, 'REVIEW_ACT_DRAFT_MISMATCH', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-post', { kind: 'post', version: 2, rigVersion: 1 })));
+  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-same', { kind: 'draft', id: 'receipt-fixture' }), ['--draft', 'receipt-fixture']).exit).toBe(0);
   expect(obj(arr(read(dir).signoffs).at(-1)).draft_id).toBe('receipt-fixture');
+  expect(codes(dir)).toEqual([]);
+});
+
+test('control-flow interference plant: parts-review --from-review infers draft_id from selector, enforces the agent diff_map gate, and records draft_id on a legacy-order project', () => {
+  const dir = partsReview();
+  const withoutMap = read(dir);
+  delete withoutMap.diff_map;
+  save(dir, withoutMap);
+  bindReview(dir);
+  // Without project.diff_map, --from-review still infers draft_id from the selector and refuses at the agent diff_map gate.
+  refused(dir, 'DIFF_MAP_MISSING', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-no-map', { kind: 'draft', id: 'receipt-fixture' })));
+  // Passing removed diff flags on signoff refuses before writing.
+  refused(dir, 'SIGNOFF_DIFF_MAP_REMOVED', () => fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-old-flags', { kind: 'draft', id: 'receipt-fixture' }), partsDiffFlags));
+  // Recording agent classification via diff-classes unlocks --from-review sign-off with selector-inferred draft_id on the legacy-order record.
+  diffClassesCommand([dir, ...partsDiffFlags, '--by', 'agent']);
+  bindReview(dir);
+  expect(fromReview(dir, 'parts-review', partsAct(dir, 'sign-parts-gated', { kind: 'draft', id: 'receipt-fixture' })).exit).toBe(0);
+  const project = read(dir);
+  expect(obj(project.diff_map).by).toBe('agent');
+  const signed = obj(arr(project.signoffs).at(-1));
+  expect(signed.draft_id).toBe('receipt-fixture');
+  expect(signed.structure).toBeUndefined();
+  expect(signed.diff_map).toBeUndefined();
   expect(codes(dir)).toEqual([]);
 });

@@ -138,8 +138,9 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(JSON.parse(ingested.stdout)).toMatchObject({ draft_id: 'chain', verdict: 'approved', by: 'user', verbatim: WORDS });
   expect((await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure.json'])).exit).toBe(0);
+  expect((await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'])).exit).toBe(0);
   const signoff = await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--draft', 'chain',
-    '--structure-file', 'evidence/structure.json', '--diff-report', 'evidence/diff-components.json', '--json']);
+    '--structure-file', 'evidence/structure.json', '--json']);
   expect({ exit: signoff.exit, stderr: signoff.stderr }).toEqual({ exit: 0, stderr: '' });
   expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user', verbatim: WORDS,
     source: `review act ${String(signed.jobId)}/${String(signed.actId)}` });

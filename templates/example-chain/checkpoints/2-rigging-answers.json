@@ -2,7 +2,7 @@
   "schema": "rig-create/example-checkpoint@1",
   "stage": 2,
   "name": "2-rigging-answers",
-  "chain_step": 48,
+  "chain_step": 49,
   "pending": {
     "act": "Choose the rigging interview answers and approve their plan",
     "commands": [
@@ -64,7 +64,7 @@
     ],
     "warnings": []
   },
-  "project_sha256": "8c45310b58ba8fcd416ef5dcde66999dd33a03cde6fbe84b7c6ec91097f12d1f",
+  "project_sha256": "c6f9a9bf9d529dcce62627a24e35b50a8994b79f07f32ea592c6a718aa647927",
   "files": [
     {
       "path": ".gitignore",
@@ -72,7 +72,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "e445037bf14ccad32498717183a65f8c5a15a8a4e200b4e551f8480eef422f9f"
+      "sha256": "a3ca95660e85c1609fb828eec842a99601b12155ad8201836adcb4028ce253cc"
     },
     {
       "path": "CLAUDE.md",
@@ -200,7 +200,7 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "5273575e1d8a14dafa4475ece286d67f60eb51fb75abd801b91b3530815405c8"
+      "sha256": "89cd8ba95f9753a83e8d1940efb85a32572ae8b2398db6f7797d536c09bd5f32"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -248,7 +248,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "8c45310b58ba8fcd416ef5dcde66999dd33a03cde6fbe84b7c6ec91097f12d1f"
+      "sha256": "c6f9a9bf9d529dcce62627a24e35b50a8994b79f07f32ea592c6a718aa647927"
     }
   ]
 }

@@ -301,14 +301,19 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
     write('evidence/diff-components.json', reportBytes);
     const diffReport = JSON.parse(reportBytes.toString()) as { components: { id: string }[] };
     advance('parts-review', ['--parts-check', 'evidence/parts-check.json', '--parts', partsDir]);
+    writer([
+      'diff-classes',
+      '--diff-report',
+      'evidence/diff-components.json',
+      '--by',
+      'agent',
+      ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`]),
+    ]);
     sign('parts-review', [
       '--draft',
       'remesh',
       '--structure-file',
       'evidence/structure.json',
-      '--diff-report',
-      'evidence/diff-components.json',
-      ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`]),
     ]);
 
     advance('rigging-interview');

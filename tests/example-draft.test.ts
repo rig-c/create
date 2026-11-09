@@ -81,24 +81,6 @@ const originalSignoffs = [
       "path": "evidence/parts-review.json",
       "sha256": "03564ee11c8c4875b6c9fa8ed16ff32a59ee83b0ed559fd01b6551ed60156d83"
     },
-    "diff_map": {
-      "report": {
-        "path": "evidence/diff-components.json",
-        "sha256": "6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"
-      },
-      "components": [
-        {
-          "id": "p10-n3",
-          "status": "in-painting",
-          "why": "the synthetic painting deliberately differs here"
-        },
-        {
-          "id": "p1000-n3",
-          "status": "in-painting",
-          "why": "the synthetic painting deliberately differs here"
-        }
-      ]
-    },
     "draft_id": "example",
     "structure": {
       "path": "evidence/structure-decisions.json",

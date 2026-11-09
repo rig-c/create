@@ -74,24 +74,6 @@
         "sha256": "2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d",
         "spec": "rig-create/parts-verdict-cli@1"
       },
-      "diff_map": {
-        "report": {
-          "path": "evidence/diff-components.json",
-          "sha256": "6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"
-        },
-        "components": [
-          {
-            "id": "p10-n3",
-            "status": "in-painting",
-            "why": "the synthetic painting deliberately differs here"
-          },
-          {
-            "id": "p1000-n3",
-            "status": "in-painting",
-            "why": "the synthetic painting deliberately differs here"
-          }
-        ]
-      },
       "draft_id": "example",
       "structure": {
         "path": "evidence/structure-decisions.json",
@@ -3225,6 +3207,26 @@
   "notes": [
     "A made-up painting and a made-up conversation, for the shape of the record only."
   ],
+  "diff_map": {
+    "by": "agent",
+    "at": "2026-11-09T00:00:37.000Z",
+    "report": {
+      "path": "evidence/diff-components.json",
+      "sha256": "6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"
+    },
+    "components": [
+      {
+        "id": "p10-n3",
+        "status": "in-painting",
+        "why": "the synthetic painting deliberately differs here"
+      },
+      {
+        "id": "p1000-n3",
+        "status": "in-painting",
+        "why": "the synthetic painting deliberately differs here"
+      }
+    ]
+  },
   "drafts": [
     {
       "id": "example",

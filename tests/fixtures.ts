@@ -123,7 +123,7 @@ function legacySetupAdvances(): Json[] {
         const at = Math.max(...asArray(project.signoffs).filter(isObject).map(s => Date.parse(String(s.at)))) + LEGACY_STAGES.indexOf(target) + 1;
         testClock.set(new Date(at));
         writeFileSync(file, JSON.stringify(project));
-        advanceCommand([target.id, dir, '--by', 'owner', '--verbatim-file', words, ...(target.id === 'parts-review' ? withPartsCheck(dir) : [])]);
+        advanceCommand([target.id, dir, ...(target.id === 'parts-review' ? withPartsCheck(dir) : [])]);
         const advanced = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
         result.push(asArray(advanced.advances).at(-1)!);
       }
@@ -342,7 +342,7 @@ export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z')
         const order = hasStageOrder(signed) ? STAGES : LEGACY_STAGES;
         const noPost = stage === 'post-interview' && postNotPassed({ items: collectItems(signed, { collection: loadCollection(dir) }) });
         const target = noPost ? 'accepted' : order[order.findIndex(s => s.id === stage) + 1]!.id;
-        advanceCommand([target, dir, '--by', 'user', '--verbatim-file', words]);
+        advanceCommand([target, dir]);
       }
     }
   } finally { testClock.set(new Date(clock)); }

@@ -3215,7 +3215,6 @@
     {
       "stage": "plan-approved",
       "from_stage": "interview",
-      "by": "user",
       "at": "2026-11-09T00:00:18.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3226,7 +3225,6 @@
           "at": "2026-11-09T00:00:18.000Z"
         }
       ],
-      "verbatim": "that's everything",
       "signoff": {
         "stage": "interview",
         "checkpoint": null,
@@ -3283,7 +3281,6 @@
     {
       "stage": "parts",
       "from_stage": "plan-approved",
-      "by": "user",
       "at": "2026-11-09T00:00:30.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3299,7 +3296,6 @@
           "at": "2026-11-09T00:00:30.000Z"
         }
       ],
-      "verbatim": "Approve the synthetic plan-approved record.\n",
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
@@ -3356,7 +3352,6 @@
     {
       "stage": "parts-review",
       "from_stage": "parts",
-      "by": "user",
       "at": "2026-11-09T00:00:35.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3377,7 +3372,6 @@
           "at": "2026-11-09T00:00:34.000Z"
         }
       ],
-      "verbatim": "Approve the synthetic plan-approved record.\n",
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,
@@ -3492,7 +3486,6 @@
     {
       "stage": "rigging-interview",
       "from_stage": "parts-review",
-      "by": "user",
       "at": "2026-11-09T00:00:41.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3518,7 +3511,6 @@
           "at": "2026-11-09T00:00:37.000Z"
         }
       ],
-      "verbatim": "Approve the synthetic parts-review record.\n",
       "signoff": {
         "stage": "parts-review",
         "checkpoint": null,
@@ -3575,7 +3567,6 @@
     {
       "stage": "rigging",
       "from_stage": "rigging-interview",
-      "by": "user",
       "at": "2026-11-09T00:00:44.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3606,7 +3597,6 @@
           "at": "2026-11-09T00:00:44.000Z"
         }
       ],
-      "verbatim": "Approve the synthetic rigging-interview record.\n",
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
@@ -3663,7 +3653,6 @@
     {
       "stage": "rig-review",
       "from_stage": "rigging",
-      "by": "user",
       "at": "2026-11-09T00:00:49.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3709,7 +3698,6 @@
           "at": "2026-11-09T00:00:49.000Z"
         }
       ],
-      "verbatim": "Approve the synthetic rigging-interview record.\n",
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
@@ -3766,7 +3754,6 @@
     {
       "stage": "post-interview",
       "from_stage": "rig-review",
-      "by": "user",
       "at": "2026-11-09T00:00:54.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3817,7 +3804,6 @@
           "at": "2026-11-09T00:00:51.000Z"
         }
       ],
-      "verbatim": "yes, that's her",
       "signoff": {
         "stage": "rig-review",
         "checkpoint": null,
@@ -3874,7 +3860,6 @@
     {
       "stage": "post",
       "from_stage": "post-interview",
-      "by": "user",
       "at": "2026-11-09T00:01:00.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -3930,7 +3915,6 @@
           "at": "2026-11-09T00:01:00.000Z"
         }
       ],
-      "verbatim": "go",
       "signoff": {
         "stage": "post-interview",
         "checkpoint": null,
@@ -3987,7 +3971,6 @@
     {
       "stage": "direction-review",
       "from_stage": "post",
-      "by": "user",
       "at": "2026-11-09T00:01:04.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -4043,7 +4026,6 @@
           "at": "2026-11-09T00:01:00.000Z"
         }
       ],
-      "verbatim": "go",
       "signoff": {
         "stage": "post-interview",
         "checkpoint": null,
@@ -4100,7 +4082,6 @@
     {
       "stage": "accepted",
       "from_stage": "direction-review",
-      "by": "user",
       "at": "2026-11-09T00:01:04.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -4161,7 +4142,6 @@
           "at": "2026-11-09T00:01:04.000Z"
         }
       ],
-      "verbatim": "done, I like it",
       "signoff": {
         "stage": "direction-review",
         "checkpoint": null,

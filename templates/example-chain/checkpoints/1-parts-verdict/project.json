@@ -727,7 +727,6 @@
     {
       "stage": "plan-approved",
       "from_stage": "interview",
-      "by": "user",
       "at": "2026-11-06T01:00:22.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -738,7 +737,6 @@
           "at": "2026-11-06T01:00:21.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "interview",
         "checkpoint": null,
@@ -780,7 +778,6 @@
     {
       "stage": "parts",
       "from_stage": "plan-approved",
-      "by": "user",
       "at": "2026-11-06T01:00:24.000Z",
       "post_not_passed": false,
       "order": "split",
@@ -796,7 +793,6 @@
           "at": "2026-11-06T01:00:23.000Z"
         }
       ],
-      "verbatim": "Approve this synthetic geometric example.\n",
       "signoff": {
         "stage": "plan-approved",
         "checkpoint": null,

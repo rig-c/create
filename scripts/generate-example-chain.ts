@@ -240,7 +240,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     steps.push(entry); pending.push(steps.length - 1);
     json('project.json', project);
   };
-  const advance = (value: string, flags: string[] = []): void => writer(['advance', value, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', ...flags]);
+  const advance = (value: string, flags: string[] = []): void => writer(['advance', value, ...flags]);
   const stepStatus = (id: string, value: string): void => writer(['step-status', id, value, '--by', 'agent']);
   const status = (ids: string[], consumer: string[]): void => {
     for (const id of ids) seed(`plan.steps[${id}].status`, 'done', 'docs/PROJECT.md:81,84', consumer, p => {

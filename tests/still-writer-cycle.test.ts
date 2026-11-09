@@ -69,7 +69,7 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     command(['rig-version', '1', dir, '--parts', `${EXAMPLE_DRAFT}/input`, '--rig', `${EXAMPLE_DRAFT}/out`, '--build', 'new-build', '--idle', 'new-idle',
       '--config', `${EXAMPLE_DRAFT}/config.json`, '--path-adapter', 'adapter.json', '--compile-report', 'new-compile.json', '--toolchain-lock', 'toolchain.json',
       '--citations', 'citations.json', '--run-record', 'new-build/run.json', '--at-source', 'new-build/run.json', '--at-pointer', '/finished_at', '--by', 'synthetic registrant'], now + 1000);
-    command(['advance', 'rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'approval.txt')], now + 2000);
+    command(['advance', 'rig-review', dir], now + 2000);
     const withoutStill = readFileSync(join(dir, 'project.json'));
     errors.mockClear();
     expect(main(['review', '1', dir, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user', '--verbatim', 'Approve', '--source', 'synthetic tool'], now + 3000)).toBe(1);
@@ -132,7 +132,7 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     command(['signoff', 'rig-review', dir, '--version', '1', '--by', 'user', '--verbatim-file', join(dir, 'approval.txt')], reviewAt + 1000);
     expect(checkAt(reviewAt + 1000, 1).refusals.map(({ code, path }) => ({ code, path })))
       .toEqual([{ code: 'STAGE_LAGGING', path: 'stage' }]);
-    command(['advance', 'post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'approval.txt')], reviewAt + 2000);
+    command(['advance', 'post-interview', dir], reviewAt + 2000);
     expect(checkAt(reviewAt + 2000, 1).refusals.map(({ code, path }) => ({ code, path }))).toEqual([
       { code: 'INTERVIEW_INCOMPLETE', path: 'interview.post.items[camera_depth].guide' },
       { code: 'INTERVIEW_INCOMPLETE', path: 'interview.post.items[post_timing].guide' },

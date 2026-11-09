@@ -27,7 +27,7 @@ function sign(dir: string, stage: string, version?: string): JsonObject {
   const signature = JSON.parse(signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--json', ...(version ? ['--version', version] : [])]).stdout) as JsonObject;
   if (stage === 'direction-review' && load(dir).stage === stage) {
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-    advanceCommand(['accepted', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    advanceCommand(['accepted', dir]);
   }
   return signature;
 }

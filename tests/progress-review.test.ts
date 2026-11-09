@@ -14,7 +14,7 @@ function words(dir: string): string {
   const path = join(dir, 'approval.txt'); writeFileSync(path, 'Approve the synthetic progress.'); return path;
 }
 function advance(dir: string, stage: string): void {
-  advanceCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  advanceCommand([stage, dir]);
 }
 function sign(dir: string, stage: string): void {
   signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);

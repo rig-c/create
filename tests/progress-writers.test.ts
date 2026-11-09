@@ -19,7 +19,7 @@ const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'pro
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2) + '\n');
 const codes = (dir: string): string[] => checkProject(dir).refusals.map(f => f.code);
 function words(dir: string): string { const path = join(dir, 'words.txt'); writeFileSync(path, '\uFEFFMove the synthetic project.\r\n'); return path; }
-function advance(dir: string, stage = 'parts'): void { advanceCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir), '--source', 'synthetic approval']); }
+function advance(dir: string, stage = 'parts'): void { advanceCommand([stage, dir, '--source', 'synthetic approval']); }
 function status(dir: string, id: string, value: string): void { stepStatusCommand([id, value, dir, '--by', 'agent']); }
 function refused(dir: string, code: string, action: () => unknown): string {
   const before = readFileSync(join(dir, 'project.json'));
@@ -152,8 +152,31 @@ test.each([false, true])('lag control becomes green only through advance, split=
   expect(after.stage).toBe('parts'); expect(codes(dir)).toEqual([]);
   expect(after.signoffs).toEqual(before.signoffs);
   expect(after.stage_values).toEqual([...(split ? STAGE_VALUES : LEGACY_STAGE_VALUES)]);
-  expect(obj(arr(after.advances).at(-1))).toMatchObject({ from_stage: 'plan-approved', stage: 'parts', by: 'owner',
-    at: '2026-11-20T00:00:00.000Z', verbatim: '\uFEFFMove the synthetic project.\r\n', source: 'synthetic approval', signoff: signoffIdentity(obj(arr(before.signoffs)[1])) });
+  const entry = obj(arr(after.advances).at(-1));
+  expect(entry).toMatchObject({ from_stage: 'plan-approved', stage: 'parts',
+    at: '2026-11-20T00:00:00.000Z', source: 'synthetic approval', signoff: signoffIdentity(obj(arr(before.signoffs)[1])) });
+  // The move rests on the person's signoff; it records no words or mover of its own.
+  expect('by' in entry).toBe(false); expect('verbatim' in entry).toBe(false);
+});
+
+test('advance refuses a mover and words of its own with bytes identical', () => {
+  const dir = partsProject('plan-approved');
+  for (const flags of [['--by', 'owner'], ['--verbatim-file', words(dir)], ['--by', 'agent', '--verbatim-file', words(dir)]]) {
+    refused(dir, 'ADVANCE_WORDS_REMOVED', () => advanceCommand(['parts', dir, ...flags]));
+  }
+});
+
+test('an advance written with by and verbatim still checks clean; half of the pair or an agent mover does not', () => {
+  const dir = partsProject('plan-approved');
+  advance(dir); expect(codes(dir)).toEqual([]);
+  const warnings = checkProject(dir).warnings;
+  const p = read(dir); const entry = obj(arr(p.advances).at(-1));
+  Object.assign(entry, { by: 'owner', verbatim: '\uFEFFMove the synthetic project.\r\n' }); save(dir, p);
+  expect(codes(dir)).toEqual([]); expect(checkProject(dir).warnings).toEqual(warnings);
+  delete entry.verbatim; save(dir, p);
+  expect(codes(dir)).toEqual(['ADVANCE_MALFORMED']);
+  Object.assign(entry, { by: 'agent', verbatim: 'words' }); save(dir, p);
+  expect(codes(dir)).toEqual(['ADVANCE_MALFORMED']);
 });
 
 test('hand-set skip and writer skip are refused with original bytes retained', () => {
@@ -163,9 +186,8 @@ test('hand-set skip and writer skip are refused with original bytes retained', (
   refused(dir, 'ADVANCE_MALFORMED', () => advance(dir, 'parts-review'));
 });
 
-test('agent, repeated move and a target beyond authority leave bytes identical', () => {
+test('repeated move and a target beyond authority leave bytes identical', () => {
   const dir = partsProject();
-  refused(dir, 'ADVANCE_MALFORMED', () => advanceCommand(['parts', dir, '--by', 'agent', '--verbatim-file', words(dir)]));
   advance(dir);
   refused(dir, 'ADVANCE_MALFORMED', () => advance(dir));
   refused(dir, 'PARTS_BAR_UNMET', () => advance(dir, 'parts-review'));
@@ -205,7 +227,7 @@ test.each([false, true])('signoff then advance uses the public CLI and reconcile
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   // Signed after STAGE_PROGRESS_SINCE, the lagging stage is a refusal until advance moves it.
   expect(codes(dir)).toContain('STAGE_LAGGING');
-  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'advance', 'parts', dir, '--by', 'owner', '--verbatim-file', words(dir), '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'advance', 'parts', dir, '--json'], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.exitCode).toBe(0); expect(result.stderr.toString()).toBe('');
   expect(JSON.parse(result.stdout.toString()).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
   expect(codes(dir)).toEqual([]); expect(checkProject(dir).warnings.map(f => f.code)).not.toContain('STAGE_VALUES_STALE');
@@ -233,7 +255,7 @@ test('a step without a checkpoint completes and then permits the bar-stage exit'
     status(dir, id, 'done');
   }
   expect(obj(arr(step(read(dir), 'seethrough').status_history)[2]).signoff).toBeNull();
-  advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', words(dir), ...withPartsCheck(dir)]); expect(codes(dir)).toEqual([]);
+  advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]); expect(codes(dir)).toEqual([]);
   expect(obj(arr(read(dir).advances).at(-1)).signoff).toEqual(signoffIdentity(obj(arr(read(dir).signoffs)[1])));
 });
 

@@ -42,10 +42,10 @@ function setup(density?: number, reopen = true): string {
     testClock.set(new Date('2026-11-19T00:00:02Z'));
     signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
-    advanceCommand(['parts', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    advanceCommand(['parts', dir]);
     testClock.set(new Date('2026-11-19T00:00:03Z'));
     completeParts(dir);
-    advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), ...withPartsCheck(dir)]);
+    advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]);
     testClock.set(new Date('2026-11-20T00:00:00Z'));
   }
   if (!reopen) return dir;
@@ -75,7 +75,7 @@ function freshRigInterview(dir: string, answerAt = '2026-11-21T00:00:00Z', appro
     supersede(waypoint(p, id), 'guide', guide);
   }
   save(dir, p); testClock.set(new Date(approvalAt));
-  advanceCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  advanceCommand(['rigging-interview', dir]);
 }
 
 test('human snapshot and rigging approval bind exact declarations without rewriting old signatures', () => {
@@ -87,7 +87,7 @@ test('human snapshot and rigging approval bind exact declarations without rewrit
   expect(signed.structure).toEqual(obj(arr(p.signoffs).at(-2)).structure);
   expect(Object.keys(obj(signed.step_hashes))).toEqual(['bones', 'meshes', 'constraints', 'motion']);
   expect(arr(p.signoffs).slice(0, before.length).map(s => sha(JSON.stringify(s)))).toEqual(before);
-  advanceCommand(['rigging', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  advanceCommand(['rigging', dir]);
   expect(checkProject(dir).refusals).toEqual([]);
 });
 
@@ -142,7 +142,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
         meshes: [{ entry: 'torso', guide: 'meshes', quote: 'Fresh synthetic answer after viewing parts.', asks: ['bend'] }],
       } } };
   }
-  advanceCommand(['rigging', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  advanceCommand(['rigging', dir]);
   let p = read(dir); const v1 = production(1, 10, '2026-11-23T00:00:00Z'); arr(p.versions).push(v1); save(dir, p);
   expect(checkProject(dir).refusals).toEqual([]);
   const frozenV1 = JSON.stringify(v1);
@@ -162,12 +162,12 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));
   write(dir, 'evidence/revised-structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'revised', config: draft.config, entries: [{ path: '/meshes/torso', value: { density: 20 } }] }));
   testClock.set(new Date('2026-11-25T00:00:00Z'));
-  advanceCommand(['parts-review', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt'), ...withPartsCheck(dir)]);
+  advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]);
   recordPartsReceipt(dir, 'revised', testClock.now());
   partsSign(dir, 'revised', 'evidence/revised-structure.json');
   freshRigInterview(dir, '2026-11-26T00:00:00Z', '2026-11-27T00:00:00Z');
   expect(signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]).exit).toBe(0);
-  advanceCommand(['rigging', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  advanceCommand(['rigging', dir]);
   p = read(dir); arr(p.versions).push(production(2, 20, '2026-11-28T00:00:00Z')); save(dir, p);
   expect(latestPartsApproval(p, Date.parse('2026-11-24T12:00:00Z'))).toBeUndefined();
   expect(latestPartsApproval(p, Date.parse('2026-11-28T00:00:00Z'))?.draft_id).toBe('revised');

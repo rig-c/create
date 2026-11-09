@@ -72,9 +72,9 @@ function setup(at = PART_FILE_IDENTITY_SINCE, approval = true, differentBuild = 
   if (approval) {
     if (!preParts) {
       approveParts(dir);
-      advanceCommand(['rigging', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+      advanceCommand(['rigging', dir]);
     }
-    advanceCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    advanceCommand(['rig-review', dir]);
   }
   const registered = load(dir);
   registered.versions = [{ n: 1, kind: 'rig', at, rig_version: null, built_by: 'agent',

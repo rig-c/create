@@ -30,12 +30,12 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `REVIEW_ACT_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported act schema, explicitly including act@1. Request a new act@2 without migrating the old act. |
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <3.0.0`. Publish through an accepted installed Parts enumerator and review again. |
 | `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date or rig/post or parts value is malformed. Restore the original act evidence or request a new act. |
-| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict or parts-verdict writer. Use the matching version and supported writer. |
+| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict, parts-verdict or signoff writer, or a signoff act signs a stage other than the one `signoff <stage> --from-review` names. Use the matching version, stage and supported writer. |
 | `REVIEW_FILE_ROUTE_REMOVED` | `project.json.review_acts` cannot ingest saved act files (exit 2). Use `review <version> --from-review <actId>` through the live Review job API. |
 | `REVIEW_ACT_FETCH_REFUSED` | The live job refused or could not complete finalized-act fetch. The diagnostic retains the producer refusal code without exposing its private details. Restore the live job and its writer grant. |
-| `REVIEW_ACT_SOURCE_STALE` | A current source binding or retained version/draft-entry identity differs from the displayed act. Restore the retained bytes or request a new review. Replays also refuse without changing the recorded verdict. |
+| `REVIEW_ACT_SOURCE_STALE` | A current source binding or retained version/draft-entry identity differs from the displayed act, including a plan-bound signoff act (`plan-approved`, `rigging-interview`, `post-interview`) whose `source.plan` step ids and hashes, in order, differ from the current `plan.steps`. Restore the retained bytes or publish the current plan and request a new review or sign-off. Replays also refuse without changing the recorded verdict. |
 | `REVIEW_ACT_REPLAY_CONFLICT` | A `(jobId, actId)` appears twice or its immutable value changed. Restore the original receipt and its single linked verdict. |
-| `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target, linked verdict or retained parts evidence is invalid. Restore the original receipt and verdict together. |
+| `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target, linked verdict, linked signoff (the one `signoffs[]` entry whose `source` names the act, with the act's stage, `by`, `at` and words) or retained parts evidence is invalid. Restore the original receipt and verdict or signoff together. |
 | `REVIEW_ACT_VERSION_UNVERIFIED` | WARN on ingest when the acknowledged publication receipt is unavailable. The version-entry comparison was skipped, and all explicit source bindings were checked. Preserve private acknowledged receipts for future ingests. |
 | `PARTS_REVIEW_OPTION_INVALID` | `project.json.review_acts` received missing, duplicate or competing parts-review options. Use `parts-review --from-review <actId>` and submit human values through Review. |
 | `PARTS_REVIEW_EVIDENCE_CONFLICT` | The deterministic semantic evidence path contains different bytes or unsafe filesystem entries. Preserve that evidence and restore the original act before retrying. Refusal preserves the project record. |
@@ -651,6 +651,7 @@ declared binding shape without requiring old inputs to remain working files.
 ## Recording signatures and review inputs
 
 ```sh
+rig-create signoff <stage> --from-review <actId>
 rig-create signoff <stage> --by <who> [--steps <id,id,...>] [--verbatim-file <file>]
 rig-create signoff parts-review --by <who> --evidence <path> --diff-report <path> [--component '<id>=<status>:<why>'] [--verbatim-file <file>]
 ```
@@ -661,7 +662,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 
 | Code | Fires when |
 | --- | --- |
-| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, missing parts-review `--evidence`, evidence or diff options on another stage, duplicate component ids, malformed component flags, or `--component` without `--diff-report` (exit 2) |
+| `SIGNOFF_OPTION_INVALID` | missing or repeated options, unknown stage, extra positional arguments, `--from-review` with `--by`, `--verbatim-file`, `--steps` or `--checkpoint` (the act supplies the person, words and covered steps), or `--steps` outside a plan approval stage, `--steps` with `--checkpoint`, missing parts-review `--evidence`, evidence or diff options on another stage, duplicate component ids, malformed component flags, or `--component` without `--diff-report` (exit 2) |
 | `SIGNOFF_NOT_HUMAN` | `--by` is `agent`, case-insensitively |
 | `SIGNOFF_MALFORMED` | the record's `signoffs` is not a list |
 | `SIGNOFF_STEP_INVALID` | coverage is empty, ids are missing or repeated, or a requested step is outside the stage's phase (malformed `--steps` exits 2) |
@@ -1126,8 +1127,9 @@ amendment grants no authority. A completed bar permits its next review.
 | `STAGE_SKIPPED` | stage exceeds the signature frontier and completed bar exits, differs from its latest advance/reopen, or has no move from the initial stage | reopen the unfinished stage, finish its work and use advance |
 | `STAGE_SIGNOFF_DATE_INVALID` | the live frontier approval has an unreadable date | restore its original readable date before advancing |
 | `ADVANCE_UNAUTHORIZED` | advance has no live stage-level human approval, or the latest one is at a stage before the one that owns the move (the current stage, or the last signed stage before a bar stage) | record `signoff <stage>` for the stage the message names before advancing |
-| `ADVANCE_MALFORMED` | advances history lacks the human move, adjacent target, boolean event-time post_not_passed snapshot, required steps_before phases and completed bars, or matching event-time live authorizing signoff | retain the original move and matching `{stage,checkpoint,at}` signature through advance |
-| `PROGRESS_OPTION_INVALID` | advance, step-status, pause or resume arguments are missing, repeated or malformed, or advance's `--parts-check` and `--parts` are not given together or are given on a move other than `parts` → `parts-review` | supply the target or step/status and --by once, and both parts-check flags only on that move |
+| `ADVANCE_WORDS_REMOVED` | advance receives `--by` or `--verbatim-file` (exit 2). The move's authority is the live stage sign-off it records in `signoff`, so advance takes no mover or words of its own | record the person's approval with `signoff <stage>` (from the review tool, `signoff <stage> --from-review <actId>`) and run advance without those flags |
+| `ADVANCE_MALFORMED` | advances history lacks the human move, adjacent target, a string `by` and `verbatim` pair when an older entry carries either one (a human `by`, never `agent`; current advances carry neither), boolean event-time post_not_passed snapshot, required steps_before phases and completed bars, or matching event-time live authorizing signoff | retain the original move and matching `{stage,checkpoint,at}` signature through advance |
+| `PROGRESS_OPTION_INVALID` | advance, step-status, pause or resume arguments are missing, repeated or malformed, or advance's `--parts-check` and `--parts` are not given together or are given on a move other than `parts` → `parts-review` | supply the target (advance) or step/status and --by once (step-status), and both parts-check flags only on that move |
 | `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage (on an amended project, outside both the retained stage and the effective stage the work resumes at), or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage, or on an amended project re-sign the lapsed approvals and finish the earlier bars, and use pending, in-progress, at-checkpoint, done in order; the step-status refusal names the next status to record, or `reopen` after done |
 | `STEP_STATUS_SIGNOFF` | retained status history has a missing or mismatched checkpoint signature reference | retain its matching human checkpoint signoff and record done through step-status |
 | `STAGE_MOVE_UNLINKED` | an advance or reopen's `from_stage` is not the stage the previous recorded move (by time) left, starting from `interview` (`paused` links to either side), or an `advances[]` entry is dated before an earlier one | preserve the history; record each later move through advance or reopen |

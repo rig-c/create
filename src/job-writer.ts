@@ -22,6 +22,37 @@ export function prepareVersionIntent(root: string, bytes: Buffer, n: number): Pe
   return enqueuePublication(root, binding, { path: `review-live-v${n}.json`, selector: publicationSelector(project, n) }, bytes);
 }
 
+export const SOURCE_CONDITION = '@rig-c/source';
+export const SOURCE_CONDITION_FLAG = `--conditions=${SOURCE_CONDITION}`;
+
+const EXEC_ARGV_VALUE_FLAGS = new Set([
+  '-e', '--eval', '-p', '--print', '-r', '--preload', '--import',
+  '--config', '-c', '--cwd', '--env-file', '--define', '-d', '--loader', '-l',
+]);
+
+/** Forward only the explicit `@rig-c/source` condition to job-runtime child launches; never arbitrary `process.execArgv` flags. */
+export function jobRuntimeExecArgv(execArgv: readonly string[] = process.execArgv): string[] {
+  for (let i = 0; i < execArgv.length; i++) {
+    const arg = execArgv[i];
+    if (arg === '--') break;
+    if (arg === SOURCE_CONDITION_FLAG) return [SOURCE_CONDITION_FLAG];
+    if (arg === '--conditions') {
+      if (execArgv[++i] === SOURCE_CONDITION) return [SOURCE_CONDITION_FLAG];
+      continue;
+    }
+    if (arg !== undefined && EXEC_ARGV_VALUE_FLAGS.has(arg)) i++;
+  }
+  return [];
+}
+
+export function jobRuntimeCommand(
+  action: string,
+  runtime = fileURLToPath(new URL('./job-runtime.ts', import.meta.url)),
+  execArgv: readonly string[] = process.execArgv,
+): string[] {
+  return [process.execPath, ...jobRuntimeExecArgv(execArgv), runtime, action];
+}
+
 const publishedLines: string[] = [];
 
 export function takePublishedLines(): string[] {
@@ -49,7 +80,7 @@ export function publishCommittedVersion(root: string, n: number | string): strin
   // keeps its existing call contract and retains both write locks.
   let child: ReturnType<typeof Bun.spawnSync<'pipe', 'pipe'>>;
   try {
-    child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./job-runtime.ts', import.meta.url)), 'publish'], {
+    child = Bun.spawnSync(jobRuntimeCommand('publish'), {
       stdin: Buffer.from(JSON.stringify({ root, id: entry.id })), stdout: 'pipe', stderr: 'pipe',
     });
   } catch {

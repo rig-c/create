@@ -32,7 +32,7 @@ import { RIG_VERSION_HELP, rigVersionCommand } from './rig-version.ts';
 import { DERIVED_HELP, derivedCommand } from './prepared-inputs.ts';
 import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 import { VERSION_HELP, versionCommand } from './config-lost.ts';
-import { takePublishedLines } from './job-writer.ts';
+import { jobRuntimeCommand, takePublishedLines } from './job-writer.ts';
 import { NEXT_HELP, nextCommand } from './next.ts';
 
 // Input registration is kept in its own CLI block.
@@ -297,7 +297,7 @@ export function main(argv: string[], now: number): number {
       const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], now }));
       const runtime = join(import.meta.dir, 'job-runtime.ts');
       if (action === 'open') {
-        const child = Bun.spawn([process.execPath, runtime, action], {
+        const child = Bun.spawn(jobRuntimeCommand(action, runtime), {
           stdin, stdout: 'inherit', stderr: 'inherit',
         });
         const forward = (signal: 'SIGINT' | 'SIGTERM') => {
@@ -314,7 +314,7 @@ export function main(argv: string[], now: number): number {
         });
         return 0;
       }
-      const child = Bun.spawnSync([process.execPath, runtime, action!], {
+      const child = Bun.spawnSync(jobRuntimeCommand(action!, runtime), {
         stdin, stdout: 'inherit', stderr: 'inherit',
       });
       return child.exitCode;

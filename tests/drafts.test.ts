@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { checkDrafts, draftVersionFindings } from '../src/drafts.ts';
+import { createHash } from 'node:crypto';
+import { dirname, join, relative } from 'node:path';
+import { checkDrafts, draftInputUnavailable, draftVersionFindings } from '../src/drafts.ts';
+import { configInputReferences } from '../src/config-inputs.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
@@ -194,4 +196,62 @@ test('standalone assemble stack beside rig records and two stack candidates refu
   const before = readFileSync(join(dir, 'project.json'));
   rejected(() => draftRigCommand(args), 'DRAFT_RIG_STACK');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+/** A synthetic occluder matte at the project's inputs/, named from the draft config as the pinned loader declares it. */
+function occluderDraft(image = '../../../inputs/foreground.png'): { dir: string; args: string[]; config: JsonObject } {
+  const { dir, args } = draft(); const config = { assemble: { occluders: [{ image }] } };
+  write(dir, 'derived/drafts/sample/config.json', JSON.stringify(config));
+  write(dir, 'inputs/foreground.png', 'synthetic foreground matte');
+  return { dir, args, config };
+}
+
+test('a config-named project input outside the draft root records and checks clean', () => {
+  const { dir, args, config } = occluderDraft();
+  expect(configInputReferences(dir, config).map(ref => ref.at)).toEqual(['assemble.occluders[0].image']);
+  const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
+  const bytes = readFileSync(join(dir, 'inputs/foreground.png'));
+  expect(record.config_inputs).toEqual([{ path: 'inputs/foreground.png', sha256: createHash('sha256').update(bytes).digest('hex') }]);
+  expect(arr(read(dir).drafts).at(-1)).toEqual(record);
+  expect(checkProject(dir).refusals).toEqual([]);
+  const errors: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, read(dir), errors, warnings);
+  // The fixture binds no run.json stamp; nothing about the named input warns.
+  expect(errors).toEqual([]); expect(warnings.map(f => f.code)).toEqual(['DRAFT_PRODUCER_ASSUMED']);
+  expect(draftInputUnavailable(dir, 'inputs/foreground.png', 'derived/drafts/sample')).toBe(false);
+});
+
+test('a changed or missing project input refuses DRAFT_RIG_FILE', () => {
+  const { dir, args } = occluderDraft(); draftRigCommand(args);
+  write(dir, 'inputs/foreground.png', 'changed matte');
+  const changed: Finding[] = []; checkDrafts(dir, read(dir), changed);
+  expect(changed.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
+  rmSync(join(dir, 'inputs/foreground.png'));
+  const missing: Finding[] = []; const warnings: Finding[] = []; checkDrafts(dir, read(dir), missing, warnings);
+  expect(missing.map(f => f.code)).toEqual(['DRAFT_RIG_FILE']);
+  expect(warnings.map(f => f.code)).not.toContain('DRAFT_RIG_UNAVAILABLE');
+  expect(() => draftInputUnavailable(dir, 'inputs/foreground.png', 'derived/drafts/sample')).toThrow('missing');
+});
+
+test('an input that escapes the project or is not a regular file refuses before writing', () => {
+  const outside = fixture(); write(outside, 'foreign.png', 'foreign matte');
+  const lexical = occluderDraft(); const before = readFileSync(join(lexical.dir, 'project.json'));
+  write(lexical.dir, 'derived/drafts/sample/config.json', JSON.stringify({ assemble: { occluders: [{ image: relative(join(lexical.dir, 'derived/drafts/sample'), join(outside, 'foreign.png')) }] } }));
+  rejected(() => draftRigCommand(lexical.args), 'DRAFT_RIG_MALFORMED');
+  expect(readFileSync(join(lexical.dir, 'project.json'))).toEqual(before);
+  const linked = occluderDraft(); const linkedBefore = readFileSync(join(linked.dir, 'project.json'));
+  rmSync(join(linked.dir, 'inputs/foreground.png')); symlinkSync(join(outside, 'foreign.png'), join(linked.dir, 'inputs/foreground.png'));
+  rejected(() => draftRigCommand(linked.args), 'DRAFT_RIG_MALFORMED');
+  expect(readFileSync(join(linked.dir, 'project.json'))).toEqual(linkedBefore);
+  const folder = occluderDraft('../../../inputs'); const folderBefore = readFileSync(join(folder.dir, 'project.json'));
+  rejected(() => draftRigCommand(folder.args), 'DRAFT_RIG_MALFORMED');
+  expect(readFileSync(join(folder.dir, 'project.json'))).toEqual(folderBefore);
+});
+
+test('check refuses a hand-bound input that escapes the project', () => {
+  const { dir, args } = occluderDraft(); draftRigCommand(args);
+  const project = read(dir); const record = arr(project.drafts).at(-1) as JsonObject;
+  record.config_inputs = [{ path: '../foreground.png', sha256: '0'.repeat(64) }];
+  const errors: Finding[] = []; checkDrafts(dir, project, errors);
+  expect(errors.map(f => f.code)).toEqual(['DRAFT_RIG_FILE', 'DRAFT_RIG_FILE']);
 });

@@ -12,7 +12,7 @@
       "verdict": "versions[1].verdicts[0]",
       "review_package": {
         "path": "versions[1].review_package",
-        "sha256": "07a8cd833d008145ef524b2a8a053c87772c66f12df26a24cc84071bfc3fc25f"
+        "sha256": "974b02396510d29fc28296b36cd976a7dfdc973d76fd4495fd803252c66a04ef"
       }
     },
     "model": {

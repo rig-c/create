@@ -18,6 +18,7 @@ import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
+import { diffClassesCommand } from '../src/diff-classes.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { advanceCommand, stepStatusCommand } from '../src/progress-writers.ts';
@@ -141,9 +142,11 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   files[EXAMPLE_PARTS_CHECK] = checkExampleParts(join(dir, `${EXAMPLE_DRAFT}/input`), join(dir, 'parts-check-producer'));
   write(EXAMPLE_PARTS_CHECK, files[EXAMPLE_PARTS_CHECK]!);
   advanceCommand(['parts-review', dir, '--parts-check', EXAMPLE_PARTS_CHECK, '--parts', `${EXAMPLE_DRAFT}/input`], clock.now); reload();
-  sign('parts-review', '2026-11-11T10:20:00Z', ['--diff-report', EXAMPLE_DIFF_REPORT,
+  clock.now = Date.parse(exampleTime('2026-11-11T10:20:00Z'));
+  diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
-    '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);
+    '--by', 'agent'], clock.now); reload();
+  sign('parts-review', '2026-11-11T10:20:00Z', ['--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);
   obj(p.plan).rigging_drafted_at = exampleTime('2026-11-11T11:05:00Z');
   for (const w of arr(obj(p.interview).waypoints).map(obj)) {
     if (!['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) continue;
@@ -258,7 +261,7 @@ if (import.meta.main) {
   const generated = generateExampleOrder(resolve(destination));
   const root = join(import.meta.dir, '../templates');
   let text = readFileSync(join(root, 'legacy-example-project.json'), 'utf8');
-  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'drafts', 'inputs', 'derived', 'versions', 'review_acts', 'advances', 'scenes', 'direction_contract', 'fix_ledger']) text = replaceValue(text, key, generated.project[key] as Json);
+  for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'diff_map', 'drafts', 'inputs', 'derived', 'versions', 'review_acts', 'advances', 'scenes', 'direction_contract', 'fix_ledger']) text = replaceValue(text, key, generated.project[key] as Json);
   text = text.replace(/("proposed_at":\s*)"([^"]+)"/, (_match, prefix: string, at: string) => `${prefix}${JSON.stringify(exampleTime(at))}`);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
   const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };

@@ -4,13 +4,18 @@ import { existsSync, readFileSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { checkDiffClasses } from './diff-classes.ts';
+import { recordedPartsFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
 
 import type { Finding } from './check.ts';
 import type { JsonObject } from './templates.ts';
 
 export const DIFF_MAP_SINCE = '2026-11-06T00:00:00Z';
+export const DIFF_MAP_AGENT_SINCE = '2026-11-09T00:00:00Z';
 export const DIFF_MAP_MAX_FLOOR_PX = 2;
 export const DIFF_MAP_MAX_THRESHOLD = 40;
+export const DIFF_MAP_REMEDY =
+  'generate rig-parts diff-components on the reviewed assembly and record agent component classification with rig-create diff-classes --diff-report <path> --triage-file <file> --by agent (or --component <id>=<status>:<why> --by agent)';
 const SPEC = 'rig-parts-diff-components/1';
 const SHA256 = /^[0-9a-f]{64}$/;
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -56,27 +61,82 @@ export function diffStackCandidates(partsFile: string): string[] {
   return candidates;
 }
 
-/** `partsFile` is returned only by the successful parts-verdict reader. */
-export function checkDiffMap(dir: string, signoff: JsonObject, at: string, partsFile: string | undefined, refusals: Finding[], warnings: Finding[]): void {
-  const path = `${at}.diff_map`;
-  const remedy = 'generate rig-parts diff-components on the reviewed assembly, list every component with its status and why, and record a new parts-review sign-off with --diff-report and --component';
-  const push = (code: string, detail: string): void => { refusals.push({ code, path, message: `${at} ${path}: ${detail}; ${remedy}` }); };
-  const map = signoff.diff_map;
-  if (map === undefined) {
-    const date = typeof signoff.at === 'string' ? Date.parse(signoff.at) : NaN;
-    if (Number.isFinite(date) && date < Date.parse(DIFF_MAP_SINCE)) {
-      warnings.push({ code: 'DIFF_MAP_PREDATES', path, message: `${at} ${path}: no diff_map, sign-off predates ${DIFF_MAP_SINCE}; preserve this record and include the map when parts are reviewed again` });
-    } else push('DIFF_MAP_MISSING', 'the parts-review sign-off has no diff_map');
+/** Resolve the reviewed parts.json for stack checking from the latest live parts-review sign-off or latest draft. */
+export function resolveDiffMapPartsFile(dir: string, project: JsonObject): string | undefined {
+  const reopens = collectReopens(project, []);
+  const signoffs = Array.isArray(project.signoffs)
+    ? project.signoffs.filter((v): v is JsonObject => object(v))
+    : [];
+  let latest: JsonObject | undefined;
+  let bestAt = -Infinity;
+  for (const s of signoffs) {
+    if (s.stage !== 'parts-review' || (s.checkpoint ?? null) !== null) continue;
+    const at = typeof s.at === 'string' ? Date.parse(s.at) : NaN;
+    if (!liveSignoff(reopens, 'parts-review', at)) continue;
+    const score = Number.isNaN(at) ? -Infinity : at;
+    if (latest === undefined || score >= bestAt) {
+      latest = s;
+      bestAt = score;
+    }
+  }
+  if (latest !== undefined && !recordedPartsFinding(dir, project, latest, 'signoffs')) {
+    try {
+      return recordedPartsVerdict(dir, project, latest.draft_id, latest.evidence, { requireAvailable: false }).partsFile;
+    } catch {
+      // Fall through to draft lookup when receipt bytes are unavailable.
+    }
+  }
+  const drafts = Array.isArray(project.drafts)
+    ? project.drafts.filter((v): v is JsonObject => object(v))
+    : [];
+  const latestDraft = drafts.at(-1);
+  if (latestDraft !== undefined && typeof latestDraft.id === 'string') {
+    try {
+      return recordedPartsVerdict(dir, project, latestDraft.id, undefined, { requireAvailable: false }).partsFile;
+    } catch {
+      if (object(latestDraft.parts) && typeof latestDraft.parts.path === 'string') {
+        const candidate = resolve(dir, latestDraft.parts.path, 'parts.json');
+        if (existsSync(candidate) || diffStackCandidates(candidate).some((file) => existsSync(file))) return candidate;
+      }
+    }
+  }
+  return undefined;
+}
+
+export function validateDiffMapRecord(
+  dir: string,
+  map: unknown,
+  path: string,
+  partsFile: string | undefined,
+  refusals: Finding[],
+  options: { requireAgent?: boolean; label?: string } = {},
+): void {
+  const label = options.label ?? path;
+  const push = (code: string, detail: string): void => {
+    refusals.push({ code, path, message: `${label}: ${detail}; ${DIFF_MAP_REMEDY}` });
+  };
+  if (!object(map)) {
+    push('DIFF_MAP_REPORT', 'report needs a project-relative path and lowercase sha256');
     return;
   }
-  if (!object(map) || !object(map.report) || !nonempty(map.report.path) || !hash(map.report.sha256)) {
+  if (options.requireAgent) {
+    if (map.by !== 'agent') {
+      push('DIFF_MAP_NOT_AGENT', `by is ${JSON.stringify(map.by ?? null)}, but component classification is agent-authored ('by': 'agent', never a person)`);
+      return;
+    }
+    if (map.at !== undefined && (typeof map.at !== 'string' || !Number.isFinite(Date.parse(map.at)))) {
+      push('DIFF_MAP_NOT_AGENT', 'at must be a readable ISO timestamp');
+      return;
+    }
+  }
+  if (!object(map.report) || !nonempty(map.report.path) || !hash(map.report.sha256)) {
     push('DIFF_MAP_REPORT', 'report needs a project-relative path and lowercase sha256');
     return;
   }
   let report: unknown;
   try {
     const bytes = diffReportBytes(dir, map.report.path);
-    if (createHash('sha256').update(bytes).digest('hex') !== map.report.sha256) throw new Error('sha256 differs from the sign-off');
+    if (createHash('sha256').update(bytes).digest('hex') !== map.report.sha256) throw new Error('sha256 differs from diff_map.report.sha256');
     report = JSON.parse(bytes.toString('utf8'));
   } catch (error) {
     push('DIFF_MAP_REPORT', `${map.report.path}: ${error instanceof Error ? error.message : String(error)}`);
@@ -126,4 +186,63 @@ export function checkDiffMap(dir: string, signoff: JsonObject, at: string, parts
   }
   for (const id of ids) if (!listed.has(id)) push('DIFF_MAP_COMPONENT_UNLISTED', `${map.report.path}: component ${id} is unlisted`);
   checkDiffClasses(report, map, path, push);
+}
+
+/** `partsFile` is returned only by the successful parts-verdict reader. */
+export function checkDiffMap(
+  dir: string,
+  signoff: JsonObject,
+  at: string,
+  partsFile: string | undefined,
+  refusals: Finding[],
+  warnings: Finding[],
+  project?: JsonObject,
+): void {
+  const signoffPath = `${at}.diff_map`;
+  const date = typeof signoff.at === 'string' ? Date.parse(signoff.at) : NaN;
+  const predatesAgent = Number.isFinite(date) && date < Date.parse(DIFF_MAP_AGENT_SINCE);
+  if (signoff.diff_map !== undefined) {
+    if (predatesAgent) {
+      warnings.push({
+        code: 'DIFF_MAP_ON_SIGNOFF_LEGACY',
+        path: signoffPath,
+        message: `${at} ${signoffPath}: parts-review sign-off predates ${DIFF_MAP_AGENT_SINCE} and carries component classifications on the human sign-off; preserve this legacy record and record future classifications with rig-create diff-classes --diff-report <path> --triage-file <file> --by agent`,
+      });
+      if (project?.diff_map === undefined) {
+        validateDiffMapRecord(dir, signoff.diff_map, signoffPath, partsFile, refusals, {
+          requireAgent: false,
+          label: `${at} ${signoffPath}`,
+        });
+        return;
+      }
+    } else {
+      refusals.push({
+        code: 'SIGNOFF_DIFF_MAP_REMOVED',
+        path: signoffPath,
+        message: `${at} ${signoffPath}: component classification is agent-authored since ${DIFF_MAP_AGENT_SINCE} and cannot sit on a person's parts-review sign-off; remove diff_map from ${at} and record classification with rig-create diff-classes --diff-report <path> --triage-file <file> --by agent`,
+      });
+      if (project?.diff_map === undefined) return;
+    }
+  }
+  const map = project?.diff_map;
+  if (map === undefined) {
+    if (Number.isFinite(date) && date < Date.parse(DIFF_MAP_SINCE)) {
+      warnings.push({
+        code: 'DIFF_MAP_PREDATES',
+        path: 'diff_map',
+        message: `${at} diff_map: no diff_map, sign-off predates ${DIFF_MAP_SINCE}; preserve this record and record classification with rig-create diff-classes --diff-report <path> --triage-file <file> --by agent when parts are reviewed again`,
+      });
+    } else {
+      refusals.push({
+        code: 'DIFF_MAP_MISSING',
+        path: 'diff_map',
+        message: `${at} diff_map: no agent component classification recorded in project.json; ${DIFF_MAP_REMEDY}`,
+      });
+    }
+    return;
+  }
+  validateDiffMapRecord(dir, map, 'diff_map', partsFile, refusals, {
+    requireAgent: true,
+    label: `${at} diff_map`,
+  });
 }

@@ -4,11 +4,11 @@
   "question": "meshes",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-09T00:00:37.000Z",
+  "drafted_at": "2026-11-09T00:00:38.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-09T00:00:32.000Z",
+      "signoff_at": "2026-11-09T00:00:33.000Z",
       "evidence": {
         "kind": "parts-verdict",
         "path": "evidence/review-reads/3cb6aa228c0e8a727b714b663389e0b40dea575b424388ea61e1b7709e83560d.json",

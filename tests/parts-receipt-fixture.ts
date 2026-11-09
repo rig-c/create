@@ -5,6 +5,7 @@ import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 /** Synthetic API stdout for receipt consumers. Review-owned paths are opaque. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { DIFF_MAP_AGENT_SINCE } from '../src/diff-map.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -48,6 +49,20 @@ export function preparePartsApproval(root: string, now: number, partsDir = 'deri
     signoff.draft_id = id;
     signoff.evidence = { ...(receipt.evidence as JsonObject), spec: 'rig-create/parts-verdict-cli@1' };
     signoff.structure = { path: snapshot, sha256: jobHash(bytes) };
+    if (
+      signoff.diff_map !== undefined &&
+      typeof signoff.at === 'string' &&
+      Date.parse(signoff.at) >= Date.parse(DIFF_MAP_AGENT_SINCE)
+    ) {
+      if (project.diff_map === undefined && typeof signoff.diff_map === 'object' && signoff.diff_map !== null) {
+        project.diff_map = {
+          by: 'agent',
+          at: typeof signoff.at === 'string' ? signoff.at : new Date(now).toISOString(),
+          ...(signoff.diff_map as JsonObject),
+        };
+      }
+      delete signoff.diff_map;
+    }
   }
   writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   return ['--draft', id, '--structure-file', snapshot];

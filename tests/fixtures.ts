@@ -1,4 +1,5 @@
 import { DIRECTION_SCENE_SINCE } from '../src/direction.ts';
+import { DIFF_MAP_AGENT_SINCE } from '../src/diff-map.ts';
 import { isSignoffIdentity, matchesSignoff } from '../src/stage-progress.ts';
 import { approvalStageOfStep, hasStageOrder, LEGACY_STAGES, STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import { expect } from 'bun:test';
@@ -143,7 +144,20 @@ export function retimeFixture(project: JsonObject, before: number, bindAnswers =
   Object.assign(project, JSON.parse(text.replace(timestamp, value =>
     new Date(before - (instants.length - instants.indexOf(Date.parse(value))) * 1000).toISOString())));
   rehashSignoffs(project);
-  for (const raw of asArray(project.signoffs).filter(isObject)) delete raw.answer_hashes;
+  for (const raw of asArray(project.signoffs).filter(isObject)) {
+    delete raw.answer_hashes;
+    if (
+      raw.stage === 'parts-review' &&
+      isObject(raw.diff_map) &&
+      typeof raw.at === 'string' &&
+      Date.parse(raw.at) >= Date.parse(DIFF_MAP_AGENT_SINCE)
+    ) {
+      if (project.diff_map === undefined) {
+        project.diff_map = { by: 'agent', at: raw.at, ...raw.diff_map };
+      }
+      delete raw.diff_map;
+    }
+  }
   if (bindAnswers) bindFixtureAnswers(project);
 }
 

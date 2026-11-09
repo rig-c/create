@@ -2,14 +2,16 @@
  * `restart`: start a project's record again at v1 through a writer (create#285). The fresh record is
  * the one init writes. It keeps the inputs, re-validated by the input writer's checks, and the fix
  * ledger, because owner feedback belongs to the project, not to a version. create does not keep the
- * earlier project.json; git history holds it, and restarts[] names its sha256.
+ * earlier project.json; git history holds it, and restarts[] names its sha256. That holds only when
+ * project.json is committed, so restart refuses before it writes unless project.json is tracked and
+ * byte-identical to its HEAD version (create#304).
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { asArray, checkProject, isObject, PROJECT_SCHEMA, type Finding } from './check.ts';
 import { ledgerRows, writeRecord } from './fix-ledger.ts';
-import { freshProjectRecord } from './init.ts';
+import { freshProjectRecord, run } from './init.ts';
 import { checkInputs } from './inputs.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { readVerbatim } from './record-input.ts';
@@ -22,9 +24,35 @@ export const RESTART_HELP = `restart:
   Replace project.json with the record init writes: the template's stage, no versions, drafts,
   signoffs, plan, answers or review acts. Keeps name, title, same_artwork, inputs[] (each file must
   still match its sha256) and fix_ledger with every row, and appends restarts[] { at, by, reason,
-  previous_record_sha256 }. git history holds the earlier record. A kept part set (inputs under
+  previous_record_sha256 }. git history holds the earlier record, so restart refuses unless
+  project.json is committed: tracked and byte-identical to HEAD. A kept part set (inputs under
   <set>/parts/*.png or <set>/parts.json) keeps <set>/parts.json and its rig: rig.json and
   mesh_report.json, at <set>/rig/ or <set>/.`;
+
+/**
+ * The bytes of `<dir>/project.json` at HEAD, refusing unless the folder is in a git work tree and the
+ * file is committed there byte for byte: restart drops the earlier record, so git history must hold it.
+ */
+export function committedRecord(dir: string, file: string): Buffer {
+  const remedy = 'commit project.json, then restart';
+  const inside = run(['git', 'rev-parse', '--is-inside-work-tree'], dir);
+  if (!inside.ok || inside.out !== 'true') {
+    refuse('RESTART_NOT_IN_GIT', `${file}: the folder is not inside a git work tree, so git history cannot hold the record restart replaces; put the project under git, ${remedy}`);
+  }
+  const prefix = run(['git', 'rev-parse', '--show-prefix'], dir);
+  if (!prefix.ok) refuse('RESTART_NOT_IN_GIT', `${file}: git cannot resolve the folder's path in its work tree (${prefix.out}); ${remedy}`);
+  const path = `${prefix.out}project.json`;
+  const head = Bun.spawnSync(['git', 'show', `HEAD:${path}`], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+  if (head.exitCode !== 0) {
+    const tracked = run(['git', 'ls-files', '--error-unmatch', '--', 'project.json'], dir).ok;
+    refuse('RESTART_RECORD_UNCOMMITTED', `${file}: ${tracked ? 'is staged but was never committed' : 'is untracked'}, so git history does not hold the record restart replaces; ${remedy}`);
+  }
+  const bytes = Buffer.from(head.stdout);
+  if (!readFileSync(file).equals(bytes)) {
+    refuse('RESTART_RECORD_UNCOMMITTED', `${file}: differs from HEAD:${path} (uncommitted changes), so git history does not hold the record restart replaces; ${remedy}`);
+  }
+  return bytes;
+}
 
 /** Kept part sets missing their manifest, their rig or their PNGs, by set root. */
 export function partSetGaps(inputs: Json | undefined): string[] {
@@ -69,9 +97,11 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
   const file = join(dir, 'project.json');
   const notProject = (why: string): never => refuse('RESTART_NOT_A_PROJECT', `${file}: ${why}; restart runs on a create project folder`);
   if (!existsSync(file)) notProject('does not exist');
+  const committed = committedRecord(dir, file);
   const release = acquireBoundJobWrite(dir);
   try {
     const original = readFileSync(file);
+    if (!original.equals(committed)) refuse('RESTART_SOURCE_CHANGED', 'project.json: changed while restart was validating; retry against the current record');
     let project: JsonObject;
     try {
       const parsed: unknown = JSON.parse(original.toString('utf8'));

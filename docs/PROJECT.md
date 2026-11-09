@@ -2281,8 +2281,10 @@ again at v1 when the owner orders it. It writes the record `init` writes, with
 no versions, drafts, signoffs, plan, answers or review acts. It keeps the name,
 title, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
 `restarts[] { at, by, reason, previous_record_sha256 }`. create does not keep
-the earlier `project.json`; git history holds it. Before writing, restart
-re-validates every input with the input writer's checks. A kept part set
+the earlier `project.json`; git history holds it, so restart refuses before it
+writes unless `project.json` is committed: tracked and byte-identical to its
+version at HEAD. create's writers don't commit, so commit `project.json`, then
+restart. Before writing, restart also re-validates every input with the input writer's checks. A kept part set
 (inputs under `<set>/parts/*.png` or `<set>/parts.json`) must keep its
 `parts.json`, its PNGs and its rig (`rig.json` and `mesh_report.json`). The
 first draft after a restart has no predecessor, but it covers the whole

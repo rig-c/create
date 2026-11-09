@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { FIX_LEDGER_REPORT_SPEC, FIX_LEDGER_SINCE, ledgerCommand } from '../src/fix-ledger.ts';
 import { restartCommand } from '../src/restart.ts';
@@ -9,7 +9,7 @@ import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { checkProject, draftRigCommand, inputCommand, testClock, TEST_NOW } from './clock.ts';
-import { cli, gitEnv, tempDir } from './helpers.ts';
+import { cli, gitEnv, run, tempDir } from './helpers.ts';
 
 afterEach(() => testClock.reset());
 
@@ -29,6 +29,17 @@ function refused(dir: string, code: string, action: () => unknown): Refusal {
   }
   throw new Error(`expected ${code}`);
 }
+
+/** Commit `<dir>/project.json` in the repo at `root` (created when absent): restart needs the record clean at HEAD. */
+let gitIdentity: Record<string, string> | undefined;
+function commit(dir: string, root = dir): void {
+  gitIdentity ??= gitEnv({ name: 'Synthetic Owner', email: 'owner@example.com' });
+  const git = (...args: string[]): void => { const r = run(['git', ...args], root, gitIdentity!); if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.stderr}`); };
+  if (!existsSync(join(root, '.git'))) git('init', '-q');
+  git('add', '--', relative(root, join(dir, 'project.json')));
+  git('commit', '-q', '-m', 'record');
+}
+const restartArgs = (dir: string): string[] => [dir, '--by', 'owner', '--reason-file', words(dir, 'restart')];
 
 /** The filled example: ledger row T1, the draft `example` (parts receipt, no report) and `lantern` (T1 pass). */
 const example = (): string => fixture(() => {}, 'example-project.json');
@@ -169,7 +180,7 @@ test('legacy records WARN: no ledger beside drafts, and a draft recorded before 
 });
 
 test('restart keeps inputs and every ledger row, appends restarts[], and checks clean', () => {
-  const dir = example();
+  const dir = example(); commit(dir);
   const before = readFileSync(join(dir, 'project.json'));
   const old = load(dir);
   refused(dir, 'SIGNOFF_NOT_HUMAN', () => restartCommand([dir, '--by', 'agent', '--reason-file', words(dir, 'restart')], step()));
@@ -196,13 +207,14 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
 });
 
 test('restart refuses before writing: a changed input, a part set without its parts.json or rig, a folder that is not a project', () => {
-  const dir = example();
+  const dir = example(); commit(dir);
   writeFileSync(join(dir, 'inputs/painting.png'), 'changed bytes');
   refused(dir, 'RESTART_INPUT_INVALID', () => restartCommand([dir, '--by', 'owner', '--reason-file', words(dir, 'restart')], step()));
   const clean = example();
   const keep = (path: string, bytes = `synthetic ${path}`): void => {
     mkdirSync(dirname(join(clean, path)), { recursive: true }); writeFileSync(join(clean, path), bytes);
     step(); inputCommand(['add', path, clean, '--origin', 'synthetic kept part set']);
+    commit(clean);
   };
   keep('inputs/seed/parts/hair.png');
   const refusal = refused(clean, 'RESTART_PART_SET_INCOMPLETE', () => restartCommand([clean, '--by', 'owner', '--reason-file', words(clean, 'restart')], step()));
@@ -216,6 +228,37 @@ test('restart refuses before writing: a changed input, a part set without its pa
   const empty = tempDir();
   expect(() => restartCommand([empty, '--by', 'owner', '--reason-file', words(empty, 'restart')], step())).toThrow(Refusal);
   expect(existsSync(join(empty, 'project.json'))).toBe(false);
+});
+
+test('restart refuses before writing unless project.json is committed: untracked, staged, modified, outside git', () => {
+  const outside = example();
+  refused(outside, 'RESTART_NOT_IN_GIT', () => restartCommand(restartArgs(outside), step()));
+  const env = gitEnv({ name: 'Synthetic Owner', email: 'owner@example.com' });
+  const untracked = example();
+  expect(run(['git', 'init', '-q'], untracked, env).code).toBe(0);
+  expect(refused(untracked, 'RESTART_RECORD_UNCOMMITTED', () => restartCommand(restartArgs(untracked), step())).message).toContain('is untracked');
+  expect(run(['git', 'add', '--', 'project.json'], untracked, env).code).toBe(0);
+  expect(refused(untracked, 'RESTART_RECORD_UNCOMMITTED', () => restartCommand(restartArgs(untracked), step())).message).toContain('never committed');
+  const dirty = example(); commit(dirty);
+  addRow(dirty, 'T2');
+  const refusal = refused(dirty, 'RESTART_RECORD_UNCOMMITTED', () => restartCommand(restartArgs(dirty), step()));
+  expect(refusal.message).toContain(`${join(dirty, 'project.json')}: differs from HEAD:project.json`);
+  expect(refusal.message).toContain('commit project.json, then restart');
+  // Committing the ledger row makes the record clean at HEAD; the restart keeps the row.
+  commit(dirty);
+  restartCommand(restartArgs(dirty), step());
+  expect(arr(load(dirty).fix_ledger).map(row => obj(row).id)).toEqual(['T1', 'T2']);
+});
+
+test('restart resolves project.json at HEAD when the project is a subfolder of the repo', () => {
+  const dir = example(); const root = dirname(dir);
+  commit(dir, root);
+  addRow(dir, 'T2');
+  expect(refused(dir, 'RESTART_RECORD_UNCOMMITTED', () => restartCommand(restartArgs(dir), step())).message).toContain(`differs from HEAD:${relative(root, dir)}/project.json`);
+  commit(dir, root);
+  const before = readFileSync(join(dir, 'project.json'));
+  restartCommand(restartArgs(dir), step());
+  expect(arr(load(dir).restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason: 'restart', previous_record_sha256: sha(before) }]);
 });
 
 test('init with a painting registers it, and refuses a second project for the same artwork unless a reason is given', () => {

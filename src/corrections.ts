@@ -452,8 +452,25 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
     && hex(c.artifact.after.sha256) && c.artifact.before.sha256 !== c.artifact.after.sha256
   );
   if (allPartImage.length === 0) return;
-  const isSuperseded = (c: JsonObject): boolean =>
-    corrections.some(r => r.resolves === c.id && r.verdict !== 'withdrawn' && correctionIsLive(project, r));
+  const reopens = collectReopens(project, []);
+  const firstResolutionTime = (c: JsonObject): number => {
+    const art = c.artifact as JsonObject;
+    const parentIdx = drafts.findIndex(d => d.id === art.draft);
+    for (const d of parentIdx >= 0 ? drafts.slice(parentIdx + 1) : drafts) {
+      if (d.id === art.draft || !(date(d.at) >= date(c.at))) continue;
+      const pb = draftPartBinding(d, String(art.part));
+      if (pb && pb.sha256 === (art.after as JsonObject).sha256) return date(d.at);
+    }
+    return Infinity;
+  };
+  const isWithdrawnAt = (c: JsonObject, draftAt: number): boolean =>
+    c.verdict === 'withdrawn' && (!Number.isFinite(date(c.withdrawn_at)) || date(c.withdrawn_at) <= draftAt);
+  const isSupersededAt = (c: JsonObject, draftAt: number): boolean => {
+    const checkUntil = Math.min(draftAt, firstResolutionTime(c));
+    const reopenByThen = reopenTime(reopens.filter(r => r.at <= checkUntil), String(c.stage));
+    if (date(c.at) <= reopenByThen) return true;
+    return corrections.some(r => r.resolves === c.id && r.verdict !== 'withdrawn' && date(r.at) <= draftAt);
+  };
   for (const [index, draft] of drafts.entries()) {
     if (!isObject(draft.parts) || typeof draft.parts.path !== 'string' || !Array.isArray(draft.parts.files)) continue;
     const partsRoot = draft.parts.path;
@@ -463,9 +480,10 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
       const partName = String(pf.path).slice(prefix.length, -4);
       const matchingRepaints = allPartImage.filter(c => ((c.artifact as JsonObject).after as JsonObject).sha256 === pf.sha256);
       if (matchingRepaints.length === 0) continue;
+      const draftAt = date(draft.at);
       const covered = matchingRepaints.some(c => {
-        if (c.stage !== 'parts-review' || c.path !== 'made' || c.verdict === 'withdrawn' || !correctionIsLive(project, c) || isSuperseded(c)) return false;
-        if (!(date(c.at) <= date(draft.at))) return false;
+        if (c.stage !== 'parts-review' || c.path !== 'made' || isWithdrawnAt(c, draftAt) || isSupersededAt(c, draftAt)) return false;
+        if (!(date(c.at) <= draftAt)) return false;
         const art = c.artifact as JsonObject;
         if (art.part !== partName || art.draft === draft.id) return false;
         const parent = drafts.slice(0, index).find(prev => prev.id === art.draft);

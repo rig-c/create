@@ -278,6 +278,14 @@ test('part-image negative control and plant: ordinary producer rebuilds with no 
   expect(writeDraft2('repainted', '03', pngs2.after).exit).toBe(0);
   expect(checkProject(dir2).refusals).toEqual([]);
 
+  // Reopening parts-review after a repaint is resolved does not retroactively uncover the resolving draft or refuse the reopen.
+  writeFileSync(join(dir2, 'reopen-words.txt'), 'Revisit parts-review after repaint.\n');
+  testClock.set(new Date('2026-11-06T04:00:00Z'));
+  expect(reopenCommand(['parts-review', dir2, '--by', 'reviewer', '--verbatim-file', join(dir2, 'reopen-words.txt')]).exit).toBe(0);
+  expect(checkProject(dir2).refusals.filter(f => f.code === 'DRAFT_PART_REPAINT_UNRECORDED')).toEqual([]);
+  expect(checkProject(dir2).refusals).toEqual([]);
+
+  // And if a correction was withdrawn, checkProject still refuses by name.
   const postWithdrawn = load(dir2);
   ((postWithdrawn.corrections as JsonObject[])[0] as JsonObject).verdict = 'withdrawn';
   writeFileSync(join(dir2, 'project.json'), `${JSON.stringify(postWithdrawn, null, 2)}\n`);

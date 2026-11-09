@@ -10,7 +10,7 @@ import { signoffIdentity } from '../src/stage-progress.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, signoffCommand, testClock } from './clock.ts';
-import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
+import { arr, fixture, obj, retimeFixture, withdrawSignature } from './fixtures.ts';
 
 afterEach(() => testClock.reset());
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -126,4 +126,44 @@ test('advance after a review sign-off records the signoff it rests on and no wor
   expect(obj(arr(p.signoffs).at(-1)).source).toBe(`review act ${jobId}/sign-move`);
   expect('by' in entry || 'verbatim' in entry).toBe(false);
   expect(codes(dir)).toEqual([]);
+});
+
+/** A rig-review sign-off fixture whose live signature is withdrawn, so the act's version is signable again. */
+function rigReview(): string {
+  const dir = fixture(); bindReview(dir);
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(new Date(withdrawSignature(dir, 'rig-review')));
+  return dir;
+}
+const rigAct = (dir: string, actId: string, selector: JsonObject | null): JsonObject => signoffAct(dir, 'rig-review', actId, act => { obj(act.source).selector = selector; });
+
+test('a rig-review act signs the version Review displayed, and --version may only repeat it', () => {
+  const dir = rigReview();
+  refused(dir, 'REVIEW_ACT_TARGET_MISMATCH', () => fromReview(dir, 'rig-review', rigAct(dir, 'sign-other', { kind: 'rig', version: 2 }), ['--version', '1']));
+  // Two accepted candidates: the flag route needs --version, the act names its own.
+  const p = read(dir); const first = obj(arr(p.versions)[0]);
+  first.verdicts = [...arr(first.verdicts), { review: 'rig-review', verdict: 'accepted', by: 'user', at: testClock.iso(), verbatim: 'Accept' }]; save(dir, p);
+  writeFileSync(join(dir, 'words.txt'), words);
+  refused(dir, 'SIGNOFF_TARGET_STALE', () => signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]));
+  expect(fromReview(dir, 'rig-review', rigAct(dir, 'sign-shown', { kind: 'rig', version: 2 })).exit).toBe(0);
+  expect(obj(obj(arr(read(dir).signoffs).at(-1)).target).version).toBe(2);
+});
+
+test('a rig-review act with --version equal to its displayed version records that target', () => {
+  const dir = rigReview();
+  expect(fromReview(dir, 'rig-review', rigAct(dir, 'sign-same', { kind: 'rig', version: 2 }), ['--version', '2']).exit).toBe(0);
+  expect(obj(obj(arr(read(dir).signoffs).at(-1)).target).version).toBe(2);
+});
+
+test.each([['null', null], ['post', { kind: 'post', version: 2, rigVersion: 1 }], ['draft', { kind: 'draft', id: 'example' }]] as [string, JsonObject | null][])('a rig-review act with a %s selector refuses', (_name, selector) => {
+  const dir = rigReview();
+  refused(dir, 'REVIEW_ACT_TARGET_MISMATCH', () => fromReview(dir, 'rig-review', rigAct(dir, 'sign-unbound', selector)));
+});
+
+test('check refuses a review signature whose recorded target version differs from its act', () => {
+  const dir = rigReview();
+  fromReview(dir, 'rig-review', rigAct(dir, 'sign-tamper', { kind: 'rig', version: 2 }));
+  expect(codes(dir)).not.toContain('REVIEW_ACT_LEDGER_INVALID');
+  const p = read(dir); obj(obj(arr(p.signoffs).at(-1)).target).version = 1; save(dir, p);
+  expect(codes(dir)).toContain('REVIEW_ACT_LEDGER_INVALID');
 });

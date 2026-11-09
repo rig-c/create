@@ -10,7 +10,7 @@ import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type Che
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobHash } from './job-outbox.ts';
-import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, signoffActIdentity, type ReviewActTransport, type SignoffAct } from './review-act.ts';
+import { decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { expandDiffTriage, readDiffTriage } from './diff-classes.ts';
@@ -125,6 +125,15 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const { file, project } = readProject(dir);
   const original = actId === undefined ? undefined : readFileSync(file);
   let ingest: CheckpointIngest | undefined;
+  // A target stage signs the version Review displayed: the act's selector, never a flag, names it.
+  let targetVersion = opts['--version'];
+  if (review !== undefined && stage in SIGNOFF_TARGET_KINDS) {
+    const shown = signoffActVersion(review.act);
+    const at = `signoffs[${asArray(project.signoffs).length}].target.version`;
+    if (shown === null) refuse('REVIEW_ACT_TARGET_MISMATCH', `${at}: the review act names no ${SIGNOFF_TARGET_KINDS[stage]} version it displayed; ask for ${stage} again in Review on the reviewed version`);
+    if (targetVersion !== undefined && targetVersion !== String(shown)) refuse('REVIEW_ACT_TARGET_MISMATCH', `${at}: --version ${targetVersion} differs from version ${shown} the person approved in Review; drop --version or ask for ${stage} on version ${targetVersion} in Review`);
+    targetVersion = String(shown);
+  }
   if (review !== undefined) {
     // Replays dedupe before current-source checks: the recorded signoff is returned unchanged.
     const existing = asArray(project.review_acts).filter(isObject).find(entry => entry.jobId === review.act.jobId && entry.actId === review.act.actId);
@@ -276,7 +285,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   assertDirectionApproval(dir, project, stage, now);
   assertCorrectionApproval(dir, project, stage, now, signoff);
   if (stage === RIG_REVIEW) assertRigReviewSignable(project, `signoffs[${project.signoffs.length}]`);
-  const target = selectSignoffTarget(dir, project, stage, opts['--version']);
+  const target = selectSignoffTarget(dir, project, stage, targetVersion);
   if (target !== undefined) signoff.target = target;
   if (ingest) signoff.source = ingest.source;
   project.signoffs.push(signoff);

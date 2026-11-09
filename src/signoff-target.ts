@@ -8,11 +8,11 @@ import { directionBinding } from './direction.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { refuse } from './refusal.ts';
+import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { sorted } from './step-hash.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const SIGNOFF_TARGET_SINCE = '2026-11-06T00:00:00Z';
-const kinds: Record<string, string> = { 'rig-review': 'rig', 'direction-review': 'post' };
 
 export function outputsHash(outputs: Json[]): string {
   return createHash('sha256').update(JSON.stringify(sorted(outputs))).digest('hex');
@@ -54,7 +54,7 @@ function targetFor(dir: string, project: JsonObject, stage: string, version: Jso
 /** Same resolution is used by the reader and by the writer before its commit point. */
 export function checkSignoffTarget(dir: string, project: JsonObject, signoff: JsonObject, path: string, refusals: Finding[], warnings: Finding[]): void {
   const stage = String(signoff.stage);
-  if (!(stage in kinds)) return;
+  if (!(stage in SIGNOFF_TARGET_KINDS)) return;
   const missing = signoff.target === undefined || signoff.target === null;
   let reason = missing ? 'target missing' : '';
   if (!missing) {
@@ -65,7 +65,7 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
       const matches = versions.map((v, i) => ({ v, i })).filter(({ v }) => isObject(v) && v.n === target.version);
       if (matches.length !== 1) throw Error('target version does not exist uniquely');
       const { v, i } = matches[0] as { v: JsonObject; i: number };
-      if (v.kind !== kinds[stage]) throw Error('target version belongs to another stage kind');
+      if (v.kind !== SIGNOFF_TARGET_KINDS[stage]) throw Error('target version belongs to another stage kind');
       const match = typeof target.verdict === 'string' ? /^versions\[(\d+)\]\.verdicts\[(\d+)\]$/.exec(target.verdict) : null;
       if (!match || Number(match[1]) !== i) throw Error('verdict path does not resolve to the target version');
       const verdictIndex = Number(match[2]);
@@ -83,7 +83,7 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
 }
 
 export function selectSignoffTarget(dir: string, project: JsonObject, stage: string, requested?: string): JsonObject | undefined {
-  if (!(stage in kinds)) {
+  if (!(stage in SIGNOFF_TARGET_KINDS)) {
     if (requested !== undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoffs.target: --version requires rig-review or direction-review; remove --version');
     return undefined;
   }
@@ -92,7 +92,7 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
   const versions = asArray(project.versions);
   // A rig a reopen or amendment made history is no candidate (rig-c/create#243).
   const history = stage === 'rig-review' ? new Set(readVersions(project).rigs.filter(r => !r.live).map(r => r.n)) : new Set<number>();
-  const candidates = versions.filter((v): v is JsonObject => isObject(v) && v.kind === kinds[stage]
+  const candidates = versions.filter((v): v is JsonObject => isObject(v) && v.kind === SIGNOFF_TARGET_KINDS[stage]
     && acceptedReviewVerdict(v, stage) >= 0 && !history.has(v.n as number)
     && !signed.some(s => isObject(s.record.target) && s.record.target.version === v.n));
   const fail = (reason: string): never => refuse('SIGNOFF_TARGET_STALE', `signoffs[${asArray(project.signoffs).length}].target: ${reason}; candidates [${candidates.map(v => String(v.n)).join(', ')}]; select an accepted version with --version and restore its reviewed inputs`);
@@ -102,7 +102,7 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     version = candidates[0]!;
   } else {
     const matches = versions.filter((v): v is JsonObject => isObject(v) && v.n === Number(requested));
-    if (!/^[1-9][0-9]*$/.test(requested) || matches.length !== 1 || matches[0]?.kind !== kinds[stage]) fail('requested version does not exist uniquely with this stage kind');
+    if (!/^[1-9][0-9]*$/.test(requested) || matches.length !== 1 || matches[0]?.kind !== SIGNOFF_TARGET_KINDS[stage]) fail('requested version does not exist uniquely with this stage kind');
     version = matches[0]!;
   }
   if (history.has(version.n as number)) fail('rig version is history since a reopen or amendment of rig-review or an earlier stage');

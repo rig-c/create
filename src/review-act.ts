@@ -300,6 +300,17 @@ export function reviewActSignoff(act: SignoffAct): JsonObject {
     at: act.at, verbatim: act.value.words, source: `review act ${act.jobId}/${act.actId}` };
 }
 
+/** Stages whose sign-off names a reviewed version, and the version kind each one signs. */
+export const SIGNOFF_TARGET_KINDS: Readonly<Record<string, 'rig' | 'post'>> = { 'rig-review': 'rig', 'direction-review': 'post' };
+
+/** The version a target-stage signoff act displayed, or null when its selector names no version of that stage's kind. */
+export function signoffActVersion(act: SignoffAct): number | null {
+  const kind = SIGNOFF_TARGET_KINDS[act.value.stage];
+  const selector = act.source.selector;
+  if (kind === undefined || !object(selector) || selector.kind !== kind) return null;
+  return Number.isSafeInteger(selector.version) && Number(selector.version) >= 1 ? Number(selector.version) : null;
+}
+
 /** The stable { stage, checkpoint, at } identity its receipt binds. */
 export function signoffActIdentity(act: SignoffAct): JsonObject {
   return { stage: act.value.stage, checkpoint: null, at: act.at };
@@ -360,8 +371,11 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
       if (act.kind === 'signoff') {
         const expected = reviewActSignoff(act);
         const recorded = asArray(project.signoffs).filter(object).filter(signoff => signoff.source === expected.source);
+        const target = recorded.length === 1 && object(recorded[0]!.target) ? recorded[0]!.target : null;
         if (entry.stage !== act.value.stage || entry.version_hash !== jobHash(JSON.stringify(signoffActIdentity(act))) || recorded.length !== 1
-          || Object.entries(expected).some(([key, value]) => recorded[0]![key] !== value)) {
+          || Object.entries(expected).some(([key, value]) => recorded[0]![key] !== value)
+          // A target stage's signature belongs to the version the person was shown.
+          || act.value.stage in SIGNOFF_TARGET_KINDS && (target === null || target.version !== signoffActVersion(act))) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded signoff differs from the immutable act');
         }
         return;

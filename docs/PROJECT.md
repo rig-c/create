@@ -778,7 +778,12 @@ supplies the stage (it must be the one named), the words, the person (`by` is
 (`SIGNOFF_OPTION_INVALID`). For `plan-approved`, `rigging-interview` and
 `post-interview` the act's `source.plan` must list the current `plan.steps`
 ids and step hashes in order, or the write refuses `REVIEW_ACT_SOURCE_STALE`;
-coverage and `step_hashes` then follow the writer's usual rules. The signature
+coverage and `step_hashes` then follow the writer's usual rules. For
+`rig-review` and `direction-review` the act's `source.selector` names the
+version the person was shown (a `rig` version, or a `post` version), and that
+version is the signature's `target`; `--version` may only repeat it. A missing
+or other-kind selector, or a different `--version`, refuses
+`REVIEW_ACT_TARGET_MISMATCH`. The signature
 names its act in `source` (`review act <jobId>/<actId>`), and `review_acts[]`
 retains `{ kind: "signoff", jobId, actId, stage, bytes, sha256, version_hash }`.
 Replaying the same act returns the recorded signature unchanged.

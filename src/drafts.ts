@@ -79,11 +79,8 @@ function stampProducer(bytes: Buffer, path: string): JsonObject {
   return { name: pkg.name as string, version: pkg.version as string };
 }
 
-/** Absence may be regenerable; symlinks, escaped paths and present wrong kinds are never absence. */
-export function draftFileUnavailable(dir: string, path: string, root: string): boolean {
-  if (isAbsolute(path) || path.split('/').some(p => p === '..' || p === '.' || p === '')) throw new Error(`${path}: expected a literal project-relative draft path`);
-  const target = resolve(dir, path);
-  if (target !== resolve(dir, root) && !inside(resolve(dir, root), target)) throw new Error(`${path}: outside ${root}`);
+/** Every name on the way must be a real directory, and the last a non-symlink; returns whether a name is absent. */
+function absentAlong(dir: string, path: string): boolean {
   const names = path.split('/');
   let current = realpathSync(dir);
   for (const [i, name] of names.entries()) {
@@ -97,6 +94,41 @@ export function draftFileUnavailable(dir: string, path: string, root: string): b
   }
   return false;
 }
+
+/** Absence may be regenerable; symlinks, escaped paths and present wrong kinds are never absence. */
+export function draftFileUnavailable(dir: string, path: string, root: string): boolean {
+  if (isAbsolute(path) || path.split('/').some(p => p === '..' || p === '.' || p === '')) throw new Error(`${path}: expected a literal project-relative draft path`);
+  const target = resolve(dir, path);
+  if (target !== resolve(dir, root) && !inside(resolve(dir, root), target)) throw new Error(`${path}: outside ${root}`);
+  return absentAlong(dir, path);
+}
+
+/** A config-named input binds wherever it sits inside the project; one under the draft root is a draft artifact. */
+const projectInput = (dir: string, path: string, root: string): boolean => !inside(resolve(dir, root), resolve(dir, path));
+
+/**
+ * Availability of a `config_inputs` binding. Under the draft root it is a regenerable draft artifact;
+ * elsewhere in the project it is a project input, never regenerable, so its absence throws.
+ */
+export function draftInputUnavailable(dir: string, path: string, root: string): boolean {
+  if (!projectInput(dir, path, root)) return draftFileUnavailable(dir, path, root);
+  inputAt(dir, path);
+  return false;
+}
+
+/** A project input outside the draft root: a literal path to a regular file inside the project, also after symlinks. */
+function inputAt(dir: string, path: string): string {
+  if (isAbsolute(path) || path.split('/').some(p => p === '..' || p === '.' || p === '')) throw new Error(`${path}: expected a project-relative literal path`);
+  const file = resolve(dir, path);
+  if (!inside(resolve(dir), file)) throw new Error(`${path}: outside the project`);
+  if (absentAlong(dir, path)) throw new Error(`${path}: config-named project input is missing`);
+  if (!inside(realpathSync(dir), realpathSync(file))) throw new Error(`${path}: outside the project`);
+  if (!lstatSync(file).isFile()) throw new Error(`${path}: expected a regular file`);
+  return file;
+}
+
+/** The bytes a draft binding names: its own artifacts under the draft root, config-named inputs anywhere in the project. */
+const bindingAt = (dir: string, path: string, root: string, input: boolean): string => input && projectInput(dir, path, root) ? inputAt(dir, path) : fileAt(dir, path, root);
 
 export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[], warnings: Finding[] = []): void {
   const add = (code: string, path: string, why: string): void => { refusals.push({ code, path, message: `${path}: ${why}; retain a labelled draft with its original config, parts and files` }); };
@@ -113,6 +145,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     const root = `derived/drafts/${raw.id}`;
     const parts = raw.parts;
     const all = [raw.config, ...asArray(parts.files), ...asArray(raw.files), ...asArray(raw.config_inputs)];
+    const inputs = new Set(asArray(raw.config_inputs));
     if (raw.config_inputs !== undefined && (!Array.isArray(raw.config_inputs) || raw.config_inputs.some(f => !binding(f)))) { add('DRAFT_RIG_MALFORMED', path, 'config_inputs must bind paths and sha256 hashes'); continue; }
     if (raw.files.length === 0 || asArray(parts.files).length === 0 || all.some(f => !binding(f))
       || !asArray(parts.files).some(f => binding(f) && f.path === `${String(parts.path)}/parts.json`)) { add('DRAFT_RIG_MALFORMED', path, 'file inventories must bind config, parts.json and output'); continue; }
@@ -123,8 +156,9 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
       if (!binding(entry)) continue;
       const file = String(entry.path);
       try {
-        if (draftFileUnavailable(dir, file, root)) { unavailable.add(file); continue; }
-        const bytes = readFileSync(fileAt(dir, file, root));
+        const input = inputs.has(entry);
+        if (input ? draftInputUnavailable(dir, file, root) : draftFileUnavailable(dir, file, root)) { unavailable.add(file); continue; }
+        const bytes = readFileSync(bindingAt(dir, file, root, input));
         if (sha(bytes) !== entry.sha256) throw new Error(`${file} changed`);
       } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     }
@@ -270,8 +304,8 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
       const configFile = fileAt(dir, opts['--config'], root);
       if (!isObject(JSON.parse(readFileSync(configFile, 'utf8')))) throw new Error('config must be an object');
+      // Named inputs bind wherever they sit inside the project; checkDrafts below reads them as check does.
       const configInputs = configInputBindings(dir, opts['--config']);
-      for (const input of configInputs) fileAt(dir, String(input.path), root);
       const installed = locateParts(dir);
       if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
       const pkgFile = join(installed, 'package.json');

@@ -1,4 +1,4 @@
-import { draftFileUnavailable } from './drafts.ts';
+import { draftFileUnavailable, draftInputUnavailable } from './drafts.ts';
 import { checkPartsActEvidence, partsActDraftHash, partsActFindings } from './parts-act.ts';
 import { realpathSync } from './check-reads.ts';
 import { isAbsolute, posix, resolve } from 'node:path';
@@ -196,9 +196,12 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
     const act = decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
     if (act.source.selector.id !== draftId) return fail('PARTS_VERDICT_DRAFT_MISMATCH', `signoffs.parts-review.draft_id differs from the retained act for ${draftId}`);
     const draft = (project.drafts as JsonObject[]).find(draft => draft.id === draftId);
-    const bound = object(draft) && object(draft.parts) ? [draft.config, ...(draft.config_inputs as JsonObject[] ?? []), ...(draft.parts.files as JsonObject[]), ...(draft.files as JsonObject[])] : [];
-    const unavailable = options.requireAvailable === false && bound.some(file => object(file)
-      && typeof file.path === 'string' && draftFileUnavailable(root, file.path, `derived/drafts/${draftId}`));
+    const draftRoot = `derived/drafts/${draftId}`;
+    const bound = object(draft) && object(draft.parts) ? [draft.config, ...(draft.parts.files as JsonObject[]), ...(draft.files as JsonObject[])] : [];
+    const inputs = object(draft) && Array.isArray(draft.config_inputs) ? draft.config_inputs as JsonObject[] : [];
+    const unavailable = options.requireAvailable === false && (bound.some(file => object(file)
+      && typeof file.path === 'string' && draftFileUnavailable(root, file.path, draftRoot))
+      || inputs.some(file => object(file) && typeof file.path === 'string' && draftInputUnavailable(root, file.path, draftRoot)));
     if (unavailable) {
       if (partsActDraftHash(project, act) !== receipt.version_hash) return fail('PARTS_VERDICT_RECEIPT_INVALID', `draft ${draftId}'s recorded identity changed`);
       if (act.value.verdict !== 'approved') return fail('PARTS_VERDICT_NOT_APPROVED', `signoffs.parts-review.evidence for draft ${draftId} is not approved`);

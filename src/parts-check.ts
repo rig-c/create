@@ -128,6 +128,10 @@ function staleness(dir: string, partsRoot: string, inputs: JsonObject[]): string
     if (stat.isSymbolicLink() || !stat.isDirectory()) return [`${partsRoot} is not a directory`];
   } catch { return [`${partsRoot} is not a directory`]; }
   const { files, other } = inventory(root);
+  const manifest = files.has('parts.json') ? parseReport(readFileSync(join(root, 'parts.json'))) : null;
+  const scenes = [manifest?.scene, ...asArray(manifest?.alternates).filter(isObject).map(set => set.scene)];
+  // The producer excludes this declared root mask from its report inputs (#1177).
+  const excludesFigureMask = scenes.some(scene => isObject(scene) && scene.figure_mask === 'figure_rig.png');
   const reasons = other.map(path => `${path} is not a regular file`);
   const named = new Set<string>();
   for (const row of inputs) {
@@ -141,7 +145,9 @@ function staleness(dir: string, partsRoot: string, inputs: JsonObject[]): string
       if (now !== undefined) reasons.push(`${path} was absent at the check and exists now`);
     } else reasons.push(`${path} was ${String(row.status)} at the check`);
   }
-  for (const path of files.keys()) if (!named.has(path)) reasons.push(`${path} is not in the report's inputs`);
+  for (const path of files.keys()) {
+    if (!named.has(path) && !(excludesFigureMask && path === 'figure_rig.png')) reasons.push(`${path} is not in the report's inputs`);
+  }
   return reasons.length === 0 ? null : reasons;
 }
 

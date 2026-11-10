@@ -10,7 +10,7 @@ import { inputCommand, sceneCommand, testClock } from './clock.ts';
 
 export const PLATE_WORDS = 'Place the background behind the rig and the foreground in front.';
 export function sceneFixture() {
-  const dir = tempDir();
+  const dir = join(tempDir(), 'project');
   const f = directionFixture(dir);
   const modelPath = 'derived/review/v1/out/check/build/skeleton.model.json';
   const model = { spec: 'rigc-compiled/3', stage: { x: -64, y: 5, width: 128, height: 128 }, animations: [{ name: 'idle' }], pages: [] };

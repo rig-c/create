@@ -177,6 +177,7 @@ export function initProject(target: string, options: InitOptions): InitResult {
     writeFileSync(join(dir, artwork.path), artwork.bytes);
     written.push(artwork.path);
     record.inputs = [artwork.entry];
+    record.painting = artwork.path;
     if (artwork.same !== null) record.same_artwork = artwork.same;
   }
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);

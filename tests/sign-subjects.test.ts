@@ -11,10 +11,11 @@ import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobSubject } from '@rig-c/review/job-host';
 import { checkProject } from '../src/check.ts';
 import { openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
-import { draftPublicationResult } from '../src/job-writer.ts';
+import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { packageSignSubjects } from '../src/signable.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const roots: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -39,7 +40,7 @@ function copy(checkpoint: string, edit?: (project: JsonObject) => void): string 
 }
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, join(import.meta.dir, '../src/cli.ts'), ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'), ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
@@ -125,7 +126,7 @@ test('a rig version published in rig-review carries its stage sign-off, and the 
   expect(codes(root)).toEqual(['STAGE_LAGGING']);
 });
 
-test('a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off', async () => {
+sourceOnlyTest('a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off', async () => {
   const root = partsAtCheckpoint();
   const host = await open(root);
   const drafted = await cli(root, draftArgs);
@@ -148,7 +149,7 @@ test('a draft published at an enabled parts checkpoint carries it, and the passe
   expect((await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' })).error?.code).toBe('JOB_RECORD_MOVED');
 });
 
-test('an act for a subject create did not declare refuses by name and leaves the record byte-identical', async () => {
+sourceOnlyTest('an act for a subject create did not declare refuses by name and leaves the record byte-identical', async () => {
   const root = partsAtCheckpoint();
   const drafted = await cli(root, draftArgs);
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });

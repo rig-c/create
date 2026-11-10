@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { commitAdvance } from '../src/job-advance.ts';
 import { JOB_BINDING_FILE, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -47,14 +49,14 @@ function copy(checkpoint: string, edit?: (project: JsonObject) => void): string 
 }
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
 
 /** Start `job open` in the background and read its owner URL line and initial status lines. */
 async function open(root: string): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -270,7 +272,7 @@ test('forced publish failure after advance commits project.json, leaves JOB_PUBL
   expect(signed.kind).toBe('signoff');
 });
 
-test('advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox', async () => {
+sourceOnlyTest('advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox', async () => {
   const boundRoot = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(boundRoot, 'evidence/diff-components.json'));
   const opening = await open(boundRoot);

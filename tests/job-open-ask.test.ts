@@ -15,9 +15,11 @@ import { inputCommand } from '../src/inputs.ts';
 import { askDeclaredSubjects, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
 import { enqueuePublication, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { prepareLiveManifest } from '../src/job-publication.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -39,7 +41,7 @@ const WORDS = '  Synthetic page words.\n';
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
@@ -57,7 +59,7 @@ async function partsReview(): Promise<string> {
 
 /** Start `job open` in the background and read its URL line and the summary it prints after publishing. */
 async function open(root: string): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'],
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'],
     { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   opened.push({ proc, root });
   const reader = proc.stdout.getReader();
@@ -118,7 +120,7 @@ async function page(url: URL) {
   };
 }
 
-test('job open publishes the recorded draft, asks its subjects, and the page acts are ingested by the CLI', async () => {
+sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and the page acts are ingested by the CLI', async () => {
   const root = await partsReview();
   const opening = await open(root);
   expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, signoff parts-review']);
@@ -129,9 +131,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   const person = await page(opening.url);
   expect((person.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'chain' });
   expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }, { kind: 'signoff', stage: 'parts-review' }]);
-  const names = (JSON.parse(readFileSync(join(root, 'derived/drafts/chain/input/parts.json'), 'utf8')).parts as { name: string }[]).map(part => part.name);
-  const verdict = await person.act('parts-verdict', 'parts-verdict', { verdict: 'approved', words: WORDS,
-    parts: names.map(partId => ({ partId, part: { outcome: 'clean', note: '' }, mesh: { outcome: 'clean', note: '' } })) });
+  const verdict = await person.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
   const signed = await person.act('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
 
   const ingested = await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']);
@@ -222,7 +222,7 @@ test.each(['rig', 'post'] as const)('job open retries a refused ask on an acknow
   expect((await page(opening.url)).asks).toHaveLength(2);
 });
 
-test('a binding copied from another root is replaced: the copy opens its own job and never attaches the original host', async () => {
+sourceOnlyTest('a binding copied from another root is replaced: the copy opens its own job and never attaches the original host', async () => {
   const original = await partsReview();
   const first = await open(original);
   const copy = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-copy-')));
@@ -243,7 +243,7 @@ test('a binding copied from another root is replaced: the copy opens its own job
   expect((read(original).review_job as JsonObject).origin).toBe(first.url.origin);
 });
 
-test('an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is asked only once', async () => {
+sourceOnlyTest('an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is asked only once', async () => {
   const root = await partsReview();
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
   try {

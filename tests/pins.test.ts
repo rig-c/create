@@ -1,16 +1,26 @@
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
 import { SOURCE_CONDITION, SOURCE_CONDITION_FLAG, jobRuntimeCommand, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const EXACT = /^\d+\.\d+\.\d+$/;
 const REPO = join(import.meta.dir, '..');
 const CLI = join(REPO, 'src/cli.ts');
+
+function resolveInstalledPackageDir(name: 'core' | 'parts' | 'play' | 'review'): string {
+  const reviewDir = realpathSync(join(REPO, 'node_modules/@rig-c/review'));
+  if (name === 'play') {
+    const fromReview = join(reviewDir, 'node_modules/@rig-c/play');
+    return realpathSync(existsSync(fromReview) ? fromReview : dirname(dirname(realpathSync(Bun.resolveSync('@rig-c/play', reviewDir)))));
+  }
+  return realpathSync(join(REPO, 'node_modules/@rig-c', name));
+}
 
 function linkSourcePackages(baseDir: string): {
   cliPath: string;
@@ -22,15 +32,32 @@ function linkSourcePackages(baseDir: string): {
   mkdirSync(join(wsRoot, 'node_modules/@rig-c'), { recursive: true });
   mkdirSync(join(createRoot, 'node_modules/@rig-c'), { recursive: true });
   for (const entry of readdirSync(join(REPO, 'node_modules')).filter(name => name !== '@rig-c')) {
-    symlinkSync(join(REPO, 'node_modules', entry), join(wsRoot, 'node_modules', entry));
-    symlinkSync(join(REPO, 'node_modules', entry), join(createRoot, 'node_modules', entry));
+    const target = realpathSync(join(REPO, 'node_modules', entry));
+    symlinkSync(target, join(wsRoot, 'node_modules', entry));
+    symlinkSync(target, join(createRoot, 'node_modules', entry));
   }
   for (const name of ['core', 'parts', 'play', 'review'] as const) {
+    const pkgSource = resolveInstalledPackageDir(name);
     const pkgTarget = join(wsRoot, 'packages', name);
-    cpSync(join(REPO, 'node_modules/@rig-c', name), pkgTarget, { recursive: true });
-    if (name === 'play') {
+    cpSync(pkgSource, pkgTarget, {
+      recursive: true,
+      filter: src => {
+        const rel = src.slice(pkgSource.length);
+        return rel !== '/.git' && !rel.startsWith('/.git/') && rel !== '/node_modules' && !rel.startsWith('/node_modules/');
+      },
+    });
+    if (name === 'play' && !existsSync(join(pkgTarget, 'src/index.ts'))) {
       mkdirSync(join(pkgTarget, 'src'), { recursive: true });
       writeFileSync(join(pkgTarget, 'src/index.ts'), "export * from '../dist/index.js';\nexport const PLAY_SOURCE_LINKED = true;\n");
+    }
+    if (existsSync(join(pkgSource, 'node_modules'))) {
+      mkdirSync(join(pkgTarget, 'node_modules/@rig-c'), { recursive: true });
+      for (const entry of readdirSync(join(pkgSource, 'node_modules')).filter(dep => dep !== '@rig-c')) {
+        symlinkSync(realpathSync(join(pkgSource, 'node_modules', entry)), join(pkgTarget, 'node_modules', entry));
+      }
+      for (const dep of ['core', 'parts', 'play', 'review'] as const) {
+        symlinkSync(join(wsRoot, 'packages', dep), join(pkgTarget, 'node_modules/@rig-c', dep), 'dir');
+      }
     }
     symlinkSync(pkgTarget, join(wsRoot, 'node_modules/@rig-c', name), 'dir');
     symlinkSync(pkgTarget, join(createRoot, 'node_modules/@rig-c', name), 'dir');
@@ -247,7 +274,7 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
     expect({ exit: distDefault.exitCode, stderr: distDefault.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
     expect(JSON.parse(distDefault.stdout.toString('utf8'))).toEqual({
       parentMode: 'dist',
-      resolvedPlay: realpathSync(join(REPO, 'node_modules/@rig-c/play/dist/index.js')),
+      resolvedPlay: realpathSync(join(resolveInstalledPackageDir('play'), 'dist/index.js')),
       parentExecArgv: ['--smol', '--conditions=other'],
       child: {
         mode: 'dist',
@@ -260,10 +287,10 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
   }
 });
 
-test.each([
+for (const [label, execFlags] of [
   ['linked source condition', [SOURCE_CONDITION_FLAG]],
   ['default dist mode', []],
-] as const)('CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in %s', async (label, execFlags) => {
+] as const) sourceOnlyTest(`CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in ${label}`, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-cond-')));
   const ws = label === 'linked source condition' ? linkSourcePackages(root) : null;
   const activeCli = ws ? ws.cliPath : CLI;

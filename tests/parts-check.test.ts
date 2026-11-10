@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PARTS_CHECK_SINCE } from '../src/parts-check.ts';
+import { sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
@@ -83,6 +84,58 @@ test('a stale report names a required row that was missing at the check', () => 
     inputs.push({ path: 'parts/zz.png', status: 'missing', sha256: null });
   })));
   refused(dir, 'PARTS_CHECK_STALE', () => advance(dir, flags));
+});
+
+/** Plant only the producer's declaration and omission in a synthetic report. */
+function withFigureMask(dir: string, declaration: JsonObject): string[] {
+  const flags = withPartsCheck(dir);
+  const manifestPath = join(dir, PARTS_CHECK_ROOT, 'parts.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as JsonObject;
+  Object.assign(manifest, declaration);
+  const manifestBytes = bytesOf(manifest);
+  writeFileSync(manifestPath, manifestBytes);
+  writeFileSync(join(dir, PARTS_CHECK_ROOT, 'figure_rig.png'), 'synthetic mask before check');
+  const value = report();
+  const manifestRow = (value.inputs as JsonObject[]).find(row => row.path === 'parts.json')!;
+  manifestRow.sha256 = sha256(Buffer.from(manifestBytes));
+  writeFileSync(join(dir, 'evidence/parts-check.json'), bytesOf(value));
+  return flags;
+}
+
+test.each([
+  ['primary scene', { scene: { figure_mask: 'figure_rig.png' } }],
+  ['alternate scene', { alternates: [{ scene: { figure_mask: 'figure_rig.png' } }] }],
+] satisfies [string, JsonObject][])('a producer-excluded mask in the %s does not make the report stale', (_name, declaration) => {
+  const dir = partsDone();
+  advance(dir, withFigureMask(dir, declaration));
+  expect(read(dir).stage).toBe('parts-review');
+  expect(codes(dir)).toEqual([]);
+});
+
+test.each([
+  ['no mask declaration', {}],
+  ['another declared path', { scene: { figure_mask: 'parts/figure_rig.png' } }],
+] satisfies [string, JsonObject][])('an unnamed root mask remains stale with %s', (_name, declaration) => {
+  const dir = partsDone();
+  const flags = withFigureMask(dir, declaration);
+  refused(dir, 'PARTS_CHECK_STALE', () => advance(dir, flags));
+});
+
+test('another unnamed file remains stale beside a producer-excluded mask', () => {
+  const dir = partsDone();
+  const flags = withFigureMask(dir, { scene: { figure_mask: 'figure_rig.png' } });
+  writeFileSync(join(dir, PARTS_CHECK_ROOT, 'stray.png'), 'synthetic stray');
+  refused(dir, 'PARTS_CHECK_STALE', () => advance(dir, flags));
+});
+
+test('a changed producer-excluded mask remains unreported, preserving the known producer blind spot', () => {
+  const dir = partsDone();
+  const flags = withFigureMask(dir, { scene: { figure_mask: 'figure_rig.png' } });
+  // Known blind spot: the producer never hashes this mask, so its drift is unmeasured.
+  writeFileSync(join(dir, PARTS_CHECK_ROOT, 'figure_rig.png'), 'synthetic mask changed after check');
+  advance(dir, flags);
+  expect(read(dir).stage).toBe('parts-review');
+  expect(codes(dir)).toEqual([]);
 });
 
 test('a passing report with HOLE rows writes, prints every HOLE as a named line and stores them verbatim', () => {

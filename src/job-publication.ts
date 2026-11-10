@@ -501,22 +501,25 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   return path;
 }
 
-/** Check the candidate before a bound draft write or publication intent, and again on read. */
-export function assertDraftPublicationReady(root: string, project: JsonObject, id: string): JobPublishedContext {
+/** Register drafts independently of approval readiness. Only a prepared map declares approval. */
+export function draftPublicationContext(root: string, project: JsonObject, id: string, warnings: Finding[] = []): JobPublishedContext {
   const context = draftPublishedContext(root, project, id);
   const subjects = [...context.subjects, ...packageSignSubjects(project, effectiveStage(root, project), context.selector!, context.plan?.steps.length ?? 0)];
   if (subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'parts-review')) {
     const errors: Finding[] = [];
     checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
       resolve(root, context.parts!.manifest.path), errors, [], project);
-    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
+    if (errors.length) {
+      warnings.push(...errors);
+      return { ...context, subjects: subjects.filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review') };
+    }
   }
   return { ...context, subjects };
 }
 
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {
   if (path !== `review-draft-${id}.json`) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its publication; restore the writer manifest`);
-  const context = assertDraftPublicationReady(root, project, id);
+  const context = draftPublicationContext(root, project, id);
   return { ...context, files: [...context.files, { path, sha256: jobHash(publicationFile(root, path)) }] };
 }
 

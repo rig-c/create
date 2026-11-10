@@ -5,12 +5,11 @@ import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
 import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv, prepareDraftIntent, prepareVersionIntent, publishCommittedVersion } from '../src/job-writer.ts';
-import { draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
+import { jobRuntimeExecArgv, prepareDraftIntent, prepareVersionIntent } from '../src/job-writer.ts';
+import { draftPublicationContext, draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
-import { draftRigCommand } from '../src/drafts.ts';
 import { refuse } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { parsePassedTestNames, SOURCE_ONLY_TESTS, sourceOnlyTest, validateSourceOnlyList } from './source-only.ts';
@@ -882,7 +881,7 @@ sourceOnlyTest('#382 source-linked draft publication serves /review-painting and
   expect(jobHash(Buffer.from(await paintingNoDiffRes.arrayBuffer()))).toBe(String(expectedPainting.sha256));
 });
 
-test('#389 parts-review draft publication refuses DIFF_MAP_MISSING before publishing signoff approval and succeeds once agent diff_map is recorded', async () => {
+test('#389 parts-review drafts publish without unready approval and recover through agent diff_map', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-diffmap-gate-')));
   roots.push(root);
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
@@ -892,6 +891,7 @@ test('#389 parts-review draft publication refuses DIFF_MAP_MISSING before publis
   const origin = 'http://127.0.0.1:43189';
   const incarnation = '38938938-3893-4389-8389-389389389389';
   const apiCalls: { verb: string; subject?: unknown }[] = [];
+  let publicationCount = 0;
   const makeHost = (reused: boolean, expected?: NonNullable<JobHostOptions['reuseOnly']>['expected']): JobOwnerHost => {
     const base = mockedOwnerHost(jobId, origin, reused, expected ?? null);
     base.ports.handleJobApi = async req => {
@@ -913,7 +913,7 @@ test('#389 parts-review draft publication refuses DIFF_MAP_MISSING before publis
       }
       return Response.json({
         schema: 'rig-review/job-api@2', verb: 'publish', jobId, requestId: 'synthetic-pub', generation: 1,
-        ok: true, value: { publicationId: 'pub-synthetic-389', generation: 1 },
+        ok: true, value: { publicationId: `pub-synthetic-389-${++publicationCount}`, generation: 1 },
       });
     };
     return base;
@@ -961,41 +961,34 @@ test('#389 parts-review draft publication refuses DIFF_MAP_MISSING before publis
   const draftManifest = prepareDraftManifest(root, unsignedProject, 'chain');
   const result = { path: draftManifest, selector: { kind: 'draft' as const, id: 'chain' } };
 
-  await expect(readPublished({
-    root,
-    record: { path: 'project.json', sha256: jobHash(unsignedRecordBytes) },
-    result,
-  })).rejects.toMatchObject({ code: 'DIFF_MAP_MISSING' });
-  expect(() => prepareDraftIntent(root, unsignedRecordBytes, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_MISSING' }));
-  expect(() => publishCommittedVersion(root, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_MISSING' }));
+  const warnings: import('../src/check.ts').Finding[] = [];
+  const unready = draftPublicationContext(root, unsignedProject, 'chain', warnings);
+  expect(warnings.map(finding => finding.code)).toEqual(['DIFF_MAP_MISSING']);
+  expect(warnings[0]!.message).toContain('signoffs[3] diff_map');
+  expect(unready.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  const published = await readPublished({
+    root, record: { path: 'project.json', sha256: jobHash(unsignedRecordBytes) }, result,
+  });
+  expect(published.subjects).toEqual(unready.subjects);
+  expect(prepareDraftIntent(root, unsignedRecordBytes, 'chain')).not.toBeNull();
+  expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined,
+    async opts => makeHost(true, opts.reuseOnly!.expected)))).toBe(1);
+  expect(apiCalls).toEqual([
+    { verb: 'publish' }, { verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
+  ]);
+  expect(readAcknowledgedPublication(root, jobId, 'pub-synthetic-389-1')!.subjects).toEqual(unready.subjects);
   expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
   expect(pendingPublications(root)).toEqual([]);
-  expect(apiCalls).toEqual([]);
+  apiCalls.length = 0;
 
-  cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/next'), { recursive: true });
-  const draftArgs = ['next', root, '--config', 'derived/drafts/next/config.json', '--from', 'derived/drafts/next/out', '--parts', 'derived/drafts/next/input'];
-  expect(() => draftRigCommand(draftArgs, now)).toThrow(expect.objectContaining({ code: 'DIFF_MAP_MISSING' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
-  expect(pendingPublications(root)).toEqual([]);
-  expect(existsSync(join(root, 'review-draft-next.json'))).toBe(false);
-
-  // An invalid diff_map is also refused with its exact DIFF_MAP_* code before publishing approval.
-  const brokenProject = JSON.parse(unsignedRecordBytes.toString('utf8')) as JsonObject;
+  // An invalid agent map still withholds only approval, using its existing named finding.
+  const brokenProject = structuredClone(unsignedProject);
   brokenProject.diff_map = { by: 'user', at: '2026-11-08T00:00:00Z' };
-  const brokenBytes = Buffer.from(`${JSON.stringify(brokenProject, null, 2)}\n`);
-  writeFileSync(join(root, 'project.json'), brokenBytes);
-  await expect(readPublished({
-    root,
-    record: { path: 'project.json', sha256: jobHash(brokenBytes) },
-    result,
-  })).rejects.toMatchObject({ code: 'DIFF_MAP_NOT_AGENT' });
-  expect(() => prepareDraftIntent(root, brokenBytes, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_NOT_AGENT' }));
-  expect(() => publishCommittedVersion(root, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_NOT_AGENT' }));
-  expect(readFileSync(join(root, 'project.json'))).toEqual(brokenBytes);
-  expect(pendingPublications(root)).toEqual([]);
-  writeFileSync(join(root, 'project.json'), unsignedRecordBytes);
+  const brokenWarnings: import('../src/check.ts').Finding[] = [];
+  expect(draftPublicationContext(root, brokenProject, 'chain', brokenWarnings).subjects).toEqual(unready.subjects);
+  expect(brokenWarnings.map(finding => finding.code)).toEqual(['DIFF_MAP_NOT_AGENT']);
 
-  // A refused public write leaves diff-classes free to prepare the approval.
+  // Acknowledged draft registration leaves the public repair writer usable.
   diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], now);
   const readyBytes = readFileSync(join(root, 'project.json'));
   const readyProject = JSON.parse(readyBytes.toString('utf8')) as JsonObject;
@@ -1020,27 +1013,29 @@ test('#389 parts-review draft publication refuses DIFF_MAP_MISSING before publis
     { verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
     { verb: 'ask', subject: { kind: 'signoff', stage: 'parts-review' } },
   ]);
-  const acknowledged = readAcknowledgedPublication(root, jobId, 'pub-synthetic-389')!;
+  const acknowledged = readAcknowledgedPublication(root, jobId, 'pub-synthetic-389-2')!;
   expect(acknowledged.subjects).toEqual([
     { kind: 'parts-verdict', draftId: 'chain' },
     { kind: 'signoff', stage: 'parts-review' },
   ]);
 
-  // An already committed preflight-era failure stays pending and still blocks unrelated writes.
+  // A structurally broken committed publication stays pending and blocks unrelated writes.
   writeFileSync(join(root, 'project.json'), unsignedRecordBytes);
   enqueuePublication(root, binding, result);
   apiCalls.length = 0;
+  const painting = (unsignedProject.inputs as JsonObject[])[0]!;
+  writeFileSync(join(root, String(painting.path)), 'synthetic changed painting');
   await expect(
     publishPending(pendingPublications(root)[0]!, undefined, undefined, async opts => makeHost(true, opts.reuseOnly!.expected)),
-  ).rejects.toMatchObject({ code: 'DIFF_MAP_MISSING' });
+  ).rejects.toMatchObject({ code: 'JOB_PUBLICATION_INVALID' });
   expect(apiCalls).toEqual([]);
 
   await expect(
     reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async opts => makeHost(true, opts.reuseOnly!.expected))),
   ).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
   const pendingFailure = pendingPublications(root)[0]!.failure!;
-  expect(pendingFailure.code).toBe('DIFF_MAP_MISSING');
-  expect(pendingFailure.message).toContain('signoffs[3] diff_map');
+  expect(pendingFailure.code).toBe('JOB_PUBLICATION_INVALID');
+  expect(pendingFailure.message).toContain('inputs[0]');
   expect(apiCalls).toEqual([]);
 
   expect(() => diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], now))

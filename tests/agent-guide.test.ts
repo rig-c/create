@@ -203,3 +203,12 @@ test('parts approval instructions consume recorded API receipts', () => {
   expect(guide).toContain('signoff parts-review --draft <id> --structure-file <f>');
   expect(guide).not.toContain('structure-snapshot --draft <id> --verdict');
 });
+
+test('rendered guide names both explicit painting declarations and their persistence', () => {
+  const guide = renderAgentGuide();
+  expect(guide).toContain('init --painting <file> --origin <words>');
+  expect(guide).toContain('input add <path> --painting --origin <words>');
+  expect(guide).toContain('project.json.painting');
+  expect(guide).toContain('survives restart');
+  expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
+});

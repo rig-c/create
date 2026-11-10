@@ -22,7 +22,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const RESTART_HELP = `restart:
   [<dir>] --by <human> --reason-file <file> [--json]
   Replace project.json with the record init writes: the template's stage, no versions, drafts,
-  signoffs, plan, answers or review acts. Keeps name, title, same_artwork, inputs[] (each file must
+  signoffs, plan, answers or review acts. Keeps name, title, painting, same_artwork, inputs[] (each file must
   still match its sha256) and fix_ledger with every row, and appends restarts[] { at, by, reason,
   previous_record_sha256 }. git history holds the earlier record, so restart refuses unless
   project.json is committed: tracked and byte-identical to HEAD. A kept part set (inputs under
@@ -108,7 +108,7 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
       if (!isObject(parsed as Json) || (parsed as JsonObject).schema !== PROJECT_SCHEMA) throw new Error('schema');
       project = parsed as JsonObject;
     } catch { return notProject(`is not a ${PROJECT_SCHEMA} record`); }
-    const inputs = { dir, project: { inputs: project.inputs ?? [] }, refusals: [] as Finding[], warnings: [] as Finding[] };
+    const inputs = { dir, project, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkInputs(inputs);
     const input = inputs.refusals[0] ?? inputs.warnings[0];
     if (input !== undefined) refuse('RESTART_INPUT_INVALID', `${input.path}: ${input.code}: ${input.message}; a restart keeps only inputs the input writer would record, so restore the file or register it again with input add`);
@@ -117,6 +117,7 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     const candidate = freshProjectRecord(typeof project.name === 'string' ? project.name : '', now);
     if (project.name !== undefined) candidate.name = project.name;
     if (project.title !== undefined) candidate.title = project.title;
+    if (project.painting !== undefined) candidate.painting = project.painting;
     if (project.same_artwork !== undefined) candidate.same_artwork = project.same_artwork;
     candidate.inputs = project.inputs ?? [];
     candidate.fix_ledger = project.fix_ledger ?? [];

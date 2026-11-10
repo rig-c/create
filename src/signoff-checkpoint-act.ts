@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject } from './check.ts';
 import { jobHash } from './job-outbox.ts';
+import { jobRuntimeExecArgv } from './job-writer.ts';
 import { refuse } from './refusal.ts';
 import { assertActSubjectDeclared, checkpointActSignoff, decodeReviewAct, reviewActFindings, reviewActTransport, type CheckpointAct, type ReviewActTransport } from './review-act.ts';
 import { stepHash } from './step-hash.ts';
@@ -29,7 +30,7 @@ export interface CheckpointIngest {
 
 function fetchBytes(transport: ReviewActTransport, hooks: SignoffHooks): string {
   if (hooks.fetch) return hooks.fetch(transport).bytes;
-  const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+  const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
     stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
   });
   let response: { ok: boolean; bytes: string; code: string; message: string };

@@ -111,7 +111,7 @@ init:
   <dir>          an empty or missing folder; a non-empty one is refused
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
   --painting <file> --origin <words>
-                 copy the painting into inputs/ and register it; refused (INIT_ARTWORK_EXISTS) when a
+                 copy the painting into inputs/, register it and declare project.painting; refused (INIT_ARTWORK_EXISTS) when a
                  project directly under --projects-root (default: the parent folder) binds the same sha256
   --same-artwork-reason <file>
                  record why this artwork needs a second project (a different rig kind)

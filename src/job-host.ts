@@ -3,10 +3,10 @@ import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector, type JobSubject } from '@rig-c/review/job-host';
-import { checkProject } from './check.ts';
+import { checkProject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from './job-publication.ts';
+import { draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 
@@ -175,7 +175,11 @@ export async function publishPending(
     entry.generation ??= host.session.status().generation;
     entry.phase = 'pending';
     failPublication(entry.root, entry, entry.failure);
-    const attempt = jobHash(JSON.stringify([entry.id, entry.recordHash]));
+    // Draft readiness can change when producer bytes drift without a record write.
+    // Keep retries on the stored generation, and give a fresh enqueue its own attempt.
+    const attempt = jobHash(JSON.stringify(entry.result.selector.kind === 'draft'
+      ? [entry.id, entry.recordHash, entry.generation]
+      : [entry.id, entry.recordHash]));
     const request = {
       schema: entry.identity.apiSchema, verb: 'publish', jobId: entry.jobId,
       requestId: attempt, idempotencyKey: attempt, expectedGeneration: entry.generation,
@@ -352,9 +356,13 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     : headSelector && headSelector.kind !== 'draft'
       ? headSelector
       : undefined;
+  const warnings: Finding[] = [];
+  const draftContext = targetSelector?.kind === 'draft'
+    ? draftPublicationContext(root, JSON.parse(bytes.toString('utf8')), targetSelector.id, warnings)
+    : undefined;
   const reuseHead = Boolean(head && headSelector && source?.projectHash === jobHash(bytes) && (
     targetSelector === undefined || isDeepStrictEqual(headSelector, targetSelector)
-  ));
+  ) && (draftContext === undefined || isDeepStrictEqual(acknowledged?.subjects, draftContext.subjects)));
   let selector: JobSelector;
   let outcomes: AskOutcome[];
   let published: boolean;
@@ -374,13 +382,15 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     try {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no writer-owned binding; run rig-create job close, then rig-create job open');
+      if (targetSelector.kind === 'draft') draftPublicationContext(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), targetSelector.id);
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     } finally { release(); }
     selector = targetSelector;
     published = true;
   }
-  const lines = [`job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...askOutcomeLines(outcomes)];
+  const lines = [...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
+    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...askOutcomeLines(outcomes)];
   refuseAskOutcomes(outcomes);
   return lines;
 }

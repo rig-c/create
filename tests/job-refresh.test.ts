@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkProject as rawCheckProject } from '../src/check.ts';
-import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
@@ -79,8 +79,14 @@ async function open(root: string): Promise<{ url: URL; lines: string[] }> {
   return { url: new URL(lines[0]!), lines: lines.slice(1) };
 }
 
-async function page(url: URL, expectedAsks = 2) {
+async function page(root: string, url: URL, expectedAsks = 2) {
   const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
+  const receipts = join(jobPrivateRoot(root), 'acknowledged-publications');
+  const expectedPublication = readdirSync(receipts)
+    .map(file => JSON.parse(readFileSync(join(receipts, file), 'utf8')) as AcknowledgedPublication)
+    .filter(receipt => receipt.jobId === jobId)
+    .sort((a, b) => b.generation - a.generation)[0]!;
+  expect(expectedPublication).toBeDefined();
   const capability = url.hash.replace('#cap=', '');
   const base = `${url.origin}/jobs/${jobId}/`;
   const headers = { origin: url.origin, 'X-Review-Capability': capability, 'content-type': 'application/json' };
@@ -99,8 +105,11 @@ async function page(url: URL, expectedAsks = 2) {
         .map(event => event.ask as JsonObject),
     };
   };
+  // Reconnect replays history. Ask counts on an older head do not establish the current page.
+  const ready = () => pending().head?.publicationId === expectedPublication.publicationId
+    && pending().asks.length >= expectedAsks;
   const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline && pending().asks.length < expectedAsks) {
+  while (Date.now() < deadline && !ready()) {
     const next = await reader.read();
     if (next.done) break;
     buffered += decoder.decode(next.value, { stream: true });
@@ -108,10 +117,12 @@ async function page(url: URL, expectedAsks = 2) {
     while ((newline = buffered.indexOf('\n')) >= 0) {
       events.push(JSON.parse(buffered.slice(0, newline)));
       buffered = buffered.slice(newline + 1);
+      if (ready()) break;
     }
   }
   abort.abort();
   const { head, asks } = pending();
+  expect(head?.publicationId).toBe(expectedPublication.publicationId);
   const post = async (route: string, body: object) =>
     (await fetch(base + route, { method: 'POST', headers, body: JSON.stringify(body) })).json() as Promise<JsonObject>;
   const pageId = randomUUID();
@@ -195,11 +206,12 @@ sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> 
   const root = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
+  expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
 
   const opening = await open(root);
   expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, signoff parts-review']);
 
-  const firstView = await page(opening.url);
+  const firstView = await page(root, opening.url);
   const verdict = await firstView.act('parts-verdict', 'parts-verdict', {
     verdict: 'approved',
     issues: [],
@@ -208,7 +220,6 @@ sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> 
 
   expectExit0(await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']));
   expectExit0(await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure.json']));
-  expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
 
   // The pre-ingest publication now has an old projectHash, so UI signoff on it is refused as JOB_RECORD_MOVED.
   const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
@@ -223,7 +234,7 @@ sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> 
     'job: asked parts-verdict chain, signoff parts-review',
   ]);
 
-  const refreshedView = await page(opening.url);
+  const refreshedView = await page(root, opening.url);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'chain' });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
@@ -249,7 +260,7 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
   const opening = await open(root);
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
 
-  const firstView = await page(opening.url);
+  const firstView = await page(root, opening.url);
   expect((firstView.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
   const verdictAsk = firstView.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
   const verdict = await firstView.act(
@@ -284,7 +295,7 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
     'job: already asked review-verdict rig-review, signoff rig-review',
   ]);
 
-  const refreshedView = await page(opening.url);
+  const refreshedView = await page(root, opening.url);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
@@ -366,7 +377,7 @@ test('direction-review verdict -> ingest -> job open refresh -> UI signoff -> in
   const opening = await open(root);
   expectExit0(await cli(root, ['advance', 'direction-review', root, '--json']));
 
-  const firstView = await page(opening.url);
+  const firstView = await page(root, opening.url);
   expect((firstView.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
   const verdict = await firstView.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
 
@@ -386,7 +397,7 @@ test('direction-review verdict -> ingest -> job open refresh -> UI signoff -> in
     'job: asked review-verdict direction-review, signoff direction-review',
   ]);
 
-  const refreshedView = await page(opening.url);
+  const refreshedView = await page(root, opening.url);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
@@ -411,7 +422,7 @@ test('both-acts-before-ingest remains supported without an intermediate refresh,
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
 
   // Both UI acts submitted before any ingest remain supported.
-  const firstView = await page(opening.url);
+  const firstView = await page(root, opening.url);
   const verdictAsk = firstView.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
   const verdict = await firstView.act(
     'review-verdict',

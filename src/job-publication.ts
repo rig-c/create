@@ -7,7 +7,8 @@ import partsPackage from '@rig-c/parts/package.json';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
-import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed } from './check.ts';
+import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
+import { checkDiffMap } from './diff-map.ts';
 import {
   COLLECTION_BINDING_SPEC,
   isLiveMemberRoot,
@@ -500,11 +501,26 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   return path;
 }
 
+/** Register drafts independently of approval readiness. Only a prepared map declares approval. */
+export function draftPublicationContext(root: string, project: JsonObject, id: string, warnings: Finding[] = []): JobPublishedContext {
+  const context = draftPublishedContext(root, project, id);
+  const subjects = [...context.subjects, ...packageSignSubjects(project, effectiveStage(root, project), context.selector!, context.plan?.steps.length ?? 0)];
+  if (subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'parts-review')) {
+    const errors: Finding[] = [];
+    checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
+      resolve(root, context.parts!.manifest.path), errors, [], project);
+    if (errors.length) {
+      warnings.push(...errors);
+      return { ...context, subjects: subjects.filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review') };
+    }
+  }
+  return { ...context, subjects };
+}
+
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {
   if (path !== `review-draft-${id}.json`) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its publication; restore the writer manifest`);
-  const context = draftPublishedContext(root, project, id);
-  return { ...context, files: [...context.files, { path, sha256: jobHash(publicationFile(root, path)) }],
-    subjects: [...context.subjects, ...packageSignSubjects(project, effectiveStage(root, project), context.selector!, context.plan?.steps.length ?? 0)] };
+  const context = draftPublicationContext(root, project, id);
+  return { ...context, files: [...context.files, { path, sha256: jobHash(publicationFile(root, path)) }] };
 }
 
 /** The stage the check reads the published record in: the stage its `signoff` and `checkpoint` subjects sign. */

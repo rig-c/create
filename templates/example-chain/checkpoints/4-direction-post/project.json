@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "f34d0c4e63aedba0cfaadfdef77b29853d6bd54cdcad3cf4a4b2ee1617fe6179"
+          "sha256": "4771fc76f90a90496176e33ae0d9a3523e6eecce35a61b40ec951565ae613e06"
         }
       }
     },
@@ -157,7 +157,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 3.7.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.37.0)",
     "held": false,
     "date": null,
     "interviewer": null,
@@ -1302,7 +1302,7 @@
       "at": "2026-11-06T01:00:53.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "3.7.0",
+        "@rig-c/parts": "2.37.0",
         "@rig-c/core": "3.7.0"
       },
       "changed": "Build the synthetic approved parts.",
@@ -1510,7 +1510,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "ac3c761caccc4673f072a63172e3e1aa773041b55f1cd20d13663c0f0230bd65"
+            "sha256": "15cb992b723fc182c0e8d82d840cb85faaac32d4498b850a20f68fe0a263c1b9"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2134,7 +2134,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "3.7.0"
+        "version": "2.37.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -2236,7 +2236,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "ac3c761caccc4673f072a63172e3e1aa773041b55f1cd20d13663c0f0230bd65"
+          "sha256": "15cb992b723fc182c0e8d82d840cb85faaac32d4498b850a20f68fe0a263c1b9"
         }
       ],
       "config_inputs": [

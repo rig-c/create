@@ -9,6 +9,11 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 2. Run `rig-create next` to derive the next moves and whose they are.
 3. Resume per [PROJECT.md § How an agent resumes a project](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
 
+Declare the project's painting with `init --painting <file> --origin <words>`
+or `input add <path> --painting --origin <words>`. The declaration names one
+registered input in `project.json.painting` and survives restart. Only this
+declaration checks sibling inputs for the same artwork. Older records may omit it.
+
 ## The order, and what you may not do
 
 `interview` → `plan-approved` → `parts` → `parts-review` (the parts, by eye) →

@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readProject } from './feedback.ts';
 import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { decodeReviewAct, reviewActFindings, reviewActTransport } from './review-act.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
@@ -59,7 +59,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
   const temporary = join(root, `.parts-review-${randomUUID()}.tmp`);
   try {
     const transport = { ...reviewActTransport(root, actId!), kind: 'parts-verdict' };
-    const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+    const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
       stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
     });
     let response: { ok: boolean; bytes: string; code: string; message: string };

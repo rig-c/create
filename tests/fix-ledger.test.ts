@@ -180,14 +180,17 @@ test('legacy records WARN: no ledger beside drafts, and a draft recorded before 
 });
 
 test('restart keeps inputs and every ledger row, appends restarts[], and checks clean', () => {
-  const dir = example(); commit(dir);
+  const dir = example();
+  const declared = load(dir); declared.painting = 'inputs/painting.png';
+  declared.same_artwork = { reason: 'A different synthetic rig kind.', at: testClock.iso(), projects: ['first'] };
+  save(dir, declared); commit(dir);
   const before = readFileSync(join(dir, 'project.json'));
   const old = load(dir);
   refused(dir, 'SIGNOFF_NOT_HUMAN', () => restartCommand([dir, '--by', 'agent', '--reason-file', words(dir, 'restart')], step()));
   refused(dir, 'RESTART_USAGE', () => restartCommand([dir, '--by', 'owner'], step()));
   restartCommand([dir, '--by', 'owner', '--reason-file', words(dir, 'Restart at v1; delete everything before it.')], step());
   const restarted = load(dir);
-  expect(restarted).toMatchObject({ stage: 'interview', versions: [], signoffs: [], name: old.name!, inputs: old.inputs!, fix_ledger: old.fix_ledger! });
+  expect(restarted).toMatchObject({ stage: 'interview', versions: [], signoffs: [], name: old.name!, painting: old.painting!, same_artwork: old.same_artwork!, inputs: old.inputs!, fix_ledger: old.fix_ledger! });
   for (const key of ['drafts', 'review_acts', 'advances', 'scenes']) expect(restarted[key]).toBeUndefined();
   expect(obj(restarted.plan).steps).toEqual([]);
   expect(arr(restarted.restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason: 'Restart at v1; delete everything before it.', previous_record_sha256: sha(before) }]);
@@ -266,6 +269,8 @@ test('init with a painting registers it, and refuses a second project for the sa
   const painting = join(tempDir(), 'painting.png'); writeFileSync(painting, 'synthetic painting bytes');
   const first = cli(['init', join(root, 'first'), '--no-install', '--painting', painting, '--origin', 'synthetic painting'], root, env);
   expect(first.stderr).toBe(''); expect(first.code).toBe(0);
+  expect(load(join(root, 'first')).painting).toBe('inputs/painting.png');
+  expect(checkProject(join(root, 'first')).refusals.filter(f => f.code.startsWith('INPUT_'))).toEqual([]);
   expect(arr(load(join(root, 'first')).inputs)).toEqual([{ path: 'inputs/painting.png', sha256: sha('synthetic painting bytes'), bytes: 24, origin: 'synthetic painting', at: testClock.iso() }]);
   expect(checkProject(join(root, 'first')).refusals.filter(f => f.code.startsWith('INPUT'))).toEqual([]);
   const second = cli(['init', join(root, 'second'), '--no-install', '--painting', painting, '--origin', 'synthetic painting'], root, env);
@@ -282,4 +287,11 @@ test('init with a painting registers it, and refuses a second project for the sa
   const unmatched = cli(['init', join(root, 'fourth'), '--no-install', '--painting', other, '--origin', 'x', '--same-artwork-reason', reason], root, env);
   expect(unmatched.stderr).toContain('INIT_ARTWORK_USAGE');
   expect(existsSync(join(root, 'fourth'))).toBe(false);
+});
+
+test('restart validates the declared painting before writing', () => {
+  const dir = example(); const project = load(dir);
+  project.painting = 'inputs/missing.png'; save(dir, project); commit(dir);
+  const error = refused(dir, 'RESTART_INPUT_INVALID', () => restartCommand(restartArgs(dir), step()));
+  expect(error.message).toContain('INPUT_PAINTING_INVALID');
 });

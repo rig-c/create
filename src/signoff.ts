@@ -5,7 +5,7 @@ import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { checkpointProblem } from './signable.ts';
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
@@ -54,7 +54,7 @@ function fetchSignoffAct(dir: string, stage: string, actId: string, now: number,
   let bytes: string;
   if (hooks.fetch) bytes = hooks.fetch(transport).bytes;
   else {
-    const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+    const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
       stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
     });
     let response: { ok: boolean; bytes: string; code: string; message: string };

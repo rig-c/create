@@ -3,7 +3,7 @@ import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { decodeReviewAct, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
@@ -142,7 +142,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
       const transport: ReviewActTransport = { ...reviewActTransport(dir, opts.one['--from-review']), kind: 'interview-picks' };
       if (hooks.fetch) fetched = hooks.fetch(transport);
       else {
-        const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+        const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
           stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
         });
         let response: { ok: boolean; bytes: string; code: string; message: string };

@@ -5,6 +5,7 @@ import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, rmSync, writeFileS
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { jobRuntimeExecArgv } from './job-writer.ts';
 import type { JsonObject } from './templates.ts';
 export const REVIEW_READ_SINCE = '2026-11-08T00:00:00Z';
 /** `unavailable`: the stored file is missing or not a regular file; `changed`: its bytes differ from the binding. */
@@ -82,7 +83,7 @@ function runReview(dir: string, argv: string[]): ReviewReadResult {
     };
     if (pkg.name !== '@rig-c/review' || typeof pkg.version !== 'string' || typeof pkg.bin?.['rig-review'] !== 'string')
         return invalid('installed Review has no rig-review CLI');
-    const result = Bun.spawnSync([process.execPath, join(root, pkg.bin['rig-review']), ...argv.slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
+    const result = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), join(root, pkg.bin['rig-review']), ...argv.slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
     return { stdout: result.stdout, stderr: result.stderr.toString('utf8'), exitCode: result.exitCode, tool: { name: pkg.name, version: pkg.version } };
 }
 /** The one spawn path: resolve Review, run `rig-review <argv>`, then check its exit code and tool identity. */

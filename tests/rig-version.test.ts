@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { rigRegistrationFindings } from '../src/rig-version.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
+import { plateReceiptSpec } from '../src/config-inputs.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
@@ -58,6 +59,19 @@ function setup() {
     '--toolchain-lock', 'source/package-lock.json', '--run-record', 'source/run.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant', '--json'];
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
   return { dir, args, load };
+}
+
+function setupSharedAssets() {
+  const base = setup();
+  const imageBytes = readFileSync(join(base.dir, 'source/rig/images/rectangle.png'));
+  const receiptBytes = `${JSON.stringify({ spec: plateReceiptSpec(base.dir), synthetic: 'occluder plate receipt' })}\n`;
+  put(base.dir, 'source/inputs/plate/receipt.json', receiptBytes);
+  writeFileSync(join(base.dir, 'source/inputs/plate/plate.png'), imageBytes);
+  writeFileSync(join(base.dir, 'source/inputs/other.png'), imageBytes);
+  put(base.dir, 'source/inputs/plate/mask.png', 'unreferenced sibling mask');
+  put(base.dir, 'source/inputs/different.png', 'different image bytes');
+  put(base.dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+  return { ...base, args: [...base.args, '--citations', 'source/citations.json'], imageBytes, receiptBytes };
 }
 
 function refused(args: string[], code: string): void {
@@ -254,6 +268,215 @@ describe('frozen rig registration', () => {
     expect(readFileSync(join(external, 'requirements.json'))).toEqual(originalRequirements);
     expect(readFileSync(join(external, 'receipt.png'))).toEqual(assetBytes);
     expect(readFileSync(join(external, 'backdrop.png'))).toEqual(assetBytes);
+  });
+
+  test.skipIf(realpathSync(os.tmpdir()) === resolve(os.tmpdir()))('system temp aliases retain project-contained config and requirements inputs', () => {
+    const { dir, args, load } = setup();
+    const external = mkdtempSync(join(os.tmpdir(), 'rig-version-system-alias-'));
+    roots.push(external);
+    const maskBytes = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+    writeFileSync(join(dir, 'mask.png'), maskBytes);
+    put(dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: {
+      required: true, figure_mask: { path: '../mask.png', sha256: jobHash(maskBytes) },
+    } });
+    const originalReceipt = relative(external, join(dir, 'source/rig/images/rectangle.png')).split(sep).join('/');
+    put(external, 'config.json', { key: 'synthetic', requirements: '/runtime/requirements.json', assemble: {
+      editor_receipts: { receipts: [{ file: originalReceipt, sha256: jobHash(maskBytes) }] },
+    } });
+    put(external, 'adapter.json', [
+      { at: '.requirements', before: join(dir, 'source/requirements.json'), after: '/runtime/requirements.json' },
+      { doc: 'config', pointer: '/assemble/editor_receipts/receipts/0/file', before: originalReceipt, after: 'inputs/receipt.png' },
+    ]);
+    put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    const aliasedArgs = [...args, '--citations', 'source/citations.json'];
+    aliasedArgs[aliasedArgs.indexOf('--config') + 1] = join(external, 'config.json');
+    aliasedArgs[aliasedArgs.indexOf('--path-adapter') + 1] = join(external, 'adapter.json');
+    const originalConfig = readFileSync(join(external, 'config.json'));
+    const originalRequirements = readFileSync(join(dir, 'source/requirements.json'));
+    expect(rigVersionCommand(aliasedArgs).exit).toBe(0);
+    const project = load();
+    const registration = obj((project.versions as JsonObject[])[0]!.registration);
+    expect(obj(registration.requirements_source).source_path).toBe('source/requirements.json');
+    expect(readFileSync(join(dir, 'evidence/v1/registration/inputs/receipt.png'))).toEqual(maskBytes);
+    expect(readFileSync(join(external, 'config.json'))).toEqual(originalConfig);
+    expect(readFileSync(join(dir, 'source/requirements.json'))).toEqual(originalRequirements);
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test('legacy absolute adapter rows on relative values remain unused declarations', () => {
+    const { dir, args, load } = setup();
+    const config = { key: 'synthetic', requirements: 'requirements.json', assemble: {
+      editor_receipts: { receipts: [{ file: 'rig/images/rectangle.png' }] },
+    } };
+    const adapter = [
+      { at: '.requirements', before: join(dir, 'unused-requirements.json'), after: 'requirements.json' },
+      { at: '.assemble.editor_receipts.receipts.0.file', before: join(dir, 'unused-receipt.png'), after: 'rig/images/rectangle.png' },
+    ];
+    put(dir, 'source/config.json', config);
+    put(dir, 'source/adapter.json', adapter);
+    put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    expect(rigVersionCommand([...args, '--citations', 'source/citations.json']).exit).toBe(0);
+    const project = load();
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    const runtime = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/config.json'), 'utf8')) as JsonObject;
+    expect(runtime.requirements).toBe('requirements.json');
+    expect(((obj(obj(runtime.assemble).editor_receipts).receipts as JsonObject[])[0]!).file).toBe('inputs/assemble/editor_receipts/receipts/0/file');
+    const retainedRows = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/path-adapter.json'), 'utf8')) as JsonObject[];
+    expect(retainedRows.slice(0, 2)).toEqual(adapter);
+    expect(retainedRows[2]!.doc).toBe('config');
+  });
+
+  const sharingCases: { name: string; occluders: JsonObject[]; adapter: JsonObject[] }[] = [
+    {
+      name: 'image inside its plate directory',
+      occluders: [{ image: 'inputs/plate/plate.png', plate: 'inputs/plate' }],
+      adapter: [],
+    },
+    {
+      name: 'repeated image',
+      occluders: [{ image: 'inputs/plate/plate.png' }, { image: 'inputs/plate/plate.png' }],
+      adapter: [],
+    },
+    {
+      name: 'pointer image inside its plate directory',
+      occluders: [{ image: 'inputs/plate/plate.png', plate: 'inputs/plate' }],
+      adapter: [
+        { doc: 'config', pointer: '/assemble/occluders/0/image', before: 'inputs/plate/plate.png', after: 'runtime/plate/plate.png' },
+        { doc: 'config', pointer: '/assemble/occluders/0/plate', before: 'inputs/plate', after: 'runtime/plate' },
+      ],
+    },
+    {
+      name: 'pointer shared image target',
+      occluders: [{ image: 'inputs/plate/plate.png' }, { image: 'inputs/other.png' }],
+      adapter: [
+        { doc: 'config', pointer: '/assemble/occluders/0/image', before: 'inputs/plate/plate.png', after: 'runtime/shared.png' },
+        { doc: 'config', pointer: '/assemble/occluders/1/image', before: 'inputs/other.png', after: 'runtime/shared.png' },
+      ],
+    },
+    {
+      name: 'pointer shared requirements target',
+      occluders: [{ image: 'inputs/plate/plate.png' }],
+      adapter: [
+        { doc: 'requirements', pointer: '/setup_painting/figure_mask/path', before: 'inputs/plate/plate.png', after: 'runtime/shared.png' },
+        { doc: 'requirements', pointer: '/setup_painting/backdrop/path', before: 'inputs/other.png', after: 'runtime/shared.png' },
+      ],
+    },
+  ];
+  test.each(sharingCases)('registration shares byte-identical assets for $name', scenario => {
+    const { dir, args, load, imageBytes, receiptBytes } = setupSharedAssets();
+    put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', assemble: { occluders: scenario.occluders } });
+    put(dir, 'source/adapter.json', scenario.adapter);
+    if (scenario.name === 'pointer shared requirements target') {
+      put(dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: {
+        required: true,
+        figure_mask: { path: 'inputs/plate/plate.png', sha256: jobHash(imageBytes) },
+        backdrop: { path: 'inputs/other.png', sha256: jobHash(imageBytes) },
+      } });
+    }
+    const originalConfig = readFileSync(join(dir, 'source/config.json'));
+    const originalRequirements = readFileSync(join(dir, 'source/requirements.json'));
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const project = load();
+    const version = (project.versions as JsonObject[])[0]!;
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    const runtime = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/config.json'), 'utf8')) as JsonObject;
+    for (const entry of obj(runtime.assemble).occluders as JsonObject[]) {
+      expect(readFileSync(join(dir, 'evidence/v1/registration', String(entry.image)))).toEqual(imageBytes);
+      expect(readFileSync(join(dir, 'derived/review/v1', String(entry.image)))).toEqual(imageBytes);
+      if (typeof entry.plate === 'string') {
+        expect(readFileSync(join(dir, 'derived/review/v1', entry.plate, 'receipt.json'), 'utf8')).toBe(receiptBytes);
+        expect(existsSync(join(dir, 'derived/review/v1', entry.plate, 'mask.png'))).toBe(false);
+      }
+    }
+    const inventory = obj(version.registration).files as JsonObject[];
+    expect(new Set(inventory.map(file => file.path)).size).toBe(inventory.length);
+    expect(readFileSync(join(dir, 'source/config.json'))).toEqual(originalConfig);
+    expect(readFileSync(join(dir, 'source/requirements.json'))).toEqual(originalRequirements);
+    const beforePackage = version.review_package;
+    rmSync(join(dir, 'derived/review/v1'), { recursive: true });
+    expect(reviewPackageCommand(['1', dir, '--config', 'evidence/v1/registration/config.json', '--from', 'outputs/v1/out']).exit).toBe(0);
+    expect((load().versions as JsonObject[])[0]!.review_package).toEqual(beforePackage);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test.each([
+    {
+      name: 'different file bytes', firstSource: 'inputs/plate/plate.png', firstTarget: 'runtime/shared.png',
+      secondSource: 'inputs/different.png', secondTarget: 'runtime/shared.png', secondKind: 'image',
+    },
+    {
+      name: 'different bytes inside a copied directory', firstSource: 'inputs/different.png', firstTarget: 'runtime/plate/plate.png',
+      secondSource: 'inputs/plate', secondTarget: 'runtime/plate', secondKind: 'plate',
+    },
+    {
+      name: 'file replacing a directory', firstSource: 'inputs/plate/plate.png', firstTarget: 'runtime/shared/child.png',
+      secondSource: 'inputs/other.png', secondTarget: 'runtime/shared', secondKind: 'image',
+    },
+    {
+      name: 'file used as a parent directory', firstSource: 'inputs/plate/plate.png', firstTarget: 'runtime/shared',
+      secondSource: 'inputs/other.png', secondTarget: 'runtime/shared/child.png', secondKind: 'image',
+    },
+    {
+      name: 'directory replacing a file', firstSource: 'inputs/plate/plate.png', firstTarget: 'runtime/shared',
+      secondSource: 'inputs/plate', secondTarget: 'runtime/shared', secondKind: 'plate',
+    },
+    {
+      name: 'reserved metadata parent', firstSource: 'inputs/plate/plate.png', firstTarget: 'config-source.json/child.png',
+      secondSource: 'inputs/other.png', secondTarget: 'runtime/shared.png', secondKind: 'image',
+    },
+  ])('registration refuses incompatible asset sharing for $name', scenario => {
+    const { dir, args } = setupSharedAssets();
+    put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', assemble: { occluders: [
+      { image: scenario.firstSource }, { [scenario.secondKind]: scenario.secondSource },
+    ] } });
+    put(dir, 'source/adapter.json', [
+      { doc: 'config', pointer: '/assemble/occluders/0/image', before: scenario.firstSource, after: scenario.firstTarget },
+      { doc: 'config', pointer: `/assemble/occluders/1/${scenario.secondKind}`, before: scenario.secondSource, after: scenario.secondTarget },
+    ]);
+    refused(args, 'RIG_REGISTRATION_PATH_INVALID');
+    for (const target of ['outputs/v1', 'evidence/v1/registration', 'derived/review/v1']) expect(existsSync(join(dir, target))).toBe(false);
+  });
+
+  test('strict shared-target checking rejects a plate rebound to a retained file', () => {
+    const { dir, args, load } = setupSharedAssets();
+    put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', assemble: {
+      occluders: [{ image: 'inputs/plate/plate.png', plate: 'inputs/plate' }],
+    } });
+    put(dir, 'source/adapter.json', [
+      { doc: 'config', pointer: '/assemble/occluders/0/image', before: 'inputs/plate/plate.png', after: 'runtime/plate/plate.png' },
+      { doc: 'config', pointer: '/assemble/occluders/0/plate', before: 'inputs/plate', after: 'runtime/plate' },
+    ]);
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const candidate = load();
+    const version = (candidate.versions as JsonObject[])[0]!;
+    const registration = obj(version.registration);
+    const saved = new Map<string, Buffer>();
+    const replaceRetained = (binding: JsonObject, raw: unknown): void => {
+      const path = String(binding.path);
+      saved.set(path, readFileSync(join(dir, path)));
+      const bytes = Buffer.from(`${JSON.stringify(raw)}\n`);
+      writeFileSync(join(dir, path), bytes);
+      binding.sha256 = jobHash(bytes);
+      binding.bytes = bytes.length;
+      for (const file of registration.files as JsonObject[]) if (file.path === path) file.sha256 = binding.sha256;
+    };
+    try {
+      const configBinding = obj(obj(version.provenance).config);
+      const runtime = JSON.parse(readFileSync(join(dir, String(configBinding.path)), 'utf8')) as JsonObject;
+      ((obj(runtime.assemble).occluders as JsonObject[])[0]!).plate = 'runtime/plate/plate.png';
+      replaceRetained(configBinding, runtime);
+      const adapterBinding = obj(registration.path_adapter);
+      const rows = JSON.parse(readFileSync(join(dir, String(adapterBinding.path)), 'utf8')) as JsonObject[];
+      rows[1]!.after = 'runtime/plate/plate.png';
+      replaceRetained(adapterBinding, rows);
+      expect(rigRegistrationFindings(dir, candidate).map(finding => finding.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+    } finally {
+      for (const [path, bytes] of saved) writeFileSync(join(dir, path), bytes);
+    }
+    expect(checkProject(dir).refusals).toEqual([]);
   });
 
   test.each(['pending 1', '2026-02-30T00:00:00Z', '2026-11-06', '2026-11-06T20:44:42', '2026-11-06T20:44:42+09:00', '2026-11-06T24:00:00Z'])('refuses invalid/non-UTC date %s', at => {

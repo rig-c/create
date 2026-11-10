@@ -1009,7 +1009,9 @@ substitutions. Registrations without pointer adaptation retain their original
 implicit take and editor-receipt relocation, permit unused legacy adapter rows
 and do not require source-only relative assets or a backdrop that their writer
 did not retain. Missing mappings, unlisted runtime differences, escaping
-references, symlinks, hash mismatches and colliding targets refuse. Producer
+references, symlinks, hash mismatches and incompatible file or directory
+collisions refuse. Identical file bytes may share a target, including an
+explicit image inside a named plate directory. Producer
 outputs retain their original bytes. Packaging relocates the config's and
 requirements' named inputs without rerunning producer measurements.
 

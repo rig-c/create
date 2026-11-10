@@ -1260,7 +1260,7 @@ registrations by `registration.at`: before it they WARN under
 | `RIG_REGISTRATION_BUSY` | another registration holds the project lock | finish that registration before retrying |
 | `RIG_REGISTRATION_INVALID` | the version number or registration/source-kind record is malformed | restore the retained record and register the next numbered rig |
 | `RIG_REGISTRATION_EXISTS` | a destination already holds frozen files | preserve those files and choose the next unused version |
-| `RIG_REGISTRATION_PATH_INVALID` | an input escapes project containment, traverses a symlink or collides with another target | retain regular project-contained source inputs with distinct literal in-package destinations |
+| `RIG_REGISTRATION_PATH_INVALID` | an input escapes project containment, traverses a symlink or collides with reserved metadata, differing file bytes or an incompatible file/directory target | retain regular project-contained source inputs with literal targets and byte-identical shared files |
 | `RIG_REGISTRATION_FILE_INVALID` | an unsupported adapter format, a required input, referenced asset, declared sha256, runtime config/requirements adaptation, producer report/manifest, complete output inventory or copied totals is missing, changed or malformed | restore the exact frozen inputs, retained source documents and producer reports before registration |
 | `RIG_REGISTRATION_SOURCE_CHANGED` | source or project bytes change during copying | freeze the inputs and retry against the current project |
 | `RIG_TOOLCHAIN_LOCK_INVALID` | the declared lock is absent, unreadable, differs from its hash, has lockfileVersion other than 3 or lacks either package version | retain the original npm v3 lock with both producer package entries |

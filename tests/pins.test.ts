@@ -314,11 +314,13 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'create-child-launchers-')));
   const linkedWs = linkSourcePackages(dir);
   const actsDir = join(dir, 'served-acts');
+  const outerPreloadPath = join(dir, 'outer-ci-observer.ts');
   const obsPreloadPath = join(dir, 'child-preload-observer.ts');
   mkdirSync(actsDir, { recursive: true });
 
+  // Benign outer observer matching scripts/run-source-ci.ts preload structure to regression-test inherited BUN_OPTIONS preload coexistence.
   writeFileSync(
-    obsPreloadPath,
+    outerPreloadPath,
     [
       "import { randomUUID } from 'node:crypto';",
       "import { realpathSync, writeFileSync } from 'node:fs';",
@@ -333,7 +335,6 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '    process.execArgv.splice(i, 2);',
       '  }',
       '}',
-      'const initialExecArgv = [...process.execArgv];',
       'const logDir = process.env.RIG_CREATE_CHILD_OBSERVER_DIR;',
       'const rawEntry = process.argv[1];',
       'if (logDir && rawEntry) {',
@@ -341,6 +342,50 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '    const entry = realpathSync(rawEntry);',
       '    const fetchEntry = process.env.RIG_CREATE_EXPECTED_FETCH_ENTRY;',
       '    const cliEntry = process.env.RIG_CREATE_EXPECTED_REVIEW_CLI_ENTRY;',
+      "    let kind: 'review-act-fetch' | 'parts-review-cli' | null = null;",
+      "    if (fetchEntry && entry === fetchEntry) kind = 'review-act-fetch';",
+      "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'parts') kind = 'parts-review-cli';",
+      '    if (kind) {',
+      "      const resolvedReviewHost = kind === 'review-act-fetch'",
+      "        ? realpathSync(Bun.resolveSync('@rig-c/review/job-host', dirname(entry)))",
+      '        : null;',
+      '      const resolveBase = resolvedReviewHost ? dirname(resolvedReviewHost) : dirname(entry);',
+      "      const resolvedPlay = realpathSync(Bun.resolveSync('@rig-c/play', resolveBase));",
+      '      writeFileSync(',
+      '        join(logDir, `${process.pid}-${randomUUID()}.json`),',
+      '        JSON.stringify({ kind, entry, argv: process.argv, execArgv: [...process.execArgv], resolvedReviewHost, resolvedPlay }),',
+      '      );',
+      '    }',
+      '  } catch { /* Ignore non-file entrypoints in outer observer. */ }',
+      '}',
+    ].join('\n'),
+  );
+
+  writeFileSync(
+    obsPreloadPath,
+    [
+      "import { randomUUID } from 'node:crypto';",
+      "import { realpathSync, writeFileSync } from 'node:fs';",
+      "import { dirname, join } from 'node:path';",
+      'const selfPath = import.meta.path;',
+      'const preloadEnv = process.env.RIG_PINS_TEST_OBSERVER_PRELOAD;',
+      'const outerPreloadEnv = process.env.RIG_CREATE_CHILD_OBSERVER_PRELOAD;',
+      'for (let i = process.execArgv.length - 1; i >= 0; i--) {',
+      '  const arg = process.execArgv[i];',
+      '  if (arg === `--preload=${selfPath}` || (preloadEnv && arg === `--preload=${preloadEnv}`) || (outerPreloadEnv && arg === `--preload=${outerPreloadEnv}`)) {',
+      '    process.execArgv.splice(i, 1);',
+      "  } else if ((arg === '--preload' || arg === '-r') && (process.execArgv[i + 1] === selfPath || (preloadEnv && process.execArgv[i + 1] === preloadEnv) || (outerPreloadEnv && process.execArgv[i + 1] === outerPreloadEnv))) {",
+      '    process.execArgv.splice(i, 2);',
+      '  }',
+      '}',
+      'const initialExecArgv = [...process.execArgv];',
+      'const logDir = process.env.RIG_PINS_TEST_OBSERVER_DIR;',
+      'const rawEntry = process.argv[1];',
+      'if (logDir && rawEntry) {',
+      '  try {',
+      '    const entry = realpathSync(rawEntry);',
+      '    const fetchEntry = process.env.RIG_PINS_TEST_EXPECTED_FETCH_ENTRY;',
+      '    const cliEntry = process.env.RIG_PINS_TEST_EXPECTED_REVIEW_CLI_ENTRY;',
       "    let kind: 'review-act-fetch' | 'parts-review-cli' | null = null;",
       "    if (fetchEntry && entry === fetchEntry) kind = 'review-act-fetch';",
       "    else if (cliEntry && entry === cliEntry && process.argv[2] === 'parts') kind = 'parts-review-cli';",
@@ -356,7 +401,7 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       "          const loadedPlay = typeof rawLoadedPlay === 'string' ? realpathSync(rawLoadedPlay) : null;",
       '          writeFileSync(',
       '            join(logDir, `${Date.now()}-${process.pid}-${randomUUID()}.json`),',
-      '            JSON.stringify({ kind, entry, argv: process.argv, execArgv: initialExecArgv, exitCode, resolvedReviewHost, resolvedPlay, loadedPlay }),',
+      "            JSON.stringify({ observer: 'pins-test-fixture', kind, entry, argv: process.argv, execArgv: initialExecArgv, exitCode, resolvedReviewHost, resolvedPlay, loadedPlay }),",
       '          );',
       '        } catch (error) {',
       '          writeFileSync(',
@@ -412,6 +457,9 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '    throw new Error(`Expected exactly 1 child observation for ${launcher}, got: ${JSON.stringify(files.map(f => readFileSync(join(obsDir, f), "utf8")))}`);',
       '  }',
       '  const parsed = JSON.parse(readFileSync(join(obsDir, files[0]!), "utf8"));',
+      '  if (parsed.observer !== "pins-test-fixture") {',
+      '    throw new Error(`Unexpected observer record in ${launcher}: ${JSON.stringify(parsed)}`);',
+      '  }',
       '  clearObs();',
       '  return parsed;',
       '};',
@@ -626,21 +674,38 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
     for (const c of cases) {
       const runRoot = join(dir, `run-${c.label}`);
       const obsDir = join(dir, `obs-${c.label}`);
+      const outerObsDir = join(dir, `outer-obs-${c.label}`);
       mkdirSync(runRoot, { recursive: true });
       mkdirSync(obsDir, { recursive: true });
+      mkdirSync(outerObsDir, { recursive: true });
 
+      const hasHostedCiObserver = Boolean(process.env.RIG_CREATE_CHILD_OBSERVER_PRELOAD);
       const existingBunOptions = process.env.BUN_OPTIONS?.trim();
+      const bunOptionsWithOuter = hasHostedCiObserver
+        ? existingBunOptions
+          ? `${existingBunOptions} --preload=${obsPreloadPath}`
+          : `--preload=${obsPreloadPath}`
+        : [existingBunOptions, `--preload=${outerPreloadPath}`, `--preload=${obsPreloadPath}`].filter(Boolean).join(' ');
+
       const proc = Bun.spawn(
         [process.execPath, ...c.parentFlags, driverScript, `http://127.0.0.1:${server.port}`, runRoot, obsDir, actsDir, REPO],
         {
           cwd: dir,
           env: {
             ...process.env,
-            BUN_OPTIONS: existingBunOptions ? `${existingBunOptions} --preload=${obsPreloadPath}` : `--preload=${obsPreloadPath}`,
-            RIG_CREATE_CHILD_OBSERVER_PRELOAD: obsPreloadPath,
-            RIG_CREATE_CHILD_OBSERVER_DIR: obsDir,
-            RIG_CREATE_EXPECTED_FETCH_ENTRY: linkedWs.fetchRuntimeEntry,
-            RIG_CREATE_EXPECTED_REVIEW_CLI_ENTRY: linkedWs.reviewCliEntry,
+            BUN_OPTIONS: bunOptionsWithOuter,
+            ...(hasHostedCiObserver
+              ? {}
+              : {
+                  RIG_CREATE_CHILD_OBSERVER_PRELOAD: outerPreloadPath,
+                  RIG_CREATE_CHILD_OBSERVER_DIR: outerObsDir,
+                  RIG_CREATE_EXPECTED_FETCH_ENTRY: linkedWs.fetchRuntimeEntry,
+                  RIG_CREATE_EXPECTED_REVIEW_CLI_ENTRY: linkedWs.reviewCliEntry,
+                }),
+            RIG_PINS_TEST_OBSERVER_PRELOAD: obsPreloadPath,
+            RIG_PINS_TEST_OBSERVER_DIR: obsDir,
+            RIG_PINS_TEST_EXPECTED_FETCH_ENTRY: linkedWs.fetchRuntimeEntry,
+            RIG_PINS_TEST_EXPECTED_REVIEW_CLI_ENTRY: linkedWs.reviewCliEntry,
           },
           stdout: 'pipe',
           stderr: 'pipe',
@@ -652,6 +717,23 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
         proc.exited,
       ]);
       expect({ label: c.label, exit, stderr }).toEqual({ label: c.label, exit: 0, stderr: '' });
+      if (!hasHostedCiObserver) {
+        const outerFiles = readdirSync(outerObsDir).sort();
+        expect(outerFiles).toHaveLength(6);
+        expect(outerFiles.filter(name => name.endsWith('-error.json'))).toEqual([]);
+        const outerObs = outerFiles.map(
+          name =>
+            JSON.parse(readFileSync(join(outerObsDir, name), 'utf8')) as {
+              kind: 'review-act-fetch' | 'parts-review-cli';
+              resolvedPlay: string;
+            },
+        );
+        expect(outerObs.filter(o => o.kind === 'review-act-fetch')).toHaveLength(5);
+        expect(outerObs.filter(o => o.kind === 'parts-review-cli')).toHaveLength(1);
+        for (const o of outerObs) {
+          expect(o.resolvedPlay).toBe(c.expectedPlay);
+        }
+      }
       const parsed = JSON.parse(stdout) as {
         parentExecArgv: string[];
         results: {
@@ -729,7 +811,7 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
     server.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 60_000);
 
 for (const [label, execFlags] of [
   ['linked source condition', [SOURCE_CONDITION_FLAG]],

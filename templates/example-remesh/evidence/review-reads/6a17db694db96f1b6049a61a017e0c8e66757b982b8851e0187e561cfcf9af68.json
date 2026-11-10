@@ -1,5 +1,5 @@
 {
-  "schema": "rig-review-parts-verdict/2",
+  "schema": "rig-review-parts-verdict/4",
   "mode": "parts",
   "tool": {
     "name": "@rig-c/review",
@@ -52,39 +52,7 @@
     "flags": []
   },
   "status": "approved",
-  "parts": {
-    "background": {
-      "outcome": "clean",
-      "note": "",
-      "flags": []
-    },
-    "torso": {
-      "outcome": "clean",
-      "note": "",
-      "flags": []
-    },
-    "lantern": {
-      "outcome": "clean",
-      "note": "",
-      "flags": []
-    },
-    "face": {
-      "outcome": "clean",
-      "note": "",
-      "flags": []
-    },
-    "eye_r": {
-      "outcome": "clean",
-      "note": "",
-      "flags": []
-    },
-    "eye_l": {
-      "outcome": "clean",
-      "note": "",
-      "flags": []
-    }
-  },
-  "comments": [],
+  "issues": [],
   "updatedAt": "2026-11-09T00:00:28.000Z",
   "by": null,
   "savedFileSha256": "617024c1f313771da595d288a9f31f4c244abde156873b80179eabf49a08890d"

@@ -70,8 +70,8 @@
       "verbatim": "Approve this synthetic geometric example.\n",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180.json",
-        "sha256": "5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180",
+        "path": "evidence/review-reads/a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f.json",
+        "sha256": "a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f",
         "spec": "rig-create/parts-verdict-cli@1"
       },
       "draft_id": "chain",
@@ -417,7 +417,7 @@
         "history": [],
         "pending_options": {
           "path": "evidence/interview/bones.json",
-          "sha256": "89cd8ba95f9753a83e8d1940efb85a32572ae8b2398db6f7797d536c09bd5f32"
+          "sha256": "ec52614827d9fe6931e7593595f2c11f58a4861db579d725615be8928e9722df"
         }
       },
       {
@@ -1166,8 +1166,8 @@
       "draft_id": "chain",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180.json",
-        "sha256": "5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180"
+        "path": "evidence/review-reads/a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f.json",
+        "sha256": "a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f"
       },
       "route": "cli",
       "argv": [

@@ -70,8 +70,8 @@
       "verbatim": "Approve the synthetic parts-review record.\n",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json",
-        "sha256": "2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d",
+        "path": "evidence/review-reads/4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05.json",
+        "sha256": "4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05",
         "spec": "rig-create/parts-verdict-cli@1"
       },
       "draft_id": "example",
@@ -99,19 +99,19 @@
         "motion": "0fc852ec4e95499d17f6ee8c28f4192219c057dd55f4e0543b61d3eda939ee65"
       },
       "answer_hashes": {
-        "bones": "3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7",
-        "meshes": "e5b60b9dd25f3b314ee4199cdb0b5cfd476f87aeccae8adc36bd6a98431a443b",
+        "bones": "da0839e63fd36041c823ea19474aa646b311211552879d6b09b6a5d7a6014c7e",
+        "meshes": "36293fc402cb2b86e6236c2c94546462e5eaea1d603ce11797ed67c2e0f53b53",
         "assemble": "56d6449827ca14d12012d3c45e07fc77f95c5f29f40a8b32c3aba532b352364b",
-        "constraints": "3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51",
-        "motion": "ca951d0a752a5e83f3a1841fe87f50c617c8be888a4721849b3f2d374f976d78",
+        "constraints": "5cb5ee1ba54a0d8fcd30f16aa04a0a2650db1061cc5d2273888874f44d046bc9",
+        "motion": "591004fbf7145f4172cbe59c6e65e8358ef6923c41e45ccc3077fdb1b9cf7c13",
         "rig_type": "7dadbbfeb6bde120d27feb2341992af442fb223a640179e4f3d9e14bfdb8f6e2"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-09T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json",
-          "sha256": "2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d",
+          "path": "evidence/review-reads/4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05.json",
+          "sha256": "4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05",
           "spec": "rig-create/parts-verdict-cli@1"
         }
       },
@@ -135,15 +135,15 @@
         "constraints": "c913d95c02d39078d2327dccb6defcbc1e81d67bf10c1af301b7427c93b9b327"
       },
       "answer_hashes": {
-        "bones": "3c4b0d354560ec02c7369dcff824966bf8eaa7f84962e9cb6dc441e9d9abfcf7",
-        "constraints": "3ed3dacd4d97a3c28819de12ae6e824bcef287a3a71e80c993ac895ef7050b51"
+        "bones": "da0839e63fd36041c823ea19474aa646b311211552879d6b09b6a5d7a6014c7e",
+        "constraints": "5cb5ee1ba54a0d8fcd30f16aa04a0a2650db1061cc5d2273888874f44d046bc9"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-09T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json",
-          "sha256": "2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d",
+          "path": "evidence/review-reads/4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05.json",
+          "sha256": "4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05",
           "spec": "rig-create/parts-verdict-cli@1"
         }
       },
@@ -200,7 +200,7 @@
       "answer_hashes": {
         "camera_depth": "cfbe6b6a888fa0efddf882f7c7b8b01f1e52d7249169504252c0a66969f5b765",
         "post_timing": "dab49f2a0a86044df285dc54438c28dd4d98935706bad1636b1009b71b3ad23d",
-        "motion": "ca951d0a752a5e83f3a1841fe87f50c617c8be888a4721849b3f2d374f976d78",
+        "motion": "591004fbf7145f4172cbe59c6e65e8358ef6923c41e45ccc3077fdb1b9cf7c13",
         "post_composition": "da958055b6e985886046f1cacd0759563de3f83e2f2664e0a0d7ccccd6839245"
       }
     },
@@ -755,7 +755,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-bones.json",
-              "sha256": "505053926025d22455cdf5bdbe68e5ed37a72f97cfdef701ecab940dc445e72b"
+              "sha256": "4e6b74abfef5b8df83d0c8e09bc8bfea4ed18bcb00cd99517cc2113f4f66efdd"
             },
             "picks": [
               {
@@ -951,7 +951,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-meshes.json",
-              "sha256": "ee67f8a6443083043da65cc610f1951d538262834e9666a07cd56ff3408f7155"
+              "sha256": "7b7677769e4ec8390de82418b5280b3a8877cbb34f5d58ac16c568333efb33f1"
             },
             "picks": [
               {
@@ -1108,7 +1108,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-constraints.json",
-              "sha256": "5aab254fbdc739341b84fe53094134ef57fbba11065db60cfe9af6d0e8836432"
+              "sha256": "38f61c92784a9a8a3e85985ee88ab41fcbd3e08ad7cfcaf95e2c810ae33f9354"
             },
             "picks": [
               {
@@ -1354,7 +1354,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/example-motion.json",
-              "sha256": "fe21190c6dc857e9881fc8f33bd6517c4e3e318570fb768bfd1f3842267b1a9a"
+              "sha256": "f9a625b40e9f3e3d91ebf47d1843d8708fbe4ac2db93b61322435e4a52cfcb08"
             },
             "picks": [
               {
@@ -1727,8 +1727,8 @@
         "signoff_at": "2026-11-09T00:00:37.000Z",
         "evidence": {
           "kind": "parts-verdict",
-          "path": "evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json",
-          "sha256": "2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d",
+          "path": "evidence/review-reads/4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05.json",
+          "sha256": "4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05",
           "spec": "rig-create/parts-verdict-cli@1"
         }
       },
@@ -3481,8 +3481,8 @@
       "draft_id": "example",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d.json",
-        "sha256": "2833b0b44f7441329cfa998a7e2dec0567c78eaaf1c56518294911c9d125f08d"
+        "path": "evidence/review-reads/4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05.json",
+        "sha256": "4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05"
       },
       "route": "cli",
       "argv": [

@@ -389,8 +389,8 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     selector = targetSelector;
     published = true;
   }
-  const lines = [`job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...askOutcomeLines(outcomes),
-    ...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`)];
+  const lines = [...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`),
+    `job: ${selectorLabel(selector)} ${published ? 'published' : 'already published'}`, ...askOutcomeLines(outcomes)];
   refuseAskOutcomes(outcomes);
   return lines;
 }

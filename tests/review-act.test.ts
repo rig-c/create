@@ -4,25 +4,21 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
-import { checkProject, collectItems } from '../src/check.ts';
-import { directionCommand } from '../src/direction-writers.ts';
-import { sceneCommand } from '../src/scene-writers.ts';
-import { inputCommand } from '../src/inputs.ts';
-import { advanceCommand } from '../src/progress-writers.ts';
-import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { signoffCommand } from '../src/signoff.ts';
-import { reviewCommand } from '../src/feedback.ts';
+import { collectItems } from '../src/check.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { decodeReviewAct, decodeReviewResponse, reviewActFindings } from '../src/review-act.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { clockedCli } from './helpers.ts';
 
 const directories: string[] = [];
 const hosts: JobOwnerHost[] = [];
 afterEach(() => {
   for (const host of hosts.splice(0)) host.stop();
   for (const root of directories.splice(0)) { rmSync(jobHostStateRoot(root), { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
+  testClock.reset();
 });
 function temporary(prefix: string): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
@@ -38,6 +34,7 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
 }
 
 async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved') {
+  testClock.reset();
   const root = temporary('create-act-project-');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
   if (n === 2) {
@@ -45,10 +42,10 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     for (const path of ['inputs/background.png', 'evidence/scene-citations.json', 'evidence/direction-input.json']) {
       cpSync(join(import.meta.dir, '../templates/example-chain', path), join(root, path));
     }
-    inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate'], EXAMPLE_NOW);
-    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', root], EXAMPLE_NOW);
-    directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
-    advanceCommand(['direction-review', root], EXAMPLE_NOW);
+    inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate']);
+    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', root]);
+    directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
+    advanceCommand(['direction-review', root]);
   }
   const hidden = temporary('create-act-hidden-');
   // The actual host state path is never installed in the consumer binding.
@@ -103,6 +100,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   }));
   expect(submitted.ok).toBe(true);
   if (!submitted.ok) throw Error(submitted.error.code);
+  testClock.set(Math.max(testClock.now(), Date.parse(submitted.value.at)));
   return { root, host, act: submitted.value, hidden, n };
 }
 
@@ -127,7 +125,7 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
     const [error, exit] = await Promise.all([new Response(probe.stderr).text(), probe.exited]);
     expect(exit).toBe(1); expect(error).toContain('REVIEW_STATE_ACCESSED');
   }
-  const child = Bun.spawn([process.execPath, ...(guarded ? ['--preload', guard] : []), join(import.meta.dir, '../src/cli.ts'), 'review', String(n), root, '--from-review', actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...(guarded ? ['--preload', guard] : []), ...clockedCli(), 'review', String(n), root, '--from-review', actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
@@ -147,8 +145,8 @@ test('producer-bound rig verdict fetch commits once, preserves words, and unchan
   expect(verdict.by).toBe('user'); expect(verdict.at).toBe(act.at);
   expect(project.signoffs).toEqual(before.signoffs); expect(project.stage).toBe(before.stage);
   expect(reviewActFindings(project)).toEqual([]);
-  expect(checkProject(root, project, { now: Date.now() + 1000 }).refusals).toEqual([]);
-  expect(checkProject(root, project, { now: Date.now() + 1000 }).warnings).toEqual([]);
+  expect(checkProject(root, project).refusals).toEqual([]);
+  expect(checkProject(root, project).warnings).toEqual([]);
   const replay = await command(root, act.actId);
   expect(replay.exit).toBe(0); expect(replay.stdout).toBe(first.stdout);
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
@@ -235,7 +233,7 @@ test('competing human-value flags refuse before fetching or writing', async () =
   const before = readFileSync(join(root, 'project.json'));
   for (const flag of ['--by', '--verdict', '--review', '--verbatim', '--verbatim-file', '--at', '--source', '--item', '--answers-feedback', '--ask', '--quote', '--value']) {
     const value = flag === '--answers-feedback' ? '1:0' : flag === '--ask' || flag === '--quote' ? 'a=b' : flag === '--value' ? 'a=null' : 'synthetic';
-    expect(() => reviewCommand(['1', root, '--from-review', act.actId, flag, value], Date.now())).toThrow(expect.objectContaining({ code: 'REVIEW_OPTION_INVALID' }));
+    expect(() => reviewCommand(['1', root, '--from-review', act.actId, flag, value])).toThrow(expect.objectContaining({ code: 'REVIEW_OPTION_INVALID' }));
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
 });
@@ -246,7 +244,7 @@ test('check detects tampered ledger bytes, verdict, duplicate identity and malfo
   const project = projectAt(root);
   const entry = reviewVerdictReceipts(project)[0]!;
   entry.sha256 = '0'.repeat(64);
-  expect(checkProject(root, project, { now: Date.now() }).refusals.map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+  expect(checkProject(root, project).refusals.map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
   entry.sha256 = jobHash(String(entry.bytes));
   (project.review_acts as JsonObject[]).push(structuredClone(entry));
   expect(reviewActFindings(project).map(f => f.code)).toContain('REVIEW_ACT_REPLAY_CONFLICT');
@@ -297,7 +295,7 @@ test('missing acknowledgment permits explicit bindings with a named ingest warni
 
 test('a later unrelated signoff does not stale an act through projectHash provenance', async () => {
   const { root, act } = await published();
-  signoffCommand(['parts', root, '--checkpoint', 'assemble', '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt')], Date.now());
+  signoffCommand(['parts', root, '--checkpoint', 'assemble', '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt')]);
   expect(jobHash(readFileSync(join(root, 'project.json')))).not.toBe(act.source.projectHash!);
   const result = await command(root, act.actId);
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
@@ -346,6 +344,11 @@ test('a new act on a changed explicit source refuses before its first write', as
   const { root, act } = await published();
   const before = readFileSync(join(root, 'project.json'));
   writeFileSync(join(root, act.source.parts!.manifest.path), '{}\n');
+  testClock.set(Date.parse(act.at) - 1000);
+  const futureResult = await command(root, act.actId);
+  expect(futureResult.exit).toBe(1); expect(futureResult.stderr).toContain('REVIEW_ACT_INVALID:');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  testClock.set(Date.parse(act.at));
   const result = await command(root, act.actId);
   expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
@@ -391,7 +394,7 @@ test('changes-requested records a bounced verdict with exact words and the norma
   expect(JSON.parse(String(receipt.bytes))).toEqual(act);
   expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
   expect(reviewActFindings(project)).toEqual([]);
-  const report = checkProject(root, project, { now: Date.now() + 1000 });
+  const report = checkProject(root, project);
   expect(report.refusals).toEqual([]);
   expect(report.warnings.map(finding => finding.code)).toEqual(['FEEDBACK_OPEN']);
 });
@@ -441,7 +444,7 @@ test('API retains exact raw act bytes and PNG and binds both hashes', async () =
     expect(receipt.sha256).toBe(jobHash(raw));
     expect(readFileSync(join(root, `evidence/v1/${jobHash(raw)}.act.json`), 'utf8')).toBe(raw);
     expect(readFileSync(join(root, `evidence/v1/${act.still.path}`))).toEqual(png);
-    expect(checkProject(root, project, { now: Date.now() + 1000 }).refusals).toEqual([]);
+    expect(checkProject(root, project).refusals).toEqual([]);
   } finally { server.stop(true); }
 });
 
@@ -454,7 +457,7 @@ test('manual accepted rig verdict without a still refuses and leaves project byt
   putProject(root, project);
   const before = readFileSync(join(root, 'project.json'));
   expect(() => reviewCommand(['1', root, '--verdict', 'accepted', '--review', 'rig-review', '--by', 'user',
-    '--verbatim', 'Synthetic approval', '--source', 'synthetic review'], Date.now() + 1000))
+    '--verbatim', 'Synthetic approval', '--source', 'synthetic review']))
     .toThrow(expect.objectContaining({ code: 'RIG_ACCEPTED_WITHOUT_STILL' }));
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });
@@ -464,7 +467,7 @@ test('removed file route refuses by name before opening a file and preserves pro
   const { root } = await published();
   const before = readFileSync(join(root, 'project.json'));
   for (const flags of [['--from-review-file', join(root, 'missing-act.json')], ['--from-review-file'], ['--from-review-file=missing-act.json']]) {
-    expect(() => reviewCommand(['1', root, ...flags], Date.now() + 1000))
+    expect(() => reviewCommand(['1', root, ...flags]))
       .toThrow(expect.objectContaining({ code: 'REVIEW_FILE_ROUTE_REMOVED', exitCode: 2, message: expect.stringContaining('--from-review <actId>') }));
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }

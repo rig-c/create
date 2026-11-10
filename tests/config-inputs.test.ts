@@ -1,6 +1,6 @@
 import { syntheticReviewRunner, syntheticReviewOrigin } from './review-read-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { correctionFixture } from './correction-fixture.ts';
@@ -287,4 +287,34 @@ for (const legacy of [false, true]) test(`missing frozen rig input uses the sour
   const ctx = { dir: f.dir, project: p, refusals: [] as Finding[], warnings: [] as Finding[] }; checkAppliedReview(ctx);
   expect((legacy ? ctx.warnings : ctx.refusals).find(f => f.code === 'APPLIED_REVIEW_SOURCE')?.message).toContain('requirements.json is missing from source package');
   expect(legacy ? ctx.refusals : ctx.warnings).toEqual([]);
+});
+
+test('a project opened through a symlink binds valid inputs, keeps missing nested inputs missing and refuses symlink escapes', () => {
+  const f = sample('draft', 'honest', false, 'occluder');
+  const alias = mkdtempSync(join(tmpdir(), 'named-inputs-link-')); roots.push(alias);
+  const outside = mkdtempSync(join(tmpdir(), 'named-inputs-outside-')); roots.push(outside);
+  writeFileSync(join(outside, 'foreign.json'), '{}\n');
+  const linked = join(alias, 'project');
+  symlinkSync(f.dir, linked);
+  rmSync(join(f.dir, 'evidence/plate'), { recursive: true });
+  expect(correctionCommand(['record', linked, '--id', 'fix', '--path', 'made', '--stage', 'parts-review', '--by', 'user', '--draft', 'synthetic', '--feedback-file', DRAFT_PACKAGE, '--item', 'synthetic-apply'], syntheticReviewRunner).exit).toBe(0);
+  f.save('evidence/source-config.json', { requirements: 'nested/missing/requirements.json', assemble: { occluders: [{ image: 'occ.png' }] } });
+  expect(configInputBindings(linked, 'evidence/source-config.json', true)).toEqual([
+    { path: 'evidence/nested/missing/requirements.json', sha256: null },
+    f.inputs[1]!,
+  ]);
+  expect(() => configInputBindings(linked, 'evidence/source-config.json', false)).toThrow(/ENOENT/);
+  symlinkSync(outside, join(f.dir, 'evidence/escape-dir'));
+  symlinkSync(join(outside, 'foreign.json'), join(f.dir, 'evidence/escape-file.json'));
+  for (const [req, allowMissing] of [
+    ['../../outside/missing.json', true],
+    ['../../outside/missing.json', false],
+    ['escape-dir/missing.json', true],
+    ['escape-dir/missing.json', false],
+    ['escape-file.json', true],
+    ['escape-file.json', false],
+  ] as const) {
+    f.save('evidence/source-config.json', { requirements: req });
+    expect(() => configInputBindings(linked, 'evidence/source-config.json', allowMissing)).toThrow('requirements: named input leaves the project');
+  }
 });

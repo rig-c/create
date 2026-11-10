@@ -11,8 +11,8 @@
       "signoff_at": "2026-11-09T00:00:33.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/3cb6aa228c0e8a727b714b663389e0b40dea575b424388ea61e1b7709e83560d.json",
-        "sha256": "3cb6aa228c0e8a727b714b663389e0b40dea575b424388ea61e1b7709e83560d",
+        "path": "evidence/review-reads/6a17db694db96f1b6049a61a017e0c8e66757b982b8851e0187e561cfcf9af68.json",
+        "sha256": "6a17db694db96f1b6049a61a017e0c8e66757b982b8851e0187e561cfcf9af68",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },

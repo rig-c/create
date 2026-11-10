@@ -614,7 +614,7 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '{',
       '  const root = join(runRoot, "6-parts-cli");',
       '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/1-parts-verdict"), root, { recursive: true });',
-      '  const storedVerdict = JSON.parse(readFileSync(join(repoRoot, "templates/example-chain/checkpoints/2-rigging-answers/evidence/review-reads/5445a7ee08f48739668ea8b8b058de9a91645926113e36cf03373d396004d180.json"), "utf8")) as Record<string, any>;',
+      '  const storedVerdict = JSON.parse(readFileSync(join(repoRoot, "templates/example-chain/checkpoints/2-rigging-answers/evidence/review-reads/a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f.json"), "utf8")) as Record<string, any>;',
       '  delete storedVerdict.by;',
       '  delete storedVerdict.savedFileSha256;',
       '  writeFileSync(join(root, "evidence/parts-review.json"), `${JSON.stringify(storedVerdict, null, 2)}\\n`);',

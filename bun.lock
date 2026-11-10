@@ -7,7 +7,7 @@
       "dependencies": {
         "@rig-c/core": "3.7.0",
         "@rig-c/parts": "2.37.0",
-        "@rig-c/review": "3.7.0",
+        "@rig-c/review": "2.9.0",
       },
       "devDependencies": {
         "@types/bun": "^1.3.0",
@@ -78,9 +78,9 @@
 
     "@rig-c/parts": ["@rig-c/parts@2.37.0", "", { "dependencies": { "@rig-c/core": "3.7.0", "ag-psd": "^31.0.2" }, "bin": { "rig-parts": "bin/rig-parts.cjs", "spine-parts": "bin/rig-parts.cjs" } }, "sha512-ZO8vHKMxJlHKAyjISW7xwGliv8j6wkZjCLPwUbx8yFXlaTxZPc/oeGV0dJqggJZ9R5yuj3wxHnOaSf6+7ZM4pg=="],
 
-    "@rig-c/play": ["@rig-c/play@3.7.0", "", {}, "sha512-7mecYftogGIK775fCElio3pc8h0qq34/6oTDJypV0xyhH+2S/IeHlDNj2z2BvNvoLl3dmCAitFzC2ny8x4G6/g=="],
+    "@rig-c/play": ["@rig-c/play@1.24.0", "", {}, "sha512-VuDesBdywQtYjeaArFdy7TazSmm6HlOBee24JwoDC3Bb4B2gvR8PN9ugDKLKISrlD8hHjfSXGaUkTinla5J4Sw=="],
 
-    "@rig-c/review": ["@rig-c/review@3.7.0", "", { "dependencies": { "@napi-rs/canvas": "1.0.11", "@rig-c/play": "3.7.0", "@types/pngjs": "6.0.5", "pngjs": "7.0.0" }, "bin": { "rig-review": "src/entry.ts" } }, "sha512-iBMxuJTDn/TNEP2MWaveKtVXMo2/Z5tFGA5cloMPlejwj4R0exZhyjsDHocteL0SxDWEoF5ryDcHJpAGKEgyJw=="],
+    "@rig-c/review": ["@rig-c/review@2.9.0", "", { "dependencies": { "@napi-rs/canvas": "1.0.11", "@rig-c/play": "1.24.0", "@types/pngjs": "6.0.5", "pngjs": "7.0.0" }, "bin": { "rig-review": "src/entry.ts" } }, "sha512-c4+0ufhsAcmlaBFJXIIPuGL6BF2homGksf0qs1te+zYTY+0B1Z1CjuWu1o6ZZOZe0UNZS740YCP2MxDtA+eczg=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 

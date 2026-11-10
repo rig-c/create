@@ -457,12 +457,24 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const configSourceRaw = JSON.parse(bytesAt(dir, record.config_source).toString()) as Json;
       const portable = JSON.parse(bytesAt(dir, config).toString()) as Json;
       if (!isObject(configSourceRaw) || !isObject(portable)) throw Error('config-source and portable config must be JSON objects');
-      const checkPortable = (value: Json): void => {
-        if (typeof value === 'string' && absolute(value)) throw Error('the retained config contains an unresolved absolute path');
-        if (Array.isArray(value)) value.forEach(checkPortable);
-        else if (isObject(value)) Object.values(value).forEach(checkPortable);
+      const checkPortable = (value: Json, document: string, requirementsDocument = false, location: string[] = []): void => {
+        if (typeof value === 'string' && absolute(value)) {
+          const field = `${document}#/${location.map(escapePointerToken).join('/')}`;
+          const provenancePointer = requirementsDocument
+            && location.at(-2) === 'x-source' && location.at(-1) === 'json_pointer';
+          if (!provenancePointer) throw Error(`${field}: contains an unresolved absolute path`);
+          // Parts leaves x-* metadata opaque, without declaring a target document to resolve.
+          if (!value.startsWith('/') || /~(?![01])/.test(value)) throw Error(`${field}: expected an RFC 6901 JSON pointer with valid escapes`);
+        }
+        if (Array.isArray(value)) {
+          value.forEach((entry, index) => checkPortable(entry, document, requirementsDocument, [...location, String(index)]));
+        } else if (isObject(value)) {
+          for (const [key, entry] of Object.entries(value)) {
+            checkPortable(entry, document, requirementsDocument, [...location, key]);
+          }
+        }
       };
-      checkPortable(portable);
+      checkPortable(portable, String((config as JsonObject).path));
       const evidenceRoot = dirname(String((config as JsonObject).path));
       const reqAdapters = (adapterRows ?? []).filter(r => r.doc === 'requirements');
       const hasPointerAdapters = (adapterRows ?? []).some(r => r.kind === 'pointer');
@@ -536,7 +548,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
         if (!isObject(runtimeReqInFiles)) throw Error(`${runtimeReqPath} is absent from the retained inventory`);
         const runtimeReqObj = JSON.parse(bytesAt(dir, runtimeReqInFiles).toString()) as Json;
         if (!isObject(runtimeReqObj)) throw Error('retained requirements must be a JSON object');
-        if (isPointerAdaptedRecord) checkPortable(runtimeReqObj);
+        if (isPointerAdaptedRecord) checkPortable(runtimeReqObj, runtimeReqPath, true);
         if (isPointerAdaptedRecord) {
           if (!isObject(record.requirements_source) || !isObject(record.requirements)) {
             throw Error('both requirements_source and requirements bindings are required when requirements are adapted');

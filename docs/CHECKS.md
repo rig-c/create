@@ -1284,6 +1284,13 @@ Acceptance and forward stage moves retain their
 existing review/signoff and advance contracts. See
 [the registration procedure](PROJECT.md#registering-a-frozen-rig-build).
 
+The recursive runtime portability check preserves RFC 6901 JSON pointers at
+requirements `x-source.json_pointer` metadata positions, including valid `~0`
+and `~1` escapes. Parts treats these extensions as opaque metadata and declares
+no target document to resolve. Absolute values in other fields and malformed
+pointer escapes refuse with `RIG_REGISTRATION_FILE_INVALID`, naming the retained
+document and field. Declared asset paths retain their existing adapter rules.
+
 
 ## Immutable input registration
 

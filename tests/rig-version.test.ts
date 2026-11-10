@@ -74,7 +74,7 @@ function setupSharedAssets() {
   return { ...base, args: [...base.args, '--citations', 'source/citations.json'], imageBytes, receiptBytes };
 }
 
-function refused(args: string[], code: string): void {
+function refused(args: string[], code: string): Refusal {
   const projectFile = join(args[1]!, 'project.json');
   const before = readFileSync(projectFile);
   let caught: unknown;
@@ -82,9 +82,98 @@ function refused(args: string[], code: string): void {
   expect(caught).toBeInstanceOf(Refusal);
   expect((caught as Refusal).code).toBe(code);
   expect(readFileSync(projectFile)).toEqual(before);
+  return caught as Refusal;
+}
+
+function setupProvenancePointers() {
+  const base = setup();
+  const backdrop = readFileSync(join(base.dir, 'source/rig/images/rectangle.png'));
+  writeFileSync(join(base.dir, 'source/backdrop.png'), backdrop);
+  const requirements = {
+    spec: 'spine-parts-requirements/1', fps: 4, requirements: [],
+    setup_painting: {
+      required: true,
+      backdrop: { path: 'backdrop.png', sha256: jobHash(backdrop) },
+      regions: Array.from({ length: 7 }, (_, index) => ({
+        name: `region-${index}`, box: [0, 0, 1, 1], max_pixels: 0,
+        'x-source': { json_pointer: `/METRICS/regions/${index}/pixel_count` },
+      })),
+    },
+  };
+  put(base.dir, 'source/requirements.json', requirements);
+  return { ...base, requirements };
 }
 
 describe('frozen rig registration', () => {
+  test('#409 seven requirements provenance JSON pointers survive public writer registration', () => {
+    const { dir, args, load, requirements } = setupProvenancePointers();
+    const originalConfig = readFileSync(join(dir, 'source/config.json'));
+    const originalRequirements = readFileSync(join(dir, 'source/requirements.json'));
+    const result = run([process.execPath, ...clockedCli(), 'rig-version', ...args], dir, process.env as Record<string, string>);
+    expect(result.stderr).toBe('');
+    expect(result.code).toBe(0);
+    expect(readFileSync(join(dir, 'evidence/v1/registration/config-source.json'))).toEqual(originalConfig);
+    expect(readFileSync(join(dir, 'evidence/v1/registration/requirements-source.json'))).toEqual(originalRequirements);
+    const runtime = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/requirements.json'), 'utf8'));
+    const packaged = JSON.parse(readFileSync(join(dir, 'derived/review/v1/requirements.json'), 'utf8'));
+    expect(runtime.setup_painting.regions).toEqual(requirements.setup_painting.regions);
+    expect(packaged).toEqual(runtime);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test.each(['/METRICS/a~1b/~0name', '/', '/METRICS//pixel_count', '/report.json', ''])('#409 provenance pointer syntax preserves %j', pointer => {
+    const { dir, args, load, requirements } = setupProvenancePointers();
+    requirements.setup_painting.regions[0]!['x-source'].json_pointer = pointer;
+    put(dir, 'source/requirements.json', requirements);
+    const original = readFileSync(join(dir, 'source/requirements.json'));
+    expect(rigVersionCommand(args).exit).toBe(0);
+    expect(readFileSync(join(dir, 'evidence/v1/registration/requirements-source.json'))).toEqual(original);
+    const runtime = JSON.parse(readFileSync(join(dir, 'evidence/v1/registration/requirements.json'), 'utf8'));
+    expect(runtime.setup_painting.regions[0]['x-source'].json_pointer).toBe(pointer);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test.each([
+    ['declared asset', 'RIG_RUNTIME_PATH_UNRESOLVED', (requirements: JsonObject) => {
+      obj(requirements.setup_painting).figure_mask = { path: '/foreign/mask.png', sha256: '1'.repeat(64) };
+    }],
+    ['undeclared field', 'RIG_REGISTRATION_FILE_INVALID', (requirements: JsonObject) => {
+      obj(requirements.setup_painting).unlisted = '/foreign/asset.png';
+    }],
+    ['other provenance field', 'RIG_REGISTRATION_FILE_INVALID', (requirements: JsonObject) => {
+      obj((obj(requirements.setup_painting).regions as JsonObject[])[0]!['x-source']).unlisted = '/foreign/asset.png';
+    }],
+    ['json_pointer outside x-source', 'RIG_REGISTRATION_FILE_INVALID', (requirements: JsonObject) => {
+      (obj(requirements.setup_painting).regions as JsonObject[])[0]!.json_pointer = '/METRICS/regions/0/pixel_count';
+    }],
+    ['json_pointer under another extension', 'RIG_REGISTRATION_FILE_INVALID', (requirements: JsonObject) => {
+      (obj(requirements.setup_painting).regions as JsonObject[])[0]!['x-other'] = { json_pointer: '/METRICS/regions/0/pixel_count' };
+    }],
+  ] as const)('#409 refuses an absolute value in %s and rolls back', (name, code, mutate) => {
+    const { dir, args, requirements } = setupProvenancePointers();
+    mutate(requirements);
+    put(dir, 'source/requirements.json', requirements);
+    const original = readFileSync(join(dir, 'source/requirements.json'));
+    const failure = refused(args, code);
+    if (name !== 'declared asset') {
+      expect(failure.message).toContain('evidence/v1/registration/requirements.json#/');
+      expect(failure.message).toContain('restore the retained registration inputs');
+    }
+    expect(readFileSync(join(dir, 'source/requirements.json'))).toEqual(original);
+    for (const path of ['outputs/v1', 'evidence/v1/registration', 'derived/review/v1']) expect(existsSync(join(dir, path))).toBe(false);
+  });
+
+  test.each(['/METRICS/bad~2escape', '/METRICS/trailing~', 'C:\\foreign\\report.json'])('#409 refuses invalid provenance pointer %j', pointer => {
+    const { dir, args, requirements } = setupProvenancePointers();
+    requirements.setup_painting.regions[0]!['x-source'].json_pointer = pointer;
+    put(dir, 'source/requirements.json', requirements);
+    const failure = refused(args, 'RIG_REGISTRATION_FILE_INVALID');
+    expect(failure.message).toContain('requirements.json#/setup_painting/regions/0/x-source/json_pointer');
+    expect(failure.message).toContain('RFC 6901');
+    for (const path of ['outputs/v1', 'evidence/v1/registration', 'derived/review/v1']) expect(existsSync(join(dir, path))).toBe(false);
+  });
+
   test.each([false, true])('writer commit owns live publication, with stopped host=%s', async stopped => {
     const { dir, args, load } = setup();
     const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());

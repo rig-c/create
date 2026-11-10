@@ -40,6 +40,18 @@ afterEach(async () => {
 const WORDS = '  Synthetic page words.\n';
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
 
+function registeredRig(): string {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-rig-selector-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  const project = read(root);
+  project.stage = 'rigging';
+  const meshes = ((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'meshes')!;
+  (meshes.checkpoint as JsonObject).value = true;
+  writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  return root;
+}
+
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
   const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -62,8 +74,8 @@ async function partsReview(prepareMap = true): Promise<string> {
 }
 
 /** Start `job open` in the background and read its URL line and the summary it prints after publishing. */
-async function open(root: string): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'],
+async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options],
     { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   opened.push({ proc, root });
   const reader = proc.stdout.getReader();
@@ -76,11 +88,15 @@ async function open(root: string): Promise<{ url: URL; lines: string[] }> {
   }
   reader.releaseLock();
   const lines = text.trim().split('\n');
+  if (!lines[0]?.startsWith('http://')) {
+    const stderr = await new Response(proc.stderr).text();
+    expect({ exit: await proc.exited, stderr }).toEqual({ exit: 0, stderr: '' });
+  }
   return { url: new URL(lines[0]!), lines: lines.slice(1) };
 }
 
-/** The owner page: read the job's events over HTTP, acknowledge the display and commit acts. */
-async function page(root: string, url: URL, expectedAsks = 2) {
+/** Read the publication and its declared asks without acknowledging a display or submitting an act. */
+async function publication(root: string, url: URL, expectedAsks = 2) {
   const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
   const receipts = join(jobPrivateRoot(root), 'acknowledged-publications');
   const expectedPublication = readdirSync(receipts)
@@ -120,6 +136,12 @@ async function page(root: string, url: URL, expectedAsks = 2) {
   abort.abort();
   const { head, asks } = pending();
   expect(head?.publicationId).toBe(expectedPublication.publicationId);
+  return { head: head!, asks, events, base, headers };
+}
+
+/** The owner page: read the job's events over HTTP, acknowledge the display and commit acts. */
+async function page(root: string, url: URL, expectedAsks = 2) {
+  const { head, asks, events, base, headers } = await publication(root, url, expectedAsks);
   const post = async (route: string, body: object) => (await fetch(base + route, { method: 'POST', headers, body: JSON.stringify(body) })).json() as Promise<JsonObject>;
   const pageId = randomUUID();
   const displayed = await post('ui/displayed', { publicationId: head!.publicationId, pageId, sourceHash: (head!.source as JsonObject).sourceHash });
@@ -137,6 +159,122 @@ async function page(root: string, url: URL, expectedAsks = 2) {
     },
   };
 }
+
+test('#412 public job open selects a registered rig on a new empty head and retries idempotently', async () => {
+  const root = registeredRig();
+  const old = await open(root);
+  expect(old.lines).toEqual(['job: stage rigging shows no draft; name one with --draft <id>']);
+  expect((await cli(root, ['job', 'close', root])).exit).toBe(0);
+  await opened.at(-1)!.proc.exited;
+  expect(readWriterBinding(root)).toBeNull();
+  const before = read(root);
+
+  const selected = await open(root, ['--rig', '1']);
+  expect(selected.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review, checkpoint meshes']);
+  const first = await publication(root, selected.url);
+  expect((first.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
+  expect(first.asks.map(ask => ask.subject)).toEqual([
+    { kind: 'review-verdict', stage: 'rig-review' },
+    { kind: 'checkpoint', checkpointId: 'meshes' },
+  ]);
+  const saved = readFileSync(join(root, 'project.json'));
+  const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v1']);
+  expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(again.stdout.trim().split('\n')).toEqual([
+    selected.url.href, 'job: rig v1 already published', 'job: already asked review-verdict rig-review, checkpoint meshes',
+  ]);
+  const repeated = await publication(root, selected.url);
+  expect(repeated.head.publicationId).toBe(first.head.publicationId);
+  expect(repeated.asks.map(ask => ask.askId)).toEqual(first.asks.map(ask => ask.askId));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
+  expect(read(root).stage).toBe(before.stage);
+  expect(read(root).versions).toEqual(before.versions);
+  expect(read(root).signoffs).toEqual(before.signoffs);
+  expect(read(root).plan).toEqual(before.plan);
+  expect(pendingPublications(root)).toEqual([]);
+}, 20_000);
+
+test.each(['0', 'absent', '1.5', '9007199254740992', '2'])('#412 refuses invalid or absent rig %s before creating a host or binding', async rig => {
+  const root = registeredRig();
+  const before = readFileSync(join(root, 'project.json'));
+  const result = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', rig]);
+  expect(result.exit).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toStartWith('JOB_PUBLICATION_INVALID: ');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(read(root).review_job).toBeUndefined();
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+  expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
+});
+
+test.each([
+  { options: ['--rig', '1', '--draft', 'chain'] },
+  { options: ['--rig', '1', '--rig', '1'] },
+  { options: ['--rig'] },
+])('#412 refuses ambiguous or missing rig options %j before creating a host', async ({ options }) => {
+  const root = registeredRig();
+  const before = readFileSync(join(root, 'project.json'));
+  const result = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options]);
+  expect(result.exit).toBe(2);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toStartWith('rig-create: JOB_BINDING_INVALID: ');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+});
+
+test.each(['post', 'duplicate', 'missing-package', 'missing-model'])('#412 refuses an unusable selected rig (%s) before creating a host', async problem => {
+  const root = registeredRig();
+  const project = read(root);
+  const versions = project.versions as JsonObject[];
+  if (problem === 'post') versions[0]!.kind = 'post';
+  if (problem === 'duplicate') versions.push(structuredClone(versions[0]!));
+  if (problem === 'missing-package') delete versions[0]!.review_package;
+  if (problem === 'missing-model') rmSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'));
+  writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  const before = readFileSync(join(root, 'project.json'));
+  const result = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1']);
+  expect(result.exit).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toStartWith('JOB_PUBLICATION_INVALID: ');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+  expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
+});
+
+test.each([
+  { change: 'missing', preInterview: false },
+  { change: 'changed', preInterview: false },
+  { change: 'changed', preInterview: true },
+])('#412 P1 rejects a non-model package file %j before host startup', async ({ change, preInterview }) => {
+  const root = registeredRig();
+  const atlas = join(root, 'derived/review/v1/out/check/build/skeleton.atlas');
+  if (change === 'missing') rmSync(atlas);
+  else writeFileSync(atlas, `${readFileSync(atlas, 'utf8')}\nchanged synthetic atlas\n`);
+  if (preInterview) {
+    const project = read(root);
+    (project.versions as JsonObject[])[0]!.pre_interview = true;
+    writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  }
+  const before = readFileSync(join(root, 'project.json'));
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root,
+    '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  opened.push({ proc, root });
+  const reader = proc.stdout.getReader();
+  const first = await reader.read();
+  reader.releaseLock();
+  expect(first.done).toBe(true);
+  expect(await proc.exited).toBe(1);
+  expect(await new Response(proc.stderr).text()).toStartWith('REVIEW_PACKAGE_CHANGED: ');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(read(root).review_job).toBeUndefined();
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+  expect(existsSync(jobPrivateRoot(root))).toBe(false);
+  expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
+});
 
 sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and the page acts are ingested by the CLI', async () => {
   const root = await partsReview(false);

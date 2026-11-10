@@ -12,9 +12,9 @@ import { cli, tempDir } from './helpers.ts';
 
 const dirs: string[] = [];
 afterEach(() => { testClock.reset(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-function project(): string {
-  const dir = tempDir(); dirs.push(dir);
-  mkdirSync(join(dir, 'inputs'));
+function project(root = tempDir(), name = 'project'): string {
+  dirs.push(root); const dir = join(root, name);
+  mkdirSync(join(dir, 'inputs'), { recursive: true });
   writeFileSync(join(dir, 'project.json'), JSON.stringify(readTemplate('project.json')) + '\n');
   writeFileSync(join(dir, 'inputs/source.bin'), Buffer.from([0, 255, 239, 187, 191, 13, 10, 32]));
   return dir;
@@ -128,7 +128,7 @@ test('invalid input array and a held writer lock preserve project bytes', () => 
   expect(readFileSync(join(dir, '.input.lock'), 'utf8')).toBe('another writer');
 });
 
-for (const args of [[], ['list'], ['add'], ['add', 'source.bin'], ['add', 'source.bin', '--origin'], ['add', 'source.bin', '--origin', ' '], ['add', 'a', 'b', 'c', '--origin', 'words'], ['add', 'a', '--origin', 'one', '--origin', 'two'], ['add', 'a', '--unknown']]) {
+for (const args of [[], ['list'], ['add'], ['add', 'source.bin'], ['add', 'source.bin', '--origin'], ['add', 'source.bin', '--origin', ' '], ['add', 'source.bin', '--origin', 'words', '--projects-root'], ['add', 'source.bin', '--origin', 'words', '--same-artwork-reason'], ['add', 'a', 'b', 'c', '--origin', 'words'], ['add', 'a', '--origin', 'one', '--origin', 'two'], ['add', 'a', '--unknown']]) {
   test(`usage refusal is byte-identical for ${JSON.stringify(args)}`, () => { const dir = project(); refused(dir, args, 'INPUT_USAGE', 2); });
 }
 
@@ -169,4 +169,29 @@ test('atomic publication retains the original project permissions', () => {
   const dir = project(); chmodSync(join(dir, 'project.json'), 0o600);
   register(dir);
   expect(statSync(join(dir, 'project.json')).mode & 0o777).toBe(0o600);
+});
+
+test('input add refuses a second project under one root for the same artwork byte-identically unless a reason file is given', () => {
+  const root = tempDir();
+  const first = project(root, 'first');
+  const second = project(root, 'second');
+  const entry = register(first);
+  refused(second, ['add', 'inputs/source.bin', second, '--origin', 'duplicate painting'], 'INIT_ARTWORK_EXISTS');
+  expect(load(second).same_artwork).toBeUndefined();
+  const reason = join(root, 'reason.txt');
+  writeFileSync(reason, 'A second rig kind for the same synthetic painting.\n');
+  const empty = join(root, 'empty.txt');
+  writeFileSync(empty, '  \n');
+  refused(second, ['add', 'inputs/source.bin', second, '--origin', 'duplicate painting', '--same-artwork-reason', empty], 'INIT_ARTWORK_USAGE', 2);
+  const otherRoot = tempDir(); dirs.push(otherRoot);
+  refused(second, ['add', 'inputs/source.bin', second, '--origin', 'duplicate painting', '--projects-root', otherRoot, '--same-artwork-reason', reason], 'INIT_ARTWORK_USAGE', 2);
+  testClock.set(new Date(INPUT_WRITER_SINCE));
+  const accepted = JSON.parse(inputCommand(['add', 'inputs/source.bin', second, '--origin', 'duplicate painting', '--same-artwork-reason', reason, '--json']).stdout) as JsonObject;
+  expect(accepted).toEqual({ ...entry, origin: 'duplicate painting' });
+  expect(load(second).inputs).toEqual([accepted]);
+  expect(load(second).same_artwork).toEqual({
+    reason: 'A second rig kind for the same synthetic painting.',
+    at: testClock.iso(),
+    projects: ['first'],
+  });
 });

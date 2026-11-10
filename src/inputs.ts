@@ -4,6 +4,7 @@ import { closeSync, fchmodSync, openSync, renameSync, unlinkSync, writeFileSync 
 import { readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
+import { sameArtworkFor } from './init.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -69,7 +70,7 @@ export function checkInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   });
 }
 
-export const INPUT_HELP = `input add <path> [<project dir>] --origin <words> [--json]
+export const INPUT_HELP = `input add <path> [<project dir>] --origin <words> [--projects-root <dir>] [--same-artwork-reason <file>] [--json]
   Register raw source bytes as {path, sha256, bytes, origin, at}.
   Paths are project-relative. Changed inputs require a new file name.`;
 
@@ -77,6 +78,8 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
   if (args[0] !== 'add') refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
   const positional: string[] = [];
   let origin: string | undefined;
+  let projectsRoot: string | undefined;
+  let sameArtworkReason: string | undefined;
   let json = false;
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;
@@ -84,6 +87,12 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
     else if (arg === '--origin' && origin === undefined) {
       origin = args[++index];
       if (!origin || origin.startsWith('--') || !origin.trim()) refuse('INPUT_USAGE', 'inputs[].origin: supply --origin with non-empty source words', USAGE_EXIT);
+    } else if (arg === '--projects-root' && projectsRoot === undefined) {
+      projectsRoot = args[++index];
+      if (!projectsRoot || projectsRoot.startsWith('--') || !projectsRoot.trim()) refuse('INPUT_USAGE', 'inputs: supply --projects-root with a directory path', USAGE_EXIT);
+    } else if (arg === '--same-artwork-reason' && sameArtworkReason === undefined) {
+      sameArtworkReason = args[++index];
+      if (!sameArtworkReason || sameArtworkReason.startsWith('--') || !sameArtworkReason.trim()) refuse('INPUT_USAGE', 'inputs: supply --same-artwork-reason with a file path', USAGE_EXIT);
     } else if (arg.startsWith('-')) refuse('INPUT_USAGE', `inputs: unexpected or repeated option '${arg}'; ${INPUT_HELP}`, USAGE_EXIT);
     else positional.push(arg);
   }
@@ -114,6 +123,12 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
       checkInputs(ctx);
       refuse(ctx.refusals[0]!.code, ctx.refusals[0]!.message);
     }
+    const same = sameArtworkFor(dir, name, String(entry.sha256), now, {
+      projectsRoot,
+      sameArtworkReason,
+      index: asArray(project.inputs).length,
+    });
+    if (same !== null) project.same_artwork = same;
     project.inputs = [...asArray(project.inputs), entry];
     checkInputs(ctx);
     const finding = ctx.refusals[0];

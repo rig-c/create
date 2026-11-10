@@ -1212,18 +1212,23 @@ Top-level fields of `project.json`:
 ### Registering immutable inputs
 
 ```sh
-rig-create input add inputs/source.png --origin "synthetic source exported by the painting tool"
+rig-create input add inputs/source.png [<project dir>] --origin "synthetic source exported by the painting tool" [--projects-root <dir>] [--same-artwork-reason <file>] [--json]
 ```
 
 Run from the project, or pass its directory after the source path. The writer
 appends `{path, sha256, bytes, origin, at}` using the file's raw bytes and the
 current UTC timestamp. `--json` prints that record. It refuses an escaping or
 missing source, an already registered path, and changed bytes under a
-registered name. A changed source needs a new file with a new name. A refused
-write leaves `project.json` byte-identical. The shared checker checks complete
-records against their retained files. Incomplete writer metadata is
-`INPUT_WRITER_MISSING`, dated by `inputs[].at` from `INPUT_WRITER_SINCE`.
-Earlier or unreadably dated entries WARN and retain their original history.
+registered name. Like `init --painting`, it also refuses with
+`INIT_ARTWORK_EXISTS` when a `project.json` directly under `--projects-root`
+(default: the project's parent folder) has an input with the same sha256,
+unless `--same-artwork-reason <file>` is given (which records
+`same_artwork: { reason, at, projects }`). A changed source needs a new file
+with a new name. A refused write leaves `project.json` byte-identical. The
+shared checker checks complete records against their retained files. Incomplete
+writer metadata is `INPUT_WRITER_MISSING`, dated by `inputs[].at` from
+`INPUT_WRITER_SINCE`. Earlier or unreadably dated entries WARN and retain their
+original history.
 
 ## Prepared inputs and agent-found bounces
 

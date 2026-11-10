@@ -411,9 +411,34 @@ export function publishedDraft(project: JsonObject, id: string): JsonObject {
   return found[0];
 }
 
+function publishedSourcePainting(root: string, project: JsonObject, id: string): { path: string; sha256: string } {
+  const inputs = Array.isArray(project.inputs) ? project.inputs : [];
+  const first = inputs[0];
+  if (
+    !isObject(first) ||
+    typeof first.path !== 'string' ||
+    !first.path.trim() ||
+    first.path === 'project.json' ||
+    first.path === '.input.lock' ||
+    typeof first.sha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(first.sha256) ||
+    (first.bytes !== undefined && (typeof first.bytes !== 'number' || !Number.isSafeInteger(first.bytes) || first.bytes < 0))
+  ) {
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: inputs[0] must register the original painting {path, sha256}; register the source painting with rig-create input add before publishing`);
+  }
+  const path = first.path;
+  const sha256 = first.sha256;
+  const bytes = publicationFile(root, path);
+  if (jobHash(bytes) !== sha256 || (typeof first.bytes === 'number' && bytes.length !== first.bytes)) {
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: inputs[0] (${path}) differs from its registered sha256; restore the original painting bytes before publishing`);
+  }
+  return { path, sha256 };
+}
+
 /** Retain the official positional inventory, including duplicate paths/roles. */
 export function draftPublishedContext(root: string, project: JsonObject, id: string): JobPublishedContext {
   const draft = publishedDraft(project, id);
+  const painting = publishedSourcePainting(root, project, id);
   const parts = draft.parts as JsonObject;
   const identities = [draft.config, ...(draft.config_inputs as JsonObject[] ?? []), ...(parts.files as JsonObject[]), ...(draft.files as JsonObject[])];
   const files = identities.map(raw => {
@@ -422,6 +447,7 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
     if (jobHash(publicationFile(root, path)) !== sha256) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: ${path} differs from its retained hash; restore the draft or record a new id`);
     return { path, sha256 };
   });
+  if (!files.some(file => file.path === painting.path)) files.push(painting);
   const manifestPath = `${String(parts.path)}/parts.json`;
   const manifest = publicationFile(root, manifestPath);
   const directory = dirname(join(root, manifestPath));
@@ -437,6 +463,7 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
 export function prepareDraftManifest(root: string, project: JsonObject, id: string): string {
   const context = draftPublishedContext(root, project, id);
   const draft = publishedDraft(project, id);
+  const painting = publishedSourcePainting(root, project, id);
   const files = draft.files as JsonObject[];
   const models = files.filter(file => String(file.path).endsWith('/skeleton.model.json'));
   if (models.length > 1) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: multiple compiled models are ambiguous; retain one draft output`);
@@ -447,14 +474,22 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
       path: relative(root, resolve(root, dirname(context.parts!.manifest.path), image.path)).split('\\').join('/') })),
     animations: [], checkpoints: [], authoring: files.filter(file => /\/(rig|motion|mesh_report)\.json$/.test(String(file.path)))
       .map(file => ({ label: String(file.path).split('/').at(-1), path: file.path })) };
-  const manifest = { ...legacyManifest,
-    panels: { schema: 'rig-review/panels@1', left: ['parts.list'], stage: ['parts.canvas'], toolbar: ['parts.layers'], side: ['parts.issues', 'act.submit'] } };
+  const producer = { config: String((draft.config as JsonObject).path), parts: String((draft.parts as JsonObject).path), source: painting.path };
+  const panels = { schema: 'rig-review/panels@1', left: ['parts.list'], stage: ['parts.canvas'], toolbar: ['parts.layers'], side: ['parts.issues', 'act.submit'] };
+  const manifest = { ...legacyManifest, producer, panels };
   const path = `review-draft-${id}.json`;
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
-  const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
   if (existsSync(join(root, path))) {
     const existing = publicationFile(root, path);
-    if (!existing.equals(bytes) && !existing.equals(legacyBytes)) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
+    const accepted = [
+      bytes,
+      Buffer.from(`${JSON.stringify({ ...legacyManifest, panels }, null, 2)}\n`),
+      Buffer.from(`${JSON.stringify({ ...legacyManifest, producer }, null, 2)}\n`),
+      Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`),
+    ];
+    if (!accepted.some(candidate => existing.equals(candidate))) {
+      refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
+    }
   } else writeFileSync(join(root, path), bytes, { flag: 'wx' });
   return path;
 }

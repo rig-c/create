@@ -9,7 +9,7 @@ import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/
 import { loadPartsView, saveVerdict, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
 import type { JobOwnerHost } from '@rig-c/review/job-host';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
-import { partsEnumerator } from '../src/job-publication.ts';
+import { draftPublishedContext, partsEnumerator, prepareDraftManifest } from '../src/job-publication.ts';
 import { jobHash, jobHostStateRoot, pendingPublications } from '../src/job-outbox.ts';
 import { checkProject, collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
@@ -22,7 +22,6 @@ import { diffClassesCommand } from '../src/diff-classes.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
-import { prepareDraftManifest } from '../src/job-publication.ts';
 import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -424,12 +423,21 @@ test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant 
   const project = read(root);
   const manifestFile = prepareDraftManifest(root, project, 'chain');
   const publishedManifest = JSON.parse(readFileSync(join(root, manifestFile), 'utf8')) as JsonObject;
+  expect(publishedManifest.producer).toEqual({
+    config: 'derived/drafts/chain/config.json',
+    parts: 'derived/drafts/chain/input',
+    source: 'inputs/painting.png',
+  });
   expect(publishedManifest.panels).toEqual({
     schema: 'rig-review/panels@1',
     left: ['parts.list'],
     stage: ['parts.canvas'],
     toolbar: ['parts.layers'],
     side: ['parts.issues', 'act.submit'],
+  });
+  expect(draftPublishedContext(root, project, 'chain').files).toContainEqual({
+    path: 'inputs/painting.png',
+    sha256: String(((project.inputs as JsonObject[])[0]!).sha256),
   });
   expect(prepareDraftManifest(root, project, 'chain')).toBe(manifestFile);
 
@@ -639,4 +647,57 @@ test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant 
   write(root, project);
   const recorded = recordedPartsVerdict(root, project, 'chain');
   expect(recorded.evidence.spec).toBe('rig-review/act@5');
+});
+
+test('draft publication binds inputs[0] in producer.source, seals it in files, and refuses missing or drifted painting bytes before manifest write', () => {
+  const root = fixture(true);
+  const manifestPath = join(root, 'review-draft-chain.json');
+  rmSync(manifestPath, { force: true });
+
+  // 1. Missing inputs[0] registration is refused before writing review-draft-chain.json
+  const missingInputs = read(root);
+  missingInputs.inputs = [];
+  expect(() => draftPublishedContext(root, missingInputs, 'chain')).toThrow(
+    expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }),
+  );
+  expect(() => prepareDraftManifest(root, missingInputs, 'chain')).toThrow(
+    expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }),
+  );
+  expect(existsSync(manifestPath)).toBe(false);
+
+  // 2. Drifted painting bytes on disk are refused when rehashing inputs[0] at publish time
+  const originalPainting = readFileSync(join(root, 'inputs/painting.png'));
+  writeFileSync(join(root, 'inputs/painting.png'), Buffer.concat([originalPainting, Buffer.from([0x00])]));
+  expect(() => draftPublishedContext(root, read(root), 'chain')).toThrow(
+    expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }),
+  );
+  expect(() => prepareDraftManifest(root, read(root), 'chain')).toThrow(
+    expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }),
+  );
+  expect(existsSync(manifestPath)).toBe(false);
+
+  // 3. Missing painting file on disk is refused before writing review-draft-chain.json
+  rmSync(join(root, 'inputs/painting.png'));
+  expect(() => prepareDraftManifest(root, read(root), 'chain')).toThrow(
+    expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }),
+  );
+  expect(existsSync(manifestPath)).toBe(false);
+
+  // 4. Restoring exact registered painting bytes succeeds, writes producer.source, and seals inputs/painting.png
+  writeFileSync(join(root, 'inputs/painting.png'), originalPainting);
+  const project = read(root);
+  const context = draftPublishedContext(root, project, 'chain');
+  const expectedPainting = (project.inputs as JsonObject[])[0]!;
+  expect(context.files).toContainEqual({
+    path: String(expectedPainting.path),
+    sha256: String(expectedPainting.sha256),
+  });
+  const writtenManifest = prepareDraftManifest(root, project, 'chain');
+  expect(writtenManifest).toBe('review-draft-chain.json');
+  const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as JsonObject;
+  expect(parsed.producer).toEqual({
+    config: 'derived/drafts/chain/config.json',
+    parts: 'derived/drafts/chain/input',
+    source: 'inputs/painting.png',
+  });
 });

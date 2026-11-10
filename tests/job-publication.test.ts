@@ -6,7 +6,7 @@ import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobO
 import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
 import { prepareVersionIntent } from '../src/job-writer.ts';
-import { partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
+import { draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
 import { refuse } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -731,4 +731,154 @@ test('reuse-only attach never writes the binding and leaves its sha256 identical
   }))).toBe(1);
   const afterReconcileSha256 = jobHash(readFileSync(bindingPath));
   expect(afterReconcileSha256).toBe(beforeSha256);
+});
+
+const SOURCE_CI_REQUIRED = process.execArgv.includes('--conditions=@rig-c/source')
+  || process.execArgv.some((arg, index, argv) => arg === '--conditions' && argv[index + 1] === '@rig-c/source')
+  || process.env.RIG_CREATE_SOURCE_CI === '1';
+
+function reviewSupportsProducerSourceOnly(): boolean {
+  try {
+    const resolved = Bun.resolveSync('@rig-c/review/job-host', import.meta.dir);
+    const handoffPath = join(dirname(resolved), 'handoff.ts');
+    if (existsSync(handoffPath)) {
+      return readFileSync(handoffPath, 'utf8').includes('full requires source, and head requires full');
+    }
+    return readFileSync(resolved, 'utf8').includes('full requires source, and head requires full');
+  } catch {
+    return false;
+  }
+}
+
+const SUPPORTS_PRODUCER_SOURCE_ONLY = reviewSupportsProducerSourceOnly();
+const sourceConsumerTest = (!SOURCE_CI_REQUIRED && !SUPPORTS_PRODUCER_SOURCE_ONLY) ? test.skip : test;
+
+test('#382 draft publication binds inputs[0] in producer.source, seals it in files, and refuses missing or drifted painting bytes before manifest write', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-pub-test-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  const manifestPath = join(root, 'review-draft-chain.json');
+  rmSync(manifestPath, { force: true });
+  const readRecord = (): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+
+  const missingInputs = readRecord();
+  missingInputs.inputs = [];
+  expect(() => draftPublishedContext(root, missingInputs, 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(() => prepareDraftManifest(root, missingInputs, 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(existsSync(manifestPath)).toBe(false);
+
+  const originalPainting = readFileSync(join(root, 'inputs/painting.png'));
+  writeFileSync(join(root, 'inputs/painting.png'), Buffer.concat([originalPainting, Buffer.from([0x00])]));
+  expect(() => draftPublishedContext(root, readRecord(), 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(() => prepareDraftManifest(root, readRecord(), 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(existsSync(manifestPath)).toBe(false);
+
+  rmSync(join(root, 'inputs/painting.png'));
+  expect(() => prepareDraftManifest(root, readRecord(), 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(existsSync(manifestPath)).toBe(false);
+
+  writeFileSync(join(root, 'inputs/painting.png'), originalPainting);
+  const project = readRecord();
+  const context = draftPublishedContext(root, project, 'chain');
+  const expectedPainting = (project.inputs as JsonObject[])[0]!;
+  expect(context.files).toContainEqual({
+    path: String(expectedPainting.path),
+    sha256: String(expectedPainting.sha256),
+  });
+  const written = prepareDraftManifest(root, project, 'chain');
+  expect(written).toBe('review-draft-chain.json');
+  const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as JsonObject;
+  expect(parsed.producer).toEqual({
+    config: 'derived/drafts/chain/config.json',
+    parts: 'derived/drafts/chain/input',
+    source: 'inputs/painting.png',
+  });
+});
+
+sourceConsumerTest('#382 source-linked draft publication serves /review-painting and stage-parts painting metadata with and without painting_in_rig', async () => {
+  expect(SUPPORTS_PRODUCER_SOURCE_ONLY).toBe(true);
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-source-consumer-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  rmSync(join(root, 'review-draft-chain.json'), { force: true });
+
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const expectedPainting = (project.inputs as JsonObject[])[0]!;
+  const paintingBytes = readFileSync(join(root, String(expectedPainting.path)));
+  expect(jobHash(paintingBytes)).toBe(String(expectedPainting.sha256));
+
+  const binding = readWriterBinding(root)!;
+  const manifestRel = prepareDraftManifest(root, project, 'chain');
+  const entry = enqueuePublication(root, binding, { path: manifestRel, selector: { kind: 'draft', id: 'chain' } });
+  await reconcilePublication(root, entry, publishPending);
+
+  const publicationId = host.session.status().publication!.publicationId;
+  const entryBase = host.session.displayPublication(publicationId).routes.entry;
+  const stageRes = await fetch(`${host.origin}${entryBase}api/stage-parts`);
+  expect(stageRes.status).toBe(200);
+  const stageJson = await stageRes.json() as {
+    differenceAvailable?: boolean;
+    painting?: {
+      sha256: string;
+      width: number;
+      height: number;
+    } | null;
+  };
+  expect(stageJson.differenceAvailable).toBe(true);
+  expect(stageJson.painting).toEqual({
+    sha256: String(expectedPainting.sha256),
+    width: expect.any(Number),
+    height: expect.any(Number),
+  });
+
+  const paintingRes = await fetch(`${host.origin}${entryBase}review-painting`);
+  expect(paintingRes.status).toBe(200);
+  expect(paintingRes.headers.get('content-type')).toBe('image/png');
+  const servedBytes = Buffer.from(await paintingRes.arrayBuffer());
+  expect(jobHash(servedBytes)).toBe(String(expectedPainting.sha256));
+
+  // Historical draft without painting_in_rig in parts.json keeps Original (/review-painting) available while differenceAvailable is false.
+  const rootNoDiff = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-source-nodiff-')));
+  roots.push(rootNoDiff);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), rootNoDiff, { recursive: true });
+  rmSync(join(rootNoDiff, 'review-draft-chain.json'), { force: true });
+  const partsManifestRel = 'derived/drafts/chain/input/parts.json';
+  const partsManifestAbs = join(rootNoDiff, partsManifestRel);
+  const partsManifest = JSON.parse(readFileSync(partsManifestAbs, 'utf8')) as JsonObject;
+  delete partsManifest.painting_in_rig;
+  const newPartsManifestBytes = Buffer.from(`${JSON.stringify(partsManifest, null, 2)}\n`);
+  writeFileSync(partsManifestAbs, newPartsManifestBytes);
+  const projectNoDiff = JSON.parse(readFileSync(join(rootNoDiff, 'project.json'), 'utf8')) as JsonObject;
+  const draftNoDiff = (projectNoDiff.drafts as JsonObject[])[0]!;
+  const draftPartsFiles = ((draftNoDiff.parts as JsonObject).files as JsonObject[]).filter(f => f.path !== 'derived/drafts/chain/input/painting_in_rig.png');
+  for (const file of draftPartsFiles) {
+    if (file.path === partsManifestRel) file.sha256 = jobHash(newPartsManifestBytes);
+  }
+  (draftNoDiff.parts as JsonObject).files = draftPartsFiles;
+  writeFileSync(join(rootNoDiff, 'project.json'), `${JSON.stringify(projectNoDiff, null, 2)}\n`);
+
+  const hostNoDiff = await openCreateJob(rootNoDiff, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(hostNoDiff);
+  const projectNoDiffAfterOpen = JSON.parse(readFileSync(join(rootNoDiff, 'project.json'), 'utf8')) as JsonObject;
+  const bindingNoDiff = readWriterBinding(rootNoDiff)!;
+  const manifestNoDiff = prepareDraftManifest(rootNoDiff, projectNoDiffAfterOpen, 'chain');
+  const entryNoDiff = enqueuePublication(rootNoDiff, bindingNoDiff, { path: manifestNoDiff, selector: { kind: 'draft', id: 'chain' } });
+  await reconcilePublication(rootNoDiff, entryNoDiff, publishPending);
+
+  const pubNoDiffId = hostNoDiff.session.status().publication!.publicationId;
+  const entryBaseNoDiff = hostNoDiff.session.displayPublication(pubNoDiffId).routes.entry;
+  const stageNoDiffRes = await fetch(`${hostNoDiff.origin}${entryBaseNoDiff}api/stage-parts`);
+  expect(stageNoDiffRes.status).toBe(200);
+  const stageNoDiffJson = await stageNoDiffRes.json() as typeof stageJson;
+  expect(stageNoDiffJson.differenceAvailable).toBe(false);
+  expect(stageNoDiffJson.painting).toEqual({
+    sha256: String(expectedPainting.sha256),
+    width: expect.any(Number),
+    height: expect.any(Number),
+  });
+  const paintingNoDiffRes = await fetch(`${hostNoDiff.origin}${entryBaseNoDiff}review-painting`);
+  expect(paintingNoDiffRes.status).toBe(200);
+  expect(jobHash(Buffer.from(await paintingNoDiffRes.arrayBuffer()))).toBe(String(expectedPainting.sha256));
 });

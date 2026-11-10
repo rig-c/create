@@ -13,9 +13,10 @@ rig-create job close <project>
 The open command prints the private owner-window URL. Keep it private.
 `--rig <n>` selects an already registered rig and its retained review package,
 including on a new job with an empty publication head. It accepts `1` or `v1`.
-The version, retained package identity and compiled model are checked before
-starting the host or installing its binding. Invalid selections refuse with
-`JOB_PUBLICATION_INVALID`. Choose one of `--draft` and `--rig`; combining them
+The version, complete retained package inventory and compiled model are checked
+before starting the host or installing its binding, including pre-interview rigs.
+Invalid selections refuse with `JOB_PUBLICATION_INVALID`; missing or changed
+package files use the existing package-check refusal codes. Choose one of `--draft` and `--rig`; combining them
 refuses with `JOB_BINDING_INVALID`. Reopening the same rig over unchanged record
 bytes reuses its publication and asks each declared subject once.
 

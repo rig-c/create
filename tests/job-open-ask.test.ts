@@ -244,6 +244,38 @@ test.each(['post', 'duplicate', 'missing-package', 'missing-model'])('#412 refus
   expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
 });
 
+test.each([
+  { change: 'missing', preInterview: false },
+  { change: 'changed', preInterview: false },
+  { change: 'changed', preInterview: true },
+])('#412 P1 rejects a non-model package file %j before host startup', async ({ change, preInterview }) => {
+  const root = registeredRig();
+  const atlas = join(root, 'derived/review/v1/out/check/build/skeleton.atlas');
+  if (change === 'missing') rmSync(atlas);
+  else writeFileSync(atlas, `${readFileSync(atlas, 'utf8')}\nchanged synthetic atlas\n`);
+  if (preInterview) {
+    const project = read(root);
+    (project.versions as JsonObject[])[0]!.pre_interview = true;
+    writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+  }
+  const before = readFileSync(join(root, 'project.json'));
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root,
+    '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  opened.push({ proc, root });
+  const reader = proc.stdout.getReader();
+  const first = await reader.read();
+  reader.releaseLock();
+  expect(first.done).toBe(true);
+  expect(await proc.exited).toBe(1);
+  expect(await new Response(proc.stderr).text()).toStartWith('REVIEW_PACKAGE_CHANGED: ');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(read(root).review_job).toBeUndefined();
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+  expect(existsSync(jobPrivateRoot(root))).toBe(false);
+  expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
+});
+
 sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and the page acts are ingested by the CLI', async () => {
   const root = await partsReview(false);
   const opening = await open(root);

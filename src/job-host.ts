@@ -9,6 +9,7 @@ import { Refusal, refuse } from './refusal.ts';
 import { draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
+import { checkReviewPackages } from './review-package.ts';
 import type { JsonObject } from './templates.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
@@ -346,6 +347,15 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
     refuse('JOB_PUBLICATION_INVALID', `versions[v${n}].review_package: retained package identity is missing; restore the recorded package before job open`);
   }
   publicationFile(root, `derived/review/v${n}/out/check/build/skeleton.model.json`);
+  const context = {
+    dir: realpathSync(root),
+    // Explicit publication requires package integrity even for a pre-interview rig.
+    project: { ...project, versions: [{ ...matches[0], pre_interview: false }] },
+    refusals: [] as Finding[], warnings: [] as Finding[],
+  };
+  checkReviewPackages(context);
+  const failure = context.refusals[0];
+  if (failure) refuse(failure.code, `${failure.message}; restore the frozen review package before job open`);
   return selector;
 }
 

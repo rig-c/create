@@ -5,15 +5,22 @@ running while writers commit results. The reviewer identity is the trusted
 bootstrap identity used by Review.
 
 ```sh
-rig-create job open <project> --reviewer <id> --role owner [--draft <id>]
+rig-create job open <project> --reviewer <id> --role owner [--draft <id> | --rig <n>]
 rig-create job reconcile <project>
 rig-create job close <project>
 ```
 
 The open command prints the private owner-window URL. Keep it private.
-It then shows the record's current draft on that page: in `parts` and
-`parts-review` it publishes the latest recorded draft (or the one `--draft`
-names, in any stage) and asks every subject that publication declares (see
+`--rig <n>` selects an already registered rig and its retained review package,
+including on a new job with an empty publication head. It accepts `1` or `v1`.
+The version, retained package identity and compiled model are checked before
+starting the host or installing its binding. Invalid selections refuse with
+`JOB_PUBLICATION_INVALID`. Choose one of `--draft` and `--rig`; combining them
+refuses with `JOB_BINDING_INVALID`. Reopening the same rig over unchanged record
+bytes reuses its publication and asks each declared subject once.
+
+The default in `parts` and `parts-review` publishes the latest recorded draft.
+`--draft` names a recorded draft in any stage. Opening asks every subject that publication declares (see
 [Asks](#asks)). It prints `job: draft <id> published`, or `already published`
 when the job's head publication is already that draft (or an acknowledged `rig`
 or `post` version) over the current record,

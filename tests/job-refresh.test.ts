@@ -188,6 +188,7 @@ sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> 
   const root = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
+  expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
 
   const opening = await open(root);
   expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, signoff parts-review']);
@@ -201,7 +202,6 @@ sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> 
 
   expectExit0(await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']));
   expectExit0(await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure.json']));
-  expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
 
   // The pre-ingest publication now has an old projectHash, so UI signoff on it is refused as JOB_RECORD_MOVED.
   const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });

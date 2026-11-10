@@ -14,7 +14,7 @@ import { directionCommand } from '../src/direction-writers.ts';
 import { inputCommand } from '../src/inputs.ts';
 import { askDeclaredSubjects, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
 import { enqueuePublication, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
-import { prepareLiveManifest } from '../src/job-publication.ts';
+import { assertDraftPublicationReady, prepareLiveManifest } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
@@ -54,6 +54,8 @@ async function partsReview(): Promise<string> {
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   const advanced = await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']);
   expect(advanced.exit).toBe(0);
+  const triaged = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
+  expect(triaged.exit).toBe(0);
   return root;
 }
 
@@ -138,7 +140,6 @@ sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and th
   expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(JSON.parse(ingested.stdout)).toMatchObject({ draft_id: 'chain', verdict: 'approved', by: 'user', verbatim: WORDS });
   expect((await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure.json'])).exit).toBe(0);
-  expect((await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'])).exit).toBe(0);
   const signoff = await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--draft', 'chain',
     '--structure-file', 'evidence/structure.json', '--json']);
   expect({ exit: signoff.exit, stderr: signoff.stderr }).toEqual({ exit: 0, stderr: '' });
@@ -256,5 +257,37 @@ sourceOnlyTest('an ask Review refuses is named JOB_ASK_REFUSED, and a declared s
     expect(outcomes[1]).toMatchObject({ code: 'JOB_ASK_INVALID' });
     expect(host.session.status().generation).toBe(generation);
     expect(() => refuseAskOutcomes(outcomes)).toThrow(expect.objectContaining({ code: 'JOB_ASK_REFUSED' }));
+  } finally { host.stop(); }
+});
+
+test('openDraftPublication refuses parts-review approval when agent diff_map is missing and leaves Review unpublished', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-diffmap-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  const advanced = await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']);
+  expect(advanced.exit).toBe(0);
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
+  const before = readFileSync(join(root, 'project.json'));
+  try {
+    await expect(openDraftPublication(root, host, Date.now())).rejects.toMatchObject({
+      code: 'DIFF_MAP_MISSING',
+    });
+    expect(host.session.status().publication).toBeNull();
+    expect(host.session.status().pending).toEqual([]);
+    expect(pendingPublications(root)).toEqual([]);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
+    expect(refused.exit).not.toBe(0);
+    expect(refused.stderr).toContain('DIFF_MAP_MISSING:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    expect(pendingPublications(root)).toEqual([]);
+    const triaged = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
+    expect(triaged.exit).toBe(0);
+    const context = assertDraftPublicationReady(root, read(root), 'chain');
+    expect(context.subjects).toEqual([
+      { kind: 'parts-verdict', draftId: 'chain' }, { kind: 'signoff', stage: 'parts-review' },
+    ]);
+    expect(pendingPublications(root)).toEqual([]);
   } finally { host.stop(); }
 });

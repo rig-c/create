@@ -6,7 +6,7 @@ import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobH
 import { checkProject } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from './job-publication.ts';
+import { assertDraftPublicationReady, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 
@@ -359,6 +359,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   let outcomes: AskOutcome[];
   let published: boolean;
   if (reuseHead && head && headSelector) {
+    if (headSelector.kind === 'draft') assertDraftPublicationReady(root, JSON.parse(bytes.toString('utf8')), headSelector.id);
     const result = acknowledged?.result ?? selectorResult(headSelector);
     const subjects = acknowledged?.subjects
       ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result })).subjects;
@@ -374,6 +375,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     try {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no writer-owned binding; run rig-create job close, then rig-create job open');
+      if (targetSelector.kind === 'draft') assertDraftPublicationReady(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), targetSelector.id);
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     } finally { release(); }

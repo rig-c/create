@@ -5,9 +5,12 @@ import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
 import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv, prepareDraftIntent, prepareVersionIntent, publishCommittedVersion } from '../src/job-writer.ts';
 import { draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
+import { diffClassesCommand } from '../src/diff-classes.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
+import { draftRigCommand } from '../src/drafts.ts';
 import { refuse } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { parsePassedTestNames, SOURCE_ONLY_TESTS, sourceOnlyTest, validateSourceOnlyList } from './source-only.ts';
@@ -877,4 +880,171 @@ sourceOnlyTest('#382 source-linked draft publication serves /review-painting and
   const paintingNoDiffRes = await fetch(`${hostNoDiff.origin}${entryBaseNoDiff}review-painting`);
   expect(paintingNoDiffRes.status).toBe(200);
   expect(jobHash(Buffer.from(await paintingNoDiffRes.arrayBuffer()))).toBe(String(expectedPainting.sha256));
+});
+
+test('#389 parts-review draft publication refuses DIFF_MAP_MISSING before publishing signoff approval and succeeds once agent diff_map is recorded', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-diffmap-gate-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+
+  const jobId = 'job-synthetic-diffmap-389';
+  const origin = 'http://127.0.0.1:43189';
+  const incarnation = '38938938-3893-4389-8389-389389389389';
+  const apiCalls: { verb: string; subject?: unknown }[] = [];
+  const makeHost = (reused: boolean, expected?: NonNullable<JobHostOptions['reuseOnly']>['expected']): JobOwnerHost => {
+    const base = mockedOwnerHost(jobId, origin, reused, expected ?? null);
+    base.ports.handleJobApi = async req => {
+      const body = JSON.parse(await req.text()) as { verb: string; subject?: unknown };
+      if (body.verb === 'publish' || body.verb === 'ask') {
+        apiCalls.push({ verb: body.verb, ...(body.subject !== undefined ? { subject: body.subject } : {}) });
+      }
+      if (body.verb === 'next') {
+        return Response.json({
+          schema: 'rig-review/job-api@2', verb: 'next', jobId, requestId: 'synthetic-next', generation: 1,
+          ok: true, value: { status: 'timeout', events: [], cursor: null },
+        });
+      }
+      if (body.verb === 'ask') {
+        return Response.json({
+          schema: 'rig-review/job-api@2', verb: 'ask', jobId, requestId: 'synthetic-ask', generation: 2,
+          ok: true, value: { askId: 'ask-1', generation: 2 },
+        });
+      }
+      return Response.json({
+        schema: 'rig-review/job-api@2', verb: 'publish', jobId, requestId: 'synthetic-pub', generation: 1,
+        ok: true, value: { publicationId: 'pub-synthetic-389', generation: 1 },
+      });
+    };
+    return base;
+  };
+
+  await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now, async opts => {
+    await opts.installWriterBinding?.({ jobId, origin, fetchCapability: 'c'.repeat(64) });
+    return makeHost(false, {
+      jobId,
+      origin,
+      listenerIncarnation: incarnation,
+      binding: {
+        root: opts.root,
+        stateDir: opts.stateDir,
+        fingerprint: opts.fingerprint,
+        reviewer: opts.reviewer,
+        readerId: opts.readerId ?? null,
+        bindingId: opts.bindingId ?? null,
+        partsEnumeratorId: opts.partsEnumeratorId ?? null,
+        partsEnumeratorVersion: opts.partsEnumerator?.version ?? null,
+        apiSchema: 'rig-review/job-api@2',
+        actSchema: 'rig-review/act@2',
+      },
+    });
+  });
+  const binding = readWriterBinding(root)!;
+
+  // In parts stage (before parts-review), draft publication does not declare signoff parts-review and does not require diff_map.
+  const partsProject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const partsManifest = prepareDraftManifest(root, partsProject, 'chain');
+  const partsPublished = await readPublished({
+    root,
+    record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) },
+    result: { path: partsManifest, selector: { kind: 'draft', id: 'chain' } },
+  });
+  expect(partsPublished.subjects).toEqual([
+    { kind: 'parts-verdict', draftId: 'chain' },
+    { kind: 'checkpoint', checkpointId: 'assemble' },
+  ]);
+
+  // Advance to parts-review without recording diff_map.
+  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], now);
+  const unsignedRecordBytes = readFileSync(join(root, 'project.json'));
+  const unsignedProject = JSON.parse(unsignedRecordBytes.toString('utf8')) as JsonObject;
+  const draftManifest = prepareDraftManifest(root, unsignedProject, 'chain');
+  const result = { path: draftManifest, selector: { kind: 'draft' as const, id: 'chain' } };
+
+  await expect(readPublished({
+    root,
+    record: { path: 'project.json', sha256: jobHash(unsignedRecordBytes) },
+    result,
+  })).rejects.toMatchObject({ code: 'DIFF_MAP_MISSING' });
+  expect(() => prepareDraftIntent(root, unsignedRecordBytes, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_MISSING' }));
+  expect(() => publishCommittedVersion(root, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_MISSING' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
+  expect(pendingPublications(root)).toEqual([]);
+  expect(apiCalls).toEqual([]);
+
+  cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/next'), { recursive: true });
+  const draftArgs = ['next', root, '--config', 'derived/drafts/next/config.json', '--from', 'derived/drafts/next/out', '--parts', 'derived/drafts/next/input'];
+  expect(() => draftRigCommand(draftArgs, now)).toThrow(expect.objectContaining({ code: 'DIFF_MAP_MISSING' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
+  expect(pendingPublications(root)).toEqual([]);
+  expect(existsSync(join(root, 'review-draft-next.json'))).toBe(false);
+
+  // An invalid diff_map is also refused with its exact DIFF_MAP_* code before publishing approval.
+  const brokenProject = JSON.parse(unsignedRecordBytes.toString('utf8')) as JsonObject;
+  brokenProject.diff_map = { by: 'user', at: '2026-11-08T00:00:00Z' };
+  const brokenBytes = Buffer.from(`${JSON.stringify(brokenProject, null, 2)}\n`);
+  writeFileSync(join(root, 'project.json'), brokenBytes);
+  await expect(readPublished({
+    root,
+    record: { path: 'project.json', sha256: jobHash(brokenBytes) },
+    result,
+  })).rejects.toMatchObject({ code: 'DIFF_MAP_NOT_AGENT' });
+  expect(() => prepareDraftIntent(root, brokenBytes, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_NOT_AGENT' }));
+  expect(() => publishCommittedVersion(root, 'chain')).toThrow(expect.objectContaining({ code: 'DIFF_MAP_NOT_AGENT' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(brokenBytes);
+  expect(pendingPublications(root)).toEqual([]);
+  writeFileSync(join(root, 'project.json'), unsignedRecordBytes);
+
+  // A refused public write leaves diff-classes free to prepare the approval.
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], now);
+  const readyBytes = readFileSync(join(root, 'project.json'));
+  const readyProject = JSON.parse(readyBytes.toString('utf8')) as JsonObject;
+  const readyManifest = prepareDraftManifest(root, readyProject, 'chain');
+  const readyContext = await readPublished({
+    root,
+    record: { path: 'project.json', sha256: jobHash(readyBytes) },
+    result: { path: readyManifest, selector: { kind: 'draft', id: 'chain' } },
+  });
+  expect(readyContext.subjects).toEqual([
+    { kind: 'parts-verdict', draftId: 'chain' },
+    { kind: 'signoff', stage: 'parts-review' },
+  ]);
+
+  expect(prepareDraftIntent(root, readyBytes, 'chain')).not.toBeNull();
+  expect(
+    await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async opts => makeHost(true, opts.reuseOnly!.expected))),
+  ).toBe(1);
+  expect(pendingPublications(root)).toEqual([]);
+  expect(apiCalls).toEqual([
+    { verb: 'publish' },
+    { verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
+    { verb: 'ask', subject: { kind: 'signoff', stage: 'parts-review' } },
+  ]);
+  const acknowledged = readAcknowledgedPublication(root, jobId, 'pub-synthetic-389')!;
+  expect(acknowledged.subjects).toEqual([
+    { kind: 'parts-verdict', draftId: 'chain' },
+    { kind: 'signoff', stage: 'parts-review' },
+  ]);
+
+  // An already committed preflight-era failure stays pending and still blocks unrelated writes.
+  writeFileSync(join(root, 'project.json'), unsignedRecordBytes);
+  enqueuePublication(root, binding, result);
+  apiCalls.length = 0;
+  await expect(
+    publishPending(pendingPublications(root)[0]!, undefined, undefined, async opts => makeHost(true, opts.reuseOnly!.expected)),
+  ).rejects.toMatchObject({ code: 'DIFF_MAP_MISSING' });
+  expect(apiCalls).toEqual([]);
+
+  await expect(
+    reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async opts => makeHost(true, opts.reuseOnly!.expected))),
+  ).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  const pendingFailure = pendingPublications(root)[0]!.failure!;
+  expect(pendingFailure.code).toBe('DIFF_MAP_MISSING');
+  expect(pendingFailure.message).toContain('signoffs[3] diff_map');
+  expect(apiCalls).toEqual([]);
+
+  expect(() => diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], now))
+    .toThrow(expect.objectContaining({ code: 'JOB_PUBLISH_PENDING' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
+  expect(pendingPublications(root)).toHaveLength(1);
 });

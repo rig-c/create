@@ -3,18 +3,21 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkProject } from '../src/check.ts';
+import { checkProject as rawCheckProject } from '../src/check.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { testClock } from './clock.ts';
+import { clockedCli } from './helpers.ts';
 import { sourceOnlyTest } from './source-only.ts';
 
-const CLI = join(import.meta.dir, '../src/cli.ts');
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
 const REFRESH_FLOW_TIMEOUT_MS = 15_000;
 const roots: string[] = [];
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
+const checkProject = (dir: string, candidate?: JsonObject, _options?: { now: number }) =>
+  rawCheckProject(dir, candidate, { now: testClock.now() });
 
 afterEach(async () => {
   for (const { proc, root } of opened.splice(0)) {
@@ -29,6 +32,7 @@ afterEach(async () => {
     rmSync(jobHostStateRoot(root), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
+  testClock.reset();
 });
 
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
@@ -50,13 +54,13 @@ function copy(checkpoint: string, edit?: (project: JsonObject) => void): string 
 }
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
 
 async function open(root: string): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -150,7 +154,10 @@ async function page(url: URL, expectedAsks = 2) {
       });
       expect(result.error).toBeUndefined();
       expectedGeneration++;
-      return result.value as JsonObject;
+      const actValue = result.value as JsonObject;
+      const actAt = Date.parse(String(actValue.at));
+      if (Number.isFinite(actAt) && actAt > testClock.now()) testClock.set(actAt);
+      return actValue;
     },
   };
 }

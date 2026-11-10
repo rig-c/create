@@ -1,5 +1,19 @@
 # Checking the interview
 
+## Sealed checkpoint presentation
+
+These additive checks apply when `plan.checkpoint_evidence` is present. Historical
+absence keeps its existing behavior. Review validates PNG format at publication.
+
+| Code | Finding and remedy |
+| --- | --- |
+| `CHECKPOINT_EVIDENCE_USAGE` | `plan.checkpoint_evidence` command options are incomplete or repeated. Use `checkpoint-evidence --file` or `checkpoint-table --file --rows --out`. |
+| `CHECKPOINT_EVIDENCE_INVALID` | `plan.checkpoint_evidence` has an invalid closed packet shape, duplicate identity, unknown step, alias, declaration size or aggregate table size. Retain the exact ordered producer declarations and attach them with `checkpoint-evidence`. |
+| `CHECKPOINT_EVIDENCE_PATH_REFUSED` | `plan.checkpoint_evidence` names an unsafe, missing, symlinked, nonregular or oversized asset, or the table output directory is unavailable. Restore a bounded regular project-relative file and its regular directory chain. |
+| `CHECKPOINT_EVIDENCE_HASH_MISMATCH` | `plan.checkpoint_evidence` raw asset bytes differ from their recorded SHA-256. Restore the sealed file or attach a new packet with its new seal. |
+| `CHECKPOINT_EVIDENCE_TABLE_INVALID` | `plan.checkpoint_evidence.table` is invalid UTF-8/JSON, exceeds the signed table grammar or bounds, or the selected producer rows cannot form a complete rectangular presentation. Preserve all rows and columns through `checkpoint-table`. |
+| `CHECKPOINT_EVIDENCE_WRITE_CONFLICT` | `plan.checkpoint_evidence` has a concurrent attachment write, changed project bytes or occupied table output. Wait for the writer, reload the record or select a new immutable table path. |
+
 ## Live publication delivery
 
 The local report adds `holes[]` when a private publication gap exists. Each

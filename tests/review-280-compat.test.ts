@@ -134,7 +134,7 @@ test('openCreateJob starts Review 2.8.0 in package-only mode and refuses V3 reco
   await closeCreateJob(root);
 });
 
-test('review-act reader loudly refuses 2.8.0 record-mode API@3, act@4 and reopen wire payloads prior to #278/#317', () => {
+test('review-act reader validates checkpoint act@4 and preserves unsupported record-kind and API@3 wire refusals', () => {
   const sha = 'a'.repeat(64);
   const recordActV4 = {
     schema: 'rig-review/act@4',
@@ -190,7 +190,8 @@ test('review-act reader loudly refuses 2.8.0 record-mode API@3, act@4 and reopen
   );
 
   for (const kind of ['interview-picks', 'checkpoint', 'signoff', 'parts-verdict', 'review-verdict'] as const) {
-    expectRefusalCode(() => decodeReviewAct(JSON.stringify({ ...recordActV4, kind }), kind), 'REVIEW_ACT_SCHEMA_UNSUPPORTED');
+    const code = kind === 'checkpoint' ? 'REVIEW_ACT_INVALID' : 'REVIEW_ACT_SCHEMA_UNSUPPORTED';
+    expectRefusalCode(() => decodeReviewAct(JSON.stringify({ ...recordActV4, kind }), kind), code);
   }
 
   expectRefusalCode(

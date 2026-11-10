@@ -1,6 +1,7 @@
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
 import { reviewActFindings } from './review-act.ts';
+import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
@@ -959,6 +960,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkPreparedInputs(ctx);
   checkAgentBounces(ctx);
   checkPlan(ctx);
+  checkCheckpointEvidence(dir, project, refusals);
   warnings.push(...appearanceBarWarnings(project));
   checkStages(ctx);
   checkStageProgress(ctx, options.forwardWrite);

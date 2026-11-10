@@ -1,5 +1,15 @@
 [
   {
+    "file": "tests/checkpoint-evidence-publication.test.ts",
+    "name": "#395 SVG-backed package metadata refuses before checkpoint evidence projection",
+    "reason": "requires signed Review #634 merged 78d446e evidence admission; preserves the SVG handoff PARTS_PAINTING_PNG metadata refusal for the separate Review follow-up"
+  },
+  {
+    "file": "tests/checkpoint-evidence-publication.test.ts",
+    "name": "#395 sealed checkpoint record and package publications retain every asset and finalize owner routes",
+    "reason": "requires signed Review #634 merged 78d446e checkpointEvidence source, retained routes and record act parser extension"
+  },
+  {
     "file": "tests/job-publication.test.ts",
     "name": "#382 source-linked draft publication serves /review-painting and stage-parts painting metadata with and without painting_in_rig",
     "reason": "requires @rig-c/review fcc66c03 (#625) draft producer.source handoff and /review-painting stage-parts painting routes"

@@ -6,6 +6,7 @@ import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
+import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap } from './diff-map.ts';
@@ -57,6 +58,7 @@ export type RecordOptionContext = RecordContextBase & {
   readonly subjects: readonly [{ readonly kind: 'interview-picks'; readonly questionId: string; readonly setId: string }];
 };
 export type RecordPlanContext = RecordContextBase & {
+  readonly checkpointEvidence?: readonly CheckpointEvidence[];
   readonly plan: NonNullable<JobPublishedContext['plan']>;
   readonly subjects: readonly RecordPlanSubject[];
 };
@@ -286,7 +288,8 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       return { label, parts, inputs, files, plan: null,
         subjects: [{ kind: 'interview-picks', questionId: result.questionId, setId: result.setId }] };
     }
-    return { label, parts, inputs, files,
+    const evidence = checkpointEvidenceContext(root, project, subjects, files);
+    return { label, parts, inputs, files, ...evidence,
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
     if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING'].includes(error.code))) throw error;
@@ -396,11 +399,12 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   }
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
+  const subjects: JobPublishedContext['subjects'] = [{ kind: 'review-verdict', stage: selector.kind === 'post' ? 'direction-review' : 'rig-review' },
+    ...packageSignSubjects(project, effectiveStage(root, project), selector, steps.length)];
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
-    subjects: [{ kind: 'review-verdict', stage: selector.kind === 'post' ? 'direction-review' : 'rig-review' },
-      ...packageSignSubjects(project, effectiveStage(root, project), selector, steps.length)],
+    subjects, ...checkpointEvidenceContext(root, project, subjects, files),
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files,
   };
 };
@@ -504,17 +508,17 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
 /** Register drafts independently of approval readiness. Only a prepared map declares approval. */
 export function draftPublicationContext(root: string, project: JsonObject, id: string, warnings: Finding[] = []): JobPublishedContext {
   const context = draftPublishedContext(root, project, id);
-  const subjects = [...context.subjects, ...packageSignSubjects(project, effectiveStage(root, project), context.selector!, context.plan?.steps.length ?? 0)];
+  let subjects = [...context.subjects, ...packageSignSubjects(project, effectiveStage(root, project), context.selector!, context.plan?.steps.length ?? 0)];
   if (subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'parts-review')) {
     const errors: Finding[] = [];
     checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
       resolve(root, context.parts!.manifest.path), errors, [], project);
     if (errors.length) {
       warnings.push(...errors);
-      return { ...context, subjects: subjects.filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review') };
+      subjects = subjects.filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review');
     }
   }
-  return { ...context, subjects };
+  return { ...context, subjects, ...checkpointEvidenceContext(root, project, subjects, context.files as { path: string; sha256: string }[]) };
 }
 
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {

@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -424,7 +424,7 @@ function publishedSourcePainting(root: string, project: JsonObject, id: string):
     !/^[a-f0-9]{64}$/.test(first.sha256) ||
     (first.bytes !== undefined && (typeof first.bytes !== 'number' || !Number.isSafeInteger(first.bytes) || first.bytes < 0))
   ) {
-    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: inputs[0] must register the original painting {path, sha256}; register the source painting with rig-create input add before publishing`);
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: inputs[0] must record the original painting {path, sha256}; restore the declared inputs[0] entry in project.json before publishing`);
   }
   const path = first.path;
   const sha256 = first.sha256;
@@ -479,16 +479,22 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   const manifest = { ...legacyManifest, producer, panels };
   const path = `review-draft-${id}.json`;
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  const legacyPanelsBytes = Buffer.from(`${JSON.stringify({ ...legacyManifest, panels }, null, 2)}\n`);
+  const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
   if (existsSync(join(root, path))) {
     const existing = publicationFile(root, path);
-    const accepted = [
-      bytes,
-      Buffer.from(`${JSON.stringify({ ...legacyManifest, panels }, null, 2)}\n`),
-      Buffer.from(`${JSON.stringify({ ...legacyManifest, producer }, null, 2)}\n`),
-      Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`),
-    ];
-    if (!accepted.some(candidate => existing.equals(candidate))) {
-      refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
+    if (!existing.equals(bytes)) {
+      if (!existing.equals(legacyPanelsBytes) && !existing.equals(legacyBytes)) {
+        refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
+      }
+      const target = join(root, path);
+      const tmp = `${target}.${process.pid}-${crypto.randomUUID()}.tmp`;
+      try {
+        writeFileSync(tmp, bytes, { flag: 'wx' });
+        renameSync(tmp, target);
+      } finally {
+        rmSync(tmp, { force: true });
+      }
     }
   } else writeFileSync(join(root, path), bytes, { flag: 'wx' });
   return path;

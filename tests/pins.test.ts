@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,6 +7,7 @@ import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-
 import { SOURCE_CONDITION, SOURCE_CONDITION_FLAG, jobRuntimeCommand, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const EXACT = /^\d+\.\d+\.\d+$/;
 const REPO = join(import.meta.dir, '..');
@@ -28,7 +29,7 @@ function linkSourcePackages(baseDir: string): {
   for (const name of ['core', 'parts', 'play', 'review'] as const) {
     const pkgTarget = join(wsRoot, 'packages', name);
     cpSync(join(REPO, 'node_modules/@rig-c', name), pkgTarget, { recursive: true });
-    if (name === 'play') {
+    if (name === 'play' && !existsSync(join(pkgTarget, 'src/index.ts'))) {
       mkdirSync(join(pkgTarget, 'src'), { recursive: true });
       writeFileSync(join(pkgTarget, 'src/index.ts'), "export * from '../dist/index.js';\nexport const PLAY_SOURCE_LINKED = true;\n");
     }
@@ -260,10 +261,10 @@ test('Bun parent-to-child job runtime launch resolves a synthetic linked source/
   }
 });
 
-test.each([
+for (const [label, execFlags] of [
   ['linked source condition', [SOURCE_CONDITION_FLAG]],
   ['default dist mode', []],
-] as const)('CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in %s', async (label, execFlags) => {
+] as const) sourceOnlyTest(`CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in ${label}`, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-cond-')));
   const ws = label === 'linked source condition' ? linkSourcePackages(root) : null;
   const activeCli = ws ? ws.cliPath : CLI;

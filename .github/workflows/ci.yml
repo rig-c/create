@@ -58,15 +58,20 @@ jobs:
           repository: rig-c/review
           ref: ${{ steps.pins.outputs.review }}
           path: review
-      - name: Install sibling dependencies with isolated linker
+      - name: Install external workspace with isolated linker
         run: |
-          for pkg in core parts play review; do
-            (cd "$pkg" && bun install --frozen-lockfile --linker=isolated)
+          bun -e '
+            import { writeFileSync } from "node:fs";
+            writeFileSync("package.json", JSON.stringify({
+              private: true,
+              workspaces: ["core", "parts", "play", "review", "create"]
+            }, null, 2) + "\n");
+          '
+          bun install --linker=isolated
+          bun --cwd play run build:lib
+          for pkg in core parts play review create; do
+            git -C "$pkg" diff --exit-code
           done
-          cd create
-          bun install --frozen-lockfile --linker=isolated
-          bun add --no-save --linker=isolated @rig-c/core@file:../core @rig-c/parts@file:../parts @rig-c/review@file:../review
-          (cd ../review && bun add --no-save --linker=isolated @rig-c/core@file:../core @rig-c/parts@file:../parts @rig-c/play@file:../play)
-      - name: Verify sibling source resolution and run focused source-linked tests
+      - name: Verify sibling source resolution and run source-only test suite
         working-directory: create
         run: bun --conditions=@rig-c/source scripts/run-source-ci.ts

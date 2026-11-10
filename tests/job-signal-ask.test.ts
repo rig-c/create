@@ -12,9 +12,11 @@ import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { draftRigCommand } from '../src/drafts.ts';
 import { askOutcomeLines, closeCreateJob } from '../src/job-host.ts';
 import { jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -69,13 +71,13 @@ function copyCheckpoint(checkpoint: string, edit?: (project: JsonObject) => void
 }
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
 
 async function open(root: string): Promise<{ proc: Bun.Subprocess; url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -97,7 +99,7 @@ async function open(root: string): Promise<{ proc: Bun.Subprocess; url: URL; lin
   return { proc, url, lines: lines.slice(1) };
 }
 
-test.each(['SIGTERM', 'SIGINT'] as const)('job open CLI forwards %s to its runtime and stops its own host port without leaving an orphan listener', async signal => {
+for (const signal of ['SIGTERM', 'SIGINT'] as const) sourceOnlyTest(`job open CLI forwards ${signal} to its runtime and stops its own host port without leaving an orphan listener`, async () => {
   const root = copyCheckpoint('1-parts-verdict');
   const { proc, url, lines } = await open(root);
   expect(lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
@@ -114,7 +116,7 @@ test.each(['SIGTERM', 'SIGINT'] as const)('job open CLI forwards %s to its runti
   expect(await isOriginListening(url.origin)).toBe(false);
 });
 
-test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a declared ask after acknowledging the publication', async () => {
+sourceOnlyTest('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a declared ask after acknowledging the publication', async () => {
   const root = copyCheckpoint('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
@@ -208,7 +210,7 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
   expect(pendingPublications(draftRoot)).toEqual([]);
 });
 
-test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
+sourceOnlyTest('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
   expect(askOutcomeLines([
     { subject: { kind: 'parts-verdict', draftId: 'chain-2' }, status: 'asked' },
     { subject: { kind: 'checkpoint', checkpointId: 'assemble' }, status: 'already' },

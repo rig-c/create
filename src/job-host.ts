@@ -3,12 +3,14 @@ import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector, type JobSubject } from '@rig-c/review/job-host';
-import { checkProject, type Finding } from './check.ts';
+import { asArray, checkProject, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from './job-publication.ts';
+import { draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
+import { checkReviewPackages } from './review-package.ts';
+import type { JsonObject } from './templates.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -325,6 +327,38 @@ export function assertRequestedDraft(root: string, requested?: string): { bytes:
   return { bytes, ids };
 }
 
+/** Validate an explicit registered rig before job open installs a binding or starts a host. */
+export function assertRequestedRig(root: string, requested?: string, draft?: string): Extract<JobSelector, { kind: 'rig' }> | undefined {
+  if (requested === undefined) return undefined;
+  if (draft !== undefined) refuse('JOB_BINDING_INVALID', 'project.json: job open takes either --draft <id> or --rig <n>; choose one recorded result');
+  const n = Number(requested.replace(/^v/, ''));
+  if (!Number.isSafeInteger(n) || n < 1) {
+    refuse('JOB_PUBLICATION_INVALID', 'project.json.versions: --rig needs a positive registered rig version (1 or v1); choose its recorded number');
+  }
+  const project = JSON.parse(readFileSync(join(realpathSync(root), 'project.json'), 'utf8')) as JsonObject;
+  const matches = asArray(project.versions).filter(version => isObject(version) && version.n === n);
+  if (matches.length !== 1 || !isObject(matches[0]) || matches[0].kind !== 'rig') {
+    refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: --rig needs one recorded rig version; choose an existing rig number`);
+  }
+  const selector = publicationSelector(project, n);
+  if (selector.kind !== 'rig') refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: choose a recorded rig version for --rig`);
+  const pkg = matches[0].review_package;
+  if (!isObject(pkg) || !Array.isArray(pkg.files) || pkg.files.length === 0) {
+    refuse('JOB_PUBLICATION_INVALID', `versions[v${n}].review_package: retained package identity is missing; restore the recorded package before job open`);
+  }
+  publicationFile(root, `derived/review/v${n}/out/check/build/skeleton.model.json`);
+  const context = {
+    dir: realpathSync(root),
+    // Explicit publication requires package integrity even for a pre-interview rig.
+    project: { ...project, versions: [{ ...matches[0], pre_interview: false }] },
+    refusals: [] as Finding[], warnings: [] as Finding[],
+  };
+  checkReviewPackages(context);
+  const failure = context.refusals[0];
+  if (failure) refuse(failure.code, `${failure.message}; restore the frozen review package before job open`);
+  return selector;
+}
+
 function selectorResult(selector: JobSelector): PendingPublication['result'] {
   return selector.kind === 'draft'
     ? draftPublicationResult(selector.id)
@@ -342,8 +376,9 @@ function selectorLabel(selector: JobSelector): string {
  * over the current record bytes, and every subject the publication declares is asked once.
  * Returns the lines `job open` prints.
  */
-export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string): Promise<string[]> {
+export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string, requestedRig?: string): Promise<string[]> {
   root = realpathSync(root);
+  const rigSelector = assertRequestedRig(root, requestedRig, requested);
   const { bytes, ids } = assertRequestedDraft(root, requested);
   const stage = checkProject(root, JSON.parse(bytes.toString('utf8')), { now, readOnly: true }).effective_stage;
   const draftId = requested ?? (DRAFT_OPEN_STAGES.includes(String(stage)) ? ids.at(-1) : undefined);
@@ -351,11 +386,11 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   const source = head?.source as { selector?: JobSelector; projectHash?: unknown } | undefined;
   const acknowledged = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
   const headSelector = acknowledged?.result.selector ?? source?.selector ?? null;
-  const targetSelector: JobSelector | undefined = draftId !== undefined
+  const targetSelector: JobSelector | undefined = rigSelector ?? (draftId !== undefined
     ? { kind: 'draft', id: draftId }
     : headSelector && headSelector.kind !== 'draft'
       ? headSelector
-      : undefined;
+      : undefined);
   const warnings: Finding[] = [];
   const draftContext = targetSelector?.kind === 'draft'
     ? draftPublicationContext(root, JSON.parse(bytes.toString('utf8')), targetSelector.id, warnings)
@@ -383,6 +418,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no writer-owned binding; run rig-create job close, then rig-create job open');
       if (targetSelector.kind === 'draft') draftPublicationContext(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), targetSelector.id);
+      if (rigSelector) prepareLiveManifest(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), rigSelector.version);
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     } finally { release(); }

@@ -1008,7 +1008,17 @@ adds, so every applicable config section needs its citation at registration.
 `registration.kind` is `"frozen-rig/1"`. The registration validator is shared
 with `interview --check` and opts in only versions carrying `registration`.
 Existing versions keep their contract, so this additive writer adds no SINCE
-constant. The writer validates its registration and normal package identity,
+constant. When `n > maxRegistered + 1`, every skipped number `K` between the
+previous highest registered version and `n` must already have at least one
+unregistered destination directory (`outputs/v<K>`,
+`evidence/v<K>/registration` or `derived/review/v<K>`) present on disk; the
+writer records `registration.skipped` as `[{n:K,destinations}]`, and
+`interview --check` verifies the skipped numbers and occupied destination
+directories. Unexplained empty gaps, occupied destinations on `n` itself,
+registered numbers in `skipped` and non-directory or symlinked destination paths
+refuse. Versions that advance by one (`n === maxRegistered + 1`) omit
+`registration.skipped`. The writer validates its registration and normal
+package identity,
 checks that project bytes are unchanged during copying, then atomically records
 the new version. A refused write preserves project bytes and removes its newly
 created outputs, retained inputs and review package. Retry uses the same next

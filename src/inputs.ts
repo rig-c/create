@@ -4,6 +4,7 @@ import { closeSync, fchmodSync, openSync, renameSync, unlinkSync, writeFileSync 
 import { readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
+import { sameArtworkFor } from './init.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -39,6 +40,10 @@ function sourceBytes(dir: string, name: string, path: string): Buffer {
 
 /** The writer and check use the same shape, containment and raw-byte validator. */
 export function checkInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>): void {
+  const painting = ctx.project.painting;
+  if (painting !== undefined && (!text(painting) || !asArray(ctx.project.inputs).some(input => isObject(input) && input.path === painting))) {
+    ctx.refusals.push({ code: 'INPUT_PAINTING_INVALID', path: 'painting', message: 'painting: expected the path of one registered input; restore the declaration written by init --painting or input add --painting' });
+  }
   if (ctx.project.inputs !== undefined && !Array.isArray(ctx.project.inputs)) {
     ctx.refusals.push({ code: 'INPUTS_INVALID', path: 'inputs', message: 'inputs: expected an array; restore the input records and register new files with input add' });
     return;
@@ -69,25 +74,37 @@ export function checkInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   });
 }
 
-export const INPUT_HELP = `input add <path> [<project dir>] --origin <words> [--json]
+export const INPUT_HELP = `input add <path> [<project dir>] --origin <words> [--painting [--projects-root <dir>] [--same-artwork-reason <file>]] [--json]
   Register raw source bytes as {path, sha256, bytes, origin, at}.
+  --painting declares the project's one painting and checks sibling inputs for the same artwork.
   Paths are project-relative. Changed inputs require a new file name.`;
 
 export function inputCommand(args: string[], now: number): { stdout: string; exit: number } {
   if (args[0] !== 'add') refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
   const positional: string[] = [];
   let origin: string | undefined;
+  let projectsRoot: string | undefined;
+  let sameArtworkReason: string | undefined;
+  let painting = false;
   let json = false;
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === '--json' && !json) json = true;
+    else if (arg === '--painting' && !painting) painting = true;
     else if (arg === '--origin' && origin === undefined) {
       origin = args[++index];
       if (!origin || origin.startsWith('--') || !origin.trim()) refuse('INPUT_USAGE', 'inputs[].origin: supply --origin with non-empty source words', USAGE_EXIT);
+    } else if (arg === '--projects-root' && projectsRoot === undefined) {
+      projectsRoot = args[++index];
+      if (!projectsRoot || projectsRoot.startsWith('--') || !projectsRoot.trim()) refuse('INPUT_USAGE', 'inputs: supply --projects-root with a directory path', USAGE_EXIT);
+    } else if (arg === '--same-artwork-reason' && sameArtworkReason === undefined) {
+      sameArtworkReason = args[++index];
+      if (!sameArtworkReason || sameArtworkReason.startsWith('--') || !sameArtworkReason.trim()) refuse('INPUT_USAGE', 'inputs: supply --same-artwork-reason with a file path', USAGE_EXIT);
     } else if (arg.startsWith('-')) refuse('INPUT_USAGE', `inputs: unexpected or repeated option '${arg}'; ${INPUT_HELP}`, USAGE_EXIT);
     else positional.push(arg);
   }
   if (positional.length < 1 || positional.length > 2 || origin === undefined) refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
+  if (!painting && (projectsRoot !== undefined || sameArtworkReason !== undefined)) refuse('INPUT_USAGE', 'painting: --projects-root and --same-artwork-reason require input add --painting', USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
   const name = inputPath(dir, positional[0]!);
   const file = resolve(dir, 'project.json');
@@ -102,6 +119,7 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
     if (!read.ok) refuse('PROJECT_JSON_INVALID', `project.json: ${read.error}`);
     const project = read.value;
     if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'project.json.schema: input add reads rig-create/project@0');
+    if (painting && project.painting !== undefined) refuse('INPUT_PAINTING_EXISTS', `painting: '${String(project.painting)}' is already declared; retain the project's painting and register other sources without --painting`);
     const bytes = sourceBytes(dir, name, 'inputs[].path');
     const entry: JsonObject = { path: name, sha256: sha256(bytes), bytes: bytes.length, origin, at: new Date(now).toISOString() };
     const existing = asArray(project.inputs).filter(isObject).find(input => text(input.path) && resolve(dir, input.path) === resolve(dir, name));
@@ -113,6 +131,15 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
     if (project.inputs !== undefined && !Array.isArray(project.inputs)) {
       checkInputs(ctx);
       refuse(ctx.refusals[0]!.code, ctx.refusals[0]!.message);
+    }
+    if (painting) {
+      const same = sameArtworkFor(dir, name, String(entry.sha256), now, {
+        projectsRoot,
+        sameArtworkReason,
+        index: asArray(project.inputs).length,
+      });
+      project.painting = name;
+      if (same !== null && project.same_artwork === undefined) project.same_artwork = same;
     }
     project.inputs = [...asArray(project.inputs), entry];
     checkInputs(ctx);

@@ -1212,18 +1212,31 @@ Top-level fields of `project.json`:
 ### Registering immutable inputs
 
 ```sh
-rig-create input add inputs/source.png --origin "synthetic source exported by the painting tool"
+rig-create input add inputs/source.png [<project dir>] --origin "synthetic source exported by the painting tool" [--painting [--projects-root <dir>] [--same-artwork-reason <file>]] [--json]
 ```
 
 Run from the project, or pass its directory after the source path. The writer
 appends `{path, sha256, bytes, origin, at}` using the file's raw bytes and the
 current UTC timestamp. `--json` prints that record. It refuses an escaping or
 missing source, an already registered path, and changed bytes under a
-registered name. A changed source needs a new file with a new name. A refused
-write leaves `project.json` byte-identical. The shared checker checks complete
-records against their retained files. Incomplete writer metadata is
-`INPUT_WRITER_MISSING`, dated by `inputs[].at` from `INPUT_WRITER_SINCE`.
-Earlier or unreadably dated entries WARN and retain their original history.
+registered name. Add `--painting` to declare this registered input's path as
+`project.painting`. Each project has one declaration. A second declaration
+refuses with `INPUT_PAINTING_EXISTS`, preserving the original painting and reason.
+Only `init --painting` and `input add --painting` compare the declared file
+against sibling inputs. They refuse with `INIT_ARTWORK_EXISTS` when a
+`project.json` directly under `--projects-root` (default the project's parent
+folder) has an input with the same sha256, unless `--same-artwork-reason <file>`
+is given. This records `same_artwork: { reason, at, projects }`, preserving any
+previously recorded reason. Both artwork options require `--painting`.
+Plain `input add` accepts identical inputs across sibling projects. Older
+records may omit `painting`. Position, name and file type never declare it.
+The shared checker refuses `INPUT_PAINTING_INVALID` when a declaration is not
+the path of a registered input. Restart validates and preserves the declaration.
+A changed source needs a new file with a new name. A refused write leaves
+`project.json` byte-identical. The shared checker checks complete records against their retained files. Incomplete
+writer metadata is `INPUT_WRITER_MISSING`, dated by `inputs[].at` from
+`INPUT_WRITER_SINCE`. Earlier or unreadably dated entries WARN and retain their
+original history.
 
 ## Prepared inputs and agent-found bounces
 
@@ -2353,7 +2366,8 @@ recorded drafts and versions count as versions; any other build is an
 experiment.
 
 `rig-create init <dir> --painting <file> --origin <words>` copies the painting
-into `inputs/` and registers it as the first input. It refuses with
+into `inputs/`, registers it as the first input and declares its path in
+`project.painting`. It refuses with
 `INIT_ARTWORK_EXISTS` when a `project.json` directly under `--projects-root`
 (default: the new project's parent folder) has an input with the same sha256.
 `--same-artwork-reason <file>` allows it, and the new record keeps
@@ -2403,7 +2417,7 @@ draft, `lantern`, with a synthetic passing report
 `rig-create restart [<dir>] --by <human> --reason-file <file>` starts the record
 again at v1 when the owner orders it. It writes the record `init` writes, with
 no versions, drafts, signoffs, plan, answers or review acts. It keeps the name,
-title, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
+title, `painting`, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
 `restarts[] { at, by, reason, previous_record_sha256 }`. create does not keep
 the earlier `project.json`; git history holds it, so restart refuses before it
 writes unless `project.json` is committed: tracked and byte-identical to its

@@ -31,21 +31,51 @@ export interface InitOptions {
   painting?: PaintingOption;
 }
 
-export interface PaintingOption {
+export interface SameArtworkOptions {
+  /** Where sibling projects live; default the new project's parent folder. */
+  projectsRoot?: string | undefined;
+  /** A file saying why this is a new project for an artwork another project already binds. */
+  sameArtworkReason?: string | undefined;
+  /** The input index being registered; default 0. */
+  index?: number | undefined;
+}
+
+export interface PaintingOption extends SameArtworkOptions {
   file: string;
   origin: string;
-  /** Where sibling projects live; default the new project's parent folder. */
-  projectsRoot?: string;
-  /** A file saying why this is a new project for an artwork another project already binds. */
-  sameArtworkReason?: string;
 }
 
 interface Artwork { readonly path: string; readonly bytes: Buffer; readonly entry: JsonObject; readonly same: JsonObject | null }
 
 /**
- * One artwork is one project (create#285): refuse before writing anything when a project directly
- * under the projects root binds an input with the painting's sha256, unless a reason is given.
+ * One artwork is one project (create#285, create#291): refuse before writing anything when a
+ * project directly under the projects root binds an input with the painting's sha256, unless a reason is given.
  */
+export function sameArtworkFor(dir: string, name: string, sha256: string, now: number, options: SameArtworkOptions = {}): JsonObject | null {
+  const root = resolve(options.projectsRoot ?? dirname(dir));
+  let siblings: string[] = [];
+  try { siblings = readdirSync(root).sort(); } catch {
+    if (options.projectsRoot !== undefined) refuse('INIT_ARTWORK_USAGE', `--projects-root ${root}: not a readable folder`, USAGE_EXIT);
+  }
+  const matches = siblings.filter(sibling => {
+    if (resolve(root, sibling) === dir) return false;
+    let record: unknown;
+    try { record = JSON.parse(readFileSync(join(root, sibling, 'project.json'), 'utf8')); } catch { return false; }
+    const inputs = record !== null && typeof record === 'object' && 'inputs' in record && Array.isArray(record.inputs) ? record.inputs as unknown[] : [];
+    return inputs.some(input => input !== null && typeof input === 'object' && (input as JsonObject).sha256 === sha256);
+  });
+  if (matches.length > 0 && options.sameArtworkReason === undefined) {
+    refuse('INIT_ARTWORK_EXISTS', `inputs[${options.index ?? 0}]: ${name} (sha256 ${sha256}) is already an input of ${matches.join(', ')} under ${root}; one artwork is one project, so record a redo, a new source or a new tool as a version there, or give --same-artwork-reason <file> for a different rig kind`);
+  }
+  if (options.sameArtworkReason !== undefined) {
+    if (matches.length === 0) refuse('INIT_ARTWORK_USAGE', `--same-artwork-reason: no project under ${root} binds ${name}; drop the reason`, USAGE_EXIT);
+    const reason = readVerbatim(options.sameArtworkReason).trim();
+    if (!reason) refuse('INIT_ARTWORK_USAGE', '--same-artwork-reason: the reason file is empty; say why this artwork needs a second project', USAGE_EXIT);
+    return { reason, at: new Date(now).toISOString(), projects: matches };
+  }
+  return null;
+}
+
 function artworkFor(dir: string, painting: PaintingOption, now: number): Artwork {
   let bytes: Buffer;
   try {
@@ -55,28 +85,7 @@ function artworkFor(dir: string, painting: PaintingOption, now: number): Artwork
   const name = basename(painting.file);
   if (name.startsWith('.') || name === 'references') refuse('INIT_ARTWORK_USAGE', `--painting ${painting.file}: name the painting file so it can sit in inputs/`, USAGE_EXIT);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const root = resolve(painting.projectsRoot ?? dirname(dir));
-  let siblings: string[] = [];
-  try { siblings = readdirSync(root).sort(); } catch {
-    if (painting.projectsRoot !== undefined) refuse('INIT_ARTWORK_USAGE', `--projects-root ${root}: not a readable folder`, USAGE_EXIT);
-  }
-  const matches = siblings.filter(sibling => {
-    if (resolve(root, sibling) === dir) return false;
-    let record: unknown;
-    try { record = JSON.parse(readFileSync(join(root, sibling, 'project.json'), 'utf8')); } catch { return false; }
-    const inputs = record !== null && typeof record === 'object' && 'inputs' in record && Array.isArray(record.inputs) ? record.inputs as unknown[] : [];
-    return inputs.some(input => input !== null && typeof input === 'object' && (input as JsonObject).sha256 === sha256);
-  });
-  if (matches.length > 0 && painting.sameArtworkReason === undefined) {
-    refuse('INIT_ARTWORK_EXISTS', `inputs[0]: ${name} (sha256 ${sha256}) is already an input of ${matches.join(', ')} under ${root}; one artwork is one project, so record a redo, a new source or a new tool as a version there, or give --same-artwork-reason <file> for a different rig kind`);
-  }
-  let same: JsonObject | null = null;
-  if (painting.sameArtworkReason !== undefined) {
-    if (matches.length === 0) refuse('INIT_ARTWORK_USAGE', `--same-artwork-reason: no project under ${root} binds ${name}; drop the reason`, USAGE_EXIT);
-    const reason = readVerbatim(painting.sameArtworkReason).trim();
-    if (!reason) refuse('INIT_ARTWORK_USAGE', '--same-artwork-reason: the reason file is empty; say why this artwork needs a second project', USAGE_EXIT);
-    same = { reason, at: new Date(now).toISOString(), projects: matches };
-  }
+  const same = sameArtworkFor(dir, name, sha256, now, painting);
   const path = `inputs/${name}`;
   return { path, bytes, same, entry: { path, sha256, bytes: bytes.length, origin: painting.origin, at: new Date(now).toISOString() } };
 }
@@ -168,6 +177,7 @@ export function initProject(target: string, options: InitOptions): InitResult {
     writeFileSync(join(dir, artwork.path), artwork.bytes);
     written.push(artwork.path);
     record.inputs = [artwork.entry];
+    record.painting = artwork.path;
     if (artwork.same !== null) record.same_artwork = artwork.same;
   }
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);

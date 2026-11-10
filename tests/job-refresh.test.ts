@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -48,13 +50,13 @@ function copy(checkpoint: string, edit?: (project: JsonObject) => void): string 
 }
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
 
 async function open(root: string): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -182,7 +184,7 @@ function expectExit0(result: { stdout: string; stderr: string; exit: number }): 
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
 }
 
-test('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication', async () => {
+sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication', async () => {
   const root = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
@@ -191,11 +193,10 @@ test('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff
   expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, signoff parts-review']);
 
   const firstView = await page(opening.url);
-  const names = (JSON.parse(readFileSync(join(root, 'derived/drafts/chain/input/parts.json'), 'utf8')).parts as { name: string }[]).map(part => part.name);
   const verdict = await firstView.act('parts-verdict', 'parts-verdict', {
     verdict: 'approved',
+    issues: [],
     words: WORDS,
-    parts: names.map(partId => ({ partId, part: { outcome: 'clean', note: '' }, mesh: { outcome: 'clean', note: '' } })),
   });
 
   expectExit0(await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']));

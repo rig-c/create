@@ -9,6 +9,7 @@ import { main } from '../src/cli.ts';
 import { checkProject } from '../src/check.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { jobHostStateRoot } from '../src/job-outbox.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
@@ -17,6 +18,7 @@ import { amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock }
 import { fixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { sourceOnlyTest } from './source-only.ts';
 
 const REPO = join(import.meta.dir, '..');
 const CHAIN_DIR = join(REPO, 'templates/example-chain');
@@ -505,7 +507,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(afterCheck.refusals).toEqual([]);
   });
 
-  test('plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move', async () => {
+  sourceOnlyTest('plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move', async () => {
     // Route 1: CLI parts-verdict receipt (`rig-create/parts-verdict-cli@1`, uses `status: "approved"`).
     const cliDir = join(tempDir(), 'parts-cli-route');
     cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), cliDir, { recursive: true });
@@ -545,6 +547,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       const draftChild = Bun.spawn(
         [
           process.execPath,
+          ...jobRuntimeExecArgv(),
           join(REPO, 'src/cli.ts'),
           'draft-rig',
           'chain',
@@ -612,10 +615,6 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(displayed.ok).toBe(true);
       if (!displayed.ok) throw new Error(displayed.error.code);
 
-      const manifest = JSON.parse(readFileSync(join(apiDir, publication.source.parts!.manifest.path), 'utf8')) as {
-        parts: { name: string }[];
-      };
-      const names = manifest.parts.map(p => p.name);
       const committed = await host.ports.commitUIAct(
         host.session.jobId,
         uiReq('acts', {
@@ -628,12 +627,8 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
           kind: 'parts-verdict',
           value: {
             verdict: 'approved',
+            issues: [],
             words: 'Synthetic API parts review.\n',
-            parts: names.map(partId => ({
-              partId,
-              part: { outcome: 'clean', note: '' },
-              mesh: { outcome: 'clean', note: '' },
-            })),
           },
         }),
       );
@@ -643,6 +638,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       const prChild = Bun.spawn(
         [
           process.execPath,
+          ...jobRuntimeExecArgv(),
           join(REPO, 'src/cli.ts'),
           'parts-review',
           '--from-review',

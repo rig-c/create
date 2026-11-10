@@ -101,8 +101,23 @@ export function checkFigureMask(ctx: MaskContext): void {
       finding('FIGURE_MASK_CHANGED', `${mask.path}: bytes differ from the declaration; restore the recorded PNG or update its declaration and derived record`);
       return;
     }
-    const original = resolve(dirname(resolve(ctx.dir, configPath)), requirements);
-    const originalMask = resolve(dirname(original), mask.path);
+    let original = resolve(dirname(resolve(ctx.dir, configPath)), requirements);
+    let maskRel = mask.path;
+    if (isObject(version.registration) && version.registration.kind === 'frozen-rig/1'
+      && isObject(version.registration.path_adapter) && typeof version.registration.path_adapter.path === 'string') {
+      const reqSource = version.registration.requirements_source;
+      if (isObject(reqSource) && typeof reqSource.source_path === 'string') {
+        original = resolve(ctx.dir, reqSource.source_path);
+      }
+      try {
+        const rows = JSON.parse(readFileSync(resolve(ctx.dir, version.registration.path_adapter.path), 'utf8'));
+        if (Array.isArray(rows)) {
+          const maskRow = rows.find(r => isObject(r) && r.doc === 'requirements' && r.pointer === '/setup_painting/figure_mask/path' && typeof r.before === 'string' && r.after === mask.path);
+          if (maskRow) maskRel = maskRow.before as string;
+        }
+      } catch { /* Handled by registration checks. */ }
+    }
+    const originalMask = resolve(dirname(original), maskRel);
     const recorded = asArray(ctx.project.derived).some((entry) => {
       if (!isObject(entry) || entry.kind !== 'prepared-input' || typeof entry.path !== 'string'
         || resolve(ctx.dir, entry.path) !== originalMask || typeof entry.sha256 !== 'string' || entry.sha256.toLowerCase() !== mask.sha256

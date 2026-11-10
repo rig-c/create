@@ -97,8 +97,13 @@ export function reviewConfigInputs(record: JsonObject, dir: string, n: number, m
     if (existsSync(reqFile) && lstatSync(reqFile).isFile()) {
       try {
         const doc = JSON.parse(readFileSync(reqFile, 'utf8'));
-        const mask = isObject(doc) && isObject(doc.setup_painting) && isObject(doc.setup_painting.figure_mask) ? doc.setup_painting.figure_mask.path : undefined;
-        if (typeof mask === 'string' && mask.trim()) declared.add(relative(dirname(path), resolve(dirname(reqFile), mask)).split(sep).join('/'));
+        const setup = isObject(doc) && isObject(doc.setup_painting) ? doc.setup_painting : {};
+        for (const key of ['figure_mask', 'backdrop'] as const) {
+          const entry = isObject(setup[key]) ? setup[key] : undefined;
+          if (typeof entry?.path === 'string' && entry.path.trim()) {
+            declared.add(relative(dirname(path), resolve(dirname(reqFile), entry.path)).split(sep).join('/'));
+          }
+        }
       } catch { /* Handled by figure-mask checks. */ }
     }
   }
@@ -355,10 +360,13 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
     // loader's three config-file declarations. Preserve them on regeneration.
     if (isObject(version.registration) && version.registration.kind === 'frozen-rig/1') {
       const configDir = relative(dir, dirname(config)).split(sep).join('/');
-      const prefix = `${configDir}/inputs/`;
+      const prefix = `${configDir}/`;
+      const runFiles = new Set(asArray(version.registration.runs).flatMap(r => isObject(r) && isObject(r.source) && typeof r.source.path === 'string' ? [r.source.path] : []));
+      const metadataNames = new Set(['at-source.json', 'compile-report.json', 'config-source.json', 'requirements-source.json', 'config.json', 'package-lock.json', 'path-adapter.json', 'citations.json']);
       for (const binding of asArray(version.registration.files)) {
         if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(prefix)) continue;
-        const rel = binding.path.slice(configDir.length + 1);
+        const rel = binding.path.slice(prefix.length);
+        if (metadataNames.has(rel) || runFiles.has(binding.path)) continue;
         if ([...directories].some(d => rel.startsWith(`${d}/`)) && !named.some(input => input.path === rel)) continue;
         const file = source(binding.path);
         const bytes = readFileSync(file);
@@ -405,6 +413,35 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
           const existing = named.find(input => input.path === maskPath);
           if (existing && !existing.bytes.equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${maskPath}: figure mask collides with a named input`);
           if (!existing) named.push({ path: maskPath, source: maskFile, bytes });
+        }
+        const legacyUnadaptedReg = isObject(version.registration) && version.registration.kind === 'frozen-rig/1' && version.registration.requirements_source === undefined;
+        if (setup.backdrop !== undefined && !legacyUnadaptedReg) {
+          const backdrop = setup.backdrop;
+          if (!isObject(backdrop) || typeof backdrop.path !== 'string' || !backdrop.path.trim()
+            || typeof backdrop.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(backdrop.sha256)) {
+            refuse('REVIEW_PACKAGE_INPUT_INVALID', `${requirements.path}: declare setup_painting.backdrop {path, sha256} before packaging`);
+          }
+          const backdropFile = resolve(dirname(config), dirname(requirements.path), backdrop.path);
+          const backdropPath = relative(dirname(config), backdropFile).split(sep).join('/');
+          if (isAbsolute(backdrop.path) || !backdropPath || backdropPath.split('/').some(part => part === '..' || part === '.' || part === '')) {
+            refuse('REVIEW_PACKAGE_PATH_INVALID', `${requirements.path}: backdrop ${backdrop.path} must stay inside the config directory`);
+          }
+          let current = dirname(config);
+          for (const part of backdropPath.split('/')) {
+            current = join(current, part);
+            if (existsSync(current) && lstatSync(current).isSymbolicLink()) refuse('REVIEW_PACKAGE_PATH_INVALID', `${backdropPath}: retain a backdrop without symlinks`);
+          }
+          let regularFile = false;
+          try { regularFile = lstatSync(backdropFile).isFile(); } catch { /* Missing paths are refused below. */ }
+          if (!regularFile) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: restore the declared backdrop as a readable PNG file before packaging`);
+          let bytes: Buffer;
+          try { bytes = readFileSync(backdropFile); }
+          catch { refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: cannot read the declared backdrop; restore its PNG before packaging`); }
+          if (hash(bytes) !== backdrop.sha256) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: bytes differ from the declared sha256; restore the backdrop or record its corrected declaration before packaging`);
+          if (backdropPath === 'config.json' && !bytes.equals(configBytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: backdrop collides with the packaged config`);
+          const existing = named.find(input => input.path === backdropPath);
+          if (existing && !existing.bytes.equals(bytes)) refuse('REVIEW_PACKAGE_INPUT_INVALID', `${backdropPath}: backdrop collides with a named input`);
+          if (!existing) named.push({ path: backdropPath, source: backdropFile, bytes });
         }
       }
     }

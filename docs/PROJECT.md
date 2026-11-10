@@ -990,14 +990,28 @@ copying, and the copy is byte-verified before registration. The normal
 same accepted-parts and config identity checks as its standalone command.
 
 The retained original config and adapter are bound as `registration.config_source`
-and `registration.path_adapter`. Each absolute config value requires an exact
+and `registration.path_adapter`. Registrations using pointer adaptation declare
+`registration.path_adapter.format` as `json-pointer/1`. Removing an adapter row
+keeps that contract active. These registrations also bind the original
+and runtime requirements as `registration.requirements_source` and
+`registration.requirements`. Each absolute config value requires an exact
 adapter row `{at:".section.field",before,after}` matching its runtime `after`
-value. The writer copies the recorded `before` input and writes a contained
-relative reference in the retained config. Config-named relative inputs and a
-requirements-relative figure mask are retained too. Missing mappings, escaping
-references, symlinks and colliding inputs refuse. Producer outputs retain their
-original bytes. Packaging relocates the config's named inputs without rerunning
-producer measurements.
+value, and relative `config` or `requirements` asset references use explicit
+`{doc:"config"|"requirements",pointer,before,after}` rows (recorded in the
+retained `path-adapter.json`). The writer retains the original `config` and
+`requirements` byte-identical, copies every referenced asset (`assemble.take`,
+`assemble.editor_receipts`, `assemble.cuts`, `limbs`, `depth`,
+`setup_painting.figure_mask` and `setup_painting.backdrop`) to literal
+in-package paths (`no ..`, `no :`), verifies declared `sha256` digests before
+copying, and checks that the runtime `config.json` and `requirements.json`
+equal the retained sources after applying only the declared `path_adapter`
+substitutions. Registrations without pointer adaptation retain their original
+implicit take and editor-receipt relocation, permit unused legacy adapter rows
+and do not require source-only relative assets or a backdrop that their writer
+did not retain. Missing mappings, unlisted runtime differences, escaping
+references, symlinks, hash mismatches and colliding targets refuse. Producer
+outputs retain their original bytes. Packaging relocates the config's and
+requirements' named inputs without rerunning producer measurements.
 
 Optional `--citations` reads an agent-authored map of the existing
 `provenance.sections` shape. The writer retains that map and binds the adapted

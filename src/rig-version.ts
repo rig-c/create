@@ -6,7 +6,7 @@ import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } f
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, checkProject, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
@@ -24,6 +24,28 @@ import type { Json, JsonObject } from './templates.ts';
 const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const absolute = (path: string): boolean => isAbsolute(path) || win32.isAbsolute(path);
 const literal = (path: string): boolean => !!path && !absolute(path) && !path.includes('\\') && !path.includes(':') && path.split('/').every(p => p !== '' && p !== '.' && p !== '..');
+const escapePointerToken = (token: string): string => token.replaceAll('~', '~0').replaceAll('/', '~1');
+const insideOrEqual = (root: string, target: string): boolean => {
+  const rel = relative(root, target);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+};
+const RESERVED_REGISTRATION_NAMES = new Set([
+  'at-source.json',
+  'compile-report.json',
+  'config-source.json',
+  'requirements-source.json',
+  'config.json',
+  'package-lock.json',
+  'path-adapter.json',
+  'citations.json',
+]);
+function isValidAdaptedTarget(target: string): boolean {
+  return literal(target)
+    && !RESERVED_REGISTRATION_NAMES.has(target)
+    && !/^rig(?:c)?-run-\d+\.json$/.test(target)
+    && target !== 'out'
+    && !target.startsWith('out/');
+}
 function fail(code: string, path: string, why: string): never {
   refuse(code, `${path}: ${why}; retain the cited frozen inputs and register a new rig version`);
 }
@@ -49,16 +71,46 @@ function lockVersions(raw: Json): JsonObject {
   return versions;
 }
 
+function pointerTokens(pointer: Json | undefined): string[] {
+  if (typeof pointer !== 'string' || !pointer.startsWith('/') || pointer.length < 2 || /~(?![01])/.test(pointer)) {
+    throw Error('supply a nonempty RFC 6901 JSON pointer');
+  }
+  const raw = pointer.slice(1).split('/');
+  if (raw.some(t => t === '')) throw Error('supply a nonempty RFC 6901 JSON pointer without empty segments');
+  return raw.map(t => t.replaceAll('~1', '/').replaceAll('~0', '~'));
+}
+
 function pointerValue(raw: Json, pointer: Json | undefined): Json | undefined {
-  if (typeof pointer !== 'string' || !pointer.startsWith('/') || /~(?![01])/.test(pointer)) throw Error('supply a nonempty RFC 6901 JSON pointer');
   let value: Json | undefined = raw;
-  for (const token of pointer.slice(1).split('/')) {
-    const key = token.replaceAll('~1', '/').replaceAll('~0', '~');
+  for (const key of pointerTokens(pointer)) {
     if (!isObject(value) && !Array.isArray(value)) return undefined;
     if (!Object.hasOwn(value, key)) return undefined;
     value = (value as JsonObject)[key];
   }
   return value;
+}
+
+function setPointerValue(raw: Json, pointer: string, next: string): void {
+  const tokens = pointerTokens(pointer);
+  let cur: Json = raw;
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const key = tokens[i]!;
+    if (Array.isArray(cur)) {
+      if (!/^(?:0|[1-9]\d*)$/.test(key) || Number(key) >= cur.length) throw Error(`pointer ${pointer} not found`);
+      cur = cur[Number(key)]!;
+    } else if (isObject(cur) && Object.hasOwn(cur, key)) {
+      cur = cur[key]!;
+    } else throw Error(`pointer ${pointer} not found`);
+  }
+  const last = tokens.at(-1)!;
+  if (Array.isArray(cur)) {
+    if (!/^(?:0|[1-9]\d*)$/.test(last) || Number(last) >= cur.length || typeof cur[Number(last)] !== 'string') {
+      throw Error(`pointer ${pointer} does not select a string`);
+    }
+    cur[Number(last)] = next;
+  } else if (isObject(cur) && Object.hasOwn(cur, last) && typeof cur[last] === 'string') {
+    cur[last] = next;
+  } else throw Error(`pointer ${pointer} does not select a string`);
 }
 
 function utcDate(raw: Json | undefined): raw is string {
@@ -93,10 +145,248 @@ function treeBindings(dir: string, root: string): JsonObject[] {
   });
 }
 
-function pathAdapter(raw: Json): JsonObject[] {
-  if (!Array.isArray(raw) || raw.some(v => !isObject(v) || typeof v.at !== 'string' || typeof v.before !== 'string' || typeof v.after !== 'string')
-    || new Set(raw.filter(isObject).map(v => v.at)).size !== raw.length) throw Error('supply distinct at/before/after mappings');
-  return raw as JsonObject[];
+interface NormalizedAdapterRow {
+  kind: 'legacy-abs' | 'pointer';
+  doc: 'config' | 'requirements';
+  pointer: string;
+  originalString: string;
+  sourcePath?: string;
+  adaptedString: string;
+  raw: JsonObject;
+}
+
+function parsePathAdapter(raw: Json): NormalizedAdapterRow[] {
+  if (!Array.isArray(raw)) throw Error('supply an array of path adapter mappings');
+  const rows: NormalizedAdapterRow[] = [];
+  const seenLegacyAt = new Set<string>();
+  const seenPointers = new Set<string>();
+  for (const entry of raw) {
+    if (!isObject(entry)) throw Error('supply object path adapter mappings');
+    let row: NormalizedAdapterRow;
+    if (entry.doc === undefined && entry.pointer === undefined) {
+      if (typeof entry.at !== 'string' || typeof entry.before !== 'string' || typeof entry.after !== 'string'
+        || seenLegacyAt.has(entry.at)) {
+        throw Error('supply distinct at/before/after mappings');
+      }
+      seenLegacyAt.add(entry.at);
+      const validAt = entry.at.startsWith('.') && entry.at.length >= 2 && !entry.at.slice(1).split('.').some(p => !p);
+      const parts = validAt ? entry.at.slice(1).split('.') : [];
+      const pointer = validAt ? `/${parts.map(escapePointerToken).join('/')}` : '';
+      const adaptedString = validAt ? `inputs/${parts.join('/')}` : '';
+      row = { kind: 'legacy-abs', doc: 'config', pointer, originalString: entry.after, sourcePath: entry.before, adaptedString, raw: entry };
+    } else if (Object.keys(entry).sort().join(',') === 'after,before,doc,pointer') {
+      if ((entry.doc !== 'config' && entry.doc !== 'requirements')
+        || typeof entry.pointer !== 'string'
+        || typeof entry.before !== 'string' || !entry.before || absolute(entry.before)
+        || typeof entry.after !== 'string' || !isValidAdaptedTarget(entry.after)) {
+        throw Error('supply doc ("config"|"requirements"), RFC 6901 pointer, relative before and literal in-package after');
+      }
+      pointerTokens(entry.pointer);
+      const pointerKey = `${entry.doc}:${entry.pointer}`;
+      if (seenPointers.has(pointerKey)) throw Error(`duplicate path adapter target ${pointerKey}`);
+      seenPointers.add(pointerKey);
+      row = { kind: 'pointer', doc: entry.doc, pointer: entry.pointer, originalString: entry.before, adaptedString: entry.after, raw: entry };
+    } else {
+      throw Error('supply distinct at/before/after or doc/pointer/before/after mappings');
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+interface AssetRefSpec {
+  doc: 'config' | 'requirements';
+  pointer: string;
+  dotPath: string;
+  value: string;
+  kind: 'file' | 'dir' | 'file-or-dir';
+  autoRelocate: boolean;
+  pre394: boolean;
+  declaredSha256?: string;
+}
+
+function collectConfigAssetRefs(dir: string, config: JsonObject, strict = true): AssetRefSpec[] {
+  const byPointer = new Map<string, AssetRefSpec>();
+  const addRef = (spec: AssetRefSpec): void => {
+    if (!byPointer.has(spec.pointer)) byPointer.set(spec.pointer, spec);
+  };
+  const assemble = isObject(config.assemble) ? config.assemble : undefined;
+  const occluders = isObject(assemble) && Array.isArray(assemble.occluders) ? assemble.occluders : [];
+  for (const ref of configInputReferences(dir, config)) {
+    const dotPath = ref.at.replace(/\[(\d+)\]/g, '.$1');
+    const pointer = `/${dotPath.split('.').map(escapePointerToken).join('/')}`;
+    let declaredSha256: string | undefined;
+    const occMatch = /^assemble\.occluders\.(\d+)\.image$/.exec(dotPath);
+    if (occMatch) {
+      const entry = occluders[Number(occMatch[1])];
+      if (isObject(entry) && entry.sha256 !== undefined) {
+        if (typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
+          if (strict) throw Error(`config.${dotPath}: expected 64-character lowercase hex sha256`);
+        } else {
+          declaredSha256 = entry.sha256;
+        }
+      }
+    }
+    addRef({
+      doc: 'config',
+      pointer,
+      dotPath,
+      value: ref.value,
+      kind: dotPath.endsWith('.plate') ? 'dir' : 'file-or-dir',
+      autoRelocate: absolute(ref.value) || !isValidAdaptedTarget(ref.value),
+      pre394: true,
+      ...(strict && declaredSha256 ? { declaredSha256 } : {}),
+    });
+  }
+  if (isObject(assemble)) {
+    if (Array.isArray(assemble.take)) {
+      for (const [i, entry] of assemble.take.entries()) {
+        if (!isObject(entry)) continue;
+        if (typeof entry.run_dir === 'string' && entry.run_dir !== '') {
+          addRef({ doc: 'config', pointer: `/assemble/take/${i}/run_dir`, dotPath: `assemble.take.${i}.run_dir`, value: entry.run_dir, kind: 'dir', autoRelocate: true, pre394: true });
+        }
+        if (typeof entry.st_input === 'string' && entry.st_input !== '') {
+          addRef({ doc: 'config', pointer: `/assemble/take/${i}/st_input`, dotPath: `assemble.take.${i}.st_input`, value: entry.st_input, kind: 'file', autoRelocate: true, pre394: true });
+        }
+        if (isObject(entry.reference) && typeof entry.reference.painting === 'string' && entry.reference.painting !== '') {
+          let declaredSha256: string | undefined;
+          if (entry.reference.sha256 !== undefined) {
+            if (typeof entry.reference.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.reference.sha256)) {
+              if (strict) throw Error(`config.assemble.take.${i}.reference.sha256: expected 64-character lowercase hex sha256`);
+            } else {
+              declaredSha256 = entry.reference.sha256;
+            }
+          }
+          addRef({
+            doc: 'config',
+            pointer: `/assemble/take/${i}/reference/painting`,
+            dotPath: `assemble.take.${i}.reference.painting`,
+            value: entry.reference.painting,
+            kind: 'file',
+            autoRelocate: true,
+            pre394: false,
+            ...(strict && declaredSha256 ? { declaredSha256 } : {}),
+          });
+        }
+      }
+    }
+    if (isObject(assemble.editor_receipts) && Array.isArray(assemble.editor_receipts.receipts)) {
+      for (const [i, entry] of assemble.editor_receipts.receipts.entries()) {
+        if (!isObject(entry) || typeof entry.file !== 'string' || entry.file === '') continue;
+        let declaredSha256: string | undefined;
+        if (entry.sha256 !== undefined) {
+          if (typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
+            if (strict) throw Error(`config.assemble.editor_receipts.receipts.${i}.sha256: expected 64-character lowercase hex sha256`);
+          } else {
+            declaredSha256 = entry.sha256;
+          }
+        }
+        addRef({
+          doc: 'config',
+          pointer: `/assemble/editor_receipts/receipts/${i}/file`,
+          dotPath: `assemble.editor_receipts.receipts.${i}.file`,
+          value: entry.file,
+          kind: 'file',
+          autoRelocate: true,
+          pre394: true,
+          ...(strict && declaredSha256 ? { declaredSha256 } : {}),
+        });
+      }
+    }
+    if (Array.isArray(assemble.cuts)) {
+      for (const [i, entry] of assemble.cuts.entries()) {
+        if (!isObject(entry)) continue;
+        if (typeof entry.under === 'string' && entry.under !== '') {
+          addRef({ doc: 'config', pointer: `/assemble/cuts/${i}/under`, dotPath: `assemble.cuts.${i}.under`, value: entry.under, kind: 'file', autoRelocate: true, pre394: false });
+        } else if (isObject(entry.under) && typeof entry.under.plate === 'string' && entry.under.plate !== '') {
+          addRef({ doc: 'config', pointer: `/assemble/cuts/${i}/under/plate`, dotPath: `assemble.cuts.${i}.under.plate`, value: entry.under.plate, kind: 'dir', autoRelocate: true, pre394: false });
+        }
+      }
+    }
+  }
+  if (isObject(config.limbs)) {
+    for (const [limbName, limb] of Object.entries(config.limbs)) {
+      if (!isObject(limb) || !Array.isArray(limb.segments)) continue;
+      for (const [i, seg] of limb.segments.entries()) {
+        if (isObject(seg) && typeof seg.cap === 'string' && seg.cap !== '') {
+          addRef({
+            doc: 'config',
+            pointer: `/limbs/${escapePointerToken(limbName)}/segments/${i}/cap`,
+            dotPath: `limbs.${limbName}.segments.${i}.cap`,
+            value: seg.cap,
+            kind: 'file',
+            autoRelocate: true,
+            pre394: false,
+          });
+        }
+      }
+    }
+  }
+  if (isObject(config.depth)) {
+    for (const run of ['full', 'head'] as const) {
+      const block = config.depth[run];
+      if (!isObject(block)) continue;
+      if (isObject(block.atlas) && typeof block.atlas.image === 'string' && block.atlas.image !== '') {
+        addRef({ doc: 'config', pointer: `/depth/${run}/atlas/image`, dotPath: `depth.${run}.atlas.image`, value: block.atlas.image, kind: 'file', autoRelocate: true, pre394: false });
+      }
+      if (isObject(block.layers)) {
+        for (const [layer, spec] of Object.entries(block.layers)) {
+          if (isObject(spec) && typeof spec.image === 'string' && spec.image !== '') {
+            addRef({
+              doc: 'config',
+              pointer: `/depth/${run}/layers/${escapePointerToken(layer)}/image`,
+              dotPath: `depth.${run}.layers.${layer}.image`,
+              value: spec.image,
+              kind: 'file',
+              autoRelocate: true,
+              pre394: false,
+            });
+          }
+        }
+      }
+    }
+  }
+  const scanAbsolute = (value: Json, pointer: string, dotPath: string): void => {
+    if (typeof value === 'string' && absolute(value)) {
+      addRef({ doc: 'config', pointer, dotPath, value, kind: 'file-or-dir', autoRelocate: true, pre394: true });
+      return;
+    }
+    if (Array.isArray(value)) value.forEach((v, i) => scanAbsolute(v, `${pointer}/${i}`, dotPath ? `${dotPath}.${i}` : String(i)));
+    else if (isObject(value)) {
+      for (const [k, v] of Object.entries(value)) {
+        scanAbsolute(v, `${pointer}/${escapePointerToken(k)}`, dotPath ? `${dotPath}.${k}` : k);
+      }
+    }
+  };
+  scanAbsolute(config, '', '');
+  return [...byPointer.values()];
+}
+
+function collectRequirementsAssetRefs(requirements: JsonObject, portableRequirementsPath: string, strict = true): AssetRefSpec[] {
+  const refs: AssetRefSpec[] = [];
+  const setup = isObject(requirements.setup_painting) ? requirements.setup_painting : {};
+  const reqParent = dirname(portableRequirementsPath);
+  for (const key of ['figure_mask', 'backdrop'] as const) {
+    if (setup[key] === undefined) continue;
+    const entry = setup[key];
+    if (!isObject(entry) || typeof entry.path !== 'string' || !entry.path.trim()
+      || typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
+      if (!strict && key === 'backdrop') continue;
+      throw Error(`requirements.setup_painting.${key} must declare a nonempty path and 64-character lowercase hex sha256`);
+    }
+    const candidateRel = reqParent === '.' ? entry.path : `${reqParent}/${entry.path}`;
+    refs.push({
+      doc: 'requirements',
+      pointer: `/setup_painting/${key}/path`,
+      dotPath: `setup_painting.${key}.path`,
+      value: entry.path,
+      kind: 'file',
+      autoRelocate: key === 'backdrop' || absolute(entry.path) || !isValidAdaptedTarget(entry.path) || !isValidAdaptedTarget(candidateRel),
+      pre394: key === 'figure_mask',
+      declaredSha256: entry.sha256,
+    });
+  }
+  return refs;
 }
 
 /** Only explicitly registered versions opt in. Older version contracts are unchanged. */
@@ -152,7 +442,8 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const reopens = collectReopens(project, []).filter(r => r.at <= Date.parse(String(record.at)));
       if (Date.parse(at) <= reopenTime(reopens, 'rig-review')) add('RIG_BUILD_BEFORE_REOPEN', 'at_source', 'the cited build bound does not follow the reopen covering rig-review at registration');
     } catch (error) { add('RIG_AT_SOURCE_INVALID', 'at_source', String(error)); }
-    try { pathAdapter(JSON.parse(bytesAt(dir, record.path_adapter).toString())); }
+    let adapterRows: NormalizedAdapterRow[] | null = null;
+    try { adapterRows = parsePathAdapter(JSON.parse(bytesAt(dir, record.path_adapter).toString())); }
     catch (error) { add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', String(error)); }
     try {
       const files = asArray(record.files);
@@ -163,13 +454,149 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
         if (!isObject(binding) || !files.some(f => isObject(f) && f.path === binding.path && f.sha256 === binding.sha256)) throw Error('a declared input is absent from the retained inventory');
         bytesAt(dir, binding);
       }
+      const configSourceRaw = JSON.parse(bytesAt(dir, record.config_source).toString()) as Json;
       const portable = JSON.parse(bytesAt(dir, config).toString()) as Json;
+      if (!isObject(configSourceRaw) || !isObject(portable)) throw Error('config-source and portable config must be JSON objects');
       const checkPortable = (value: Json): void => {
         if (typeof value === 'string' && absolute(value)) throw Error('the retained config contains an unresolved absolute path');
         if (Array.isArray(value)) value.forEach(checkPortable);
         else if (isObject(value)) Object.values(value).forEach(checkPortable);
       };
       checkPortable(portable);
+      const evidenceRoot = dirname(String((config as JsonObject).path));
+      const reqAdapters = (adapterRows ?? []).filter(r => r.doc === 'requirements');
+      const hasPointerAdapters = (adapterRows ?? []).some(r => r.kind === 'pointer');
+      const hasReqBindings = record.requirements_source !== undefined || record.requirements !== undefined || reqAdapters.length > 0;
+      const adapterFormat = isObject(record.path_adapter) ? record.path_adapter.format : undefined;
+      if (adapterFormat !== undefined && adapterFormat !== 'json-pointer/1') throw Error('unsupported registration.path_adapter.format');
+      const isPointerAdaptedRecord = adapterFormat === 'json-pointer/1' || hasPointerAdapters || hasReqBindings;
+      const sourceConfigRefs = collectConfigAssetRefs(dir, configSourceRaw, isPointerAdaptedRecord);
+      if (adapterRows !== null) {
+        const expectedConfig = structuredClone(configSourceRaw);
+        const adaptedTargets = new Set<string>();
+        const adaptedConfigPointers = new Set<string>();
+        for (const row of adapterRows.filter(r => r.doc === 'config')) {
+          if (row.kind === 'legacy-abs') {
+            const currentVal = row.pointer ? pointerValue(configSourceRaw, row.pointer) : undefined;
+            if (row.pointer && typeof currentVal === 'string' && absolute(currentVal) && currentVal === row.originalString) {
+              if (!row.sourcePath || !absolute(row.sourcePath) || !isValidAdaptedTarget(row.adaptedString)) {
+                add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `config ${row.pointer}: invalid legacy adapter`);
+                throw Error(`config ${row.pointer}: invalid legacy adapter`);
+              }
+              setPointerValue(expectedConfig, row.pointer, row.adaptedString);
+              adaptedConfigPointers.add(row.pointer);
+            }
+            continue;
+          }
+          const ref = sourceConfigRefs.find(r => r.pointer === row.pointer);
+          if (!ref || pointerValue(configSourceRaw, row.pointer) !== row.originalString) {
+            add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `config ${row.pointer}: adapter does not match config-source`);
+            throw Error(`config ${row.pointer}: adapter does not match config-source`);
+          }
+          if (adaptedTargets.has(row.adaptedString)) {
+            add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `${row.adaptedString}: duplicate adapted target`);
+            throw Error(`${row.adaptedString}: duplicate adapted target`);
+          }
+          adaptedTargets.add(row.adaptedString);
+          adaptedConfigPointers.add(row.pointer);
+          setPointerValue(expectedConfig, row.pointer, row.adaptedString);
+        }
+        if (!isPointerAdaptedRecord) {
+          for (const ref of sourceConfigRefs) {
+            if (adaptedConfigPointers.has(ref.pointer)) continue;
+            if (/^assemble\.take\.\d+\.(?:run_dir|st_input)$|^assemble\.editor_receipts\.receipts\.\d+\.file$/.test(ref.dotPath)
+              && !absolute(ref.value)) {
+              setPointerValue(expectedConfig, ref.pointer, `inputs/${ref.dotPath.split('.').join('/')}`);
+            }
+          }
+        }
+        if (!isDeepStrictEqual(expectedConfig, portable)) {
+          throw Error('the retained runtime config differs from config-source outside declared path_adapter substitutions');
+        }
+      }
+      const adaptedPointersForCheck = new Set(
+        (adapterRows ?? []).filter(r => r.doc === 'config' && r.pointer).map(r => r.pointer),
+      );
+      for (const ref of collectConfigAssetRefs(dir, portable, isPointerAdaptedRecord)) {
+        if (!isPointerAdaptedRecord && !ref.pre394 && !adaptedPointersForCheck.has(ref.pointer)) continue;
+        if (!isValidAdaptedTarget(ref.value)) throw Error(`config.${ref.dotPath}: expected literal retained path`);
+        const targetPath = `${evidenceRoot}/${ref.value}`;
+        const fileBinding = files.find(f => isObject(f) && f.path === targetPath);
+        const dirBinding = files.some(f => isObject(f) && typeof f.path === 'string' && f.path.startsWith(`${targetPath}/`));
+        if (ref.kind === 'file' || ref.declaredSha256 !== undefined) {
+          if (!isObject(fileBinding)) throw Error(`${targetPath} is absent from the retained inventory`);
+          const bytes = bytesAt(dir, fileBinding);
+          if (ref.declaredSha256 !== undefined && sha(bytes) !== ref.declaredSha256) {
+            throw Error(`${targetPath} sha256 differs from config.${ref.dotPath} declaration`);
+          }
+        } else if (ref.kind === 'file-or-dir' && !isObject(fileBinding) && !dirBinding) {
+          throw Error(`${targetPath} is absent from the retained inventory`);
+        }
+      }
+      if (typeof portable.requirements !== 'string') {
+        if (hasReqBindings) throw Error('requirements bindings or adapter entries present without config.requirements');
+      } else {
+        const runtimeReqPath = `${evidenceRoot}/${portable.requirements}`;
+        const runtimeReqInFiles = files.find(f => isObject(f) && f.path === runtimeReqPath);
+        if (!isObject(runtimeReqInFiles)) throw Error(`${runtimeReqPath} is absent from the retained inventory`);
+        const runtimeReqObj = JSON.parse(bytesAt(dir, runtimeReqInFiles).toString()) as Json;
+        if (!isObject(runtimeReqObj)) throw Error('retained requirements must be a JSON object');
+        if (isPointerAdaptedRecord) checkPortable(runtimeReqObj);
+        if (isPointerAdaptedRecord) {
+          if (!isObject(record.requirements_source) || !isObject(record.requirements)) {
+            throw Error('both requirements_source and requirements bindings are required when requirements are adapted');
+          }
+          for (const binding of [record.requirements_source, record.requirements]) {
+            if (!files.some(f => isObject(f) && f.path === binding.path && f.sha256 === binding.sha256)) {
+              throw Error('declared requirements input is absent from the retained inventory');
+            }
+            bytesAt(dir, binding);
+          }
+          if (record.requirements.path !== runtimeReqPath) throw Error('registration.requirements.path disagrees with config.requirements');
+          if (record.requirements_source.source_path !== undefined
+            && (typeof record.requirements_source.source_path !== 'string' || !literal(record.requirements_source.source_path))) {
+            throw Error('invalid registration.requirements_source.source_path');
+          }
+          const reqSourceObj = JSON.parse(bytesAt(dir, record.requirements_source).toString()) as Json;
+          if (!isObject(reqSourceObj)) throw Error('requirements-source must be a JSON object');
+          const sourceReqRefs = collectRequirementsAssetRefs(reqSourceObj, portable.requirements, true);
+          if (adapterRows !== null) {
+            const expectedReq = structuredClone(reqSourceObj);
+            const adaptedReqTargets = new Set<string>();
+            for (const row of reqAdapters) {
+              const ref = sourceReqRefs.find(r => r.pointer === row.pointer);
+              if (!ref || pointerValue(reqSourceObj, row.pointer) !== row.originalString) {
+                add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `requirements ${row.pointer}: adapter does not match requirements-source`);
+                throw Error(`requirements ${row.pointer}: adapter does not match requirements-source`);
+              }
+              if (adaptedReqTargets.has(row.adaptedString)) {
+                add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `${row.adaptedString}: duplicate adapted target`);
+                throw Error(`${row.adaptedString}: duplicate adapted target`);
+              }
+              adaptedReqTargets.add(row.adaptedString);
+              setPointerValue(expectedReq, row.pointer, row.adaptedString);
+            }
+            if (!isDeepStrictEqual(expectedReq, runtimeReqObj)) {
+              throw Error('the retained runtime requirements differs from requirements-source outside declared path_adapter substitutions');
+            }
+          }
+        }
+        const reqParent = dirname(portable.requirements);
+        for (const ref of collectRequirementsAssetRefs(runtimeReqObj, portable.requirements, isPointerAdaptedRecord)) {
+          if (!isPointerAdaptedRecord && !ref.pre394) continue;
+          const relInEvidence = posix.normalize(reqParent === '.' ? ref.value : `${reqParent}/${ref.value}`);
+          if (absolute(ref.value) || (isPointerAdaptedRecord && !isValidAdaptedTarget(ref.value)) || !isValidAdaptedTarget(relInEvidence)) {
+            throw Error(`requirements.${ref.dotPath}: expected literal retained path`);
+          }
+          const assetTargetPath = `${evidenceRoot}/${relInEvidence}`;
+          const assetBinding = files.find(f => isObject(f) && f.path === assetTargetPath);
+          if (!isObject(assetBinding)) throw Error(`${assetTargetPath} is absent from the retained inventory`);
+          const assetBytes = bytesAt(dir, assetBinding);
+          if (ref.declaredSha256 !== undefined && sha(assetBytes) !== ref.declaredSha256) {
+            throw Error(`${assetTargetPath} sha256 differs from requirements.${ref.dotPath} declaration`);
+          }
+        }
+      }
       if (!isObject(record.idle) || record.idle.path !== `outputs/v${String(version.n)}/idle/frames.json`) throw Error('idle manifest must be in the version output');
       const manifest = JSON.parse(bytesAt(dir, record.idle, true).toString()) as Json;
       if (!isObject(manifest) || manifest.spec !== 'rigc-frames/1' || !Array.isArray(manifest.sets)
@@ -339,9 +766,9 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       at = pointerValue(JSON.parse(bytesAt(dir, atSource).toString()), atSource.pointer);
     } catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, String(error)); }
     if (!utcDate(at)) fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, 'the cited pointer needs a valid UTC timestamp');
-    const adapterBinding = input('--path-adapter', 'path-adapter.json');
-    let adapter: JsonObject[];
-    try { adapter = pathAdapter(JSON.parse(bytesAt(dir, adapterBinding).toString())); }
+    const rawAdapterBytes = sourceBytes(options['--path-adapter']!);
+    let callerAdapter: NormalizedAdapterRow[];
+    try { callerAdapter = parsePathAdapter(JSON.parse(rawAdapterBytes.toString())); }
     catch (error) { return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, String(error)); }
     const configSource = input('--config', 'config-source.json');
     const config = JSON.parse(bytesAt(dir, configSource).toString()) as Json;
@@ -361,42 +788,175 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
         copiedSources.set(target, path);
       }
     };
-    const configDir = dirname(resolve(dir, options['--config']!));
-    const relocate = (value: Json, path: string): Json => {
-      const runtimeInput = /^assemble\.take\.\d+\.(?:run_dir|st_input)$|^assemble\.editor_receipts\.receipts\.\d+\.file$/.test(path);
-      if (typeof value === 'string' && (absolute(value) || runtimeInput)) {
-        let source = resolve(configDir, value);
-        if (absolute(value)) {
-          const mapping = adapter.find(v => v.at === `.${path}` && v.after === value);
-          if (!mapping || typeof mapping.before !== 'string' || !absolute(mapping.before)) return fail('RIG_RUNTIME_PATH_UNRESOLVED', `config.${path}`, 'absolute input has no exact recorded adapter');
-          source = mapping.before;
-        }
-        const target = `inputs/${path.split('.').join('/')}`;
-        copyTree(source, `${evidence}/${target}`, false);
-        return target;
+    const checkSourceAncestors = (absolutePath: string, label: string, allowedRoot?: string): void => {
+      let current = absolutePath;
+      while (dirname(current) !== current && (current === absolutePath || !isSystemAncestor(current))) {
+        if (existsSync(current) && lstatSync(current).isSymbolicLink()) fail('RIG_REGISTRATION_PATH_INVALID', label, 'source symlinks are unsupported');
+        if (allowedRoot && current === allowedRoot) break;
+        current = dirname(current);
       }
-      if (Array.isArray(value)) return value.map((v, i) => relocate(v, path ? `${path}.${i}` : String(i)));
-      if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, relocate(v, path ? `${path}.${k}` : k)]));
-      return value;
     };
-    const portable = relocate(config, '') as JsonObject;
-    for (const ref of configInputReferences(dir, portable)) {
-      if (!literal(ref.value)) fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.at}`, 'named inputs must be contained relative paths');
-      const target = `${evidence}/${ref.value}`;
-      if (!copiedSources.has(target)) copyTree(resolve(configDir, ref.value), target, false);
-    }
-    if (typeof portable.requirements === 'string') {
-      const target = `${evidence}/${portable.requirements}`;
-      const requirements = JSON.parse(readFileSync(join(dir, target), 'utf8')) as Json;
-      const setup = isObject(requirements) && isObject(requirements.setup_painting) ? requirements.setup_painting : {};
-      if (isObject(setup.figure_mask) && typeof setup.figure_mask.path === 'string') {
-        const path = setup.figure_mask.path;
-        const mask = resolve(dir, dirname(target), path);
-        const name = relative(join(dir, evidence), mask);
-        if (absolute(path) || !name || name === '..' || name.startsWith(`..${sep}`)) fail('RIG_RUNTIME_PATH_UNRESOLVED', target, 'figure mask must resolve inside the retained config directory');
-        copyTree(resolve(dirname(copiedSources.get(target)!), path), relative(dir, mask).split(sep).join('/'), false);
+    const configDir = dirname(resolve(dir, options['--config']!));
+    let configRefs: AssetRefSpec[];
+    try { configRefs = collectConfigAssetRefs(dir, config); }
+    catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_REGISTRATION_FILE_INVALID', 'config', String(error)); }
+    for (const row of callerAdapter.filter(r => r.kind === 'pointer' && r.doc === 'config')) {
+      const ref = configRefs.find(r => r.pointer === row.pointer);
+      if (!ref || ref.value !== row.originalString) {
+        return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, `config ${row.pointer}: adapter does not match config-source`);
       }
     }
+    const configUsesPointers = callerAdapter.some(row => row.kind === 'pointer')
+      || configRefs.some(ref => !absolute(ref.value) && ref.autoRelocate);
+    const configAllowedRoot = configUsesPointers || insideOrEqual(dir, configDir) ? dir : configDir;
+    const portable = structuredClone(config);
+    const effectiveAdapter: JsonObject[] = callerAdapter.map(r => r.raw);
+    const claimedTargets = new Set<string>(RESERVED_REGISTRATION_NAMES);
+    for (const { spec } of validatedRuns) claimedTargets.add(`${spec.replace('/', '-')}.json`);
+    const conflictsWithClaimed = (candidate: string): boolean => {
+      for (const existing of claimedTargets) {
+        if (existing === candidate || existing.startsWith(`${candidate}/`) || candidate.startsWith(`${existing}/`)) return true;
+      }
+      return false;
+    };
+    let reqSourcePath: string | undefined;
+    let portableReqRel: string | undefined;
+    for (const ref of configRefs) {
+      const callerRow = callerAdapter.find(r => r.doc === 'config' && r.pointer === ref.pointer && (r.kind === 'pointer' || r.originalString === ref.value));
+      let sourcePath: string;
+      if (absolute(ref.value)) {
+        if (!callerRow || callerRow.kind !== 'legacy-abs' || !callerRow.pointer || !callerRow.sourcePath || !absolute(callerRow.sourcePath) || !isValidAdaptedTarget(callerRow.adaptedString)) {
+          return fail('RIG_RUNTIME_PATH_UNRESOLVED', `config.${ref.dotPath}`, 'absolute input has no exact recorded adapter');
+        }
+        sourcePath = callerRow.sourcePath;
+      } else {
+        sourcePath = resolve(configDir, ref.value);
+        if (!insideOrEqual(configAllowedRoot, sourcePath)) {
+          return fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.dotPath}`, 'relative input escapes the project');
+        }
+      }
+      checkSourceAncestors(sourcePath, `config.${ref.dotPath}`, !absolute(ref.value) ? configAllowedRoot : undefined);
+      if (!existsSync(sourcePath)) {
+        return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'referenced source asset is missing');
+      }
+      if (!absolute(ref.value) && !insideOrEqual(configAllowedRoot, realpathSync(sourcePath))) {
+        return fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.dotPath}`, 'relative input resolves outside the project');
+      }
+      const stat = lstatSync(sourcePath);
+      if (stat.isSymbolicLink()) return fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.dotPath}`, 'source symlinks are unsupported');
+      if (ref.kind === 'dir' && !stat.isDirectory()) return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'expected a source directory');
+      if (ref.kind === 'file' && !stat.isFile()) return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'expected a regular source file');
+      if (ref.declaredSha256 !== undefined) {
+        const bytes = sourceBytes(sourcePath);
+        if (sha(bytes) !== ref.declaredSha256) {
+          return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'source bytes differ from declared sha256');
+        }
+      }
+      let adaptedValue: string;
+      if (callerRow) {
+        adaptedValue = callerRow.adaptedString;
+      } else if (ref.autoRelocate) {
+        adaptedValue = `inputs/${ref.dotPath.split('.').join('/')}`;
+        effectiveAdapter.push({ doc: 'config', pointer: ref.pointer, before: ref.value, after: adaptedValue });
+      } else {
+        adaptedValue = ref.value;
+      }
+      if (!isValidAdaptedTarget(adaptedValue) || conflictsWithClaimed(adaptedValue)) {
+        return fail('RIG_REGISTRATION_PATH_INVALID', `${evidence}/${adaptedValue}`, 'two distinct inputs collide or target is invalid');
+      }
+      claimedTargets.add(adaptedValue);
+      if (adaptedValue !== ref.value) setPointerValue(portable, ref.pointer, adaptedValue);
+      if (ref.pointer === '/requirements') {
+        reqSourcePath = sourcePath;
+        portableReqRel = adaptedValue;
+      } else {
+        copyTree(sourcePath, `${evidence}/${adaptedValue}`, false);
+      }
+    }
+    let requirementsSourceBinding: JsonObject | undefined;
+    let requirementsRuntimeBinding: JsonObject | undefined;
+    if (typeof config.requirements !== 'string') {
+      if (callerAdapter.some(r => r.doc === 'requirements')) {
+        return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, 'requirements adapter supplied without config.requirements');
+      }
+    } else if (reqSourcePath && portableReqRel) {
+      const reqOriginalBytes = sourceBytes(reqSourcePath);
+      let originalReq: Json;
+      try { originalReq = JSON.parse(reqOriginalBytes.toString('utf8')); }
+      catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', String(error)); }
+      if (!isObject(originalReq)) return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', 'expected a JSON object');
+      let reqRefs: AssetRefSpec[];
+      try { reqRefs = collectRequirementsAssetRefs(originalReq, portableReqRel); }
+      catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', String(error)); }
+      for (const row of callerAdapter.filter(r => r.doc === 'requirements')) {
+        const ref = reqRefs.find(r => r.pointer === row.pointer);
+        if (!ref || ref.value !== row.originalString) {
+          return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, `requirements ${row.pointer}: adapter does not match requirements-source`);
+        }
+      }
+      const portableReq = structuredClone(originalReq);
+      const reqDir = dirname(reqSourcePath);
+      const reqUsesPointers = effectiveAdapter.some(row => row.pointer !== undefined)
+        || reqRefs.some(ref => ref.autoRelocate);
+      const reqAllowedRoot = reqUsesPointers || insideOrEqual(dir, reqDir) ? dir : configDir;
+      const reqParent = dirname(portableReqRel);
+      for (const ref of reqRefs) {
+        const callerRow = callerAdapter.find(r => r.doc === 'requirements' && r.pointer === ref.pointer);
+        if (absolute(ref.value)) {
+          return fail('RIG_RUNTIME_PATH_UNRESOLVED', `requirements.${ref.dotPath}`, 'requirements setup_painting path must be relative');
+        }
+        const assetSource = resolve(reqDir, ref.value);
+        checkSourceAncestors(assetSource, `requirements.${ref.dotPath}`, reqAllowedRoot);
+        if (!insideOrEqual(reqAllowedRoot, assetSource)) {
+          return fail('RIG_REGISTRATION_PATH_INVALID', `requirements.${ref.dotPath}`, 'relative input escapes the project');
+        }
+        if (!existsSync(assetSource)) {
+          return fail('RIG_REGISTRATION_FILE_INVALID', `requirements.${ref.dotPath}`, 'referenced source asset is missing');
+        }
+        if (!insideOrEqual(reqAllowedRoot, realpathSync(assetSource))) {
+          return fail('RIG_REGISTRATION_PATH_INVALID', `requirements.${ref.dotPath}`, 'relative input resolves outside the project');
+        }
+        const assetBytes = sourceBytes(assetSource);
+        if (ref.declaredSha256 !== undefined && sha(assetBytes) !== ref.declaredSha256) {
+          return fail('RIG_REGISTRATION_FILE_INVALID', `requirements.${ref.dotPath}`, 'source bytes differ from declared sha256');
+        }
+        let adaptedValue: string;
+        if (callerRow) {
+          adaptedValue = callerRow.adaptedString;
+        } else if (ref.autoRelocate) {
+          adaptedValue = reqParent === '.' ? `inputs/${ref.dotPath.split('.').join('/')}` : `${ref.dotPath.split('.').join('/')}`;
+          effectiveAdapter.push({ doc: 'requirements', pointer: ref.pointer, before: ref.value, after: adaptedValue });
+        } else {
+          adaptedValue = ref.value;
+        }
+        const relInEvidence = reqParent === '.' ? adaptedValue : `${reqParent}/${adaptedValue}`;
+        if (!isValidAdaptedTarget(adaptedValue) || !isValidAdaptedTarget(relInEvidence) || conflictsWithClaimed(relInEvidence)) {
+          return fail('RIG_REGISTRATION_PATH_INVALID', `${evidence}/${relInEvidence}`, 'two distinct inputs collide or target is invalid');
+        }
+        claimedTargets.add(relInEvidence);
+        retain(`${evidence}/${relInEvidence}`, assetBytes, false);
+        copiedSources.set(`${evidence}/${relInEvidence}`, assetSource);
+        if (adaptedValue !== ref.value) setPointerValue(portableReq, ref.pointer, adaptedValue);
+      }
+      if (effectiveAdapter.some(row => row.pointer !== undefined)) {
+        const reqSourceRel = insideOrEqual(dir, reqSourcePath) ? relative(dir, realpathSync(reqSourcePath)).split(sep).join('/') : undefined;
+        requirementsSourceBinding = {
+          ...retain(`${evidence}/requirements-source.json`, reqOriginalBytes),
+          ...(reqSourceRel && literal(reqSourceRel) ? { source_path: reqSourceRel } : {}),
+        };
+        const runtimeReqBytes = isDeepStrictEqual(originalReq, portableReq)
+          ? reqOriginalBytes : Buffer.from(`${JSON.stringify(portableReq, null, 2)}\n`);
+        requirementsRuntimeBinding = retain(`${evidence}/${portableReqRel}`, runtimeReqBytes);
+      } else {
+        retain(`${evidence}/${portableReqRel}`, reqOriginalBytes);
+      }
+      copiedSources.set(`${evidence}/${portableReqRel}`, reqSourcePath);
+    }
+    const pointerAdapted = effectiveAdapter.some(row => row.pointer !== undefined);
+    const adapterBinding = retain(
+      `${evidence}/path-adapter.json`,
+      effectiveAdapter.length === callerAdapter.length ? rawAdapterBytes : Buffer.from(`${JSON.stringify(effectiveAdapter, null, 2)}\n`),
+    );
     const configBinding = retain(`${evidence}/config.json`, Buffer.from(`${JSON.stringify(portable, null, 2)}\n`));
     const compile = input('--compile-report', 'compile-report.json');
     const partsDir = resolve(dir, options['--parts']!);
@@ -434,7 +994,10 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
         ...(runs.length ? { runs } : {}),
         ...(skipped.length ? { skipped } : {}),
-        files: retained, config_source: configSource, path_adapter: adapterBinding, idle, compile,
+        files: retained, config_source: configSource,
+        ...(requirementsSourceBinding ? { requirements_source: requirementsSourceBinding } : {}),
+        ...(requirementsRuntimeBinding ? { requirements: requirementsRuntimeBinding } : {}),
+        path_adapter: { ...adapterBinding, ...(pointerAdapted ? { format: 'json-pointer/1' } : {}) }, idle, compile,
         copied: { files: outputFiles.length, bytes: outputFiles.reduce((total, f) => total + Number(f.bytes), 0) } } };
     const candidate = { ...project, versions: [...project.versions, version] };
     const problem = rigRegistrationFindings(dir, candidate)[0];

@@ -133,18 +133,6 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
             || raw.destinations.some(d => typeof d !== 'string' || !allowed.includes(d))
             || !isDeepStrictEqual(raw.destinations, allowed.filter(d => (raw.destinations as Json[]).includes(d)))) {
             add('RIG_REGISTRATION_INVALID', `registration.skipped[${i}]`, `expected unregistered v${k} occupying destinations`);
-            continue;
-          }
-          try {
-            const actualDestinations = allowed.filter(target => destinationExists(dir, target, bad => {
-              throw new Refusal('RIG_REGISTRATION_PATH_INVALID', `${bad}: destination must have real directory parents`);
-            }));
-            if (!isDeepStrictEqual(actualDestinations, raw.destinations)) {
-              add('RIG_REGISTRATION_INVALID', `registration.skipped[${i}].destinations`, `v${k} occupying destinations [${actualDestinations.join(', ')}] disagree with recorded [${(raw.destinations as string[]).join(', ')}]`);
-            }
-          } catch (error) {
-            if (error instanceof Refusal) add(error.code, `registration.skipped[${i}]`, error.message);
-            else add('RIG_REGISTRATION_INVALID', `registration.skipped[${i}]`, String(error));
           }
         }
       }

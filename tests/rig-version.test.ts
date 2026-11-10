@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { rigRegistrationFindings } from '../src/rig-version.ts';
@@ -11,6 +11,7 @@ import { fixture, obj } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { readRecordPublished } from '../src/job-publication.ts';
 
 const roots: string[] = [];
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
@@ -453,42 +454,67 @@ describe('frozen rig registration', () => {
     }
   });
 
-  test('verifies registration.skipped destination structure and numbers in rigRegistrationFindings and checkProject', () => {
+  test('validates registration.skipped receipt shape, remains valid after historical archival, and roundtrips through record publication retained root', () => {
     const { dir, args, load } = setup();
-    put(dir, 'outputs/v1/legacy.txt', 'occupied v1\n');
+    const painting = Buffer.from('Synthetic immutable painting input');
+    put(dir, 'inputs/painting.png', painting.toString('utf8'));
+    const initial = load();
+    initial.inputs = [{ ...(initial.inputs as JsonObject[])[0], path: 'inputs/painting.png', sha256: jobHash(painting), bytes: painting.length }];
+    put(dir, 'project.json', initial);
+    // Empty historical skipped directory: no files inside outputs/v1.
+    mkdirSync(join(dir, 'outputs/v1'), { recursive: true });
     rigVersionCommand(['2', ...args.slice(1)]);
 
-    // 1. Adding an unrecorded occupied destination to a skipped version
-    mkdirSync(join(dir, 'derived/review/v1'), { recursive: true });
-    expect(rigRegistrationFindings(dir, load()).map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
-    expect(checkProject(dir).refusals.map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
-    rmSync(join(dir, 'derived/review/v1'), { recursive: true });
-    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    // 1. Registration -> record publication inventory (while empty outputs/v1 exists in dir) -> retained root (copying only sealed files, without fabricating outputs/v1).
+    const root = realpathSync(dir);
+    const record = { path: 'project.json' as const, sha256: jobHash(readFileSync(join(root, 'project.json'))) };
+    const inventory = readRecordPublished({ root, record, result: { kind: 'plan' }, phase: 'inventory' }, testClock.now());
+    const retainedRoot = join(realpathSync(dirname(dir)), 'retained');
+    mkdirSync(retainedRoot);
+    for (const file of inventory.files) {
+      mkdirSync(dirname(join(retainedRoot, file.path)), { recursive: true });
+      cpSync(join(root, file.path), join(retainedRoot, file.path));
+    }
+    expect(existsSync(join(root, 'outputs/v1'))).toBe(true);
+    expect(existsSync(join(retainedRoot, 'outputs/v1'))).toBe(false);
+    expect(checkProject(retainedRoot).refusals).toEqual([]);
+    expect(readRecordPublished({
+      root: retainedRoot,
+      record,
+      result: { kind: 'plan' },
+      phase: 'retained',
+      parts: inventory.parts,
+    }, testClock.now())).toEqual(inventory);
 
-    // 2. Removing the occupied destination after registration
+    // 2. Receipt remains valid in the live root after the historical unregistered directory is archived/removed from disk.
     rmSync(join(dir, 'outputs/v1'), { recursive: true });
-    expect(rigRegistrationFindings(dir, load()).map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
-    put(dir, 'outputs/v1/legacy.txt', 'occupied v1\n');
     expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
 
-    // 3. Replacing the occupied destination with a symlink after registration
-    rmSync(join(dir, 'outputs/v1'), { recursive: true });
-    mkdirSync(join(dir, 'source/real-v1'), { recursive: true });
-    symlinkSync(join(dir, 'source/real-v1'), join(dir, 'outputs/v1'));
-    expect(rigRegistrationFindings(dir, load()).map(f => f.code)).toContain('RIG_REGISTRATION_PATH_INVALID');
-    rmSync(join(dir, 'outputs/v1'));
-    put(dir, 'outputs/v1/legacy.txt', 'occupied v1\n');
+    // 3. Receipt shape invalid cases in rigRegistrationFindings and checkProject.
+    for (const badSkipped of [
+      undefined,
+      [],
+      [{ n: 2, destinations: ['outputs/v2'] }],
+      [{ n: 1, destinations: [] }],
+      [{ n: 1, destinations: ['outputs/v99'] }],
+      [{ n: 1, destinations: ['derived/review/v1', 'outputs/v1'] }],
+      [{ n: 1, destinations: ['outputs/v1', 'outputs/v1'] }],
+      [{ n: 1, destinations: ['outputs/v1'], extra: true }],
+    ]) {
+      const candidate = load();
+      const reg = obj((candidate.versions as JsonObject[])[0]!.registration);
+      if (badSkipped === undefined) delete reg.skipped;
+      else reg.skipped = badSkipped as unknown as JsonObject[];
+      expect(rigRegistrationFindings(dir, candidate).map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
+      expect(checkProject(dir, candidate).refusals.map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
+    }
 
-    // 4. Omitting registration.skipped when a version gap exists
-    const missingSkipped = load();
-    delete obj((missingSkipped.versions as JsonObject[])[0]!.registration).skipped;
-    expect(rigRegistrationFindings(dir, missingSkipped).map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
-
-    // 5. Supplying registration.skipped when no version gap exists
+    // 4. Supplying registration.skipped when no version gap exists refuses with RIG_REGISTRATION_INVALID.
     const { dir: dirNoSkip, args: argsNoSkip, load: loadNoSkip } = setup();
     rigVersionCommand(argsNoSkip);
     const unexpectedSkipped = loadNoSkip();
-    obj((unexpectedSkipped.versions as JsonObject[])[0]!.registration).skipped = [];
+    obj((unexpectedSkipped.versions as JsonObject[])[0]!.registration).skipped = [{ n: 1, destinations: ['outputs/v1'] }];
     expect(rigRegistrationFindings(dirNoSkip, unexpectedSkipped).map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
   });
 });

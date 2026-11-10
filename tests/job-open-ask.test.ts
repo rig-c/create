@@ -5,7 +5,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobSelector } from '@rig-c/review/job-host';
@@ -13,7 +13,7 @@ import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { inputCommand } from '../src/inputs.ts';
 import { askDeclaredSubjects, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
-import { enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
+import { enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { draftPublicationContext, prepareLiveManifest } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
@@ -80,8 +80,14 @@ async function open(root: string): Promise<{ url: URL; lines: string[] }> {
 }
 
 /** The owner page: read the job's events over HTTP, acknowledge the display and commit acts. */
-async function page(url: URL, expectedAsks = 2) {
+async function page(root: string, url: URL, expectedAsks = 2) {
   const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
+  const receipts = join(jobPrivateRoot(root), 'acknowledged-publications');
+  const expectedPublication = readdirSync(receipts)
+    .map(file => JSON.parse(readFileSync(join(receipts, file), 'utf8')) as AcknowledgedPublication)
+    .filter(receipt => receipt.jobId === jobId)
+    .sort((a, b) => b.generation - a.generation)[0]!;
+  expect(expectedPublication).toBeDefined();
   const capability = url.hash.replace('#cap=', '');
   const base = `${url.origin}/jobs/${jobId}/`;
   const headers = { origin: url.origin, 'X-Review-Capability': capability, 'content-type': 'application/json' };
@@ -95,17 +101,25 @@ async function page(url: URL, expectedAsks = 2) {
     const head = events.filter(event => event.type === 'published').at(-1)?.publication as JsonObject | undefined;
     return { head, asks: events.filter(event => event.type === 'pending' && (event.ask as JsonObject).publicationId === head?.publicationId).map(event => event.ask as JsonObject) };
   };
-  // Every event is delivered on connect; read until the stream pauses.
+  // Reconnect replays history. Ask counts on an older head do not establish the current page.
+  const ready = () => pending().head?.publicationId === expectedPublication.publicationId
+    && pending().asks.length >= expectedAsks;
   const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline && pending().asks.length < expectedAsks) {
+  while (Date.now() < deadline && !ready()) {
     const next = await reader.read();
     if (next.done) break;
     buffered += decoder.decode(next.value, { stream: true });
     let newline: number;
-    while ((newline = buffered.indexOf('\n')) >= 0) { events.push(JSON.parse(buffered.slice(0, newline))); buffered = buffered.slice(newline + 1); }
+    while ((newline = buffered.indexOf('\n')) >= 0) {
+      events.push(JSON.parse(buffered.slice(0, newline)));
+      buffered = buffered.slice(newline + 1);
+      // Inspect each event so this regression also covers one-event transport chunks.
+      if (ready()) break;
+    }
   }
   abort.abort();
   const { head, asks } = pending();
+  expect(head?.publicationId).toBe(expectedPublication.publicationId);
   const post = async (route: string, body: object) => (await fetch(base + route, { method: 'POST', headers, body: JSON.stringify(body) })).json() as Promise<JsonObject>;
   const pageId = randomUUID();
   const displayed = await post('ui/displayed', { publicationId: head!.publicationId, pageId, sourceHash: (head!.source as JsonObject).sourceHash });
@@ -130,7 +144,7 @@ sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and th
   expect(opening.lines[0]).toContain('WARN DIFF_MAP_MISSING:');
   expect(opening.lines.slice(1)).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
   expect(opening.lines.at(-1)).toBe('job: asked parts-verdict chain');
-  const missing = await page(opening.url, 1);
+  const missing = await page(root, opening.url, 1);
   expect(missing.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
   expect(pendingPublications(root)).toEqual([]);
   const firstMap = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
@@ -153,7 +167,7 @@ sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and th
   expect(invalid.stdout).toContain('WARN DIFF_MAP_REPORT:');
   expect(invalid.stdout).not.toContain('signoff parts-review');
   expect(invalid.stdout.trim().split('\n').at(-1)).toBe('job: asked parts-verdict chain');
-  expect((await page(opening.url, 1)).asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect((await page(root, opening.url, 1)).asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeDrift);
   expect(pendingPublications(root)).toEqual([]);
   const invalidWrite = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
@@ -178,7 +192,7 @@ sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and th
   expect(replacement.stdout.trim().split('\n').at(-1)).toBe('job: asked parts-verdict next');
   expect((read(root).drafts as JsonObject[]).at(-1)!.id).toBe('next');
   expect(pendingPublications(root)).toEqual([]);
-  const unready = await page(opening.url, 1);
+  const unready = await page(root, opening.url, 1);
   expect(unready.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'next' }]);
   expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(unready.head.publicationId))!.subjects)
     .toEqual([{ kind: 'parts-verdict', draftId: 'next' }]);
@@ -199,7 +213,7 @@ sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and th
   const readyAgain = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(readyAgain.exit).toBe(0);
   expect(readyAgain.stdout).toContain('already asked parts-verdict next, signoff parts-review');
-  const person = await page(opening.url);
+  const person = await page(root, opening.url);
   expect((person.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'next' });
   expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'next' }, { kind: 'signoff', stage: 'parts-review' }]);
   const verdict = await person.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
@@ -281,7 +295,7 @@ test.each(['rig', 'post'] as const)('job open retries a refused ask on an acknow
   const retried = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: retried.exit, stderr: retried.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(retried.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: asked signoff ${stage}`, `job: already asked review-verdict ${stage}`]);
-  const person = await page(opening.url);
+  const person = await page(root, opening.url);
   expect((person.head.source as { selector: unknown }).selector).toEqual(selector);
   expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage }, { kind: 'signoff', stage }]);
   await person.act('signoff', 'signoff', { stage, decision: 'approved', words: WORDS });
@@ -289,7 +303,7 @@ test.each(['rig', 'post'] as const)('job open retries a refused ask on an acknow
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: already asked review-verdict ${stage}, signoff ${stage}`]);
-  expect((await page(opening.url)).asks).toHaveLength(2);
+  expect((await page(root, opening.url)).asks).toHaveLength(2);
 });
 
 sourceOnlyTest('a binding copied from another root is replaced: the copy opens its own job and never attaches the original host', async () => {
@@ -308,7 +322,7 @@ sourceOnlyTest('a binding copied from another root is replaced: the copy opens i
   expect(copied.url.origin === first.url.origin).toBe(false);
   expect((read(copy).review_job as JsonObject).jobId).toBe(binding.jobId);
   // The original job still has exactly its own publication and asks.
-  const person = await page(first.url);
+  const person = await page(original, first.url);
   expect(person.asks).toHaveLength(2);
   expect((read(original).review_job as JsonObject).origin).toBe(first.url.origin);
 });

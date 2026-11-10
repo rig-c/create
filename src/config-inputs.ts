@@ -98,11 +98,25 @@ export function configInputBindings(dir: string, configPath: string, allowMissin
     if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new Error(`${at}: named input leaves the project`);
     return path.split(sep).join('/');
   };
+  const canonical = (target: string): string => {
+    let cur = target;
+    while (!existsSync(cur)) {
+      try { if (lstatSync(cur).isSymbolicLink()) break; } catch { /* Missing segment; try parent. */ }
+      const parent = dirname(cur);
+      if (parent === cur) return target;
+      cur = parent;
+    }
+    return resolve(realpathSync(cur), relative(cur, target));
+  };
   return configInputReferences(dir, config, unavailable).map((ref): JsonObject => {
     const file = resolve(dir, dirname(configPath), ref.value);
-    if (allowMissing && !existsSync(file)) return { path: contained(ref.at, relative(root, file)), sha256: null };
-    const real = realpathSync(file);
+    const present = existsSync(file);
+    const real = present ? realpathSync(file) : canonical(file);
     const path = contained(ref.at, relative(root, real));
+    if (!present) {
+      if (allowMissing) return { path, sha256: null };
+      realpathSync(file);
+    }
     if (lstatSync(real).isDirectory()) {
       const receipt = join(real, DIRECTORY_INPUT_RECEIPT);
       const bound = `${path}/${DIRECTORY_INPUT_RECEIPT}`;

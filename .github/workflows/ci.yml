@@ -68,7 +68,8 @@ jobs:
             }, null, 2) + "\n");
           '
           bun install --linker=isolated
-          bun --cwd play run build:lib
+          (cd play && bun run build:lib)
+          test -f play/dist/index.js
           for pkg in core parts play review create; do
             git -C "$pkg" diff --exit-code
           done

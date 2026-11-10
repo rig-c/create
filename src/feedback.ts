@@ -23,7 +23,7 @@ import { existsSync, readFileSync } from './check-reads.ts';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, reviewActFindings, reviewActPublicationWarning, reviewActTransport, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
@@ -549,7 +549,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
-    const child = Bun.spawnSync([process.execPath, fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+    const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
       stdin: Buffer.from(JSON.stringify(reviewActTransport(root, actId))), stdout: 'pipe', stderr: 'pipe',
     });
     let response: { ok: boolean; bytes: string; stillBytes?: string; code: string; message: string };

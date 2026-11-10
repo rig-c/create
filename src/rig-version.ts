@@ -67,6 +67,21 @@ function utcDate(raw: Json | undefined): raw is string {
     && Number(raw.slice(11, 13)) < 24 && Number(raw.slice(14, 16)) < 60 && Number(raw.slice(17, 19)) < 60;
 }
 
+const versionDestinations = (n: number): [string, string, string] => [
+  `outputs/v${n}`,
+  `evidence/v${n}/registration`,
+  `derived/review/v${n}`,
+];
+
+function destinationExists(dir: string, target: string, onInvalidPath: (target: string) => never): boolean {
+  let current = dir;
+  for (const part of target.split('/')) {
+    current = join(current, part);
+    if (existsSync(current) && (lstatSync(current).isSymbolicLink() || !lstatSync(current).isDirectory())) onInvalidPath(target);
+  }
+  return existsSync(join(dir, target));
+}
+
 function treeBindings(dir: string, root: string): JsonObject[] {
   return readdirSync(join(dir, root)).sort().flatMap(name => {
     const path = `${root}/${name}`;
@@ -87,7 +102,9 @@ function pathAdapter(raw: Json): JsonObject[] {
 /** Only explicitly registered versions opt in. Older version contracts are unchanged. */
 export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = []): Finding[] {
   const findings: Finding[] = [];
-  for (const version of asArray(project.versions).filter(isObject)) {
+  const allVersions = asArray(project.versions).filter(isObject);
+  const registeredNumbers = new Set(allVersions.map(v => v.n).filter((n): n is number => typeof n === 'number' && Number.isSafeInteger(n)));
+  for (const [index, version] of allVersions.entries()) {
     if (version.registration === undefined) continue;
     const path = `versions[v${String(version.n)}]`;
     const add = (code: string, field: string, why: string): void => { findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: ${why}; restore the retained registration inputs or register a new rig version` }); };
@@ -95,6 +112,30 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
     if (version.kind !== 'rig' || !isObject(record) || record.kind !== 'frozen-rig/1' || !utcDate(record.at)
       || !isObject(record.toolchain) || record.toolchain.kind !== 'npm-lock-v3' || version.at_basis !== 'not-after') {
       add('RIG_REGISTRATION_INVALID', 'registration', 'expected frozen-rig/1, a UTC registration date and npm-lock-v3 declaration'); continue;
+    }
+    const prevMax = Math.max(0, ...allVersions.slice(0, index).map(v => typeof v.n === 'number' && Number.isSafeInteger(v.n) ? v.n : 0));
+    const versionN = typeof version.n === 'number' && Number.isSafeInteger(version.n) ? version.n : 0;
+    if (versionN <= prevMax || allVersions.filter(v => v.n === versionN).length !== 1) {
+      add('RIG_REGISTRATION_INVALID', 'registration', 'version number must strictly follow prior registered versions');
+    } else {
+      const expectedSkipped: number[] = [];
+      for (let k = prevMax + 1; k < versionN; k++) expectedSkipped.push(k);
+      if (expectedSkipped.length === 0) {
+        if (record.skipped !== undefined) add('RIG_REGISTRATION_INVALID', 'registration.skipped', 'no version numbers were skipped before this version');
+      } else if (!Array.isArray(record.skipped) || record.skipped.length !== expectedSkipped.length) {
+        add('RIG_REGISTRATION_INVALID', 'registration.skipped', `expected skipped records for v${expectedSkipped.join(', v')}`);
+      } else {
+        for (const [i, raw] of record.skipped.entries()) {
+          const k = expectedSkipped[i]!;
+          const allowed = versionDestinations(k);
+          if (!isObject(raw) || Object.keys(raw).length !== 2 || raw.n !== k || registeredNumbers.has(k)
+            || !Array.isArray(raw.destinations) || !raw.destinations.length
+            || raw.destinations.some(d => typeof d !== 'string' || !allowed.includes(d))
+            || !isDeepStrictEqual(raw.destinations, allowed.filter(d => (raw.destinations as Json[]).includes(d)))) {
+            add('RIG_REGISTRATION_INVALID', `registration.skipped[${i}]`, `expected unregistered v${k} occupying destinations`);
+          }
+        }
+      }
     }
     const runPaths = checkRegisteredRuns(dir, path, record, findings, warnings);
     try {
@@ -216,17 +257,22 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     original = readFileSync(file);
     if (project.schema !== 'rig-create/project@0') fail('SCHEMA_UNKNOWN', 'schema', 'rig-version reads rig-create/project@0');
     if (!Array.isArray(project.versions) || asArray(project.versions).some(v => !isObject(v) || typeof v.n !== 'number')) fail('RIG_REGISTRATION_INVALID', 'versions', 'restore the version list');
-    if (n !== Math.max(0, ...project.versions.filter(isObject).map(v => Number(v.n))) + 1) fail('RIG_REGISTRATION_INVALID', 'versions', 'use the next version number');
+    const registeredNumbers = new Set(project.versions.map(v => (v as JsonObject).n as number));
+    const maxRegistered = Math.max(0, ...registeredNumbers);
+    if (n <= maxRegistered || registeredNumbers.has(n)) fail('RIG_REGISTRATION_INVALID', 'versions', 'use a version number after all registered versions');
     // Refuse missing public idle provenance before copying any project input.
     const idleSource = resolve(dir, options['--idle']!);
     if (!existsSync(join(idleSource, 'frames.json'))) fail('RIG_IDLE_MANIFEST_MISSING', `versions[v${n}].registration.idle`, 'supply rigc render output with frames.json');
+    const invalidDestination = (target: string): never => fail('RIG_REGISTRATION_PATH_INVALID', target, 'destination must have real directory parents');
     for (const target of [out, evidence, pkg]) {
-      let current = dir;
-      for (const part of target.split('/')) {
-        current = join(current, part);
-        if (existsSync(current) && (lstatSync(current).isSymbolicLink() || !lstatSync(current).isDirectory())) fail('RIG_REGISTRATION_PATH_INVALID', target, 'destination must have real directory parents');
-      }
-      if (existsSync(join(dir, target))) fail('RIG_REGISTRATION_EXISTS', target, 'preserve the existing destination');
+      if (destinationExists(dir, target, invalidDestination)) fail('RIG_REGISTRATION_EXISTS', target, 'preserve the existing destination');
+    }
+    const skipped: { n: number; destinations: string[] }[] = [];
+    for (let k = maxRegistered + 1; k < n; k++) {
+      if (registeredNumbers.has(k)) fail('RIG_REGISTRATION_INVALID', 'versions', `v${k} is already registered`);
+      const destinations = versionDestinations(k).filter(target => destinationExists(dir, target, invalidDestination));
+      if (!destinations.length) fail('RIG_REGISTRATION_INVALID', 'versions', `v${k} has no existing unregistered destination to skip`);
+      skipped.push({ n: k, destinations });
     }
     const systemRoots = [resolve(tmpdir()), '/tmp', '/var', dirname(resolve(positional[1] ?? process.cwd())), dirname(dir)];
     const isSystemAncestor = (candidate: string): boolean =>
@@ -387,6 +433,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections },
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
         ...(runs.length ? { runs } : {}),
+        ...(skipped.length ? { skipped } : {}),
         files: retained, config_source: configSource, path_adapter: adapterBinding, idle, compile,
         copied: { files: outputFiles.length, bytes: outputFiles.reduce((total, f) => total + Number(f.bytes), 0) } } };
     const candidate = { ...project, versions: [...project.versions, version] };
@@ -397,6 +444,10 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     // The record must pass the same check as every other writer's before it is renamed into place.
     const fresh = newFindings(baseline, checkProject(dir, candidate, { now }).refusals)[0];
     if (fresh) refuse(fresh.code, fresh.message);
+    for (const entry of skipped) {
+      const currentDestinations = versionDestinations(entry.n).filter(target => destinationExists(dir, target, invalidDestination));
+      if (!isDeepStrictEqual(currentDestinations, entry.destinations)) fail('RIG_REGISTRATION_SOURCE_CHANGED', `versions[v${n}].registration.skipped`, `v${entry.n} occupying destinations changed during registration`);
+    }
     for (const [path, names] of sourceDirectories) if (!isDeepStrictEqual(readdirSync(path).sort(), names)) fail('RIG_REGISTRATION_SOURCE_CHANGED', path, 'source directory changed during registration');
     for (const source of sources) if (!readFileSync(source.source).equals(source.bytes)) fail('RIG_REGISTRATION_SOURCE_CHANGED', source.source, 'source changed during registration');
     if (!readFileSync(file).equals(original)) fail('RIG_REGISTRATION_SOURCE_CHANGED', 'project.json', 'record changed during registration');

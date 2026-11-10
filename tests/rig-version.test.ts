@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join } from 'node:path';
 import { rigRegistrationFindings } from '../src/rig-version.ts';
@@ -11,6 +11,7 @@ import { fixture, obj } from './fixtures.ts';
 import { clockedCli, run } from './helpers.ts';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding } from '../src/job-outbox.ts';
+import { readRecordPublished } from '../src/job-publication.ts';
 
 const roots: string[] = [];
 const frozen = join(import.meta.dir, 'fixtures/rig-registration');
@@ -367,5 +368,153 @@ describe('frozen rig registration', () => {
     expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
     expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
     expect(existsSync(join(dir, 'derived/review/v1'))).toBe(false);
+  });
+
+  test('admits n > maxRegistered when every intermediate K has an occupied unregistered destination and binds registration.skipped', () => {
+    const { dir, args, load } = setup();
+    put(dir, 'outputs/v1/legacy.txt', 'occupied v1 output\n');
+    put(dir, 'evidence/v2/registration/note.txt', 'occupied v2 registration\n');
+    put(dir, 'derived/review/v2/index.html', '<html>v2</html>\n');
+    mkdirSync(join(dir, 'derived/review/v3'), { recursive: true });
+
+    const v4Args = ['4', ...args.slice(1)];
+    rigVersionCommand(v4Args);
+
+    const projectAfterV4 = load();
+    const v4 = (projectAfterV4.versions as JsonObject[])[0]!;
+    expect(v4.n).toBe(4);
+    const reg4 = obj(v4.registration);
+    expect(reg4.skipped).toEqual([
+      { n: 1, destinations: ['outputs/v1'] },
+      { n: 2, destinations: ['evidence/v2/registration', 'derived/review/v2'] },
+      { n: 3, destinations: ['derived/review/v3'] },
+    ]);
+    expect(rigRegistrationFindings(dir, projectAfterV4)).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+
+    // Next contiguous registration (v5) needs no skipped entry.
+    rigVersionCommand(['5', ...args.slice(1)]);
+    const projectAfterV5 = load();
+    const v5 = (projectAfterV5.versions as JsonObject[])[1]!;
+    expect(v5.n).toBe(5);
+    expect(obj(v5.registration).skipped).toBeUndefined();
+    expect(rigRegistrationFindings(dir, projectAfterV5)).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test('refuses occupied destination on n itself, unexplained gaps, <= maxRegistered, and non-directory/symlinked skipped paths without touching project.json', () => {
+    const { dir, args } = setup();
+    put(dir, 'outputs/v1/legacy.txt', 'occupied v1\n');
+
+    // Unexplained gap at v2 when requesting v3 (v1 occupied, v2 empty)
+    const beforeGap = readFileSync(join(dir, 'project.json'));
+    refused(['3', ...args.slice(1)], 'RIG_REGISTRATION_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeGap);
+    expect(existsSync(join(dir, 'outputs/v3'))).toBe(false);
+
+    // Requesting v2 when v2 itself has an occupied destination (evidence/v2/registration or derived/review/v2)
+    put(dir, 'derived/review/v2/existing.txt', 'occupied target\n');
+    const beforeTargetOccupied = readFileSync(join(dir, 'project.json'));
+    refused(['2', ...args.slice(1)], 'RIG_REGISTRATION_EXISTS');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeTargetOccupied);
+    expect(readFileSync(join(dir, 'derived/review/v2/existing.txt'), 'utf8')).toBe('occupied target\n');
+    rmSync(join(dir, 'derived/review/v2'), { recursive: true });
+
+    // Non-directory file or symlink at skipped destination refuses with RIG_REGISTRATION_PATH_INVALID
+    rmSync(join(dir, 'outputs/v1'), { recursive: true });
+    put(dir, 'outputs/v1', 'regular file instead of directory');
+    const beforeFileDest = readFileSync(join(dir, 'project.json'));
+    refused(['2', ...args.slice(1)], 'RIG_REGISTRATION_PATH_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeFileDest);
+    rmSync(join(dir, 'outputs/v1'));
+
+    mkdirSync(join(dir, 'source/real-v1'), { recursive: true });
+    symlinkSync(join(dir, 'source/real-v1'), join(dir, 'outputs/v1'));
+    const beforeSymlinkDest = readFileSync(join(dir, 'project.json'));
+    refused(['2', ...args.slice(1)], 'RIG_REGISTRATION_PATH_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeSymlinkDest);
+    rmSync(join(dir, 'outputs/v1'));
+
+    // Register v2 cleanly with v1 occupied by a real directory, then refuse n <= maxRegistered (v1 and v2) with RIG_REGISTRATION_INVALID
+    put(dir, 'outputs/v1/legacy.txt', 'occupied v1\n');
+    rigVersionCommand(['2', ...args.slice(1)]);
+    const afterV2 = readFileSync(join(dir, 'project.json'));
+    refused(['1', ...args.slice(1)], 'RIG_REGISTRATION_INVALID');
+    refused(['2', ...args.slice(1)], 'RIG_REGISTRATION_INVALID');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(afterV2);
+
+    // Malformed existing versions entries (string n or non-object) refuse with RIG_REGISTRATION_INVALID and leave project.json byte-identical
+    for (const malformed of [[{ n: '1' }], [null]]) {
+      const broken = JSON.parse(afterV2.toString('utf8')) as JsonObject;
+      broken.versions = malformed as unknown as JsonObject[];
+      put(dir, 'project.json', broken);
+      const beforeMalformed = readFileSync(join(dir, 'project.json'));
+      refused(['3', ...args.slice(1)], 'RIG_REGISTRATION_INVALID');
+      expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeMalformed);
+    }
+  });
+
+  test('validates registration.skipped receipt shape, remains valid after historical archival, and roundtrips through record publication retained root', () => {
+    const { dir, args, load } = setup();
+    const painting = Buffer.from('Synthetic immutable painting input');
+    put(dir, 'inputs/painting.png', painting.toString('utf8'));
+    const initial = load();
+    initial.inputs = [{ ...(initial.inputs as JsonObject[])[0], path: 'inputs/painting.png', sha256: jobHash(painting), bytes: painting.length }];
+    put(dir, 'project.json', initial);
+    // Empty historical skipped directory: no files inside outputs/v1.
+    mkdirSync(join(dir, 'outputs/v1'), { recursive: true });
+    rigVersionCommand(['2', ...args.slice(1)]);
+
+    // 1. Registration -> record publication inventory (while empty outputs/v1 exists in dir) -> retained root (copying only sealed files, without fabricating outputs/v1).
+    const root = realpathSync(dir);
+    const record = { path: 'project.json' as const, sha256: jobHash(readFileSync(join(root, 'project.json'))) };
+    const inventory = readRecordPublished({ root, record, result: { kind: 'plan' }, phase: 'inventory' }, testClock.now());
+    const retainedRoot = join(realpathSync(dirname(dir)), 'retained');
+    mkdirSync(retainedRoot);
+    for (const file of inventory.files) {
+      mkdirSync(dirname(join(retainedRoot, file.path)), { recursive: true });
+      cpSync(join(root, file.path), join(retainedRoot, file.path));
+    }
+    expect(existsSync(join(root, 'outputs/v1'))).toBe(true);
+    expect(existsSync(join(retainedRoot, 'outputs/v1'))).toBe(false);
+    expect(checkProject(retainedRoot).refusals).toEqual([]);
+    expect(readRecordPublished({
+      root: retainedRoot,
+      record,
+      result: { kind: 'plan' },
+      phase: 'retained',
+      parts: inventory.parts,
+    }, testClock.now())).toEqual(inventory);
+
+    // 2. Receipt remains valid in the live root after the historical unregistered directory is archived/removed from disk.
+    rmSync(join(dir, 'outputs/v1'), { recursive: true });
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+
+    // 3. Receipt shape invalid cases in rigRegistrationFindings and checkProject.
+    for (const badSkipped of [
+      undefined,
+      [],
+      [{ n: 2, destinations: ['outputs/v2'] }],
+      [{ n: 1, destinations: [] }],
+      [{ n: 1, destinations: ['outputs/v99'] }],
+      [{ n: 1, destinations: ['derived/review/v1', 'outputs/v1'] }],
+      [{ n: 1, destinations: ['outputs/v1', 'outputs/v1'] }],
+      [{ n: 1, destinations: ['outputs/v1'], extra: true }],
+    ]) {
+      const candidate = load();
+      const reg = obj((candidate.versions as JsonObject[])[0]!.registration);
+      if (badSkipped === undefined) delete reg.skipped;
+      else reg.skipped = badSkipped as unknown as JsonObject[];
+      expect(rigRegistrationFindings(dir, candidate).map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
+      expect(checkProject(dir, candidate).refusals.map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
+    }
+
+    // 4. Supplying registration.skipped when no version gap exists refuses with RIG_REGISTRATION_INVALID.
+    const { dir: dirNoSkip, args: argsNoSkip, load: loadNoSkip } = setup();
+    rigVersionCommand(argsNoSkip);
+    const unexpectedSkipped = loadNoSkip();
+    obj((unexpectedSkipped.versions as JsonObject[])[0]!.registration).skipped = [{ n: 1, destinations: ['outputs/v1'] }];
+    expect(rigRegistrationFindings(dirNoSkip, unexpectedSkipped).map(f => f.code)).toContain('RIG_REGISTRATION_INVALID');
   });
 });

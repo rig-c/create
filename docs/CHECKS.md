@@ -1533,6 +1533,9 @@ restarted record carries exactly the refusals a fresh `init` record carries
 
 | Code | Refuses when | Remedy |
 | --- | --- | --- |
+| `BAR_AMENDMENT_INVALID` | plan.bar_amendments contains malformed, duplicate, future, hash-mismatched, out-of-order or generation-unbound entries; the entire journal grants no effective bar | Restore the original journal and use plan bar-amend. |
+| `BAR_AMENDMENT_SCOPE` | the selected step is finished, lacks an original bar or is outside the current execution stage | Select one unfinished step with a bar in the current execution stage. |
+| `BAR_AMENDMENT_CONFLICT` | a retry changes the amendment's operator, reason, exact words or amended bar for the same step hash and generation | Preserve the original entry and replay its original input files. |
 | `CHECKPOINT_WITHDRAWAL_INVALID` | plan.checkpoint_withdrawals has malformed, duplicate, future, hash-mismatched or generation-unbound entries | Restore the original journal and use plan checkpoint-withdraw. |
 | `CHECKPOINT_WITHDRAWAL_SCOPE` | the selected checkpoint is disabled, finished or outside the current execution stage | Select one enabled unfinished checkpoint in the current execution stage. |
 | `CHECKPOINT_WITHDRAWAL_CONFLICT` | a retry changes an existing withdrawal's operator, reason or exact words | Preserve the original entry and replay its original inputs. |

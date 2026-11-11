@@ -401,3 +401,62 @@ an identical retry reuses the staged file and commits once. Different bytes at
 the deterministic `(jobId, actId)` path refuse
 `PARTS_REVIEW_EVIDENCE_CONFLICT`. A failed invocation removes only evidence it
 created and has not committed. Existing evidence is preserved.
+
+## Sealed checkpoint attachments
+
+The agent attaches a producer's ordered presentation through the writer.
+
+```sh
+rig-create checkpoint-table --file evidence/classification.json --rows pairFrames --out evidence/checkpoint-table.json
+rig-create checkpoint-evidence --file evidence/checkpoint-packets.json
+```
+
+`checkpoint-table` converts every object in the selected top-level array into
+one row, preserving input order and all columns. Columns follow the first row's
+key order. Every later row must have the same keys. Nested objects and arrays
+become JSON text cells. Scalars retain their values. The command validates the
+complete signed table grammar and size before writing, preserves the producer
+source, and refuses to overwrite different output bytes.
+
+`checkpoint-evidence` takes a JSON array of `rig-review-checkpoint-evidence/1`
+packets. Each packet declares `checkpointId`, `planStepId`, ordered
+`tiles[{id,label,path,sha256}]`, `table{path,sha256,label?}`, `routesText` and
+`recommendationText`. Paths are literal project-relative asset paths. The table's
+raw UTF-8 JSON has exactly `schema`, `columns` and `rows`, with schema
+`rig-review-checkpoint-table/1`. Labels, all ordered rows, routes and recommendation
+text remain verbatim. The declaration contains the table seal and optional label.
+
+The writer stores the canonical ordered packets in `plan.checkpoint_evidence`.
+Each checkpoint ID equals its existing plan step ID. It validates the candidate
+with the ordinary check, verifies raw asset seals and table grammar, and commits
+atomically under the attachment lock and any bound job write freeze. Refused writes
+preserve `project.json` bytes. An identical retry writes nothing. The writer adds
+presentation evidence without changing plan approval fields or stage authority.
+
+`checkpoint-evidence --clear` removes the optional `plan.checkpoint_evidence`
+field entirely, allowing its plan steps to be edited or removed through the plan
+writer. Choose one of `--file` and `--clear`. Clear uses the same locks, candidate
+check and atomic commit. Its JSON result is `null`. Repeating clear on an absent
+field writes nothing.
+
+The trusted record-plan and package readers include `checkpointEvidence` only
+for checkpoint subjects they actually declare. Every supplied asset enters the
+trusted closure with its exact path and raw SHA-256. Record option sets omit this
+extension. Historical absence emits no evidence field. Review's signed extension
+owns full PNG decoding, source/instance hashing, retained delivery and EN/KO owner
+presentation. Runtime publication requires that extension in the served Review.
+
+For Create's parts-bound package publications, Review metadata currently requires
+a PNG original painting. An SVG source reaches the PNG-only Parts view loader
+and refuses with `JOB_SOURCE_MISMATCH` from `PARTS_PAINTING_PNG` before projecting
+checkpoint evidence. The PNG-positive and SVG-refusal regression cases cover
+this boundary. [Review #636](https://github.com/rig-c/review/issues/636)
+
+The adjacent owner routes use pass for (i), accepting the openings, and fail with
+the person's verbatim words for (ii) or (iii). The browser sends
+`{checkpointId,outcome,words}` and Review supplies `planStepId`. The separate
+`signoff <stage> --checkpoint <id> --from-review <actId>` writer consumes passed
+package `act@2` or record `act@4` checkpoints. Failed acts refuse sign-off. A
+changed checkpoint packet makes first ingest stale. The immutable passed receipt
+keeps its existing replay behavior. The recommendation remains labelled producer
+text and grants no approval authority.

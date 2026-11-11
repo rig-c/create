@@ -10,6 +10,7 @@ import { jobRuntimeExecArgv } from './job-writer.ts';
 import { refuse } from './refusal.ts';
 import { assertActSubjectDeclared, checkpointActSignoff, decodeReviewAct, reviewActFindings, reviewActTransport, type CheckpointAct, type ReviewActTransport } from './review-act.ts';
 import { stepHash } from './step-hash.ts';
+import { readCheckpointEvidence } from './checkpoint-evidence.ts';
 import type { JsonObject } from './templates.ts';
 
 export interface SignoffHooks {
@@ -69,6 +70,12 @@ export function ingestCheckpointAct(dir: string, project: JsonObject, actId: str
   const current = asArray(plan?.steps).map(raw => ({ id: isObject(raw) ? raw.id : null, hash: isObject(raw) ? stepHash(raw) : null }));
   if (!isDeepStrictEqual(act.source.plan.steps, current)) {
     refuse('REVIEW_ACT_SOURCE_STALE', `signoffs.checkpoint ${checkpointId}: displayed plan step identities changed since act ${act.jobId}/${act.actId}; ask for the checkpoint again on the current plan`);
+  }
+  const displayedEvidence = (act.source as { checkpointEvidence?: readonly { checkpointId: string }[] }).checkpointEvidence
+    ?.find(packet => packet.checkpointId === checkpointId);
+  const currentEvidence = readCheckpointEvidence(dir, project)?.find(packet => packet.checkpointId === checkpointId);
+  if (!isDeepStrictEqual(displayedEvidence, currentEvidence)) {
+    refuse('REVIEW_ACT_SOURCE_STALE', `signoffs.checkpoint ${checkpointId}: sealed checkpoint presentation changed since act ${act.jobId}/${act.actId}; ask for the checkpoint again on the current evidence`);
   }
   return fields;
 }

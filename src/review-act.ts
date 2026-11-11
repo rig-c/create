@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import type { JobAct, JobModelSourceBinding } from '@rig-c/review/job-host';
+import { parseRecordAct, type JobAct, type JobModelSourceBinding, type RecordAct } from '@rig-c/review/job-host';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -36,7 +36,7 @@ export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
 };
 export type PartsVerdictAct = PartsVerdictActV2 | PartsVerdictActV5;
 export type ReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
-export type CheckpointAct = Extract<JobAct, { kind: 'checkpoint' }>;
+export type CheckpointAct = Extract<JobAct | RecordAct, { kind: 'checkpoint' }>;
 export type SignoffAct = Extract<JobAct, { kind: 'signoff' }>;
 /** Review requires a displayed plan before it creates a signoff act for these stages (job-contract JOB_PLAN_BOUND_SIGNOFF_STAGES). */
 export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'rigging-interview', 'post-interview'];
@@ -60,6 +60,13 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
+  if (kind === 'checkpoint' && act.schema === 'rig-review/act@4') {
+    try {
+      const recordAct = parseRecordAct(act);
+      if (recordAct.kind !== 'checkpoint') return failure('REVIEW_ACT_KIND_MISMATCH', 'record act is not a checkpoint');
+      return recordAct;
+    } catch { return failure('REVIEW_ACT_INVALID', 'record checkpoint act or its sealed source is malformed'); }
+  }
   if (act.schema !== 'rig-review/act@2' && !(kind === 'review-verdict' && act.schema === 'rig-review/act@3')
     && !(kind === 'parts-verdict' && act.schema === 'rig-review/act@5')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
   const source = act.source;

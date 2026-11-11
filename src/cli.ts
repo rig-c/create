@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
+import { CHECKPOINT_EVIDENCE_HELP, checkpointEvidenceCommand, checkpointTableCommand } from './checkpoint-evidence-writer.ts';
 import { partsReviewCommand } from './parts-review.ts';
 import { INTAKE_HELP, intakeCommand, intakeReportCommand } from './intake.ts';
 import { DIRECTION_HELP, directionCommand } from './direction-writers.ts';
@@ -143,6 +144,8 @@ ${DIFF_CLASSES_HELP}
 
 ${PLAN_HELP}
 
+${CHECKPOINT_EVIDENCE_HELP}
+
 ${PROGRESS_HELP}
 
 ${REOPEN_HELP}
@@ -249,6 +252,8 @@ const COMMANDS: Record<string, Command> = {
   signoff: signoffCommand,
   'diff-classes': diffClassesCommand,
   plan: planCommand,
+  'checkpoint-evidence': checkpointEvidenceCommand,
+  'checkpoint-table': checkpointTableCommand,
   reopen: reopenCommand,
   pause: pauseCommand,
   resume: resumeCommand,

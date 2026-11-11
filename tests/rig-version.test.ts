@@ -176,6 +176,12 @@ describe('frozen rig registration', () => {
 
   test.each([false, true])('writer commit owns live publication, with stopped host=%s', async stopped => {
     const { dir, args, load } = setup();
+    const source = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
+    writeFileSync(join(dir, 'inputs/painting.png'), source);
+    const record = load();
+    record.inputs = [{ path: 'inputs/painting.png', sha256: jobHash(source), bytes: source.length,
+      origin: 'synthetic original painting', at: new Date(testClock.now()).toISOString() }];
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(record, null, 2)}\n`);
     const host = await openCreateJob(dir, { id: 'reviewer', role: 'owner' }, testClock.now());
     const binding = readWriterBinding(dir)!;
     expect(binding.listenerIncarnation).toBe(host.attachment!.listenerIncarnation);

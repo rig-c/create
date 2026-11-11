@@ -1,3 +1,4 @@
+import { checkInputs } from './inputs.ts';
 import { pngDimensions } from './scene.ts';
 import { checkpointRequired } from './plan-history.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -326,7 +327,7 @@ export function publicationSelector(project: JsonObject, n: number): Exclude<Job
 /** A manifest over the existing frozen model/direction, with project-relative paths.
  * Source documents and compiled producer output remain byte-identical.
  */
-export function prepareLiveManifest(root: string, project: JsonObject, n: number): string {
+export function prepareLiveManifest(root: string, project: JsonObject, n: number, warnings: Finding[] = []): string {
   const selector = publicationSelector(project, n);
   const rig = selector.kind === 'post' ? selector.rigVersion : n;
   const model = `derived/review/v${rig}/out/check/build/skeleton.model.json`;
@@ -342,7 +343,24 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   // Reopening an exact old publication preserves both its bytes and its identity.
   const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
   if (existing?.equals(legacyBytes)) return path;
-  const painting = publishedSourcePainting(root, project, `versions[v${n}]`);
+  // init permits projects without an original; publication did not require one.
+  if (project.inputs === undefined || (Array.isArray(project.inputs) && project.inputs.length === 0)) {
+    if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
+    writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
+    return path;
+  }
+  let painting: { path: string; sha256: string };
+  try { painting = publishedSourcePainting(root, project, `versions[v${n}]`); }
+  catch (error) {
+    const findings = { dir: root, project, refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkInputs(findings);
+    const legacy = findings.warnings.find(finding => finding.code === 'INPUT_WRITER_MISSING' && finding.path === 'inputs[0]');
+    if (!legacy) throw error;
+    if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
+    warnings.push(legacy);
+    writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
+    return path;
+  }
   let size: { width?: number; height?: number } = {};
   if (/\.png$/i.test(painting.path)) {
     try { size = pngDimensions(publicationFile(root, painting.path), painting.path); }

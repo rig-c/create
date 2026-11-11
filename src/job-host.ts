@@ -418,7 +418,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no writer-owned binding; run rig-create job close, then rig-create job open');
       if (targetSelector.kind === 'draft') draftPublicationContext(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), targetSelector.id);
-      if (rigSelector) prepareLiveManifest(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), rigSelector.version);
+      if (rigSelector) prepareLiveManifest(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), rigSelector.version, warnings);
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     } finally { release(); }

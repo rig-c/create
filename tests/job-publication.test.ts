@@ -1,3 +1,4 @@
+import { checkInputs } from '../src/inputs.ts';
 import { planCommand } from '../src/plan-writers.ts';
 import { checkpointProblem, packageSignSubjects } from '../src/signable.ts';
 import { stepHash } from '../src/step-hash.ts';
@@ -41,7 +42,7 @@ function setup(): { root: string; project: JsonObject } {
   put('project.json', JSON.stringify(project));
   cpSync(join(import.meta.dir, 'fixtures/rig-registration/build'), join(root, 'derived/review/v1/out/check/build'), { recursive: true });
   const png = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/build/rectangle.png'));
-  project.inputs = [{ path: 'derived/review/v1/out/painting_in_rig.png', sha256: jobHash(png), bytes: png.length }];
+  project.inputs = [{ path: 'derived/review/v1/out/painting_in_rig.png', sha256: jobHash(png), bytes: png.length, origin: 'synthetic original', at: new Date(now).toISOString() }];
   put('derived/review/v1/out/parts.json', JSON.stringify({ rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
     painting_in_rig: { path: 'painting_in_rig.png', sha256: jobHash(png), resample: 'lanczos3-rgb-opaque' },
     parts: [{ name: 'rectangle', from: 'painting:rectangle', x: 0, y: 0, w: 8, h: 16, opaque_px: 128,
@@ -1145,5 +1146,58 @@ test('an SVG original publishes exactly one image reference without dimensions',
   const manifest = JSON.parse(readFileSync(join(root, path), 'utf8'));
   expect(manifest.references).toEqual([{ id: 'original-painting', label: 'Original painting', type: 'image', path: source }]);
   expect(jobHash(readFileSync(join(root, manifest.references[0].path)))).toBe(jobHash(bytes));
+  expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
+});
+
+
+test.each(['rig', 'post'] as const)('a %s publication without an original preserves the optional-input contract', kind => {
+  for (const inputs of [undefined, []]) {
+    const { root, project } = setup();
+    if (inputs === undefined) delete project.inputs;
+    else project.inputs = inputs;
+    if (kind === 'post') (project.versions as JsonObject[]).push({ n: 2, kind: 'post', rig_version: 1 });
+    const before = readFileSync(join(root, 'project.json'));
+    const n = kind === 'post' ? 2 : 1;
+    const path = prepareLiveManifest(root, project, n);
+    const bytes = readFileSync(join(root, path));
+    expect(JSON.parse(bytes.toString()).references).toEqual([]);
+    expect(prepareLiveManifest(root, project, n)).toBe(path);
+    expect(readFileSync(join(root, path)).equals(bytes)).toBe(true);
+    expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
+    const changed = JSON.parse(bytes.toString());
+    changed.title = 'Unexpected replacement';
+    writeFileSync(join(root, path), JSON.stringify(changed));
+    expect(() => prepareLiveManifest(root, project, n)).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  }
+});
+
+
+test.each(['missing', 'hash'] as const)('a complete original with %s bytes is already a check refusal', defect => {
+  const { root, project } = setup();
+  const input = (project.inputs as JsonObject[])[0];
+  if (defect === 'missing') rmSync(join(root, String(input.path)));
+  else input.sha256 = '0'.repeat(64);
+  const findings = { dir: root, project, refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
+  checkInputs(findings);
+  expect(findings.refusals.map(finding => finding.code)).toEqual([defect === 'missing' ? 'INPUT_FILE_UNREADABLE' : 'INPUT_FILE_CHANGED']);
+  expect(() => prepareLiveManifest(root, project, 1)).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
+});
+
+test.each(['missing', 'hash'] as const)('a legacy original with %s bytes retains the existing input warning and publishes without a reference', defect => {
+  const { root, project } = setup();
+  const input = (project.inputs as JsonObject[])[0];
+  delete input.at;
+  if (defect === 'missing') rmSync(join(root, String(input.path)));
+  else input.sha256 = '0'.repeat(64);
+  const findings = { dir: root, project, refusals: [] as { code: string; path: string; message: string }[], warnings: [] as { code: string; path: string; message: string }[] };
+  checkInputs(findings);
+  expect(findings.refusals).toEqual([]);
+  expect(findings.warnings.map(finding => finding.code)).toEqual(['INPUT_WRITER_MISSING']);
+  const warnings: typeof findings.warnings = [];
+  const before = readFileSync(join(root, 'project.json'));
+  const path = prepareLiveManifest(root, project, 1, warnings);
+  expect(JSON.parse(readFileSync(join(root, path), 'utf8')).references).toEqual([]);
+  expect(warnings).toEqual(findings.warnings);
   expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
 });

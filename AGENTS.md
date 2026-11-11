@@ -20,22 +20,22 @@ Read this before choosing work. It ranks every issue in this repository.
    from parts, review and core. When a project hits a gap in another
    package, file the issue in that package's repository, name the step it
    blocks, and follow it until it lands. Don't work around the gap here.
-3. **Every human act goes through the review tool.** That covers parts
+3. **Agents route human acts through the review tool.** That covers parts
    verdicts, interview picks, corrections and review verdicts. create
-   ingests what the tool exports, through its writers. Each of these is a
-   **bypass**:
-   - a question asked in chat;
-   - an answer typed into a record;
-   - a stage moved by hand.
+   ingests what the tool exports, through its writers. These agent acts are
+   a **bypass**:
+   - asking the owner in chat instead of through the tool;
+   - typing an answer into a record;
+   - moving a stage by hand.
 
    A bypass is recorded as a finding and gets an issue. It never counts as
    done, even when `check` passes.
 
-   Exception: exactly two operator policy journals, `plan checkpoint-withdraw`
-   and `plan bar-amend`, require an operator, a reason file and the decision
-   maker's exact quoted words. Neither creates or replaces a verdict, pick,
-   correction or signature. Every other human decision outside Review remains
-   a bypass.
+   Direct owner instructions provide authority. Record the operator,
+   reason file and owner's exact words through `plan checkpoint-withdraw` or
+   `plan bar-amend`. Neither creates or replaces a verdict, pick, correction
+   or signature. If implementation is difficult or regressive, give grounded
+   pushback to the owner through HQ before acting.
 4. **Pilot projects exist to exercise the cycle.** A pilot that stalls is a
    measurement of the tools. Fix the tool, not the pilot.
 5. **Queue rule.** Every open issue is either on the cycle's path or off it.

@@ -38,6 +38,7 @@ function completed(project: JsonObject, step: JsonObject): boolean {
 
 export function planCommand(args: string[], now: number): { stdout: string; exit: number } {
   const action = args[0];
+  if (action === 'help' || args.includes('--help')) return { stdout: PLAN_HELP, exit: 0 };
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;

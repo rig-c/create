@@ -19,7 +19,7 @@ test('--help lists init', () => {
   expect(result.stdout).toContain(PLAN_HELP);
 });
 
-test.each([
+for (const args of [
   ['help'],
   ['--help'],
   ['add', '--help'],
@@ -27,7 +27,7 @@ test.each([
   ['remove', '--help'],
   ['checkpoint-withdraw', '--help'],
   ['bar-amend', '--help'],
-])('plan %j prints the existing help without reading a project', (...args) => {
+]) test(`plan ${args.join(' ')} prints the existing help without reading a project`, () => {
   const result = cli(['plan', ...args], tempDir(), gitEnv());
   expect(result.code).toBe(0);
   expect(result.stdout).toBe(`${PLAN_HELP}\n`);

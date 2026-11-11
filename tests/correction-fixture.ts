@@ -6,6 +6,55 @@ import { correctionHash } from '../src/corrections.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { correctionCommand, testClock } from './clock.ts';
+import { readReview, type ReviewReadRunner } from '../src/review-read.ts';
+
+export const COMMENTS_APPLY_ID = 'existing-feedback-id';
+/** Synthetic CLI stdout in Review 2.12.0's public session/2 shape; no producer is run. */
+export const commentsReviewRunner: ReviewReadRunner = dir => ({
+  stdout: readFileSync(join(dir, 'evidence/feedback.json')),
+  stderr: '', exitCode: 0, tool: { name: '@rig-c/review', version: '2.12.0' },
+});
+
+/** Keep the session/1 fixture intact; session/2 has its own frozen stdout and full applied/2 context. */
+export function correctionCommentsFixture(dir: string, change?: (session: JsonObject) => void) {
+  const now = testClock.now();
+  let base: ReturnType<typeof correctionFixture>;
+  try { base = correctionFixture(dir, 'rig'); }
+  finally { testClock.set(now); }
+  let stdout = readFileSync(join(import.meta.dir, 'fixtures/correction-path/session2-applied.json'));
+  const session = JSON.parse(stdout.toString('utf8')) as JsonObject;
+  if (change) {
+    change(session);
+    stdout = Buffer.from(JSON.stringify(session, null, 3) + '\n');
+  }
+  writeFileSync(join(dir, 'evidence/feedback.json'), stdout);
+  const selected = (session.comments as JsonObject[]).find(comment => (comment.anchor as JsonObject | undefined)?.id === COMMENTS_APPLY_ID)!;
+  const applied = ((selected.anchor as JsonObject).context as JsonObject).applied as JsonObject;
+  const read = readReview(dir, 'evidence/feedback.json', commentsReviewRunner);
+  const project = base.project;
+  (project.versions as JsonObject[])[1]!.review_origin = {
+    feedback: read.file, review_read: read.receipt, source_version: 1, feedback_id: COMMENTS_APPLY_ID, applied: structuredClone(applied),
+  };
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2) + '\n');
+  return { ...base, project, session, stdout, applied, read };
+}
+
+/** A codec-valid two-build control, deliberately outside the single-build Apply adapter. */
+export function commentsComparison(session: JsonObject): JsonObject {
+  const binding = {
+    a: { sourceHash: session.sourceHash, reviewedSource: session.reviewedSource },
+    b: { sourceHash: correctionHash(Buffer.from('synthetic comparison source')), reviewedSource: session.reviewedSource },
+    reference: { name: 'synthetic-reference.png', sha256: correctionHash(Buffer.from('synthetic reference')) },
+    animation: 'setup',
+  };
+  return {
+    schema: 'rig-review-compare-session/2', id: 'synthetic-comparison', revision: 'compare/1',
+    sourceHash: correctionHash(Buffer.from(JSON.stringify(binding))), binding,
+    status: session.status, feedbackWarnings: [], updatedAt: null,
+    comments: (session.comments as JsonObject[]).map(comment => comment.anchor
+      ? { ...comment, anchor: { ...(comment.anchor as JsonObject), side: 'a' } } : comment),
+  };
+}
 
 export function correctionFixture(dir:string,kind:'post'|'rig'|'parts'='post'): {project:JsonObject;files:Record<string,string>;args:string[];outcome:string[]} {
   const files:Record<string,string>={

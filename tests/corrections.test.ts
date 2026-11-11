@@ -13,7 +13,7 @@ import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { hasStageOrder, LEGACY_STAGE_VALUES } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { correctionFixture } from './correction-fixture.ts';
+import { correctionFixture, correctionCommentsFixture, commentsReviewRunner, COMMENTS_APPLY_ID } from './correction-fixture.ts';
 import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, diffClassesCommand, draftRigCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
 
@@ -36,6 +36,29 @@ test('stage-1 parts corrections exist before a version and approved parts must m
 test('synthetic shape-only applied-and-checked binds retained session and outcome; no producer gate proof',()=>{const f=fixture('rig');record(f.dir,f.args,'made',['--feedback-file','evidence/feedback.json','--item','synthetic-apply']);close(f.dir,f.outcome);expect(check(f.dir)).toMatchObject({refusals:[],warnings:[]});});
 test('API patch capture preserves the producer patchSha256 claim',()=>{const f=fixture('rig');record(f.dir,f.args,'made',['--patch-file','synthetic-review','--item','synthetic-apply']);close(f.dir,f.outcome,['--applied-feedback','evidence/feedback.json','--feedback-id','synthetic-apply']);expect(check(f.dir).refusals).toEqual([]);});
 test('mismatched applied patch refuses closure byte-identically',()=>{const f=fixture('rig');record(f.dir,f.args,'made',['--patch-file','synthetic-review','--item','synthetic-apply']);const s=JSON.parse(readFileSync(join(f.dir,'evidence/feedback.json'),'utf8'));s.feedback[0].context.applied.patch.ops[0].value='different';writeFileSync(join(f.dir,'evidence/feedback.json'),JSON.stringify(s));rejected(f.dir,'CORRECTION_APPLIED_INVALID',()=>close(f.dir,f.outcome,['--applied-feedback','evidence/feedback.json','--feedback-id','synthetic-apply']));});
+
+test('session/2 replacement Apply with changed patch bytes refuses closure and preserves project and first stdout', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'correction-comments-patch-'));
+  roots.push(dir);
+  const f = correctionCommentsFixture(dir);
+  testClock.set(new Date('2026-11-04T09:10:00Z'));
+  expect(correctionCommand(['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--version', '1',
+    '--by', 'user', '--feedback-file', 'evidence/feedback.json', '--item', COMMENTS_APPLY_ID], commentsReviewRunner).exit).toBe(0);
+  const original = readFileSync(join(dir, String(f.read.file.path)));
+  const changed = structuredClone(f.session);
+  const entry = (changed.comments as JsonObject[]).find(comment => (comment.anchor as JsonObject | undefined)?.id === COMMENTS_APPLY_ID)!;
+  const applied = ((entry.anchor as JsonObject).context as JsonObject).applied as JsonObject;
+  ((applied.patch as JsonObject).ops as JsonObject[])[0]!.value = 'different';
+  // This is a new producer claim, not a request for Create to recompute patchSha256.
+  applied.patchSha256 = 'c'.repeat(64);
+  writeFileSync(join(dir, 'evidence/feedback.json'), JSON.stringify(changed, null, 3) + '\n');
+  testClock.set(new Date('2026-11-04T10:00:00Z'));
+  rejected(dir, 'CORRECTION_APPLIED_INVALID', () => correctionCommand(['resolve', 'fix', dir, '--version', '2', '--by', 'agent',
+    '--reasoning-file', join(dir, 'reasoning.txt'), '--applied-feedback', 'evidence/feedback.json', '--feedback-id', COMMENTS_APPLY_ID], commentsReviewRunner));
+  expect(readFileSync(join(dir, String(f.read.file.path)))).toEqual(original);
+  expect(original).toEqual(f.stdout);
+  expect(check(dir)).toMatchObject({ refusals: [], warnings: [{ code: 'CORRECTION_OPEN' }] });
+});
 for(const field of ['pass','gate','exitCode'])test(`failed ${field} cannot claim checked completion`,()=>{const f=fixture('rig');const s=JSON.parse(readFileSync(join(f.dir,'evidence/feedback.json'),'utf8'));s.feedback[0].context.applied.check[field]=field==='exitCode'?1:false;writeFileSync(join(f.dir,'evidence/feedback.json'),JSON.stringify(s));const p=load(f.dir);((p.versions as JsonObject[])[1]!.review_origin as JsonObject).feedback={path:'evidence/feedback.json',sha256:'0'.repeat(64)};writeFileSync(join(f.dir,'project.json'),JSON.stringify(p));record(f.dir,f.args,'made',['--feedback-file','evidence/feedback.json','--item','synthetic-apply']);rejected(f.dir,'CORRECTION_APPLIED_INVALID',()=>close(f.dir,f.outcome));});
 test('mesh delta records as unsupported and cannot be closed',()=>{const f=fixture('rig');const s=JSON.parse(readFileSync(join(f.dir,'evidence/feedback.json'),'utf8'));s.feedback[0].context.applied.schema='rig-review-applied/3';writeFileSync(join(f.dir,'evidence/feedback.json'),JSON.stringify(s));record(f.dir,f.args,'made',['--feedback-file','evidence/feedback.json','--item','synthetic-apply']);expect(check(f.dir).warnings.map(x=>x.code)).toEqual(['CORRECTION_UNSUPPORTED']);rejected(f.dir,'CORRECTION_UNSUPPORTED_OUTCOME',()=>close(f.dir,f.outcome));});
 test('changed retained bytes refuse and do not alter the project',()=>{const f=fixture();record(f.dir,f.args);writeFileSync(join(f.dir,'evidence/source.model.json'),'changed');rejected(f.dir,'CORRECTION_HASH',()=>close(f.dir,f.outcome));});

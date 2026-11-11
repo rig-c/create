@@ -1,0 +1,230 @@
+{
+   "schema": "rig-review-session/2",
+   "id": "synthetic-comments-apply",
+   "revision": "1",
+   "sourceHash": "1800884ea5a37f26b5c5cc519e956e3d4d24d322c5f93414594834916bf45380",
+   "reviewedSource": {
+      "packageRevision": "1",
+      "viewerVersion": "2.12.0",
+      "runtimeVersion": "1.24.0",
+      "rig": {
+         "path": "build/skeleton.model.json",
+         "sha256": "42cded4ea628d476256696c70e20f467e06cf57f0054b249bc81bb29b526df10"
+      },
+      "motion": null,
+      "handoff": {
+         "config": {
+            "path": "evidence/source-config.json",
+            "sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069"
+         },
+         "files": [
+            {
+               "path": "../../config.json",
+               "sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069"
+            }
+         ],
+         "missing": []
+      }
+   },
+   "status": "changes-requested",
+   "checkpoints": {},
+   "comments": [
+      {
+         "text": "  General comment, outside the selected correction  "
+      },
+      {
+         "text": "Fix this",
+         "anchor": {
+            "id": "other-feedback-id",
+            "frameStart": 3,
+            "frameEnd": 3,
+            "target": {
+               "kind": "slot",
+               "name": "sleeve"
+            },
+            "category": "quality",
+            "context": {
+               "applied": {
+                  "stageInputHash": "49238b60231f65b059b10100b293d9943738f5d316c0db32f93fcb042f5386a2",
+                  "schema": "rig-review-applied/2",
+                  "buildId": "74605cba187b78e3a484301577fd09c4266129f8981e54e020aa96c22a350baf",
+                  "patch": {
+                     "schema": "rig-review-config-patch/1",
+                     "config_sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
+                     "ops": [
+                        {
+                           "op": "replace",
+                           "path": "/note",
+                           "value": "synthetic outcome"
+                        }
+                     ],
+                     "producer": {
+                        "name": "@rig-c/parts",
+                        "version": "2.37.0"
+                     },
+                     "op": {
+                        "cmd": "rig",
+                        "args": []
+                     }
+                  },
+                  "patchSha256": "afe9812b62f6fe656236dd54e14258cb5501058718903b6a00ebde189e2211fc",
+                  "configHash": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
+                  "producer": {
+                     "package": "@rig-c/parts",
+                     "version": "2.37.0"
+                  },
+                  "compiler": {
+                     "package": "@rig-c/core",
+                     "version": "3.7.0"
+                  },
+                  "line": "synthetic shape-only, not measured",
+                  "check": {
+                     "schema": "rig-review-check-summary/1",
+                     "pass": true,
+                     "exitCode": 0,
+                     "line": "check: synthetic shape-only",
+                     "bars": {
+                        "SYNTHETIC": "PASS",
+                        "SYNTHETIC_REPORT": "SKIP"
+                     },
+                     "gate": true,
+                     "source": "check"
+                  },
+                  "diff": {
+                     "count": 1,
+                     "paths": [
+                        "/note"
+                     ]
+                  },
+                  "modelHash": "274c94fdb6be5e2ef5cfc9cf766dd5c0a2b05e11add798c05ef884097d60cd4c",
+                  "files": {
+                     "documents": [
+                        {
+                           "file": "rig.json",
+                           "count": 1,
+                           "paths": [
+                              "/note"
+                           ]
+                        }
+                     ],
+                     "images": {
+                        "changed": 0,
+                        "unchanged": 1,
+                        "names": []
+                     }
+                  },
+                  "op": "rig",
+                  "environment": {
+                     "sha256": "01d64f3716b528ff5dc044bd616758f8ea92d96fcdbde2120185afccc6a73e71",
+                     "steps": 1
+                  }
+               },
+               "animation": null,
+               "interval": {
+                  "frameStart": 3,
+                  "frameEnd": 3,
+                  "inclusive": true
+               }
+            }
+         }
+      },
+      {
+         "text": "Fix this",
+         "anchor": {
+            "id": "existing-feedback-id",
+            "frameStart": 3,
+            "frameEnd": 3,
+            "target": {
+               "kind": "slot",
+               "name": "sleeve"
+            },
+            "category": "quality",
+            "context": {
+               "applied": {
+                  "stageInputHash": "49238b60231f65b059b10100b293d9943738f5d316c0db32f93fcb042f5386a2",
+                  "schema": "rig-review-applied/2",
+                  "buildId": "a2fd35611e6ab1efc044fa1373cbf6b2ecbf42577e736f58118a05f7ad185964",
+                  "patch": {
+                     "schema": "rig-review-config-patch/1",
+                     "config_sha256": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
+                     "ops": [
+                        {
+                           "op": "replace",
+                           "path": "/note",
+                           "value": "synthetic outcome"
+                        }
+                     ],
+                     "producer": {
+                        "name": "@rig-c/parts",
+                        "version": "2.37.0"
+                     },
+                     "op": {
+                        "cmd": "rig",
+                        "args": []
+                     }
+                  },
+                  "patchSha256": "afe9812b62f6fe656236dd54e14258cb5501058718903b6a00ebde189e2211fc",
+                  "configHash": "02006a00e6bd712880b53463501c5e0ce676f1dfd276197c40114c7f9d7b8069",
+                  "producer": {
+                     "package": "@rig-c/parts",
+                     "version": "2.37.0"
+                  },
+                  "compiler": {
+                     "package": "@rig-c/core",
+                     "version": "3.7.0"
+                  },
+                  "line": "synthetic shape-only, not measured",
+                  "check": {
+                     "schema": "rig-review-check-summary/1",
+                     "pass": true,
+                     "exitCode": 0,
+                     "line": "check: synthetic shape-only",
+                     "bars": {
+                        "SYNTHETIC": "PASS",
+                        "SYNTHETIC_REPORT": "SKIP"
+                     },
+                     "gate": true,
+                     "source": "check"
+                  },
+                  "diff": {
+                     "count": 1,
+                     "paths": [
+                        "/note"
+                     ]
+                  },
+                  "modelHash": "274c94fdb6be5e2ef5cfc9cf766dd5c0a2b05e11add798c05ef884097d60cd4c",
+                  "files": {
+                     "documents": [
+                        {
+                           "file": "rig.json",
+                           "count": 1,
+                           "paths": [
+                              "/note"
+                           ]
+                        }
+                     ],
+                     "images": {
+                        "changed": 0,
+                        "unchanged": 1,
+                        "names": []
+                     }
+                  },
+                  "op": "rig",
+                  "environment": {
+                     "sha256": "01d64f3716b528ff5dc044bd616758f8ea92d96fcdbde2120185afccc6a73e71",
+                     "steps": 1
+                  }
+               },
+               "animation": null,
+               "interval": {
+                  "frameStart": 3,
+                  "frameEnd": 3,
+                  "inclusive": true
+               }
+            }
+         }
+      }
+   ],
+   "feedbackWarnings": [],
+   "updatedAt": null
+}

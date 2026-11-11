@@ -6,7 +6,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { JsonObject } from '../src/templates.ts';
-import { correctionFixture } from './correction-fixture.ts';
+import { correctionHash } from '../src/corrections.ts';
+import { checkAppliedReview } from '../src/applied-review.ts';
+import { readReview, retainedReviewRead, reviewSessionSource, selectedReviewFeedback, type ReviewReadRunner } from '../src/review-read.ts';
+import { parseCommentsSession, parseCommentsCompareSession, projectSelectedCommentsFeedback } from '@rig-c/review/job-host';
+import { correctionFixture, correctionCommentsFixture, commentsComparison, commentsReviewRunner, COMMENTS_APPLY_ID } from './correction-fixture.ts';
 import { checkCorrections, correctionCommand, TEST_NOW, testClock } from './clock.ts';
 
 const roots: string[] = [];
@@ -38,15 +42,15 @@ function fixture(change: (applied: JsonObject) => void) {
   writeFileSync(projectFile, JSON.stringify(project, null, 2) + '\n');
   return dir;
 }
-function command(dir: string, action: 'record' | 'resolve') {
+function command(dir: string, action: 'record' | 'resolve', runner: ReviewReadRunner = syntheticReviewRunner, item = 'synthetic-apply') {
   const args = action === 'record'
-    ? ['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', 'synthetic-apply']
+    ? ['record', dir, '--id', 'fix', '--path', 'made', '--stage', 'rig-review', '--by', 'user', '--version', '1', '--feedback-file', 'evidence/feedback.json', '--item', item]
     : ['resolve', 'fix', dir, '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt'), '--version', '2'];
   // Capture, the corrected build and closure happen one second apart, in that order.
   testClock.set(TEST_NOW + (action === 'record' ? 0 : 2000));
   let result: {exitCode:number;stdout:Buffer;stderr:Buffer};
   try {
-    const value=correctionCommand(args,syntheticReviewRunner);
+    const value=correctionCommand(args,runner);
     result={exitCode:value.exit,stdout:Buffer.from(value.stdout),stderr:Buffer.from('')};
   } catch(error) {
     if(!(error instanceof Refusal))throw error;
@@ -164,3 +168,127 @@ for (const [name, bars] of Object.entries({
     refused(dir, 'resolve', 'CORRECTION_APPLIED_INVALID');
   });
 }
+
+const commentsOracles = (JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/review-comments-v5-oracles.json'), 'utf8')) as { cases: JsonObject[] }).cases;
+const standaloneOracle = commentsOracles.find(row => row.id === 'standalone-new-comment-reader')!;
+const wordingOracle = commentsOracles.find(row => row.id === 'later-Apply-stable-wording')!;
+function commentsFixture(change?: (session: JsonObject) => void) {
+  const dir = mkdtempSync(join(tmpdir(), 'correction-comments-'));
+  roots.push(dir);
+  return { dir, ...correctionCommentsFixture(dir, change) };
+}
+function commentsApplied(session: JsonObject): JsonObject {
+  const selected = (session.comments as JsonObject[]).find(comment => (comment.anchor as JsonObject | undefined)?.id === COMMENTS_APPLY_ID)!;
+  return ((selected.anchor as JsonObject).context as JsonObject).applied as JsonObject;
+}
+function refusedComments(dir: string, code: string, item = COMMENTS_APPLY_ID, runner = commentsReviewRunner) {
+  const before = readFileSync(join(dir, 'project.json'));
+  const result = command(dir, 'record', runner, item);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr.toString().split(' ')[0]).toBe(code);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+}
+
+test('session/2 full applied frame anchor matches Review 2.12.0 parser/projector and the signed v5 oracle', () => {
+  const f = commentsFixture();
+  const before = structuredClone(f.session);
+  const parsed = parseCommentsSession(f.session);
+  expect<unknown>(parsed).toEqual(f.session);
+  expect(f.session.schema).toBe(standaloneOracle.schema);
+  expect<unknown>(COMMENTS_APPLY_ID).toBe(standaloneOracle.selected_anchor_id);
+  const projected = projectSelectedCommentsFeedback(parsed, COMMENTS_APPLY_ID);
+  expect<unknown>(projected.summary).toBe(wordingOracle.expected_old_and_new_projection);
+  expect(projected.anchor).toMatchObject({ ...wordingOracle.old_anchor as JsonObject, id: COMMENTS_APPLY_ID, context: { applied: f.applied } });
+  // The oracle's old capture ID is incidental; the selected ID is the standalone reader contract.
+  expect(projected.anchor.id).toBe(COMMENTS_APPLY_ID);
+  expect<unknown>(selectedReviewFeedback(f.read.value, COMMENTS_APPLY_ID)).toEqual([{ ...projected.anchor, summary: projected.summary }]);
+  expect(selectedReviewFeedback(f.read.value, 'absent-feedback')).toEqual([]);
+  expect<unknown>(reviewSessionSource(f.read.value)).toEqual(f.session.reviewedSource);
+  expect(f.session.feedback).toBeUndefined();
+  expect(f.session).toEqual(before);
+  expect(f.read.receipt.tool).toEqual({ name: '@rig-c/review', version: '2.12.0' });
+  expect(f.read.file.sha256).toBe('e5c8d6bce22f4d2d0e71d466127a9b5690d6f7f45a1f090e56e15e8f0c8db0df');
+  expect(readFileSync(join(f.dir, String(f.read.file.path)))).toEqual(f.stdout);
+  expect(retainedReviewRead(f.dir, f.read.receipt, f.read.file)).toEqual(f.session);
+});
+
+test('session/2 feedback-file writer retains selected applied identity and exact stdout through resolution and checks', () => {
+  const f = commentsFixture();
+  let calls = 0;
+  const runner: ReviewReadRunner = (dir, argv) => {
+    calls++;
+    expect(argv).toEqual(['rig-review', 'feedback', 'evidence/feedback.json', '--format', 'json']);
+    return commentsReviewRunner(dir, argv);
+  };
+  expect(command(f.dir, 'record', runner, COMMENTS_APPLY_ID).exitCode).toBe(0);
+  let project = JSON.parse(readFileSync(join(f.dir, 'project.json'), 'utf8')) as JsonObject;
+  const record = (project.corrections as JsonObject[])[0]!;
+  const source = (project.versions as JsonObject[])[0]!;
+  expect(record).toMatchObject({ by: 'user', verbatim: wordingOracle.expected_old_and_new_projection,
+    on: { kind: 'rig', n: 1, config: (source.provenance as JsonObject).config,
+      model: { path: 'derived/review/v1/out/check/build/skeleton.model.json', sha256: ((source.outputs as JsonObject[])[0] as JsonObject).sha256 } },
+    artifact: { kind: 'config-patch', state: 'preview/pending', feedback: { file: f.read.file, item_id: COMMENTS_APPLY_ID }, review_read: f.read.receipt }, outcome: null });
+  const open = { dir: f.dir, project, refusals: [], warnings: [] };
+  checkCorrections(open);
+  expect(open).toMatchObject({ refusals: [], warnings: [{ code: 'CORRECTION_OPEN' }] });
+  expect(command(f.dir, 'resolve', runner, COMMENTS_APPLY_ID).exitCode).toBe(0);
+  project = JSON.parse(readFileSync(join(f.dir, 'project.json'), 'utf8')) as JsonObject;
+  const ctx = { dir: f.dir, project, refusals: [], warnings: [] };
+  checkCorrections(ctx);
+  checkAppliedReview(ctx);
+  expect(ctx).toMatchObject({ refusals: [], warnings: [] });
+  expect((project.versions as JsonObject[])[1]!.review_origin).toEqual({ feedback: f.read.file, review_read: f.read.receipt, source_version: 1, feedback_id: COMMENTS_APPLY_ID, applied: f.applied });
+  expect((project.corrections as JsonObject[])[0]!).toMatchObject({ artifact: { state: 'applied-and-checked' }, outcome: { n: 2, model: { sha256: f.applied.modelHash } } });
+  expect(readFileSync(join(f.dir, String(f.read.file.path)))).toEqual(f.stdout);
+  expect<unknown>(correctionHash(readFileSync(join(f.dir, String(f.read.file.path))))).toBe(f.read.file.sha256);
+  expect(readFileSync(join(f.dir, 'evidence/feedback.json'))).toEqual(f.stdout);
+  expect(calls).toBe(1); // Resolve/check consume retained bytes; they do not rerun Review.
+});
+
+test('session/2 retains an opaque producer patchSha256 claim without remeasuring it', () => {
+  const f = commentsFixture(session => { commentsApplied(session).patchSha256 = 'f'.repeat(64); });
+  expect(command(f.dir, 'record', commentsReviewRunner, COMMENTS_APPLY_ID).exitCode).toBe(0);
+  expect(command(f.dir, 'resolve', commentsReviewRunner, COMMENTS_APPLY_ID).exitCode).toBe(0);
+  const project = JSON.parse(readFileSync(join(f.dir, 'project.json'), 'utf8')) as JsonObject;
+  const ctx = { dir: f.dir, project, refusals: [], warnings: [] };
+  checkCorrections(ctx);
+  checkAppliedReview(ctx);
+  expect(ctx).toMatchObject({ refusals: [], warnings: [] });
+  expect(((project.versions as JsonObject[])[1]!.review_origin as JsonObject).applied).toEqual(f.applied);
+  expect(f.applied.patchSha256).toBe('f'.repeat(64));
+});
+
+for (const [name, change] of [
+  ['inspected model', (s: JsonObject) => { ((s.reviewedSource as JsonObject).rig as JsonObject).sha256 = 'c'.repeat(64); }],
+  ['handoff config', (s: JsonObject) => { (((s.reviewedSource as JsonObject).handoff as JsonObject).config as JsonObject).sha256 = 'c'.repeat(64); }],
+  ['patch config', (s: JsonObject) => { (commentsApplied(s).patch as JsonObject).config_sha256 = 'c'.repeat(64); }],
+  ['patch producer', (s: JsonObject) => { ((commentsApplied(s).patch as JsonObject).producer as JsonObject).version = '0.0.0-other'; }],
+] as const) {
+  test(`session/2 changed ${name} binding refuses capture by code without a project write`, () => {
+    const f = commentsFixture(change);
+    refusedComments(f.dir, 'CORRECTION_APPLIED_INVALID');
+  });
+}
+for (const field of ['buildId', 'patch', 'patchSha256', 'configHash', 'producer', 'compiler', 'line', 'check', 'diff', 'modelHash']) {
+  test(`session/2 incomplete applied identity without ${field} refuses without writing`, () => {
+    const f = commentsFixture(session => { delete commentsApplied(session)[field]; });
+    refusedComments(f.dir, 'CORRECTION_APPLIED_INVALID');
+  });
+}
+test('session/2 missing selected anchor refuses instead of selecting another applied comment', () => {
+  const f = commentsFixture();
+  refusedComments(f.dir, 'CORRECTION_APPLIED_INVALID', 'absent-feedback');
+});
+test('codec-valid compare-session/2 applied frame anchors stay outside correction Apply', () => {
+  const f = commentsFixture();
+  const comparison = commentsComparison(f.session);
+  expect<unknown>(parseCommentsCompareSession(comparison)).toEqual(comparison);
+  const stdout = Buffer.from(JSON.stringify(comparison, null, 3) + '\n');
+  const runner: ReviewReadRunner = () => ({ stdout, stderr: '', exitCode: 0, tool: { name: '@rig-c/review', version: '2.12.0' } });
+  const read = readReview(f.dir, 'synthetic-comparison', runner);
+  expect(readFileSync(join(f.dir, String(read.file.path)))).toEqual(stdout);
+  expect(read.file.sha256).toBe(correctionHash(stdout));
+  expect(reviewSessionSource(read.value)).toBeNull();
+  expect(selectedReviewFeedback(read.value, COMMENTS_APPLY_ID)).toEqual([]);
+  refusedComments(f.dir, 'CORRECTION_APPLIED_INVALID', COMMENTS_APPLY_ID, runner);
+});

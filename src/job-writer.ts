@@ -76,7 +76,11 @@ export function publishCommittedVersion(root: string, n: number | string): strin
   failPublication(root, entry, entry.failure);
   try {
     if (typeof n === 'string') prepareDraftManifest(root, project, n);
-    else prepareLiveManifest(root, project, n);
+    else {
+      const warnings: Finding[] = [];
+      prepareLiveManifest(root, project, n, warnings);
+      publishedLines.push(...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`));
+    }
   } catch {
     const failure = { code: 'JOB_PUBLICATION_INVALID', message: 'project.json: retained review package cannot be prepared; restore its model/direction sources' };
     failPublication(root, entry, failure);

@@ -60,6 +60,7 @@ function setupProject(): { root: string; project: JsonObject } {
   put('project.json', `${JSON.stringify(project, null, 2)}\n`);
   cpSync(join(import.meta.dir, 'fixtures/rig-registration/build'), join(root, 'derived/review/v1/out/check/build'), { recursive: true });
   const png = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/build/rectangle.png'));
+  project.inputs = [{ path: 'derived/review/v1/out/painting_in_rig.png', sha256: jobHash(png), bytes: png.length }];
   put('derived/review/v1/out/parts.json', JSON.stringify({
     rig_size: [8, 16],
     scale_rig_per_source: 1,

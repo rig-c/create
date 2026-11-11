@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { checkpointRequired } from './plan-history.ts';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
@@ -20,8 +21,9 @@ export const PROGRESS_HELP = `advance:
   parts -> parts-review requires both: a passing rig-parts check-parts report retained
   under the project and the project-relative assembled root it was run on.
 step-status:
-  <step> <status> [<project dir>] --by <who>
+  <step> <status> [<project dir>] --by <who> [--note-file <path>]
   Record pending -> in-progress -> at-checkpoint -> done and status_history[].
+  The optional note is verbatim UTF-8, 1–1,000 bytes, with no controls except newline.
   A checkpointed done needs a live human checkpoint signature.
   An amended project also runs steps in the check's effective stage, keeping its stored stage.
 Both accept --json and validate the complete candidate before writing.`;
@@ -35,7 +37,7 @@ function options(args: string[], command: string): { positional: string[]; opts:
     if (arg === '--json') json = true;
     else if (command === 'advance' && (arg === '--by' || arg === '--verbatim-file')) {
       refuse('ADVANCE_WORDS_REMOVED', `advances: advance no longer takes ${arg}; the move records the live stage signoff it rests on, so record the person's approval with signoff (from the review tool: signoff <stage> --from-review <actId>) and advance without words`, USAGE_EXIT);
-    } else if ((command === 'advance' ? ['--source', '--parts-check', '--parts'] : ['--by']).includes(arg)) {
+    } else if ((command === 'advance' ? ['--source', '--parts-check', '--parts'] : ['--by', '--note-file']).includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value.trim() === '') refuse('PROGRESS_OPTION_INVALID', `${command}: ${arg} needs one value; see help`, USAGE_EXIT);
       opts[arg] = value;
@@ -143,6 +145,18 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   }
   const enabled = checkpointRequired(project, step, now);
   const entry: JsonObject = { from_status: step.status ?? 'pending', status: positional[1]!, by: opts['--by']!, at: new Date(now).toISOString(), checkpoint_required: enabled, signoff: null };
+  if (opts['--note-file'] !== undefined) {
+    const notePath = opts['--note-file'];
+    try {
+      const bytes = readFileSync(notePath);
+      if (bytes.length === 0 || bytes.length > 1000) throw new Error('invalid size');
+      // Keep a leading BOM too: the stored text and digest bind the original UTF-8 bytes.
+      entry.note = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+      entry.note_sha256 = createHash('sha256').update(bytes).digest('hex');
+    } catch {
+      refuse('PROGRESS_OPTION_INVALID', `plan.steps[${positional[0]}].status_history: ${notePath}: supply a readable non-empty UTF-8 --note-file of at most 1,000 bytes`, USAGE_EXIT);
+    }
+  }
   const from = STEP_STATUSES.indexOf(entry.from_status as typeof STEP_STATUSES[number]);
   if (from >= 0 && STEP_STATUSES.indexOf(entry.status as typeof STEP_STATUSES[number]) !== from + 1) {
     const next = STEP_STATUSES[from + 1];

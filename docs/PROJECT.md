@@ -120,7 +120,7 @@ stand in for it.
 ```sh
 rig-create advance <stage> [<project dir>] [--json]
 rig-create advance parts-review --parts-check evidence/parts-check.json --parts <assembled dir>
-rig-create step-status <step> <status> --by <who> [<project dir>] [--json]
+rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>] [--json]
 ```
 
 `signoff` records approval, then `advance` records the move that approval
@@ -192,6 +192,11 @@ authority of its own: the writer's candidate check still refuses a started
 step without a live covering stage-level approval (`STEP_RUN_UNAPPROVED`), and
 a `plan-approved` checkpoint signature is refused (`SIGNOFF_UNKNOWN_CHECKPOINT`). Each step's `status_history[]` retains
 `{ from_status, status, by, at, checkpoint_required, signoff }`.
+`--note-file <path>` optionally retains verbatim UTF-8 text as `note` and its byte
+sha256 as `note_sha256`. The readable file must contain 1–1,000 bytes and no
+control characters except newline. Both keys are absent without the flag; the
+check refuses incomplete pairs or mismatched hashes. Notes do not change signed
+step content.
 `checkpoint_required` snapshots the resolved boolean requirement at that event.
 History validates that snapshot when checking a done entry. Reopening and
 replanning a checkpoint preserve earlier completion history. The current

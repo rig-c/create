@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { asArray, asString, collectSignoffs, isObject, postNotPassed, type Ctx, type Finding } from './check.ts';
 import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, SKIPPED_WHEN_NO_POST, STAGES, hasStageOrder, stageIndex, stageOfStep, type StageSpec } from './stages.ts';
 import { collectAmendments } from './amend.ts';
@@ -203,6 +204,13 @@ export const STEP_STATUSES = ['pending', 'in-progress', 'at-checkpoint', 'done']
 
 /** Shared transition validation for the public writer and retained status history. */
 export function statusTransitionFinding(entry: JsonObject, path: string): Finding | null {
+  if ('note' in entry || 'note_sha256' in entry) {
+    if (typeof entry.note !== 'string' || Buffer.byteLength(entry.note, 'utf8') === 0
+      || Buffer.byteLength(entry.note, 'utf8') > 1000 || /[\p{Cc}\p{Cs}]/u.test(entry.note.replace(/\n/g, ''))
+      || typeof entry.note_sha256 !== 'string' || entry.note_sha256 !== createHash('sha256').update(entry.note, 'utf8').digest('hex')) {
+      return { code: 'PROGRESS_OPTION_INVALID', path, message: `${path}: retain both note and its matching note_sha256; record a non-empty UTF-8 note of at most 1,000 bytes with no controls except newline through step-status --note-file` };
+    }
+  }
   const from = STEP_STATUSES.indexOf(entry.from_status as typeof STEP_STATUSES[number]);
   const next = STEP_STATUSES.indexOf(entry.status as typeof STEP_STATUSES[number]);
   if (from < 0 || next !== from + 1 || typeof entry.checkpoint_required !== 'boolean' || typeof entry.by !== 'string' || entry.by.trim() === ''

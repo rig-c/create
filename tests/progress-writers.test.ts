@@ -718,3 +718,44 @@ test('withdrawal refuses missing text, authored patches, locks, wrong stage and 
   writeFileSync(quote, 'Different words.');
   refused(dir, 'CHECKPOINT_WITHDRAWAL_CONFLICT', () => planCommand(args));
 });
+
+
+test('step-status note round-trips verbatim without changing signed content; old entries omit both keys', () => {
+  const dir = partsProject('parts');
+  const hash = stepHash(step(read(dir), 'seethrough'));
+  const note = '\uFEFF  Synthetic execution note.\n다음 단계에서 확인.\n';
+  const path = join(dir, 'note.txt'); writeFileSync(path, note);
+  const result = stepStatusCommand(['seethrough', 'in-progress', dir, '--by', 'agent', '--note-file', path, '--json']);
+  const entry = obj(arr(step(read(dir), 'seethrough').status_history).at(-1));
+  expect(entry.note).toBe(note);
+  expect(entry.note_sha256).toBe(sha256(readFileSync(path)));
+  expect(JSON.parse(result.stdout)).toEqual(entry);
+  expect(stepHash(step(read(dir), 'seethrough'))).toBe(hash);
+  expect(codes(dir)).toEqual([]);
+  status(dir, 'seethrough', 'at-checkpoint');
+  const old = obj(arr(step(read(dir), 'seethrough').status_history).at(-1));
+  expect('note' in old).toBe(false); expect('note_sha256' in old).toBe(false);
+  expect(codes(dir)).toEqual([]);
+});
+
+test('invalid note files refuse before writing any project bytes', () => {
+  const dir = partsProject('parts'); const path = join(dir, 'note.txt');
+  const run = (): unknown => stepStatusCommand(['seethrough', 'in-progress', dir, '--by', 'agent', '--note-file', path]);
+  refused(dir, 'PROGRESS_OPTION_INVALID', run);
+  for (const content of ['', 'é'.repeat(501), 'tab\there', 'carriage\rreturn', 'nul\0here', '\u0085', Buffer.from([0xff])]) {
+    writeFileSync(path, content); refused(dir, 'PROGRESS_OPTION_INVALID', run);
+  }
+  writeFileSync(path, 'é'.repeat(500)); run(); expect(codes(dir)).toEqual([]);
+});
+
+test('check refuses mismatched or incomplete status-history notes', () => {
+  const dir = partsProject('parts'); status(dir, 'seethrough', 'in-progress');
+  const original = read(dir);
+  for (const note of [{ note: 'synthetic', note_sha256: '0'.repeat(64) }, { note: 'synthetic' },
+    { note_sha256: '0'.repeat(64) }, { note: null, note_sha256: null }]) {
+    const planted = structuredClone(original);
+    Object.assign(obj(arr(step(planted, 'seethrough').status_history)[0]), note); save(dir, planted);
+    expect(codes(dir)).toContain('PROGRESS_OPTION_INVALID');
+  }
+  save(dir, original); expect(codes(dir)).toEqual([]);
+});

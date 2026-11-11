@@ -1,13 +1,14 @@
 import { expect, test } from 'bun:test';
-import { readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { checkpointEvidenceContext, parseCheckpointEvidence, parseCheckpointTable, readCheckpointEvidence } from '../src/checkpoint-evidence.ts';
 import { checkpointEvidenceCommand, checkpointTableCommand } from '../src/checkpoint-evidence-writer.ts';
 import { main } from '../src/cli.ts';
-import { jobHash } from '../src/job-outbox.ts';
-import { readRecordPublished } from '../src/job-publication.ts';
+import { acquireJobLock, JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
+import { currentJobIdentity, readRecordPublished } from '../src/job-publication.ts';
+import { planCommand } from '../src/plan-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
@@ -93,6 +94,72 @@ test('checkpoint writer and CLI preserve all four images, 103 rows, exact text a
   const historical = checkpointEvidenceContext(f.root, record, [{ kind: 'signoff' }], []);
   expect(historical).toEqual({});
   expect(Object.hasOwn(historical, 'checkpointEvidence')).toBe(false);
+});
+
+test.each([1, 2])('clear removes all %s packet declarations and preserves raw assets and byte-identical replay', count => {
+  const f = checkpointWorkspace();
+  const second = { ...f.packet, checkpointId: 'seethrough', planStepId: 'seethrough' };
+  f.attach([f.packet, second].slice(0, count));
+  expect(arr(obj(project(f.root).plan).checkpoint_evidence)).toHaveLength(count);
+  expect(checkpointEvidenceCommand([f.root, '--clear', '--json'], TEST_NOW)).toEqual({ stdout: 'null', exit: 0 });
+  expect(Object.hasOwn(obj(project(f.root).plan), 'checkpoint_evidence')).toBe(false);
+  expect(readCheckpointEvidence(f.root, project(f.root))).toBeUndefined();
+  const file = join(f.root, 'project.json');
+  const bytes = readFileSync(file);
+  const stat = lstatSync(file);
+  expect(main(['checkpoint-evidence', f.root, '--clear'], TEST_NOW)).toBe(0);
+  expect(readFileSync(file)).toEqual(bytes);
+  expect(lstatSync(file)).toMatchObject({ ino: stat.ino, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs });
+  const context = readRecordPublished({ root: f.root, record: { path: 'project.json', sha256: jobHash(bytes) }, result: { kind: 'plan' }, phase: 'inventory' }, TEST_NOW);
+  expect(Object.hasOwn(context, 'checkpointEvidence')).toBe(false);
+  for (const seal of [...f.packet.tiles, f.packet.table]) expect(jobHash(readFileSync(join(f.root, seal.path)))).toBe(seal.sha256);
+  expect(checkProject(f.root, undefined, { now: TEST_NOW }).refusals).toEqual([]);
+});
+
+test('clear on historical absence preserves project bytes and file identity', () => {
+  const f = checkpointWorkspace();
+  const file = join(f.root, 'project.json');
+  const bytes = readFileSync(file);
+  const stat = lstatSync(file);
+  expect(checkpointEvidenceCommand([f.root, '--clear'], TEST_NOW)).toEqual({ stdout: 'checkpoint-evidence: cleared', exit: 0 });
+  expect(readFileSync(file)).toEqual(bytes);
+  expect(lstatSync(file)).toMatchObject({ ino: stat.ino, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs });
+});
+
+test('attach then clear permits ordinary plan revision and removal of the last attached step', () => {
+  const f = checkpointWorkspace();
+  f.attach([{ ...f.packet, checkpointId: 'camera', planStepId: 'camera' }]);
+  unchanged(f.root, () => planCommand(['remove', 'camera', f.root, '--by', 'agent'], TEST_NOW), 'CHECKPOINT_EVIDENCE_INVALID');
+  expect(checkpointEvidenceCommand([f.root, '--clear'], TEST_NOW).exit).toBe(0);
+  expect(planCommand(['revise', 'camera', f.root, '--by', 'agent', '--does', 'Use the revised synthetic frame.'], TEST_NOW + 1000).exit).toBe(0);
+  expect(planCommand(['remove', 'camera', f.root, '--by', 'agent'], TEST_NOW + 2000).exit).toBe(0);
+  expect(arr(obj(project(f.root).plan).steps).some(step => obj(step).id === 'camera')).toBe(false);
+  expect(Object.hasOwn(obj(project(f.root).plan), 'checkpoint_evidence')).toBe(false);
+  expect(checkProject(f.root, undefined, { now: TEST_NOW + 2000 }).refusals).toEqual([]);
+});
+
+test('clear refuses conflicting options, held locks and an unchecked record without changing project bytes', () => {
+  const f = checkpointWorkspace();
+  f.attach();
+  for (const flags of [['--clear', '--file', 'evidence/checkpoint/packets.json'], ['--file', 'missing.json', '--clear'],
+    ['--clear', '--clear'], ['--clear=true'], ['--clear', '--rows', 'pairFrames'], []]) {
+    unchanged(f.root, () => checkpointEvidenceCommand([f.root, ...flags], TEST_NOW), 'CHECKPOINT_EVIDENCE_USAGE');
+  }
+  unchanged(f.root, () => checkpointTableCommand([f.root, '--clear']), 'CHECKPOINT_EVIDENCE_USAGE');
+  const attachmentLock = join(f.root, '.checkpoint-evidence.lock');
+  writeFileSync(attachmentLock, 'synthetic held lock');
+  try { unchanged(f.root, () => checkpointEvidenceCommand([f.root, '--clear'], TEST_NOW), 'CHECKPOINT_EVIDENCE_WRITE_CONFLICT'); }
+  finally { rmSync(attachmentLock); }
+  const identity = currentJobIdentity({ root: f.root, stateDir: tempDir(), fingerprint: 'synthetic-clear', reviewer: { id: 'synthetic-owner', role: 'owner' } }, f.root);
+  writePrivateJson(join(f.root, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity,
+    jobId: 'synthetic-clear-job', origin: 'http://127.0.0.1:43124', fetchCapability: 'synthetic-clear-grant' }, true);
+  const release = acquireJobLock(f.root)!;
+  try { unchanged(f.root, () => checkpointEvidenceCommand([f.root, '--clear'], TEST_NOW), 'JOB_WRITE_BUSY'); }
+  finally { release(); }
+  const record = project(f.root);
+  record.stage = 'unknown-stage';
+  writeFileSync(join(f.root, 'project.json'), JSON.stringify(record, null, 2) + '\n');
+  unchanged(f.root, () => checkpointEvidenceCommand([f.root, '--clear'], TEST_NOW), 'STAGE_UNKNOWN');
 });
 
 test('closed packet grammar rejects aliases, missing and unknown keys, empty and duplicate identities without writing', () => {

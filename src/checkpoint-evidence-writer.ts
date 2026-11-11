@@ -10,21 +10,24 @@ import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
-export const CHECKPOINT_EVIDENCE_HELP = `checkpoint-evidence [<project dir>] --file <packet-list.json> [--json]
+export const CHECKPOINT_EVIDENCE_HELP = `checkpoint-evidence [<project dir>] (--file <packet-list.json> | --clear) [--json]
   Attach an ordered sealed packet list as plan.checkpoint_evidence. Assets already live
   inside the project. Checkpoint IDs name their existing plan steps. Replays write nothing.
+  --clear removes the optional field so plan steps can be edited or removed; --json prints null.
   Publication includes packets only for admitted checkpoint subjects. Review validates PNGs.
 checkpoint-table [<project dir>] --file <producer.json> --rows <field> --out <relative.json>
   Present every object row and every column in order. Nested values become lossless JSON
   text cells. No measurements or classifications change. Existing output is immutable.`;
 
-function options(args: string[], table: boolean): { root: string; opts: Record<string, string>; json: boolean } {
+function options(args: string[], table: boolean): { root: string; opts: Record<string, string>; json: boolean; clear: boolean } {
   const opts: Record<string, string> = {};
   const positional: string[] = [];
   let json = false;
+  let clear = false;
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === '--json' && !json) json = true;
+    else if (arg === '--clear' && !table && !clear) clear = true;
     else if ((table ? ['--file', '--rows', '--out'] : ['--file']).includes(arg) && opts[arg] === undefined) {
       const value = args[++index];
       if (!value || value.startsWith('--')) usage();
@@ -32,8 +35,9 @@ function options(args: string[], table: boolean): { root: string; opts: Record<s
     } else if (arg.startsWith('-')) usage();
     else positional.push(arg);
   }
-  if (positional.length > 1 || !opts['--file'] || table && (!opts['--rows'] || !opts['--out'])) usage();
-  return { root: realpathSync(resolve(positional[0] ?? process.cwd())), opts, json };
+  if (positional.length > 1 || (!opts['--file'] && !clear) || (opts['--file'] && clear)
+    || table && (!opts['--rows'] || !opts['--out'])) usage();
+  return { root: realpathSync(resolve(positional[0] ?? process.cwd())), opts, json, clear };
 }
 
 function usage(): never {
@@ -46,8 +50,8 @@ function readJson(file: string): Json {
 }
 
 export function checkpointEvidenceCommand(args: string[], now: number): { stdout: string; exit: number } {
-  const { root, opts, json } = options(args, false);
-  const raw = readJson(resolve(root, opts['--file']!));
+  const { root, opts, json, clear } = options(args, false);
+  const raw = clear ? undefined : readJson(resolve(root, opts['--file']!));
   const release = acquireBoundJobWrite(root);
   const lock = join(root, '.checkpoint-evidence.lock');
   let descriptor: number;
@@ -57,21 +61,25 @@ export function checkpointEvidenceCommand(args: string[], now: number): { stdout
   try {
     const { file, project } = readProject(root);
     const original = readFileSync(file);
-    const packets = parseCheckpointEvidence(raw, project);
+    const packets = clear ? undefined : parseCheckpointEvidence(raw, project);
     const next = structuredClone(project);
-    (next.plan as JsonObject).checkpoint_evidence = packets as unknown as Json;
+    if (clear) {
+      if (isObject(next.plan)) delete next.plan.checkpoint_evidence;
+    } else (next.plan as JsonObject).checkpoint_evidence = packets as unknown as Json;
     // The same checker validates every stored declaration and raw file seal.
     readCheckpointEvidence(root, next);
     const fresh = newFindings(baselineOf(checkProject(root, project, { now, readOnly: true })), checkProject(root, next, { now, readOnly: true }).refusals)[0];
     if (fresh) refuse(fresh.code, fresh.message);
-    if (JSON.stringify((project.plan as JsonObject).checkpoint_evidence) !== JSON.stringify(packets)) {
+    const previous = isObject(project.plan) ? project.plan.checkpoint_evidence : undefined;
+    if (JSON.stringify(previous) !== JSON.stringify(packets)) {
       writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
       // Check the raw assets again after candidate validation, before committing.
       readCheckpointEvidence(root, next);
       if (!readFileSync(file).equals(original)) refuse('CHECKPOINT_EVIDENCE_WRITE_CONFLICT', 'project.json: changed during checkpoint attachment; reload and retry');
       renameSync(temporary, file);
     }
-    return { stdout: json ? JSON.stringify(packets, null, 2) : `checkpoint-evidence: retained ${packets.length} packet(s)`, exit: 0 };
+    return { stdout: json ? JSON.stringify(packets ?? null, null, 2)
+      : packets ? `checkpoint-evidence: retained ${packets.length} packet(s)` : 'checkpoint-evidence: cleared', exit: 0 };
   } finally {
     rmSync(temporary, { force: true });
     closeSync(descriptor);

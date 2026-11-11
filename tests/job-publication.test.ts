@@ -777,7 +777,7 @@ test('#382 draft publication binds inputs[0] in producer.source, seals it in fil
     source: 'inputs/painting.png',
   });
 
-  expect(validateSourceOnlyList(SOURCE_ONLY_TESTS).size).toBe(32);
+  expect(validateSourceOnlyList(SOURCE_ONLY_TESTS).size).toBe(34);
   expect(() => validateSourceOnlyList([])).toThrow('non-empty list');
   expect(() =>
     validateSourceOnlyList([

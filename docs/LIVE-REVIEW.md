@@ -433,6 +433,12 @@ atomically under the attachment lock and any bound job write freeze. Refused wri
 preserve `project.json` bytes. An identical retry writes nothing. The writer adds
 presentation evidence without changing plan approval fields or stage authority.
 
+`checkpoint-evidence --clear` removes the optional `plan.checkpoint_evidence`
+field entirely, allowing its plan steps to be edited or removed through the plan
+writer. Choose one of `--file` and `--clear`. Clear uses the same locks, candidate
+check and atomic commit. Its JSON result is `null`. Repeating clear on an absent
+field writes nothing.
+
 The trusted record-plan and package readers include `checkpointEvidence` only
 for checkpoint subjects they actually declare. Every supplied asset enters the
 trusted closure with its exact path and raw SHA-256. Record option sets omit this

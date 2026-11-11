@@ -7,7 +7,7 @@ absence keeps its existing behavior. Review validates PNG format at publication.
 
 | Code | Finding and remedy |
 | --- | --- |
-| `CHECKPOINT_EVIDENCE_USAGE` | `plan.checkpoint_evidence` command options are incomplete or repeated. Use `checkpoint-evidence --file` or `checkpoint-table --file --rows --out`. |
+| `CHECKPOINT_EVIDENCE_USAGE` | `plan.checkpoint_evidence` command options are incomplete, repeated or combine `--file` with `--clear`. Use `checkpoint-evidence --file`, `checkpoint-evidence --clear` or `checkpoint-table --file --rows --out`. |
 | `CHECKPOINT_EVIDENCE_INVALID` | `plan.checkpoint_evidence` has an invalid closed packet shape, duplicate identity, unknown step, alias, declaration size or aggregate table size. Retain the exact ordered producer declarations and attach them with `checkpoint-evidence`. |
 | `CHECKPOINT_EVIDENCE_PATH_REFUSED` | `plan.checkpoint_evidence` names an unsafe, missing, symlinked, nonregular or oversized asset, or the table output directory is unavailable. Restore a bounded regular project-relative file and its regular directory chain. |
 | `CHECKPOINT_EVIDENCE_HASH_MISMATCH` | `plan.checkpoint_evidence` raw asset bytes differ from their recorded SHA-256. Restore the sealed file or attach a new packet with its new seal. |

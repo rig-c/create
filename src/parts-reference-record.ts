@@ -47,19 +47,25 @@ function jsonObject(bytes: Buffer, at: string): Record<string, unknown> {
   return invalid('PARTS_REFERENCE_INVALID', at, 'expected a UTF-8 JSON object');
 }
 
-/** Shared writer/check/publication validator. Absence performs no additional reads or findings. */
-export function readPartsReferences(root: string, project: JsonObject): LoadedReference[] {
+/** Check/writer load every registration; publication selects its draft before opening files. */
+export function readPartsReferences(root: string, project: JsonObject, selectedDraftId?: string): LoadedReference[] {
   if (!Object.hasOwn(project, FIELD)) return [];
   const records = project.parts_references;
   if (!Array.isArray(records)) invalid('PARTS_REFERENCE_INVALID', FIELD, 'expected an optional list');
   const seen = new Set<string>();
-  return records.map((raw, index) => {
+  const declared = records.map((raw, index) => {
     const at = `${FIELD}[${index}]`;
     if (!exact(raw, ['draft_id', 'path', 'sha256']) || typeof raw.draft_id !== 'string' || !raw.draft_id || !hex(raw.sha256)) {
       invalid('PARTS_REFERENCE_INVALID', at, 'expected exactly {draft_id,path,sha256} with a lowercase SHA-256');
     }
     if (seen.has(raw.draft_id)) invalid('PARTS_REFERENCE_CONFLICT', at, 'only one immutable binding per draft is allowed');
     seen.add(raw.draft_id);
+    return { raw: { draft_id: raw.draft_id, path: raw.path, sha256: raw.sha256 }, index };
+  });
+  // Keep the record's closed shape and unique identities without depending on
+  // another draft's files, which do not belong to this publication's closure.
+  return declared.filter(({ raw }) => selectedDraftId === undefined || raw.draft_id === selectedDraftId).map(({ raw, index }) => {
+    const at = `${FIELD}[${index}]`;
     const drafts = asArray(project.drafts).filter(isObject).filter(draft => draft.id === raw.draft_id);
     if (drafts.length !== 1 || !isObject(drafts[0]!.parts)) invalid('PARTS_REFERENCE_DRAFT', at, 'draft_id must name one existing draft with retained parts');
     const parts = drafts[0]!.parts as JsonObject;

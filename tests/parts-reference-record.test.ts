@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkProject as rawCheckProject, type Finding } from '../src/check.ts';
 import { checkPartsReferences, partsReferenceCommand, readPartsReferences } from '../src/parts-reference-record.ts';
@@ -141,6 +141,46 @@ test('real generated synthetic PNG reaches the normal reference writer and gener
   expect(readPartsReferences(root, read(root))[0]!.files).toEqual([
     { path: sidecarPath, sha256: jobHash(readFileSync(join(root, sidecarPath))) }, { path: imagePath, sha256: jobHash(png) },
   ]);
+});
+
+test('P1 selected publication re-reads its exact closure without opening another registered draft', async () => {
+  const root = workspace(true, true);
+  const result = { path: prepareDraftManifest(root, read(root), 'sample'), selector: { kind: 'draft' as const, id: 'sample' } };
+  const canonical = readFileSync(join(root, result.path));
+  const versionHash = publicationVersionHash(readFileSync(join(root, 'project.json')), result);
+  const other = 'derived/drafts/second';
+  cpSync(join(root, 'derived/drafts/sample'), join(root, other), { recursive: true });
+  draftRigCommand(['second', root, '--config', `${other}/config.json`, '--from', `${other}/out`, '--parts', `${other}/input`]);
+  expect(partsReferenceCommand(args(root)).exit).toBe(0);
+  expect(partsReferenceCommand(['second', root, '--file', `${other}/input/painting_in_rig.json`]).exit).toBe(0);
+  const project = read(root);
+  expect(project.parts_references).toHaveLength(2);
+  expect(checkProject(root).refusals).toEqual([]);
+  expect(prepareDraftManifest(root, project, 'sample')).toBe(result.path);
+  expect(readFileSync(join(root, result.path))).toEqual(canonical);
+  const recordBytes = readFileSync(join(root, 'project.json'));
+  expect(publicationVersionHash(recordBytes, result)).toBe(versionHash);
+  const record = { path: 'project.json' as const, sha256: jobHash(recordBytes) };
+  const published = await readPublished({ root, record, result });
+  expect(published.files.some(file => file.path.startsWith(`${other}/`))).toBe(false);
+  const retained = realpathSync(tempDir()); roots.push(retained);
+  put(retained, 'project.json', recordBytes);
+  for (const file of published.files) put(retained, file.path, readFileSync(join(root, file.path)));
+  expect(existsSync(join(retained, other, 'input/parts.json'))).toBe(false);
+  expect(await readPublished({ root: retained, record, result })).toEqual(published);
+  expect(publicationVersionHash(readFileSync(join(retained, 'project.json')), result)).toBe(versionHash);
+  expect(readFileSync(join(retained, result.path))).toEqual(canonical);
+  // Full-project check/writer validation must still load the missing second registration.
+  const errors: Finding[] = []; checkPartsReferences(retained, read(retained), errors);
+  expect(errors.map(finding => finding.code)).toContain('PARTS_REFERENCE_PATH');
+  expect(errors[0]!.message).toContain(`${other}/input/parts.json`);
+  expect(checkProject(retained).refusals.map(finding => finding.code)).toContain('PARTS_REFERENCE_PATH');
+  expectRefusal(retained, () => partsReferenceCommand(args(retained)), 'PARTS_REFERENCE_PATH');
+  const malformed = read(retained);
+  (malformed.parts_references as JsonObject[])[0]!.extra = true;
+  expect(() => draftPublishedContext(retained, malformed, 'sample')).toThrow(expect.objectContaining({ code: 'PARTS_REFERENCE_INVALID' }));
+  put(retained, imagePath, 'selected PNG seal drift');
+  expect(() => draftPublishedContext(retained, read(retained), 'sample')).toThrow(expect.objectContaining({ code: 'PARTS_REFERENCE_HASH' }));
 });
 
 test('absence keeps old behavior even with a malformed unregistered sidecar, and recorded check reads include both generic seals', () => {

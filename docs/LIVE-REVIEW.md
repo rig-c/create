@@ -468,3 +468,14 @@ After `plan checkpoint-withdraw`, the next normal publication omits the matching
 withdrawn checkpoint subject and its checkpoint presentation. Other checkpoint
 and signoff subjects retain their existing selection rules. The withdrawal
 writer does not refresh an existing publication or alter packet records/assets.
+
+
+### Execution-bar policy journal
+
+`plan bar-amend <id> --by <operator> --reason-file <file> --quote-file <file>
+--bar-file <file>` records an explicitly authorized operator policy with its
+exact quoted words. It creates no Review act or signature, changes no original
+step approval hash and adds no Review panel, subject or gate. This narrow policy
+operation does not replace the Review path for any other human decision.
+The bound journal and effective-bar rules are in PROJECT.md, "Operator amendment
+of an execution bar". Existing publications are not refreshed by this writer.

@@ -2531,3 +2531,48 @@ act or signature. Only an exact step hash and replacement generation match makes
 the effective requirement false. A later revision or re-enabled decision needs
 its own policy. Old journal entries and event-time status snapshots remain
 history. Absence of the optional journal preserves existing behavior.
+
+
+### Operator amendment of an execution bar
+
+`plan bar-amend <id> [<project dir>] --by <operator> --reason-file <file>
+--quote-file <file> --bar-file <file>` appends an optional
+`plan.bar_amendments[]` entry with exactly these fields:
+
+```json
+{
+  "schema": "rig-create/bar-amendment@1",
+  "step": { "id": "geometry", "phase": "rig", "bar": "Original source-bound bar.", "status": "pending" },
+  "sha256": "<original stepHash>",
+  "generation": 0,
+  "amended_bar": "<exact bar-file text>",
+  "by": "<operator>",
+  "at": "<ISO timestamp>",
+  "reason": "<exact reason-file text>",
+  "verbatim": "<exact quote-file text>"
+}
+```
+
+`step` retains the complete original object; the shape above abbreviates its fields.
+`generation` counts retained replacements for that step id. The amendment applies
+only to the exact current original hash and generation. A later revision does
+not inherit it, even when the original text is restored. Historical amendments
+remain bound to their retained original version. A malformed journal grants no
+partial policy and refuses check; a future entry is invalid at check's instant.
+Absence of this optional journal preserves existing behavior.
+
+This operation requires one unfinished step in its current execution stage and
+nonempty strict UTF-8 input files. The files retain BOMs, whitespace and final
+newlines. Their contents are checked before and within the bound-job and plan
+locks and again before commit. Identical retry inputs preserve project bytes,
+inode and modification times; changed inputs for an already-bound amendment
+refuse. The original step, every approval hash and signature, checkpoint policy,
+and historical act receipt remain unchanged. Normal signed-step revision guards
+still apply.
+
+The operator records an explicitly authorized quoted policy here, without a new
+human act or signature. This authority is specific to bar amendment; it does not
+permit other human decisions outside Review. The effective bar supplies the
+existing warning-only appearance wording lint. Create does not interpret English
+bar text as an automatic producer measurement or proof of completion. Normal
+done, next and advance retain their existing checks and producer-report contracts.

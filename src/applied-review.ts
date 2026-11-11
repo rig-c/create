@@ -1,4 +1,4 @@
-import { retainedReviewRead, reviewReadLegacy, ReviewReadError } from './review-read.ts';
+import { retainedReviewRead, reviewReadLegacy, reviewSessionSource, selectedReviewFeedback, ReviewReadError } from './review-read.ts';
 import { configInputsLegacy } from './config-inputs.ts';
 /** A retained review Apply and the create version made from it (create#65). */
 import { isAbsolute, relative, resolve, sep, posix } from 'node:path';
@@ -57,13 +57,13 @@ export function checkAppliedReview(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'
       push(error instanceof ReviewReadError ? error.code : 'APPLIED_REVIEW_FILE', error instanceof Error ? error.message : String(error));
       continue;
     }
-    if (!isObject(feedback) || feedback.schema !== 'rig-review-session/1' || !isObject(feedback.reviewedSource)
-      || !Array.isArray(feedback.feedback)) {
+    const reviewed = isObject(feedback) ? reviewSessionSource(feedback) : null;
+    if (!isObject(feedback) || reviewed === null
+      || feedback.schema === 'rig-review-session/1' && !Array.isArray(feedback.feedback)) {
       push('APPLIED_REVIEW_FILE', 'expected the single-build JSON written by rig-review feedback');
       continue;
     }
     const pkg = source.review_package;
-    const reviewed = feedback.reviewedSource;
     const handoff = isObject(reviewed.handoff) ? reviewed.handoff : null;
     const files = isObject(pkg) ? asArray(pkg.files) : [];
     const fileHash = (name: string): Json | undefined => files.find((f) => isObject(f) && f.path === name);
@@ -94,7 +94,7 @@ export function checkAppliedReview(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals'
       push('APPLIED_REVIEW_SOURCE', `feedback handoff inputs and inspected compiled model must match the source version package${named.length ? `; config-named inputs ${named.map(f => f.path).join(', ')} must carry their bound hashes` : ''}; include the source config inputs when rebuilding`);
       continue;
     }
-    const items = feedback.feedback.filter((item) => isObject(item) && item.id === record.feedback_id);
+    const items = selectedReviewFeedback(feedback, record.feedback_id as string);
     const item = items[0];
     if (items.length !== 1 || !isObject(item) || !isObject(item.context) || !isObject(item.context.applied)
       || !isDeepStrictEqual(record.applied, item.context.applied)) {

@@ -1,4 +1,4 @@
-import { retainedReviewRead, reviewReadLegacy, ReviewReadError } from './review-read.ts';
+import { retainedReviewRead, reviewReadLegacy, reviewSessionSource, selectedReviewFeedback, ReviewReadError } from './review-read.ts';
 import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
@@ -191,9 +191,9 @@ export function correctionApplied(dir: string, artifact: JsonObject): { feedback
   let feedback: JsonObject;
   try { feedback = retainedReviewRead(dir, artifact.review_read, binding.file); }
   catch (error) { if (error instanceof ReviewReadError) return fail(error.code,error.message); throw error; }
-  const matches = bindings(feedback.feedback).filter(f => f.id === binding.item_id);
+  const matches = selectedReviewFeedback(feedback, binding.item_id as string);
   const item = matches[0];
-  if (feedback.schema !== 'rig-review-session/1' || !isObject(feedback.reviewedSource) || matches.length !== 1 || !isObject(item) || !text(item.summary) || !isObject(item.context) || !isObject(item.context.applied)) return fail('CORRECTION_APPLIED_INVALID', 'expected one session feedback item with context.applied');
+  if (reviewSessionSource(feedback) === null || matches.length !== 1 || !isObject(item) || !text(item.summary) || !isObject(item.context) || !isObject(item.context.applied)) return fail('CORRECTION_APPLIED_INVALID', 'expected one session feedback item with context.applied');
   const applied = item.context.applied;
   if (applied.schema !== 'rig-review-applied/2' || !hex(applied.configHash) || !hex(applied.modelHash) || !hex(applied.patchSha256) || !hex(applied.buildId) || !isObject(applied.patch) || !isObject(applied.producer) || !text(applied.producer.package) || !text(applied.producer.version) || !isObject(applied.compiler) || !text(applied.compiler.package) || !text(applied.compiler.version) || !(applied.line === null || typeof applied.line === 'string') || !isObject(applied.diff)) fail('CORRECTION_APPLIED_INVALID', 'expected complete published applied/2 identity');
   if (!closed(applied, ['schema','buildId','patch','patchSha256','configHash','producer','compiler','line','check','diff','modelHash'], ['op','files','mesh','cloth','assembled','environment','stageInputHash'])) fail('CORRECTION_APPLIED_INVALID', 'unknown or missing applied/2 fields');

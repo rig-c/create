@@ -1,10 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
-import { currentJobIdentity } from '../src/job-publication.ts';
+import { currentJobIdentity, partsEnumerator, readPublished, readRecordPublished } from '../src/job-publication.ts';
+import { JOB_COMMENTS_ACT_SCHEMA, startJobHost } from '@rig-c/review/job-host';
 import { decodeReviewAct, reviewActFindings } from '../src/review-act.ts';
 import { Refusal } from '../src/refusal.ts';
+import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { nextCommand } from '../src/next.ts';
 import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import type { SignoffHooks } from '../src/signoff-checkpoint-act.ts';
@@ -12,7 +14,7 @@ import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, planCommand, reopenCommand, stepStatusCommand, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
-import { clockedCli, gitEnv } from './helpers.ts';
+import { clockedCli, gitEnv, tempDir } from './helpers.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -76,6 +78,68 @@ function refused(dir: string, action: () => unknown): Refusal {
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   return caught as Refusal;
 }
+
+test('@6 sealed record checkpoint ingests and replays after normal withdrawal', async () => {
+  const workspace = checkpointWorkspace();
+  workspace.attach();
+  const dir = workspace.root;
+  const stateDir = tempDir();
+  const now = Math.max(testClock.now(), Date.now() + 60_000);
+  testClock.set(now);
+  const identity = currentJobIdentity({ root: dir, stateDir, fingerprint: 'comments-checkpoint',
+    reviewer: { id: 'synthetic-owner', role: 'owner' } }, dir);
+  const host = await startJobHost({ ...identity, readerId: identity.readerId, partsEnumerator, readPublished,
+    publicationMode: 'record-and-package', recordReaderId: identity.readerId, readRecordPublished,
+    installWriterBinding: grant => writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grant }, true) });
+  try {
+    const project = load(dir); project.review_job = { jobId: host.session.jobId, origin: host.origin }; save(dir, project);
+    let sequence = 0;
+    const api = async (verb: string, fields: object): Promise<JsonObject> => {
+      const requestId = `comments-request-${++sequence}`;
+      const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+        method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ schema: 'rig-review/job-api@3', verb, jobId: host.session.jobId, requestId,
+          idempotencyKey: requestId, expectedGeneration: host.session.status().generation, ...fields }),
+      }));
+      const result = await response.json() as { ok: boolean; error?: unknown; value: JsonObject };
+      expect(result.error).toBeUndefined(); expect(result.ok).toBe(true);
+      return result.value;
+    };
+    const publication = await api('publish', { result: { kind: 'plan' },
+      freeze: { kind: 'producer-held', holdId: 'comments-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(dir, 'project.json'))) } } });
+    const ask = await api('ask', { publicationId: publication.publicationId, subject: { kind: 'checkpoint', checkpointId: 'assemble' } });
+    const act: JsonObject = { schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'checkpoint', jobId: host.session.jobId,
+      actId: 'comments-checkpoint', askId: ask.askId, publicationId: publication.publicationId, at: new Date(now).toISOString(),
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } }, source: publication.source,
+      value: { checkpointId: 'assemble', planStepId: 'assemble', outcome: 'pass', comments: [
+        { text: 'Accept sealed checkpoint', anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }, { text: 'General' },
+      ] } };
+    const raw = JSON.stringify(act);
+    const args = ['parts', dir, '--checkpoint', 'assemble', '--from-review', String(act.actId), '--json'];
+    const hooks: SignoffHooks = { fetch: () => ({ bytes: raw }) };
+    const otherStep = arr(obj(obj(publication.source).plan).steps).map(obj).find(step => step.id !== 'assemble')!;
+    const contradiction = JSON.stringify({ ...act, value: { ...obj(act.value), comments: [{ text: 'Contradictory pin',
+      anchor: { checkpointId: 'assemble', planStepId: otherStep.id } }] } });
+    expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: contradiction }) })).code).toBe('REVIEW_ACT_INVALID');
+    const first = rawSignoff(args, now, hooks);
+    expect(first.exit).toBe(0);
+    expect(JSON.parse(first.stdout).verbatim).toBe('[["checkpoint","assemble"]]\nAccept sealed checkpoint\n\n[general]\nGeneral');
+    expect(obj(arr(load(dir).review_acts).at(-1)).bytes).toBe(raw);
+    const words = join(dir, 'comments-quote.txt'); const reason = join(dir, 'comments-reason.txt');
+    writeFileSync(words, 'Accept sealed checkpoint'); writeFileSync(reason, 'Retire the synthetic checkpoint requirement.');
+    expect(planCommand(['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', words]).exit).toBe(0);
+    const frozen = readFileSync(join(dir, 'project.json'));
+    expect(rawSignoff(args, now, hooks).exit).toBe(0);
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(frozen);
+    expect(reviewActFindings(load(dir))).toEqual([]);
+    const changed = JSON.stringify({ ...act, value: { ...obj(act.value), comments: [{ text: 'Changed original words' }] } });
+    expect(refused(dir, () => rawSignoff(args, now, { fetch: () => ({ bytes: changed }) })).code).toBe('REVIEW_ACT_REPLAY_CONFLICT');
+    let fetched = false;
+    expect(refused(dir, () => rawSignoff(['parts', dir, '--checkpoint', 'assemble', '--from-review', 'fresh-comments-checkpoint'], now,
+      { fetch: () => { fetched = true; return { bytes: raw }; } })).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
+    expect(fetched).toBe(false);
+  } finally { host.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
 
 test('a passed checkpoint act records the checkpoint sign-off and its receipt, checks clean and replays without writing', () => {
   const { dir, at } = bound();

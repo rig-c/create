@@ -1,0 +1,227 @@
+{
+  "cases": [
+    {
+      "id": "ordered-general-and-image",
+      "comments": [
+        {
+          "text": "  First\nline  "
+        },
+        {
+          "text": "Second",
+          "anchor": {
+            "name": "candidate"
+          }
+        }
+      ],
+      "source_image_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected_projection": "[general]\n  First\nline  \n\n[[\"candidate\"]]\nSecond",
+      "assertion": "Stored entry order and text whitespace retained. Image source SHA binds raw anchor identity; generated label uses its logical image name."
+    },
+    {
+      "id": "empty-comments",
+      "comments": [],
+      "expected_projection": "",
+      "assertion": "Empty list yields the empty string. Fresh whitespace-only entries refuse; legacy whitespace fields remain readable."
+    },
+    {
+      "id": "parts-same-action",
+      "comments": [
+        {
+          "text": "Approve overall"
+        }
+      ],
+      "expected_verdict_projection": "[general]\nApprove overall",
+      "expected_signoff_projection": "[general]\nApprove overall",
+      "assertion": "A retry takes the already finalized verdict comments; two existing acts remain distinct immutable records."
+    },
+    {
+      "id": "legacy-fields-display",
+      "old_fields": [
+        {
+          "path": "value.words",
+          "value": "  old\n"
+        },
+        {
+          "path": "value.parts[0].part.note",
+          "value": ""
+        },
+        {
+          "path": "value.parts[0].mesh.note",
+          "value": "mesh"
+        }
+      ],
+      "expected_general_comments": [
+        {
+          "text": "  old\n"
+        },
+        {
+          "text": ""
+        },
+        {
+          "text": "mesh"
+        }
+      ],
+      "assertion": "One display-only general comment per old field, including empty text; original record bytes/hash and old parsing retained."
+    },
+    {
+      "id": "legacy-choice-control",
+      "legacy_picks": [
+        {
+          "shown": {
+            "label": "Other",
+            "effect": "Use supplied answer"
+          },
+          "other_text": "raw answer"
+        }
+      ],
+      "legacy_note": "  old note\n",
+      "expected_legacy_verbatim": "Other\nUse supplied answer\nraw answer\n  old note\n",
+      "assertion": "Existing legacy choiceVerbatim output remains literal, without fresh projection prefixes. Survey remains an existing answer input with its current inline Other and per-question note. This is an unchanged legacy/survey byte control, not a new @6 mapping."
+    },
+    {
+      "id": "legacy-empty-note-control",
+      "legacy_picks": [
+        {
+          "shown": {
+            "label": "Keep",
+            "effect": "Keep palette"
+          }
+        }
+      ],
+      "legacy_note": "",
+      "expected_legacy_verbatim": "Keep\nKeep palette\n",
+      "assertion": "Existing empty-string note still contributes its existing trailing newline. Survey remains an existing answer input with its current inline Other and per-question note. This is an unchanged legacy/survey byte control, not a new @6 mapping."
+    },
+    {
+      "id": "legacy-parts-issues-precedence",
+      "legacy_schema": "rig-review-parts-verdict/2",
+      "parts": {
+        "old": {
+          "outcome": "flagged",
+          "note": "old note"
+        }
+      },
+      "issues": [],
+      "expected_names": {
+        "flagged": [],
+        "noted": []
+      },
+      "assertion": "Presence of issues[] wins on /1-/2 as well as /4."
+    },
+    {
+      "id": "legacy-parts-note-fallback",
+      "legacy_schema": "rig-review-parts-verdict/2",
+      "parts": {
+        "old": {
+          "outcome": "flagged",
+          "note": " "
+        }
+      },
+      "expected_names": {
+        "flagged": [
+          "old"
+        ],
+        "noted": [
+          "old"
+        ]
+      },
+      "assertion": "Only absent issues[] uses part.note; whitespace counts as noted in this old branch."
+    },
+    {
+      "id": "closed-key-negative",
+      "changes": [
+        "comments entry.note added",
+        "comments entry.text replaced by summary",
+        "anchor.kind invented",
+        "new value.words/note supplied",
+        "checkpoint planStepId supplied by browser"
+      ],
+      "expected": "refuse under fresh grammar; legacy parsers remain selected only by old schema"
+    },
+    {
+      "id": "source-and-replay-negative",
+      "changes": [
+        "anchor sourceHash changed",
+        "part imageHash changed",
+        "crop hash/PNG mismatch",
+        "array reordered on same submissionId"
+      ],
+      "expected": "existing source/crop/binding or digest/replay refusal; current raw immutable act retained"
+    },
+    {
+      "id": "parts-and-feedback-text-limits",
+      "assertion": "Reconstructed legacy codec validation uses exact entry.text. Parts/feedback bound rules are inherited; generated scalar projection is checked separately and is never written into a historical record."
+    },
+    {
+      "id": "new-raw-replay",
+      "assertion": "Raw fresh act remains @6 bytes; replay computes the same array projection. A synthesized @2/@3/@4/@5 act is not stored or substituted."
+    },
+    {
+      "id": "later-Apply-stable-wording",
+      "old_anchor": {
+        "id": "old",
+        "target": {
+          "kind": "slot",
+          "name": "sleeve"
+        },
+        "frameStart": 3,
+        "frameEnd": 3
+      },
+      "new_anchor": {
+        "id": "new",
+        "target": {
+          "kind": "slot",
+          "name": "sleeve"
+        },
+        "frameStart": 3,
+        "frameEnd": 3
+      },
+      "text": "Fix this",
+      "expected_old_and_new_projection": "[[\"slot\",\"sleeve\",3,3,null]]\nFix this",
+      "assertion": "Changing capture ID/hash/crop retains projection for the same logical target and text; receipts independently validate each capture."
+    },
+    {
+      "id": "standalone-new-comment-reader",
+      "schema": "rig-review-session/2",
+      "selected_anchor_id": "existing-feedback-id",
+      "expected": "Select one comments entry by its Feedback anchor.id, retain actual stdout bytes, derive summary=P([entry]) once for correction projection and later equality."
+    },
+    {
+      "id": "legacy-correction-summary-control",
+      "schema": "rig-review-session/1",
+      "selected_summary": "exact old correction\n",
+      "expected_correction_verbatim": "exact old correction\n",
+      "assertion": "Legacy reader performs its existing direct summary projection with original whitespace and hash."
+    },
+    {
+      "id": "rig-still-new-version",
+      "schema": "rig-review/act@6",
+      "kind": "review-verdict",
+      "stage": "rig-review",
+      "expected": "Existing fixed still and byte/hash checks run through a dedicated @6 branch in raw export/CLI; payload/still remains immutable."
+    },
+    {
+      "id": "interview-excluded-from-act6",
+      "input": {
+        "schema": "rig-review/act@6",
+        "kind": "interview-picks"
+      },
+      "expected": "refuse @6 kind before any survey projection",
+      "assertion": "Existing interview-picks @2/@4 normal paths remain unchanged. Create #422 adds no @6 interview arm."
+    },
+    {
+      "id": "question-answer-anchor-excluded",
+      "comments": [
+        {
+          "text": "Answer text",
+          "anchor": {
+            "questionId": "framing",
+            "itemId": "palette"
+          }
+        }
+      ],
+      "expected": "refuse anchor outside closed feedback union",
+      "assertion": "Survey questions/asks receive their own existing input flow. No #646 question/ask feedback need is established."
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import { Refusal, refuse } from './refusal.ts';
 import { ReviewReadError, storedReviewRead } from './review-read.ts';
 import type { Finding } from './check.ts';
 import type { JsonObject } from './templates.ts';
+import { PARTS_COMMENTS_VERDICT_SCHEMA, parseCommentsPartsVerdict } from '@rig-c/review/job-host';
 
 export const PARTS_CLI_RECEIPT = 'rig-create/parts-verdict-cli@1';
 export const PARTS_VERDICT_LATEST_SINCE = '2026-11-08T00:00:00Z';
@@ -23,6 +24,10 @@ export function decodePartsRead(bytes: Buffer): JsonObject {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
   catch { return fail('PARTS_REVIEW_CLI_INVALID', 'CLI stdout must be a UTF-8 JSON object'); }
+  if (object(value) && value.schema === PARTS_COMMENTS_VERDICT_SCHEMA) {
+    try { return parseCommentsPartsVerdict(value) as unknown as JsonObject; }
+    catch { return fail('PARTS_REVIEW_CLI_INVALID', 'comments verdict or its declared parts binding is malformed'); }
+  }
   if (!object(value) || !['rig-review-parts-verdict/1', 'rig-review-parts-verdict/2', 'rig-review-parts-verdict/4'].includes(String(value.schema))
     || !['approved', 'changes-requested', 'pending'].includes(String(value.status))
     || !object(value.tool) || typeof value.tool.name !== 'string' || !value.tool.name || typeof value.tool.version !== 'string' || !value.tool.version
@@ -68,6 +73,12 @@ function partsStdout(root: string, evidence: JsonObject, path: string): Buffer {
 }
 
 export function partsVerdictNames(verdict: JsonObject): { flagged: string[]; noted: string[] } {
+  if (verdict.schema === PARTS_COMMENTS_VERDICT_SCHEMA) {
+    const parsed = parseCommentsPartsVerdict(verdict);
+    const names = [...new Set(parsed.comments.flatMap(comment => comment.anchor && 'schema' in comment.anchor
+      ? comment.anchor.parts.map(part => part.name) : []))];
+    return { flagged: names, noted: [...names] };
+  }
   if (Array.isArray(verdict.issues)) {
     const names = [...new Set(verdict.issues.flatMap(issue => object(issue) && Array.isArray(issue.parts)
       ? issue.parts.filter(object).map(part => String(part.name)) : []))];

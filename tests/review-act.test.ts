@@ -3,11 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { collectItems } from '../src/check.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
-import { decodeReviewAct, decodeReviewResponse, reviewActFindings } from '../src/review-act.ts';
+import { decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
@@ -400,12 +400,18 @@ test('changes-requested records a bounced verdict with exact words and the norma
 });
 
 /** Inject consumer API responses without materializing a saved Review export. */
-function fetchAdapter(root: string, act: { jobId: string }, raw: string, png?: Buffer) {
-  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+function fetchAdapter(root: string, act: { jobId: string }, raw: string | (() => string), png?: Buffer) {
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     if (request.headers.get('accept') === 'image/png') {
       return png === undefined ? new Response(null, { status: 404 }) : new Response(new Uint8Array(png));
     }
-    return new Response(raw, { headers: { 'content-type': 'application/vnd.rig-review.act+json' } });
+    const text = typeof raw === 'string' ? raw : raw();
+    if (request.headers.get('accept') === 'application/json') {
+      const body = await request.json() as { requestId: string };
+      return Response.json({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: act.jobId,
+        requestId: body.requestId, ok: true, value: JSON.parse(text) });
+    }
+    return new Response(text, { headers: { 'content-type': 'application/vnd.rig-review.act+json' } });
   } });
   const binding = readWriterBinding(root)!;
   expect(binding.jobId).toBe(act.jobId);
@@ -415,6 +421,127 @@ function fetchAdapter(root: string, act: { jobId: string }, raw: string, png?: B
   (project.review_job as JsonObject).origin = binding.origin;
   putProject(root, project);
   return server;
+}
+
+/** A comments fixture binds the actual published files and captured still. */
+function commentsVerdict(act: Awaited<ReturnType<typeof published>>['act'], n: 1 | 2 = 1): JsonObject {
+  return {
+    schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'review-verdict', jobId: act.jobId, actId: 'comments-verdict',
+    askId: act.askId, publicationId: act.publicationId, authority: act.authority as unknown as JsonObject,
+    at: act.at, source: act.source as unknown as JsonObject,
+    value: { stage: n === 1 ? 'rig-review' : 'direction-review', verdict: 'approved', comments: [{ text: '  First\r\n' }, { text: 'Second' }] },
+    ...(act.schema === 'rig-review/act@3' ? { still: act.still as unknown as JsonObject } : {}),
+  };
+}
+
+for (const n of [1, 2] as const) {
+  test(`@6 v${n} normal verdict ingest and replay retain raw comments and projected words`, async () => {
+    const { root, act } = await published(n === 1 ? '3-rig-review' : '4-direction-post', n);
+    const fresh = commentsVerdict(act, n);
+    let raw = `${JSON.stringify(fresh, null, 3)}\n`;
+    const png = n === 1 ? readFileSync(join(root, 'evidence/setup.png')) : undefined;
+    const server = fetchAdapter(root, act, () => raw, png);
+    try {
+      const received = await fetchReviewAct(reviewActTransport(root, String(fresh.actId)));
+      expect(received.bytes).toBe(raw);
+      expect(jobHash(received.bytes)).toBe(jobHash(raw));
+      expect(Object.keys(received.act)).toEqual(Object.keys(fresh));
+      const first = await command(root, String(fresh.actId), n);
+      expect(first.stderr).toBe(''); expect(first.exit).toBe(0);
+      let bytes = readFileSync(join(root, 'project.json'));
+      const project = projectAt(root);
+      const receipt = reviewVerdictReceipts(project)[0]!;
+      expect(receipt.bytes).toBe(raw);
+      expect(receipt.sha256).toBe(jobHash(raw));
+      expect(JSON.parse(String(receipt.bytes)).schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
+      const version = (project.versions as JsonObject[]).find(version => version.n === n)!;
+      expect((version.verdicts as JsonObject[]).at(-1)!.verbatim).toBe('[general]\n  First\r\n\n\n[general]\nSecond');
+      expect(reviewActFindings(project)).toEqual([]);
+      expect(checkProject(root, project).refusals).toEqual([]);
+      const replay = await command(root, String(fresh.actId), n);
+      expect(replay.stderr).toBe(''); expect(replay.exit).toBe(0);
+      expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+      if (n === 1) {
+        const still = fresh.still as JsonObject;
+        expect(readFileSync(join(root, `evidence/v1/${String(still.path)}`))).toEqual(png!);
+      }
+      const stage = n === 1 ? 'rig-review' : 'direction-review';
+      const signoff: JsonObject = {
+        schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'signoff', jobId: fresh.jobId, actId: 'comments-signoff',
+        askId: fresh.askId, publicationId: fresh.publicationId, authority: fresh.authority,
+        at: fresh.at, source: fresh.source,
+        value: { stage, decision: 'approved', comments: (fresh.value as JsonObject).comments },
+      };
+      raw = JSON.stringify(signoff);
+      for (const replaySignoff of [false, true]) {
+        const beforeSignoff = readFileSync(join(root, 'project.json'));
+        const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', stage, root,
+          '--from-review', String(signoff.actId), '--json'], { stdout: 'pipe', stderr: 'pipe' });
+        const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        expect(stderr).toBe(''); expect(exit).toBe(0);
+        expect(JSON.parse(stdout).verbatim).toBe('[general]\n  First\r\n\n\n[general]\nSecond');
+        if (replaySignoff) expect(readFileSync(join(root, 'project.json'))).toEqual(beforeSignoff);
+      }
+      bytes = readFileSync(join(root, 'project.json'));
+      expect(reviewActFindings(projectAt(root))).toEqual([]);
+      raw = JSON.stringify(Object.fromEntries(Object.entries(fresh).reverse()));
+      const reordered = await fetchReviewAct(reviewActTransport(root, String(fresh.actId)));
+      expect(reordered.bytes).toBe(raw);
+      expect(jobHash(reordered.bytes)).not.toBe(receipt.sha256);
+      expect(Object.keys(reordered.act)).toEqual(Object.keys(fresh).reverse());
+      console.log(JSON.stringify({ boundary: 'comments-act-raw-replay', version: n,
+        transport_sha256: jobHash(received.bytes), ledger_sha256: receipt.sha256,
+        reordered_transport_sha256: jobHash(reordered.bytes),
+        original_keys: Object.keys(received.act), reordered_keys: Object.keys(reordered.act) }));
+      const representationConflict = await command(root, String(fresh.actId), n);
+      expect(representationConflict.exit).toBe(1); expect(representationConflict.stderr).toContain('REVIEW_ACT_REPLAY_CONFLICT:');
+      expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+      (fresh.value as JsonObject).comments = [...((fresh.value as JsonObject).comments as JsonObject[])].reverse();
+      raw = JSON.stringify(fresh);
+      const conflict = await command(root, String(fresh.actId), n);
+      expect(conflict.exit).toBe(1); expect(conflict.stderr).toContain('REVIEW_ACT_REPLAY_CONFLICT:');
+      expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+    } finally { server.stop(true); }
+  });
+}
+
+test('@6 source asset change refuses through the normal verdict writer', async () => {
+  const { root, act } = await published();
+  const fresh = commentsVerdict(act);
+  const model = (fresh.source as JsonObject).model as JsonObject;
+  const modelPath = join(root, String(model.path));
+  writeFileSync(modelPath, `${readFileSync(modelPath, 'utf8')}\n`);
+  const server = fetchAdapter(root, act, JSON.stringify(fresh), readFileSync(join(root, 'evidence/setup.png')));
+  try {
+    const before = readFileSync(join(root, 'project.json'));
+    const result = await command(root, String(fresh.actId));
+    expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  } finally { server.stop(true); }
+});
+
+test('@6 interview is refused before any survey projection', () => {
+  expect(() => decodeReviewAct(JSON.stringify({ schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'interview-picks' }), 'interview-picks'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
+});
+
+for (const invalid of ['words', 'question-anchor', 'blank', 'too-long'] as const) {
+  test(`@6 normal verdict writer refuses ${invalid} comments without writing`, async () => {
+    const { root, act } = await published();
+    const fresh = commentsVerdict(act);
+    const value = fresh.value as JsonObject;
+    if (invalid === 'words') value.words = 'legacy key';
+    if (invalid === 'question-anchor') value.comments = [{ text: 'Answer', anchor: { questionId: 'framing', itemId: 'palette' } }];
+    if (invalid === 'blank') value.comments = [{ text: '  ' }];
+    if (invalid === 'too-long') value.comments = [{ text: 'x'.repeat(10_000) }];
+    const server = fetchAdapter(root, act, JSON.stringify(fresh), readFileSync(join(root, 'evidence/setup.png')));
+    try {
+      const before = readFileSync(join(root, 'project.json'));
+      const result = await command(root, String(fresh.actId));
+      expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_INVALID:');
+      expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    } finally { server.stop(true); }
+  });
 }
 
 test.each(['missing', 'mismatch'])('API act refuses a %s PNG without changing project bytes', async failure => {

@@ -5,6 +5,8 @@ import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, rmSync, writeFileS
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { REVIEW_COMMENTS_SESSION_SCHEMA, REVIEW_COMMENTS_COMPARE_SESSION_SCHEMA,
+    parseCommentsSession, parseCommentsCompareSession, projectSelectedCommentsFeedback } from '@rig-c/review/job-host';
 import { jobRuntimeExecArgv } from './job-writer.ts';
 import type { JsonObject } from './templates.ts';
 export const REVIEW_READ_SINCE = '2026-11-08T00:00:00Z';
@@ -60,10 +62,33 @@ function session(bytes: Buffer): JsonObject {
     catch {
         return invalid('CLI stdout is not JSON');
     }
+    if (object(value) && value.schema === REVIEW_COMMENTS_SESSION_SCHEMA)
+        return parseCommentsSession(value) as unknown as JsonObject;
+    if (object(value) && value.schema === REVIEW_COMMENTS_COMPARE_SESSION_SCHEMA)
+        return parseCommentsCompareSession(value) as unknown as JsonObject;
     if (!object(value) || value.schema !== 'rig-review-session/1' || !Array.isArray(value.feedback))
         return invalid('CLI stdout must contain a single review session');
     return value;
 }
+/** The single-build source required by Create's existing Apply adapters. */
+export function reviewSessionSource(value: JsonObject): JsonObject | null {
+    return (value.schema === 'rig-review-session/1' || value.schema === REVIEW_COMMENTS_SESSION_SCHEMA) && object(value.reviewedSource)
+        ? value.reviewedSource : null;
+}
+
+/** Select canonical feedback rows while retaining the original session and bytes. */
+export function selectedReviewFeedback(value: JsonObject, itemId: string): JsonObject[] {
+    if (value.schema === REVIEW_COMMENTS_SESSION_SCHEMA) {
+        const parsed = parseCommentsSession(value);
+        const matches = parsed.comments.filter(comment => comment.anchor && 'frameStart' in comment.anchor && comment.anchor.id === itemId);
+        if (matches.length !== 1) return [];
+        const selected = projectSelectedCommentsFeedback(parsed, itemId);
+        return [{ ...selected.anchor, summary: selected.summary } as unknown as JsonObject];
+    }
+    return Array.isArray(value.feedback)
+        ? value.feedback.filter(object).filter(item => item.id === itemId) : [];
+}
+
 /** Review is resolved from the project, then its collection, then create's own installation. */
 function reviewRoot(dir: string): string | undefined {
     const collection = basename(dirname(dir)) === 'members' ? [join(dirname(dirname(dir)), 'node_modules/@rig-c/review')] : [];

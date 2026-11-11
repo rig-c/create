@@ -7,10 +7,10 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/review/src/job-contract.ts';
 import { loadPartsView, saveVerdict, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
-import type { JobOwnerHost } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, PARTS_COMMENTS_VERDICT_SCHEMA, projectComments, type JobComment, type JobOwnerHost } from '@rig-c/review/job-host';
 import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
 import { draftPublishedContext, partsEnumerator, prepareDraftManifest } from '../src/job-publication.ts';
-import { jobHash, jobHostStateRoot, pendingPublications } from '../src/job-outbox.ts';
+import { JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { checkProject, collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
@@ -23,7 +23,7 @@ import { diffClassesCommand } from '../src/diff-classes.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
-import { recordedPartsVerdict } from '../src/parts-verdict-record.ts';
+import { partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -206,6 +206,72 @@ function prepareSignoff(root: string, _evidence: string): void {
 function sign(root: string, _evidence: string): void {
   signoffCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'), '--draft', 'chain',
     '--structure-file', 'evidence/structure.json'], Date.now());
+}
+
+for (const verdict of ['approved', 'changes-requested'] as const) {
+  test(`@6 ${verdict} normal parts ingest and replay retain actual bound evidence`, async () => {
+    const { root, host } = await bound();
+    const native = await submit(root, host, verdict, verdict === 'approved' ? 'clean' : 'flagged');
+    if (native.schema !== 'rig-review/act@5') throw Error('expected native pointed parts fixture');
+    const comments: JobComment[] = [{ text: '  Overall parts feedback.\r\n' }];
+    for (const issue of native.value.issues) {
+      const { summary, ...anchor } = issue;
+      comments.push({ text: summary, anchor });
+    }
+    const fresh: JsonObject = {
+      schema: JOB_COMMENTS_ACT_SCHEMA, kind: 'parts-verdict', jobId: native.jobId, actId: `comments-parts-${verdict}`,
+      askId: native.askId, publicationId: native.publicationId, at: native.at,
+      authority: native.authority as unknown as JsonObject, source: native.source as unknown as JsonObject,
+      value: { verdict, comments: comments as unknown as JsonObject[] },
+    };
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+      const body = await request.json() as { requestId: string };
+      return Response.json({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: fresh.jobId,
+        requestId: body.requestId, ok: true, value: fresh });
+    } });
+    const binding = readWriterBinding(root)!;
+    binding.origin = `http://127.0.0.1:${server.port}`;
+    writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
+    const initial = read(root); (initial.review_job as JsonObject).origin = binding.origin; write(root, initial);
+    try {
+      const args = ['parts-review', '--from-review', String(fresh.actId), '--json'];
+      const first = expectCliOk(await cli(root, args));
+      expect(JSON.parse(first.stdout).verbatim).toBe(projectComments(comments));
+      const bytes = readFileSync(join(root, 'project.json'));
+      const project = read(root);
+      const receipt = (project.review_acts as JsonObject[]).at(-1)!;
+      expect(receipt.bytes).toBe(JSON.stringify(fresh));
+      expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
+      expect(JSON.parse(String(receipt.bytes)).schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
+      expect(partsActFindings(root, project)).toEqual([]);
+      expect<unknown>(readFileSync(join(root, String((receipt.evidence as JsonObject).path)), 'utf8')).toBe(receipt.bytes);
+      expectCliOk(await cli(root, args));
+      expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+      const input = join(root, 'derived/drafts/chain/input');
+      const view = await loadPartsView(input, { rig: join(root, 'derived/drafts/chain/out/rig.json'),
+        meshReport: join(root, 'derived/drafts/chain/out/mesh_report.json'), painting: join(input, 'painting_in_rig.png'),
+        verdict: join(root, 'evidence/comments-verdict.json') });
+      const source = verdictSource(view);
+      const readerPackage = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@rig-c/review/package.json'), 'utf8')) as { name: string; version: string };
+      const standalone = { schema: PARTS_COMMENTS_VERDICT_SCHEMA, mode: view.mode, tool: { name: readerPackage.name, version: readerPackage.version },
+        source, status: verdict, comments: comments.map(comment => comment.anchor && 'schema' in comment.anchor
+          ? { text: comment.text, anchor: { ...comment.anchor, sourceHash: source.sha256 } } : comment), updatedAt: native.at };
+      const standaloneBytes = Buffer.from(`${JSON.stringify(standalone, null, 2)}\n`);
+      const cliArgs = ['--draft', 'chain', '--from-review-cli', '--by', 'user', '--json', '--', 'derived/drafts/chain/input',
+        '--rig', 'derived/drafts/chain/out/rig.json', '--mesh-report', 'derived/drafts/chain/out/mesh_report.json',
+        '--painting', 'derived/drafts/chain/input/painting_in_rig.png', '--verdict', 'evidence/comments-verdict.json'];
+      const hooks = { runCli: () => ({ stdout: standaloneBytes, stderr: '', exitCode: 0, tool: { name: readerPackage.name, version: readerPackage.version } }) };
+      expect(partsReviewCommand([root, ...cliArgs], Date.now(), hooks).exit).toBe(0);
+      const cliFrozen = readFileSync(join(root, 'project.json'));
+      const cliReceipt = (read(root).review_acts as JsonObject[]).at(-1)!;
+      const expectedNames = verdict === 'approved' ? [] : native.value.issues[0]!.parts.map(part => part.name);
+      expect(cliReceipt.flagged).toEqual(expectedNames); expect(cliReceipt.noted).toEqual(expectedNames);
+      expect(readFileSync(join(root, String((cliReceipt.evidence as JsonObject).path)))).toEqual(standaloneBytes);
+      expect(partsReadFindings(root, read(root))).toEqual([]);
+      expect(partsReviewCommand([root, ...cliArgs], Date.now(), hooks).exit).toBe(0);
+      expect(readFileSync(join(root, 'project.json'))).toEqual(cliFrozen);
+    } finally { server.stop(true); }
+  }, DUAL_REPLAY_TIMEOUT_MS);
 }
 
 sourceOnlyTest('bound draft publishes its rows, ingests independent evidence and then signs explicitly', async () => {

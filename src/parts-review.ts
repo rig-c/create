@@ -8,7 +8,7 @@ import { readProject } from './feedback.ts';
 import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { decodeReviewAct, reviewActFindings, reviewActTransport } from './review-act.ts';
+import { decodeReviewAct, reviewActFindings, reviewActTransport, reviewActVerbatim } from './review-act.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -132,7 +132,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
       syncDirectory(root);
     }
     const result = { draft_id: act.source.selector.id, evidence, verdict: act.value.verdict,
-      by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at, verbatim: act.value.words,
+      by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at, verbatim: reviewActVerbatim(act),
       ...(warnings.length ? { warnings } : {}) };
     return { stdout: json ? JSON.stringify(result, null, 2) : [...warnings, `parts-review: ${result.draft_id} ${result.verdict}, evidence ${evidence.path}`].join('\n'), exit: 0 };
   } finally {

@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { parseRecordAct, type JobAct, type JobModelSourceBinding, type RecordAct } from '@rig-c/review/job-host';
+import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, parseRecordAct, projectComments,
+  type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -18,11 +19,11 @@ export type PartsIssue = {
   readonly summary: string;
   readonly parts: readonly { readonly name: string; readonly imageHash: string }[];
   readonly sourceHash: string;
-  readonly rigRegion: JsonObject;
-  readonly imageRegion: JsonObject | null;
-  readonly view: JsonObject;
-  readonly crop: JsonObject;
-  readonly nativeCrop: JsonObject | null;
+  readonly rigRegion: JsonObject | JobCommentPartsAnchor['rigRegion'];
+  readonly imageRegion: JsonObject | JobCommentPartsAnchor['imageRegion'] | null;
+  readonly view: JsonObject | JobCommentPartsAnchor['view'];
+  readonly crop: JsonObject | JobCommentPartsAnchor['crop'];
+  readonly nativeCrop: JsonObject | JobCommentPartsAnchor['nativeCrop'] | null;
 };
 export type InterviewPicksAct = Extract<JobAct, { kind: 'interview-picks' }>;
 export type PartsVerdictActV2 = Extract<JobAct, { kind: 'parts-verdict' }>;
@@ -34,19 +35,107 @@ export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
     readonly words: string;
   };
 };
-export type PartsVerdictAct = PartsVerdictActV2 | PartsVerdictActV5;
-export type ReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
-export type CheckpointAct = Extract<JobAct | RecordAct, { kind: 'checkpoint' }>;
-export type SignoffAct = Extract<JobAct, { kind: 'signoff' }>;
+type CommentsPartsVerdictAct = Extract<JobCommentsAct, { kind: 'parts-verdict' }> & { source: PartsVerdictActV2['source'] };
+export type PartsVerdictAct = PartsVerdictActV2 | PartsVerdictActV5 | CommentsPartsVerdictAct;
+type LegacyReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
+type CommentsReviewVerdictAct = Extract<JobCommentsAct, { kind: 'review-verdict' }> & {
+  source: JobModelSourceBinding; value: { stage: 'rig-review' | 'direction-review' };
+};
+export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct;
+type LegacyCheckpointAct = Extract<JobAct | RecordAct, { kind: 'checkpoint' }>;
+export type CheckpointAct = LegacyCheckpointAct | (Extract<JobCommentsAct, { kind: 'checkpoint' }> & { source: LegacyCheckpointAct['source'] });
+type LegacySignoffAct = Extract<JobAct, { kind: 'signoff' }>;
+export type SignoffAct = LegacySignoffAct | (Extract<JobCommentsAct, { kind: 'signoff' }> & { source: LegacySignoffAct['source'] });
 /** Review requires a displayed plan before it creates a signoff act for these stages (job-contract JOB_PLAN_BOUND_SIGNOFF_STAGES). */
 export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'rigging-interview', 'post-interview'];
 export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string }
+
+/** The scalar consumed by the existing feedback writers and immutable replay checks. */
+export function reviewActVerbatim(act: ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct): string {
+  return act.schema === JOB_COMMENTS_ACT_SCHEMA ? projectComments(act.value.comments) : act.value.words;
+}
+
+/** A still belongs to the recorded rig verdict, independently of its transport. */
+export function reviewActStill(act: ReviewVerdictAct): JobRigStill | null {
+  if (act.schema === 'rig-review/act@3') return act.still;
+  if (act.schema === JOB_COMMENTS_ACT_SCHEMA && act.value.stage === 'rig-review') {
+    return act.still ?? failure('REVIEW_ACT_STILL_INVALID', 'comments rig verdict has no recorded still');
+  }
+  return null;
+}
+
+/** Pointed parts evidence stays distinct from the overall verdict's words. */
+export function partsActIssues(act: PartsVerdictAct): readonly PartsIssue[] | null {
+  if (act.schema === JOB_COMMENTS_ACT_SCHEMA) {
+    return act.value.comments.flatMap(comment => comment.anchor && 'schema' in comment.anchor
+      ? [{ ...comment.anchor, summary: comment.text }] : []);
+  }
+  return act.schema === 'rig-review/act@5' ? act.value.issues : null;
+}
 const object = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const id = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 const file = (value: unknown): value is JsonObject => object(value) && typeof value.path === 'string' && sha(value.sha256);
 function failure(code: string, detail: string): never {
   refuse(code, `project.json.review_acts: ${detail}; restore the original evidence or request a new act in the live Review job`);
+}
+
+/** The shared decoder validates grammar; Create separately admits its existing source adapters. */
+function decodeCommentsReviewAct(raw: JsonObject, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff'): ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct {
+  if (kind === 'interview-picks' || raw.kind === 'interview-picks') failure('REVIEW_ACT_KIND_MISMATCH', 'comments acts do not carry interview answers');
+  let act: JobCommentsAct;
+  try { act = parseCommentsAct(raw); }
+  catch { return failure('REVIEW_ACT_INVALID', 'comments act or its declared source binding is malformed'); }
+  if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${act.kind} does not match ${kind}`);
+  const source = act.source as unknown as JsonObject;
+  if ('record' in source) {
+    if (act.kind !== 'checkpoint' || source.subject !== 'plan') failure('REVIEW_ACT_KIND_MISMATCH', 'this record-source kind has no Create writer mapping');
+    return act as CheckpointAct;
+  }
+  if (source.subject === 'image-set' || act.kind === 'review-verdict' && act.value.stage === 'image-review') {
+    failure('REVIEW_ACT_KIND_MISMATCH', 'image-review has no rig/post writer mapping');
+  }
+  const parts = source.parts;
+  const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
+  if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3)) {
+    failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
+  }
+  if (!sha(source.projectHash) || !object(source.package) || !id(source.package.id)
+    || typeof source.package.revision !== 'string' || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(act.at)) {
+    failure('REVIEW_ACT_INVALID', 'comments act lacks the existing package/project identity');
+  }
+  if (act.kind === 'checkpoint') {
+    const plan = source.plan;
+    if (!object(plan) || !Array.isArray(plan.steps) || !plan.steps.length
+      || !plan.steps.some(step => object(step) && step.id === act.value.planStepId)) {
+      failure('REVIEW_ACT_INVALID', 'comments checkpoint has no displayed plan step');
+    }
+    return act as CheckpointAct;
+  }
+  if (act.kind === 'signoff') return act as SignoffAct;
+  const selector = source.selector;
+  if (!object(parts) || !file(parts.manifest) || !Array.isArray(parts.images)
+    || parts.images.some(image => !file(image) || typeof image.role !== 'string')) {
+    failure('REVIEW_ACT_INVALID', 'comments act has no admitted parts binding');
+  }
+  if (act.kind === 'parts-verdict') {
+    if (!object(selector) || selector.kind !== 'draft' || !id(selector.id)) failure('REVIEW_ACT_KIND_MISMATCH', 'parts comments require the existing draft source');
+    const issues = partsActIssues(act as CommentsPartsVerdictAct)!;
+    if (issues.some(issue => issue.parts.some(part => !(parts.images as Json[]).some(image => object(image)
+      && image.role === 'part' && image.path === `parts/${part.name}.png` && image.sha256 === part.imageHash)))) {
+      failure('REVIEW_ACT_INVALID', 'comments issue part is outside the bound parts manifest');
+    }
+    return act as CommentsPartsVerdictAct;
+  }
+  if (act.kind !== 'review-verdict' || !object(selector) || !['rig', 'post'].includes(String(selector.kind))
+    || !Number.isSafeInteger(selector.version) || Number(selector.version) < 1 || !file(source.model)
+    || act.value.stage !== (selector.kind === 'rig' ? 'rig-review' : 'direction-review')
+    || selector.kind === 'rig' && source.direction !== null
+    || selector.kind === 'post' && (!Number.isSafeInteger(selector.rigVersion) || Number(selector.rigVersion) < 1 || !file(source.direction))) {
+    failure('REVIEW_ACT_KIND_MISMATCH', 'comments verdict has no existing rig/post source mapping');
+  }
+  return act as CommentsReviewVerdictAct;
 }
 
 /** Also used by check on the retained, explicitly encoded act bytes. */
@@ -60,6 +149,7 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
+  if (act.schema === JOB_COMMENTS_ACT_SCHEMA) return decodeCommentsReviewAct(act, kind);
   if (kind === 'checkpoint' && act.schema === 'rig-review/act@4') {
     try {
       const recordAct = parseRecordAct(act);
@@ -248,9 +338,10 @@ export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter
   const bytes = await (await read('application/vnd.rig-review.act+json')).text();
   const act = decodeReviewAct(bytes);
   if (act.jobId !== transport.jobId || act.actId !== transport.actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
-  if (act.schema !== 'rig-review/act@3') return { act, bytes };
+  const still = reviewActStill(act);
+  if (still === null) return { act, bytes };
   const png = Buffer.from(await (await read('image/png')).arrayBuffer());
-  if (jobHash(png) !== act.still.sha256) failure('REVIEW_ACT_STILL_INVALID', 'exported still sha256 does not match');
+  if (jobHash(png) !== still.sha256) failure('REVIEW_ACT_STILL_INVALID', 'exported still sha256 does not match');
   return { act, bytes, stillBytes: png.toString('base64') };
 }
 
@@ -340,19 +431,19 @@ export function assertReviewActSource(root: string, project: JsonObject, act: Re
 export function reviewActVerdict(act: ReviewVerdictAct): JsonObject {
   return { by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
     review: act.value.stage, verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict],
-    verbatim: act.value.words, source: `review act ${act.jobId}/${act.actId}`, on_items: [] };
+    verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}`, on_items: [] };
 }
 
 /** The sign-off fields a passed checkpoint act supplies; the writer and check share them. */
 export function checkpointActSignoff(act: CheckpointAct): { by: string; at: string; verbatim: string; source: string } {
   return { by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
-    verbatim: act.value.words, source: `review act ${act.jobId}/${act.actId}` };
+    verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
 /** The human values a signoff act records. The act names itself in source; the stage is the writer's, never Review's. */
 export function reviewActSignoff(act: SignoffAct): JsonObject {
   return { stage: act.value.stage, checkpoint: null, by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate',
-    at: act.at, verbatim: act.value.words, source: `review act ${act.jobId}/${act.actId}` };
+    at: act.at, verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
 /**
@@ -456,8 +547,8 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
       const version = Array.isArray(project.versions) ? project.versions.find(v => object(v) && v.n === entry.version) : null;
       const verdict = object(version) && Array.isArray(version.verdicts) ? version.verdicts[Number(entry.verdict)] : null;
       if (!isDeepStrictEqual(verdict, reviewActVerdict(act))) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded verdict differs from the immutable act');
-      if (act.schema === 'rig-review/act@3') {
-        const still = act.still;
+      const still = reviewActStill(act);
+      if (still !== null) {
         const expected = { kind: 'still', path: `evidence/v${entry.version}/${still.path}`, sha256: still.sha256,
           camera: still.camera, frame: still.frame,
           what: still.frame === 'setup' ? 'Review displayed setup pose' : `Review displayed animation ${JSON.stringify(still.animation)} at ${still.frame} seconds` };

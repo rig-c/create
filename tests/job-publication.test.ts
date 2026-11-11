@@ -41,6 +41,7 @@ function setup(): { root: string; project: JsonObject } {
   put('project.json', JSON.stringify(project));
   cpSync(join(import.meta.dir, 'fixtures/rig-registration/build'), join(root, 'derived/review/v1/out/check/build'), { recursive: true });
   const png = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/build/rectangle.png'));
+  project.inputs = [{ path: 'derived/review/v1/out/painting_in_rig.png', sha256: jobHash(png), bytes: png.length }];
   put('derived/review/v1/out/parts.json', JSON.stringify({ rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
     painting_in_rig: { path: 'painting_in_rig.png', sha256: jobHash(png), resample: 'lanczos3-rgb-opaque' },
     parts: [{ name: 'rectangle', from: 'painting:rectangle', x: 0, y: 0, w: 8, h: 16, opaque_px: 128,
@@ -1076,4 +1077,73 @@ test('normal publication omits only the withdrawn checkpoint and retains its sig
   const rig: JsonObject = { plan: { steps: [rigStep, motionStep], checkpoint_withdrawals: [{ schema: 'rig-create/checkpoint-withdrawal@1', step: rigStep,
     sha256: stepHash(rigStep), generation: 0, by: 'operator', at: '2026-11-07T00:00:00Z', reason: 'Retire meshes.', verbatim: 'Keep motion.' }] } };
   expect(packageSignSubjects(rig, 'rigging', { kind: 'rig', version: 1 }, 2)).toEqual([{ kind: 'checkpoint', checkpointId: 'motion' }]);
+});
+
+test.each(['rig', 'post'] as const)('new %s publication binds exactly one original PNG without writing the project', kind => {
+  const { root, project } = setup();
+  if (kind === 'post') (project.versions as JsonObject[]).push({ n: 2, kind: 'post', rig_version: 1 });
+  const before = readFileSync(join(root, 'project.json'));
+  const path = prepareLiveManifest(root, project, kind === 'post' ? 2 : 1);
+  const manifest = JSON.parse(readFileSync(join(root, path), 'utf8'));
+  const painting = (project.inputs as JsonObject[])[0];
+  expect(manifest.references).toEqual([{ id: 'original-painting', label: 'Original painting', type: 'image', path: painting.path, width: 8, height: 16 }]);
+  expect(jobHash(readFileSync(join(root, manifest.references[0].path)))).toBe(String(painting.sha256));
+  expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
+  const bytes = readFileSync(join(root, path));
+  expect(prepareLiveManifest(root, project, kind === 'post' ? 2 : 1)).toBe(path);
+  expect(readFileSync(join(root, path)).equals(bytes)).toBe(true);
+});
+
+test.each(['rig', 'post'] as const)('old %s publication stays byte-identical and arbitrary edits are refused', kind => {
+  const { root, project } = setup();
+  if (kind === 'post') (project.versions as JsonObject[]).push({ n: 2, kind: 'post', rig_version: 1 });
+  const n = kind === 'post' ? 2 : 1;
+  const path = prepareLiveManifest(root, project, n);
+  const manifest = JSON.parse(readFileSync(join(root, path), 'utf8'));
+  manifest.references = [];
+  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileSync(join(root, path), bytes);
+  // Legacy reopening must not acquire a new source requirement.
+  const inputs = project.inputs;
+  delete project.inputs;
+  expect(prepareLiveManifest(root, project, n)).toBe(path);
+  expect(readFileSync(join(root, path)).equals(bytes)).toBe(true);
+  project.inputs = inputs;
+  manifest.title = 'Arbitrary replacement';
+  const changed = JSON.stringify(manifest);
+  writeFileSync(join(root, path), changed);
+  expect(() => prepareLiveManifest(root, project, n)).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(readFileSync(join(root, path), 'utf8')).toBe(changed);
+});
+
+test.each(['hash', 'header', 'path'] as const)('invalid original painting %s refuses before publication', defect => {
+  const { root, project } = setup();
+  const painting = (project.inputs as JsonObject[])[0];
+  if (defect === 'hash') painting.sha256 = '0'.repeat(64);
+  if (defect === 'header') {
+    const bytes = Buffer.from('not a PNG');
+    writeFileSync(join(root, String(painting.path)), bytes);
+    painting.sha256 = jobHash(bytes);
+    painting.bytes = bytes.length;
+  }
+  if (defect === 'path') painting.path = '../painting.png';
+  const before = readFileSync(join(root, 'project.json'));
+  expect(() => prepareLiveManifest(root, project, 1)).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
+  expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
+});
+
+
+test('an SVG original publishes exactly one image reference without dimensions', () => {
+  const { root, project } = setup();
+  const bytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="16"><rect width="8" height="16"/></svg>');
+  const source = 'derived/review/v1/original.svg';
+  writeFileSync(join(root, source), bytes);
+  project.inputs = [{ path: source, sha256: jobHash(bytes), bytes: bytes.length }];
+  const before = readFileSync(join(root, 'project.json'));
+  const path = prepareLiveManifest(root, project, 1);
+  const manifest = JSON.parse(readFileSync(join(root, path), 'utf8'));
+  expect(manifest.references).toEqual([{ id: 'original-painting', label: 'Original painting', type: 'image', path: source }]);
+  expect(jobHash(readFileSync(join(root, manifest.references[0].path)))).toBe(jobHash(bytes));
+  expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
 });

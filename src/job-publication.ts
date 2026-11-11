@@ -1,3 +1,4 @@
+import { pngDimensions } from './scene.ts';
 import { checkpointRequired } from './plan-history.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
@@ -330,16 +331,27 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   const rig = selector.kind === 'post' ? selector.rigVersion : n;
   const model = `derived/review/v${rig}/out/check/build/skeleton.model.json`;
   publicationFile(root, model);
-  const manifest = {
+  const legacyManifest = {
     schema: 'rig-review/1', id: `create-v${n}`, revision: `v${n}`,
     title: selector.kind === 'post' ? `post v${n} (rig v${rig})` : `rig v${n}`,
     model, ...(selector.kind === 'post' ? { direction: `evidence/direction/v${n}.json` } : {}),
     references: [], animations: [], checkpoints: [], authoring: [],
   };
   const path = `review-live-v${n}.json`;
+  const existing = existsSync(join(root, path)) ? publicationFile(root, path) : undefined;
+  // Reopening an exact old publication preserves both its bytes and its identity.
+  const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
+  if (existing?.equals(legacyBytes)) return path;
+  const painting = publishedSourcePainting(root, project, `versions[v${n}]`);
+  let size: { width?: number; height?: number } = {};
+  if (/\.png$/i.test(painting.path)) {
+    try { size = pngDimensions(publicationFile(root, painting.path), painting.path); }
+    catch { refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${painting.path} needs a valid PNG header; restore the recorded original painting before publishing`); }
+  }
+  const manifest = { ...legacyManifest, references: [{ id: 'original-painting', label: 'Original painting', type: 'image', path: painting.path, ...size }] };
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
-  if (existsSync(join(root, path))) {
-    if (!publicationFile(root, path).equals(bytes)) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
+  if (existing) {
+    if (!existing.equals(bytes)) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
   } else writeFileSync(join(root, path), bytes, { flag: 'wx' });
   return path;
 }
@@ -414,7 +426,7 @@ export function publishedDraft(project: JsonObject, id: string): JsonObject {
   return found[0];
 }
 
-function publishedSourcePainting(root: string, project: JsonObject, id: string): { path: string; sha256: string } {
+function publishedSourcePainting(root: string, project: JsonObject, label: string): { path: string; sha256: string } {
   const inputs = Array.isArray(project.inputs) ? project.inputs : [];
   const first = inputs[0];
   if (
@@ -427,13 +439,13 @@ function publishedSourcePainting(root: string, project: JsonObject, id: string):
     !/^[a-f0-9]{64}$/.test(first.sha256) ||
     (first.bytes !== undefined && (typeof first.bytes !== 'number' || !Number.isSafeInteger(first.bytes) || first.bytes < 0))
   ) {
-    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: inputs[0] must record the original painting {path, sha256}; restore the declared inputs[0] entry in project.json before publishing`);
+    refuse('JOB_PUBLICATION_INVALID', `${label}: inputs[0] must record the original painting {path, sha256}; restore the declared inputs[0] entry in project.json before publishing`);
   }
   const path = first.path;
   const sha256 = first.sha256;
   const bytes = publicationFile(root, path);
   if (jobHash(bytes) !== sha256 || (typeof first.bytes === 'number' && bytes.length !== first.bytes)) {
-    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: inputs[0] (${path}) differs from its registered sha256; restore the original painting bytes before publishing`);
+    refuse('JOB_PUBLICATION_INVALID', `${label}: inputs[0] (${path}) differs from its registered sha256; restore the original painting bytes before publishing`);
   }
   return { path, sha256 };
 }
@@ -441,7 +453,7 @@ function publishedSourcePainting(root: string, project: JsonObject, id: string):
 /** Retain the official positional inventory, including duplicate paths/roles. */
 export function draftPublishedContext(root: string, project: JsonObject, id: string): JobPublishedContext {
   const draft = publishedDraft(project, id);
-  const painting = publishedSourcePainting(root, project, id);
+  const painting = publishedSourcePainting(root, project, `drafts[${id}]`);
   const parts = draft.parts as JsonObject;
   const identities = [draft.config, ...(draft.config_inputs as JsonObject[] ?? []), ...(parts.files as JsonObject[]), ...(draft.files as JsonObject[])];
   const files = identities.map(raw => {
@@ -466,7 +478,7 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
 export function prepareDraftManifest(root: string, project: JsonObject, id: string): string {
   const context = draftPublishedContext(root, project, id);
   const draft = publishedDraft(project, id);
-  const painting = publishedSourcePainting(root, project, id);
+  const painting = publishedSourcePainting(root, project, `drafts[${id}]`);
   const files = draft.files as JsonObject[];
   const models = files.filter(file => String(file.path).endsWith('/skeleton.model.json'));
   if (models.length > 1) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: multiple compiled models are ambiguous; retain one draft output`);

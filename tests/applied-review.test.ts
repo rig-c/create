@@ -1,4 +1,4 @@
-import { readReview } from '../src/review-read.ts';
+import { readReview, retainedReviewRead } from '../src/review-read.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,6 +10,8 @@ import { type JsonObject } from '../src/templates.ts';
 import { fixture, obj, version } from './fixtures.ts';
 import { run } from './helpers.ts';
 import { checkProject } from './clock.ts';
+import { commentsComparison, correctionCommentsFixture, COMMENTS_APPLY_ID } from './correction-fixture.ts';
+import { parseCommentsSession, parseCommentsCompareSession, projectSelectedCommentsFeedback } from '@rig-c/review/job-host';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -147,4 +149,83 @@ test('edited live config leaves the frozen legacy applied-review findings unchan
   const after = checked(dir, project);
   console.log('frozen-config-control', JSON.stringify({ before: before.refusals, after: after.refusals }));
   expect(after).toEqual(before);
+});
+
+function commentsChain(change?: (session: JsonObject) => void) {
+  const dir = mkdtempSync(join(tmpdir(), 'applied-comments-'));
+  roots.push(dir);
+  return { dir, ...correctionCommentsFixture(dir, change) };
+}
+
+test('session/2 applied-review accepts the selected full applied/2 context with unchanged stdout', () => {
+  const f = commentsChain();
+  const before = readFileSync(join(f.dir, 'project.json'));
+  const selected = projectSelectedCommentsFeedback(parseCommentsSession(f.session), COMMENTS_APPLY_ID);
+  expect(version(f.project, 2).review_origin).toEqual({
+    feedback: f.read.file, review_read: f.read.receipt, source_version: 1,
+    feedback_id: COMMENTS_APPLY_ID, applied: obj(selected.anchor.context).applied,
+  });
+  expect(checked(f.dir, f.project)).toMatchObject({ refusals: [], warnings: [] });
+  expect(retainedReviewRead(f.dir, f.read.receipt, f.read.file)).toEqual(f.session);
+  expect(readFileSync(join(f.dir, String(f.read.file.path)))).toEqual(f.stdout);
+  expect<unknown>(sha(f.stdout.toString('utf8'))).toBe(f.read.file.sha256);
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+});
+
+for (const [name, change] of [
+  ['inspected model', (s: JsonObject) => { obj(obj(s.reviewedSource).rig).sha256 = 'c'.repeat(64); }],
+  ['model path', (s: JsonObject) => { obj(obj(s.reviewedSource).rig).path = 'other.model.json'; }],
+  ['handoff config', (s: JsonObject) => { obj(obj(obj(s.reviewedSource).handoff).config).sha256 = 'c'.repeat(64); }],
+  ['handoff input', (s: JsonObject) => { (obj(obj(s.reviewedSource).handoff).files as JsonObject[])[0]!.sha256 = 'c'.repeat(64); }],
+] as const) {
+  test(`session/2 applied-review refuses changed ${name} source binding despite a fresh valid stdout hash`, () => {
+    const f = commentsChain(change);
+    const before = readFileSync(join(f.dir, 'project.json'));
+    expect(checked(f.dir, f.project).refusals.map(finding => finding.code)).toEqual(['APPLIED_REVIEW_SOURCE']);
+    expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+    expect(readFileSync(join(f.dir, String(f.read.file.path)))).toEqual(f.stdout);
+  });
+}
+
+for (const [name, change] of [
+  ['selected anchor ID', (r: JsonObject) => { r.feedback_id = 'other-feedback-id'; }],
+  ['absent anchor ID', (r: JsonObject) => { r.feedback_id = 'absent-feedback'; }],
+  ['build ID', (r: JsonObject) => { obj(r.applied).buildId = 'c'.repeat(64); }],
+  ['stage input hash', (r: JsonObject) => { obj(r.applied).stageInputHash = 'c'.repeat(64); }],
+  ['patch bytes', (r: JsonObject) => { (obj(obj(r.applied).patch).ops as JsonObject[])[0]!.value = 'other'; }],
+  ['patch hash identity', (r: JsonObject) => { obj(r.applied).patchSha256 = 'c'.repeat(64); }],
+  ['model hash', (r: JsonObject) => { obj(r.applied).modelHash = 'c'.repeat(64); }],
+  ['producer', (r: JsonObject) => { obj(obj(r.applied).producer).version = '0.0.0-other'; }],
+  ['compiler', (r: JsonObject) => { obj(obj(r.applied).compiler).version = '0.0.0-other'; }],
+  ['producer line', (r: JsonObject) => { obj(r.applied).line = 'other line'; }],
+  ['check summary', (r: JsonObject) => { obj(obj(r.applied).check).gate = false; }],
+  ['diff', (r: JsonObject) => { obj(obj(r.applied).diff).paths = ['/other']; }],
+  ['files report', (r: JsonObject) => { obj(obj(obj(r.applied).files).images).unchanged = 2; }],
+  ['executed op', (r: JsonObject) => { obj(r.applied).op = 'retune'; }],
+  ['environment', (r: JsonObject) => { obj(obj(r.applied).environment).steps = 2; }],
+  ['omitted files report', (r: JsonObject) => { delete obj(r.applied).files; }],
+] as const) {
+  test(`session/2 applied-review compares entire retained applied identity: ${name}`, () => {
+    const f = commentsChain();
+    const before = readFileSync(join(f.dir, 'project.json'));
+    change(obj(version(f.project, 2).review_origin));
+    expect(checked(f.dir, f.project).refusals.map(finding => finding.code)).toEqual(['APPLIED_REVIEW_RESULT']);
+    expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+    expect(readFileSync(join(f.dir, String(f.read.file.path)))).toEqual(f.stdout);
+  });
+}
+
+test('codec-valid compare-session/2 applied context is not a single-build applied-review origin', () => {
+  const f = commentsChain();
+  const comparison = commentsComparison(f.session);
+  expect<unknown>(parseCommentsCompareSession(comparison)).toEqual(comparison);
+  const stdout = Buffer.from(JSON.stringify(comparison, null, 3) + '\n');
+  const read = readReview(f.dir, 'synthetic-comparison', () => ({ stdout, stderr: '', exitCode: 0, tool: { name: '@rig-c/review', version: '2.12.0' } }));
+  const before = readFileSync(join(f.dir, 'project.json'));
+  const origin = obj(version(f.project, 2).review_origin);
+  origin.feedback = read.file;
+  origin.review_read = read.receipt;
+  expect(checked(f.dir, f.project).refusals.map(finding => finding.code)).toEqual(['APPLIED_REVIEW_FILE']);
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  expect(readFileSync(join(f.dir, String(read.file.path)))).toEqual(stdout);
 });

@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { CHOICE_HELP, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand } from './choice-writers.ts';
 import { CORRECTION_HELP, correctionCommand } from './correction-writers.ts';
 import { DRAFT_RIG_HELP, draftRigCommand } from './drafts.ts';
+import { PARTS_REFERENCE_HELP, partsReferenceCommand } from './parts-reference-record.ts';
 import { LEDGER_HELP, ledgerCommand } from './fix-ledger.ts';
 import { RESTART_HELP, restartCommand } from './restart.ts';
 import { STRUCTURE_SNAPSHOT_HELP, structureSnapshotCommand } from './structure-snapshot.ts';
@@ -91,6 +92,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record a forward amendment and name lapsed approvals
   rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
                                                     record labelled draft artifacts without building or promoting
+  rig-create parts-reference <draft-id> [<dir>] --file <path>
+                                                    register an adjacent producer-owned painting reference
   rig-create parts-review [<dir>] --from-review <actId> [--json]
                                                     retain the semantic parts verdict as an independent write
   rig-create structure-snapshot [<dir>] --draft <id> --out <path>
@@ -155,6 +158,8 @@ ${PAUSE_HELP}
 ${AMEND_HELP}
 
 ${DRAFT_RIG_HELP}
+
+${PARTS_REFERENCE_HELP}
 
 ${STRUCTURE_SNAPSHOT_HELP}
 
@@ -261,6 +266,7 @@ const COMMANDS: Record<string, Command> = {
   'step-status': stepStatusCommand,
   amend: amendCommand,
   'draft-rig': draftRigCommand,
+  'parts-reference': partsReferenceCommand,
   ledger: ledgerCommand,
   restart: restartCommand,
   'parts-review': partsReviewCommand,

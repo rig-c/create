@@ -1,5 +1,24 @@
 # Checking the interview
 
+## Additive parts painting references
+
+These checks apply only when optional `parts_references` is present. Existing
+inline declarations retain their own validation. Review owns PNG decoding,
+dimensions and opacity; create binds the producer's static declarations and bytes.
+
+| Code | Finding and remedy |
+| --- | --- |
+| `PARTS_REFERENCE_USAGE` | `parts_references` command options are missing or repeated. Use `parts-reference <draft-id> [<dir>] --file <project-relative painting_in_rig.json>`. |
+| `PARTS_REFERENCE_INVALID` | `parts_references` or its sidecar has malformed UTF-8/JSON, closed keys, hashes, schema, resampler or positive safe-integer size tuple. Restore the exact producer declaration and register it through `parts-reference`. |
+| `PARTS_REFERENCE_DRAFT` | `parts_references` does not name one existing draft with a unique recorded parts manifest seal. Restore that draft and its original manifest binding. |
+| `PARTS_REFERENCE_PATH` | `parts_references` names an unsafe, missing, unreadable, nonregular or symlinked file, or the sidecar is not adjacent to its draft's `parts.json`. Retain contained portable paths and the fixed adjacent basename `painting_in_rig.json`. |
+| `PARTS_REFERENCE_HASH` | A `parts_references` manifest, sidecar or PNG differs from its raw SHA-256. Restore the registered producer bytes. |
+| `PARTS_REFERENCE_BINDING` | `parts_references` sidecar `manifest_sha256` or `rig_size` differs from the exact loaded `parts.json`. Retain the producer reference for that manifest and frame. |
+| `PARTS_REFERENCE_INLINE_PRESENT` | `parts_references` would activate a sidecar while `parts.json` owns `painting_in_rig`, including malformed inline data. Use the existing inline declaration and its validation. |
+| `PARTS_REFERENCE_CONFLICT` | `parts_references` duplicates a draft or a retry proposes a different binding. Preserve the original immutable registration; an exact retry writes nothing. |
+| `PARTS_REFERENCE_WRITE_CONFLICT` | `parts_references` has an active registration writer or its frozen inputs/record changed before commit. Wait for that writer, freeze inputs and retry. |
+| `PARTS_REFERENCE_WRITE_FAILED` | `parts_references` could not stage or atomically commit its record. Restore writable project storage and retry against the original producer bytes. |
+
 ## Sealed checkpoint presentation
 
 These additive checks apply when `plan.checkpoint_evidence` is present. Historical

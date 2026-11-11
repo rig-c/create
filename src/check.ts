@@ -3,6 +3,7 @@ import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINC
 import { partsActFindings } from './parts-act.ts';
 import { reviewActFindings } from './review-act.ts';
 import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
+import { checkPartsReferences } from './parts-reference-record.ts';
 import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
@@ -951,6 +952,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     refusals.push({ code: e.code, path: '@rig-c/parts', message: e.message });
   }
   checkDrafts(dir, project, refusals, warnings);
+  checkPartsReferences(dir, project, refusals);
   const ledger = checkFixLedger(dir, project, refusals, warnings, options.now);
   refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);

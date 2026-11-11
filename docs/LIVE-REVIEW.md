@@ -349,6 +349,15 @@ exact C4 Parts enumeration over the recorded draft input. Config, config inputs
 and retained outputs are sealed as publication files. Producer bytes are read
 and hash-bound. Publication performs no build or producer measurement.
 
+`parts-reference <draft-id> <project> --file <project-relative painting_in_rig.json>`
+registers an existing adjacent producer sidecar in optional top-level
+`parts_references`, outside the immutable draft. Refresh with `job open <project>
+--draft <draft-id>`. The validated JSON and its declared PNG are generic sealed
+`files`; they add no image role, producer carrier or canonical manifest change.
+The existing inline own key, even malformed, prevents sidecar activation. PNG
+decoding/opacity remain Review's responsibility. The pinned Review 2.10.0 has no
+sidecar fallback; a compatible consumer is required for native Difference.
+
 `parts-review` uses the shared API@2/act@2 reader and writer-owned fetch grant.
 It records all three verdict values and each part/mesh outcome and note exactly.
 The human words, host-attested reviewer, authority, time and original source

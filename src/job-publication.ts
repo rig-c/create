@@ -1,6 +1,7 @@
 import { checkInputs } from './inputs.ts';
 import { pngDimensions } from './scene.ts';
 import { checkpointRequired } from './plan-history.ts';
+import { readPartsReferences } from './parts-reference-record.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -481,6 +482,12 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
     return { path, sha256 };
   });
   if (!files.some(file => file.path === painting.path)) files.push(painting);
+  for (const reference of readPartsReferences(root, project, id)) {
+    for (const file of reference.files) {
+      if (files.some(existing => existing.path === file.path && existing.sha256 !== file.sha256)) refuse('JOB_PUBLICATION_INVALID', `parts_references: ${file.path} conflicts with the retained draft; restore its sealed bytes`);
+      if (!files.some(existing => existing.path === file.path)) files.push(file);
+    }
+  }
   const manifestPath = `${String(parts.path)}/parts.json`;
   const manifest = publicationFile(root, manifestPath);
   const directory = dirname(join(root, manifestPath));

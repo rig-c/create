@@ -1479,6 +1479,33 @@ separate choice-answer schema and correction-path union are subsequent cards.
 
 ## Labelled draft rigs and structure decisions
 
+### Registering an additive producer reference
+
+`rig-create parts-reference <draft-id> [<dir>] --file <project-relative painting_in_rig.json> [--json]`
+registers an existing producer-owned reference beside that draft's immutable
+`parts.json`. It appends optional top-level `parts_references` entries with
+exactly `{draft_id,path,sha256}`. Each draft has at most one binding. An exact
+retry writes nothing; a conflicting binding refuses. The original draft,
+`parts.files`, revision, accepted receipts and producer manifest remain unchanged.
+
+The shared writer/check validator binds the exact manifest bytes, fixed adjacent
+sidecar basename, six-key `rig-parts-painting-reference/1` schema, identical
+positive safe-integer `rig_size`, contained portable paths and raw JSON/PNG hashes.
+The sidecar owns the PNG seal. An own `painting_in_rig` key in the manifest,
+including malformed inline data, prevents sidecar activation. Create reads static
+producer declarations and computes no image measurement. Review owns PNG decoding,
+dimensions and opacity. Absence of `parts_references` keeps existing record behavior.
+
+Registration validates and rechecks frozen inputs under the registration and
+bound-job locks, then atomically replaces `project.json`. It neither installs
+producer files nor starts a publication. Run `rig-create job open <dir> --draft
+<draft-id>` to refresh the current closure. The JSON and its declared PNG travel
+only through generic publication `files`, with the official image enumeration and
+canonical Review manifest unchanged. Sidecar Difference requires a compatible
+Review consumer; the pinned Review 2.10.0 does not implement that fallback.
+
+### Recording a labelled draft
+
 After assemble, `parts`/`parts-review` may use a proposed draft to inspect meshes
 and refine chest structure before asking the production rigging plan. The
 draft's proposed bones and weights are not the person's rigging answers.

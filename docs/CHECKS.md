@@ -1527,3 +1527,16 @@ repository root (create#304). `restart` by `agent` refuses with `SIGNOFF_NOT_HUM
 `draft-rig` or `restart` write leaves `project.json` byte-identical. A
 restarted record carries exactly the refusals a fresh `init` record carries
 (its open interview) and no warning; `restart` refuses any other refusal.
+
+
+## Operator checkpoint withdrawal
+
+| Code | Refuses when | Remedy |
+| --- | --- | --- |
+| `CHECKPOINT_WITHDRAWAL_INVALID` | plan.checkpoint_withdrawals has malformed, duplicate, future, hash-mismatched or generation-unbound entries | Restore the original journal and use plan checkpoint-withdraw. |
+| `CHECKPOINT_WITHDRAWAL_SCOPE` | the selected checkpoint is disabled, finished or outside the current execution stage | Select one enabled unfinished checkpoint in the current execution stage. |
+| `CHECKPOINT_WITHDRAWAL_CONFLICT` | a retry changes an existing withdrawal's operator, reason or exact words | Preserve the original entry and replay its original inputs. |
+
+A valid withdrawal removes only the current matching checkpoint requirement.
+`CHECKPOINT_UNSIGNED` and step-status use that effective requirement. Historical
+status entries keep their original checkpoint_required and signoff requirements.

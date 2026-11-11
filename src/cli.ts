@@ -79,7 +79,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     draft steps and retain replaced definitions
   rig-create advance <stage> [<project dir>]
                                                     move to the next stage authorized by a live signoff
-  rig-create step-status <step> <status> --by <who> [<project dir>]
+  rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>]
                                                     record an audited forward step status
   rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
                                                     record a human backward move without deleting history

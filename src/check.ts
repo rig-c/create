@@ -1,3 +1,4 @@
+import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
 import { reviewActFindings } from './review-act.ts';
@@ -108,14 +109,15 @@ function hasNumericReading(bar: string): boolean {
 }
 
 /** Warning-only wording lint; it cannot watch motion or certify a numeric clause. */
-export function appearanceBarWarnings(project: JsonObject): Finding[] {
+export function appearanceBarWarnings(project: JsonObject, now = Date.now()): Finding[] {
   const plan = isObject(project.plan) ? project.plan : {};
   const warnings: Finding[] = [];
   for (const raw of asArray(plan.steps)) {
     if (!isObject(raw) || typeof raw.id !== 'string' || (raw.phase !== 'rig' && raw.phase !== 'post') || typeof raw.bar !== 'string') continue;
-    const text = raw.bar.toLowerCase().replace(/\s+/g, ' ');
+    const bar = effectiveBar(project, raw, now);
+    const text = bar.toLowerCase().replace(/\s+/g, ' ');
     const phrase = APPEARANCE_IN_MOTION_PHRASES.find((p) => new RegExp(String.raw`\b${p}\b`).test(text));
-    if (phrase === undefined || hasNumericReading(raw.bar)) continue;
+    if (phrase === undefined || hasNumericReading(bar)) continue;
     const path = `plan.steps[${raw.id}].bar`;
     const review = raw.phase === 'rig' ? 'rig-review' : 'direction-review';
     warnings.push({
@@ -909,6 +911,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const steps = collectSteps(project, refusals);
   collectCheckpointWithdrawals(project, refusals, options.now);
+  collectBarAmendments(project, refusals, options.now);
   const replaced = collectPlanReplaced(project, refusals);
   checkReplacedSignoffs(project, replaced, refusals);
   const previousSteps = collectSteps({ plan: { steps: replaced.map(entry => entry.step) } }, []);
@@ -960,7 +963,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkAgentBounces(ctx);
   checkPlan(ctx);
   checkCheckpointEvidence(dir, project, refusals);
-  warnings.push(...appearanceBarWarnings(project));
+  warnings.push(...appearanceBarWarnings(project, options.now));
   checkStages(ctx);
   checkStageProgress(ctx, options.forwardWrite);
   checkAdvanceBars(ctx);

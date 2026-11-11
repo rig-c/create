@@ -460,3 +460,11 @@ package `act@2` or record `act@4` checkpoints. Failed acts refuse sign-off. A
 changed checkpoint packet makes first ingest stale. The immutable passed receipt
 keeps its existing replay behavior. The recommendation remains labelled producer
 text and grants no approval authority.
+
+
+### Withdrawn checkpoint subjects
+
+After `plan checkpoint-withdraw`, the next normal publication omits the matching
+withdrawn checkpoint subject and its checkpoint presentation. Other checkpoint
+and signoff subjects retain their existing selection rules. The withdrawal
+writer does not refresh an existing publication or alter packet records/assets.

@@ -1,6 +1,7 @@
+import { checkpointRequired } from './plan-history.ts';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
+import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { acquireAdvanceJobWrite, commitAdvance } from './job-advance.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -140,9 +141,7 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
       ? `plan.steps[${positional[0]}]: runs in ${stage}; the amended project resumes at ${String(resumes)} (stage ${String(project.stage)} retained); sign the lapsed approvals and finish the earlier bars first`
       : `plan.steps[${positional[0]}]: runs in ${stage}, current stage is ${String(project.stage)}; advance to its execution stage first`);
   }
-  const checkpoint = classify(step.checkpoint, { collection: null });
-  const enabled = checkpoint.state === 'user' ? checkpoint.answer.value === true
-    : checkpoint.state === 'delegated' && isObject(checkpoint.answer.agent_decision) && checkpoint.answer.agent_decision.value === true;
+  const enabled = checkpointRequired(project, step, now);
   const entry: JsonObject = { from_status: step.status ?? 'pending', status: positional[1]!, by: opts['--by']!, at: new Date(now).toISOString(), checkpoint_required: enabled, signoff: null };
   const from = STEP_STATUSES.indexOf(entry.from_status as typeof STEP_STATUSES[number]);
   if (from >= 0 && STEP_STATUSES.indexOf(entry.status as typeof STEP_STATUSES[number]) !== from + 1) {

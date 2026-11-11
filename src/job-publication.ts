@@ -1,3 +1,4 @@
+import { checkpointRequired } from './plan-history.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -8,7 +9,7 @@ import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPubl
 import { stepHash } from './step-hash.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
-import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
+import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap } from './diff-map.ts';
 import {
   COLLECTION_BINDING_SPEC,
@@ -273,10 +274,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       }
       subjects = steps.filter(step => {
         if (step.status !== 'at-checkpoint' || (step.phase !== 'rig' && step.phase !== 'post') || stageOfStep(step.phase, String(step.id)) !== stage) return false;
-        const checkpoint = classify(step.checkpoint, { collection: null });
-        const value = checkpoint.state === 'user' ? checkpoint.answer.value
-          : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
-        return value === true;
+        return checkpointRequired(project, step, now);
       }).map(step => ({ kind: 'checkpoint' as const, checkpointId: String(step.id) }));
       if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
       label = `plan / ${stage}`;

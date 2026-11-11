@@ -1,3 +1,6 @@
+import { planCommand } from '../src/plan-writers.ts';
+import { checkpointProblem, packageSignSubjects } from '../src/signable.ts';
+import { stepHash } from '../src/step-hash.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -1042,4 +1045,35 @@ test('#389 parts-review drafts publish without unready approval and recover thro
     .toThrow(expect.objectContaining({ code: 'JOB_PUBLISH_PENDING' }));
   expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
   expect(pendingPublications(root)).toHaveLength(1);
+});
+
+
+test('normal publication omits only the withdrawn checkpoint and retains its signed step bytes', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-withdraw-publication-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const plan = project.plan as JsonObject;
+  const steps = plan.steps as JsonObject[];
+  const assemble = steps.find(step => step.id === 'assemble')!;
+  assemble.status = 'at-checkpoint'; assemble.status_history = [];
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  const reason = join(root, 'reason.txt'); const quote = join(root, 'quote.txt');
+  writeFileSync(reason, 'Retire one checkpoint.'); writeFileSync(quote, 'Keep its evidence.');
+  const hash = stepHash(assemble);
+  expect(packageSignSubjects(project, 'parts', { kind: 'draft', id: 'chain' }, steps.length))
+    .toContainEqual({ kind: 'checkpoint', checkpointId: 'assemble' });
+  expect(planCommand(['checkpoint-withdraw', 'assemble', root, '--by', 'operator', '--reason-file', reason, '--quote-file', quote], now).exit).toBe(0);
+  const after = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  expect(checkpointProblem(after, 'parts', 'assemble')).not.toBeNull();
+  const path = prepareDraftManifest(root, after, 'chain');
+  const published = await readPublished({ root, record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) },
+    result: { path, selector: { kind: 'draft', id: 'chain' } } });
+  expect(published.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect(stepHash(((after.plan as JsonObject).steps as JsonObject[])[1]!)).toBe(hash);
+  const rigStep = { id: 'meshes', phase: 'rig', checkpoint: { delegated: false, value: true, by: 'user', at: '2026-11-06T00:00:00Z', verbatim: 'Inspect.' } };
+  const motionStep = { ...rigStep, id: 'motion' };
+  const rig: JsonObject = { plan: { steps: [rigStep, motionStep], checkpoint_withdrawals: [{ schema: 'rig-create/checkpoint-withdrawal@1', step: rigStep,
+    sha256: stepHash(rigStep), generation: 0, by: 'operator', at: '2026-11-07T00:00:00Z', reason: 'Retire meshes.', verbatim: 'Keep motion.' }] } };
+  expect(packageSignSubjects(rig, 'rigging', { kind: 'rig', version: 1 }, 2)).toEqual([{ kind: 'checkpoint', checkpointId: 'motion' }]);
 });

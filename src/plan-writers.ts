@@ -1,3 +1,6 @@
+import { checkpointEnabled, checkpointGeneration, checkpointRequired, collectCheckpointWithdrawals } from './plan-history.ts';
+import { readVerbatim } from './record-input.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { closeSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
@@ -6,13 +9,15 @@ import { readProject } from './feedback.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
-import { approvalStageOfStep, hasStageOrder } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, stageOfStep } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
 export const PLAN_HELP = `plan add|revise|remove <id> [<project dir>] --by <drafter> [--json]
   --phase rig|post --order <number> --does <text> --produces <text>
   --rests-on <id,id,...> --bar <text> --checkpoint-proposed true|false
+  checkpoint-withdraw <id> [<project dir>] --by <operator> --reason-file <file> --quote-file <file>
+  Withdraw one enabled execution checkpoint without changing the signed step.
   Add requires all fields. Revise accepts any of these fields and preserves the id.
   Revise/remove retain the full previous step in plan.replaced[].
   Reopen live covering plan signatures first. Completed steps require removal and a new id.
@@ -34,8 +39,8 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
   const positional: string[] = [];
   let json = false;
   const usage = (why: string): never => refuse('PLAN_OPTION_INVALID', `plan.steps: ${why}; see plan help`, USAGE_EXIT);
-  if (!['add', 'revise', 'remove'].includes(action ?? '')) usage('expected add, revise or remove');
-  const flags = ['--by', ...FIELDS.map(field => `--${field.replaceAll('_', '-')}`)];
+  if (!['add', 'revise', 'remove', 'checkpoint-withdraw'].includes(action ?? '')) usage('expected add, revise, remove or checkpoint-withdraw');
+  const flags = ['--by', '--reason-file', '--quote-file', ...FIELDS.map(field => `--${field.replaceAll('_', '-')}`)];
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === '--json') json = true;
@@ -53,6 +58,13 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     const value = opts[`--${field.replaceAll('_', '-')}`];
     if (value !== undefined) patch[field] = value;
   }
+  const withdrawing = action === 'checkpoint-withdraw';
+  if (withdrawing && (Object.keys(patch).length || !opts['--reason-file'] || !opts['--quote-file'])) usage('checkpoint-withdraw needs reason-file and quote-file and takes no authored step fields');
+  if (!withdrawing && (opts['--reason-file'] || opts['--quote-file'])) usage('reason-file and quote-file belong only to checkpoint-withdraw');
+  if (withdrawing && (opts['--reason-file'] === '-' || opts['--quote-file'] === '-')) usage('checkpoint-withdraw needs two retained files, not shared stdin');
+  const reason = withdrawing ? readVerbatim(opts['--reason-file']!) : '';
+  const verbatim = withdrawing ? readVerbatim(opts['--quote-file']!) : '';
+  if (withdrawing && (!reason.trim() || !verbatim.trim())) usage('reason-file and quote-file must contain nonempty text');
   if (action === 'remove' && Object.keys(patch).length) usage('remove takes no step fields');
   if (action === 'add' && FIELDS.some(field => patch[field] === undefined)) usage('add needs every step field');
   if (action === 'revise' && Object.keys(patch).length === 0) usage('revise needs at least one step field');
@@ -75,10 +87,11 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
   const dir = resolve(positional[1] ?? process.cwd());
   // Validate the target before creating a lock, then reload under the lock.
   readProject(dir);
+  const releaseJob = acquireBoundJobWrite(dir);
   const lock = join(dir, '.plan.lock');
   let descriptor: number;
   try { descriptor = openSync(lock, 'wx'); }
-  catch { refuse('PLAN_WRITE_CONFLICT', 'project.json: cannot acquire its plan writer lock; finish or recover the active plan write before retrying'); }
+  catch { releaseJob(); refuse('PLAN_WRITE_CONFLICT', 'project.json: cannot acquire its plan writer lock; finish or recover the active plan write before retrying'); }
   try {
     const { file, project } = readProject(dir);
     const original = readFileSync(file);
@@ -93,30 +106,50 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     if (action === 'add' && asArray(plan.replaced).some(entry => isObject(entry) && isObject(entry.step) && entry.step.id === id && completed(project, entry.step))) {
       refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in history; add the replacement under a new id`);
     }
-    if (previous !== undefined) {
-      if (previous.phase !== 'rig' && previous.phase !== 'post') refuse('PLAN_STEP_INVALID', `plan.steps[${id}].phase: restore rig or post before drafting`);
-      const stage = approvalStageOfStep(previous.phase, id!, hasStageOrder(project));
-      const reopens = collectReopens(project, []);
-      if (collectSignoffs(project, []).some(signature => signature.stage === stage && signature.checkpoint === null
-        && (signature.steps === null || signature.steps.includes(id!)) && liveSignoff(reopens, signature.stage, signature.at))) {
-        refuse('PLAN_STEP_SIGNED', `plan.steps[${id}]: a live ${stage} signature binds this step; reopen ${stage} before revising or removing it`);
-      }
-      if (action === 'revise' && completed(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; remove it and add the replacement under a new id`);
-    }
     const at = new Date(now).toISOString();
-    if (previous !== undefined) {
-      plan.replaced = [...asArray(plan.replaced), { step: structuredClone(previous), sha256: stepHash(previous), action: action === 'revise' ? 'revised' : 'removed', at, by: opts['--by']! }];
-      const index = steps.indexOf(previous);
-      if (action === 'remove') steps.splice(index, 1);
-      else steps[index] = { ...previous, ...patch };
-    } else steps.push({ id: id!, ...patch, checkpoint: null, status: 'pending' });
-    const changedSteps = [previous, ...steps.filter(step => isObject(step) && step.id === id)].filter(isObject);
-    const ownerships = new Set(changedSteps.map(step => approvalStageOfStep(step.phase as 'rig' | 'post', id!, hasStageOrder(project))));
-    if (ownerships.has('plan-approved')) {
-      plan.drafted_by = opts['--by']!;
-      plan.drafted_at = at;
+    if (withdrawing) {
+      const findings: import('./check.ts').Finding[] = [];
+      const journal = collectCheckpointWithdrawals(project, findings, now);
+      if (findings[0]) refuse(findings[0].code, findings[0].message);
+      const generation = checkpointGeneration(project, id!);
+      const replay = journal.find(entry => isObject(entry.step) && entry.step.id === id
+        && entry.sha256 === stepHash(previous!) && entry.generation === generation);
+      if (replay) {
+        if (replay.by !== opts['--by'] || replay.reason !== reason || replay.verbatim !== verbatim) refuse('CHECKPOINT_WITHDRAWAL_CONFLICT', `plan.checkpoint_withdrawals: ${id} already has different withdrawal words or actor; retain its original journal entry`);
+        return { stdout: json ? JSON.stringify(replay, null, 2) : `plan: checkpoint ${id} already withdrawn`, exit: 0 };
+      }
+      if (!previous || !['rig', 'post'].includes(String(previous.phase))
+        || stageOfStep(previous.phase as 'rig' | 'post', id!) !== project.stage
+        || completed(project, previous) || !checkpointEnabled(previous) || !checkpointRequired(project, previous, now)) {
+        refuse('CHECKPOINT_WITHDRAWAL_SCOPE', `plan.steps[${id}]: withdrawal needs one enabled unfinished checkpoint in the current execution stage; preserve other stages and use the matching step`);
+      }
+      plan.checkpoint_withdrawals = [...journal, { schema: 'rig-create/checkpoint-withdrawal@1', step: structuredClone(previous),
+        sha256: stepHash(previous), generation, by: opts['--by']!, at: new Date(now).toISOString(), reason, verbatim }];
+    } else {
+      if (previous !== undefined) {
+        if (previous.phase !== 'rig' && previous.phase !== 'post') refuse('PLAN_STEP_INVALID', `plan.steps[${id}].phase: restore rig or post before drafting`);
+        const stage = approvalStageOfStep(previous.phase, id!, hasStageOrder(project));
+        const reopens = collectReopens(project, []);
+        if (collectSignoffs(project, []).some(signature => signature.stage === stage && signature.checkpoint === null
+          && (signature.steps === null || signature.steps.includes(id!)) && liveSignoff(reopens, signature.stage, signature.at))) {
+          refuse('PLAN_STEP_SIGNED', `plan.steps[${id}]: a live ${stage} signature binds this step; reopen ${stage} before revising or removing it`);
+        }
+        if (action === 'revise' && completed(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; remove it and add the replacement under a new id`);
+      }
+      if (previous !== undefined) {
+        plan.replaced = [...asArray(plan.replaced), { step: structuredClone(previous), sha256: stepHash(previous), action: action === 'revise' ? 'revised' : 'removed', at, by: opts['--by']! }];
+        const index = steps.indexOf(previous);
+        if (action === 'remove') steps.splice(index, 1);
+        else steps[index] = { ...previous, ...patch };
+      } else steps.push({ id: id!, ...patch, checkpoint: null, status: 'pending' });
+      const changedSteps = [previous, ...steps.filter(step => isObject(step) && step.id === id)].filter(isObject);
+      const ownerships = new Set(changedSteps.map(step => approvalStageOfStep(step.phase as 'rig' | 'post', id!, hasStageOrder(project))));
+      if (ownerships.has('plan-approved')) {
+        plan.drafted_by = opts['--by']!;
+        plan.drafted_at = at;
+      }
+      if (ownerships.has('rigging-interview')) plan.rigging_drafted_at = at;
     }
-    if (ownerships.has('rigging-interview')) plan.rigging_drafted_at = at;
 
     // Refusals the record already carries stay; a new code/path pair, or one more copy of a carried one, refuses.
     const fresh = newFindings(baselineOf(checkProject(dir, project, { now })), checkProject(dir, next, { now }).refusals)[0];
@@ -131,5 +164,6 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
   } finally {
     closeSync(descriptor);
     rmSync(lock);
+    releaseJob();
   }
 }

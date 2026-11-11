@@ -1,10 +1,11 @@
+import { checkpointRequired } from './plan-history.ts';
 /**
  * What a person can sign on the record as it stands. `signoff` uses these to
  * accept a checkpoint, and the publications use them to declare the
  * `signoff` and `checkpoint` subjects Review may ask for (docs/LIVE-REVIEW.md).
  */
 import { JOB_PLAN_BOUND_SIGNOFF_STAGES, type JobSelector, type JobSubject } from '@rig-c/review/job-host';
-import { asArray, classify, collectSignoffs, isObject } from './check.ts';
+import { asArray, collectSignoffs, isObject } from './check.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { STAGES, stageOfStep } from './stages.ts';
@@ -19,10 +20,7 @@ export function checkpointProblem(project: JsonObject, stage: string, id: string
   if (matches.length !== 1 || spec?.phase === undefined || step.phase !== spec.phase || stageOfStep(spec.phase, id) !== stage) {
     return `${id}: no unique step runs in stage ${stage}`;
   }
-  const checkpoint = classify(step.checkpoint, { collection: null });
-  const on = checkpoint.state === 'user' ? checkpoint.answer.value
-    : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
-  return on === true ? null : `${id}: checkpoint must be enabled before it can be signed`;
+  return checkpointRequired(project, step) ? null : `${id}: checkpoint must be enabled before it can be signed`;
 }
 
 /** A stage closed by a sign-off that has no live stage-level signature yet. */

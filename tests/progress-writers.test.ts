@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectItems } from '../src/check.ts';
 import { applicableAsks, optionContext, sha256 } from '../src/choices.ts';
@@ -13,7 +13,7 @@ import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, 
 import { clockedCli, tempDir } from './helpers.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
-import { checkProject, advanceCommand, handoff, stepStatusCommand, signoffCommand, reopenCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
+import { checkProject, planCommand, advanceCommand, handoff, stepStatusCommand, signoffCommand, reopenCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, 2) + '\n');
@@ -660,4 +660,61 @@ test('a skipped or finished step status names the next writer call', () => {
   expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create step-status seethrough at-checkpoint next');
   status(dir, 'seethrough', 'at-checkpoint'); status(dir, 'seethrough', 'done');
   expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create reopen parts');
+});
+
+
+test('operator withdrawal through public CLI preserves signed content and releases the normal bar', () => {
+  const dir = partsProject('parts');
+  const reason = join(dir, 'withdraw-reason.txt');
+  const quote = join(dir, 'withdraw-quote.txt');
+  writeFileSync(reason, 'The operator retires this checkpoint.\n');
+  writeFileSync(quote, 'Include this evidence in the later parts review.\n');
+  status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
+  refused(dir, 'CHECKPOINT_UNSIGNED', () => status(dir, 'assemble', 'done'));
+  const before = read(dir);
+  const hash = stepHash(step(before, 'assemble'));
+  const args = ['plan', 'checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote, '--json'];
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), ...args], { stdout: 'pipe', stderr: 'pipe' });
+  expect(result.exitCode).toBe(0);
+  const withdrawn = read(dir);
+  expect(step(withdrawn, 'assemble')).toEqual(step(before, 'assemble'));
+  expect(stepHash(step(withdrawn, 'assemble'))).toBe(hash);
+  expect(withdrawn.signoffs).toEqual(before.signoffs);
+  const bytes = readFileSync(join(dir, 'project.json'));
+  expect(Bun.spawnSync([process.execPath, ...clockedCli(), ...args], { stdout: 'pipe', stderr: 'pipe' }).exitCode).toBe(0);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
+  status(dir, 'assemble', 'done');
+  expect(obj(arr(step(read(dir), 'assemble').status_history).at(-1))).toMatchObject({ checkpoint_required: false, signoff: null });
+  status(dir, 'seethrough', 'in-progress'); status(dir, 'seethrough', 'at-checkpoint'); status(dir, 'seethrough', 'done');
+  advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]);
+  expect(codes(dir)).toEqual([]);
+  expect(stepHash(step(read(dir), 'assemble'))).toBe(hash);
+});
+
+
+test('withdrawal refuses missing text, authored patches, locks, wrong stage and conflicting replay without writes', () => {
+  const dir = partsProject('parts');
+  const reason = join(dir, 'reason.txt'); const quote = join(dir, 'quote.txt');
+  writeFileSync(reason, '\uFEFFRetire one synthetic checkpoint.\r\n'); writeFileSync(quote, 'Keep the evidence.\n');
+  const args = ['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote];
+  refused(dir, 'PLAN_OPTION_INVALID', () => planCommand(args.filter(value => value !== '--by' && value !== 'operator')));
+  refused(dir, 'PLAN_OPTION_INVALID', () => planCommand([...args, '--bar', 'Changed signed content.']));
+  refused(dir, 'CHECKPOINT_WITHDRAWAL_SCOPE', () => planCommand(args.map(value => value === 'assemble' ? 'bones' : value)));
+  refused(dir, 'CHECKPOINT_WITHDRAWAL_SCOPE', () => planCommand(args.map(value => value === 'assemble' ? 'seethrough' : value)));
+  writeFileSync(reason, '  ');
+  refused(dir, 'PLAN_OPTION_INVALID', () => planCommand(args));
+  writeFileSync(reason, '\uFEFFRetire one synthetic checkpoint.\r\n');
+  writeFileSync(join(dir, '.plan.lock'), 'another writer');
+  refused(dir, 'PLAN_WRITE_CONFLICT', () => planCommand(args));
+  unlinkSync(join(dir, '.plan.lock'));
+  const before = read(dir);
+  expect(planCommand(args).exit).toBe(0);
+  const after = read(dir);
+  const entry = obj(arr(obj(after.plan).checkpoint_withdrawals)[0]);
+  expect(entry).toMatchObject({ by: 'operator', reason: '\uFEFFRetire one synthetic checkpoint.\r\n', verbatim: 'Keep the evidence.\n', sha256: stepHash(step(before, 'assemble')), generation: 0 });
+  expect(obj(after.plan).steps).toEqual(obj(before.plan).steps);
+  expect(after.signoffs).toEqual(before.signoffs);
+  refused(dir, 'PLAN_STEP_SIGNED', () => planCommand(['revise', 'assemble', dir, '--by', 'operator', '--bar', 'Unauthorized change.']));
+  writeFileSync(quote, 'Different words.');
+  refused(dir, 'CHECKPOINT_WITHDRAWAL_CONFLICT', () => planCommand(args));
 });

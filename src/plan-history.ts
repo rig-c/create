@@ -1,4 +1,4 @@
-import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
+import { asArray, classify, collectSignoffs, isObject, type Finding } from './check.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { approvalStageOfStep, hasStageOrder } from './stages.ts';
 import { stepHash } from './step-hash.ts';
@@ -75,4 +75,73 @@ export function checkReplacedSignoffs(project: JsonObject, entries: JsonObject[]
         message: `${path}: does not match ${live ? 'the current step' : 'a current or retained previous step'}; restore the signed step and its replacement history, or reopen the live approval before replanning` });
     }
   }
+}
+
+
+/** Replacement generations keep a withdrawal from applying to a later revision under the same id. */
+export function checkpointGeneration(project: JsonObject, id: string): number {
+  return asArray(isObject(project.plan) ? project.plan.replaced : undefined)
+    .filter(entry => isObject(entry) && isObject(entry.step) && entry.step.id === id).length;
+}
+
+export function checkpointEnabled(step: JsonObject): boolean {
+  const checkpoint = classify(step.checkpoint, { collection: null });
+  return checkpoint.state === 'user' ? checkpoint.answer.value === true
+    : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision)
+      && checkpoint.answer.agent_decision.value === true;
+}
+
+/** Withdrawals preserve the signed step. Their authority is limited to its exact hash and replacement generation. */
+export function collectCheckpointWithdrawals(project: JsonObject, refusals: Finding[], now = Infinity): JsonObject[] {
+  const plan = isObject(project.plan) ? project.plan : {};
+  if (plan.checkpoint_withdrawals === undefined) return [];
+  const start = refusals.length;
+  const entries: JsonObject[] = [];
+  const identities = new Set<string>();
+  let previousAt = -Infinity;
+  const fail = (path: string): void => {
+    refusals.push({ code: 'CHECKPOINT_WITHDRAWAL_INVALID', path,
+      message: `${path}: retain a withdrawal with its original enabled step, hash, generation, operator, date, reason and exact words; restore the journal and use plan checkpoint-withdraw` });
+  };
+  if (!Array.isArray(plan.checkpoint_withdrawals)) { fail('plan.checkpoint_withdrawals'); return []; }
+  for (const [index, raw] of plan.checkpoint_withdrawals.entries()) {
+    const path = `plan.checkpoint_withdrawals[${index}]`;
+    if (!isObject(raw) || Object.keys(raw).sort().join(',') !== 'at,by,generation,reason,schema,sha256,step,verbatim'
+      || raw.schema !== 'rig-create/checkpoint-withdrawal@1' || !isObject(raw.step)
+      || typeof raw.step.id !== 'string' || !raw.step.id.trim() || !['rig', 'post'].includes(String(raw.step.phase))
+      || !checkpointEnabled(raw.step) || raw.sha256 !== stepHash(raw.step)
+      || !Number.isSafeInteger(raw.generation) || Number(raw.generation) < 0
+      || Number(raw.generation) > checkpointGeneration(project, raw.step.id)
+      || ['by', 'reason', 'verbatim'].some(key => typeof raw[key] !== 'string' || !String(raw[key]).trim())
+      || typeof raw.at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(raw.at)
+      || !Number.isFinite(Date.parse(raw.at)) || Date.parse(raw.at) > now) {
+      fail(path); continue;
+    }
+    const original = raw.step;
+    const id = String(original.id);
+    const at = Date.parse(raw.at);
+    const checkpoint = raw.step.checkpoint as JsonObject;
+    const decision = checkpoint.delegated === true && isObject(checkpoint.agent_decision) ? checkpoint.agent_decision : checkpoint;
+    const versions = asArray(plan.replaced).filter(entry => isObject(entry) && isObject(entry.step) && entry.step.id === id);
+    const historical = versions[Number(raw.generation)];
+    const current = asArray(plan.steps).find(step => isObject(step) && step.id === id);
+    const bound = isObject(historical) ? historical.step : current;
+    const identity = JSON.stringify([raw.step.id, raw.sha256, raw.generation]);
+    if (!isObject(bound) || stepHash(bound) !== raw.sha256) { fail(path); continue; }
+    if (at < previousAt || !Number.isFinite(Date.parse(String(decision.at ?? checkpoint.at))) || at < Date.parse(String(decision.at ?? checkpoint.at)) || identities.has(identity)) {
+      fail(path); continue;
+    }
+    previousAt = at;
+    identities.add(identity);
+    entries.push(raw);
+  }
+  // A broken journal grants no partial exemption.
+  return refusals.length === start ? entries : [];
+}
+
+export function checkpointRequired(project: JsonObject, step: JsonObject, now = Infinity): boolean {
+  if (!checkpointEnabled(step)) return false;
+  return !collectCheckpointWithdrawals(project, [], now).some(entry => isObject(entry.step)
+    && entry.step.id === step.id && entry.sha256 === stepHash(step)
+    && entry.generation === checkpointGeneration(project, String(step.id)));
 }

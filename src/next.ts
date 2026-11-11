@@ -1,10 +1,10 @@
+import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import {
   asArray,
   checkProject,
-  classify,
   collectItems,
   collectSignoffs,
   isObject,
@@ -293,13 +293,7 @@ function candidateStepStatus(
     collectSignoffs(clone, []).some(s => s.stage === 'plan-approved' && s.at < Date.parse(PARTS_REVIEW_SINCE));
   if (!running.includes(stage) && !(oldOrder && step.phase === 'rig')) return null;
 
-  const checkpoint = classify(step.checkpoint, { collection: null });
-  const enabled =
-    checkpoint.state === 'user'
-      ? checkpoint.answer.value === true
-      : checkpoint.state === 'delegated' &&
-        isObject(checkpoint.answer.agent_decision) &&
-        checkpoint.answer.agent_decision.value === true;
+  const enabled = checkpointRequired(clone, step, now);
   const entry: JsonObject = {
     from_status: step.status ?? 'pending',
     status: nextStatus,
@@ -585,6 +579,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   };
   const moves: NextMove[] = [];
   const recordedLapseTargets = new Set<string>();
+  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
+  const withdrawnCheckpoint = (id: string): boolean => steps.some(step => step.id === id
+    && checkpointEnabled(step) && !checkpointRequired(project, step, now));
 
   // 1. Derive lapsed approvals from reopens[] and amendments[].
   const rawSignoffs = asArray(project.signoffs).filter(isObject);
@@ -601,6 +598,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
       const lapsedStage = typeof signoffEntry?.stage === 'string' ? signoffEntry.stage : effectiveStage;
       const checkpoint = typeof signoffEntry?.checkpoint === 'string' ? signoffEntry.checkpoint : null;
+      if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`
         : `signoffs[stage=${lapsedStage}]`;
@@ -677,6 +675,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     for (const lapsedApproval of amendment.lapsed) {
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
+      if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`
         : `signoffs[stage=${targetStage}]`;
@@ -731,7 +730,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const collection = loadCollection(dir);
   const items = collectItems(project, { collection });
   const splitOrder = hasStageOrder(project);
-  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
   const drafts = asArray(project.drafts).filter(isObject);
   const versions = asArray(project.versions).filter(isObject);
 
@@ -900,13 +898,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         const fromIdx = STEP_STATUSES.indexOf(currentStatus as (typeof STEP_STATUSES)[number]);
         const nextStatus = fromIdx >= 0 ? STEP_STATUSES[fromIdx + 1] : undefined;
         if (nextStatus === undefined) continue;
-        const checkpoint = classify(step.checkpoint, { collection: null });
-        const checkpointEnabled =
-          checkpoint.state === 'user'
-            ? checkpoint.answer.value === true
-            : checkpoint.state === 'delegated' &&
-              isObject(checkpoint.answer.agent_decision) &&
-              checkpoint.answer.agent_decision.value === true;
+        const checkpointEnabled = checkpointRequired(project, step, now);
         if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('parts', stepId)) {
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);
@@ -1090,13 +1082,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         const fromIdx = STEP_STATUSES.indexOf(currentStatus as (typeof STEP_STATUSES)[number]);
         const nextStatus = fromIdx >= 0 ? STEP_STATUSES[fromIdx + 1] : undefined;
         if (nextStatus === undefined) continue;
-        const checkpoint = classify(step.checkpoint, { collection: null });
-        const checkpointEnabled =
-          checkpoint.state === 'user'
-            ? checkpoint.answer.value === true
-            : checkpoint.state === 'delegated' &&
-              isObject(checkpoint.answer.agent_decision) &&
-              checkpoint.answer.agent_decision.value === true;
+        const checkpointEnabled = checkpointRequired(project, step, now);
         if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('rigging', stepId)) {
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);
@@ -1239,13 +1225,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         const fromIdx = STEP_STATUSES.indexOf(currentStatus as (typeof STEP_STATUSES)[number]);
         const nextStatus = fromIdx >= 0 ? STEP_STATUSES[fromIdx + 1] : undefined;
         if (nextStatus === undefined) continue;
-        const checkpoint = classify(step.checkpoint, { collection: null });
-        const checkpointEnabled =
-          checkpoint.state === 'user'
-            ? checkpoint.answer.value === true
-            : checkpoint.state === 'delegated' &&
-              isObject(checkpoint.answer.agent_decision) &&
-              checkpoint.answer.agent_decision.value === true;
+        const checkpointEnabled = checkpointRequired(project, step, now);
         if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('post', stepId)) {
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);

@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { isObject } from '../src/check.ts';
-import { checkReplacedSignoffs, collectPlanReplaced } from '../src/plan-history.ts';
+import { checkpointRequired, collectCheckpointWithdrawals, checkReplacedSignoffs, collectPlanReplaced } from '../src/plan-history.ts';
 import { Refusal } from '../src/refusal.ts';
 import { STAGE_ORDER_SPEC } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
@@ -364,4 +364,43 @@ test('the plan writer is refused on a record whose stage check stopped early', (
   const project = read(dir); project.stage = 'no-such-stage'; save(dir, project);
   expect(codes(dir)).toEqual(['STAGE_UNKNOWN']);
   unchanged(dir, 'STAGE_UNKNOWN', () => planCommand(['add', 'camera', dir, '--by', 'agent', ...fields]));
+});
+
+
+function withdrawalProject(): JsonObject {
+  const original = { id: 'mesh-step', phase: 'rig', status: 'at-checkpoint', does: 'Inspect synthetic geometry.',
+    checkpoint: { delegated: false, value: true, by: 'user', at: '2026-11-10T00:00:00Z', verbatim: 'Require inspection.' } };
+  return { plan: { steps: [original], checkpoint_withdrawals: [{ schema: 'rig-create/checkpoint-withdrawal@1',
+    step: structuredClone(original), sha256: stepHash(original), generation: 0, by: 'operator',
+    at: '2026-11-11T00:00:00Z', reason: 'Retire the gate.', verbatim: 'Keep its evidence.' }] } };
+}
+
+test('withdrawal binds the exact signed checkpoint and generation without retroactive history exemptions', () => {
+  const project = withdrawalProject(); const plan = obj(project.plan); const original = obj(arr(plan.steps)[0]);
+  const entries = collectCheckpointWithdrawals(project, [], Date.parse('2026-11-20T00:00:00Z'));
+  expect(entries).toHaveLength(1); expect(checkpointRequired(project, original)).toBe(false);
+  plan.replaced = [{ step: structuredClone(original), sha256: stepHash(original), action: 'revised', by: 'operator', at: '2026-11-12T00:00:00Z' }];
+  expect(checkpointRequired(project, original)).toBe(true);
+  expect(collectCheckpointWithdrawals(project, [])).toHaveLength(1);
+  original.bar = 'A new signed bar.';
+  expect(checkpointRequired(project, original)).toBe(true);
+  obj(original.checkpoint).at = '2026-11-13T00:00:00Z';
+  expect(checkpointRequired(project, original)).toBe(true);
+});
+
+test.each([
+  (entry: JsonObject) => { entry.sha256 = '0'.repeat(64); },
+  (entry: JsonObject) => { entry.reason = ''; },
+  (entry: JsonObject) => { entry.by = ''; },
+  (entry: JsonObject) => { entry.verbatim = ''; },
+  (entry: JsonObject) => { entry.generation = 1; },
+  (entry: JsonObject) => { entry.at = '2026-11-09T00:00:00Z'; },
+  (entry: JsonObject) => { entry.at = '2026-12-01T00:00:00Z'; },
+  (entry: JsonObject) => { entry.extra = 'unrecognized'; },
+])('malformed withdrawal grants no effective exemption', edit => {
+  const project = withdrawalProject(); edit(obj(arr(obj(project.plan).checkpoint_withdrawals)[0]));
+  const findings: import('../src/check.ts').Finding[] = [];
+  expect(collectCheckpointWithdrawals(project, findings, Date.parse('2026-11-20T00:00:00Z'))).toEqual([]);
+  expect(findings.map(f => f.code)).toEqual(['CHECKPOINT_WITHDRAWAL_INVALID']);
+  expect(checkpointRequired(project, obj(arr(obj(project.plan).steps)[0]), Date.parse('2026-11-20T00:00:00Z'))).toBe(true);
 });

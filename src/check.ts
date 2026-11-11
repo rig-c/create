@@ -77,7 +77,7 @@ import type { Json, JsonObject } from './templates.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { stepHash } from './step-hash.ts';
-import { collectPlanReplaced, checkReplacedSignoffs } from './plan-history.ts';
+import { collectPlanReplaced, checkReplacedSignoffs, collectCheckpointWithdrawals, checkpointRequired } from './plan-history.ts';
 import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
 
 export const PROJECT_SCHEMA = 'rig-create/project@0';
@@ -669,9 +669,7 @@ function checkPlan(ctx: Ctx): void {
         }
       }
     }
-    const on = checkpoint.state === 'user' ? checkpoint.answer.value === true
-      : checkpoint.state === 'delegated' && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value === true
-      : false;
+    const on = checkpointRequired(ctx.project, record);
     if (on && status === 'done') {
       const stages = checkpointStages(ctx, step);
       const stage = stages[0] as string;
@@ -910,6 +908,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   for (const s of historySignoffs) checkSignoffTarget(dir, project, s.record, `signoffs[${s.index}]`, refusals, warnings);
   const signoffs = historySignoffs.filter(s => liveSignoff(reopens, s.stage, s.at));
   const steps = collectSteps(project, refusals);
+  collectCheckpointWithdrawals(project, refusals, options.now);
   const replaced = collectPlanReplaced(project, refusals);
   checkReplacedSignoffs(project, replaced, refusals);
   const previousSteps = collectSteps({ plan: { steps: replaced.map(entry => entry.step) } }, []);

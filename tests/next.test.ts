@@ -14,8 +14,8 @@ import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/n
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
-import { fixture } from './fixtures.ts';
+import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { sourceOnlyTest } from './source-only.ts';
@@ -1083,4 +1083,34 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(cliRes.code).toBe(USAGE_EXIT);
     expect(cliRes.stderr).toContain('NEXT_USAGE');
   });
+});
+
+
+test('P1 withdrawn checkpoint next offers executable done through the normal entry', () => {
+  testClock.set('2026-11-20T00:00:00Z');
+  const dir = fixture(project => {
+    project.stage = 'parts'; project.versions = [];
+    project.signoffs = arr(project.signoffs).slice(0, 2);
+    retimeFixture(project, Date.parse('2026-11-16T00:00:00Z'));
+    for (const raw of arr(obj(project.plan).steps)) obj(raw).status = 'pending';
+  });
+  const words = join(dir, 'withdraw-words.txt'); const reason = join(dir, 'withdraw-reason.txt');
+  writeFileSync(words, 'Keep this evidence for parts review.'); writeFileSync(reason, 'Retire the synthetic checkpoint.');
+  stepStatusCommand(['assemble', 'in-progress', dir, '--by', 'agent']);
+  stepStatusCommand(['assemble', 'at-checkpoint', dir, '--by', 'agent']);
+  const before = JSON.parse(runMainCapture(['next', dir, '--json'], testClock.now()).stdout) as NextReport;
+  expect(before.moves.some(move => move.review_act?.kind === 'signoff-checkpoint' && move.review_act.step_id === 'assemble')).toBe(true);
+  expect(planCommand(['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', words]).exit).toBe(0);
+  const bytes = readFileSync(join(dir, 'project.json'));
+  const result = runMainCapture(['next', dir, '--json'], testClock.now());
+  expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: '' });
+  const after = JSON.parse(result.stdout) as NextReport;
+  expect(after.refusals).toEqual([]);
+  expect(after.moves.some(move => move.review_act?.kind === 'signoff-checkpoint' && move.review_act.step_id === 'assemble')).toBe(false);
+  expect(after.awaits).not.toContain('signoffs[checkpoint=assemble]');
+  const done = after.moves.find(move => move.command?.startsWith('rig-create step-status assemble done'));
+  expect(done).toBeDefined();
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
+  const executed = runMainCapture([...done!.command!.slice('rig-create '.length).split(/\s+/), dir], testClock.now());
+  expect({ code: executed.code, stderr: executed.stderr }).toEqual({ code: 0, stderr: '' });
 });

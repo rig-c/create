@@ -2512,3 +2512,22 @@ the project's next moves and whose they are from `project.json`:
   ]
 }
 ```
+
+
+### Operator withdrawal of an execution checkpoint
+
+`plan checkpoint-withdraw <id> [<project dir>] --by <operator>
+--reason-file <file> --quote-file <file>` appends one optional
+`plan.checkpoint_withdrawals[]` entry. Each entry has schema
+`rig-create/checkpoint-withdrawal@1`, the complete original `step`, its `sha256`
+from stepHash, its per-id replacement `generation`, `by`, `at`, `reason` and
+`verbatim`. Both input files are strict UTF-8 and retain their exact text.
+The operation requires an enabled unfinished checkpoint in the current execution
+stage. Identical retry inputs preserve project bytes. Conflicting retries refuse.
+
+The original step, checkpoint decision, proposal, approval hashes and signatures
+remain unchanged. A withdrawal supplies operator policy without creating a human
+act or signature. Only an exact step hash and replacement generation match makes
+the effective requirement false. A later revision or re-enabled decision needs
+its own policy. Old journal entries and event-time status snapshots remain
+history. Absence of the optional journal preserves existing behavior.

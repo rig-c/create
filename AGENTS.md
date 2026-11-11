@@ -30,6 +30,12 @@ Read this before choosing work. It ranks every issue in this repository.
 
    A bypass is recorded as a finding and gets an issue. It never counts as
    done, even when `check` passes.
+
+   Exception: exactly two operator policy journals, `plan checkpoint-withdraw`
+   and `plan bar-amend`, require an operator, a reason file and the decision
+   maker's exact quoted words. Neither creates or replaces a verdict, pick,
+   correction or signature. Every other human decision outside Review remains
+   a bypass.
 4. **Pilot projects exist to exercise the cycle.** A pilot that stalls is a
    measurement of the tools. Fix the tool, not the pilot.
 5. **Queue rule.** Every open issue is either on the cycle's path or off it.

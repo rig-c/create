@@ -1,15 +1,16 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import { decodeReviewAct, reviewActFindings } from '../src/review-act.ts';
 import { Refusal } from '../src/refusal.ts';
+import { nextCommand } from '../src/next.ts';
 import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import type { SignoffHooks } from '../src/signoff-checkpoint-act.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkProject, testClock } from './clock.ts';
+import { checkProject, planCommand, reopenCommand, stepStatusCommand, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { clockedCli, gitEnv } from './helpers.ts';
 
@@ -21,11 +22,20 @@ const ORIGIN = 'http://127.0.0.1:43124';
 const WORDS = '  Synthetic pass, 좋아.\r\n';
 
 /** A project whose enabled `constraints` checkpoint is unsigned, bound to a synthetic live job. */
-function bound(): { dir: string; at: string } {
+function bound(unfinished = false): { dir: string; at: string } {
   let at = '';
   const dir = realpathSync(fixture((p) => {
     at = String(obj(arr(p.signoffs).find((s) => obj(s).checkpoint === 'constraints')).at);
     p.signoffs = arr(p.signoffs).filter((s) => obj(s).checkpoint !== 'constraints');
+    if (unfinished) {
+      p.stage = 'rigging'; p.versions = [];
+      p.signoffs = arr(p.signoffs).filter(s => ['interview', 'plan-approved', 'parts', 'parts-review'].includes(String(obj(s).stage)));
+      for (const raw of arr(obj(p.plan).steps)) {
+        const step = obj(raw);
+        if (step.id === 'constraints' || step.phase === 'post') step.status = 'pending';
+      }
+      at = testClock.iso();
+    }
   }));
   const identity = currentJobIdentity({ root: dir, stateDir: 'unused-private-state', fingerprint: 'synthetic', reviewer: { id: 'synthetic-owner', role: 'owner' } }, dir);
   writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, jobId: JOB, origin: ORIGIN, fetchCapability: 'synthetic-read-grant' }, true);
@@ -204,4 +214,39 @@ test('the CLI fetches the checkpoint act through the job API binding and records
     expect(obj(arr(load(dir).review_acts).at(-1)).bytes).toBe(JSON.stringify(act));
     expect(checkProject(dir).refusals).toEqual([]);
   } finally { server.stop(true); }
+});
+
+
+test('P1 immutable checkpoint act replays after withdrawal with bytes inode and times unchanged', () => {
+  testClock.set('2026-11-20T00:00:00Z');
+  const { dir, at } = bound(true);
+  stepStatusCommand(['constraints', 'in-progress', dir, '--by', 'agent']);
+  stepStatusCommand(['constraints', 'at-checkpoint', dir, '--by', 'agent']);
+  const act = checkpointAct(dir, at);
+  expect(checkProject(dir).refusals).toEqual([]);
+  expect(ingest(dir, act).exit).toBe(0);
+  testClock.set(testClock.now() + 1000);
+  const quote = join(dir, 'quote.txt'); const reason = join(dir, 'reason.txt');
+  writeFileSync(quote, 'Keep this evidence in the later review.'); writeFileSync(reason, 'Retire the synthetic checkpoint.');
+  expect(planCommand(['checkpoint-withdraw', 'constraints', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote]).exit).toBe(0);
+  const file = join(dir, 'project.json'); const bytes = readFileSync(file); const before = statSync(file, { bigint: true });
+  const receipt = structuredClone(arr(load(dir).review_acts));
+  let replay: ReturnType<typeof ingest> | undefined;
+  let replayError: unknown;
+  try { replay = ingest(dir, act, ['--json']); } catch (error) { replayError = error; }
+  expect(replayError instanceof Refusal ? replayError.code : replayError).toBeUndefined();
+  expect(replay!.exit).toBe(0);
+  const after = statSync(file, { bigint: true });
+  expect(readFileSync(file)).toEqual(bytes);
+  expect([after.ino, after.mtimeNs, after.ctimeNs, after.size]).toEqual([before.ino, before.mtimeNs, before.ctimeNs, before.size]);
+  expect(arr(load(dir).review_acts)).toEqual(receipt);
+  expect(refused(dir, () => ingest(dir, { ...act, value: { ...obj(act.value), words: 'Changed old bytes.' } })).code).toBe('REVIEW_ACT_REPLAY_CONFLICT');
+  const calls: string[] = [];
+  expect(refused(dir, () => ingest(dir, { ...act, actId: 'new-checkpoint-act' }, [], 'rigging', 'constraints', calls)).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
+  expect(calls).toEqual([]);
+  expect(refused(dir, () => ingest(dir, act, [], 'parts')).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
+  testClock.set(testClock.now() + 1000);
+  reopenCommand(['rigging', dir, '--by', 'user', '--verbatim-file', quote]);
+  const next = JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as { moves: { review_act?: { kind: string; step_id?: string } }[] };
+  expect(next.moves.some(move => move.review_act?.kind === 'signoff-checkpoint' && move.review_act.step_id === 'constraints')).toBe(false);
 });

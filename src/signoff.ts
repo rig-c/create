@@ -128,6 +128,15 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const { file, project } = readProject(dir);
   const original = actId === undefined ? undefined : readFileSync(file);
   let ingest: CheckpointIngest | undefined;
+  // Recorded checkpoint receipts replay before current eligibility, through the same immutable-byte validator.
+  if (actId !== undefined && opts['--checkpoint'] !== undefined && asArray(project.review_acts).some(entry =>
+    isObject(entry) && entry.kind === 'checkpoint' && entry.actId === actId)) {
+    ingest = ingestCheckpointAct(dir, project, actId, opts['--checkpoint'], now, hooks);
+    if (ingest.replay) {
+      if (ingest.replay.stage !== stage) refuse('SIGNOFF_CHECKPOINT_INVALID', `signoffs.checkpoint ${opts['--checkpoint']}: recorded act belongs to ${String(ingest.replay.stage)}; replay it for its original stage`);
+      return { stdout: json ? JSON.stringify(ingest.replay, null, 2) : `signoff: ${stage} checkpoint ${opts['--checkpoint']} already recorded from ${ingest.source}; nothing written`, exit: 0 };
+    }
+  }
   // A target stage signs the version Review displayed: the act's selector, never a flag, names it.
   let targetVersion = opts['--version'];
   if (review !== undefined && stage in SIGNOFF_TARGET_KINDS) {

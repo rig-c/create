@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { readReview, ReviewReadError, type ReviewReadRunner } from './review-read.ts';
+import { readReview, selectedReviewFeedback, ReviewReadError, type ReviewReadRunner } from './review-read.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPostIdentity, validateDirectionOutcome } from './direction.ts';
 /** Human correction capture through Review's read-only feedback CLI. */
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -141,7 +141,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
         const input = feedbackPackageInput(dir, (opts['--feedback-file'] ?? opts['--patch-file']) as string, on.kind === 'draft');
         const read = readReview(dir,input,runner);
         const feedback=read.value;
-        const items=objects(feedback.feedback).filter(i=>i.id===opts['--item']);const item=items[0];
+        const items=selectedReviewFeedback(feedback,opts['--item'] as string);const item=items[0];
         if(items.length!==1||!item||typeof item.summary!=='string'||!isObject(item.context)||!isObject(item.context.applied))throw new CorrectionError('CORRECTION_APPLIED_INVALID','session needs exactly one applied item');
         verbatim=item.summary;const applied=item.context.applied;
         if(opts['--patch-file'] && applied.schema!=='rig-review-applied/2')throw new CorrectionError('CORRECTION_APPLIED_INVALID','patch-file requires a config patch applied through Review');
@@ -168,7 +168,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
       if(opts['--applied-feedback']) {
         const previousPatch = artifact.review_read === undefined ? undefined : correctionApplied(dir,artifact).applied.patch;
         const read=readReview(dir,feedbackPackageInput(dir,opts['--applied-feedback'],isObject(record.on)&&record.on.kind==='draft'),runner);
-        const selected=objects(read.value.feedback).filter(item=>item.id===opts['--feedback-id']);
+        const selected=selectedReviewFeedback(read.value,opts['--feedback-id'] as string);
         const selectedApplied=selected.length===1 && isObject(selected[0]?.context) ? selected[0].context.applied : undefined;
         if(previousPatch !== undefined && (!isObject(selectedApplied) || !isDeepStrictEqual(previousPatch,selectedApplied.patch)))throw new CorrectionError('CORRECTION_APPLIED_INVALID','selected Apply patch differs from the captured correction');
         artifact.feedback={file:read.file,item_id:opts['--feedback-id'] as string};

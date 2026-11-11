@@ -3,7 +3,11 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readReview, retainedReviewRead, ReviewReadError, storedReviewRead, type ReviewReadRunner } from '../src/review-read.ts';
+import { readReview, retainedReviewRead, reviewSessionSource, selectedReviewFeedback, ReviewReadError, storedReviewRead, type ReviewReadRunner } from '../src/review-read.ts';
+import { REVIEW_COMMENTS_SESSION_SCHEMA, REVIEW_COMMENTS_COMPARE_SESSION_SCHEMA } from '@rig-c/review/job-host';
+import { loadReview } from '../node_modules/@rig-c/review/src/manifest.ts';
+import { prepareLiveManifest } from '../src/job-publication.ts';
+import { jobHash } from '../src/job-outbox.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { partsReadFindings } from '../src/parts-verdict-record.ts';
 import { correctionCommand } from '../src/correction-writers.ts';
@@ -18,6 +22,47 @@ afterEach(() => { testClock.reset(); for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true }); });
 function fixture() { const dir = mkdtempSync(join(tmpdir(), 'review-read-')); roots.push(dir); correctionFixture(dir, 'rig'); return dir; }
 const now = Date.parse('2026-11-08T12:00:00Z');
+
+test('session/2 retains actual package bindings and selected comment projection without relabelling stdout', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'comments-session-'))); roots.push(dir);
+    cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const manifest = prepareLiveManifest(dir, project, 1);
+    const pkg = await loadReview(join(dir, manifest));
+    const metadata = JSON.parse(readFileSync(join(import.meta.dir, '../node_modules/@rig-c/review/package.json'), 'utf8')) as { name: string; version: string };
+    const tool = { name: metadata.name, version: metadata.version };
+    const session = { schema: REVIEW_COMMENTS_SESSION_SCHEMA, id: pkg.manifest.id, revision: pkg.manifest.revision,
+        sourceHash: pkg.sourceHash, reviewedSource: pkg.reviewedSource, status: 'changes-requested', checkpoints: {},
+        comments: [{ text: 'General' }, { text: '  Exact feedback  ', anchor: { id: 'selected-feedback', frameStart: 0, frameEnd: 0,
+            target: { kind: 'rig', name: pkg.feedbackCatalog.rig }, category: 'quality' } }], feedbackWarnings: [], updatedAt: null };
+    const stdout = Buffer.from(`${JSON.stringify(session, null, 3)}\n`);
+    const runner: ReviewReadRunner = () => ({ stdout, stderr: '', exitCode: 0, tool });
+    const read = readReview(dir, manifest, runner);
+    expect(read.value.schema).toBe(REVIEW_COMMENTS_SESSION_SCHEMA);
+    expect(read.value.feedback).toBeUndefined();
+    expect(readFileSync(join(dir, String(read.file.path)))).toEqual(stdout);
+    expect(read.file.sha256).toBe(jobHash(stdout));
+    const retained = retainedReviewRead(dir, read.receipt, read.file);
+    expect<unknown>(retained.comments).toEqual(session.comments);
+    expect(selectedReviewFeedback(retained, 'selected-feedback')[0]!.summary)
+        .toBe(`[${JSON.stringify(['rig', pkg.feedbackCatalog.rig, 0, 0, null])}]\n  Exact feedback  `);
+    expect(selectedReviewFeedback(retained, 'absent-feedback')).toEqual([]);
+    expect<unknown>(reviewSessionSource(retained)).toEqual(pkg.reviewedSource);
+
+    // A codec-valid comparison remains outside Create's single-build Apply source adapter.
+    const painting = (project.inputs as JsonObject[]).find(input => input.path === 'inputs/painting.png')!;
+    const binding = { a: { sourceHash: pkg.sourceHash, reviewedSource: pkg.reviewedSource },
+        b: { sourceHash: pkg.sourceHash, reviewedSource: pkg.reviewedSource },
+        reference: { name: String(painting.path), sha256: jobHash(readFileSync(join(dir, String(painting.path)))) }, animation: 'setup' };
+    const comparison = { schema: REVIEW_COMMENTS_COMPARE_SESSION_SCHEMA, id: 'same-package-comparison', revision: 'compare/1',
+        sourceHash: jobHash(JSON.stringify(binding)), binding, status: 'pending', comments: [{ text: 'General comparison' }], feedbackWarnings: [], updatedAt: null };
+    const comparisonBytes = Buffer.from(JSON.stringify(comparison));
+    const compared = readReview(dir, manifest, () => ({ stdout: comparisonBytes, stderr: '', exitCode: 0, tool }));
+    expect(compared.value.schema).toBe(REVIEW_COMMENTS_COMPARE_SESSION_SCHEMA);
+    expect(readFileSync(join(dir, String(compared.file.path)))).toEqual(comparisonBytes);
+    expect(reviewSessionSource(compared.value)).toBeNull();
+    expect(selectedReviewFeedback(compared.value, 'selected-feedback')).toEqual([]);
+});
 const capture = (dir: string, runner: ReviewReadRunner = syntheticReviewRunner, extra: string[] = []) => correctionCommand(['record', dir, '--id', 'api-change', '--path', 'made', '--stage', 'rig-review', '--version', '1', '--by', 'user', '--feedback-file', 'opaque-review-package', '--item', 'synthetic-apply', ...extra], now, runner);
 function refused(dir: string, code: string, run: () => unknown) {
     const before = readFileSync(join(dir, 'project.json'));

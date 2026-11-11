@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
-import { assertReviewActSource, decodeReviewAct, reviewActFindings, reviewActPublicationWarning, reviewActTransport, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
+import { assertReviewActSource, decodeReviewAct, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { dirname, join, resolve } from 'node:path';
 
@@ -492,8 +492,8 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   const created: string[] = [];
   try {
     const addedEvidence: JsonObject[] = [];
-    if (fetched?.act.schema === 'rig-review/act@3') {
-      const still = fetched.act.still;
+    const still = fetched === undefined ? null : reviewActStill(fetched.act);
+    if (fetched !== undefined && still !== null) {
       const png = fetched.stillBytes === undefined ? null : Buffer.from(fetched.stillBytes, 'base64');
       if (!png || jobHash(png) !== still.sha256) refuse('REVIEW_ACT_STILL_INVALID', 'project.json.review_acts: named PNG is missing or mismatched; fetch act.json and its still together');
       const base = `evidence/v${input.version}`;
@@ -566,7 +566,10 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
     assertReviewActSource(root, project, act);
     const existing = asArray(project.review_acts).find(entry => isObject(entry) && entry.jobId === act.jobId && entry.actId === act.actId);
     if (isObject(existing)) {
-      if (!isDeepStrictEqual(JSON.parse(String(existing.bytes)), act)) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable act changed; restore the original receipt');
+      const sameAct = act.schema === 'rig-review/act@6'
+        ? existing.bytes === response.bytes
+        : isDeepStrictEqual(JSON.parse(String(existing.bytes)), act);
+      if (!sameAct) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable act changed; restore the original receipt');
       if (existing.version_hash !== reviewActVersionHash(project, act, Number(existing.verdict))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed version changed; request a new review act');
       const version = asArray(project.versions).find(v => isObject(v) && v.n === requestedVersion) as JsonObject;
       return { project_dir: root, verdict_path: `versions[v${requestedVersion}].verdicts[${existing.verdict}]`,
@@ -576,7 +579,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
     return writeVerdict(root, { version: requestedVersion,
       verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict] as ReviewInput['verdict'],
       by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', review: act.value.stage as Review,
-      verbatim: act.value.words, at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
+      verbatim: reviewActVerbatim(act), at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
     }, now, { act, bytes: response.bytes, stillBytes: response.stillBytes }, warning ? [warning] : []);
   } finally { release(); }
 }

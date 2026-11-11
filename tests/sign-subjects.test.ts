@@ -165,15 +165,32 @@ sourceOnlyTest('an act for a subject create did not declare refuses by name and 
   const asked = await ask(host, { kind: 'signoff', stage: 'interview' });
   expect(asked.error).toBeUndefined();
   const planted = await (await page(host)).act(String(asked.value.askId), 'signoff', { stage: 'interview', decision: 'approved', words: WORDS });
+  // Only these two consumers run at the finalized act's instant; Review's producer is unchanged.
+  const signoff = async () => {
+    const requested = { jobId: readWriterBinding(root)!.jobId, actId: planted.actId };
+    const commandClock = planted.at;
+    const diagnostic = JSON.stringify({
+      planted: { jobId: planted.jobId, actId: planted.actId, at: planted.at }, requested, commandClock,
+      comparisons: {
+        'act.jobId !== transport.jobId': planted.jobId !== requested.jobId,
+        'act.actId !== transport.actId': planted.actId !== requested.actId,
+        'Date.parse(act.at) > now': Date.parse(planted.at) > Date.parse(commandClock),
+      },
+    });
+    const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), commandClock,
+      'signoff', 'interview', root, '--from-review', requested.actId], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exit, diagnostic };
+  };
   const bytes = readFileSync(join(root, 'project.json'));
-  const result = await cli(root, ['signoff', 'interview', root, '--from-review', planted.actId]);
-  expect(result.exit).toBe(1);
-  expect(result.stderr).toStartWith('rig-create: REVIEW_ACT_SUBJECT_UNDECLARED: project.json.review_acts:');
+  const result = await signoff();
+  expect(result.exit, result.diagnostic).toBe(1);
+  expect(result.stderr, result.diagnostic).toStartWith('rig-create: REVIEW_ACT_SUBJECT_UNDECLARED: project.json.review_acts:');
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
   // Control: without the acknowledged receipt (a clone) the same act is recorded, so the receipt is what refused it.
   rmSync(join(root, '.rig-create-review/acknowledged-publications'), { recursive: true });
-  const unverified = await cli(root, ['signoff', 'interview', root, '--from-review', planted.actId]);
-  expect({ exit: unverified.exit, stderr: unverified.stderr }).toEqual({ exit: 0, stderr: '' });
+  const unverified = await signoff();
+  expect({ exit: unverified.exit, stderr: unverified.stderr }, unverified.diagnostic).toEqual({ exit: 0, stderr: '' });
 });
 
 test('a target stage needs its own version kind and a plan-bound stage needs plan steps', () => {

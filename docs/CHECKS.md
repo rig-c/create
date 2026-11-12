@@ -1451,7 +1451,7 @@ the record unchanged.
 | --- | --- |
 | `JOB_RECORD_SUBJECT_INVALID` | `project.json` does not bind the explicitly requested question, option set and effective stage, including a question whose pick is already recorded and so has no pending set, or a subject id cannot be represented by the record publication contract. Publish the exact current pending subject with its original representable id. |
 | `JOB_RECORD_COLLECTION_EXTERNAL` | A collection member's `project.json` has no `collection_binding` (`rig-create/collection-binding@1`), its bound `evidence/collection-binding.json` is missing, unreadable, malformed or traverse-unsafe, its `sha256` or `collection_sha256` mismatches the sealed binding or current `../../collection.json`, its bound member/collection identity or `inherited_answers` do not match the member's `basis: "inherited"` items, or the retained snapshot differs from the sealed collection interview. Run `rig-create collection-binding <member dir>` to write and bind the current collection snapshot before publishing. |
-| `JOB_RECORD_CLOSURE_INCOMPLETE` | `project.json` passes its retained seals, but the retained check refuses. The closure holds every file the inventory check read, so this means the retained root lacks or changed one of them. Structured details retain the check's codes and paths. Restore the complete inventory closure before finalization. |
+| `JOB_RECORD_CLOSURE_INCOMPLETE` | `project.json` passes its retained seals, but the retained check refuses. The closure holds every file the ask's record check read, so this means the retained root lacks or changed one of them. Structured details retain the check's codes and paths. Restore the complete inventory closure before finalization. |
 | `JOB_RECORD_PARTS_LOCK_MISSING` | The `@rig-c/parts` the check loads (the project's install, or in the retained phase the host's) has no `bun.lock` or `package-lock.json` entry with its installed version and an integrity, or two lockfiles disagree. The version alone is never used. Install parts from a lockfile that records its integrity and publish again. |
 | `JOB_RECORD_PARTS_MISMATCH` | In the retained phase, the host loads a different `@rig-c/parts` version or integrity than the inventory phase sealed. The message names both versions. Rebuild the project on the host's parts, or run the check where the sealed version is installed. |
 
@@ -1576,6 +1576,14 @@ are exclusive with each other, `--draft` and `--rig`; no pending question is
 selected implicitly. A package-only job from an earlier host must be closed
 with `job close` before opening its first record subject. Its exact stored
 package reuse identity is never silently upgraded.
+
+Record asks seal `project.json`, their declared inputs and context evidence, and
+all files read by the shared decision-record check, without rechecking or sealing
+unrelated producer artifacts from drafts, earlier versions, scenes or direction.
+The record check keeps answer, plan, signature and stage predicates; the ordinary
+project-boundary `check` still validates all producer artifacts. Package asks
+(draft, rig and post) keep their existing closures. Review's publication refusal
+`error.message` is passed through to the agent and durable pending receipt.
 
 Record publications use the existing two-phase `readRecordPublished` closure,
 the writer outbox and API@3. Mixed hosts retain Review's API@2/act@2 reuse

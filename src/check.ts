@@ -840,8 +840,11 @@ function latestSignoff(ctx: Ctx, stage: string, stepId?: string): Signoff | unde
  * With a candidate record, validate the would-be write against the same project files without writing it.
  * `options.now` is the instant the check runs at (ms since the epoch); see README.md "The clock".
  * With `options.recordReads`, the report also lists every project file the check read (`reads`).
+ * `recordPublication` checks the decision record and its answer/approval evidence,
+ * without revalidating producer artifacts. Stage resolution and record predicates
+ * are shared; the default remains the full project check.
  */
-export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean; recordReads?: boolean }): CheckReport {
+export function checkProject(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean; recordReads?: boolean; recordPublication?: boolean }): CheckReport {
   const run = (): CheckReport => candidate === undefined
     ? checkProjectOnce(projectDirArg, candidate, options)
     : withCandidateProject(projectDirArg, candidate, () => checkProjectOnce(projectDirArg, candidate, options));
@@ -850,7 +853,7 @@ export function checkProject(projectDirArg: string, candidate: JsonObject | unde
   return { ...value, reads };
 }
 
-function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean }): CheckReport {
+function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefined, options: { now: number; forwardWrite?: boolean; readOnly?: boolean; recordPublication?: boolean }): CheckReport {
   const dir = resolve(projectDirArg);
   const refusals: Finding[] = [];
   const warnings: Finding[] = [];
@@ -951,16 +954,16 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     if (!(e instanceof PartsUnreadable)) throw e;
     refusals.push({ code: e.code, path: '@rig-c/parts', message: e.message });
   }
-  checkDrafts(dir, project, refusals, warnings);
-  const ledger = checkFixLedger(dir, project, refusals, warnings, options.now);
-  refusals.push(...draftVersionFindings(dir, project));
+  if (!options.recordPublication) checkDrafts(dir, project, refusals, warnings);
+  const ledger = options.recordPublication ? [] : checkFixLedger(dir, project, refusals, warnings, options.now);
+  if (!options.recordPublication) refusals.push(...draftVersionFindings(dir, project));
   checkRiggingContext(dir, project, effectiveStage, refusals);
-  checkPartsVerdictDrafts(ctx, historySignoffs);
+  if (!options.recordPublication) checkPartsVerdictDrafts(ctx, historySignoffs);
   checkAdvances(ctx);
   checkAnswers(ctx);
   checkOverrides(project, collection, refusals, warnings);
   checkAskCoverage(ctx);
-  checkPreparedInputs(ctx);
+  if (!options.recordPublication) checkPreparedInputs(ctx);
   checkAgentBounces(ctx);
   checkPlan(ctx);
   checkCheckpointEvidence(dir, project, refusals);
@@ -971,32 +974,32 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkStepStatusHistory(ctx);
   checkProgressLinkage(ctx);
   checkPauses(ctx);
-  checkPartsChecks(ctx, options.forwardWrite);
-  checkPreInterview(ctx);
-  checkReviews(ctx);
-  checkPublicationGenerations(dir, project, refusals);
-  checkReviewPackages(ctx);
-  refusals.push(...rigRegistrationFindings(dir, project, warnings));
-  checkAppliedReview(ctx);
-  const provenance = checkProvenance(ctx, parts);
-  const feedback = checkFeedback(ctx);
-  refusals.push(...reviewActFindings(project), ...partsActFindings(dir, project), ...partsReadFindings(dir, project));
+  if (!options.recordPublication) checkPartsChecks(ctx, options.forwardWrite);
+  if (!options.recordPublication) checkPreInterview(ctx);
+  if (!options.recordPublication) checkReviews(ctx);
+  if (!options.recordPublication) checkPublicationGenerations(dir, project, refusals);
+  if (!options.recordPublication) checkReviewPackages(ctx);
+  if (!options.recordPublication) refusals.push(...rigRegistrationFindings(dir, project, warnings));
+  if (!options.recordPublication) checkAppliedReview(ctx);
+  const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
+  const feedback = options.recordPublication ? [] : checkFeedback(ctx);
+  refusals.push(...reviewActFindings(project), ...partsActFindings(dir, project), ...(options.recordPublication ? [] : partsReadFindings(dir, project)));
   for (const [index, raw] of asArray(project.signoffs).entries()) {
     if (!isObject(raw) || raw.stage !== 'parts-review' || typeof raw.draft_id !== 'string') continue;
     const finding = latestPartsVerdictFinding(project, raw.draft_id, `signoffs[${index}].draft_id`);
     if (finding) (typeof raw.at === 'string' && Date.parse(raw.at) < Date.parse(PARTS_VERDICT_LATEST_SINCE) ? warnings : refusals).push(finding);
   }
-  checkCgGates(ctx);
-  checkSetupPainting(ctx);
-  checkFigureMask(ctx);
-  checkMeshesBust(ctx);
+  if (!options.recordPublication) checkCgGates(ctx);
+  if (!options.recordPublication) checkSetupPainting(ctx);
+  if (!options.recordPublication) checkFigureMask(ctx);
+  if (!options.recordPublication) checkMeshesBust(ctx);
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkInputs(ctx);
   checkChoices(ctx);
-  checkCorrections(ctx, options.now);
-  checkScenes(ctx);
-  checkDirections(ctx, options.now);
-  warnings.push(...intakeWarnings(dir, project));
+  if (!options.recordPublication) checkCorrections(ctx, options.now);
+  if (!options.recordPublication) checkScenes(ctx);
+  if (!options.recordPublication) checkDirections(ctx, options.now);
+  if (!options.recordPublication) warnings.push(...intakeWarnings(dir, project));
   warnings.push(...reopenLapseWarnings(project));
 
   return {

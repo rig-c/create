@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
+import { startJobHost } from '@rig-c/review/job-host';
 import { cpSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { collectItems, checkProject } from '../src/check.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { interviewOptionsCommand } from '../src/choice-writers.ts';
-import { loadedPartsIdentity, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
+import { currentJobIdentity, loadedPartsIdentity, partsEnumerator, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
 import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
 import { jobHash, jobPrivateRoot } from '../src/job-outbox.ts';
 import { signoffCommand } from '../src/signoff.ts';
@@ -12,6 +13,8 @@ import { Refusal } from '../src/refusal.ts';
 import { stageIndex } from '../src/stages.ts';
 import { fixture, retainSignoffs, supersede, obj, arr } from './fixtures.ts';
 import { TEST_NOW } from './clock.ts';
+import { tempDir } from './helpers.ts';
+import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 
 function save(root: string, project: JsonObject): void {
@@ -287,7 +290,7 @@ test('an explicitly inapplicable empty post plan stays eligible under the writer
 
 function retained(input: RecordPublicationRequest): RecordPublicationRequest {
   const context = readRecordPublished(input, TEST_NOW);
-  const root = join(dirname(input.root), 'retained');
+  const root = join(tempDir(), 'retained');
   mkdirSync(root);
   for (const file of context.files) {
     mkdirSync(dirname(join(root, file.path)), { recursive: true });
@@ -296,23 +299,20 @@ function retained(input: RecordPublicationRequest): RecordPublicationRequest {
   return { ...input, root, phase: 'retained', parts: context.parts };
 }
 
-test('the measured #277 case: the retained phase equals the inventory phase with 0 refusals', () => {
+test('the #277 answer dependencies still reproduce the record check on the retained root', () => {
   const { root } = pending();
   const inventory = readRecordPublished(request(root), TEST_NOW);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
   const paths = inventory.files.map(file => file.path);
-  // The files the earlier closure missed: the historical choices and the parts receipt response.
+  // Historical choices are decision evidence; the producer receipt is not part of this ask.
   for (const item of collectItems(project, { collection: null })) {
     if (item.state.state === 'user' || item.state.state === 'delegated') {
       const choice = item.state.answer.choice;
       if (choice && typeof choice === 'object' && !Array.isArray(choice)) expect(paths).toContain(String(obj(choice.set).path));
     }
   }
-  const receipts = arr(project.review_acts).map(obj).filter(receipt => receipt.schema === 'rig-create/parts-verdict-cli@1');
-  expect(receipts.length).toBeGreaterThan(0);
-  for (const receipt of receipts) expect(paths).toContain(String(obj(receipt.evidence).path));
   const input = retained(request(root));
-  expect(checkProject(input.root, undefined, { now: TEST_NOW, readOnly: true }).refusals).toEqual([]);
+  expect(checkProject(input.root, undefined, { now: TEST_NOW, readOnly: true, recordPublication: true }).refusals).toEqual([]);
   const before = snapshot(input.root);
   expect(readRecordPublished(input, TEST_NOW)).toEqual(inventory);
   expect(snapshot(input.root)).toEqual(before);
@@ -482,3 +482,155 @@ test.each([['no lockfile', {}], ['no parts entry', { 'bun.lock': { lockfileVersi
   '%s for the installed parts refuses JOB_RECORD_PARTS_LOCK_MISSING', (_name, lockfiles) => {
     rejectsUnchanged(request(installed(lockfiles)), 'JOB_RECORD_PARTS_LOCK_MISSING');
   });
+
+/** Build each pending set through the ordinary writer, on a synthetic current record. */
+function stageOptions(stage: string, questionId: string): RecordPublicationRequest {
+  const root = approvalFixture(stage);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  const item = collectItems(project, { collection: null }).find(item => item.id === questionId)!;
+  const binding = obj(obj(item.raw).choice).set as JsonObject;
+  const set = JSON.parse(readFileSync(join(root, String(binding.path)), 'utf8'));
+  set.id = `pending-${questionId}`;
+  set.drafted_at = new Date(TEST_NOW - 1000).toISOString();
+  set.context = optionContext(project, stage, TEST_NOW - 1000, root);
+  const path = `evidence/interview/${set.id}.json`;
+  writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+  interviewOptionsCommand([questionId, root, '--file', path], TEST_NOW);
+  return { ...request(root), result: { kind: 'option-set', questionId, setId: set.id } };
+}
+
+// Preserve the reader's option/plan overloads while fixing its test clock.
+const clockedRecordReader = ((request: RecordPublicationRequest) => readRecordPublished(request, TEST_NOW)) as typeof readRecordPublished;
+
+const recordAsks: [string, () => RecordPublicationRequest][] = [
+  ['interview question', () => request(pending().root)],
+  ['plan checkpoint', () => { const fixture = checkpointWorkspace(); fixture.attach(); return { ...request(fixture.root), result: { kind: 'plan' } }; }],
+  ['rigging question', () => stageOptions('rigging-interview', 'motion')],
+  ...['camera_depth', 'post_timing', 'post_composition'].map(id => [id, () => stageOptions('post-interview', id)] as [string, () => RecordPublicationRequest]),
+  ['initial plan signoff', () => ({ ...request(pending('plan-approved').root), result: { kind: 'plan' } })],
+  ...['rigging-interview', 'post-interview'].map(stage => [stage + ' signoff', () => ({ ...request(approvalFixture(stage)), result: { kind: 'plan' as const } })] as [string, () => RecordPublicationRequest]),
+];
+
+test.each(recordAsks)('%s: every retained input refuses on tamper; excluded draft output does not affect the ask', async (_label, make) => {
+  const input = make();
+  const context = readRecordPublished(input, TEST_NOW);
+  const copy = retained(input);
+  expect(readRecordPublished(copy, TEST_NOW)).toEqual(context);
+  const identity = currentJobIdentity({ root: input.root, stateDir: tempDir(), fingerprint: 'synthetic-record-closure',
+    reviewer: { id: 'synthetic-owner', role: 'owner' } }, input.root);
+  const host = await startJobHost({ root: input.root, stateDir: identity.stateDir, fingerprint: identity.fingerprint,
+    reviewer: identity.reviewer, readerId: identity.readerId, recordReaderId: identity.readerId,
+    readPublished, publicationMode: 'record-and-package',
+    readRecordPublished: clockedRecordReader,
+    partsEnumeratorId: identity.partsEnumeratorId, partsEnumerator });
+  try {
+    let sequence = 0;
+    const api = async (verb: string, fields: object) => {
+      const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+        method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ schema: 'rig-review/job-api@3', verb, jobId: host.session.jobId,
+          requestId: `request-${++sequence}`, idempotencyKey: `operation-${sequence}`,
+          expectedGeneration: host.session.status().generation, ...fields }),
+      }));
+      return await response.json() as { ok: boolean; error?: { code: string }; value?: { publicationId: string } };
+    };
+    const published = await api('publish', { result: input.result,
+      freeze: { kind: 'producer-held', holdId: 'synthetic-record-hold', record: input.record } });
+    expect(published.ok).toBe(true);
+    const publicationId = published.value!.publicationId;
+    const snapshot = host.session.retainedSourceV3(publicationId);
+    const subject = context.subjects[0]!;
+    for (const file of context.files) {
+      const path = join(snapshot.snapshotRoot, file.path);
+      const original = readFileSync(path);
+      try {
+        writeFileSync(path, Buffer.concat([original, Buffer.from(' ')]));
+        // Review's existing immutable-seal gate runs before Create's retained check.
+        expect(await api('ask', { publicationId, subject })).toMatchObject({ ok: false, error: { code: 'JOB_SOURCE_UNRETAINABLE' } });
+      } finally { writeFileSync(path, original); }
+    }
+    expect((await api('ask', { publicationId, subject })).ok).toBe(true);
+  } finally { host.stop(); rmSync(identity.stateDir, { recursive: true, force: true }); }
+  const project = JSON.parse(readFileSync(join(input.root, 'project.json'), 'utf8'));
+  const output = obj(arr(obj(arr(project.drafts)[0]).files).find(file => String(obj(file).path).endsWith('/motion.json')));
+  expect(context.files.some(file => file.path === output.path)).toBe(false);
+  const path = join(input.root, String(output.path));
+  const original = readFileSync(path);
+  const before = checkProject(input.root, project, { now: TEST_NOW, readOnly: true, recordPublication: true });
+  try {
+    writeFileSync(path, Buffer.from('tampered excluded producer output'));
+    expect(readRecordPublished(input, TEST_NOW)).toEqual(context);
+    expect(checkProject(input.root, project, { now: TEST_NOW, readOnly: true, recordPublication: true })).toEqual(before);
+    // The ordinary project boundary still detects the producer artifact's corruption.
+    expect(checkProject(input.root, project, { now: TEST_NOW, readOnly: true }).refusals.some(finding => finding.code === 'DRAFT_RIG_FILE')).toBe(true);
+  } finally { writeFileSync(path, original); }
+}, 30000);
+
+test('synthetic mature version outputs exceed the old retain cap but all post asks retain only decision evidence', async () => {
+  const input = stageOptions('post-interview', 'camera_depth');
+  const root = input.root;
+  for (const questionId of ['post_timing', 'post_composition']) {
+    const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+    const item = collectItems(project, { collection: null }).find(item => item.id === questionId)!;
+    const set = JSON.parse(readFileSync(join(root, String(obj(obj(obj(item.raw).choice).set).path)), 'utf8'));
+    set.id = `pending-${questionId}`;
+    set.drafted_at = new Date(TEST_NOW - 1000).toISOString();
+    set.context = optionContext(project, 'post-interview', TEST_NOW - 1000, root);
+    const path = `evidence/interview/${set.id}.json`;
+    writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+    interviewOptionsCommand([questionId, root, '--file', path], TEST_NOW);
+  }
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  const draft = project.drafts[0];
+  // Six 48 MiB frozen draft-version outputs: ordinary files, not mock byte counts.
+  const large = Buffer.alloc(48 * 1024 * 1024);
+  const digest = jobHash(large);
+  const added: string[] = [];
+  try {
+    for (let version = 1; version <= 3; version++) {
+      for (const name of ['demo.mp4', 'idle.png']) {
+        const path = `derived/drafts/${draft.id}/out/versions/v${version}/${name}`;
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), large);
+        draft.files.push({ path, sha256: digest });
+        added.push(path);
+      }
+    }
+    save(root, project);
+    const whole = checkProject(root, project, { now: TEST_NOW, readOnly: true, recordReads: true });
+    expect(whole.refusals).toEqual([]);
+    const before = new Map(whole.reads!.map(file => [file.path, file.sha256]));
+    before.set('project.json', jobHash(readFileSync(join(root, 'project.json'))));
+    const size = (paths: Iterable<string>) => [...paths].reduce((sum, path) => sum + lstatSync(join(root, path)).size, 0);
+    const beforeBytes = size(before.keys());
+    expect(beforeBytes).toBeGreaterThan(256 * 1024 * 1024);
+    const stateDir = tempDir();
+    const identity = currentJobIdentity({ root, stateDir, fingerprint: 'synthetic-mature', reviewer: { id: 'synthetic-owner', role: 'owner' } }, root);
+    const host = await startJobHost({ root, stateDir, fingerprint: identity.fingerprint, reviewer: identity.reviewer,
+      readerId: identity.readerId, readPublished, publicationMode: 'record-and-package', recordReaderId: identity.readerId,
+      readRecordPublished: clockedRecordReader, partsEnumeratorId: identity.partsEnumeratorId, partsEnumerator });
+    try {
+      for (const result of [
+        ...['camera_depth', 'post_timing', 'post_composition'].map(questionId => ({ kind: 'option-set' as const, questionId, setId: `pending-${questionId}` })),
+        { kind: 'plan' as const },
+      ]) {
+        const current = { ...request(root), result };
+        const context = readRecordPublished(current, TEST_NOW);
+        const afterBytes = size(context.files.map(file => file.path));
+        expect(afterBytes).toBeLessThan(256 * 1024 * 1024);
+        expect(context.files.some(file => added.includes(file.path))).toBe(false);
+        expect(readRecordPublished(retained(current), TEST_NOW)).toEqual(context);
+        const sequence = host.session.status().generation;
+        const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+          method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ schema: 'rig-review/job-api@3', verb: 'publish', jobId: host.session.jobId,
+            requestId: `request-${sequence}`, idempotencyKey: `operation-${sequence}`, expectedGeneration: sequence, result,
+            freeze: { kind: 'producer-held', holdId: 'synthetic-mature-hold', record: current.record } }),
+        }));
+        expect(await response.json()).toMatchObject({ ok: true });
+        console.log(JSON.stringify({ fixture: 'synthetic-mature', ask: result.kind === 'plan' ? 'plan' : result.questionId,
+          before: { files: before.size, bytes: beforeBytes }, after: { files: context.files.length, bytes: afterBytes } }));
+      }
+    } finally { host.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+  } finally { for (const path of added) rmSync(join(root, path)); }
+}, 30000);

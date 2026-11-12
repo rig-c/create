@@ -1,9 +1,11 @@
+import { sceneFixture } from './scene-fixture.ts';
+import { reviewPackageHash } from '../src/signoff-target.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
 import { retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { type Finding } from '../src/check.ts';
@@ -13,7 +15,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { generateDirectionFixture } from '../scripts/generate-direction-fixture.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { tempDir } from './helpers.ts';
-import { checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, reopenCommand, advanceCommand, directionCommand, recordVerdict, handoff, signoffCommand, testClock } from './clock.ts';
+import { checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, reopenCommand, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());
 /** A reopen of the filled example to post or post-interview voids its direction-review sign-off and acceptance (#220). */
@@ -151,3 +153,41 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   expect(readFileSync(join(dir,'project.json'))).toEqual(original);expect(existsSync(join(dir,'evidence/direction/v6.json'))).toBe(false);
 });
 test('the writer is refused on a record whose stage check stopped early',()=>{const f=setup();const p=f.load();p.stage='no-such-stage';f.save(p);expect(checkProject(f.dir).refusals.map(r=>r.code)).toEqual(['STAGE_UNKNOWN']);const before=readFileSync(join(f.dir,'project.json'));refuses('STAGE_UNKNOWN',()=>write(f.dir));expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);expect(existsSync(join(f.dir,'evidence/direction/v2.json'))).toBe(false);});
+
+
+test('legacy rig direction acceptances remain byte-identical while a later rig authors direction',()=>{
+  const f=sceneFixture();const p=f.load();
+  const legacy={...objects(p.versions)[0]!,n:3,at:'2026-11-02T08:00:00Z',verdicts:[{review:'direction-review',verdict:'accepted',by:'user',at:'2026-11-02T09:00:00Z',verbatim:'Accept the synthetic legacy rig'}]};
+  const laterLegacy=structuredClone(legacy);laterLegacy.n=5;laterLegacy.at='2026-11-03T08:00:00Z';laterLegacy.verdicts[0]!.at='2026-11-03T09:00:00Z';
+  const rig=structuredClone(objects(p.versions)[0]!);rig.n=15;
+  p.versions=[legacy,laterLegacy,rig];
+  const approval=objects(p.signoffs).find(v=>v.stage==='rig-review')!;approval.target={version:15,verdict:'versions[2].verdicts[0]',review_package:{path:'versions[2].review_package',sha256:reviewPackageHash(rig.review_package as JsonObject)}};f.save(p);
+  // Capture the literal retained verdict rows, including their whitespace.
+  const rows=(record:string,n:number):Buffer=>{
+    const start=record.indexOf('"verdicts": [',record.indexOf(`"n": ${n},`));
+    const end=record.indexOf('\n      ]',start);expect(start).toBeGreaterThan(-1);expect(end).toBeGreaterThan(start);
+    return Buffer.from(record.slice(start,end+8));
+  };
+  const before=readFileSync(join(f.dir,'project.json'),'utf8');
+  cpSync(join(f.dir,'derived/review/v1'),join(f.dir,'derived/review/v15'),{recursive:true});
+  const sceneArgs=f.args();sceneArgs[sceneArgs.indexOf('--rig')+1]='15';
+  expect(sceneCommand(sceneArgs).exit).toBe(0);
+  f.doc.schema=DIRECTION_SCENE_SPEC;f.doc.scene=sceneReference(currentScene(f.load())!);
+  (f.doc.rig as JsonObject).model={...f.modelBinding,path:'derived/review/v15/out/check/build/skeleton.model.json'};(f.doc.rig as JsonObject).version=15;writeFileSync(join(f.dir,'evidence/input.json'),JSON.stringify(f.doc));
+  expect(directionCommand(['write','16',f.dir,'--file','evidence/input.json','--rig','15']).exit).toBe(0);
+  const after=readFileSync(join(f.dir,'project.json'),'utf8');
+  for(const n of [3,5])expect(rows(after,n)).toEqual(rows(before,n));
+  expect(objects(f.load().versions).slice(0,3)).toEqual([legacy,laterLegacy,rig]);
+});
+
+test('post direction acceptance closes authoring byte-identically until reopened',()=>{
+  const f=setup();write(f.dir);const p=f.load();p.stage='direction-review';
+  objects(p.versions).find(v=>v.n===2)!.verdicts=[{review:'direction-review',verdict:'accepted',by:'user',at:'2026-11-04T09:01:00Z',verbatim:'Accept the synthetic post'}];f.save(p);
+  const before=readFileSync(join(f.dir,'project.json'));
+  refuses('DIRECTION_REVIEW_CLOSED',()=>write(f.dir,3));
+  expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);
+  expect(existsSync(join(f.dir,'evidence/direction/v3.json'))).toBe(false);
+  testClock.set(new Date('2026-11-04T09:02:00Z'));
+  reopenCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]);
+  expect(write(f.dir,3).exit).toBe(0);
+});

@@ -1441,3 +1441,21 @@ test.each(['references', 'model', 'direction', 'title', 'extra'] as const)('post
   (history[0]!.manifest as JsonObject).sha256 = jobHash(bytes);
   expect(() => liveManifestPath(f.root, record, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
 });
+
+test('post generation refuses truncated direction bytes with PUBLICATION_GENERATION_INVALID', async () => {
+  const { republishCommand } = await import('../src/republish.ts');
+  const { liveManifestPath } = await import('../src/job-publication.ts');
+  const f = scenePostSetup('painting', true);
+  const path = prepareLiveManifest(f.root, f.project, 2);
+  const legacy = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
+  delete legacy.scene;
+  writeFileSync(join(f.root, path), `${JSON.stringify(legacy, null, 2)}\n`);
+  republishCommand(['2', f.root, '--reason', 'Publish the retained scene.'], now);
+  const recordBytes = readFileSync(join(f.root, 'project.json'));
+  const record = JSON.parse(recordBytes.toString('utf8')) as JsonObject;
+  const generation = readFileSync(join(f.root, 'review-live-v2-g2.json'));
+  writeFileSync(join(f.root, f.directionPath), '{"schema":');
+  expect(() => liveManifestPath(f.root, record, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
+  expect(readFileSync(join(f.root, 'project.json'))).toEqual(recordBytes);
+  expect(readFileSync(join(f.root, 'review-live-v2-g2.json'))).toEqual(generation);
+});

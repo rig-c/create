@@ -3,7 +3,7 @@ import { closeSync, fchmodSync, openSync, realpathSync, renameSync, rmSync, stat
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, checkProject, isObject } from './check.ts';
-import { publicationFile, liveManifestPath, originalPaintingReference, prepareLiveManifest, checkPublicationGenerations } from './job-publication.ts';
+import { publicationFile, liveManifestPath, originalPaintingReference, prepareLiveManifest, checkPublicationGenerations, sealedScene } from './job-publication.ts';
 import { assertRequestedRig } from './job-host.ts';
 import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, jobHash, type PendingPublication } from './job-outbox.ts';
@@ -51,17 +51,13 @@ export function republishCommand(args: string[], now: number): { stdout: string;
       const direction = JSON.parse(directionBytes.toString('utf8')) as JsonObject;
       if (direction.schema !== 'rig-create/direction@2' || !isObject(direction.scene)) refuse('PUBLICATION_GENERATION_INVALID', `${directionPath}: post generation requires direction@2 and its committed scene; retain the existing publication for a scene-less post`);
       if (manifest.scene !== undefined) refuse('PUBLICATION_GENERATION_DUPLICATE', `${legacyPath}: the publication already carries a scene; reopen it with job open --rig ${n}`);
-      scene = String(direction.scene.path);
-      const sceneBytes = publicationFile(root, scene);
-      const doc = JSON.parse(sceneBytes.toString('utf8')) as JsonObject;
+      const sealed = sealedScene(root, project, directionPath, direction)!;
+      scene = sealed.path;
       const binding = (version.provenance as JsonObject).direction as JsonObject;
-      if (binding.path !== directionPath || binding.sha256 !== jobHash(directionBytes) || direction.scene.sha256 !== jobHash(sceneBytes)) refuse('PUBLICATION_GENERATION_INVALID', `${directionPath}: publication sources changed during republish; restore the frozen direction and scene bytes`);
+      if (binding.path !== directionPath || binding.sha256 !== jobHash(directionBytes) || direction.scene.sha256 !== sealed.sha256) refuse('PUBLICATION_GENERATION_INVALID', `${directionPath}: publication sources changed during republish; restore the frozen direction and scene bytes`);
       sources.set(directionPath, String(binding.sha256));
-      sources.set(scene, String(direction.scene.sha256));
-      for (const plate of asArray(doc.plates).filter(isObject)) {
-        if (jobHash(publicationFile(root, String(plate.path))) !== plate.sha256) refuse('JOB_PUBLICATION_PLATE_CHANGED', `${scene}: ${String(plate.path)} hash moved; restore the retained plate bytes before publishing`);
-        sources.set(String(plate.path), String(plate.sha256));
-      }
+      sources.set(scene, sealed.sha256);
+      for (const plate of sealed.plates) sources.set(plate.path, plate.sha256);
     }
     const before = baselineOf(checkProject(root, project, { now, readOnly: true }));
     const bytes = Buffer.from(`${JSON.stringify({ ...manifest, revision: `v${n}-g2`, ...(scene ? { scene } : { references: [reference] }) }, null, 2)}\n`);

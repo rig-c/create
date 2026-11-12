@@ -364,6 +364,35 @@ export function originalPaintingReference(root: string, project: JsonObject, n: 
   return { id: 'original-painting', label: 'Original painting', type: 'image', path: painting.path, ...size };
 }
 
+/** Validate the same retained scene and plate identities for every publication writer and reader. */
+export function sealedScene(root: string, project: JsonObject, directionPath: string, direction: JsonObject | undefined): {
+  path: string; sha256: string; plates: { path: string; sha256: string }[];
+} | undefined {
+  if (direction?.schema !== 'rig-create/direction@2') return undefined;
+  const reference = direction.scene;
+  if (!isObject(reference) || typeof reference.path !== 'string' || typeof reference.sha256 !== 'string') refuse('JOB_PUBLICATION_SCENE_MISSING', `${directionPath}: direction.scene is missing; restore its committed scene reference before publishing`);
+  const entry = asArray(project.scenes).filter(isObject).find(value => value.n === reference.n && value.path === reference.path && value.sha256 === reference.sha256);
+  if (!entry || reference.path !== `evidence/scene/s${String(reference.n)}.json`) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${directionPath}: direction.scene differs from project.scenes; restore the committed scene reference before publishing`);
+  let bytes: Buffer;
+  try { bytes = publicationFile(root, reference.path); }
+  catch { refuse('JOB_PUBLICATION_SCENE_MISSING', `${reference.path}: scene is missing or unreadable; restore its retained bytes before publishing`); }
+  if (jobHash(bytes) !== reference.sha256) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene hash moved; restore its retained bytes before publishing`);
+  let doc: JsonObject;
+  try { doc = JSON.parse(bytes.toString('utf8')) as JsonObject; }
+  catch { refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene is not JSON; restore its retained bytes before publishing`); }
+  if (!isObject(doc) || doc.schema !== 'rig-create/scene@1' || doc.n !== reference.n || !Array.isArray(doc.plates) || !doc.plates.length) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene identity or plates differ; restore the committed scene before publishing`);
+  const plates: { path: string; sha256: string }[] = [];
+  for (const plate of doc.plates) {
+    if (!isObject(plate) || typeof plate.path !== 'string' || typeof plate.sha256 !== 'string') refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: plate identity is missing; restore every retained plate before publishing`);
+    let plateBytes: Buffer;
+    try { plateBytes = publicationFile(root, plate.path); }
+    catch { refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: ${plate.path} is missing or unreadable; restore the retained plate before publishing`); }
+    if (jobHash(plateBytes) !== plate.sha256) refuse('JOB_PUBLICATION_PLATE_CHANGED', `${reference.path}: ${plate.path} hash moved; restore the retained plate bytes before publishing`);
+    plates.push({ path: plate.path, sha256: plate.sha256 });
+  }
+  return { path: reference.path, sha256: reference.sha256, plates };
+}
+
 /** A manifest over the existing frozen model/direction, with project-relative paths.
  * Source documents and compiled producer output remain byte-identical.
  */
@@ -379,28 +408,7 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
     const directionPath = `evidence/direction/v${n}.json`;
     let direction: JsonObject | undefined;
     try { direction = JSON.parse(publicationFile(root, directionPath).toString('utf8')) as JsonObject; } catch { /* Legacy manifests did not require a direction document. */ }
-    if (direction?.schema === 'rig-create/direction@2') {
-      const reference = direction.scene;
-      if (!isObject(reference) || typeof reference.path !== 'string' || typeof reference.sha256 !== 'string') refuse('JOB_PUBLICATION_SCENE_MISSING', `${directionPath}: direction.scene is missing; restore its committed scene reference before publishing`);
-      const entry = asArray(project.scenes).filter(isObject).find(value => value.n === reference.n && value.path === reference.path && value.sha256 === reference.sha256);
-      if (!entry || reference.path !== `evidence/scene/s${String(reference.n)}.json`) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${directionPath}: direction.scene differs from project.scenes; restore the committed scene reference before publishing`);
-      let bytes: Buffer;
-      try { bytes = publicationFile(root, reference.path); }
-      catch { refuse('JOB_PUBLICATION_SCENE_MISSING', `${reference.path}: scene is missing or unreadable; restore its retained bytes before publishing`); }
-      if (jobHash(bytes) !== reference.sha256) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene hash moved; restore its retained bytes before publishing`);
-      let doc: JsonObject;
-      try { doc = JSON.parse(bytes.toString('utf8')) as JsonObject; }
-      catch { refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene is not JSON; restore its retained bytes before publishing`); }
-      if (!isObject(doc) || doc.schema !== 'rig-create/scene@1' || doc.n !== reference.n || !Array.isArray(doc.plates) || !doc.plates.length) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene identity or plates differ; restore the committed scene before publishing`);
-      for (const plate of doc.plates) {
-        if (!isObject(plate) || typeof plate.path !== 'string' || typeof plate.sha256 !== 'string') refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: plate identity is missing; restore every retained plate before publishing`);
-        let plateBytes: Buffer;
-        try { plateBytes = publicationFile(root, plate.path); }
-        catch { refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: ${plate.path} is missing or unreadable; restore the retained plate before publishing`); }
-        if (jobHash(plateBytes) !== plate.sha256) refuse('JOB_PUBLICATION_PLATE_CHANGED', `${reference.path}: ${plate.path} hash moved; restore the retained plate bytes before publishing`);
-      }
-      scene = reference.path;
-    }
+    scene = sealedScene(root, project, directionPath, direction)?.path;
   }
   const legacyManifest = {
     schema: 'rig-review/1', id: `create-v${n}`, revision: `v${n}`,
@@ -495,29 +503,8 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     files.push({ path: direction, sha256 });
     let docDirection: JsonObject | undefined;
     try { docDirection = JSON.parse(publicationFile(root, direction).toString('utf8')) as JsonObject; } catch { /* Preserve the legacy direction publication contract. */ }
-    if (docDirection?.schema === 'rig-create/direction@2') {
-      const reference = docDirection.scene;
-      if (!isObject(reference) || typeof reference.path !== 'string' || typeof reference.sha256 !== 'string') refuse('JOB_PUBLICATION_SCENE_MISSING', `${direction}: direction.scene is missing; restore its committed scene reference before publishing`);
-      const entry = asArray(project.scenes).filter(isObject).find(value => value.n === reference.n && value.path === reference.path && value.sha256 === reference.sha256);
-      if (!entry || reference.path !== `evidence/scene/s${String(reference.n)}.json`) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${direction}: direction.scene differs from project.scenes; restore the committed scene reference before publishing`);
-      let bytes: Buffer;
-      try { bytes = publicationFile(root, reference.path); }
-      catch { refuse('JOB_PUBLICATION_SCENE_MISSING', `${reference.path}: scene is missing or unreadable; restore its retained bytes before publishing`); }
-      if (jobHash(bytes) !== reference.sha256) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene hash moved; restore its retained bytes before publishing`);
-      let doc: JsonObject;
-      try { doc = JSON.parse(bytes.toString('utf8')) as JsonObject; }
-      catch { refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene is not JSON; restore its retained bytes before publishing`); }
-      if (!isObject(doc) || doc.schema !== 'rig-create/scene@1' || doc.n !== reference.n || !Array.isArray(doc.plates) || !doc.plates.length) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene identity or plates differ; restore the committed scene before publishing`);
-      for (const plate of doc.plates) {
-        if (!isObject(plate) || typeof plate.path !== 'string' || typeof plate.sha256 !== 'string') refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: plate identity is missing; restore every retained plate before publishing`);
-        let plateBytes: Buffer;
-        try { plateBytes = publicationFile(root, plate.path); }
-        catch { refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: ${plate.path} is missing or unreadable; restore the retained plate before publishing`); }
-        files.push({ path: plate.path, sha256: jobHash(plateBytes) });
-        if (jobHash(plateBytes) !== plate.sha256) refuse('JOB_PUBLICATION_PLATE_CHANGED', `${reference.path}: ${plate.path} hash moved; restore the retained plate bytes before publishing`);
-      }
-      files.push({ path: reference.path, sha256: reference.sha256 });
-    }
+    const scene = sealedScene(root, project, direction, docDirection);
+    if (scene) files.push(...scene.plates, { path: scene.path, sha256: scene.sha256 });
   }
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
@@ -676,11 +663,11 @@ export function liveManifestPath(root: string, project: JsonObject, n: number, i
     if (version.kind === 'post') {
       const directionPath = `evidence/direction/v${n}.json`;
       const directionBytes = publicationFile(root, directionPath);
-      const direction = JSON.parse(directionBytes.toString('utf8')) as JsonObject;
       const binding = isObject(version.provenance) ? version.provenance.direction : undefined;
+      if (!isObject(binding) || binding.path !== directionPath || binding.sha256 !== jobHash(directionBytes)) return fail();
+      const direction = JSON.parse(directionBytes.toString('utf8')) as JsonObject;
       const scene = direction.scene;
-      if (!isObject(binding) || binding.path !== directionPath || binding.sha256 !== jobHash(directionBytes) ||
-          direction.schema !== 'rig-create/direction@2' || !isObject(scene) || typeof scene.path !== 'string' ||
+      if (direction.schema !== 'rig-create/direction@2' || !isObject(scene) || typeof scene.path !== 'string' ||
           !asArray(project.scenes).filter(isObject).some(value => value.n === scene.n && value.path === scene.path && value.sha256 === scene.sha256) ||
           jobHash(publicationFile(root, scene.path)) !== scene.sha256) return fail();
       if (previous.schema !== 'rig-review/1' || previous.id !== `create-v${n}` || previous.revision !== `v${n}` ||

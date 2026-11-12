@@ -32,8 +32,9 @@ export class ChoiceError extends Error {
 function fail(code: string, why: string): never { throw new ChoiceError(code, why); }
 function invalid(why: string): never { return fail('INTERVIEW_OPTIONS_INVALID', why); }
 function badChoice(why: string): never { return fail('INTERVIEW_CHOICE_INVALID', why); }
-export function choiceAdoption(project: JsonObject): number | null {
+export function choiceAdoption(project: JsonObject, item?: Item): number | null {
   const interview = isObject(project.interview) ? project.interview : {};
+  if (item?.kind === 'post' && isObject(interview.post) && interview.post.choices_adopted_at !== undefined) return date(interview.post.choices_adopted_at);
   if (!isObject(interview.order) || interview.order.spec !== CHOICE_ORDER_SPEC) return null;
   return date(interview.order.choices_adopted_at);
 }
@@ -354,7 +355,10 @@ export function checkChoices(ctx: Ctx): void {
   const adopted = choiceAdoption(ctx.project);
   if (adopted !== null && (!Number.isFinite(adopted) || !hasStageOrder(ctx.project))) ctx.refusals.push(finding(new ChoiceError('INTERVIEW_CHOICE_INVALID', 'order@2 requires choices_adopted_at'), 'interview.order'));
   if (adopted === null) ctx.warnings.push({ code: 'CHOICE_ANSWERS_LEGACY', path: 'interview.order', message: `interview.order: choices are not adopted (${CHOICE_ANSWERS_SINCE} legacy label); preserve answers and adopt order@2 explicitly before asking fresh choices` });
+  const post = isObject(ctx.project.interview) && isObject(ctx.project.interview.post) ? ctx.project.interview.post : null;
+  if (post?.choices_adopted_at !== undefined && !Number.isFinite(date(post.choices_adopted_at))) ctx.refusals.push(finding(new ChoiceError('INTERVIEW_CHOICE_INVALID', 'post choices require a valid choices_adopted_at'), 'interview.post'));
   for (const item of ctx.items) {
+    const itemAdopted = choiceAdoption(ctx.project, item);
     if (item.record.pending_options !== undefined) {
       try { const { set } = optionFile(ctx.dir, item.record.pending_options); validateSet(ctx.project, item, set,ctx.collection); validateContext(ctx.dir, ctx.project, set, date(set.drafted_at), false, legacyScene(ctx, `${item.path}.pending_options`)); }
       catch (e) { ctx.refusals.push(finding(e, `${item.path}.pending_options`)); }
@@ -363,10 +367,10 @@ export function checkChoices(ctx: Ctx): void {
     if (item.state.state === 'user' || item.state.state === 'delegated') answers.push({ answer: item.state.answer, path: item.path, current: true });
     for (const { answer, path, current } of answers) {
       if (answer.choice !== undefined) { try { validateChoice(ctx.dir, ctx.project, item, answer, legacyScene(ctx, path)); } catch (e) { ctx.refusals.push(finding(e, path)); } }
-      else if (current && adopted !== null) {
+      else if (current && itemAdopted !== null) {
         // An inherited collection answer is historical evidence, never a fabricated member click.
         const inherited = isObject(item.raw) && item.raw.basis === 'inherited';
-        if (!inherited && date(answer.at) >= adopted) ctx.refusals.push(finding(new ChoiceError('INTERVIEW_CHOICE_REQUIRED', 'new adopted answer requires explicit per-ask choices'), path));
+        if (!inherited && date(answer.at) >= itemAdopted) ctx.refusals.push(finding(new ChoiceError('INTERVIEW_CHOICE_REQUIRED', 'new adopted answer requires explicit per-ask choices'), path));
         else ctx.warnings.push({ code: 'CHOICE_ANSWERS_LEGACY', path, message: `${path}: grandfathered sentence answer; preserve original words/date and show them as a tailored option when this question is asked again` });
       }
     }

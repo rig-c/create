@@ -18,7 +18,7 @@ import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
-import { structurePathIsIgnored } from './structure.ts';
+import { approvedStructureDelta, structurePathIsIgnored } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -999,9 +999,10 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       sections = JSON.parse(bytesAt(dir, binding).toString()) as Json;
       if (!isObject(sections)) fail('RIG_REGISTRATION_FILE_INVALID', 'provenance.sections', 'citations must be a section map');
     }
+    const structureChanges = approvedStructureDelta(dir, project, Date.parse(String(at)), portable);
     const version: JsonObject = { n, kind: 'rig', rig_version: null, at, at_basis: 'not-after', at_source: atSource,
       built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: answersFeedback, review_origin: null,
-      changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections },
+      changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections, ...(structureChanges.length ? { structure_delta: structureChanges } : {}) },
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
         ...(runs.length ? { runs } : {}),
         ...(skipped.length ? { skipped } : {}),

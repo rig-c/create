@@ -959,7 +959,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkDrafts(dir, project, refusals, warnings);
   const ledger = options.recordPublication ? [] : checkFixLedger(dir, project, refusals, warnings, options.now);
   if (!options.recordPublication) refusals.push(...draftVersionFindings(dir, project));
-  checkRiggingContext(dir, project, effectiveStage, refusals);
+  checkRiggingContext(dir, project, effectiveStage, refusals, warnings);
   if (!options.recordPublication) checkPartsVerdictDrafts(ctx, historySignoffs);
   checkAdvances(ctx);
   checkAnswers(ctx);

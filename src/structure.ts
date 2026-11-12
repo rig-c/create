@@ -90,7 +90,42 @@ export function riggingContext(dir: string, project: JsonObject, at: string, err
   return { accepted_parts: { signoff_at: review.at, evidence: review.evidence }, structure: review.structure as Json };
 }
 
-export function checkRiggingContext(dir: string, project: JsonObject, effectiveStage: string, errors: Finding[]): void {
+/** The meshes answer must be covered by a live later interview approval at build time. */
+export function acceptsStructureDelta(project: JsonObject, review: JsonObject, at = Infinity): boolean {
+  const partsAt = Date.parse(String(review.at));
+  const interview = isObject(project.interview) ? project.interview : {};
+  const meshes = asArray(interview.waypoints).find(w => isObject(w) && w.id === 'meshes');
+  const guide = isObject(meshes) && isObject(meshes.guide) ? meshes.guide : {};
+  const guideAt = Date.parse(String(guide.at));
+  const reopens = collectReopens(project, []).filter(r => r.at <= at);
+  return guideAt > partsAt && collectSignoffs(project, []).some(s =>
+    s.stage === 'rigging-interview' && s.record.checkpoint === null && s.at > partsAt
+    && s.at <= at && guideAt <= s.at && liveSignoff(reopens, s.stage, s.at));
+}
+
+/** Snapshot order is retained; null denotes a declaration absent from the version. */
+export function structureDelta(snapshot: JsonObject, config: JsonObject): JsonObject[] {
+  return asArray(snapshot.entries).flatMap(entry => {
+    if (!isObject(entry) || typeof entry.path !== 'string') return [];
+    const part = entry.path.slice('/meshes/'.length).replaceAll('~1', '/').replaceAll('~0', '~');
+    const value = isObject(config.meshes) ? config.meshes[part] : undefined;
+    return isDeepStrictEqual(value, entry.value) ? [] : [{ entry: entry.path, snapshot: entry.value!, version: value ?? null }];
+  });
+}
+
+/** Writer and checker share the approval gate and exact file-derived delta. */
+export function approvedStructureDelta(dir: string, project: JsonObject, at: number, config: JsonObject): JsonObject[] {
+  const interview = isObject(project.interview) ? project.interview : {};
+  const adoptedAt = isObject(interview.order) ? Date.parse(String(interview.order.adopted_at)) : NaN;
+  if (!(at >= adoptedAt)) return [];
+  const review = latestPartsApproval(project, at);
+  if (!hasStageOrder(project) || review === undefined || !acceptsStructureDelta(project, review, at)) return [];
+  const errors: Finding[] = [];
+  const snapshot = checkStructure(dir, project, review, 'signoffs[parts-review]', errors);
+  return snapshot === null ? [] : structureDelta(snapshot, config);
+}
+
+export function checkRiggingContext(dir: string, project: JsonObject, effectiveStage: string, errors: Finding[], warnings: Finding[] = []): void {
   const review = latestPartsApproval(project);
   if (review !== undefined && (hasStageOrder(project) || review.structure !== undefined)) checkStructure(dir, project, review, 'signoffs[parts-review]', errors);
   if (!hasStageOrder(project)) return;
@@ -116,10 +151,16 @@ export function checkRiggingContext(dir: string, project: JsonObject, effectiveS
     if (!isObject(provenance.config)) continue; // Existing provenance reader owns absent configs.
     let config: JsonObject;
     try { config = retainedJson(dir, provenance.config); } catch { continue; }
-    for (const entry of asArray(snapshot.entries)) {
-      if (!isObject(entry) || typeof entry.path !== 'string') continue;
-      const part = entry.path.slice('/meshes/'.length).replaceAll('~1', '/').replaceAll('~0', '~');
-      if (!isObject(config.meshes) || !isDeepStrictEqual(config.meshes[part], entry.value)) add(errors, 'STRUCTURE_DECISIONS_CONFLICT', `versions[v${String(version.n)}].provenance.config`, 'mesh/chest declaration overrides the person-approved structure');
+    const delta = structureDelta(snapshot, config);
+    const path = `versions[v${String(version.n)}].provenance`;
+    if (delta.length > 0 && !acceptsStructureDelta(project, historicalReview, Date.parse(String(version.at)))) {
+      errors.push({ code: 'STRUCTURE_DECISIONS_CONFLICT', path: `${path}.config`, message: `${path}.config: mesh/chest declaration overrides the person-approved structure; answer the rigging meshes guide, or renew parts-review` });
+      continue;
     }
+    if ((delta.length > 0 || provenance.structure_delta !== undefined) && !isDeepStrictEqual(provenance.structure_delta, delta)) {
+      add(errors, 'STRUCTURE_DELTA_MISMATCH', `${path}.structure_delta`, 'recorded delta differs from the snapshot and retained version config; register the rig again');
+      continue;
+    }
+    if (delta.length > 0) warnings.push({ code: 'STRUCTURE_DELTA_REVIEW', path: `${path}.structure_delta`, message: `${path}.structure_delta: ${delta.length} changed structure entries; the rig-review verdict and sign-off must cover changed structure` });
   }
 }

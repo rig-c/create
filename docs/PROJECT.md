@@ -2072,10 +2072,14 @@ A later human bounce makes the earlier bound acceptance stale.
 
 `scene write --rig <R> --background <path> [--foreground <path>]
 [--background-rect x,y,w,h] [--foreground-rect x,y,w,h]
---citations-file <file> --by <human> [<dir>]` derives the latest accepted rig,
+--citations-file <file> [<dir>]` derives the latest accepted rig,
 live rig-review signoff target, compiled model and stage. It appends
 `scenes[]` entries `{n,path,sha256,at,by}` and immutable
 `evidence/scene/s<N>.json` documents with schema `rig-create/scene@1`.
+New entries record `by:"agent"`. A typed `--by` is refused: human authority
+comes from the current ingested `post_composition` Review choice or its decided
+delegation. Earlier human-authored scenes retain their existing validation;
+no contract date or additional historical warning is introduced.
 The project append commits the scene. Unreferenced files are ignored.
 The latest entry is current. Existing documents stay byte-identical.
 
@@ -2090,8 +2094,12 @@ Each SHA-256 binds raw file bytes.
 
 `frame.space` is `rig-world-y-up`. `frame.stage` copies the compiled model's
 stage field for field. Plate `rect:{x,y,width,height}` uses rig world units
-and its bottom-left corner. Rects default to that stage, allow extension past
-it and require uniform scale within relative 1e-9. Plate `width` and `height`
+and its bottom-left corner. The selected `value` (or delegated decision value)
+must contain `scene:{background:{path,rect},foreground?:{path,rect}}`. The writer
+derives omitted rect flags from that exact map; supplied roles, paths and rects
+must match it exactly. It never infers placement from prose, a singleton input
+or the stage. Rects may extend past the stage and require uniform scale within
+relative 1e-9. Exact choice equality applies even within that scaling tolerance. Plate `width` and `height`
 come from PNG IHDR. Declare one background and at most one foreground, with
 distinct paths and hashes. `layers` is `["background","rig"]` or
 `["background","rig","foreground"]` accordingly. A declared foreground
@@ -2105,7 +2113,16 @@ and `registered:{kind:"input"|"derived",ref:"inputs[i]"|"derived[i]"}`.
 Inputs must match by path and hash. A derived registration requires every
 `prepared-input` source/sources hop to match by path and hash and terminate
 in registered inputs. Missing result hashes and cycles refuse.
-Register a plate with `input add` before `scene write` names it.
+Register a plate with `input add` before `scene write` names it. New agent
+scenes require input-writer metadata `{path,sha256,bytes,origin,at}` for raw input
+candidates, or a bound `rig-parts-plate-receipt/1` for derived candidates. A
+legacy input must be registered under a new source name with
+`input add <path> --origin …`, then selected through Review. Missing, stale or
+mismatched authority refuses before the project append. Quotes must cite the
+current ingested answer; historical answers remain available to historical
+scene readers. Composite preview presentation remains tracked in
+[Review #482](https://github.com/rig-c/review/issues/482); writer/checker success
+is not visual acceptance.
 
 `rig-create/direction@2` keeps @1's camera, timing, take and citations and adds
 required `scene:{n,path,sha256}` equal to a committed scene entry. Its rig and
@@ -2137,8 +2154,8 @@ contract.
 1. **Entries.** `project.scenes[]` is append-only. Each entry is exactly
    `{n,path,sha256,at,by}`: `n` counts from 1 in array order, `path` is
    `evidence/scene/s<n>.json`, `sha256` is the SHA-256 of the file's raw bytes
-   in lowercase hex, `at` is a UTC ISO time ending in `Z`, and `by` is a human
-   (not `agent`, in any case). The documents are immutable `rig-create/scene@1`.
+   in lowercase hex, `at` is a UTC ISO time ending in `Z`, and `by` is `agent`
+   for new scenes or a retained human identifier for historical scenes. The documents are immutable `rig-create/scene@1`.
 2. **Reference.** The context is `{kind:"scene",scene:{n,path,sha256}}`: the
    entry without `at` and `by`.
 3. **Selection.** At an instant *t*, the candidate is the last `scenes[]`

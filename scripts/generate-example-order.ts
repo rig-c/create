@@ -200,7 +200,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const citationsPath = 'evidence/scene-citations.json';
   files[citationsPath] = `${JSON.stringify({ background: cite('post_composition') }, null, 2)}\n`; write(citationsPath, files[citationsPath]!);
   save();
-  sceneCommand(['write', '--rig', '2', '--background', background, '--citations-file', citationsPath, '--by', 'user', dir], clock.now); reload();
+  sceneCommand(['write', '--rig', '2', '--background', background, '--citations-file', citationsPath, dir], clock.now); reload();
   const historicalPost = structuredClone(arr(original.versions).map(obj).find(version => version.kind === 'post')!);
   historicalPost.verdicts = [];
   p.versions = [...arr(p.versions), historicalPost];

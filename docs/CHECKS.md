@@ -1359,8 +1359,12 @@ and all schema, raw-byte seal, model, animation, frame, plate and citation check
 | `SCENE_PLATE_CHANGED` | a declared plate is missing or its raw bytes changed | restore the declared PNG and its registration |
 | `SCENE_PLATE_DIMENSIONS` | PNG IHDR is invalid or differs from declared dimensions | retain the PNG and derive its IHDR size with scene write |
 | `SCENE_PLACEMENT_INVALID` | rect is nonfinite, nonpositive or nonuniform past relative 1e-9 | use a finite positive uniform world-space rect |
-| `SCENE_PLATE_UNREGISTERED` | exact input binding or complete prepared-input receipt chain is absent | register the input or retain every hashed prepared-input hop |
+| `SCENE_PLATE_UNREGISTERED` | exact input binding or complete prepared-input receipt chain is absent, or an agent scene derived plate lacks a valid producer receipt | register the input or retain every hashed prepared-input hop and bind the producer receipt with derived add --receipt |
 | `SCENE_CITATION_MISSING` | post_composition designation is missing or unresolved | cite recorded post_composition asks and quote or decided delegation |
+| `SCENE_AUTHOR_TYPED` | scene write supplies a typed `--by` | omit `--by`; authority comes from the current ingested post_composition Review choice |
+| `SCENE_CHOICE_MISSING` | agent scene lacks a retained resolved Review choice or decided delegation with an exact scene map | record `value.scene` roles, paths and rects through the post_composition Review choice |
+| `SCENE_CHOICE_MISMATCH` | agent scene roles, paths or exact rects differ from the cited choice, or authoring cites a superseded answer | use the current post_composition Review choice and its exact scene map |
+| `SCENE_INPUT_RECEIPT_MISSING` | agent scene input candidate lacks matching input-writer metadata | register a new source name with `input add <path> --origin …` and select it through Review |
 | `SCENE_LAYER_ORDER` | layer order differs from background, rig, optional foreground | retain the fixed scene layer order |
 | `DIRECTION_SCENE_REQUIRED` | post from SINCE lacks direction@2, or earlier @1 post warns | run scene write and author the next post with direction@2 |
 | `DIRECTION_SCENE_MISMATCH` | direction rig or model differs from the referenced scene | bind the scene's exact rig version and model |

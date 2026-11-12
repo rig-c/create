@@ -128,7 +128,7 @@ test('a receipted fan-in chain accepts every registered source and rejects cycle
   const intermediate = f.write('intermediate.png', Buffer.concat([readFileSync(join(f.dir, 'foreground.png')), Buffer.from('\n')]));
   p.inputs = objects(p.inputs).filter(input => input.path === f.foreground.path);
   p.derived = [{ kind: 'prepared-input', ...intermediate, source: f.foreground, operation: 'First synthetic preparation' }, { kind: 'prepared-input', ...f.background, sources: [intermediate, f.foreground], operation: 'Second synthetic preparation' }];
-  f.save(p); expect(f.writeScene().exit).toBe(0);
+  f.save(p); f.seedHistoricalScene();
   expect(((loadScene(f).plates as JsonObject[])[0]!.registered as JsonObject).ref).toBe('derived[1]');
   expect(findings(f)).toEqual([]);
   const derived = p.derived as JsonObject[];
@@ -163,7 +163,9 @@ test('declared foreground missing, changed or wrong-sized refuses while absent f
 
 test('uniform world rects can extend past stage and reject nonfinite or anisotropic CLI values', () => {
   const f = sceneFixture();
-  expect(sceneCommand([...f.args(), '--background-rect', '-128,-50,256,256']).exit).toBe(0);
+  f.seedHistoricalScene({ x: -128, y: -50, width: 256, height: 256 });
+  expect(findings(f)).toEqual([]);
+  reject(f, 'SCENE_CHOICE_MISMATCH', () => sceneCommand([...f.args(), '--background-rect', '-128,-50,256,256']));
   for (const rect of ['0,0,0,128', '0,0,128,64', 'NaN,0,128,128', '0,Infinity,128,128', '0,,128,128']) reject(f, 'SCENE_PLACEMENT_INVALID', () => sceneCommand([...f.args(), '--background-rect', rect]));
 });
 
@@ -207,7 +209,7 @@ test('registration.idle is retained exactly, absent for legacy, and raw-byte sea
   const f = sceneFixture();
   const p = f.load(); const rig = objects(p.versions)[0]!;
   rig.registration = { idle: f.write('idle-frames.json', '{"spec":"rigc-frames/1","sets":[]}\n') };
-  f.save(p); expect(f.writeScene().exit).toBe(0);
+  f.save(p); f.seedHistoricalScene();
   expect(((loadScene(f).rig as JsonObject).animation as JsonObject).frames).toEqual((rig.registration as JsonObject).idle);
   expect(findings(f)).toEqual([]);
   plant(f, doc => { delete ((doc.rig as JsonObject).animation as JsonObject).frames; });
@@ -217,8 +219,8 @@ test('registration.idle is retained exactly, absent for legacy, and raw-byte sea
   expect(findings(f).map(value => value.code)).toEqual(['SCENE_FILE_CHANGED']);
 });
 
-test('uniform scaling uses relative 1e-9 tolerance', () => {
-  const f = sceneFixture(); f.writeScene();
+test('historical human scene uniform scaling uses relative 1e-9 tolerance', () => {
+  const f = sceneFixture(); f.seedHistoricalScene();
   plant(f, doc => { const rect = (doc.plates as JsonObject[])[0]!.rect as JsonObject; rect.width = Number(rect.height) * (1 + 5e-10); });
   expect(findings(f)).toEqual([]);
   plant(f, doc => { const rect = (doc.plates as JsonObject[])[0]!.rect as JsonObject; rect.width = Number(rect.height) * (1 + 2e-9); });
@@ -230,4 +232,24 @@ test('the scene writer is refused on a record whose stage check stopped early', 
   f.save({ ...f.load(), stage: 'no-such-stage' });
   expect(checkProject(f.dir).refusals.map(value => value.code)).toEqual(['STAGE_UNKNOWN']);
   reject(f, 'STAGE_UNKNOWN', () => f.writeScene());
+});
+
+
+test('agent writer refuses a derived candidate without producer receipt byte-identically', () => {
+  const f = sceneFixture(); const p = f.load();
+  p.inputs = objects(p.inputs).filter(i => i.path !== f.background.path);
+  p.derived = [{ kind: 'prepared-input', ...f.background, source: f.foreground, operation: 'Synthetic preparation' }];
+  f.save(p); reject(f, 'SCENE_PLATE_UNREGISTERED', () => f.writeScene());
+});
+test('agent writer refuses a rect differing from the pick even within scale tolerance', () => {
+  const f = sceneFixture();
+  const rect = f.model.stage;
+  reject(f, 'SCENE_CHOICE_MISMATCH', () => sceneCommand([...f.args(), '--background-rect', `${rect.x},${rect.y},${rect.width * (1 + 5e-10)},${rect.height}`]));
+});
+test('typed scene authors refuse before writing, including a typed agent', () => {
+  for (const by of ['user', 'agent']) { const f = sceneFixture(); reject(f, 'SCENE_AUTHOR_TYPED', () => sceneCommand([...f.args(), '--by', by])); }
+});
+test('legacy input metadata is insufficient for new agent scenes', () => {
+  const f = sceneFixture(); const p = f.load(); delete objects(p.inputs)[0]!.origin;
+  f.save(p); reject(f, 'SCENE_INPUT_RECEIPT_MISSING', () => f.writeScene());
 });

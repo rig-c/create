@@ -133,7 +133,7 @@ for (const writer of ['scene', 'direction'] as const) {
     const hook = { beforeCommit: () => writeFileSync(evidence, Buffer.concat([original, Buffer.from('\n')])) };
     const code = writer === 'scene' ? 'SCENE_FILE_CHANGED' : 'DIRECTION_SOURCE_CHANGED';
     const operation = writer === 'scene'
-      ? () => sceneCommand(['write', '--rig', '2', '--background', 'evidence/scene-background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', dir], hook)
+      ? () => sceneCommand(['write', '--rig', '2', '--background', 'evidence/scene-background.png', '--citations-file', 'evidence/scene-citations.json', dir], hook)
       : () => directionCommand(['write', '5', dir, '--file', 'evidence/direction-input-v4.json', '--rig', '2'], hook);
     expect(operation).toThrow(expect.objectContaining({ code }));
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);

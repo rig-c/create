@@ -18,7 +18,8 @@ export function writeExampleChoices(dir: string, stage: string, clock: { now: nu
   for (const item of records) {
     const project = load();
     const original = isObject(item.raw) ? item.raw : {};
-    const value = original.delegated === true && isObject(original.agent_decision) ? original.agent_decision.value : original.value;
+    let value = original.delegated === true && isObject(original.agent_decision) ? original.agent_decision.value : original.value;
+    if (item.id === 'post_composition') value = { ...(isObject(value) ? value : {}), scene: { background: { path: 'evidence/scene-background.png', rect: (JSON.parse(readFileSync(join(dir, 'derived/review/v2/out/check/build/skeleton.model.json'), 'utf8')) as JsonObject).stage! } } };
     // Rigging guides above were drafted at 11:00, so show the tailored option only after those words existed.
     const drafted = exampleTime(`${day}01:00Z`);
     const seed: JsonObject = {asks:[]};

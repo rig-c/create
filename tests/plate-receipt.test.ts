@@ -91,20 +91,23 @@ function derivedScene() {
   return f;
 }
 for (const at of ['2026-11-07T23:59:59Z', PLATE_RECEIPT_SINCE]) {
-  test(`scene writer enforces missing receipt at ${at} with byte-identical refusal`, () => {
+  test(`agent scene writer refuses missing producer receipt at ${at} byte-identically`, () => {
     const f = derivedScene(); testClock.set(at);
     const before = readFileSync(join(f.dir, 'project.json'));
+    expect(() => f.writeScene()).toThrow(expect.objectContaining({ code: 'SCENE_PLATE_UNREGISTERED' }));
+    expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  });
+  test(`historical human scene retains receipt date and earliest-registration checks at ${at}`, () => {
+    const f = derivedScene(); testClock.set(at); f.seedHistoricalScene();
+    const ctx = { dir: f.dir, project: f.load(), refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkPlateRegistrations(ctx);
     if (at === PLATE_RECEIPT_SINCE) {
-      expect(() => f.writeScene()).toThrow(expect.objectContaining({ code: 'PLATE_RECEIPT_MISSING' }));
-      expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+      expect(ctx.refusals.map(f => f.code)).toEqual(['PLATE_RECEIPT_MISSING']);
+      expect(ctx.warnings).toEqual([]);
     } else {
-      expect(f.writeScene().exit).toBe(0);
-      const ctx = { dir: f.dir, project: f.load(), refusals: [] as Finding[], warnings: [] as Finding[] };
-      checkPlateRegistrations(ctx);
       expect(ctx.refusals).toEqual([]);
       expect(ctx.warnings.map(f => f.code)).toEqual(['PLATE_RECEIPT_MISSING']);
-      testClock.set(PLATE_RECEIPT_SINCE);
-      expect(f.writeScene().exit).toBe(0);
+      testClock.set(PLATE_RECEIPT_SINCE); f.seedHistoricalScene();
       const later = { ...ctx, project: f.load(), warnings: [] as Finding[] };
       checkPlateRegistrations(later);
       expect(later.refusals).toEqual([]);
@@ -121,13 +124,14 @@ test('new input plates remain outside the receipt contract', () => {
 
 test('scene writer refuses an existing missing-receipt finding instead of baseline-masking it', () => {
   const f = derivedScene();
-  f.writeScene();
+  f.seedHistoricalScene();
   const p = f.load();
   (p.scenes as JsonObject[])[0]!.at = PLATE_RECEIPT_SINCE;
   f.save(p);
   testClock.set(PLATE_RECEIPT_SINCE);
   const before = readFileSync(join(f.dir, 'project.json'));
-  expect(() => f.writeScene()).toThrow(expect.objectContaining({ code: 'PLATE_RECEIPT_MISSING' }));
+  expect(checkProject(f.dir).refusals.map(f => f.code)).toContain('PLATE_RECEIPT_MISSING');
+  expect(() => f.writeScene()).toThrow(expect.objectContaining({ code: 'SCENE_PLATE_UNREGISTERED' }));
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
 });
 
@@ -175,6 +179,9 @@ test('producer receipt records through derived add and registers a new scene thr
   }
   producerFiles.args[1] = f.dir;
   expect(derivedCommand(producerFiles.args).exit).toBe(0);
+  f.designateScene(f.model.stage, 'plate/plate.png');
+  const selectedBaseline = checkProject(f.dir).refusals;
+  expect(selectedBaseline).toEqual(baseline);
   const args = f.args();
   args[args.indexOf('--background') + 1] = 'plate/plate.png';
   expect(sceneCommand(args).exit).toBe(0);

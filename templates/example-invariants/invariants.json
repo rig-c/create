@@ -702,7 +702,7 @@
           "spec": "rig-create/interview-choice@1",
           "set": {
             "path": "evidence/interview/example-post-composition.json",
-            "sha256": "f2051efe680e8683e87d5bd6fa6a8b7f39d188408855e242c94254aff9127a61"
+            "sha256": "a6251f3fe77fec2e5235332bab7f071bdc017ab76ed02aaf2327f9f83c315c0b"
           },
           "picks": [
             {
@@ -723,7 +723,18 @@
         ],
         "value": {
           "framing": "lighthouse fully in frame",
-          "light": "as painted"
+          "light": "as painted",
+          "scene": {
+            "background": {
+              "path": "evidence/scene-background.png",
+              "rect": {
+                "x": -64,
+                "y": 0,
+                "width": 128,
+                "height": 128
+              }
+            }
+          }
         }
       }
     }
@@ -1268,6 +1279,61 @@
       "value_path": "interview.post.items[post_composition].guide.value[\"light\"]",
       "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-09T00:00:56.000Z in post-interview, chat",
       "value": "as painted"
+    },
+    {
+      "gap": "vocabulary",
+      "from": {
+        "question": "post_composition",
+        "verbatim_sha256": "7427ecefde3454aa237aab1c5cfc7d19d880912180b197b661bbf8683bd5dd59"
+      },
+      "source_path": "interview.post.items[post_composition].guide",
+      "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"path\"]",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-09T00:00:56.000Z in post-interview, chat",
+      "value": "evidence/scene-background.png"
+    },
+    {
+      "gap": "vocabulary",
+      "from": {
+        "question": "post_composition",
+        "verbatim_sha256": "7427ecefde3454aa237aab1c5cfc7d19d880912180b197b661bbf8683bd5dd59"
+      },
+      "source_path": "interview.post.items[post_composition].guide",
+      "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"x\"]",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-09T00:00:56.000Z in post-interview, chat",
+      "value": -64
+    },
+    {
+      "gap": "vocabulary",
+      "from": {
+        "question": "post_composition",
+        "verbatim_sha256": "7427ecefde3454aa237aab1c5cfc7d19d880912180b197b661bbf8683bd5dd59"
+      },
+      "source_path": "interview.post.items[post_composition].guide",
+      "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"y\"]",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-09T00:00:56.000Z in post-interview, chat",
+      "value": 0
+    },
+    {
+      "gap": "vocabulary",
+      "from": {
+        "question": "post_composition",
+        "verbatim_sha256": "7427ecefde3454aa237aab1c5cfc7d19d880912180b197b661bbf8683bd5dd59"
+      },
+      "source_path": "interview.post.items[post_composition].guide",
+      "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"width\"]",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-09T00:00:56.000Z in post-interview, chat",
+      "value": 128
+    },
+    {
+      "gap": "vocabulary",
+      "from": {
+        "question": "post_composition",
+        "verbatim_sha256": "7427ecefde3454aa237aab1c5cfc7d19d880912180b197b661bbf8683bd5dd59"
+      },
+      "source_path": "interview.post.items[post_composition].guide",
+      "value_path": "interview.post.items[post_composition].guide.value[\"scene\"][\"background\"][\"rect\"][\"height\"]",
+      "sentence": "Keep the whole lighthouse in frame. It's night; don't brighten it.\nAs answered on 2026-11-09T00:00:56.000Z in post-interview, chat",
+      "value": 128
     }
   ]
 }

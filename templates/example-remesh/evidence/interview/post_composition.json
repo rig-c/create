@@ -66,7 +66,18 @@
           "label": "Use the synthetic post_composition",
           "effect": "Keep the declared geometric example.",
           "fragment": {
-            "framing": "whole synthetic plate"
+            "framing": "whole synthetic plate",
+            "scene": {
+              "background": {
+                "path": "inputs/background.png",
+                "rect": {
+                  "x": -64,
+                  "y": 0,
+                  "width": 128,
+                  "height": 128
+                }
+              }
+            }
           },
           "recommended": true,
           "reason": "Matches the synthetic geometric inputs."
@@ -77,7 +88,18 @@
           "label": "Change post_composition",
           "effect": "Use the alternate synthetic choice.",
           "fragment": {
-            "framing": "whole synthetic plate"
+            "framing": "whole synthetic plate",
+            "scene": {
+              "background": {
+                "path": "inputs/background.png",
+                "rect": {
+                  "x": -64,
+                  "y": 0,
+                  "width": 128,
+                  "height": 128
+                }
+              }
+            }
           },
           "recommended": false
         },

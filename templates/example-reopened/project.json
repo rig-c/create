@@ -201,7 +201,7 @@
         "camera_depth": "cfbe6b6a888fa0efddf882f7c7b8b01f1e52d7249169504252c0a66969f5b765",
         "post_timing": "dab49f2a0a86044df285dc54438c28dd4d98935706bad1636b1009b71b3ad23d",
         "motion": "591004fbf7145f4172cbe59c6e65e8358ef6923c41e45ccc3077fdb1b9cf7c13",
-        "post_composition": "da958055b6e985886046f1cacd0759563de3f83e2f2664e0a0d7ccccd6839245"
+        "post_composition": "746603abd443033a4a29a4213b652b983a4d1bf378e8403a3c074004aaa4e03f"
       }
     },
     {
@@ -1677,7 +1677,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/example-post-composition.json",
-                "sha256": "f2051efe680e8683e87d5bd6fa6a8b7f39d188408855e242c94254aff9127a61"
+                "sha256": "a6251f3fe77fec2e5235332bab7f071bdc017ab76ed02aaf2327f9f83c315c0b"
               },
               "picks": [
                 {
@@ -1698,7 +1698,18 @@
             ],
             "value": {
               "framing": "lighthouse fully in frame",
-              "light": "as painted"
+              "light": "as painted",
+              "scene": {
+                "background": {
+                  "path": "evidence/scene-background.png",
+                  "rect": {
+                    "x": -64,
+                    "y": 0,
+                    "width": 128,
+                    "height": 128
+                  }
+                }
+              }
             }
           },
           "history": [
@@ -4492,7 +4503,7 @@
       "path": "evidence/scene/s1.json",
       "sha256": "2c29c1c217044870605cf1470da390c772ec71dd5a718eaa0434fa80777d97a6",
       "at": "2026-11-09T00:01:00.000Z",
-      "by": "user"
+      "by": "agent"
     }
   ],
   "direction_contract": {

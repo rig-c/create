@@ -369,3 +369,33 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
+
+test('post scene route: Review pick act, from-review ingestion, scene write without by, check', async () => {
+  testClock.set(Date.now());
+  const root = copy('4-direction-post');
+  expectExit0(await cli(root, ['reopen', 'post-interview', root, '--by', 'user', '--verbatim-file', (() => { const path = join(root, 'reopen.txt'); writeFileSync(path, 'Choose the synthetic two-plate scene.'); return path; })()]));
+  const plate = readFileSync(join(import.meta.dir, '../templates/example-chain/inputs/background.png'));
+  writeFileSync(join(root, 'background.png'), plate);
+  writeFileSync(join(root, 'foreground.png'), Buffer.concat([plate, Buffer.from('\n')]));
+  for (const path of ['background.png', 'foreground.png']) expectExit0(await cli(root, ['input', 'add', path, root, '--origin', 'synthetic scene candidate']));
+  const project = read(root);
+  const item = collectItems(project, { collection: null }).find(i => i.id === 'post_composition')!;
+  const retained = obj(obj(item.raw).choice).set as JsonObject;
+  const set = JSON.parse(readFileSync(join(root, String(retained.path)), 'utf8')) as JsonObject;
+  set.id = 'scene-act-two-plates'; set.drafted_at = testClock.iso();
+  set.context = optionContext(project, 'post-interview', testClock.now(), root);
+  const model = JSON.parse(readFileSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'), 'utf8')) as JsonObject;
+  const option = obj((obj((set.asks as JsonObject[])[0]).options as JsonObject[])[0]);
+  option.fragment = { scene: { background: { path: 'background.png', rect: model.stage! }, foreground: { path: 'foreground.png', rect: model.stage! } } };
+  const path = 'evidence/interview/scene-act-two-plates.json'; writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+  expectExit0(await cli(root, ['interview-options', 'post_composition', root, '--file', path]));
+  const opening = await open(root, ['--question', 'post_composition']); const view = await page(root, opening.url, 1);
+  const act = await view.act('interview-picks', 'interview-picks', { questionId: 'post_composition', selections: [{ itemId: 'post_composition', optionId: 'keep', otherText: null }], note: WORDS });
+  expectExit0(await cli(root, ['interview-answer', 'post_composition', root, '--from-review', String(act.actId)]));
+  const ingested = obj(collectItems(read(root), { collection: null }).find(i => i.id === 'post_composition')!.raw);
+  const citation = { guide: 'post_composition', asks: ['post_composition'], quote: ingested.verbatim! };
+  writeFileSync(join(root, 'citations.json'), JSON.stringify({ background: citation, foreground: citation }));
+  expectExit0(await cli(root, ['scene', 'write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root]));
+  expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');
+  expectExit0(await cli(root, ['interview', '--check', root]));
+}, 30_000);

@@ -270,7 +270,9 @@ test('collection-binding writer binds ../../collection.json and publishes option
     expect(isLiveMemberRoot(retainedInput.root)).toBe(false);
     expect(existsSync(join(dirname(dirname(retainedInput.root)), 'collection.json'))).toBe(false);
 
-    const retainedReport = checkProject(retainedInput.root, undefined, { now: TEST_NOW, readOnly: true });
+    // The live boundary still validates producer artifacts; a record snapshot validates decisions.
+    expect(checkProject(memberRoot, undefined, { now: TEST_NOW, readOnly: true }).refusals).toEqual([]);
+    const retainedReport = checkProject(retainedInput.root, undefined, { now: TEST_NOW, readOnly: true, recordPublication: true });
     expect(retainedReport.refusals).toEqual([]);
     const beforeRetained = snapshot(retainedInput.root);
     expect(readRecordPublished(retainedInput, TEST_NOW)).toEqual(inventory);
@@ -304,7 +306,7 @@ test('retained collection snapshot preserves inherited guide, history, and overr
       .find((w) => w.id === 'assemble')!.guide,
   );
   obj(assembleGuide.overrides).collection_answer_at = '2020-01-01T00:00:00.000Z';
-  const overrideReport = checkProject(retainedInput.root, badOverrideCandidate, { now: TEST_NOW, readOnly: true });
+  const overrideReport = checkProject(retainedInput.root, badOverrideCandidate, { now: TEST_NOW, readOnly: true, recordPublication: true });
   expect(overrideReport.refusals.map((r) => r.code)).toContain('OVERRIDE_ANSWER_STALE');
 });
 

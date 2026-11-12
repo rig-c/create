@@ -299,7 +299,7 @@ function retained(input: RecordPublicationRequest): RecordPublicationRequest {
   return { ...input, root, phase: 'retained', parts: context.parts };
 }
 
-test('the #277 answer dependencies still reproduce the record check on the retained root', () => {
+test('the measured #277 case: the retained phase equals the inventory phase with 0 refusals', () => {
   const { root } = pending();
   const inventory = readRecordPublished(request(root), TEST_NOW);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));

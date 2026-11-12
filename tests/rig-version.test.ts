@@ -3,6 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import os from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { rigRegistrationFindings } from '../src/rig-version.ts';
+import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { plateReceiptSpec } from '../src/config-inputs.ts';
@@ -858,7 +859,9 @@ describe('frozen rig registration', () => {
     }
     expect(existsSync(join(root, 'outputs/v1'))).toBe(true);
     expect(existsSync(join(retainedRoot, 'outputs/v1'))).toBe(false);
-    expect(checkProject(retainedRoot).refusals).toEqual([]);
+    // Producer integrity is checked at the live boundary, not on the record-only snapshot.
+    expect(checkProject(root).refusals).toEqual([]);
+    expect(checkRecordProject(retainedRoot, undefined, { now: testClock.now(), readOnly: true, recordPublication: true }).refusals).toEqual([]);
     expect(readRecordPublished({
       root: retainedRoot,
       record,
@@ -1101,7 +1104,9 @@ describe('frozen rig registration', () => {
         mkdirSync(dirname(join(retainedRoot, file.path)), { recursive: true });
         cpSync(join(root, file.path), join(retainedRoot, file.path));
       }
-      expect(checkProject(retainedRoot).refusals).toEqual([]);
+      // Producer integrity is checked at the live boundary, not on the record-only snapshot.
+      expect(checkProject(root).refusals).toEqual([]);
+      expect(checkRecordProject(retainedRoot, undefined, { now: testClock.now(), readOnly: true, recordPublication: true }).refusals).toEqual([]);
       expect(readRecordPublished({
         root: retainedRoot,
         record,
@@ -1502,7 +1507,9 @@ describe('frozen rig registration', () => {
       mkdirSync(dirname(join(retainedRoot, file.path)), { recursive: true });
       cpSync(join(root, file.path), join(retainedRoot, file.path));
     }
-    expect(checkProject(retainedRoot).refusals).toEqual([]);
+    // Producer integrity is checked at the live boundary, not on the record-only snapshot.
+    expect(checkProject(root).refusals).toEqual([]);
+    expect(checkRecordProject(retainedRoot, undefined, { now: testClock.now(), readOnly: true, recordPublication: true }).refusals).toEqual([]);
     expect(readRecordPublished({
       root: retainedRoot,
       record,

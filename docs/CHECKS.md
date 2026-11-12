@@ -1599,3 +1599,18 @@ remaining interview work. Both inventory and retained phases apply this rule.
 Plan publication, stage-boundary checks and ordinary `interview --check` keep
 all their existing refusals; malformed answers and missing earlier-stage answers
 are never discounted.
+
+### Listing finalized Review acts
+
+`job acts [<dir>] [--json]` reads the bound live host's agent `next` events,
+using the same reader as publication ask reconciliation. It lists finalized
+acts absent from `project.json.review_acts` and signoff source identities,
+with their exact writer arguments/POSIX-quoted command. It never ingests, advances,
+creates a host or writes the project/binding/outbox. Empty lists succeed.
+A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
+`job open`. The existing strict close attachment preserves stored identities.
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `JOB_ACTS_READ_REFUSED` | `project.json`: the live job refused or failed its event stream, or paging did not finish within the bound. Restore the bound live host and retry `job acts` on a quiescent job. |
+| `JOB_ACTS_WRITER_UNAVAILABLE` | `project.json`: a listed act has no current writer target (for example a removed checkpoint step or a subject without a Create adapter). Its command is null, not guessed. Restore the named plan step or use a supported Review subject before ingestion. |

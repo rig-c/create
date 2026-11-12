@@ -659,5 +659,5 @@ test('g2 publication still refuses a mismatched package identity without writing
 test('a retained g1 identity selects its exact manifest after republishing', async () => {
   const { root, act } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2);
   const previous = { ...act, source: { ...act.source, package: { id: 'create-v1', revision: 'v1' } } };
-  expect(() => assertReviewActSource(root, projectAt(root), previous)).not.toThrow();
+  expect(() => assertReviewActSource(root, projectAt(root), decodeReviewAct(JSON.stringify(previous)))).not.toThrow();
 });

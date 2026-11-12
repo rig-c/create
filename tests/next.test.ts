@@ -41,25 +41,30 @@ test('#467 next offers the direction verdict page and retains the upstream sign-
   post.verdicts = [];
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   const before = nextProject(dir, CHAIN_NOW);
-  expect(before.moves.find(move => move.review_act?.kind === 'review-verdict')).toMatchObject({
+  expect(before.refusals).toEqual([]);
+  expect(before.moves.find(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toMatchObject({
     command: null,
     act: expect.stringContaining('job open --rig 2'),
     review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v2', review: 'direction-review' },
   });
-  const pendingSignoff = before.moves.find(move => move.review_act?.kind === 'signoff');
+  const pendingSignoff = before.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'direction-review');
+  expect(pendingSignoff).toBeDefined();
   expect(pendingSignoff?.act).toContain('blocked pending an upstream Review change');
   expect(pendingSignoff?.act).not.toContain('job open --plan');
 
   post.verdicts = accepted!;
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   const after = nextProject(dir, CHAIN_NOW);
-  expect(after.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
-  expect(after.moves.find(move => move.review_act?.kind === 'signoff')).toMatchObject({
+  expect(after.refusals).toEqual([]);
+  expect(after.moves.some(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toBe(false);
+  const blockedSignoff = after.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'direction-review');
+  expect(blockedSignoff).toBeDefined();
+  expect(blockedSignoff).toMatchObject({
     command: null,
     act: expect.stringContaining('blocked pending an upstream Review change'),
     review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v2' },
   });
-  expect(after.moves.find(move => move.review_act?.kind === 'signoff')?.act).toContain('do not advance to accepted');
+  expect(blockedSignoff?.act).toContain('do not advance to accepted');
 });
 
 interface CheckpointSpec {

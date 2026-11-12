@@ -1543,3 +1543,11 @@ restarted record carries exactly the refusals a fresh `init` record carries
 A valid withdrawal removes only the current matching checkpoint requirement.
 `CHECKPOINT_UNSIGNED` and step-status use that effective requirement. Historical
 status entries keep their original checkpoint_required and signoff requirements.
+
+### Source CI pin guard
+
+| Code | Refusal | Remedy |
+| --- | --- | --- |
+| `SOURCE_PIN_ANCESTRY` | `scripts/source-ci-pins.json` names a SHA before the package's release tag, or release metadata/history is unavailable or not exact | fetch complete sibling history and tags; choose a SHA at or after the exact `package.json` release pin; play uses the dependency at the release-pinned Review tag |
+
+| `CONSUMER_CI_COVERAGE` | `scripts/consumer-ci-tests.json` names an absent case, registry check does not pass it, or source CI skips any other case | restore exact consumerOnlyTest registration and registry execution; run every other source case |

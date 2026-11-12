@@ -1,0 +1,8 @@
+[
+  {
+    "file": "tests/example-remesh.test.ts",
+    "name": "two fresh generator runs match each other and templates/example-remesh byte for byte",
+    "displayName": "five-version reopened example with a producer mesh > two fresh generator runs match each other and templates/example-remesh byte for byte",
+    "reason": "consumer-install-only: core selects its runtime entry by devDependency presence (core#1061)"
+  }
+]

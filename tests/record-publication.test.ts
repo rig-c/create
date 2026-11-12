@@ -634,3 +634,22 @@ test('synthetic mature version outputs exceed the old retain cap but all post as
     } finally { host.stop(); rmSync(stateDir, { recursive: true, force: true }); }
   } finally { for (const path of added) rmSync(join(root, path)); }
 }, 30000);
+
+test.each([
+  ['rig_type', 'RIG_TYPE_UNKNOWN', 'unknown-type'],
+  ['meshes', 'BUST_EXCLUSION_UNREASONED', { bust: { excluded: true } }],
+] as const)('record checks retain the %s answer-domain refusal %s', (id, code, value) => {
+  const root = approvalFixture('post-interview');
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  const item = collectItems(project, { collection: null }).find(item => item.id === id)!;
+  expect(item.state.state).toBe('user');
+  if (item.state.state !== 'user') throw Error('synthetic answer must be user-provided');
+  item.state.answer.value = value as JsonObject | string;
+  save(root, project);
+  const record = checkProject(root, project, { now: TEST_NOW, readOnly: true, recordPublication: true });
+  const full = checkProject(root, project, { now: TEST_NOW, readOnly: true });
+  expect(record.refusals.find(finding => finding.code === code)).toEqual(full.refusals.find(finding => finding.code === code));
+  expect(record.refusals.map(finding => finding.code)).toContain(code);
+  expect(() => readRecordPublished({ ...request(root), result: { kind: 'plan' } }, TEST_NOW))
+    .toThrow(expect.objectContaining({ code: 'JOB_RECORD_INCOMPLETE' }));
+});

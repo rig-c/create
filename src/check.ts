@@ -989,10 +989,10 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     const finding = latestPartsVerdictFinding(project, raw.draft_id, `signoffs[${index}].draft_id`);
     if (finding) (typeof raw.at === 'string' && Date.parse(raw.at) < Date.parse(PARTS_VERDICT_LATEST_SINCE) ? warnings : refusals).push(finding);
   }
-  if (!options.recordPublication) checkCgGates(ctx);
+  checkCgGates(ctx, options.recordPublication);
   if (!options.recordPublication) checkSetupPainting(ctx);
   if (!options.recordPublication) checkFigureMask(ctx);
-  if (!options.recordPublication) checkMeshesBust(ctx);
+  checkMeshesBust(ctx);
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkInputs(ctx);
   checkChoices(ctx);

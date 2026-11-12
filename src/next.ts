@@ -50,6 +50,7 @@ import {
   STAGE_VALUES,
   stageIndex,
   stageOfStep,
+  stepCoveredByApproval,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -840,9 +841,24 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 
     const needsPlanSteps =
       (effectiveStage === 'interview' && steps.length === 0) ||
-      (effectiveStage === 'post-interview' && !steps.some(s => s.phase === 'post'));
+      (effectiveStage === 'post-interview' && !steps.some(s => s.phase === 'post')) ||
+      (effectiveStage === 'rigging-interview' && !steps.some(step => stepCoveredByApproval(project, step, effectiveStage)));
     if (needsPlanSteps) {
       addAwait('plan.steps');
+      if (effectiveStage === 'rigging-interview') {
+        for (const id of ['bones', 'meshes', 'constraints', 'motion']) {
+          const item = stageItems.find(item => item.id === id);
+          if (!item || item.state.state === 'silent' || (item.state.state === 'delegated' && !item.state.decided) || steps.some(step => step.id === id)) continue;
+          moves.push({
+            role: 'agent',
+            field: 'plan.steps',
+            awaits: 'plan.steps',
+            command: `rig-create plan add ${id} '${dir.replaceAll("'", "'\\''")}' --by agent --phase rig …`,
+            act: `author the ${id} plan step for approval at rigging-interview; supply order, does, produces, rests-on, bar and checkpoint-proposed`,
+            unanswered_by_record: 'plan.steps',
+          });
+        }
+      }
     }
 
     const signoffAwait = `signoffs[stage=${effectiveStage}]`;
@@ -854,7 +870,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         awaits: signoffAwait,
         command: null,
         act: needsPlanSteps
-          ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: plan.steps is empty in project.json)`
+          ? effectiveStage === 'rigging-interview'
+            ? 'review-tool act signoff for stage rigging-interview (unanswered by record: plan.steps has no rig steps approved at rigging-interview)'
+            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: plan.steps is empty in project.json)`
           : `review-tool act signoff for stage ${effectiveStage}`,
         review_act: {
           kind: 'signoff',

@@ -8,6 +8,8 @@ import type { JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { checkProject } from '../src/check.ts';
 import { openCreateJob } from '../src/job-host.ts';
+import { readRecordPublished } from '../src/job-publication.ts';
+import { stageIndex } from '../src/stages.ts';
 import { jobHostStateRoot } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/next.ts';
@@ -15,7 +17,7 @@ import { partsReviewCommand } from '../src/parts-review.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
-import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
+import { arr, fixture, obj, retimeFixture, retainSignoffs } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -1134,4 +1136,51 @@ test('P1 withdrawn checkpoint next offers executable done through the normal ent
   expect(readFileSync(join(dir, 'project.json'))).toEqual(bytes);
   const executed = runMainCapture([...done!.command!.slice('rig-create '.length).split(/\s+/), dir], testClock.now());
   expect({ code: executed.code, stderr: executed.stderr }).toEqual({ code: 0, stderr: '' });
+});
+
+
+test('#478 answered rigging guides request plan steps before the publishable sign-off', () => {
+  testClock.set(new Date(CHAIN_NOW));
+  const ids = ['bones', 'meshes', 'constraints', 'motion'];
+  const dir = realpathSync(fixture(project => {
+    project.stage = 'rigging-interview';
+    project.versions = [];
+    project.scenes = [];
+    delete project.direction_contract;
+    retainSignoffs(project, signature => stageIndex(String(signature.stage)) < stageIndex('rigging-interview'));
+    project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('rigging-interview'));
+    for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
+    obj(project.plan).steps = arr(obj(project.plan).steps).filter(value => ['seethrough', 'assemble'].includes(String(obj(value).id)));
+  }, 'example-project.json'));
+  const beforeBytes = readFileSync(join(dir, 'project.json'));
+  const before = nextProject(dir, CHAIN_NOW);
+  expect(before.refusals).toEqual([]);
+  expect(before.moves.map(move => move.role)).toEqual(['agent', 'agent', 'agent', 'agent', 'human']);
+  for (const [index, id] of ids.entries()) {
+    expect(before.moves[index]).toMatchObject({
+      role: 'agent', field: 'plan.steps', awaits: 'plan.steps', unanswered_by_record: 'plan.steps',
+      command: `rig-create plan add ${id} '${dir.replaceAll("'", "'\\''")}' --by agent --phase rig …`,
+      act: expect.stringContaining('approval at rigging-interview'),
+    });
+  }
+  expect(before.moves.at(-1)).toMatchObject({
+    role: 'human', unanswered_by_record: 'plan.steps',
+    review_act: { kind: 'signoff', stage: 'rigging-interview' },
+  });
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeBytes);
+  for (const [index, id] of ids.entries()) {
+    expect(planCommand(['add', id, dir, '--by', 'agent', '--phase', 'rig', '--order', String(index + 3),
+      '--does', `Implement the approved ${id} guide.`, '--produces', `The ${id} result.`,
+      '--rests-on', id, '--bar', `The ${id} result matches the approved guide.`, '--checkpoint-proposed', 'false']).exit).toBe(0);
+  }
+  const after = nextProject(dir, CHAIN_NOW);
+  expect(after.refusals).toEqual([]);
+  expect(after.moves).toHaveLength(1);
+  expect(after.moves[0]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
+  expect(after.moves[0]!.unanswered_by_record).toBeUndefined();
+  expect(after.awaits).toEqual(['signoffs[stage=rigging-interview]']);
+  const context = readRecordPublished({ root: dir,
+    record: { path: 'project.json', sha256: sha256(readFileSync(join(dir, 'project.json'))) },
+    result: { kind: 'plan' }, phase: 'inventory' }, CHAIN_NOW);
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
 });

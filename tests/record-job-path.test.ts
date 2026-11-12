@@ -335,3 +335,16 @@ test.each(['rigging-interview', 'post-interview'])('first unanswered %s question
   expect(ingested.exit, ingested.stderr).toBe(0);
   await checked(root);
 }, 30_000);
+
+test('record selectors refuse a legacy package-only host byte-identically with the close/reopen remedy', async () => {
+  const root = synthetic('rigging-interview');
+  await open(root);
+  const binding = readWriterBinding(root);
+  await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan'], 'JOB_HOST_REUSE_MISMATCH');
+  expect(readWriterBinding(root)).toEqual(binding);
+  const closed = await cli(root, ['job', 'close', root]);
+  expect(closed.exit, closed.stderr).toBe(0);
+  await opened.at(-1)!.proc.exited;
+  const record = await open(root, ['--plan']);
+  expect(record.lines).toContain('job: asked signoff rigging-interview');
+}, 20_000);

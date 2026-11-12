@@ -23,6 +23,7 @@ successful HTTP path capture, with producer source hashes unchanged.
 | `bun run lint` | 0 | Current implementation and tests |
 | Nova `generate-example-chain`, `generate-example-remesh`, then both `--check` modes | 0 | Byte-for-byte reproduction; run `20261112T051016Z-82603ccbb8914f7fbfe377f09ed43219`, 20.56 s held |
 | `renderAgentGuide()` UTF-8 length | 0 | 9,976 bytes; generated example guides match |
+| Legacy package-only host -> explicit record selector, then close/reopen | 0 | 1 pass; refused operation preserves record/binding, remedy opens the plan ask |
 | Legacy API@2 finalized fetch on mixed hosts | 0 | Every successful public act ingestion uses the existing API@2 fetch implementation |
 | Compatibility unit file, including direct and API@2 decoding of valid @4 picks/signoff | 0 | 4 cases; unsupported @4 parts/review and API@3 envelope refusals retained |
 
@@ -84,6 +85,7 @@ execution order (each is a distinct attempt):
 | typecheck-a3 | `bun run typecheck` | 2; generic enqueue return for existing private receipt |
 | record-path-a4 | `bun test tests/record-job-path.test.ts` | 1; 4 pass, 1 fail; JOB_IDEMPOTENCY_CONFLICT; record retry keys now include stored generation |
 | first-unanswered-a1 | `bun test tests/record-job-path.test.ts -t 'first unanswered'` | 1; 2 fail; JOB_RECORD_INCOMPLETE / INTERVIEW_INCOMPLETE before the first pick |
+| legacy-mode-a1 | `bun test tests/record-job-path.test.ts -t 'record selectors refuse a legacy'` | 1; requested mode was checked instead of existing host mode, producing a generic refusal; condition corrected, standalone control passes |
 | derived-final-a1 | Derived 93-file command above | 124; incomplete, four failures listed above |
 | scoped-controls-a1 | Canonical TMPDIR, still-cycle/signal/advance/compat files | 1; 13 pass, 2 fail; unchanged 5 s signal limits |
 | signal-isolated-head/main-a1 | Concise subject case above | 1 each; unchanged 5 s limit |
@@ -93,3 +95,9 @@ execution order (each is a distinct attempt):
 Successful intermediate controls include 54/0 publication + record-path tests,
 5/0 full record path, 2/0 first-unanswered tests and the final 7/0 path above.
 No test timeout or pre-existing path/producer assertion was relaxed.
+
+`legacy-mode.jsonl` retains the additional red-first legacy-host control. A
+package-only host is never silently upgraded: `--plan` refuses with
+`JOB_HOST_REUSE_MISMATCH` and byte-identical record/binding; the explicit
+`job close` followed by the same `job open --plan` succeeds. This fixes the
+refusal's routing/remedy condition, without changing any saved-record check.

@@ -73,7 +73,7 @@ export async function openCreateJob(
     const found = readWriterBinding(root);
     const existing = found && found.identity.root === root ? found : null;
     const identity = currentJobIdentity({ root, stateDir: existing?.identity.stateDir ?? join(jobHostStateRoot(root), 'host'), fingerprint: 'rig-create/live-review/1', reviewer, ...(existing?.identity.publicationMode || recordMode ? { publicationMode: 'record-and-package' as const } : {}) }, root);
-    if (recordMode && !identity.publicationMode) refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: this job uses a package-only host; close it with job close and reopen with --question or --plan');
+    if (recordMode && existing && !existing.identity.publicationMode) refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: this job uses a package-only host; close it with job close and reopen with --question or --plan');
     if (existing) assertJobIdentity(existing.identity, identity);
     privateDirectory(identity.stateDir);
     let writerGrant: WriterGrant | undefined;

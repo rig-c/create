@@ -350,10 +350,24 @@ again.
 | `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, `rig-version` commits in `rig-review`, or the agent runs `job open` to refresh the live `rig` head after `review <n> --from-review` |
 | `direction-review` | record plan, using source-linked Review at the dev pin | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
-| `interview` | none | no record-mode stage-signature subject |
+| `interview` | record plan, using source-linked Review with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
 
-A stage with no carrier has no live route yet. `interview` has no record-mode
-stage-signature subject; its picks use `job open --question <id>`.
+Interview picks use `job open --question <id>`. After ingesting every pick,
+run `interview --check`, then `job open --plan` for the interview signature.
+This record route requires the [Review #803](https://github.com/rig-c/review/pull/803)
+carrier (issue #800); registry Review 2.13.0
+does not accept that stage. The record subject is `plan`, with non-empty
+displayed steps, even though the signature approves the interview answers
+and does not approve or fill the plan's checkpoints. After advancing,
+`next` offers the separate `plan-approved` signature.
+
+Publication and first ingest use the same full `checkProject` function as
+`interview --check`. An unclean record refuses `INTERVIEW_SIGNOFF_NOT_CLEAN`;
+an empty displayed plan refuses `INTERVIEW_SIGNOFF_PLAN_REQUIRED`.
+First ingest also checks the act's record hash, displayed plan identities
+and current interview stage. Refusals leave `project.json` byte-identical.
+Immutable replay returns the recorded signature before current-stage checks.
+The CLI `--by` route and earlier package-mode acts retain their behavior.
 
 ## Parts drafts and independent verdicts
 

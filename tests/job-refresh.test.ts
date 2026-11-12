@@ -204,6 +204,38 @@ function expectExit0(result: { stdout: string; stderr: string; exit: number }): 
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
 }
 
+sourceOnlyTest('#475 source-linked clean interview record signoff ingests advances and offers plan-approved', async () => {
+  const root = copy('0b-plan-pending', project => {
+    project.stage = 'interview'; project.signoffs = []; project.advances = [];
+  });
+  expectExit0(await cli(root, ['interview', '--check', root]));
+  const opening = await open(root, ['--plan']);
+  const view = await page(root, opening.url, 1);
+  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'interview' }]);
+  expect((view.head.source as JsonObject).subject).toBe('plan');
+  const displayed = read(root);
+  const planBefore = structuredClone(displayed.plan);
+  const signed = await view.act('signoff', 'signoff', { stage: 'interview', decision: 'approved', words: WORDS });
+  expect(signed.schema).toBe('rig-review/act@4');
+  expect((signed.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
+  expectExit0(await cli(root, ['signoff', 'interview', root, '--from-review', String(signed.actId)]));
+  expect(read(root).stage).toBe('interview');
+  expect(read(root).plan).toEqual(planBefore);
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'interview', by: 'user', verbatim: WORDS });
+  expect(reviewActFindings(read(root))).toEqual([]);
+  expectExit0(await cli(root, ['advance', 'plan-approved', root, '--json']));
+  const advanced = readFileSync(join(root, 'project.json'));
+  expectExit0(await cli(root, ['signoff', 'interview', root, '--from-review', String(signed.actId)]));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(advanced);
+  const next = await cli(root, ['next', root, '--json']);
+  expectExit0(next);
+  const report = JSON.parse(next.stdout) as { moves: JsonObject[] };
+  expect(report.moves).toContainEqual(expect.objectContaining({ command: null, review_act: expect.objectContaining({ kind: 'signoff', stage: 'plan-approved' }) }));
+  expectExit0(await cli(root, ['job', 'open', root, '--plan', '--reviewer', 'synthetic-owner', '--role', 'owner']));
+  const approvalPage = await page(root, opening.url, 1);
+  expect(approvalPage.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
 test('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication', async () => {
   const root = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));

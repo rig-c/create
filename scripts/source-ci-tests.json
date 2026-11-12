@@ -174,5 +174,15 @@
     "file": "tests/job-refresh.test.ts",
     "name": "#467 source-linked direction verdict then record sign-off ingests and advances accepted",
     "reason": "Requires Review 837909932bc3406fa0ec87f19091daba4d9d69d3 (#795) record direction-review stage; registry stays 2.13.0."
+  },
+  {
+    "file": "tests/interview-signoff.test.ts",
+    "name": "#475 record interview ingest rejects wrong stage stale source and unclean records without writing",
+    "reason": "Requires Review PR #803 (issue #800) record interview carrier; registry Review 2.13.0 rejects interview record signoffs."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#475 source-linked clean interview record signoff ingests advances and offers plan-approved",
+    "reason": "Requires Review PR #803 (issue #800) record interview carrier; registry Review 2.13.0 rejects interview record signoffs."
   }
 ]

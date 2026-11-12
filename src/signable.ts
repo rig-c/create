@@ -5,11 +5,26 @@ import { checkpointRequired } from './plan-history.ts';
  * `signoff` and `checkpoint` subjects Review may ask for (docs/LIVE-REVIEW.md).
  */
 import { JOB_PLAN_BOUND_SIGNOFF_STAGES, type JobSelector, type JobSubject } from '@rig-c/review/job-host';
-import { asArray, collectSignoffs, isObject } from './check.ts';
+import { asArray, collectSignoffs, isObject, type CheckReport } from './check.ts';
+import { refuse } from './refusal.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { STAGES, stageOfStep } from './stages.ts';
 import type { JsonObject } from './templates.ts';
+
+/** Record-mode interview approval uses the full interview check, before any write. */
+export function assertInterviewRecordSignable(project: JsonObject, report: CheckReport): void {
+  if (project.stage !== 'interview' || report.effective_stage !== 'interview') {
+    refuse('REVIEW_ACT_TARGET_MISMATCH', 'project.json.stage: the displayed interview sign-off requires stage interview; publish and sign the current stage in Review');
+  }
+  if (!asArray(isObject(project.plan) ? project.plan.steps : undefined).length) {
+    refuse('INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'project.json.plan.steps: interview record sign-off needs displayed plan steps; draft the plan through the writers and publish it with job open --plan');
+  }
+  if (report.refusals.length || report.holes?.length) {
+    const finding = report.refusals[0] ?? report.holes![0]!;
+    refuse('INTERVIEW_SIGNOFF_NOT_CLEAN', `project.json: interview --check reports ${finding.code} at ${finding.path}; resolve the interview check and publish the current record again`);
+  }
+}
 
 /** Why `signoff <stage> --checkpoint <id>` refuses the step, or null when it can sign it. */
 export function checkpointProblem(project: JsonObject, stage: string, id: string): string | null {

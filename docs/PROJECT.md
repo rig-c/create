@@ -2502,6 +2502,12 @@ the project's next moves and whose they are from `project.json`:
   `next` lists each in `refusals[]` with its `CHECKS.md` remedy (`fix`) before
   any forward move. A project with a blocking refusal has `moves: []` and
   `awaits: []`.
+- **Rigging plan before sign-off.** At `rigging-interview`, when no rig step
+  belongs to that approval stage, `next` lists `plan add <id> <dir> --by agent
+  --phase rig …` for each answered guide without a step (bones, meshes,
+  constraints, motion). The agent supplies the authored plan fields; these
+  steps must be approved at `rigging-interview`. The human sign-off stays
+  unanswered by record until the plan steps exist.
 - **Read-only and deterministic.** `project.json` and the project tree remain
   byte-identical. An `accepted` project with no lapsed approvals reports
   `accepted: true`, `moves: []` and exits `0`.

@@ -876,6 +876,18 @@ new reference. Both writers refuse `by: agent` case-insensitively.
 A reopen preserves every version and verdict; a rebuild is a new numbered
 version, never an overwrite of an accepted historical build.
 
+After a human bounce, `next` reads check's `FEEDBACK_OPEN` finding and names
+the agent rebuild instead of asking for another verdict or sign-off on the
+bounced version. `rig-version` and `direction write` / `direction patch`
+accept repeatable `--answers <version>:<verdict-index>` options, recording
+those entries in the new version's `answers_feedback`. Each entry must name
+an earlier human bounced verdict and must occur only once. Without the needed
+entries the writer refuses `FEEDBACK_UNANSWERED`, leaving `project.json`
+byte-identical. Existing historical references and `review --answers-feedback`
+keep their earlier target rules: any existing verdict on an earlier version.
+After rebuilding, `next` requests the new version's review; no stage or
+human approval is supplied by answering feedback.
+
 A rig version's provenance config, review package and accepted parts must identify the same build.
 
 Every build shown to anyone is a `versions[]` entry, numbered in order across

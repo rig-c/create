@@ -712,7 +712,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | `VERBATIM_INVALID_UTF8` | the input cannot round-trip as UTF-8 through JSON (exit 2) |
 | `REVIEW_NOT_HUMAN` | the reviewer is `agent`, case-insensitively |
 | `REVIEW_OPTION_INVALID` | invalid `--at`, malformed feedback ref, both `--verbatim` and `--verbatim-file`, or competing human-value/feedback flags with `--from-review` (exit 2) |
-| `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version |
+| `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version; `rig-version` and `direction write/patch --answers` additionally require a human bounced verdict. Name an earlier human bounce in `versions[vN].answers_feedback` |
 | `FEEDBACK_REF_DUPLICATE` | the reference already exists or occurs twice in this command |
 
 `signoff parts-review --evidence` also uses the existing `PARTS_VERDICT_*`

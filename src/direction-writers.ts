@@ -7,14 +7,15 @@ import { collectReopens, liveSignoff } from './reopen.ts';
 import { REVIEW_ACCEPTS } from './stages.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
+import { parseFeedbackAnswers } from './feedback.ts';
 import { handoff } from './review.ts';
 import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import type { JsonObject } from './templates.ts';
 
 export const DIRECTION_HELP = `direction --adopt [<dir>]
-direction write <N> [<dir>] --file <retained JSON> --rig <R>
-direction patch <N> [<dir>] --patch-file <retained direction-patch/1>
+direction write <N> [<dir>] --file <retained JSON> --rig <R> [--answers <version>:<verdict>]
+direction patch <N> [<dir>] --patch-file <retained direction-patch/1> [--answers <version>:<verdict>]
 direction check <N> [<dir>] [--json]
   Documents are immutable evidence/direction/v<N>.json. No rendering or producer builds.
   Capture a made correction with correction record --direction-patch-file before patch ingestion;
@@ -34,11 +35,12 @@ export function directionCommand(args:string[],now:number,hooks:DirectionWriteHo
   try{return command(args,now,hooks);}catch(e){if(e instanceof DirectionError)refuse(e.code,e.message,e.code==='DIRECTION_USAGE'?USAGE_EXIT:1);throw e;}
 }
 function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:string;exit:number} {
-  const action=args[0];const positional:string[]=[];const opts:Record<string,string>={};let json=false;
-  for(let i=1;i<args.length;i++){const arg=args[i] as string;if(arg==='--json'){if(json)usage('duplicate json');json=true;}else if(['--file','--rig','--patch-file'].includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`invalid ${arg}`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
+  const action=args[0];const positional:string[]=[];const opts:Record<string,string>={};const answerValues:string[]=[];let json=false;
+  for(let i=1;i<args.length;i++){const arg=args[i] as string;if(arg==='--answers'){const value=args[++i];if(!value||value.startsWith('--'))usage('--answers needs version:verdict');answerValues.push(value);}else if(arg==='--json'){if(json)usage('duplicate json');json=true;}else if(['--file','--rig','--patch-file'].includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`invalid ${arg}`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
   if(!['--adopt','write','patch','check'].includes(action??'')||positional.length>(action==='--adopt'?1:2))usage('unknown action/directory count');
   const n=Number(positional[0]);if(action!=='--adopt'&&(!Number.isSafeInteger(n)||n<1))usage('N must be positive integer');
   if(action==='write' ? !opts['--file']||!opts['--rig']||Boolean(opts['--patch-file']) : action==='patch' ? !opts['--patch-file']||Boolean(opts['--file']||opts['--rig']) : Object.keys(opts).length>0)usage('flags do not match action');
+  if(answerValues.length && action!=='write' && action!=='patch')usage('--answers is write/patch-only');
   if(json&&action!=='check')usage('json is check-only');
   const dir=resolve(positional[action==='--adopt'?0:1]??process.cwd());
   // Root selected by the caller; record itself is still a literal regular file.
@@ -69,6 +71,7 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
       if(!contract)directionFail('DIRECTION_CONTRACT_INVALID','direction_contract','adopt direction explicitly first');
       openReview(project);
       if(objects(project.versions).some(v=>Number(v.n)>=n))directionFail('DIRECTION_VERSION','versions','new post number must be unique and later than all versions');
+      const answersFeedback=parseFeedbackAnswers(project,n,answerValues);
       if(action==='write'){
         bytes=snapshot(opts['--file'] as string);doc=directionJson(bytes,opts['--file'] as string);validateDirectionShape(doc);
         if(!Number.isSafeInteger(Number(opts['--rig']))||Number(opts['--rig'])!==(doc.rig as JsonObject).version)directionFail('DIRECTION_RIG_UNKNOWN','direction.rig','--rig must name the document rig');
@@ -92,7 +95,7 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
       snapshot(String(((doc.rig as JsonObject).model as JsonObject).path));
 
       const binding={path:directionPath(n),sha256:directionHash(bytes)};
-      const version:JsonObject={n,kind:'post',rig_version:(doc.rig as JsonObject).version as number,at:new Date(now).toISOString(),built_by:'agent',built_with:{create:String(doc.schema).slice('rig-create/'.length)},changed:'Authored camera and timing direction',outputs:[binding],evidence:[],verdicts:[],answers_feedback:[],review_origin:null,provenance:{config:binding,direction:binding,sections:{camera:[{entry:'camera',...((doc.citations as JsonObject).camera as JsonObject)}],timing:[{entry:'timing',...((doc.citations as JsonObject).timing as JsonObject)}]}}};
+      const version:JsonObject={n,kind:'post',rig_version:(doc.rig as JsonObject).version as number,at:new Date(now).toISOString(),built_by:'agent',built_with:{create:String(doc.schema).slice('rig-create/'.length)},changed:'Authored camera and timing direction',outputs:[binding],evidence:[],verdicts:[],answers_feedback:answersFeedback,review_origin:null,provenance:{config:binding,direction:binding,sections:{camera:[{entry:'camera',...((doc.citations as JsonObject).camera as JsonObject)}],timing:[{entry:'timing',...((doc.citations as JsonObject).timing as JsonObject)}]}}};
       if(action==='patch'){const patch=directionJson(snapshots.get(opts['--patch-file'] as string) as Buffer,'direction.patch');version.direction_origin={source_post:patch.source_post as number,patch:directionBinding(dir,opts['--patch-file'] as string),result:binding};}
       next.versions=[...asArray(next.versions),version];
       // Validate using the exact staged bytes at their final immutable path, before committing the record.

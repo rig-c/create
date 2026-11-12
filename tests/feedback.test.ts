@@ -367,3 +367,36 @@ test('review --ask rejects missing items, repeated ids, empty ids and non-delega
   expect(result.stderr).toContain('FEEDBACK_ASK_STATE');
   expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(before);
 });
+
+describe('#454 historical feedback compatibility', () => {
+  test('check retains accepted, agent, duplicate and integer target refs without new refusals', async () => {
+    const { checkFeedback } = await import('../src/feedback.ts');
+    const target = 2 ** 53; // Existing check uses integers, not safe integers.
+    const project: JsonObject = { versions: [
+      { n: target, pre_interview: true, verdicts: [{ by: 'agent', review: 'rig-review', verdict: 'accepted', on_items: [] }] },
+      { n: target + 2, pre_interview: true, verdicts: [], answers_feedback: [{ version: target, verdict: 0 }, { version: target, verdict: 0 }] },
+    ] };
+    const ctx = { project, refusals: [], warnings: [], items: [], signoffs: [], steps: [], stage: 'interview', effectiveStage: 'interview', collection: null, predatesPartsReview: null, dir: '' };
+    const before = JSON.stringify(project);
+    expect(checkFeedback(ctx)).toEqual([]);
+    expect(ctx.refusals).toEqual([]);
+    expect(ctx.warnings).toEqual([]);
+    expect(JSON.stringify(project)).toBe(before);
+  });
+  test('shared validator rejects a present same/later target without tightening historical targets', async () => {
+    const { feedbackReferenceFinding } = await import('../src/feedback.ts');
+    const project: JsonObject = { versions: [{ n: 4, verdicts: [{ by: 'user', verdict: 'bounced' }] }] };
+    for (const n of [3, 4]) expect(feedbackReferenceFinding(project, n, { version: 4, verdict: 0 }, `versions[v${n}].answers_feedback[0]`)?.code).toBe('FEEDBACK_REF_UNKNOWN');
+  });
+  test('review --answers-feedback still accepts an earlier accepted agent verdict', () => {
+    const dir = reviewFixture(p => {
+      version(p, 4).answers_feedback = [{ version: 3, verdict: 0 }];
+      version(p, 2).verdicts = [{ by: 'agent', at: version(p, 2).at!, review: 'rig-review', verdict: 'accepted', verbatim: 'Synthetic historical agent verdict', source: 'synthetic', on_items: [] }];
+    });
+    const before = version(read(dir), 2);
+    const r = cli(['review', '4', '--verdict', 'provisional', '--by', 'user', '--review', 'direction-review', '--source', 'synthetic', '--verbatim', 'Continue reviewing', '--answers-feedback', '2:0'], dir, gitEnv());
+    expect(r.code).toBe(0);
+    expect(version(read(dir), 4).answers_feedback).toContainEqual({ version: 2, verdict: 0 });
+    expect(version(read(dir), 2)).toEqual(before);
+  });
+});

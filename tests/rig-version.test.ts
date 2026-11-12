@@ -23,8 +23,8 @@ function put(dir: string, path: string, value: unknown): void {
   mkdirSync(dirname(join(dir, path)), { recursive: true });
   writeFileSync(join(dir, path), typeof value === 'string' ? value : `${JSON.stringify(value)}\n`);
 }
-function setup() {
-  const dir = fixture(project => { project.stage = 'interview'; project.signoffs = []; project.versions = []; project.reopens = []; for (const step of obj(project.plan).steps as JsonObject[]) step.status = 'pending'; });
+function setup(review = false) {
+  const dir = fixture(project => { project.stage = review ? 'rig-review' : 'interview'; if (!review) project.signoffs = []; else project.signoffs = arr(project.signoffs).filter(s => !['rig-review', 'post-interview', 'direction-review'].includes(String(obj(s).stage))); project.versions = []; project.reopens = []; for (const step of obj(project.plan).steps as JsonObject[]) step.status = review && step.phase === 'rig' ? 'done' : 'pending'; });
   roots.push(dirname(dir));
   testClock.set(new Date('2026-11-08T00:00:00Z'));
   for (const path of ['outputs', 'derived/review']) rmSync(join(dir, path), { recursive: true, force: true });
@@ -1538,4 +1538,64 @@ describe('frozen rig registration', () => {
       writeFileSync(join(dir, 'evidence/v1/registration/config.json'), cfgBytes);
     }
   });
+});
+
+describe('#454 feedback rebuild writer', () => {
+  function feedbackSetup() {
+    // Synthetic starting checkpoint; every subsequent version and verdict uses a writer.
+    const f = setup(true);
+    rigVersionCommand(f.args);
+    return f;
+  }
+  async function bounce(dir: string) {
+    const { reviewCommand } = await import('./clock.ts');
+    put(dir, 'words.txt', 'Adjust the synthetic rig.');
+    reviewCommand(['1', dir, '--verdict', 'bounced', '--review', 'rig-review', '--by', 'user', '--source', 'synthetic review', '--verbatim-file', join(dir, 'words.txt')]);
+  }
+  test('rig version -> human bounce -> next -> repeatable answers -> check -> new verdict', async () => {
+    const { nextProject } = await import('../src/next.ts');
+    const f = feedbackSetup();
+    await bounce(f.dir);
+    await bounce(f.dir);
+    const before = readFileSync(join(f.dir, 'project.json'));
+    const nextBefore = nextProject(f.dir, testClock.now());
+    expect(nextBefore.refusals).toEqual([]);
+    const moves = nextBefore.moves;
+    expect(moves).toHaveLength(1);
+    expect(moves[0]).toMatchObject({ role: 'agent', field: 'versions' });
+    expect(moves[0]!.command).toContain('rig-version 2');
+    expect(moves[0]!.command).toContain('--answers 1:0 --answers 1:1');
+    expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+    const args = ['2', ...f.args.slice(1)];
+    refused(args, 'FEEDBACK_UNANSWERED');
+    for (const path of ['outputs/v2', 'evidence/v2/registration', 'derived/review/v2']) expect(existsSync(join(f.dir, path))).toBe(false);
+    expect(rigVersionCommand([...args, '--answers', '1:0', '--answers', '1:1']).exit).toBe(0);
+    expect(obj(arr(f.load().versions)[1]).answers_feedback).toEqual([{ version: 1, verdict: 0 }, { version: 1, verdict: 1 }]);
+    const report = checkProject(f.dir);
+    expect(report.refusals).toEqual([]);
+    expect(report.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
+    const next = nextProject(f.dir, testClock.now());
+    expect(next.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({ role: 'human', review_act: { version_id: 'v2', review: 'rig-review' } });
+    expect(next.moves.some(m => m.command?.includes('--answers'))).toBe(false);
+  });
+  test.each(['missing', 'accepted', 'agent', 'later', 'malformed', 'duplicate'])('rig answers refuses %s byte-identically', async kind => {
+    const f = setup();
+    // Only the hostile starting record is synthetic; the attempted version is a real writer.
+    const verdict = { by: kind === 'agent' ? 'agent' : 'user', at: testClock.iso(), review: 'rig-review', verdict: kind === 'accepted' ? 'accepted' : 'bounced', verbatim: 'Synthetic feedback', source: 'synthetic', on_items: [] };
+    const p = f.load();
+    p.versions = [{ n: kind === 'later' ? 2 : 1, kind: 'rig', verdicts: [verdict] }];
+    put(f.dir, 'project.json', p);
+    const values = kind === 'missing' ? ['1:9'] : kind === 'later' ? ['3:0'] : kind === 'malformed' ? ['v1:0'] : kind === 'duplicate' ? ['1:0', '1:0'] : ['1:0'];
+    refused(['3', ...f.args.slice(1), ...values.flatMap(v => ['--answers', v])], kind === 'duplicate' ? 'FEEDBACK_REF_DUPLICATE' : 'FEEDBACK_REF_UNKNOWN');
+    expect(existsSync(join(f.dir, 'outputs/v3'))).toBe(false);
+  });
+});
+
+test('#454 no-bounce rig writer and next preserve previous bytes and output', async () => {
+  const { nextCommand } = await import('../src/next.ts');
+  const f = setup(true);
+  const result = rigVersionCommand(f.args);
+  const record = readFileSync(join(f.dir, 'project.json'));
+  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: jobHash(nextCommand([f.dir, '--json'], testClock.now()).stdout), nextText: jobHash(nextCommand([f.dir], testClock.now()).stdout) }).toMatchSnapshot();
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(record);
 });

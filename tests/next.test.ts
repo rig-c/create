@@ -59,12 +59,12 @@ test('#467 next offers the direction verdict page and retains the upstream sign-
   expect(after.moves.some(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toBe(false);
   const blockedSignoff = after.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'direction-review');
   expect(blockedSignoff).toBeDefined();
+  expect(blockedSignoff?.act).toContain('do not advance to accepted');
   expect(blockedSignoff).toMatchObject({
     command: null,
     act: expect.stringContaining('blocked pending an upstream Review change'),
     review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v2' },
   });
-  expect(blockedSignoff?.act).toContain('do not advance to accepted');
 });
 
 interface CheckpointSpec {

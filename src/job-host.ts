@@ -369,30 +369,33 @@ export function assertRequestedDraft(root: string, requested?: string): { bytes:
   return { bytes, ids };
 }
 
-/** Validate an explicit registered rig before job open installs a binding or starts a host. */
-export function assertRequestedRig(root: string, requested?: string, draft?: string): Extract<JobSelector, { kind: 'rig' }> | undefined {
+/** Validate an explicit registered rig or post before job open installs a binding or starts a host. */
+export function assertRequestedRig(root: string, requested?: string, draft?: string): Exclude<JobSelector, { kind: 'draft' }> | undefined {
   if (requested === undefined) return undefined;
   if (draft !== undefined) refuse('JOB_BINDING_INVALID', 'project.json: job open takes either --draft <id> or --rig <n>; choose one recorded result');
   const n = Number(requested.replace(/^v/, ''));
   if (!Number.isSafeInteger(n) || n < 1) {
-    refuse('JOB_PUBLICATION_INVALID', 'project.json.versions: --rig needs a positive registered rig version (1 or v1); choose its recorded number');
+    refuse('JOB_PUBLICATION_INVALID', 'project.json.versions: --rig needs a positive registered rig or post version (1 or v1); choose its recorded number');
   }
   const project = JSON.parse(readFileSync(join(realpathSync(root), 'project.json'), 'utf8')) as JsonObject;
   const matches = asArray(project.versions).filter(version => isObject(version) && version.n === n);
-  if (matches.length !== 1 || !isObject(matches[0]) || matches[0].kind !== 'rig') {
-    refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: --rig needs one recorded rig version; choose an existing rig number`);
+  if (matches.length !== 1 || !isObject(matches[0]) || !['rig', 'post'].includes(String(matches[0].kind))) {
+    refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: --rig needs one recorded rig or post version; choose an existing result number`);
   }
   const selector = publicationSelector(project, n);
-  if (selector.kind !== 'rig') refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: choose a recorded rig version for --rig`);
-  const pkg = matches[0].review_package;
+  const rig = selector.kind === 'post' ? selector.rigVersion : n;
+  const parents = asArray(project.versions).filter(version => isObject(version) && version.n === rig && version.kind === 'rig');
+  if (parents.length !== 1 || !isObject(parents[0])) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}].rig_version: restore the one recorded parent rig before job open`);
+  const rigVersion = parents[0];
+  const pkg = rigVersion.review_package;
   if (!isObject(pkg) || !Array.isArray(pkg.files) || pkg.files.length === 0) {
-    refuse('JOB_PUBLICATION_INVALID', `versions[v${n}].review_package: retained package identity is missing; restore the recorded package before job open`);
+    refuse('JOB_PUBLICATION_INVALID', `versions[v${rig}].review_package: retained package identity is missing; restore the recorded package before job open`);
   }
-  publicationFile(root, `derived/review/v${n}/out/check/build/skeleton.model.json`);
+  publicationFile(root, `derived/review/v${rig}/out/check/build/skeleton.model.json`);
   const context = {
     dir: realpathSync(root),
     // Explicit publication requires package integrity even for a pre-interview rig.
-    project: { ...project, versions: [{ ...matches[0], pre_interview: false }] },
+    project: { ...project, versions: asArray(project.versions).map(version => version === rigVersion ? { ...rigVersion, pre_interview: false } : version) },
     refusals: [] as Finding[], warnings: [] as Finding[],
   };
   checkReviewPackages(context);

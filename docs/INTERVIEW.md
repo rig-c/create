@@ -672,6 +672,13 @@ warn `CHOICE_ANSWERS_LEGACY` until actually revised. `CHOICE_ANSWERS_SINCE`
 labels legacy warnings only. New answers from the explicit adoption require
 choices. Signoffs, verdicts, checkpoints and mechanical n/a remain unchanged.
 
+On a legacy-order project at `post-interview`, the same `interview-options --adopt`
+command adopts only post choices, recording `interview.post.choices_adopted_at`.
+It preserves the stage order, earlier answers and signatures. Only `camera_depth`,
+`post_timing` and `post_composition` can use this adoption; framing and waypoint
+choices still require explicit split-order adoption. Repeating adoption preserves
+its original date. Post picks and approval use the Review job and `--from-review`.
+
 Every newly asked framing question, waypoint and post item uses a retained
 option set. **Each applicable ask gets its own pick.** A waypoint is never a
 single bundle hiding several decisions. A framing/post item is a one-ask set

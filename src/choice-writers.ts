@@ -77,13 +77,13 @@ export function save(file: string, dir: string, original: JsonObject, candidate:
 }
 function checkNewAnswer(dir: string, project: JsonObject, item: Item): void {
   if (item.path === 'intake.choice.answer') {
-    if (choiceAdoption(project) === null) refuse('INTERVIEW_CHOICE_REQUIRED', 'intake.choice: adopt choices before recording a new choice');
+    if (choiceAdoption(project, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED', 'intake.choice: adopt choices before recording a new choice');
     return;
   }
   const stage = approvalStageOfGuide(item.id,item.kind === 'post',true);
   const reopens = collectReopens(project,[]);
   if (collectSignoffs(project,[]).some(s => s.stage === stage && s.checkpoint === null && liveSignoff(reopens,s.stage,s.at))) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: approval is still live; reopen ${stage === 'plan-approved' ? 'interview' : stage} before changing this answer`);
-  if (choiceAdoption(project) === null) refuse('INTERVIEW_CHOICE_REQUIRED', `${item.path}: adopt order@2 with interview-options --adopt before recording new choices`);
+  if (choiceAdoption(project, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED', `${item.path}: adopt order@2 with interview-options --adopt before recording new choices`);
   if (isObject(item.raw) && item.raw.basis === 'inherited') {
     // This changes the local member record, never its resolved collection source.
     if (!loadCollection(dir)) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: collection source unavailable; restore it before recording a member-local choice`);
@@ -96,6 +96,15 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     if (opts.positional.length > 1 || Object.keys(opts.one).length) usage('--adopt takes only a project folder');
     const dir = resolve(opts.positional[0] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
     const interview = isObject(next.interview) ? next.interview : null;
+    if (interview && interview.order === undefined && isObject(interview.post)) {
+      if (project.stage !== 'post-interview') refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: advance to post-interview before adopting post choices');
+      if (interview.post.choices_adopted_at !== undefined) {
+        if (!Number.isFinite(Date.parse(String(interview.post.choices_adopted_at)))) refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: restore the original valid choices_adopted_at');
+        return 'interview: post choices already adopted; original date preserved';
+      }
+      interview.post.choices_adopted_at = new Date(now).toISOString();
+      save(file,dir,project,next,now); return 'interview: post choices adopted; stage order and earlier answers preserved';
+    }
     if (!interview || !isObject(interview.order) || !['rig-create/stage-order@1', CHOICE_ORDER_SPEC].includes(String(interview.order.spec))) refuse('INTERVIEW_CHOICE_INVALID','interview.order: first adopt the split stage order with a fresh parts/rigging interview; then adopt choices');
     if (interview.order.spec === CHOICE_ORDER_SPEC) return 'interview: choices already adopted; original dates preserved';
     interview.order = {...interview.order,spec:CHOICE_ORDER_SPEC,choices_adopted_at:new Date(now).toISOString()};
@@ -107,7 +116,7 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
   let binding: JsonObject;
   try { binding = {path,sha256:sha256(readFileSync(literalFile(dir,path)))}; } catch (e) { throw new ChoiceError('INTERVIEW_OPTIONS_FILE',String(e)); }
   const {set} = optionFile(dir,binding); validateSet(next,item,set,loadCollection(dir)); validateContext(dir,next,set,now,true);
-  if (choiceAdoption(next) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
+  if (choiceAdoption(next, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED',`${item.path}: adopt choices before drafting a new question`);
   // A retained path/id may never be reused with a different hash, even after answer replacement.
   for (const other of [...collectItems(next,{collection:loadCollection(dir)}), ...(item.path === 'intake.choice.answer' ? [item] : [])]) {
     const bindings = [other.record.pending_options, ...[other.raw,...asArray(other.record.history)].filter(isObject).map(a => isObject(a.choice) ? a.choice.set : undefined)];

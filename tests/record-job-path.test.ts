@@ -1,8 +1,8 @@
 /** Public CLI -> authenticated Review HTTP API -> CLI ingest, using synthetic records only. */
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { collectItems } from '../src/check.ts';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -137,7 +137,7 @@ async function page(root: string, url: URL, expectedAsks = 2) {
 }
 
 
-function synthetic(stage: string): string {
+function synthetic(stage: string, legacy = false): string {
   const root = realpathSync(fixture(project => {
     project.stage = stage;
     retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex(stage));
@@ -156,7 +156,7 @@ function synthetic(stage: string): string {
     if (stage === 'parts') for (const item of arr(obj(project.interview).waypoints).map(obj)) {
       if (['bones', 'meshes', 'constraints', 'motion'].includes(String(item.id))) item.guide = null;
     }
-  }, 'example-project.json'));
+  }, legacy ? 'legacy-example-project.json' : 'example-project.json'));
   roots.push(root);
   receipt({ seed: 'fixture(example-project.json), synthetic stage prefix only; no pilot', stage, parts: loadedPartsIdentity(root, 'project'), review: reviewPackage.version, core: corePackage.version, bun: Bun.version, record: jobHash(bytes(root)) });
   return root;
@@ -348,3 +348,100 @@ test('record selectors refuse a legacy package-only host byte-identically with t
   const record = await open(root, ['--plan']);
   expect(record.lines).toContain('job: asked signoff rigging-interview');
 }, 20_000);
+
+
+test('legacy post-only adoption reaches all three owner picks and the post move', async () => {
+  const root = synthetic('post-interview', true);
+  // The retained legacy seed has no build-time draft. Declare its accepted parts
+  // identity and accepted rig from the writer-built example, keeping legacy
+  // interview/plan approvals and order. Only this seed is fixture-written.
+  const source = synthetic('post-interview');
+  const seed = read(root);
+  const current = read(source);
+  // The legacy interview predates post answers; fixture auto-binding otherwise
+  // invents a historical approval of these later post questions.
+  const interviewApproval = (seed.signoffs as JsonObject[]).find(s => s.stage === 'interview')!;
+  for (const question of ['camera_depth', 'post_timing', 'post_composition']) delete obj(interviewApproval.answer_hashes)[question];
+  seed.stage = 'rig-review';
+  seed.advances = (seed.advances as JsonObject[]).filter(a => a.stage !== 'post-interview');
+  seed.versions = current.versions;
+  const rigApproval = (seed.signoffs as JsonObject[]).find(s => s.stage === 'rig-review')!;
+  Object.assign(rigApproval, (current.signoffs as JsonObject[]).find(s => s.stage === 'rig-review')!);
+  for (const path of ['outputs', 'derived/review']) {
+    rmSync(join(root, path), { recursive: true, force: true });
+    cpSync(join(source, path), join(root, path), { recursive: true });
+  }
+  cpSync(join(source, 'evidence'), join(root, 'evidence'), { recursive: true });
+  seed.inputs = current.inputs;
+  seed.derived = current.derived;
+  for (const input of current.inputs as JsonObject[]) {
+    const path = String(input.path);
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    cpSync(join(source, path), join(root, path));
+  }
+  seed.drafts = (current.drafts as JsonObject[]).filter(d => d.id === 'example');
+  seed.review_acts = (current.review_acts as JsonObject[]).filter(a => a.draft_id === 'example');
+  const parts = (seed.signoffs as JsonObject[]).find(s => s.stage === 'parts-review')!;
+  const replacement = (current.signoffs as JsonObject[]).find(s => s.stage === 'parts-review')!;
+  Object.assign(parts, replacement, { at: parts.at });
+  for (const path of ['derived/drafts', String(obj(parts.evidence).path), String(obj(parts.structure).path)]) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    cpSync(join(source, path), join(root, path), { recursive: true });
+  }
+  writeFileSync(join(root, 'project.json'), JSON.stringify(seed, null, 2) + '\n');
+  const advanced = await cli(root, ['advance', 'post-interview', root]);
+  expect(advanced.exit, advanced.stderr).toBe(0);
+  const before = bytes(root).toString();
+  const adopted = await cli(root, ['interview-options', '--adopt', root]);
+  expect(adopted.exit, adopted.stderr).toBe(0);
+  const after = bytes(root).toString();
+  // Removing the one inserted post property restores every original byte.
+  expect(after.replace(/,?\n\s*"choices_adopted_at": "[^"]+"/, '')).toBe(before);
+  expect(obj(read(root).interview).order).toBeUndefined();
+  const retry = await cli(root, ['interview-options', '--adopt', root]);
+  expect(retry.exit, retry.stderr).toBe(0);
+  expect(bytes(root).toString()).toBe(after);
+  for (const question of ['rig_type', 'motion']) {
+    const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-interview-options/example-' + question.replaceAll('_', '-') + '.json'), 'utf8')) as JsonObject;
+    set.id = 'legacy-control-' + question;
+    set.stage = 'interview';
+    set.drafted_at = new Date(Date.now() - 1000).toISOString();
+    set.context = optionContext(read(root), 'interview', Date.now() - 1000, root);
+    const path = 'evidence/interview/' + set.id + '.json';
+    writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+    await unchanged(root, ['interview-options', question, root, '--file', path], 'INTERVIEW_CHOICE_REQUIRED');
+  }
+  for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
+    const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-interview-options/example-' + question.replaceAll('_', '-') + '.json'), 'utf8')) as JsonObject;
+    set.id = 'legacy-' + question;
+    set.drafted_at = new Date(Date.now() - 1000).toISOString();
+    set.context = optionContext(read(root), 'post-interview', Date.now() - 1000, root);
+    const path = 'evidence/interview/' + set.id + '.json';
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+    const registered = await cli(root, ['interview-options', question, root, '--file', path]);
+    expect(registered.exit, registered.stderr).toBe(0);
+    const opened = await open(root, ['--question', question]);
+    const owner = await page(root, opened.url, 1);
+    const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
+    const act = await owner.act('interview-picks', 'interview-picks', { questionId: question, selections, note: WORDS });
+    const acts = await cli(root, ['job', 'acts', root]);
+    expect(acts.exit, acts.stderr).toBe(0);
+    const answer = await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]);
+    expect(answer.exit, answer.stderr).toBe(0);
+  }
+  const opened = await open(root, ['--plan']);
+  const owner = await page(root, opened.url, 1);
+  const act = await owner.act('signoff', 'signoff', { stage: 'post-interview', decision: 'approved', words: WORDS });
+  const signed = await cli(root, ['signoff', 'post-interview', root, '--from-review', String(act.actId)]);
+  expect(signed.exit, signed.stderr).toBe(0);
+  const next = await cli(root, ['next', root]);
+  expect(next.exit, next.stderr).toBe(0);
+  expect(next.stdout).toContain('advance');
+  const post = await cli(root, ['advance', 'post', root]);
+  expect(post.exit, post.stderr).toBe(0);
+  const move = await cli(root, ['next', root]);
+  expect(move.exit, move.stderr).toBe(0);
+  expect(move.stdout).toContain('camera');
+  await checked(root);
+}, 60_000);

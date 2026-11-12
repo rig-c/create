@@ -110,7 +110,7 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     }));
     if (!submitted.ok) throw Error(submitted.error.code);
     const act = submitted.value;
-    if (act.schema !== 'rig-review/act@3') throw Error('expected displayed still');
+    if (act.schema !== 'rig-review/act@6' || !act.still) throw Error('expected displayed comments still');
     const reviewAt = Math.max(now + 4000, Date.parse(act.at));
     const consumer = Bun.spawn([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'review', '1', dir, '--from-review', act.actId], { stdout: 'pipe', stderr: 'pipe' });
     const [stdout, stderr, exit] = await Promise.all([new Response(consumer.stdout).text(), new Response(consumer.stderr).text(), consumer.exited]);

@@ -29,6 +29,6 @@ rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <
   grant is refused before any unrelated or bound host is retired.
 - **Ordinary `job open`, `job reconcile` and bound writers stay strict.** Only
   `job close` accepts the stored binding's earlier hook identifiers and Parts
-  enumerator version (within Review's supported `>=2.25.0 <4.0.0` range), with
+  enumerator version (within Review's supported `>=2.25.0 <3.0.0` range), with
   reader and enumerator callbacks fail-closed so an older binding never serves
   new producer logic.

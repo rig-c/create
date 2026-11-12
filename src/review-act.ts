@@ -25,8 +25,10 @@ export type PartsIssue = {
   readonly crop: JsonObject | JobCommentPartsAnchor['crop'];
   readonly nativeCrop: JsonObject | JobCommentPartsAnchor['nativeCrop'] | null;
 };
-export type InterviewPicksAct = Extract<JobAct, { kind: 'interview-picks' }>;
-export type PartsVerdictActV2 = Extract<JobAct, { kind: 'parts-verdict' }>;
+/** Review's JobAct now includes comments; legacy adapters keep their original source guarantees. */
+type LegacyJobAct = Exclude<JobAct, { schema: typeof JOB_COMMENTS_ACT_SCHEMA }>;
+export type InterviewPicksAct = Extract<LegacyJobAct, { kind: 'interview-picks' }>;
+export type PartsVerdictActV2 = Extract<LegacyJobAct, { kind: 'parts-verdict' }>;
 export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
   readonly schema: 'rig-review/act@5';
   readonly value: {
@@ -37,14 +39,14 @@ export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
 };
 type CommentsPartsVerdictAct = Extract<JobCommentsAct, { kind: 'parts-verdict' }> & { source: PartsVerdictActV2['source'] };
 export type PartsVerdictAct = PartsVerdictActV2 | PartsVerdictActV5 | CommentsPartsVerdictAct;
-type LegacyReviewVerdictAct = Extract<JobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
+type LegacyReviewVerdictAct = Extract<LegacyJobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
 type CommentsReviewVerdictAct = Extract<JobCommentsAct, { kind: 'review-verdict' }> & {
   source: JobModelSourceBinding; value: { stage: 'rig-review' | 'direction-review' };
 };
 export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct;
-type LegacyCheckpointAct = Extract<JobAct | RecordAct, { kind: 'checkpoint' }>;
+type LegacyCheckpointAct = Extract<LegacyJobAct | RecordAct, { kind: 'checkpoint' }>;
 export type CheckpointAct = LegacyCheckpointAct | (Extract<JobCommentsAct, { kind: 'checkpoint' }> & { source: LegacyCheckpointAct['source'] });
-type LegacySignoffAct = Extract<JobAct, { kind: 'signoff' }>;
+type LegacySignoffAct = Extract<LegacyJobAct, { kind: 'signoff' }>;
 export type SignoffAct = LegacySignoffAct | (Extract<JobCommentsAct, { kind: 'signoff' }> & { source: LegacySignoffAct['source'] });
 /** Review requires a displayed plan before it creates a signoff act for these stages (job-contract JOB_PLAN_BOUND_SIGNOFF_STAGES). */
 export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'rigging-interview', 'post-interview'];

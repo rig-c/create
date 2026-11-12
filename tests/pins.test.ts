@@ -7,7 +7,6 @@ import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-
 import { SOURCE_CONDITION, SOURCE_CONDITION_FLAG, jobRuntimeCommand, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const EXACT = /^\d+\.\d+\.\d+$/;
 const REPO = join(import.meta.dir, '..');
@@ -816,7 +815,7 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
 for (const [label, execFlags] of [
   ['linked source condition', [SOURCE_CONDITION_FLAG]],
   ['default dist mode', []],
-] as const) sourceOnlyTest(`CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in ${label}`, async () => {
+] as const) test(`CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in ${label}`, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-cond-')));
   const ws = label === 'linked source condition' ? linkSourcePackages(root) : null;
   const activeCli = ws ? ws.cliPath : CLI;

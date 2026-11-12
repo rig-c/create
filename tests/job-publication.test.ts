@@ -16,7 +16,7 @@ import { diffClassesCommand } from '../src/diff-classes.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { refuse } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { parsePassedTestNames, SOURCE_ONLY_TESTS, sourceOnlyTest, validateSourceOnlyList } from './source-only.ts';
+import { parsePassedTestNames, SOURCE_ONLY_TESTS, validateSourceOnlyList } from './source-only.ts';
 
 const roots: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -782,8 +782,8 @@ test('#382 draft publication binds inputs[0] in producer.source, seals it in fil
     source: 'inputs/painting.png',
   });
 
-  expect(validateSourceOnlyList(SOURCE_ONLY_TESTS).size).toBe(34);
-  expect(() => validateSourceOnlyList([])).toThrow('non-empty list');
+  expect(validateSourceOnlyList(SOURCE_ONLY_TESTS).size).toBe(0);
+  expect(validateSourceOnlyList([]).size).toBe(0);
   expect(() =>
     validateSourceOnlyList([
       { file: 'tests/a.test.ts', name: 'same', reason: 'r1' },
@@ -799,7 +799,7 @@ test('#382 draft publication binds inputs[0] in producer.source, seals it in fil
   expect(parsedNames.has('failed test')).toBe(false);
 });
 
-sourceOnlyTest('#382 source-linked draft publication serves /review-painting and stage-parts painting metadata with and without painting_in_rig', async () => {
+test('#382 source-linked draft publication serves /review-painting and stage-parts painting metadata with and without painting_in_rig', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-source-consumer-')));
   roots.push(root);
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });

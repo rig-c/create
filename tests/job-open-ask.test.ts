@@ -19,7 +19,6 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -276,7 +275,7 @@ test.each([
   expect(existsSync(join(root, 'review-live-v1.json'))).toBe(false);
 });
 
-sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and the page acts are ingested by the CLI', async () => {
+test('job open publishes the recorded draft, asks its subjects, and the page acts are ingested by the CLI', async () => {
   const root = await partsReview(false);
   const opening = await open(root);
   expect(opening.lines[0]).toContain('WARN DIFF_MAP_MISSING:');
@@ -359,12 +358,12 @@ sourceOnlyTest('job open publishes the recorded draft, asks its subjects, and th
 
   const ingested = await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']);
   expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(JSON.parse(ingested.stdout)).toMatchObject({ draft_id: 'next', verdict: 'approved', by: 'user', verbatim: WORDS });
+  expect(JSON.parse(ingested.stdout)).toMatchObject({ draft_id: 'next', verdict: 'approved', by: 'user', verbatim: `[general]\n${WORDS}` });
   expect((await cli(root, ['structure-snapshot', root, '--draft', 'next', '--out', 'evidence/structure.json'])).exit).toBe(0);
   const signoff = await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--draft', 'next',
     '--structure-file', 'evidence/structure.json', '--json']);
   expect({ exit: signoff.exit, stderr: signoff.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user', verbatim: WORDS,
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user', verbatim: `[general]\n${WORDS}`,
     source: `review act ${String(signed.jobId)}/${String(signed.actId)}` });
   // The signature authorizes the next stage; the separate advance writer records the move.
   const report = JSON.parse((await cli(root, ['interview', '--check', root, '--json'])).stdout);
@@ -444,7 +443,7 @@ test.each(['rig', 'post'] as const)('job open retries a refused ask on an acknow
   expect((await page(root, opening.url)).asks).toHaveLength(2);
 });
 
-sourceOnlyTest('a binding copied from another root is replaced: the copy opens its own job and never attaches the original host', async () => {
+test('a binding copied from another root is replaced: the copy opens its own job and never attaches the original host', async () => {
   const original = await partsReview();
   const first = await open(original);
   const copy = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-copy-')));
@@ -465,7 +464,7 @@ sourceOnlyTest('a binding copied from another root is replaced: the copy opens i
   expect((read(original).review_job as JsonObject).origin).toBe(first.url.origin);
 });
 
-sourceOnlyTest('an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is asked only once', async () => {
+test('an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is asked only once', async () => {
   const root = await partsReview();
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
   try {

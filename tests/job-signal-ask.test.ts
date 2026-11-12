@@ -16,7 +16,6 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -99,7 +98,7 @@ async function open(root: string): Promise<{ proc: Bun.Subprocess; url: URL; lin
   return { proc, url, lines: lines.slice(1) };
 }
 
-for (const signal of ['SIGTERM', 'SIGINT'] as const) sourceOnlyTest(`job open CLI forwards ${signal} to its runtime and stops its own host port without leaving an orphan listener`, async () => {
+for (const signal of ['SIGTERM', 'SIGINT'] as const) test(`job open CLI forwards ${signal} to its runtime and stops its own host port without leaving an orphan listener`, async () => {
   const root = copyCheckpoint('1-parts-verdict');
   const { proc, url, lines } = await open(root);
   expect(lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
@@ -116,7 +115,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) sourceOnlyTest(`job open CL
   expect(await isOriginListening(url.origin)).toBe(false);
 });
 
-sourceOnlyTest('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a declared ask after acknowledging the publication', async () => {
+test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a declared ask after acknowledging the publication', async () => {
   const root = copyCheckpoint('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
@@ -210,7 +209,7 @@ sourceOnlyTest('bound writers surface JOB_ASK_REFUSED by named code when Review 
   expect(pendingPublications(draftRoot)).toEqual([]);
 });
 
-sourceOnlyTest('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
+test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
   expect(askOutcomeLines([
     { subject: { kind: 'parts-verdict', draftId: 'chain-2' }, status: 'asked' },
     { subject: { kind: 'checkpoint', checkpointId: 'assemble' }, status: 'already' },

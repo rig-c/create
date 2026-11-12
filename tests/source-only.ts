@@ -11,8 +11,8 @@ export interface SourceOnlyTestEntry {
 }
 
 export function validateSourceOnlyList(entries: readonly SourceOnlyTestEntry[]): Map<string, SourceOnlyTestEntry> {
-  if (!Array.isArray(entries) || entries.length === 0) {
-    throw new Error('scripts/source-only-tests.json must be a non-empty list');
+  if (!Array.isArray(entries)) {
+    throw new Error('scripts/source-only-tests.json must be a list');
   }
   const byName = new Map<string, SourceOnlyTestEntry>();
   const seenDisplay = new Set<string>();
@@ -59,7 +59,7 @@ export function isSourceLinkedRun(): boolean {
 }
 
 /**
- * Registers a test that requires sibling `@rig-c/review` source newer than registry 3.7.0.
+ * Registers a test that requires sibling `@rig-c/review` capabilities unavailable in the pinned registry release.
  * Every test passed to `sourceOnlyTest` MUST be declared in `scripts/source-only-tests.json`.
  */
 export function sourceOnlyTest(

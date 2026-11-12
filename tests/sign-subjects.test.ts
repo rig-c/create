@@ -15,7 +15,6 @@ import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts
 import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { packageSignSubjects } from '../src/signable.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const roots: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -114,19 +113,19 @@ test('a rig version published in rig-review carries its stage sign-off, and the 
       binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
         pageId, askId: verdictAsk.value.askId, drawGeneration: 1, playerGeneration: 0 } } });
   const signed = await act(String(signoffAsk.value.askId), 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
-  expect(signed).toMatchObject({ schema: 'rig-review/act@2', kind: 'signoff', source: { selector: { kind: 'rig', version: 1 } }, value: { stage: 'rig-review', decision: 'approved', words: WORDS } });
+  expect(signed).toMatchObject({ schema: 'rig-review/act@6', kind: 'signoff', source: { selector: { kind: 'rig', version: 1 } }, value: { stage: 'rig-review', decision: 'approved', comments: [{ text: WORDS }] } });
   const reviewed = await cli(root, ['review', '1', root, '--from-review', verdict.actId, '--json']);
   expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
   const result = await cli(root, ['signoff', 'rig-review', root, '--from-review', signed.actId, '--json']);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
   const signature = (read(root).signoffs as JsonObject[]).at(-1)!;
-  expect(signature).toMatchObject({ stage: 'rig-review', checkpoint: null, by: 'user', verbatim: WORDS, at: signed.at,
+  expect(signature).toMatchObject({ stage: 'rig-review', checkpoint: null, by: 'user', verbatim: `[general]\n${WORDS}`, at: signed.at,
     source: `review act ${host.session.jobId}/${signed.actId}`, target: { version: 1 } });
   // The signature authorizes the next stage; the separate advance writer records the move.
   expect(codes(root)).toEqual(['STAGE_LAGGING']);
 });
 
-sourceOnlyTest('a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off', async () => {
+test('a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off', async () => {
   const root = partsAtCheckpoint();
   const host = await open(root);
   const drafted = await cli(root, draftArgs);
@@ -137,11 +136,12 @@ sourceOnlyTest('a draft published at an enabled parts checkpoint carries it, and
   const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
   expect(asked.ok).toBe(true);
   const passed = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
-  expect(passed).toMatchObject({ schema: 'rig-review/act@2', kind: 'checkpoint', value: { checkpointId: 'assemble', planStepId: 'assemble', outcome: 'pass' } });
+  expect(passed).toMatchObject({ schema: 'rig-review/act@6', kind: 'checkpoint', value: { checkpointId: 'assemble', planStepId: 'assemble', outcome: 'pass',
+    comments: [{ text: WORDS, anchor: { checkpointId: 'assemble', planStepId: 'assemble' } }] } });
   const before = codes(root);
   const result = await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', passed.actId, '--json']);
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts', checkpoint: 'assemble', by: 'user', verbatim: WORDS,
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts', checkpoint: 'assemble', by: 'user', verbatim: `[["checkpoint","assemble"]]\n${WORDS}`,
     at: passed.at, source: `review act ${host.session.jobId}/${passed.actId}` });
   expect(before).toEqual([]);
   expect(codes(root)).toEqual([]);
@@ -149,7 +149,7 @@ sourceOnlyTest('a draft published at an enabled parts checkpoint carries it, and
   expect((await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' })).error?.code).toBe('JOB_RECORD_MOVED');
 });
 
-sourceOnlyTest('an act for a subject create did not declare refuses by name and leaves the record byte-identical', async () => {
+test('an act for a subject create did not declare refuses by name and leaves the record byte-identical', async () => {
   const root = partsAtCheckpoint();
   const drafted = await cli(root, draftArgs);
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });

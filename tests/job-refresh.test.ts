@@ -9,7 +9,6 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
@@ -202,7 +201,7 @@ function expectExit0(result: { stdout: string; stderr: string; exit: number }): 
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
 }
 
-sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication', async () => {
+test('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication', async () => {
   const root = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
@@ -246,7 +245,7 @@ sourceOnlyTest('parts-review verdict -> ingest -> triage -> job open refresh -> 
     stage: 'parts-review',
     checkpoint: null,
     by: 'user',
-    verbatim: WORDS,
+    verbatim: `[general]\n${WORDS}`,
     draft_id: 'chain',
     source: `review act ${String(signed.jobId)}/${String(signed.actId)}`,
   });
@@ -336,7 +335,7 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
     stage: 'rig-review',
     checkpoint: null,
     by: 'user',
-    verbatim: WORDS,
+    verbatim: `[general]\n${WORDS}`,
     target: { version: 1 },
     source: `review act ${String(signed.jobId)}/${String(signed.actId)}`,
   });

@@ -1,0 +1,173 @@
+[
+  {
+    "file": "tests/checkpoint-evidence-publication.test.ts",
+    "name": "#395 SVG-backed package metadata retains sealed painting and checkpoint evidence",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/checkpoint-evidence-publication.test.ts",
+    "name": "#395 sealed checkpoint record and package publications retain every asset and finalize owner routes",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-publication.test.ts",
+    "name": "#382 source-linked draft publication serves /review-painting and stage-parts painting metadata with and without painting_in_rig",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "bound draft publishes its rows, ingests independent evidence and then signs explicitly",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "legacy owner-shaped producer verdict retains the structure and signoff gate",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "semantic approved/clean/clean retains every outcome without a signoff",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "semantic changes-requested/flagged/clean retains every outcome without a signoff",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "semantic changes-requested/clean/flagged retains every outcome without a signoff",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "changed parts refuses stale replay without a record write",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "changed config refuses stale replay without a record write",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "a new-id rebuild with failed publication retries through job reconcile",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "killed evidence staging retries the same file and commits once",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "another act at the staged deterministic path refuses with bytes identical",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "standalone draft without a compiled model publishes through image references",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "build-root draft binds its own parts inventory and compiled output",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "missing private receipt emits the named warning while retaining source checks",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "competing human value flags refuse without record mutation",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "retained parts approval survives real rigging signoff checkpoint changes and still rejects changed images",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "changed plan still refuses first ingest and replay before deduplication",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/parts-act.test.ts",
+    "name": "CLI and act receipts share current-verdict ordering",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/sign-subjects.test.ts",
+    "name": "a draft published at an enabled parts checkpoint carries it, and the passed act is the checkpoint sign-off",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/sign-subjects.test.ts",
+    "name": "an act for a subject create did not declare refuses by name and leaves the record byte-identical",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-open-ask.test.ts",
+    "name": "job open publishes the recorded draft, asks its subjects, and the page acts are ingested by the CLI",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-open-ask.test.ts",
+    "name": "a binding copied from another root is replaced: the copy opens its own job and never attaches the original host",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-open-ask.test.ts",
+    "name": "an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is asked only once",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-signal-ask.test.ts",
+    "name": "job open CLI forwards SIGTERM to its runtime and stops its own host port without leaving an orphan listener",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-signal-ask.test.ts",
+    "name": "job open CLI forwards SIGINT to its runtime and stops its own host port without leaving an orphan listener",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-signal-ask.test.ts",
+    "name": "bound writers surface JOB_ASK_REFUSED by named code when Review refuses a declared ask after acknowledging the publication",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-signal-ask.test.ts",
+    "name": "bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/pins.test.ts",
+    "name": "CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in linked source condition",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/pins.test.ts",
+    "name": "CLI job open, draft-rig publish, reconcile, and close succeed on a synthetic project in default dist mode",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/advance-publication.test.ts",
+    "name": "advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/next.test.ts",
+    "name": "plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
+    "displayName": "Frozen Bar 5 \u2014 Plants (lapsed approval, changed bound input DRAFT_RIG_FILE, accepted project) > plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
+    "reason": "Exercises published Review behavior under sibling source resolution"
+  }
+]

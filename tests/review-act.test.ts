@@ -141,7 +141,7 @@ test('producer-bound rig verdict fetch commits once, preserves words, and unchan
   expect(JSON.parse(String(receipt.bytes))).toEqual(act);
   expect(receipt.sha256).toBe(jobHash(String(receipt.bytes)));
   const verdict = ((project.versions as JsonObject[])[0].verdicts as JsonObject[]).at(-1)!;
-  expect(verdict.verbatim).toBe('  Synthetic approval.\r\n');
+  expect(verdict.verbatim).toBe('[general]\n  Synthetic approval.\r\n');
   expect(verdict.by).toBe('user'); expect(verdict.at).toBe(act.at);
   expect(project.signoffs).toEqual(before.signoffs); expect(project.stage).toBe(before.stage);
   expect(reviewActFindings(project)).toEqual([]);
@@ -215,7 +215,12 @@ test('replay after a displayed source change refuses REVIEW_ACT_SOURCE_STALE wit
 });
 
 test('API and act schemas, @1, enumerator range and unsupported kinds have distinct named refusals', async () => {
-  const { act } = await published();
+  const { act: native } = await published();
+  const act = { ...native, schema: 'rig-review/act@3', value: { stage: 'rig-review', verdict: 'approved', words: 'Synthetic approval' } };
+  for (const enumeratorVersion of ['3.0.0', '3.7.0', '4.0.0']) {
+    expect(() => decodeReviewAct(JSON.stringify({ ...native, source: { ...native.source, parts: { ...native.source.parts, enumeratorVersion } } })))
+      .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  }
   const response = (value: object, schema = 'rig-review/job-api@2') => JSON.stringify({ schema, verb: 'fetch-act', jobId: act.jobId, requestId: 'request', ok: true, value });
   expect(() => decodeReviewResponse(response(act, 'rig-review/job-api@1'), act.jobId, act.actId, 'request')).toThrow(expect.objectContaining({ code: 'REVIEW_API_SCHEMA_UNSUPPORTED' }));
   expect(() => decodeReviewAct(JSON.stringify({ ...act, schema: 'rig-review/act@1' }))).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SCHEMA_UNSUPPORTED' }));
@@ -316,7 +321,10 @@ test('unsupported fetched schemas and enumerator refuse at the CLI before any re
   let planted: 'act' | 'enumerator' = 'act';
   const proxy = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${act.jobId}/api`, request));
-    const value = await response.json() as { schema: string; source: { parts: { enumeratorVersion: string } } };
+    const value = await response.json() as { schema: string; source: { parts: { enumeratorVersion: string } }; value: JsonObject };
+    // This control exercises the legacy decoder's named unsupported-enumerator refusal.
+    value.schema = 'rig-review/act@3';
+    value.value = { stage: 'rig-review', verdict: 'approved', words: 'Synthetic approval' };
     if (planted === 'act') value.schema = 'rig-review/act@1';
     if (planted === 'enumerator') value.source.parts.enumeratorVersion = '4.0.0';
     return Response.json(value);
@@ -365,13 +373,14 @@ test('concurrent consumers keep one verdict and retry reports the same receipt',
   expect(reviewVerdictReceipts(projectAt(root)).length).toBe(1);
 });
 
-test('host-attested delegate and empty or whitespace-only words survive the public writer', async () => {
+test('host-attested delegate and blank-note omission survive the public writer', async () => {
   for (const words of ['', '  \r\n']) {
     const { root, act } = await published('3-rig-review', 1, 'delegate', words);
     const result = await command(root, act.actId);
     expect(result.exit).toBe(0);
+    expect(act).toMatchObject({ schema: JOB_COMMENTS_ACT_SCHEMA, value: { comments: [] } });
     const verdict = JSON.parse(result.stdout).verdict;
-    expect(verdict.by).toBe('delegate'); expect(verdict.verbatim).toBe(words);
+    expect(verdict.by).toBe('delegate'); expect(verdict.verbatim).toBe(words.trim() ? `[general]\n${words}` : '');
     const receipt = reviewVerdictReceipts(projectAt(root))[0]!;
     expect(JSON.parse(String(receipt.bytes)).authority.reviewer).toEqual({ id: 'synthetic-reviewer', role: 'delegate' });
   }
@@ -385,7 +394,7 @@ test('changes-requested records a bounced verdict with exact words and the norma
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
   const recorded = JSON.parse(result.stdout);
   expect(recorded.verdict.verdict).toBe('bounced');
-  expect(recorded.verdict.verbatim).toBe(words);
+  expect(recorded.verdict.verbatim).toBe(`[general]\n${words}`);
   expect(recorded.verdict.by).toBe('user');
   const project = projectAt(root);
   expect(project.stage).toBe(before.stage);
@@ -430,7 +439,7 @@ function commentsVerdict(act: Awaited<ReturnType<typeof published>>['act'], n: 1
     askId: act.askId, publicationId: act.publicationId, authority: act.authority as unknown as JsonObject,
     at: act.at, source: act.source as unknown as JsonObject,
     value: { stage: n === 1 ? 'rig-review' : 'direction-review', verdict: 'approved', comments: [{ text: '  First\r\n' }, { text: 'Second' }] },
-    ...(act.schema === 'rig-review/act@3' ? { still: act.still as unknown as JsonObject } : {}),
+    ...('still' in act && act.still ? { still: act.still as unknown as JsonObject } : {}),
   };
 }
 
@@ -558,7 +567,7 @@ test.each(['missing', 'mismatch'])('API act refuses a %s PNG without changing pr
 
 test('API retains exact raw act bytes and PNG and binds both hashes', async () => {
   const { root, act } = await published();
-  if (act.schema !== 'rig-review/act@3') throw Error('expected rig still');
+  if (act.schema !== JOB_COMMENTS_ACT_SCHEMA || !act.still) throw Error('expected comments rig still');
   const raw = `${JSON.stringify(act, null, 3)}\n`;
   const png = readFileSync(join(root, 'evidence/setup.png'));
   const server = fetchAdapter(root, act, raw, png);

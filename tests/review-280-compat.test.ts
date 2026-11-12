@@ -134,7 +134,7 @@ test('openCreateJob starts Review 2.8.0 in package-only mode and refuses V3 reco
   await closeCreateJob(root);
 });
 
-test('review-act reader validates checkpoint act@4 and preserves unsupported record-kind and API@3 wire refusals', () => {
+test('record-act reader validates admitted act@4 kinds and preserves unsupported kinds and API@3 envelopes', () => {
   const sha = 'a'.repeat(64);
   const recordActV4 = {
     schema: 'rig-review/act@4',
@@ -190,7 +190,7 @@ test('review-act reader validates checkpoint act@4 and preserves unsupported rec
   );
 
   for (const kind of ['interview-picks', 'checkpoint', 'signoff', 'parts-verdict', 'review-verdict'] as const) {
-    const code = kind === 'checkpoint' ? 'REVIEW_ACT_INVALID' : 'REVIEW_ACT_SCHEMA_UNSUPPORTED';
+    const code = ['interview-picks', 'checkpoint', 'signoff'].includes(kind) ? 'REVIEW_ACT_INVALID' : 'REVIEW_ACT_SCHEMA_UNSUPPORTED';
     expectRefusalCode(() => decodeReviewAct(JSON.stringify({ ...recordActV4, kind }), kind), code);
   }
 
@@ -211,7 +211,7 @@ test('review-act reader validates checkpoint act@4 and preserves unsupported rec
         'req-1',
         'interview-picks',
       ),
-    'REVIEW_ACT_SCHEMA_UNSUPPORTED',
+    'REVIEW_ACT_INVALID',
   );
 
   expectRefusalCode(
@@ -256,4 +256,19 @@ test('review-act reader validates checkpoint act@4 and preserves unsupported rec
       ),
     'REVIEW_ACT_KIND_MISMATCH',
   );
+});
+
+// Frozen finalized acts captured from the authenticated synthetic owner HTTP path
+// in record-job-path.test.ts. Keep their producer source hashes unchanged.
+test('well-formed record picks and signoff decode directly and through legacy API@2 envelopes', () => {
+  for (const [name, kind] of [['picks', 'interview-picks'], ['signoff', 'signoff']] as const) {
+    const original = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/record-acts', `${name}.json`), 'utf8'));
+    const bytes = JSON.stringify(original);
+    expect(decodeReviewAct(bytes, kind)).toEqual(original);
+    const decoded = decodeReviewResponse(JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act',
+      jobId: original.jobId, requestId: 'synthetic-fetch', generation: 1, ok: true, value: original }),
+    original.jobId, original.actId, 'synthetic-fetch', kind);
+    expect(decoded.act).toEqual(original);
+    expect(decoded.bytes).toBe(bytes);
+  }
 });

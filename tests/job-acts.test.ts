@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { collectItems } from '../src/check.ts';
+import { optionContext } from '../src/choices.ts';
+import { fixture, retainSignoffs, arr, obj } from './fixtures.ts';
+import { stageIndex } from '../src/stages.ts';
 import { pendingJobActs } from '../src/job-acts.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -60,8 +64,8 @@ async function cli(root: string, args: string[]): Promise<{ stdout: string; stde
   return { stdout, stderr, exit };
 }
 
-async function open(root: string): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -77,7 +81,7 @@ async function open(root: string): Promise<{ url: URL; lines: string[] }> {
   }
   reader.releaseLock();
   const lines = text.trim().split('\n');
-  receipt({ command: ['rig-create', 'job', 'open', '<synthetic>', '--reviewer', 'synthetic-owner', '--role', 'owner'], serving: true, lines: lines.slice(1) });
+  receipt({ command: ['rig-create', 'job', 'open', '<synthetic>', '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], serving: true, lines: lines.slice(1) });
   return { url: new URL(lines[0]!), lines: lines.slice(1) };
 }
 
@@ -333,3 +337,35 @@ test.each([false, true])('agent next pagination is shared and read failures rema
   }
   expect(stopped).toBe(true); expect(snapshot(root)).toEqual(before);
 });
+
+
+test('merged record-mode host lists finalized picks and its printed writer command ingests them', async () => {
+  testClock.set(Date.now());
+  const root = realpathSync(fixture(project => {
+    project.stage = 'rigging-interview'; project.versions = []; project.scenes = []; delete project.direction_contract;
+    retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex('rigging-interview'));
+    project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('rigging-interview'));
+    for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
+    for (const step of arr(obj(project.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
+  }, 'example-project.json'));
+  roots.push(root);
+  const project = read(root); const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+  const retained = obj(obj(item.raw).choice).set as JsonObject;
+  const set = JSON.parse(readFileSync(join(root, String(retained.path)), 'utf8')) as JsonObject;
+  set.id = 'pending-acts-motion'; set.drafted_at = new Date(testClock.now() - 1000).toISOString();
+  set.context = optionContext(project, 'rigging-interview', testClock.now() - 1000, root);
+  const path = 'evidence/interview/pending-acts-motion.json';
+  writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+  expectExit0(await cli(root, ['interview-options', 'motion', root, '--file', path]));
+  const opening = await open(root, ['--question', 'motion']); const view = await page(root, opening.url, 1);
+  const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
+  const act = await view.act('interview-picks', 'interview-picks', { questionId: 'motion', selections, note: WORDS });
+  expect(act.schema).toBe('rig-review/act@4');
+  const before = snapshot(root); const listed = await cli(root, ['job', 'acts', root, '--json']); expectExit0(listed);
+  expect(snapshot(root)).toEqual(before);
+  const row = JSON.parse(listed.stdout).acts[0];
+  expect(row.args).toEqual(['interview-answer', 'motion', root, '--from-review', act.actId]);
+  await executePrinted(root, row.command);
+  expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
+  expectExit0(await cli(root, ['interview', '--check', root]));
+}, 30_000);

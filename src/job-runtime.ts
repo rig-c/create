@@ -1,13 +1,13 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { askOutcomeLines, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
+import { askOutcomeLines, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, reconcilePublication } from './job-outbox.ts';
 import { jobActsText } from './job-acts.ts';
 import { Refusal, refuse } from './refusal.ts';
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; now: number; json?: boolean };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; json?: boolean };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'publish': {
@@ -35,6 +35,7 @@ async function run(): Promise<void> {
     case 'close': await closeCreateJob(root); console.log('job: closed'); break;
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
+      requestedRecordResult(root, input.question, input.plan, input.now);
       assertRequestedRig(root, input.rig, input.draft);
       assertRequestedDraft(root, input.draft);
       let stopping = false;
@@ -45,7 +46,7 @@ async function run(): Promise<void> {
       };
       process.on('SIGINT', onSignal);
       process.on('SIGTERM', onSignal);
-      const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now);
+      const host = await openCreateJob(root, { id: input.reviewer, role: input.role }, input.now, undefined, input.question !== undefined || input.plan);
       if (stopping) {
         process.off('SIGINT', onSignal);
         process.off('SIGTERM', onSignal);
@@ -55,7 +56,7 @@ async function run(): Promise<void> {
       console.log(host.ownerUrl);
       // The page shows the record's current draft and its asks. A refused publish or ask is
       // named here; a foreground host keeps serving so `job reconcile` and `job open` can retry.
-      try { console.log((await openDraftPublication(root, host, input.now, input.draft, input.rig)).join('\n')); }
+      try { console.log((await (input.question !== undefined || input.plan ? openRecordPublication(root, host, input.question, Boolean(input.plan), input.now) : openDraftPublication(root, host, input.now, input.draft, input.rig))).join('\n')); }
       catch (error) {
         if (host.reused) {
           process.off('SIGINT', onSignal);

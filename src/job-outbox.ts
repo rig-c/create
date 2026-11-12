@@ -4,7 +4,7 @@ import { existsSync, JOB_PRIVATE_DIRECTORY, lstatSync, readFileSync, readdirSync
 import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import type { JobPublishRequest, JobReviewerBinding, JobSubject } from '@rig-c/review/job-host';
+import type { JobPublishRequest, JobReviewerBinding, JobSubject, RecordResult } from '@rig-c/review/job-host';
 import { refuse } from './refusal.ts';
 
 export const JOB_BINDING_FILE = '.rig-create-review-binding.json';
@@ -13,6 +13,7 @@ const PRIVATE_TEMP_ROOT = realpathSync(tmpdir());
 export const jobHash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
 export interface JobIdentity {
+  publicationMode?: 'record-and-package';
   root: string;
   stateDir: string;
   fingerprint: string;
@@ -34,6 +35,9 @@ export interface WriterBinding {
   listenerIncarnation: string;
 }
 
+export type PublicationResult = JobPublishRequest['result'] | (RecordResult & { readonly selector?: never; readonly path?: never });
+export const isRecordResult = (result: PublicationResult): result is RecordResult & { readonly selector?: never; readonly path?: never } => 'kind' in result && (result.kind === 'option-set' || result.kind === 'plan');
+
 export interface PendingPublication {
   schema: 'rig-create/job-pending@1';
   root: string;
@@ -44,7 +48,7 @@ export interface PendingPublication {
   recordHash: string;
   versionHash?: string;
   previousVersionHash?: string;
-  result: JobPublishRequest['result'];
+  result: PublicationResult;
   failure: { code: string; message: string } | null;
   generation?: number;
   phase?: 'intent' | 'pending';
@@ -200,13 +204,13 @@ export function assertJobIdentity(expected: JobIdentity, found: JobIdentity): vo
   }
 }
 
-export function enqueuePublication(root: string, binding: WriterBinding, result: JobPublishRequest['result'], intentBytes?: Buffer): PendingPublication {
+export function enqueuePublication<R extends PublicationResult>(root: string, binding: WriterBinding, result: R, intentBytes?: Buffer): PendingPublication & { result: R } {
   const bytes = intentBytes ?? readFileSync(join(root, 'project.json'));
   const recordHash = jobHash(bytes);
   const versionHash = publicationVersionHash(bytes, result);
   if (versionHash === null) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication version is absent; restore the recorded rig/post before publishing');
   const id = jobHash(JSON.stringify([binding.jobId, versionHash, result]));
-  const pending: PendingPublication = {
+  const pending: PendingPublication & { result: R } = {
     schema: 'rig-create/job-pending@1', root: realpathSync(root), id, jobId: binding.jobId, origin: binding.origin,
     identity: binding.identity, recordHash, versionHash,
     ...(intentBytes && publicationVersionHash(readFileSync(join(root, 'project.json')), result) !== versionHash
@@ -215,7 +219,7 @@ export function enqueuePublication(root: string, binding: WriterBinding, result:
   };
   ensureJobPrivateIgnores(root);
   const path = pendingPath(root, id);
-  if (existsSync(path)) return privateJson(path) as PendingPublication;
+  if (existsSync(path)) return privateJson(path) as PendingPublication & { result: R };
   writePrivateJson(path, pending);
   return pending;
 }
@@ -223,7 +227,8 @@ export function enqueuePublication(root: string, binding: WriterBinding, result:
 /** The writers use the same two-space JSON serialization for version entries.
  * Whole-record bytes are retained only for Review's current freeze/attempt.
  */
-export function publicationVersionHash(bytes: Buffer, result: JobPublishRequest['result']): string | null {
+export function publicationVersionHash(bytes: Buffer, result: PublicationResult): string | null {
+  if (isRecordResult(result)) return jobHash(bytes);
   const selector = result.selector;
   if (!selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a result selector; restore the writer result');
   if (selector.kind === 'draft') {
@@ -370,7 +375,7 @@ export function readAcknowledgedPublication(root: string, jobId: string, publica
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   if (value?.schema !== 'rig-create/job-acknowledged@1' || value.jobId !== jobId || value.publicationId !== publicationId
     || !/^[a-f0-9]{64}$/.test(value.versionHash) || !Number.isSafeInteger(value.generation) || value.generation < 0
-    || typeof value.requestId !== 'string' || !value.result?.selector
+    || typeof value.requestId !== 'string' || !value.result || (!isRecordResult(value.result) && !value.result.selector)
     || value.subjects !== undefined && (!Array.isArray(value.subjects) || value.subjects.some(subject => subject === null || typeof subject !== 'object' || typeof subject.kind !== 'string'))) {
     refuse('JOB_OUTBOX_INVALID', 'project.json: acknowledged publication receipt is malformed; restore its owner-only original');
   }

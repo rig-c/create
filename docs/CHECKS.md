@@ -1567,6 +1567,39 @@ the recorded generation; the original publication remains byte-identical.
 
 | `CONSUMER_CI_COVERAGE` | `scripts/consumer-ci-tests.json` names an absent case, registry check does not pass it, or source CI skips any other case | restore exact consumerOnlyTest registration and registry execution; run every other source case |
 
+### Record asks on the live screen
+
+Register a retained set with `interview-options <question> <dir> --file <set>`.
+Then run `job open <dir> --reviewer <id> --role owner --question <question>`.
+For an eligible plan use the same command with `--plan` instead. These selectors
+are exclusive with each other, `--draft` and `--rig`; no pending question is
+selected implicitly. A package-only job from an earlier host must be closed
+with `job close` before opening its first record subject. Its exact stored
+package reuse identity is never silently upgraded.
+
+Record publications use the existing two-phase `readRecordPublished` closure,
+the writer outbox and API@3. Mixed hosts retain Review's API@2/act@2 reuse
+markers and accept the ordinary API@2 finalized-act fetch. Record picks,
+checkpoints and sign-offs are act@4; package comments remain act@6.
+The record reader discounts only pending transport holes for its own exact
+record hash and result while publishing; unrelated/stale outbox entries still
+block it, and ordinary `check` continues to report pending transport holes.
+
+After the synthetic or real reviewer acts, ingest with `interview-answer
+<question> <dir> --from-review <actId>` or `signoff <stage> <dir> --from-review
+<actId>` (add `--checkpoint <step>` for a checkpoint). Refresh the same explicit
+selector after writes. A record pick or sign-off binds its displayed record;
+changed record bytes require a new publication/ask. Exact retries return the
+retained result before current-source checks. Stage advancement remains a
+separate `advance` command. This adds no historical record refusal or SINCE.
+
+When publishing an option set in an open interview, the existing reader treats
+only `INTERVIEW_INCOMPLETE` on that effective stage's silent question paths as
+remaining interview work. Both inventory and retained phases apply this rule.
+Plan publication, stage-boundary checks and ordinary `interview --check` keep
+all their existing refusals; malformed answers and missing earlier-stage answers
+are never discounted.
+
 ### Listing finalized Review acts
 
 `job acts [<dir>] [--json]` reads the bound live host's agent `next` events,

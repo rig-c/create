@@ -26,7 +26,7 @@ const EXPECTED: Record<string, Json[]> = {
   meshes: ['synthetic bend on the approved parts', 'synthetic rigid on the approved parts', 'synthetic density on the approved parts'],
   constraints: ['synthetic effects on the approved parts', 'synthetic strength on the approved parts', 'synthetic extent on the approved parts', 'synthetic gravity on the approved parts', 'synthetic stops on the approved parts'],
   motion: ['synthetic tracks on the approved parts', 'synthetic extent on the approved parts', 'synthetic speed on the approved parts', 'synthetic loop on the approved parts', 'synthetic blink on the approved parts'],
-  camera_depth: ['push_in', false], post_timing: [8, true, 'beam sweep', 'near the end'], post_composition: ['lighthouse fully in frame', 'as painted'],
+  camera_depth: ['push_in', false], post_timing: [8, true, 'beam sweep', 'near the end'], post_composition: ['lighthouse fully in frame', 'as painted', 'evidence/scene-background.png', -64, 0, 128, 128],
 };
 // Substring retention checks only; these do not prove per-concept semantic coverage.
 const WORDS: Record<string, string[]> = {

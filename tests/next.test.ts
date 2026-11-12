@@ -775,8 +775,6 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
           'inputs/background.png',
           '--citations-file',
           'evidence/scene-citations.json',
-          '--by',
-          'user',
         ],
         CHAIN_NOW,
       ).code,

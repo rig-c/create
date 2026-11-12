@@ -29,6 +29,10 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_HOST_REUSE_MISMATCH` | The private binding's host tuple or `listenerIncarnation` (`jobId`, `origin`, `listenerIncarnation`, `root`, `stateDir`, `fingerprint`, `reviewer.id`, `reviewer.role`, `readerId`, `bindingId`, `partsEnumeratorId`, `partsEnumeratorVersion`, `apiSchema`, `actSchema`, `port`) differs. The pending receipt names the `field` and both `expected` and `actual` values. Restore the original host configuration before reconciling. |
 | `JOB_PUBLICATION_STALE` | The pending version entry is missing or has a different entry hash. Restore that retained version and its files before reconciling. Later surrounding-record changes do not invalidate it. The check preserves the receipt and names the HOLE. |
 | `JOB_PUBLICATION_INVALID` | A result, selector or retained file (including a declared rig/post or draft original painting `inputs[0]` and its PNG header) differs from the writer's recorded rig/post or draft. Restore its declared package, source painting and direction bytes. Missing/empty rig/post inputs keep no reference; an unreadable legacy original retains `INPUT_WRITER_MISSING` and no reference, as check does. |
+| `JOB_PUBLICATION_SCENE_MISSING` | An @2 post lacks its scene reference or the scene file is missing or unreadable; restore the direction.scene reference and retained scene bytes before publishing. |
+| `JOB_PUBLICATION_SCENE_CHANGED` | An @2 post scene differs from project.scenes, its path, document identity or recorded hash; restore the committed scene reference and bytes before publishing. |
+| `JOB_PUBLICATION_PLATE_MISSING` | An @2 post scene lacks a plate identity or a plate file is missing or unreadable; restore every declared plate before publishing. |
+| `JOB_PUBLICATION_PLATE_CHANGED` | An @2 post plate differs from its scene-recorded sha256; restore the retained plate bytes before publishing. |
 | `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed/unavailable, or a job command has invalid arguments. Restore effective private ignores and the writer-owned binding through `job open`. |
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
@@ -1555,7 +1559,7 @@ status entries keep their original checkpoint_required and signoff requirements.
 | Code | Meaning and remedy |
 | --- | --- |
 | `PUBLICATION_PAINTING_MISSING` | The republished version has no declared `inputs[0]` original painting; register the original with `input add`. |
-| `PUBLICATION_GENERATION_DUPLICATE` | The version already has a painting publication; reopen its existing generation with `job open --rig`. |
+| `PUBLICATION_GENERATION_DUPLICATE` | The version already has its requested painting or scene publication; reopen its existing generation with `job open --rig`. |
 | `PUBLICATION_GENERATION_INVALID` | The version's optional publication chain has invalid identity, predecessor, timestamp, reason or bytes; restore its immutable generation files and recorded hashes. |
 
 `republish <rig> [<dir>] --reason <words>` upgrades a legacy empty-reference
@@ -1564,6 +1568,14 @@ records generation 2, its generation 1 predecessor and both file hashes, `at` an
 `reason`. No stage, verdict, sign-off or rig artifact changes. Legacy-only records
 remain valid without adoption or a new contract date. `job open --rig` selects
 the recorded generation; the original publication remains byte-identical.
+
+For an already-published direction@2 post, `republish <post> [<dir>] --reason
+<words>` adds only `scene` and the `-g2` revision. Its references remain unchanged,
+including an empty list; it introduces no original-painting requirement. The scene
+and every declared plate are sealed as `{path, sha256}` with the direction. New
+post manifests include `scene` only alongside `direction`; existing manifests are
+never rewritten. @1 and scene-less publications retain their previous bytes. Any
+other post generation delta refuses `PUBLICATION_GENERATION_INVALID`.
 
 ### Source CI pin guard
 

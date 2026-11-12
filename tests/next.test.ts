@@ -28,7 +28,7 @@ const CHAIN_NOW = EXAMPLE_NOW;
 
 afterEach(() => testClock.reset());
 
-test('#467 next offers the direction verdict page and retains the upstream sign-off blocker after ingest', () => {
+test('#467 next routes direction verdict ingest to source-linked record-page sign-off', () => {
   const dir = join(tempDir(), 'direction-pages');
   cpSync(CHAIN_DIR, dir, { recursive: true });
   const file = join(dir, 'project.json');
@@ -49,8 +49,8 @@ test('#467 next offers the direction verdict page and retains the upstream sign-
   });
   const pendingSignoff = before.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'direction-review');
   expect(pendingSignoff).toBeDefined();
-  expect(pendingSignoff?.act).toContain('blocked pending an upstream Review change');
-  expect(pendingSignoff?.act).not.toContain('job open --plan');
+  expect(pendingSignoff?.act).toContain('after ingesting the accepted direction-review verdict for v2');
+  expect(pendingSignoff?.act).toContain('job open --plan');
 
   post.verdicts = accepted!;
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
@@ -59,10 +59,10 @@ test('#467 next offers the direction verdict page and retains the upstream sign-
   expect(after.moves.some(move => move.review_act?.kind === 'review-verdict' && move.review_act.stage === 'direction-review')).toBe(false);
   const blockedSignoff = after.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'direction-review');
   expect(blockedSignoff).toBeDefined();
-  expect(blockedSignoff?.act).toContain('do not advance to accepted');
+  expect(blockedSignoff?.act).toContain('ingest signoff direction-review --from-review <actId>, then advance accepted');
   expect(blockedSignoff).toMatchObject({
     command: null,
-    act: expect.stringContaining('blocked pending an upstream Review change'),
+    act: expect.stringContaining('record page with job open --plan (source-linked Review)'),
     review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v2' },
   });
 });

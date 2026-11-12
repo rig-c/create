@@ -1321,7 +1321,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             field: `versions[v${postN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>; direction-review sign-off remains blocked pending an upstream Review change (rig-c/review#794)`,
+            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>; then request record-page sign-off with job open --plan (source-linked Review)`,
             review_act: {
               kind: 'review-verdict',
               stage: 'direction-review',
@@ -1343,8 +1343,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           command: null,
           act:
             postN === null
-              ? `direction-review sign-off is blocked pending an upstream Review change (rig-c/review#794; unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json); do not advance to accepted`
-              : `direction-review sign-off for v${postN} is blocked pending an upstream Review change (rig-c/review#794); retain the recorded verdict and do not advance to accepted`,
+              ? `after recording the current post and accepted direction verdict, request review-tool act signoff for direction-review on the record page with job open --plan (source-linked Review; unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
+              : `after ingesting the accepted direction-review verdict for v${postN}, request review-tool act signoff on the record page with job open --plan (source-linked Review), ingest signoff direction-review --from-review <actId>, then advance accepted`,
           review_act: {
             kind: 'signoff',
             stage: 'direction-review',

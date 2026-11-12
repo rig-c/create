@@ -36,13 +36,13 @@ const GUIDE_HEADINGS = [
  */
 const GUIDE_MAX_BYTES = 10_000;
 
-test('#467 the direction guide names the verdict page and the upstream sign-off blocker', () => {
+test('#467 the direction guide names verdict ingest before source-linked record-page sign-off', () => {
   const guide = renderAgentGuide();
   expect(guide).toContain('`job open --rig <post>`');
   expect(guide).toContain('asks the verdict only');
   expect(guide).toContain('Ingest `review <post> --from-review <actId>`');
-  expect(guide).toContain('Sign-off is blocked\n   pending an upstream Review change');
-  expect(guide).toContain('do not advance to accepted');
+  expect(guide).toContain('then `job open --plan`');
+  expect(guide).toContain('record-page sign-off (source-linked Review)');
 });
 
 function markdownLinks(text: string): string[] {

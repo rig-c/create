@@ -1,1 +1,7 @@
-[]
+[
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#467 source-linked direction verdict then record sign-off ingests and advances accepted",
+    "reason": "Requires Review 837909932bc3406fa0ec87f19091daba4d9d69d3 (#795): record direction-review sign-off is unavailable in registry 2.13.0."
+  }
+]

@@ -43,6 +43,12 @@ collect each changed path, basename and stem, then
 `rg -l -F -f changed-modules.txt tests --glob '*.test.ts'`, union the changed
 test files, sort, and invoke one `bun test` with that list.
 `derived-tests.json` records the exact 93-file sample list and its inputs.
+After the approved compatibility fixtures and evidence files were added, the
+same derivation names 95 files (`derived-final.json`), adding
+`contract-dates.test.ts` and `invariants.test.ts`. The tower's no-repeat ruling
+applies; PR CI covers the final tree. The original 93-file sample is preserved
+separately and is never described as the final 95-file run.
+
 The sample had a 600-second bound: **exit 124, incomplete**, 1,839 passing
 observations and four recorded failures, with 85/93 suites started. This is
 not a passing local suite. The tower explicitly ruled to skip the estimated

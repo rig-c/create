@@ -28,8 +28,16 @@ no version or checkpoint stage is guessed.
 | `bun run typecheck` | 0 |
 | `bun run lint` | 0 |
 
-The derived test list and its command are retained beside this receipt. PR CI
-is the full verdict. The two existing Mac 5-second job-signal-ask timeouts and
+The derived test list and its command are retained beside this receipt.
+`git diff --name-only origin/main...HEAD` supplies the changed paths; their
+paths, basenames and stems are passed to
+`rg -l -F -f changed-modules.txt tests --glob '*.test.ts'`, union the changed
+test files, sort, and run that exact list in one `bun test` invocation.
+The list names 56 of 109 files. The completed run exits 1: 1,333 pass, 2 skip,
+1 fail, 1 timeout error, 8,975 assertions; 1,336 tests in 382.02 s. Its only
+failure is the pre-existing `job-signal-ask.test.ts` concise text/JSON output
+case at the unchanged 5-second limit. No local repeat or limit change was
+made. PR CI is the full verdict. The two existing Mac 5-second job-signal-ask timeouts and
 the default `/var` alias refusal were already reproduced on main `6e81d1e`
 in #448; no timeout, existing assertion or source path guard is changed here.
 
@@ -42,6 +50,7 @@ in #448; no timeout, existing assertion or source path guard is changed here.
 - `typecheck-a2`: `bun run typecheck`, exit 2; the new shell execution helper
   omitted `stdout` from its own assertion object's declared type. Fixed.
 - `lint-a1`, `typecheck-a3`, `lint-a2`: exit 0.
+- `derived-a1`: exit 1; counts and the unchanged known timeout are listed above.
 
 No Review changes, pilot access, automatic ingestion or contract date is
 included. The agent guide and generated templates are unchanged. The event

@@ -56,3 +56,41 @@ No Review changes, pilot access, automatic ingestion or contract date is
 included. The agent guide and generated templates are unchanged. The event
 reader was extracted from the existing `askedSubjects` loop; both existing
 ask reconciliation and `job acts` use that single agent-next traversal.
+
+## Integration with main 713fe69
+
+Main was merged normally (two-parent merge, no rebase or force push) after
+#448 landed. Four textual conflicts were resolved:
+
+- `src/job-host.ts`: union imports; preserve main's record-mode functions and
+  API selection, with the shared event traversal and act list on top.
+- `src/job-runtime.ts`: combine record-selector fields/imports and `json`/acts;
+  leave main's open, publish, reconcile and close paths intact.
+- `src/cli.ts`: retain --question/--plan and their exclusivity; add acts/--json
+  independently; forward all corresponding stdin fields.
+- `docs/CHECKS.md`: keep the complete main record-publication section and the
+  new act-discovery section and code rows.
+
+An AST/text control confirms 22 main host function bodies verbatim (the sole
+intentional replacement is askedSubjects using the shared reader). A second
+control confirms all four main runtime cases verbatim. No #448 tests or
+record-mode implementation was edited. A new act-discovery test covers the
+actual merged record host: public --question -> owner act@4 -> job acts ->
+execute printed interview-answer command -> ordinary check exit 0.
+
+| Post-merge verification | Exit / counts |
+| --- | --- |
+| Host and runtime preservation controls | 0; 22 function bodies and 4 runtime cases unchanged |
+| `bun run typecheck` | 0 |
+| `bun run lint` | 0 |
+| `bun test tests/job-acts.test.ts` | 0; 6 pass, 66 assertions |
+| Fresh derivation against origin/main | 0; 57 of 110 files, `merge-derived-tests.json` |
+| One canonical-TMPDIR run of those 57 files | 1; 1,343 pass, 2 skip, 1 fail, 1 timeout error, 9,154 assertions; 1,346 tests in 463.88 s |
+
+The only post-merge failure is again the unchanged 5-second concise text/JSON
+job-signal-ask case. No timeout, existing assertion or path guard was changed.
+This rerun was explicitly requested for the changed merge tree, not a retry
+that relabelled the earlier RED. `merged-user-path.jsonl` retains the updated
+CLI/owner API receipt, including actual record-mode act discovery. Typecheck,
+lint and both preservation controls are green. The tower owns the subsequent
+PR CI watch and merge decision.

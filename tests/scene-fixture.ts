@@ -1,7 +1,9 @@
 /** Synthetic authoring fixtures. Plates are registered through input add. */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { CHOICE_SPEC, OPTIONS_SPEC } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
+import { plateRegistration, pngDimensions, scenePath, sceneRig } from '../src/scene.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
@@ -39,7 +41,32 @@ export function sceneFixture() {
   const post = (p.interview as JsonObject).post as JsonObject;
   (post.items as JsonObject[]).push({ id: 'post_composition', config: [], text: 'Choose the composition.', guide: { delegated: false, by: 'user', at: '2026-11-04T08:00:00Z', verbatim: PLATE_WORDS, value: 'plates', asks: [{ id: 'post_composition', state: 'user' }] } });
   f.save(p);
-  const args = (foreground = false) => ['write', '--rig', '1', '--background', 'background.png', ...(foreground ? ['--foreground', 'foreground.png'] : []), '--citations-file', foreground ? 'citations.json' : 'background-citation.json', '--by', 'user', dir];
-  const writeScene = (foreground = false) => sceneCommand(args(foreground));
-  return { ...f, dir, model, modelPath, modelBinding, background, foreground, write, args, writeScene };
+  let serial = 0;
+  const designate = (hasForeground: boolean, rect = model.stage, backgroundPath = background.path!): void => {
+    const p = f.load();
+    const item = (((p.interview as JsonObject).post as JsonObject).items as JsonObject[]).find(i => i.id === 'post_composition')!;
+    const old = item.guide as JsonObject;
+    const value = { scene: { background: { path: backgroundPath, rect }, ...(hasForeground ? { foreground: { path: foreground.path!, rect } } : {}) } };
+    const path = `evidence/scene-choice-${++serial}.json`;
+    const shown = { label: PLATE_WORDS, effect: 'Use the recorded scene placement.' };
+    const set = { schema: OPTIONS_SPEC, id: `scene-${serial}`, question: 'post_composition', stage: 'post-interview', drafted_by: 'agent', drafted_at: testClock.iso(), context: { kind: 'rig', rig_version: 1, signoff_at: signoff.at!, config: modelBinding, parts: { path: 'parts', files: [background, foreground] } }, assembly: { rule: 'single' }, asks: [{ id: 'post_composition', prompt: 'Choose composition', options: [{ id: 'keep', kind: 'value', ...shown, fragment: value, recommended: true, reason: 'Synthetic layout' }, { id: 'alternative', kind: 'value', ...shown, fragment: value, recommended: false }, { id: 'other', kind: 'other', ...shown, recommended: false }, { id: 'auto', kind: 'auto', ...shown, recommended: false }] }] };
+    const binding = write(path, JSON.stringify(set));
+    if (old.choice && (p.scenes as JsonObject[] | undefined)?.length) item.history = [...(item.history as JsonObject[] ?? []), old];
+    item.guide = { ...old, at: testClock.iso(), value, verbatim: `${shown.label}\n${shown.effect}`, choice: { spec: CHOICE_SPEC, set: binding, picks: [{ ask: 'post_composition', option_id: 'keep', shown }] } };
+    f.save(p);
+  };
+  designate(false);
+  const args = (hasForeground = false) => ['write', '--rig', '1', '--background', 'background.png', ...(hasForeground ? ['--foreground', 'foreground.png'] : []), '--citations-file', hasForeground ? 'citations.json' : 'background-citation.json', dir];
+  const writeScene = (foreground = false) => { if (foreground) designate(true); return sceneCommand(args(foreground)); };
+  const seedHistoricalScene = (rect = model.stage): void => {
+    const p = f.load();
+    const binding = sceneRig(dir, p, 1);
+    const n = (p.scenes as JsonObject[] | undefined)?.length ?? 0;
+    const doc = { schema: 'rig-create/scene@1', n: n + 1, rig: binding.rig, frame: { space: 'rig-world-y-up', stage: model.stage }, plates: [{ role: 'background', ...background, ...pngDimensions(png, 'background.png'), rect, registered: plateRegistration(p, background), citation }], layers: ['background', 'rig'] };
+    mkdirSync(join(dir, 'evidence/scene'), { recursive: true });
+    const file = write(scenePath(n + 1), JSON.stringify(doc));
+    p.scenes = [...(p.scenes as JsonObject[] ?? []), { n: n + 1, ...file, at: testClock.iso(), by: 'user' }];
+    f.save(p);
+  };
+  return { ...f, dir, model, modelPath, modelBinding, background, foreground, write, args, writeScene, seedHistoricalScene, designateScene: (rect: typeof model.stage, path?: string) => designate(false, rect, path) };
 }

@@ -44,7 +44,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
       cpSync(join(import.meta.dir, '../templates/example-chain', path), join(root, path));
     }
     inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate']);
-    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', root]);
+    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', root]);
     directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
     advanceCommand(['direction-review', root]);
   }

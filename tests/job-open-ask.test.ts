@@ -402,7 +402,7 @@ test.each(['rig', 'post'] as const)('job open retries a refused ask on an acknow
       cpSync(join(import.meta.dir, '../templates/example-chain', path), join(root, path));
     }
     inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate'], EXAMPLE_NOW);
-    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', root], EXAMPLE_NOW);
+    sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', root], EXAMPLE_NOW);
     directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
     advanceCommand(['direction-review', root], EXAMPLE_NOW);
   }

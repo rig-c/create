@@ -152,7 +152,7 @@
       "answer_hashes": {
         "camera_depth": "737c5d05589eaa67b99de517b959e192003e3bcaf89addf06d04055c3e0ce185",
         "post_timing": "5b5a0af7d71c8f6b6c7a449134fa7cae5af85372ab6698a139115bc5c907fe4e",
-        "post_composition": "e1b75e1d1d4c8599bd7230b3e73b972fdd8fcb14c9b5e3614a24d23c326d0e71"
+        "post_composition": "8f12ff7044462b694ecf95a9493fc4c30e742f879cf10ae54cead7f9c2b981b4"
       }
     },
     {
@@ -963,7 +963,7 @@
               "spec": "rig-create/interview-choice@1",
               "set": {
                 "path": "evidence/interview/post_composition.json",
-                "sha256": "cb33e5eba0cdc78ecfd75fb4e3e7635aba57b468b1df4abaae57297e870d37df"
+                "sha256": "7fca04dede857d09349e0f0947e67b0eacbc661f6f994fd35b321d0632830fb9"
               },
               "picks": [
                 {
@@ -983,7 +983,18 @@
               }
             ],
             "value": {
-              "framing": "whole synthetic plate"
+              "framing": "whole synthetic plate",
+              "scene": {
+                "background": {
+                  "path": "inputs/background.png",
+                  "rect": {
+                    "x": -64,
+                    "y": 0,
+                    "width": 128,
+                    "height": 128
+                  }
+                }
+              }
             }
           },
           "history": []
@@ -3860,7 +3871,7 @@
       "path": "evidence/scene/s1.json",
       "sha256": "ab4fd474cf79affd41cb2b91094dfa01799d43d3c30d4256b664bd4207d5a1e9",
       "at": "2026-11-09T00:01:41.000Z",
-      "by": "user"
+      "by": "agent"
     }
   ],
   "reopens": [

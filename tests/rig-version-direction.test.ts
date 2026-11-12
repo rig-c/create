@@ -57,6 +57,7 @@ function registered() {
   };
   // The frozen model's stage is 8 by 16; place the plate at its own aspect so the scale stays uniform.
   const png = readFileSync(join(f.dir, String(f.background.path)));
+  f.designateScene({ x: -4, y: 0, width: 8, height: 8 * png.readUInt32BE(20) / png.readUInt32BE(16) });
   const writeScene = () => sceneCommand([...f.args().slice(0, -1), '--background-rect', `-4,0,8,${8 * png.readUInt32BE(20) / png.readUInt32BE(16)}`, f.dir]);
   return { ...f, put, model, author, publish, writeScene };
 }

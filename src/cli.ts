@@ -63,7 +63,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
   rig-create collection-binding [<member dir>] [--out <path>]
                                                     write and bind the member's collection interview snapshot
-  rig-create scene write --rig <R> --background <path> --citations-file <file> --by <human> [<dir>]
+  rig-create scene write --rig <R> --background <path> --citations-file <file> [<dir>]
   rig-create derived add [<dir>] --source <file> --file <file> --operation <text>
                                                     record external preparation and both file hashes
   rig-create interview --check [<project dir>] [--json]

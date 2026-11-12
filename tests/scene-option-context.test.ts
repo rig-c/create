@@ -85,7 +85,7 @@ test('(b) a scene current on the live accepted rig anchors post sets after a pos
   register(dir, path);
   expect(checkProject(dir).refusals).toEqual([]);
   // A later scene write makes the set stale; so does a changed scene file.
-  tick(2); sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', dir]);
+  tick(2); sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', dir]);
   refused('INTERVIEW_OPTIONS_STALE', answer(dir, path), dir);
   tick(3);
   const fresh = draft(dir, 'post-composition-s2', optionContext(load(dir), 'post-interview', at(), dir));

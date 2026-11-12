@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, parseRecordAct, projectComments,
   type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { publicationFile } from './job-publication.ts';
+import { liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { INTAKE_QUESTION, intakeItem } from './intake.ts';
 import { collectItems, asArray, isObject } from './check.ts';
@@ -418,7 +418,7 @@ export function assertReviewActSource(root: string, project: JsonObject, act: Re
   if (parts.manifest.path !== `${partsRoot}/parts.json`) stale('parts producer root changed');
   boundFile(parts.manifest);
   for (const row of parts.images) boundFile({ path: join(dirname(parts.manifest.path), row.path), sha256: row.sha256 });
-  const manifestPath = `review-live-v${'version' in selector ? selector.version : -1}.json`;
+  const manifestPath = liveManifestPath(root, project, 'version' in selector ? selector.version : -1, source.package);
   let manifest: JsonObject;
   try { manifest = JSON.parse(publicationFile(root, manifestPath).toString('utf8')); }
   catch { return stale('published review manifest is absent or unreadable'); }

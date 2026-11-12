@@ -7,7 +7,8 @@ import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdi
 import { collectItems } from '../src/check.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
-import { decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
+import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
+import { republishCommand } from '../src/republish.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
@@ -33,7 +34,7 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
     && typeof entry.bytes === 'string' && JSON.parse(entry.bytes).kind === 'review-verdict');
 }
 
-async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved') {
+async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1) {
   testClock.reset();
   const root = temporary('create-act-project-');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
@@ -46,6 +47,10 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', '--by', 'user', root]);
     directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1']);
     advanceCommand(['direction-review', root]);
+  }
+  if (generation === 2) {
+    prepareLiveManifest(root, { ...projectAt(root), inputs: [] }, n);
+    expect(republishCommand([String(n), root, '--reason', 'Include the original painting.'], testClock.now()).exit).toBe(0);
   }
   const hidden = temporary('create-act-hidden-');
   // The actual host state path is never installed in the consumer binding.
@@ -101,7 +106,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   expect(submitted.ok).toBe(true);
   if (!submitted.ok) throw Error(submitted.error.code);
   testClock.set(Math.max(testClock.now(), Date.parse(submitted.value.at)));
-  return { root, host, act: submitted.value, hidden, n };
+  return { root, host, act: submitted.value, hidden, n, agent, uiRequest, publication };
 }
 
 async function command(root: string, actId: string, n = 1, guarded = false) {
@@ -607,4 +612,52 @@ test('removed file route refuses by name before opening a file and preserves pro
       .toThrow(expect.objectContaining({ code: 'REVIEW_FILE_ROUTE_REMOVED', exitCode: 2, message: expect.stringContaining('--from-review <actId>') }));
     expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   }
+});
+
+
+test('g2 publication verdict and signoff ingest through the writers and check', async () => {
+  const { root, act, agent, uiRequest, publication, host } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2);
+  expect(act.source.package).toEqual({ id: 'create-v1', revision: 'v1-g2' });
+  const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'signoff', stage: 'rig-review' } });
+  const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', { publicationId: publication.publicationId, pageId: 'sign-page', sourceHash: (publication.source as JsonObject).sourceHash }));
+  if (!displayed.ok) throw Error(displayed.error.code);
+  const signed = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
+    publicationId: publication.publicationId, askId: ask.askId, pageId: 'sign-page', displayedNonce: displayed.value.displayedNonce,
+    expectedGeneration: host.session.status().generation, submissionId: 'sign-submission', kind: 'signoff', value: { stage: 'rig-review', decision: 'approved', words: 'Sign this rig.' },
+  }));
+  expect(signed.ok).toBe(true);
+  if (!signed.ok) throw Error(signed.error.code);
+  testClock.set(Math.max(testClock.now(), Date.parse(signed.value.at)));
+  const verdict = await command(root, act.actId);
+  expect(verdict.stderr).toBe(''); expect(verdict.exit).toBe(0);
+  const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root, '--from-review', signed.value.actId], { stdout: 'pipe', stderr: 'pipe' });
+  const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+  expect(stderr).toBe(''); expect(exit).toBe(0);
+  expect(advanceCommand(['post-interview', root]).exit).toBe(0);
+  const checked = checkProject(root, projectAt(root));
+  expect(checked.refusals.map(f => ({ code: f.code, path: f.path }))).toEqual([
+    { code: 'INTERVIEW_INCOMPLETE', path: 'interview.post.items[camera_depth].guide' },
+    { code: 'INTERVIEW_INCOMPLETE', path: 'interview.post.items[post_timing].guide' },
+    { code: 'INTERVIEW_INCOMPLETE', path: 'interview.post.items[post_composition].guide' },
+  ]);
+});
+
+test('g2 publication still refuses a mismatched package identity without writing', async () => {
+  const { root, act } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2);
+  const changed = structuredClone(act);
+  ((changed.source as unknown as JsonObject).package as JsonObject).revision = 'v1-unpublished';
+  const server = fetchAdapter(root, act, JSON.stringify(changed), readFileSync(join(root, 'evidence/setup.png')));
+  try {
+    const before = readFileSync(join(root, 'project.json'));
+    const result = await command(root, act.actId);
+    expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  } finally { server.stop(true); }
+});
+
+
+test('a retained g1 identity selects its exact manifest after republishing', async () => {
+  const { root, act } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2);
+  const previous = { ...act, source: { ...act.source, package: { id: 'create-v1', revision: 'v1' } } };
+  expect(() => assertReviewActSource(root, projectAt(root), decodeReviewAct(JSON.stringify(previous)))).not.toThrow();
 });

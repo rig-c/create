@@ -69,6 +69,7 @@ export function closeHostOptions(binding: WriterBinding): JobHostOptions {
     reviewer: { id: identity.reviewer.id, role: identity.reviewer.role },
     readerId: identity.readerId,
     readPublished: failClosedCloseReadPublished,
+    ...(identity.publicationMode ? { publicationMode: identity.publicationMode, readRecordPublished: () => refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: close attach must not invoke the record reader; reopen the live job before publishing') } : {}),
     partsEnumeratorId: identity.partsEnumeratorId,
     partsEnumerator: {
       version: identity.enumeratorVersion,

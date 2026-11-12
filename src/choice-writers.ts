@@ -4,7 +4,7 @@ import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
-import { decodeReviewAct, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
@@ -162,6 +162,8 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
         if (!retained) refuse('REVIEW_ACT_LEDGER_INVALID', `${item.path}: original interview answer is absent; restore its history`);
         return JSON.stringify(retained);
       }
+      if (act.schema === 'rig-review/act@4') assertActSubjectDeclared(dir, act, item.path);
+      if (act.schema === 'rig-review/act@4' && act.source.projectHash !== sha256(original)) refuse('REVIEW_ACT_SOURCE_STALE', `${item.path}: displayed record differs; publish the current question again`);
       const registered = item.record.pending_options;
       if (!isObject(registered) || registered.sha256 !== act.source.optionSet.sha256) refuse('INTERVIEW_OPTIONS_STALE', `${item.path}: displayed option set differs; refresh the questionnaire`);
       const {set} = optionFile(dir,registered);

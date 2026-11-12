@@ -27,15 +27,25 @@ bytes reuses its publication and asks each declared subject once.
 Judge direction on the post page with `job open --rig <post>`,
 then ingest `review <post> --from-review <actId>`. Before the current live post has an accepted live verdict,
 the record request refuses `JOB_DIRECTION_VERDICT_REQUIRED` without writing.
-Direction-review sign-off is blocked pending the upstream Review change in
-[rig-c/review#794](https://github.com/rig-c/review/issues/794).
-Review 2.13.0's record-subject parser
-permits only `plan-approved`, `rigging-interview` and `post-interview`, and rejects
-`signoff direction-review` with `JOB_ASK_INVALID`; its act parser rejects it with
-`JOB_ACT_INVALID`. After verdict ingest, `job open --plan` declares no direction
-sign-off subject. Neither page can provide that signature yet; retain the verdict
-and leave the project at direction-review. Do not advance to accepted or substitute
-an interview-stage signature or an API-only acceptance.
+After verdict ingest, `job open --plan` asks `signoff direction-review` on the
+record page. Ingest `signoff direction-review --from-review <actId>`, then
+`advance accepted`. This route requires source-linked Review at the dev pin
+`837909932bc3406fa0ec87f19091daba4d9d69d3`
+([Review #795](https://github.com/rig-c/review/pull/795)). Registry Review 2.13.0
+still rejects that record stage; its release pin is unchanged.
+
+The act has no version selector. Its record hash binds the exact displayed
+`project.json` bytes. Before the first write, create checks those bytes and
+selects the current/latest live post and its accepted live direction verdict.
+Earlier accepted post versions do not make the current target ambiguous.
+Missing, duplicate or unaccepted current targets refuse
+`REVIEW_ACT_RECORD_TARGET_INVALID`. Create's compact receipt retains
+`record_sha256`, equal to the act's record hash, plus the resolved
+`target_version` and `verdict` reference. Ledger validation and replay compare
+that target with the recorded signoff and verify the act's hash binding even
+after later records or reopens. The full record is not copied into its receipt;
+Review's wire shape is unchanged. Immutable-byte replay precedes current-record
+checks; a changed act or compact receipt refuses without writing.
 
 The default in `parts` and `parts-review` publishes the latest recorded draft.
 `--draft` names a recorded draft in any stage. Opening asks every subject that publication declares (see
@@ -289,8 +299,8 @@ effective stage). The rules are in `src/signable.ts`:
 - A `signoff` subject is declared for the stage itself while it closes on a
   sign-off and has no live stage-level signature. `rig-review` is declared only
   on a `rig` publication, because the act's selector is the signature's target.
-  Post publications carry only the direction verdict; direction sign-off remains
-  blocked pending the upstream Review change described above. A plan-bound stage
+  Post publications carry only the direction verdict; direction sign-off uses
+  the separate source-linked record page described above. A plan-bound stage
   (`plan-approved`, `rigging-interview`, `post-interview`) also needs displayed
   plan steps.
 
@@ -338,7 +348,7 @@ again.
 | `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
 | `parts-review` | draft | `draft-rig` commits in `parts-review`, or the agent runs `job open` to refresh the draft after `parts-review --from-review` / `diff-classes` |
 | `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, `rig-version` commits in `rig-review`, or the agent runs `job open` to refresh the live `rig` head after `review <n> --from-review` |
-| `direction-review` | none; blocked pending an upstream Review change | verdict ingest preserves the verdict but supplies no signature; never advance to accepted without the real sign-off |
+| `direction-review` | record plan, using source-linked Review at the dev pin | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
 | `interview` | none | no record-mode stage-signature subject |
 

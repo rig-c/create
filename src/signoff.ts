@@ -11,7 +11,7 @@ import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type Che
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobHash } from './job-outbox.ts';
-import { assertActSubjectDeclared, decodeReviewAct, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, isRecordDirectionSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap } from './diff-map.ts';
@@ -137,9 +137,9 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       return { stdout: json ? JSON.stringify(ingest.replay, null, 2) : `signoff: ${stage} checkpoint ${opts['--checkpoint']} already recorded from ${ingest.source}; nothing written`, exit: 0 };
     }
   }
-  // A target stage signs the version Review displayed: the act's selector, never a flag, names it.
+  // A target stage signs Review's selector or the exact displayed record, never a flag-selected replacement.
   let targetVersion = opts['--version'];
-  if (review !== undefined && stage in SIGNOFF_TARGET_KINDS) {
+  if (review !== undefined && stage in SIGNOFF_TARGET_KINDS && !isRecordDirectionSignoff(review.act)) {
     const shown = signoffActVersion(review.act);
     const at = `signoffs[${asArray(project.signoffs).length}].target.version`;
     if (shown === null) refuse('REVIEW_ACT_TARGET_MISMATCH', `${at}: the review act names no ${SIGNOFF_TARGET_KINDS[stage]} version it displayed; ask for ${stage} again in Review on the reviewed version`);
@@ -151,11 +151,21 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     const existing = asArray(project.review_acts).filter(isObject).find(entry => entry.jobId === review.act.jobId && entry.actId === review.act.actId);
     if (existing !== undefined) {
       if (existing.bytes !== review.bytes) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable signoff act changed; restore the original receipt');
+      if (isRecordDirectionSignoff(review.act)) {
+        const invalid = reviewActFindings(project)[0];
+        if (invalid !== undefined) refuse(invalid.code, invalid.message);
+      }
       const recorded = asArray(project.signoffs).filter(isObject).find(entry => entry.source === review.human.source);
       if (recorded === undefined) refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json.review_acts: the signoff this act recorded is absent; restore its signoffs[] entry');
       return { stdout: json ? JSON.stringify(recorded, null, 2) : `signoff: replayed ${stage} by ${by} at ${String(recorded.at)}; stage unchanged`, exit: 0 };
     }
     if (review.act.schema === 'rig-review/act@4' && review.act.source.projectHash !== jobHash(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: displayed signoff record differs; publish the current plan and ask again');
+    if (isRecordDirectionSignoff(review.act)) {
+      const shown = recordSignoffActVersion(review.act, original!.toString('utf8'));
+      if (shown === null) refuse('REVIEW_ACT_RECORD_TARGET_INVALID', 'project.json.versions: the frozen sign-off record has no single current live post with an accepted direction-review verdict; publish the corrected record after reviewing that post');
+      if (targetVersion !== undefined && targetVersion !== String(shown)) refuse('REVIEW_ACT_TARGET_MISMATCH', `signoffs.target.version: --version ${targetVersion} differs from post ${shown} bound by the frozen record; drop --version and sign the displayed record`);
+      targetVersion = String(shown);
+    }
     if (PLAN_BOUND_SIGNOFF_STAGES.includes(stage)) {
       const displayed = review.act.source.plan?.steps ?? [];
       const current = asArray(isObject(project.plan) ? project.plan.steps : undefined).map(raw => ({ id: isObject(raw) ? raw.id ?? null : null, hash: isObject(raw) ? stepHash(raw) : null }));
@@ -280,7 +290,9 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   project.signoffs.push(signoff);
   if (review !== undefined) {
     project.review_acts = [...asArray(project.review_acts), { schema: 'rig-create/review-act@1', kind: 'signoff', jobId: review.act.jobId, actId: review.act.actId,
-      stage, bytes: review.bytes, sha256: jobHash(review.bytes), version_hash: jobHash(JSON.stringify(signoffActIdentity(review.act))) }];
+      stage, bytes: review.bytes, sha256: jobHash(review.bytes), version_hash: jobHash(JSON.stringify(signoffActIdentity(review.act))),
+      ...(isRecordDirectionSignoff(review.act) ? { record_sha256: review.act.source.projectHash,
+        target_version: target!.version!, verdict: target!.verdict! } : {}) }];
     const invalid = reviewActFindings(project)[0];
     if (invalid !== undefined) refuse(invalid.code, invalid.message);
   }

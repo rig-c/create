@@ -42,8 +42,8 @@ Older records may omit it.
 3. **Rig and animation**. Keep rig feedback.
    Ingest: `review <version> --from-review <actId>`.
 4. **Direction**. `job open --rig <post>` asks the verdict only.
-   Ingest `review <post> --from-review <actId>`. Sign-off is blocked
-   pending an upstream Review change; do not advance to accepted.
+   Ingest `review <post> --from-review <actId>`, then `job open --plan` for
+   record-page sign-off (source-linked Review).
 
 Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
 ingest `--from-review <actId>`, then advance.

@@ -9,6 +9,8 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
+import { sourceOnlyTest } from './source-only.ts';
+import { reviewActFindings } from '../src/review-act.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
@@ -366,13 +368,15 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
   expect(report.holes ?? []).toEqual([]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
-test('direction-review verdict -> ingest -> refresh stays verdict-only; record sign-off and accepted remain blocked', async () => {
+sourceOnlyTest('#467 source-linked direction verdict then record sign-off ingests and advances accepted', async () => {
+  const historyWords = `Synthetic direction history. ${'retained review words. '.repeat(400)}`;
   const root = copy('example-chain', project => {
     project.stage = 'post';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'direction-review' && entry.stage !== 'accepted');
     project.signoffs = (project.signoffs as JsonObject[]).filter(entry => entry.stage !== 'direction-review');
     const postVersion = (project.versions as JsonObject[]).find(v => v.n === 2)!;
-    postVersion.verdicts = [];
+    postVersion.verdicts = Array.from({ length: 64 }, (_, index) => ({ by: 'user', at: postVersion.at!,
+      review: 'direction-review', verdict: 'provisional', verbatim: `${index}: ${historyWords}`, source: 'synthetic history', on_items: [] }));
   });
   const opening = await open(root, ['--plan']);
   expectExit0(await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '2']));
@@ -406,32 +410,73 @@ test('direction-review verdict -> ingest -> refresh stays verdict-only; record s
   expect(reused.stdout).toContain('job: post v2 already published');
   expect((await page(root, opening.url, 1)).head.publicationId).toBe(refreshedView.head.publicationId);
 
-  // The existing record contract has no direction sign-off subject. Do not manufacture an act.
   const record = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
   expectExit0(record);
-  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: plan published']);
-  const recordView = await page(root, opening.url, 0);
+  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: plan published', 'job: asked signoff direction-review']);
+  const recordView = await page(root, opening.url, 1);
   expect((recordView.head.source as JsonObject).subject).toBe('plan');
-  expect((recordView.head.source as JsonObject).subjects).toEqual([]);
-  expect(recordView.asks).toEqual([]);
-  const next = await cli(root, ['next', root, '--json']);
-  expectExit0(next);
-  const pending = JSON.parse(next.stdout);
-  expect(pending.effective_stage).toBe('direction-review');
-  expect(pending.moves.find((move: { review_act?: { kind?: string } }) => move.review_act?.kind === 'signoff')).toMatchObject({
-    command: null, act: expect.stringContaining('blocked pending an upstream Review change'),
-  });
-  const frozen = readFileSync(join(root, 'project.json'));
-  const accepted = await cli(root, ['advance', 'accepted', root, '--json']);
-  expect(accepted.exit).toBe(1);
-  expect(accepted.stderr).toContain('ADVANCE_UNAUTHORIZED:');
-  expect(readFileSync(join(root, 'project.json'))).toEqual(frozen);
-  expect((read(root).signoffs as JsonObject[]).some(signature => signature.stage === 'direction-review')).toBe(false);
+  expect((recordView.head.source as JsonObject).selector).toBeUndefined();
+  expect((recordView.head.source as JsonObject).subjects).toEqual([{ kind: 'signoff', stage: 'direction-review' }]);
+  expect(recordView.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'direction-review' }]);
+  const signed = await recordView.act('signoff', 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
+  expect(signed.schema).toBe('rig-review/act@4');
+  expect((signed.source as JsonObject).selector).toBeUndefined();
+  const original = readFileSync(join(root, 'project.json'));
+  expect(original.length).toBeGreaterThan(512_000);
+  writeFileSync(join(root, 'project.json'), Buffer.concat([original, Buffer.from(' ')]));
+  const staleBytes = readFileSync(join(root, 'project.json'));
+  const stale = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]);
+  expect(stale.exit).toBe(1);
+  expect(stale.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(staleBytes);
+  writeFileSync(join(root, 'project.json'), original);
+  const wrongVersion = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId), '--version', '1']);
+  expect(wrongVersion.exit).toBe(1);
+  expect(wrongVersion.stderr).toContain('REVIEW_ACT_TARGET_MISMATCH:');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(original);
+  expectExit0(await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]));
+  const saved = read(root);
+  const target = (saved.signoffs as JsonObject[]).at(-1)!.target as JsonObject;
+  expect(target.version).toBe(2);
+  const signedBytes = readFileSync(join(root, 'project.json'));
+  const growth = signedBytes.length - original.length;
+  expect(growth).toBeGreaterThan(0);
+  expect(growth).toBeLessThan(32_768);
+  expect(growth).toBeLessThan(original.length / 10);
+  const receipt = (saved.review_acts as JsonObject[]).find(entry => entry.actId === signed.actId)!;
+  expect(receipt.record_bytes).toBeUndefined();
+  expect(JSON.stringify(receipt)).not.toContain(historyWords);
+  expect(receipt.record_sha256).toBe(jobHash(original));
+  expect(receipt.record_sha256).toBe((signed.source as JsonObject).projectHash);
+  expect(receipt.target_version).toBe(target.version);
+  expect(receipt.verdict).toBe(target.verdict);
+  console.log(JSON.stringify({ evidence: '#467 compact direction receipt growth', before_bytes: original.length,
+    after_bytes: signedBytes.length, delta_bytes: growth }));
+  expect(reviewActFindings(saved)).toEqual([]);
+  const later = structuredClone(saved);
+  (later.versions as JsonObject[]).push({ ...(later.versions as JsonObject[]).find(version => version.n === 2)!, n: 99 });
+  expect(reviewActFindings(later)).toEqual([]);
+  expectExit0(await cli(root, ['advance', 'accepted', root, '--json']));
+  const accepted = readFileSync(join(root, 'project.json'));
+  expectExit0(await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(accepted);
+  for (const [key, value] of Object.entries({ record_sha256: '0'.repeat(64), target_version: 99, verdict: 'versions[1].verdicts[0]' })) {
+    const tampered = JSON.parse(accepted.toString('utf8')) as JsonObject;
+    (tampered.review_acts as JsonObject[]).find(entry => entry.actId === signed.actId)![key] = value;
+    write(root, tampered);
+    expect(reviewActFindings(tampered).map(finding => finding.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+    const beforeRetry = readFileSync(join(root, 'project.json'));
+    const invalidReplay = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId)]);
+    expect(invalidReplay.exit).toBe(1);
+    expect(invalidReplay.stderr).toContain('REVIEW_ACT_LEDGER_INVALID:');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(beforeRetry);
+  }
+  writeFileSync(join(root, 'project.json'), accepted);
   const report = checkProject(root, undefined, { now: Date.now() });
   expect(report.refusals).toEqual([]);
   expect(report.warnings).toEqual([]);
   expect(report.holes ?? []).toEqual([]);
-}, REFRESH_FLOW_TIMEOUT_MS);
+}, 30_000);
 
 test('both-acts-before-ingest remains supported without an intermediate refresh, and pending refresh failure recovers via job reconcile', async () => {
   const root = copy('3-rig-review', project => {

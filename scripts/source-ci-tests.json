@@ -169,5 +169,10 @@
     "name": "plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
     "displayName": "Frozen Bar 5 \u2014 Plants (lapsed approval, changed bound input DRAFT_RIG_FILE, accepted project) > plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
     "reason": "Exercises published Review behavior under sibling source resolution"
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#467 source-linked direction verdict then record sign-off ingests and advances accepted",
+    "reason": "Requires Review 837909932bc3406fa0ec87f19091daba4d9d69d3 (#795) record direction-review stage; registry stays 2.13.0."
   }
 ]

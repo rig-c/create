@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
-import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector } from '@rig-c/review/job-host';
+import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
@@ -27,6 +27,7 @@ import { selectAnswerHashes } from './signoff-answers.ts';
 import { packageSignSubjects, stageSignable } from './signable.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
+import { requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, riggingContext } from './structure.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -55,7 +56,7 @@ type RecordContextBase = {
   readonly inputs: JobPublishedContext['files'];
   readonly files: JobPublishedContext['files'];
 };
-type RecordSignoffStage = 'plan-approved' | 'rigging-interview' | 'post-interview';
+type RecordSignoffStage = JobRecordSignoffStage;
 type RecordPlanSubject = { readonly kind: 'checkpoint'; readonly checkpointId: string }
   | { readonly kind: 'signoff'; readonly stage: RecordSignoffStage };
 export type RecordOptionContext = RecordContextBase & {
@@ -285,17 +286,19 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
           && liveSignoff(reopens, 'post', Date.parse(String(version.at)))).at(-1);
         const verdictIndex = post ? acceptedReviewVerdict(post, stage) : -1;
         const verdict = verdictIndex >= 0 ? asArray(post?.verdicts)[verdictIndex] : undefined;
-        if (!isObject(verdict) || !liveSignoff(reopens, 'post', Date.parse(String(verdict.at)))) {
+        if (!isObject(verdict) || !liveSignoff(reopens, 'direction-review', Date.parse(String(verdict.at)))) {
           refuse('JOB_DIRECTION_VERDICT_REQUIRED', 'project.json.versions: the current live post has no accepted direction-review verdict; open it with job open --rig <n> and ingest review <n> --from-review <actId> before requesting the direction sign-off');
         }
+        requireRecordDirectionTarget(project, now);
       }
       const planPhase = stage === 'post-interview' ? 'post' : 'rig';
       const covered = steps.filter(step => step.phase === planPhase && approvalStageOfStep(planPhase, String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage);
-      const signable = stage !== null && ['plan-approved', 'rigging-interview', 'post-interview'].includes(stage) && stageSignable(project, stage);
+      const signable = stage !== null && ['plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage) && stageSignable(project, stage);
+      if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
-      if (signable && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
+      if (signable && stage !== 'direction-review' && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
       const signature: JsonObject = { stage, steps: covered.map(step => step.id!) };
-      if (signable) withCandidateProject(root, project, () => selectAnswerHashes(root, project, signature));
+      if (signable && stage !== 'direction-review') withCandidateProject(root, project, () => selectAnswerHashes(root, project, signature));
       if (signable && stage === 'rigging-interview') {
         const errors: Parameters<typeof riggingContext>[3] = [];
         const context = withCandidateProject(root, project, () => riggingContext(root, project, new Date(now).toISOString(), errors));
@@ -319,7 +322,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     return { label, parts, inputs, files, ...evidence,
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
-    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED'].includes(error.code))) throw error;
+    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID'].includes(error.code))) throw error;
     refuse('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
   }
 }

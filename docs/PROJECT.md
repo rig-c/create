@@ -2581,3 +2581,25 @@ permit other human decisions outside Review. The effective bar supplies the
 existing warning-only appearance wording lint. Create does not interpret English
 bar text as an automatic producer measurement or proof of completion. Normal
 done, next and advance retain their existing checks and producer-report contracts.
+
+## Updating a project's release pins
+
+Run `rig-create packages upgrade [dir] --by <operator>` before opening a record
+ask on a host whose parts release differs from the project's. The writer moves
+`dependencies` for core, parts and review to Create's release pins, using a
+staged `bun install --ignore-scripts`. No manual `bun add` is needed. The
+record publication contract compares parts only; core and review still move
+with Create's complete release pin set. Missing pins are recorded as `null`.
+
+The writer appends `package_upgrades[]`, with `by`, `at`, `packages` (each entry
+has `name`, `from`, `to`) and `lock_sha256` (the installed lockfile's sha256).
+It preserves literal manifest and record bytes outside those fields. The
+lockfile and install are regenerated; lifecycle scripts are not executed.
+It never downgrades, and refuses an already-current manifest. Local and
+workspace dependencies are refused because staging would change their base.
+
+The same project check runs in fresh processes before and after the install
+swap, avoiding cached parts modules. Added or changed refusals abort the move;
+the record, manifest, lockfile and original install are restored. Complete
+this command before another process reads or writes the project. This is an
+operator pin migration, not a review verdict or stage transition.

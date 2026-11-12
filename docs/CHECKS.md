@@ -1622,3 +1622,22 @@ A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
 | --- | --- |
 | `JOB_ACTS_READ_REFUSED` | `project.json`: the live job refused or failed its event stream, or paging did not finish within the bound. Restore the bound live host and retry `job acts` on a quiescent job. |
 | `JOB_ACTS_WRITER_UNAVAILABLE` | `project.json`: a listed act has no current writer target (for example a removed checkpoint step or a subject without a Create adapter). Its command is null, not guessed. Restore the named plan step or use a supported Review subject before ingestion. |
+
+## Package upgrades
+
+`rig-create packages upgrade [dir] --by <operator>` checks the project before
+and after installing Create's release pins. Existing refusals may disappear;
+no refusal may be added or change its code, path or message. The history is
+optional on older records; present rows are validated by the writer and check.
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `PACKAGE_UPGRADE_MALFORMED` | `project.json.package_upgrades` is not the writer's history: restore its operator, timestamp, three from/to package entries and lock sha256. |
+| `PACKAGE_UPGRADE_USAGE` | Supply `packages upgrade [dir] --by <operator>`. |
+| `PACKAGE_UPGRADE_INPUT` | Restore the named manifest/record field; pins must be exact versions in dependencies, with no duplicate locations, workspace or local dependencies. |
+| `PACKAGE_UPGRADE_CURRENT` | All three manifest pins already equal Create's release pins; no write is needed. |
+| `PACKAGE_UPGRADE_DOWNGRADE` | The named package is newer than Create's release pin; use a newer Create release. |
+| `PACKAGE_UPGRADE_INSTALL` | The staged install failed; repair registry access or the package versions and retry. |
+| `PACKAGE_UPGRADE_CHECK_FAILED` | The project check could not complete; repair the record or installed packages and retry. |
+| `PACKAGE_UPGRADE_REFUSAL` | The named package move adds or changes the named check finding; preserve the original pins and resolve that finding before retrying. |
+| `PACKAGE_UPGRADE_CONFLICT` | Another package writer holds the lock, or a source changed during staging; finish the other write and retry against current bytes. |

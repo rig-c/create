@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { packagesCommand } from './packages-upgrade.ts';
 import { republishCommand } from './republish.ts';
 import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
 import { CHECKPOINT_EVIDENCE_HELP, checkpointEvidenceCommand, checkpointTableCommand } from './checkpoint-evidence-writer.ts';
@@ -108,6 +109,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     record a pre-interview version's lost build config
   rig-create version outputs-lost <n> --note <text> --source <text> [<dir>]
                                                     record a pre-interview version's lost frozen outputs
+  rig-create packages upgrade [<dir>] --by <operator>  update release pins with checked history
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
@@ -237,6 +239,7 @@ function initCommand(args: string[], now: number): string {
 
 /** Subcommands by name. */
 const COMMANDS: Record<string, Command> = {
+  packages: packagesCommand,
   republish: republishCommand,
   input: inputCommand,
   init: initCommand,

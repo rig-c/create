@@ -1,3 +1,4 @@
+import { packageUpgradeFindings } from './package-upgrades.ts';
 import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
@@ -902,6 +903,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the order in src/stages.ts is [${expectedValues.join(', ')}]` });
   }
 
+  refusals.push(...packageUpgradeFindings(project));
   checkCollectionBinding(dir, project, refusals);
   const collection = loadCollection(dir, project);
   const reopens = collectReopens(project, refusals);

@@ -1,6 +1,6 @@
 # Agent guide
 
-One painting in, one rig and its takes out. Read this first; no chat history needed.
+One painting in, one rig and its takes out. Start here.
 
 ## Start here
 
@@ -9,10 +9,12 @@ One painting in, one rig and its takes out. Read this first; no chat history nee
 2. Run `rig-create next` to derive the next moves and whose they are.
 3. Resume per {{RESUME_LINK}}.
 
+Update stale pins with `rig-create packages upgrade --by <operator>`; see PROJECT.md.
+
 Declare the project's painting with `init --painting <file> --origin <words>`
-or `input add <path> --painting --origin <words>`. The declaration names one
-registered input in `project.json.painting` and survives restart. Only this
-declaration checks sibling inputs for the same artwork. Older records may omit it.
+or `input add <path> --painting --origin <words>`. `project.json.painting` binds
+one input and survives restart; only it checks siblings for duplicate artwork.
+Older records may omit it.
 
 ## The order, and what you may not do
 

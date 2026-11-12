@@ -1,3 +1,4 @@
+import { runCiSuite } from './ci-suite.ts';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -155,32 +156,18 @@ writeFileSync(
 );
 
 try {
-  const testFiles = [...new Set(sourceOnlyTests.map(entry => entry.file))];
   const existingBunOptions = process.env.BUN_OPTIONS?.trim();
-  const testRun = Bun.spawnSync([process.execPath, SOURCE_CONDITION_FLAG, 'test', ...testFiles], {
-    cwd: createRoot,
-    env: {
-      ...process.env,
-      RIG_CREATE_SOURCE_CI: '1',
+  const testRun = runCiSuite(createRoot, 'source', {
       BUN_OPTIONS: existingBunOptions ? `${existingBunOptions} --preload=${obsPreloadPath}` : `--preload=${obsPreloadPath}`,
       RIG_CREATE_CHILD_OBSERVER_PRELOAD: obsPreloadPath,
       RIG_CREATE_CHILD_OBSERVER_DIR: obsRecordsDir,
       RIG_CREATE_EXPECTED_FETCH_ENTRY: expectedFetchEntry,
       RIG_CREATE_EXPECTED_REVIEW_CLI_ENTRY: expectedReviewCliEntry,
-    },
-    stdout: 'pipe',
-    stderr: 'pipe',
   });
-
-  const output = `${testRun.stdout.toString('utf8')}\n${testRun.stderr.toString('utf8')}`;
-  process.stdout.write(output);
+  const output = testRun.output;
 
   if (testRun.exitCode !== 0) {
     process.exit(testRun.exitCode ?? 1);
-  }
-
-  if (/\b[1-9]\d*\s+skip\b/.test(output) || output.includes('tests skipped:')) {
-    throw new Error('source-linked CI refused: one or more tests were skipped');
   }
 
   const passedNames = parsePassedTestNames(output);

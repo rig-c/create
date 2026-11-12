@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { consumerOnlyTest } from './consumer-only.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -90,7 +91,7 @@ describe('five-version reopened example with a producer mesh', () => {
     expect(report.warnings.map(f => [f.code, f.path])).toEqual([...REMESH_PARTS_REVIEW_LAPSES]);
   });
 
-  test('two fresh generator runs match each other and templates/example-remesh byte for byte', () => {
+  consumerOnlyTest('tests/example-remesh.test.ts', 'two fresh generator runs match each other and templates/example-remesh byte for byte', () => {
     const dirA = mkdtempSync(join(tmpdir(), 'rig-create-remesh-a-'));
     const dirB = mkdtempSync(join(tmpdir(), 'rig-create-remesh-b-'));
     try {

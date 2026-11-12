@@ -1558,3 +1558,11 @@ records generation 2, its generation 1 predecessor and both file hashes, `at` an
 `reason`. No stage, verdict, sign-off or rig artifact changes. Legacy-only records
 remain valid without adoption or a new contract date. `job open --rig` selects
 the recorded generation; the original publication remains byte-identical.
+
+### Source CI pin guard
+
+| Code | Refusal | Remedy |
+| --- | --- | --- |
+| `SOURCE_PIN_ANCESTRY` | `scripts/source-ci-pins.json` names a SHA before the package's release tag, or release metadata/history is unavailable or not exact | fetch complete sibling history and tags; choose a SHA at or after the exact `package.json` release pin; play uses the dependency at the release-pinned Review tag |
+
+| `CONSUMER_CI_COVERAGE` | `scripts/consumer-ci-tests.json` names an absent case, registry check does not pass it, or source CI skips any other case | restore exact consumerOnlyTest registration and registry execution; run every other source case |

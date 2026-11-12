@@ -3,11 +3,19 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
+    # Remove only the last condition after main requires source-linked alone.
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release'))
+      || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +25,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - run: bun test
+      - run: bun scripts/run-registry-ci.ts
   source-linked:
     name: source-linked
     runs-on: ubuntu-latest
@@ -43,21 +51,28 @@ jobs:
           repository: rig-c/core
           ref: ${{ steps.pins.outputs.core }}
           path: core
+          fetch-depth: 0
       - uses: actions/checkout@v4
         with:
           repository: rig-c/parts
           ref: ${{ steps.pins.outputs.parts }}
           path: parts
+          fetch-depth: 0
       - uses: actions/checkout@v4
         with:
           repository: rig-c/play
           ref: ${{ steps.pins.outputs.play }}
           path: play
+          fetch-depth: 0
       - uses: actions/checkout@v4
         with:
           repository: rig-c/review
           ref: ${{ steps.pins.outputs.review }}
           path: review
+          fetch-depth: 0
+      - name: Guard source pins against release tags
+        working-directory: create
+        run: bun scripts/check-source-pins.ts
       - name: Install external workspace with isolated linker
         run: |
           bun -e '
@@ -73,6 +88,12 @@ jobs:
           for pkg in core parts play review create; do
             git -C "$pkg" diff --exit-code
           done
-      - name: Verify sibling source resolution and run source-only test suite
+      - name: Typecheck source workspace
+        working-directory: create
+        run: bun run typecheck
+      - name: Lint source workspace
+        working-directory: create
+        run: bun run lint
+      - name: Verify sibling source resolution and run full test suite
         working-directory: create
         run: bun --conditions=@rig-c/source scripts/run-source-ci.ts

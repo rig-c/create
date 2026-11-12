@@ -6,7 +6,7 @@ import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobH
 import { asArray, checkProject, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished } from './job-publication.ts';
+import { liveManifestPath, draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { checkReviewPackages } from './review-package.ts';
@@ -359,10 +359,10 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
   return selector;
 }
 
-function selectorResult(selector: JobSelector): PendingPublication['result'] {
+function selectorResult(root: string, selector: JobSelector): PendingPublication['result'] {
   return selector.kind === 'draft'
     ? draftPublicationResult(selector.id)
-    : { path: `review-live-v${selector.version}.json`, selector };
+    : { path: liveManifestPath(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), selector.version), selector };
 }
 
 function selectorLabel(selector: JobSelector): string {
@@ -402,7 +402,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   let outcomes: AskOutcome[];
   let published: boolean;
   if (reuseHead && head && headSelector) {
-    const result = acknowledged?.result ?? selectorResult(headSelector);
+    const result = acknowledged?.result ?? selectorResult(root, headSelector);
     const subjects = acknowledged?.subjects
       ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result })).subjects;
     outcomes = await askDeclaredSubjects(host, head.publicationId, subjects);
@@ -412,7 +412,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     if (targetSelector === undefined) {
       return ids.length === 0 ? ['job: no recorded draft to publish'] : [`job: stage ${stage} shows no draft; name one with --draft <id>`];
     }
-    const result = selectorResult(targetSelector);
+    const result = selectorResult(root, targetSelector);
     const release = acquireJobLock(root)!;
     try {
       const binding = readWriterBinding(root);

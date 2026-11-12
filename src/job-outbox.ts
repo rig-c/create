@@ -43,6 +43,7 @@ export interface PendingPublication {
   identity: JobIdentity;
   recordHash: string;
   versionHash?: string;
+  previousVersionHash?: string;
   result: JobPublishRequest['result'];
   failure: { code: string; message: string } | null;
   generation?: number;
@@ -207,7 +208,10 @@ export function enqueuePublication(root: string, binding: WriterBinding, result:
   const id = jobHash(JSON.stringify([binding.jobId, versionHash, result]));
   const pending: PendingPublication = {
     schema: 'rig-create/job-pending@1', root: realpathSync(root), id, jobId: binding.jobId, origin: binding.origin,
-    identity: binding.identity, recordHash, versionHash, result, failure: null, phase: intentBytes ? 'intent' : 'pending',
+    identity: binding.identity, recordHash, versionHash,
+    ...(intentBytes && publicationVersionHash(readFileSync(join(root, 'project.json')), result) !== versionHash
+      ? { previousVersionHash: publicationVersionHash(readFileSync(join(root, 'project.json')), result) ?? undefined } : {}),
+    result, failure: null, phase: intentBytes ? 'intent' : 'pending',
   };
   ensureJobPrivateIgnores(root);
   const path = pendingPath(root, id);
@@ -254,14 +258,15 @@ export function pendingPublications(root: string, recoverIntents = false): Pendi
     const entry = privateJson(join(directory, name)) as PendingPublication;
     if (entry?.schema !== 'rig-create/job-pending@1' || `${entry.id}.json` !== name
       || entry.root !== realpathSync(root) || !/^[a-f0-9]{64}$/.test(entry.recordHash)
-      || entry.versionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.versionHash) || !entry.result || !entry.identity) {
+      || entry.versionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.versionHash)
+      || entry.previousVersionHash !== undefined && !/^[a-f0-9]{64}$/.test(entry.previousVersionHash) || !entry.result || !entry.identity) {
       refuse('JOB_OUTBOX_INVALID', 'project.json: malformed pending publication; restore the writer-owned outbox before reconciling');
     }
     if (!entry.versionHash) {
       if (jobHash(readFileSync(join(root, 'project.json'))) !== entry.recordHash) refuse('JOB_OUTBOX_INVALID', 'project.json: legacy receipt cannot identify its version after later edits; restore its original receipt/source before reconciling');
       entry.versionHash = currentVersionHash(root, entry) ?? undefined;
     }
-    if (entry.phase === 'intent' && currentVersionHash(root, entry) === null) {
+    if (entry.phase === 'intent' && (currentVersionHash(root, entry) === null || entry.previousVersionHash !== undefined && currentVersionHash(root, entry) === entry.previousVersionHash)) {
       if (recoverIntents) discardIntent(root, entry);
       return [];
     }
@@ -282,7 +287,7 @@ function discardIntent(root: string, entry: PendingPublication): void {
 }
 
 export function cancelUncommittedIntent(root: string, entry: PendingPublication | null): void {
-  if (entry && existsSync(pendingPath(root, entry.id)) && currentVersionHash(root, entry) === null) discardIntent(root, entry);
+  if (entry && existsSync(pendingPath(root, entry.id)) && (currentVersionHash(root, entry) === null || entry.previousVersionHash !== undefined && currentVersionHash(root, entry) === entry.previousVersionHash)) discardIntent(root, entry);
 }
 
 /** Receipt updates and reconciliation never rewrite the published project. */

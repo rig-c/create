@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { republishCommand } from './republish.ts';
 import { DIFF_CLASSES_HELP, diffClassesCommand } from './diff-classes.ts';
 import { CHECKPOINT_EVIDENCE_HELP, checkpointEvidenceCommand, checkpointTableCommand } from './checkpoint-evidence-writer.ts';
 import { partsReviewCommand } from './parts-review.ts';
@@ -46,6 +47,7 @@ const INPUT_CLI = `  rig-create input add <path> [<dir>] --origin <words>
 const HELP = `rig-create — create and run a rig project
 
 Usage:
+  rig-create republish <rig> [<dir>] --reason <words>
   rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n>]
   rig-create job reconcile|close [<dir>]
 ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
@@ -234,6 +236,7 @@ function initCommand(args: string[], now: number): string {
 
 /** Subcommands by name. */
 const COMMANDS: Record<string, Command> = {
+  republish: republishCommand,
   input: inputCommand,
   init: initCommand,
   intake: intakeCommand,

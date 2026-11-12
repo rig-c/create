@@ -7,7 +7,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
-import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareDraftIntent, prepareVersionIntent } from '../src/job-writer.ts';
 import { draftPublicationContext, draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
@@ -1200,4 +1200,83 @@ test.each(['missing', 'hash'] as const)('a legacy original with %s bytes retains
   expect(JSON.parse(readFileSync(join(root, path), 'utf8')).references).toEqual([]);
   expect(warnings).toEqual(findings.warnings);
   expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
+});
+
+function generationSetup(): { root: string; project: JsonObject } {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-generation-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  return { root, project };
+}
+
+// Generation checks exercise the same function used by checkProject and the writer.
+test('republish appends a painting generation, freezes the legacy and rig, and publishes g2', async () => {
+  const { republishCommand } = await import('../src/republish.ts');
+  const { liveManifestPath } = await import('../src/job-publication.ts');
+  const { root, project } = generationSetup();
+  const path = prepareLiveManifest(root, { ...project, inputs: [] }, 1);
+  const legacy = readFileSync(join(root, path));
+  const rig = readFileSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'));
+  expect(republishCommand(['1', root, '--reason', 'Carry the original painting.'], now).exit).toBe(0);
+  const record = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  expect(liveManifestPath(root, record, 1)).toBe('review-live-v1-g2.json');
+  expect(prepareLiveManifest(root, record, 1)).toBe('review-live-v1-g2.json');
+  expect(readFileSync(join(root, path))).toEqual(legacy);
+  expect(readFileSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'))).toEqual(rig);
+  const generation = record.versions[0].publication_generations[0];
+  expect(generation).toMatchObject({ generation: 2, supersedes: { generation: 1, path, sha256: jobHash(legacy) }, at: new Date(now).toISOString(), reason: 'Carry the original painting.' });
+  const context = await readPublished({ root, record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) }, result: { path: generation.manifest.path, selector: { kind: 'rig', version: 1 } } });
+  expect(context.files).toContainEqual({ path: generation.manifest.path, sha256: generation.manifest.sha256 });
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  expect(await openDraftPublication(root, host, now, undefined, '1')).toContain('job: rig v1 published');
+  expect(host.session.status().publication?.source).toMatchObject({ selector: { kind: 'rig', version: 1 } });
+  const before = readFileSync(join(root, 'project.json'));
+  expect(() => republishCommand(['1', root, '--reason', 'Duplicate.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_DUPLICATE' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(checkProject(root, record, { now, readOnly: true }).refusals.map(f => f.code)).not.toContain('PUBLICATION_GENERATION_INVALID');
+  record.versions[0].publication_generations[0].supersedes.sha256 = '0'.repeat(64);
+  expect(checkProject(root, record, { now, readOnly: true }).refusals.map(f => f.code)).toContain('PUBLICATION_GENERATION_INVALID');
+});
+
+test('republish refuses missing painting and an already referenced legacy before writing', async () => {
+  const { republishCommand } = await import('../src/republish.ts');
+  const { root, project } = generationSetup();
+  prepareLiveManifest(root, project, 1);
+  const before = readFileSync(join(root, 'project.json'));
+  expect(() => republishCommand(['1', root, '--reason', 'Duplicate.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_DUPLICATE' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  project.inputs = [];
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  const noPainting = readFileSync(join(root, 'project.json'));
+  expect(() => republishCommand(['1', root, '--reason', 'Missing.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_PAINTING_MISSING' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(noPainting);
+  expect(existsSync(join(root, 'review-live-v1-g2.json'))).toBe(false);
+});
+
+test('a refused generation leaves record and existing target bytes unchanged', async () => {
+  const { republishCommand } = await import('../src/republish.ts');
+  const { root, project } = generationSetup();
+  prepareLiveManifest(root, { ...project, inputs: [] }, 1);
+  writeFileSync(join(root, 'review-live-v1-g2.json'), 'preserve');
+  const before = readFileSync(join(root, 'project.json'));
+  expect(() => republishCommand(['1', root, '--reason', 'Conflict.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(readFileSync(join(root, 'review-live-v1-g2.json'), 'utf8')).toBe('preserve');
+});
+
+test('an uncommitted replacement intent is discarded against the previous version hash', async () => {
+  const { root } = generationSetup();
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const record = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const next = structuredClone(record);
+  (next.versions as JsonObject[])[0].publication_generations = [{ generation: 2 }];
+  const result = { path: 'review-live-v1-g2.json', selector: { kind: 'rig' as const, version: 1 } };
+  const intent = enqueuePublication(root, readWriterBinding(root)!, result, Buffer.from(JSON.stringify(next)));
+  expect(intent.previousVersionHash).toBe(publicationVersionHash(Buffer.from(JSON.stringify(record)), result)!);
+  expect(pendingPublications(root, true)).toEqual([]);
+  expect(readFileSync(join(jobPrivateRoot(root), 'discarded-intents.jsonl'), 'utf8')).toContain(intent.id);
+  expect(JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'))).toEqual(record);
 });

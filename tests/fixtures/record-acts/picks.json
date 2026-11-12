@@ -1,0 +1,378 @@
+{
+  "schema": "rig-review/act@4",
+  "actId": "5c853951-56ea-46e1-bbc5-b51495ee2b73",
+  "jobId": "7a02e0e8-d933-434d-87a4-06a7f8cdda2d",
+  "askId": "56630b63-e7ac-4f93-945a-32d87f91b51e",
+  "publicationId": "2dda4387-622c-4882-bf47-e45be99e5fa0",
+  "kind": "interview-picks",
+  "authority": {
+    "actor": "human",
+    "channel": "review-ui",
+    "reviewer": {
+      "id": "synthetic-owner",
+      "role": "owner"
+    }
+  },
+  "at": "2026-11-12T05:22:54.648Z",
+  "source": {
+    "sourceHash": "30c25feaa50bc039366c0363f7e2700400769ead4658718bed5d76da1216dfd2",
+    "projectHash": "e91038fcd1d76d7b0169b4be025145649ebb8cbfff1f824545668695c090f4cf",
+    "record": {
+      "path": "project.json",
+      "sha256": "e91038fcd1d76d7b0169b4be025145649ebb8cbfff1f824545668695c090f4cf"
+    },
+    "inputs": [
+      {
+        "path": "inputs/preparation-source.svg",
+        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
+      },
+      {
+        "path": "inputs/painting.png",
+        "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      },
+      {
+        "path": "evidence/scene-background.png",
+        "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+      }
+    ],
+    "files": [
+      {
+        "path": "derived/drafts/example/config.json",
+        "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
+      },
+      {
+        "path": "derived/drafts/example/input/painting_in_rig.png",
+        "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      },
+      {
+        "path": "derived/drafts/example/input/parts.json",
+        "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+      },
+      {
+        "path": "derived/drafts/example/input/parts/background.png",
+        "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+      },
+      {
+        "path": "derived/drafts/example/input/parts/eye_l.png",
+        "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+      },
+      {
+        "path": "derived/drafts/example/input/parts/eye_r.png",
+        "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+      },
+      {
+        "path": "derived/drafts/example/input/parts/face.png",
+        "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+      },
+      {
+        "path": "derived/drafts/example/input/parts/lantern.png",
+        "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+      },
+      {
+        "path": "derived/drafts/example/input/parts/torso.png",
+        "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+      },
+      {
+        "path": "derived/drafts/example/input/recomposite_rig.png",
+        "sha256": "230d10b95ab2d21afd7fcdffda0491bbb011b8a0c096f4b1363f1b08ba996036"
+      },
+      {
+        "path": "derived/drafts/example/interview-requirements.json",
+        "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+      },
+      {
+        "path": "derived/drafts/example/out/check/build/run.json",
+        "sha256": "4ddab6b9418752741c7f457c54e71317aec463a4950d9a22a53ca8c640d61184"
+      },
+      {
+        "path": "derived/drafts/example/out/check/build/skeleton.atlas",
+        "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+      },
+      {
+        "path": "derived/drafts/example/out/check/build/skeleton.json",
+        "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
+      },
+      {
+        "path": "derived/drafts/example/out/check/build/skeleton.model.json",
+        "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
+      },
+      {
+        "path": "derived/drafts/example/out/check/build/skeleton.png",
+        "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+      },
+      {
+        "path": "derived/drafts/example/out/images/background.png",
+        "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
+      },
+      {
+        "path": "derived/drafts/example/out/images/eye_l.png",
+        "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+      },
+      {
+        "path": "derived/drafts/example/out/images/eye_r.png",
+        "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+      },
+      {
+        "path": "derived/drafts/example/out/images/face.png",
+        "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c"
+      },
+      {
+        "path": "derived/drafts/example/out/images/lantern.png",
+        "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041"
+      },
+      {
+        "path": "derived/drafts/example/out/images/torso.png",
+        "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5"
+      },
+      {
+        "path": "derived/drafts/example/out/mesh_report.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "path": "derived/drafts/example/out/motion.json",
+        "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
+      },
+      {
+        "path": "derived/drafts/example/out/rig.json",
+        "sha256": "3e9666933af397939671c9d07e117cf3ab192d0a1d601109225986bc4e15f894"
+      },
+      {
+        "path": "derived/drafts/example/out/run.json",
+        "sha256": "0be4f6239211bffee323478ef8e673478b17b9b3c8f3e7a9e287816adcb783ee"
+      },
+      {
+        "path": "derived/drafts/lantern/config.json",
+        "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
+      },
+      {
+        "path": "derived/drafts/lantern/input/painting_in_rig.png",
+        "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      },
+      {
+        "path": "derived/drafts/lantern/input/parts.json",
+        "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+      },
+      {
+        "path": "derived/drafts/lantern/input/parts/background.png",
+        "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+      },
+      {
+        "path": "derived/drafts/lantern/input/parts/eye_l.png",
+        "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+      },
+      {
+        "path": "derived/drafts/lantern/input/parts/eye_r.png",
+        "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+      },
+      {
+        "path": "derived/drafts/lantern/input/parts/face.png",
+        "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+      },
+      {
+        "path": "derived/drafts/lantern/input/parts/lantern.png",
+        "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+      },
+      {
+        "path": "derived/drafts/lantern/input/parts/torso.png",
+        "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+      },
+      {
+        "path": "derived/drafts/lantern/input/recomposite_rig.png",
+        "sha256": "230d10b95ab2d21afd7fcdffda0491bbb011b8a0c096f4b1363f1b08ba996036"
+      },
+      {
+        "path": "derived/drafts/lantern/interview-requirements.json",
+        "sha256": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff"
+      },
+      {
+        "path": "derived/drafts/lantern/out/check/build/run.json",
+        "sha256": "4ddab6b9418752741c7f457c54e71317aec463a4950d9a22a53ca8c640d61184"
+      },
+      {
+        "path": "derived/drafts/lantern/out/check/build/skeleton.atlas",
+        "sha256": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3"
+      },
+      {
+        "path": "derived/drafts/lantern/out/check/build/skeleton.json",
+        "sha256": "ddf366446f30bdda13dea626976e719b8ebc6018322c38c64cfdd6e16cc4a47c"
+      },
+      {
+        "path": "derived/drafts/lantern/out/check/build/skeleton.model.json",
+        "sha256": "15146157bfafc565b4eb0da7b66195283504692dc06d512dc404fd8f5849aa7e"
+      },
+      {
+        "path": "derived/drafts/lantern/out/check/build/skeleton.png",
+        "sha256": "1b1836dc1a2700302723ebfebc8fd2be918ba69dff41029788a90595c426c6b2"
+      },
+      {
+        "path": "derived/drafts/lantern/out/images/background.png",
+        "sha256": "24eb570320b9e27ce6449b54e82abd811043b9a63f48387f13cbba2dbed5c5f8"
+      },
+      {
+        "path": "derived/drafts/lantern/out/images/eye_l.png",
+        "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+      },
+      {
+        "path": "derived/drafts/lantern/out/images/eye_r.png",
+        "sha256": "97da226ecba85a1af18173df4eb28d72b0828cda8c171f8d4a2995a3da9cc733"
+      },
+      {
+        "path": "derived/drafts/lantern/out/images/face.png",
+        "sha256": "e2bd0d0736b3ecda20d6a08840468a2d46738c226631fd73e280dab3719c9e4c"
+      },
+      {
+        "path": "derived/drafts/lantern/out/images/lantern.png",
+        "sha256": "733d1cc36c0d1a01f1d330085316f8bcccb8d4331e2f20b9a3dfe2a3407a7041"
+      },
+      {
+        "path": "derived/drafts/lantern/out/images/torso.png",
+        "sha256": "356a2a89f530ef7ab5719eefa2cfbff37f8f39a274f41689f13a9c7a2d76adf5"
+      },
+      {
+        "path": "derived/drafts/lantern/out/mesh_report.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "path": "derived/drafts/lantern/out/motion.json",
+        "sha256": "6c6c105be9c818556061aabc366357460712a7f7d0a5e3f8b25b0af6c533cceb"
+      },
+      {
+        "path": "derived/drafts/lantern/out/rig.json",
+        "sha256": "3e9666933af397939671c9d07e117cf3ab192d0a1d601109225986bc4e15f894"
+      },
+      {
+        "path": "derived/drafts/lantern/out/run.json",
+        "sha256": "0be4f6239211bffee323478ef8e673478b17b9b3c8f3e7a9e287816adcb783ee"
+      },
+      {
+        "path": "derived/prepared.svg",
+        "sha256": "3c5bf74326c06a17795179b27a894f20eb64246b5ef6e028761061483a51d654"
+      },
+      {
+        "path": "evidence/diff-components.json",
+        "sha256": "6b26d802dd85b30a00aa714f643ff5238badf4b1124e44068dc9d93c90a61df3"
+      },
+      {
+        "path": "evidence/fix-ledger/lantern.json",
+        "sha256": "ae1bc8582715207c961226e6d53a43c484d16955e2f5bcef2df4d11ac2ad0944"
+      },
+      {
+        "path": "evidence/interview/example-assemble.json",
+        "sha256": "b4f8b234cb563bf225a102327d10417d44834d22d6119c0532e25830b047085c"
+      },
+      {
+        "path": "evidence/interview/example-bones.json",
+        "sha256": "4e6b74abfef5b8df83d0c8e09bc8bfea4ed18bcb00cd99517cc2113f4f66efdd"
+      },
+      {
+        "path": "evidence/interview/example-constraints.json",
+        "sha256": "38f61c92784a9a8a3e85985ee88ab41fcbd3e08ad7cfcaf95e2c810ae33f9354"
+      },
+      {
+        "path": "evidence/interview/example-meshes.json",
+        "sha256": "7b7677769e4ec8390de82418b5280b3a8877cbb34f5d58ac16c568333efb33f1"
+      },
+      {
+        "path": "evidence/interview/example-motion.json",
+        "sha256": "f9a625b40e9f3e3d91ebf47d1843d8708fbe4ac2db93b61322435e4a52cfcb08"
+      },
+      {
+        "path": "evidence/interview/example-reference.json",
+        "sha256": "2aee9dc48d9bb15c017a4603e429bb5f8a6a71533a1ad0023d3f639c219bc279"
+      },
+      {
+        "path": "evidence/interview/example-rig-type.json",
+        "sha256": "04a6a412c659551d2379935cba61b3636f8a0bf8b9abd409044d71dcf5abae29"
+      },
+      {
+        "path": "evidence/interview/example-seethrough.json",
+        "sha256": "9569fd8953f1037148d4a0851636a5c4aa6260c4bcc8704f719ceb08d128103b"
+      },
+      {
+        "path": "evidence/interview/pending-motion.json",
+        "sha256": "753427014e2aba1fe2128b4b50445b7f7b1f63d3520fa55c7c0f3def9acdbb05"
+      },
+      {
+        "path": "evidence/parts-check.json",
+        "sha256": "304e2330e0f54275cd29053510addb32720a20c1dfeca23488d96d6be54e91ea"
+      },
+      {
+        "path": "evidence/review-reads/4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05.json",
+        "sha256": "4ed0507381809746443021554e012032be5b5f8417da0f2e525e9b6df16e9f05"
+      },
+      {
+        "path": "evidence/scene-background.png",
+        "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+      },
+      {
+        "path": "evidence/structure-decisions.json",
+        "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
+      },
+      {
+        "path": "inputs/painting.png",
+        "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+      },
+      {
+        "path": "inputs/preparation-source.svg",
+        "sha256": "3b2012bb72f7c55b64d7fec307bba26ff53f9bf8474ec7409650d218c168942e"
+      },
+      {
+        "path": "project.json",
+        "sha256": "e91038fcd1d76d7b0169b4be025145649ebb8cbfff1f824545668695c090f4cf"
+      }
+    ],
+    "subject": "option-set",
+    "selection": {
+      "kind": "option-set",
+      "questionId": "motion",
+      "setId": "pending-motion"
+    },
+    "optionSet": {
+      "id": "pending-motion",
+      "sha256": "753427014e2aba1fe2128b4b50445b7f7b1f63d3520fa55c7c0f3def9acdbb05"
+    },
+    "optionSetFile": {
+      "path": "evidence/interview/pending-motion.json",
+      "sha256": "753427014e2aba1fe2128b4b50445b7f7b1f63d3520fa55c7c0f3def9acdbb05"
+    },
+    "plan": null,
+    "subjects": [
+      {
+        "kind": "interview-picks",
+        "questionId": "motion",
+        "setId": "pending-motion"
+      }
+    ]
+  },
+  "value": {
+    "questionId": "motion",
+    "selections": [
+      {
+        "itemId": "tracks",
+        "optionId": "other",
+        "otherText": "  Exact Other words.\n끝  "
+      },
+      {
+        "itemId": "extent",
+        "optionId": "keep",
+        "otherText": null
+      },
+      {
+        "itemId": "speed",
+        "optionId": "keep",
+        "otherText": null
+      },
+      {
+        "itemId": "loop",
+        "optionId": "keep",
+        "otherText": null
+      },
+      {
+        "itemId": "blink",
+        "optionId": "keep",
+        "otherText": null
+      }
+    ],
+    "note": "  Synthetic page words.\n"
+  }
+}

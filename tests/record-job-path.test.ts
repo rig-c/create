@@ -319,7 +319,15 @@ test.each(['rigging-interview', 'post-interview'])('first unanswered %s question
   const registered = await cli(root, ['interview-options', question, root, '--file', path]);
   expect(registered.exit, registered.stderr).toBe(0);
   await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan'], 'JOB_RECORD_INCOMPLETE');
+  const beforeCheck = await cli(root, ['interview', '--check', root, '--json']);
+  const beforeCodes = JSON.parse(beforeCheck.stdout).refusals.map((finding: { code: string; path: string }) => [finding.code, finding.path]);
+  expect(beforeCodes).toContainEqual(['INTERVIEW_INCOMPLETE', item.path]);
   const opened = await open(root, ['--question', question]);
+  const afterCheck = await cli(root, ['interview', '--check', root, '--json']);
+  const afterCodes = JSON.parse(afterCheck.stdout).refusals.map((finding: { code: string; path: string }) => [finding.code, finding.path]);
+  expect(afterCodes).toEqual(beforeCodes);
+  expect(afterCheck.exit).toBe(beforeCheck.exit);
+  receipt({ control: 'ordinary-check-parity-before-after-record-publication', stage, beforeCodes, afterCodes, beforeExit: beforeCheck.exit, afterExit: afterCheck.exit });
   const owner = await page(root, opened.url, 1);
   const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
   const act = await owner.act('interview-picks', 'interview-picks', { questionId: question, selections, note: WORDS });

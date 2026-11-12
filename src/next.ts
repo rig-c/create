@@ -108,6 +108,7 @@ export interface NextReport {
   effective_stage: string;
   accepted: boolean;
   refusals: NextRefusal[];
+  warnings?: Finding[];
   awaits: string[];
   moves: NextMove[];
 }
@@ -541,6 +542,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
+  const structureWarnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW');
+  const warningFields = structureWarnings.length ? { warnings: structureWarnings } : {};
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
 
@@ -569,6 +572,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       effective_stage: effectiveStage,
       accepted: false,
       refusals,
+      ...warningFields,
       awaits: [],
       moves: [],
     };
@@ -603,7 +607,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         command: `rig-create ${writer} ${inputs} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
         act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
     }
-    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, awaits: awaitsList, moves };
+    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
   }
   const recordedLapseTargets = new Set<string>();
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
@@ -741,6 +745,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       effective_stage: effectiveStage,
       accepted: true,
       refusals,
+      ...warningFields,
       awaits: [],
       moves: [],
     };
@@ -1210,7 +1215,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             field: `versions[v${rigN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)`,
+            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)${structureWarnings.some(w => w.path === `versions[v${rigN}].provenance.structure_delta`) ? '; verdict covers changed structure' : ''}`,
             review_act: {
               kind: 'review-verdict',
               stage: 'rig-review',
@@ -1443,6 +1448,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     effective_stage: effectiveStage,
     accepted: false,
     refusals,
+    ...warningFields,
     awaits: awaitsList,
     moves,
   };
@@ -1455,6 +1461,7 @@ export function formatNext(report: NextReport): string {
       report.effective_stage !== report.stage ? ` (effective: ${report.effective_stage})` : ''
     }`,
   );
+  for (const w of report.warnings ?? []) lines.push(`  WARN [${w.code}]: ${w.message}`);
   if (report.refusals.length > 0) {
     lines.push(`refusals (${report.refusals.length}):`);
     for (const r of report.refusals) {

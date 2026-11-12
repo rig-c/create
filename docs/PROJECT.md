@@ -1552,6 +1552,23 @@ Each entry is the complete exact `meshes.<part>` declaration, including
 `contour.bust` or `contour.regions` where present. Paths use JSON Pointer
 escaping. Explicit `entries: []` is legal when no declarations are carried.
 
+A production config may differ from this snapshot only when a live (not
+reopened) `rigging-interview` sign-off with `checkpoint: null` follows that
+parts-review sign-off, and `interview.waypoints[meshes].guide.at` is strictly
+after parts-review and no later than the rigging-interview sign-off. The
+interview approval must already exist at the version's build time. Otherwise,
+answer the rigging meshes guide, or renew parts-review.
+
+`rig-version` computes `versions[n].provenance.structure_delta` from the
+retained snapshot and config: an ordered list of `{entry, snapshot, version}`,
+where `entry` is the snapshot JSON Pointer and the other fields are complete
+declarations (`version: null` means absent). It omits the field when unchanged.
+The check recomputes it and refuses `STRUCTURE_DELTA_MISMATCH` on disagreement.
+`interview --check` and `next` WARN `STRUCTURE_DELTA_REVIEW` with the entry count;
+the rig-review verdict and sign-off cover changed structure. No producer
+measurement or new review act is introduced.
+
+
 The parts verdict names no per-declaration approval: an approved verdict
 approves the reviewed draft. So `structure-snapshot` copies `draft_id` and the
 draft's own `config: {path, sha256}` binding, and writes one entry per key of

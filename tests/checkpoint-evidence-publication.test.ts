@@ -1,8 +1,7 @@
 /** Synthetic HTTP owner acts only. Each scoped host is stopped in finally. */
-import { expect } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import { startJobHost, type JobOwnerHost } from '@rig-c/review/job-host';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareDraftManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
@@ -13,9 +12,8 @@ import { TEST_NOW } from './clock.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import { arr, obj } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
-sourceOnlyTest('#395 sealed checkpoint record and package publications retain every asset and finalize owner routes', async () => {
+test('#395 sealed checkpoint record and package publications retain every asset and finalize owner routes', async () => {
   for (const mode of ['package-v2', 'package-v3', 'record-v3']) {
     const f = checkpointWorkspace();
     const state = tempDir();
@@ -104,11 +102,14 @@ sourceOnlyTest('#395 sealed checkpoint record and package publications retain ev
         if (!committed.ok) throw Error('synthetic owner act refused');
         if (committed.value.kind !== 'checkpoint') throw Error('synthetic checkpoint kind changed');
         const act = committed.value;
-        expect(act.value).toEqual({ ...value, planStepId: 'assemble' });
+        expect(act.value).toEqual(mode === 'record-v3' ? { ...value, planStepId: 'assemble' }
+          : { checkpointId: value.checkpointId, outcome: value.outcome, planStepId: 'assemble',
+            comments: [{ anchor: { checkpointId: 'assemble', planStepId: 'assemble' }, text: words }] });
         const fetched = await fetchReviewAct({ origin: owner.origin, jobId: owner.session.jobId, actId: String(act.actId),
           fetchCapability, kind: 'checkpoint' });
-        expect(decodeReviewAct(fetched.bytes, 'checkpoint')).toEqual(act);
-        acts.push(act);
+        const decoded = decodeReviewAct(fetched.bytes, 'checkpoint');
+        expect<unknown>(decoded).toEqual(act);
+        acts.push(decoded);
       }
       for (const act of acts.slice(1)) {
         const before = readFileSync(recordFile);
@@ -152,7 +153,7 @@ sourceOnlyTest('#395 sealed checkpoint record and package publications retain ev
   }
 }, 120_000);
 
-sourceOnlyTest('#395 SVG-backed package metadata refuses before checkpoint evidence projection', async () => {
+test('#395 SVG-backed package metadata retains sealed painting and checkpoint evidence', async () => {
   const f = checkpointWorkspace('svg');
   const state = tempDir();
   let host: JobOwnerHost | undefined;
@@ -181,16 +182,13 @@ sourceOnlyTest('#395 SVG-backed package metadata refuses before checkpoint evide
     const metadataResponse = await fetch(`${host.origin}/jobs/${host.session.jobId}/publications/${publication.publicationId}/instances/${publication.instanceKey}/api/review`, {
       headers: { 'X-Review-Capability': credentials.ui },
     });
-    expect(metadataResponse.status).toBe(409);
+    expect(metadataResponse.status).toBe(200);
     const metadata = await metadataResponse.json() as JsonObject;
-    expect(metadata).toEqual({ ok: false, error: { code: 'JOB_SOURCE_MISMATCH', message: 'JOB_SOURCE_MISMATCH' } });
-    expect(Object.hasOwn(metadata, 'checkpointEvidence')).toBe(false);
-    // Source-only read isolation asserts the underlying named producer refusal.
-    const reviewSource = dirname(Bun.resolveSync('@rig-c/review/job-host', import.meta.dir));
-    const { loadPartsView } = await import(pathToFileURL(join(reviewSource, 'parts-view.ts')).href);
-    await expect(loadPartsView(dirname(join(retained.snapshotRoot, retained.source.parts!.manifest.path)), {
-      painting: join(retained.snapshotRoot, String(painting.path)), paintingRoot: retained.snapshotRoot,
-    })).rejects.toThrow(/^PARTS_PAINTING_PNG:/);
+    const projected = obj(arr(metadata.checkpointEvidence)[0]);
+    expect(obj(projected.table).rows).toEqual(JSON.parse(readFileSync(join(f.root, String(obj(f.packet.table).path)), 'utf8')).rows);
+    expect(projected.routesText).toBe(f.packet.routesText);
+    expect(projected.recommendationText).toBe(f.packet.recommendationText);
+    expect(retained.seals).toContainEqual({ path: String(painting.path), sha256: String(painting.sha256) });
   } finally {
     host?.stop();
     rmSync(f.root, { recursive: true, force: true });

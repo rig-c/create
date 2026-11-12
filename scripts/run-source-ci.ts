@@ -24,10 +24,11 @@ const pins = JSON.parse(readFileSync(join(createRoot, 'scripts/source-ci-pins.js
   string
 >;
 const sourceOnlyTests = JSON.parse(
-  readFileSync(join(createRoot, 'scripts/source-only-tests.json'), 'utf8'),
+  readFileSync(join(createRoot, 'scripts/source-ci-tests.json'), 'utf8'),
 ) as readonly SourceOnlyTestEntry[];
 
 validateSourceOnlyList(sourceOnlyTests);
+if (sourceOnlyTests.length === 0) throw new Error('source-linked CI requires a non-empty coverage list');
 
 const hasSourceCondition =
   process.execArgv.includes(SOURCE_CONDITION_FLAG) ||

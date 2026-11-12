@@ -8,7 +8,6 @@ import { commitAdvance } from '../src/job-advance.ts';
 import { JOB_BINDING_FILE, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
@@ -272,7 +271,7 @@ test('forced publish failure after advance commits project.json, leaves JOB_PUBL
   expect(signed.kind).toBe('signoff');
 });
 
-sourceOnlyTest('advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox', async () => {
+test('advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox', async () => {
   const boundRoot = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(boundRoot, 'evidence/diff-components.json'));
   const opening = await open(boundRoot);

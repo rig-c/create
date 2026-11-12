@@ -18,7 +18,6 @@ import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewComm
 import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const REPO = join(import.meta.dir, '..');
 const CHAIN_DIR = join(REPO, 'templates/example-chain');
@@ -507,7 +506,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(afterCheck.refusals).toEqual([]);
   });
 
-  sourceOnlyTest('plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move', async () => {
+  test('plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move', async () => {
     // Route 1: CLI parts-verdict receipt (`rig-create/parts-verdict-cli@1`, uses `status: "approved"`).
     const cliDir = join(tempDir(), 'parts-cli-route');
     cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), cliDir, { recursive: true });

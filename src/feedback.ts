@@ -150,6 +150,35 @@ function refsOf(v: VersionRec): { index: number; version: number | null; verdict
   });
 }
 
+/** Shared reference validation. Historical records retain their original target rules. */
+export function feedbackReferenceFinding(project: JsonObject, n: number, ref: Json, path: string, humanBounce = false): { code: string; path: string; message: string } | null {
+  const bad = (why: string) => ({ code: 'FEEDBACK_REF_UNKNOWN', path, message: `${path}: ${why}; name an existing verdict on an earlier version` });
+  if (!isObject(ref) || !Number.isSafeInteger(ref.version) || !Number.isSafeInteger(ref.verdict) || Number(ref.verdict) < 0) return bad('expected { version, verdict } integers');
+  const target = versionsOf(project).find(v => v.n === ref.version);
+  const verdict = target === undefined ? undefined : asArray(target.record.verdicts)[Number(ref.verdict)];
+  if (!isObject(verdict) || Number(ref.version) >= n) return bad('target is absent or is not earlier');
+  if (humanBounce && (verdict.verdict !== 'bounced' || !isHuman(asString(verdict.by)))) return bad('target must be a human bounced verdict');
+  return null;
+}
+
+/** Repeatable writer input, validated before any outputs are retained. */
+export function parseFeedbackAnswers(project: JsonObject, n: number, values: string[]): JsonObject[] {
+  const refs: JsonObject[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const match = /^(\d+):(\d+)$/.exec(value);
+    const ref = match ? { version: Number(match[1]), verdict: Number(match[2]) } : null;
+    const path = `versions[v${n}].answers_feedback[${refs.length}]`;
+    const problem = feedbackReferenceFinding(project, n, ref, path, true);
+    if (problem) refuse(problem.code, problem.message);
+    const key = `${String(ref!.version)}:${String(ref!.verdict)}`;
+    if (seen.has(key)) refuse('FEEDBACK_REF_DUPLICATE', `${path}: duplicate ${key}; name each feedback verdict once`);
+    seen.add(key);
+    refs.push(ref!);
+  }
+  return refs;
+}
+
 /** Feedback refusals and warnings, appended to the context; returns one summary per human bounced verdict. */
 export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
   const versions = versionsOf(ctx.project);
@@ -163,18 +192,9 @@ export function checkFeedback(ctx: Ctx): FeedbackSummary[] {
   for (const v of versions) {
     for (const ref of refsOf(v)) {
       const path = `${v.path}.answers_feedback[${ref.index}]`;
-      if (ref.version === null || ref.verdict === null) {
-        push('FEEDBACK_REF_UNKNOWN', path, `${path}: an answering ref is { "version": <n>, "verdict": <index into its verdicts[]> }`);
-        continue;
-      }
-      const target = versions.find((t) => t.n === ref.version);
-      const verdict = target === undefined ? undefined : asArray(target.record.verdicts)[ref.verdict];
-      if (target === undefined || !isObject(verdict)) {
-        push('FEEDBACK_REF_UNKNOWN', path, `${path}: answers v${ref.version} verdict ${ref.verdict}, and ${target === undefined ? `there is no version ${ref.version}` : `versions[v${ref.version}].verdicts has no index ${ref.verdict}`}`);
-        continue;
-      }
-      if (ref.version >= v.n) {
-        push('FEEDBACK_REF_UNKNOWN', path, `${path}: v${v.n} answers versions[v${ref.version}].verdicts[${ref.verdict}], which is not an earlier version's; a version answers feedback given before it was built`);
+      const problem = feedbackReferenceFinding(ctx.project, v.n, { version: ref.version, verdict: ref.verdict }, path);
+      if (problem) {
+        push(problem.code, problem.path, problem.message);
         continue;
       }
       const key = `${ref.version}:${ref.verdict}`;

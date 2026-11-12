@@ -722,7 +722,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     }
   });
 
-  test('plant 6 (withdrawn acceptance): when changes-requested follows accepted on rig-review or direction-review, the human review-verdict move reappears', () => {
+  test('plant 6 (human bounce): rig and direction reviews name the agent rebuild instead of stale human acts', () => {
     // rig-review: accepted followed by changes-requested
     const rigDir = join(tempDir(), 'rig-withdrawn');
     cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), rigDir, { recursive: true });
@@ -765,19 +765,11 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       'bones:user',
     ]);
     const rigReport = nextProject(rigDir, CHAIN_NOW + 1000);
-    expect(rigReport.awaits).toContain('versions[n=1].verdicts[review=rig-review]');
-    expect(rigReport.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({
-      role: 'human',
-      field: 'versions[v1].verdicts',
-      awaits: 'versions[n=1].verdicts[review=rig-review]',
-      command: null,
-      review_act: {
-        kind: 'review-verdict',
-        stage: 'rig-review',
-        version_id: 'v1',
-        review: 'rig-review',
-      },
-    });
+    expect(rigReport.moves).toHaveLength(1);
+    expect(rigReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' });
+    expect(rigReport.moves[0]!.command).toContain('rig-version 2');
+    expect(rigReport.moves[0]!.command).toContain('--answers 1:1');
+    expect(rigReport.moves[0]!.act).toContain('answers_feedback');
 
     // direction-review: accepted followed by changes-requested (bounced) on post v2
     const postDir = join(tempDir(), 'post-withdrawn');
@@ -865,19 +857,11 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     ]);
 
     const postReport = nextProject(postDir, CHAIN_NOW + 2000);
-    expect(postReport.awaits).toContain('versions[n=2].verdicts[review=direction-review]');
-    expect(postReport.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({
-      role: 'human',
-      field: 'versions[v2].verdicts',
-      awaits: 'versions[n=2].verdicts[review=direction-review]',
-      command: null,
-      review_act: {
-        kind: 'review-verdict',
-        stage: 'direction-review',
-        version_id: 'v2',
-        review: 'direction-review',
-      },
-    });
+    expect(postReport.moves).toHaveLength(1);
+    expect(postReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=3]' });
+    expect(postReport.moves[0]!.command).toContain('direction write 3');
+    expect(postReport.moves[0]!.command).toContain('--answers 2:1');
+    expect(postReport.moves[0]!.act).toContain('answers_feedback');
   });
 
   test('plant 7 (build/rig + build/render draft layout with inside figure mask): reuses draft diff-components report when sha matches and carries stack + --figure when re-run is required', () => {

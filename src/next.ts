@@ -578,6 +578,32 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     if (!awaitsList.includes(target)) awaitsList.push(target);
   };
   const moves: NextMove[] = [];
+  // The check owns bounce/withdrawal/answer logic; consume its open findings.
+  const openFeedback = report.warnings.filter(w => w.code === 'FEEDBACK_OPEN');
+  if (openFeedback.length > 0) {
+    const versions = asArray(project.versions).filter(isObject);
+    const n = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
+    const groups = new Map<string, { version: number; verdict: number }[]>();
+    for (const finding of openFeedback) {
+      const summary = report.feedback.find(f => f.verdict === finding.path);
+      if (!summary) continue;
+      const kind = versions.find(v => v.n === summary.version)?.kind;
+      if (kind !== 'rig' && kind !== 'post') continue;
+      groups.set(kind, [...(groups.get(kind) ?? []), { version: summary.version, verdict: summary.index }]);
+    }
+    for (const [kind, refs] of groups) {
+      const field = `versions[n=${n}]`;
+      addAwait(field);
+      const writer = kind === 'rig' ? `rig-version ${n}` : `direction write ${n}`;
+      const inputs = kind === 'rig'
+        ? '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --at-source <file> --at-pointer <pointer> --by <agent>'
+        : '--file <direction.json> --rig <rig-version>';
+      moves.push({ role: 'agent', field: 'versions', awaits: field,
+        command: `rig-create ${writer} ${inputs} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
+        act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
+    }
+    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, awaits: awaitsList, moves };
+  }
   const recordedLapseTargets = new Set<string>();
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
   const withdrawnCheckpoint = (id: string): boolean => steps.some(step => step.id === id

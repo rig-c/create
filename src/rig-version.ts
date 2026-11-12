@@ -11,7 +11,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { asArray, checkProject, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
-import { readProject } from './feedback.ts';
+import { parseFeedbackAnswers, readProject } from './feedback.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { collectReopens, reopenTime } from './reopen.ts';
@@ -638,6 +638,7 @@ export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <di
   --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--json]
   Copy and hash frozen producer outputs. Retain an explicitly declared npm lock, producer run records and UTC not-after date.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
+  Repeat --answers <version>:<verdict> to answer earlier human bounced feedback.
   Source arguments resolve against the project directory; external frozen sources are permitted.`;
 
 interface SourceFile { source: string; bytes: Buffer }
@@ -646,12 +647,17 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const positional: string[] = [];
   const options: Record<string, string> = {};
   const runRecords: string[] = [];
+  const answerValues: string[] = [];
   const flags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by', '--citations'];
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') json = true;
-    else if (arg === '--run-record') {
+    else if (arg === '--answers') {
+      const value = args[++i];
+      if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--answers needs version:verdict');
+      answerValues.push(value);
+    } else if (arg === '--run-record') {
       const value = args[++i];
       if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--run-record needs one value');
       runRecords.push(value);
@@ -688,6 +694,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const registeredNumbers = new Set(project.versions.map(v => (v as JsonObject).n as number));
     const maxRegistered = Math.max(0, ...registeredNumbers);
     if (n <= maxRegistered || registeredNumbers.has(n)) fail('RIG_REGISTRATION_INVALID', 'versions', 'use a version number after all registered versions');
+    const answersFeedback = parseFeedbackAnswers(project, n, answerValues);
     // Refuse missing public idle provenance before copying any project input.
     const idleSource = resolve(dir, options['--idle']!);
     if (!existsSync(join(idleSource, 'frames.json'))) fail('RIG_IDLE_MANIFEST_MISSING', `versions[v${n}].registration.idle`, 'supply rigc render output with frames.json');
@@ -993,7 +1000,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       if (!isObject(sections)) fail('RIG_REGISTRATION_FILE_INVALID', 'provenance.sections', 'citations must be a section map');
     }
     const version: JsonObject = { n, kind: 'rig', rig_version: null, at, at_basis: 'not-after', at_source: atSource,
-      built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: [], review_origin: null,
+      built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: answersFeedback, review_origin: null,
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections },
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
         ...(runs.length ? { runs } : {}),

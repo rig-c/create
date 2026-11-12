@@ -39,11 +39,13 @@ The act has no version selector. Its record hash binds the exact displayed
 selects the current/latest live post and its accepted live direction verdict.
 Earlier accepted post versions do not make the current target ambiguous.
 Missing, duplicate or unaccepted current targets refuse
-`REVIEW_ACT_RECORD_TARGET_INVALID`. Create's own receipt retains `record_bytes`,
-whose hash must equal the act's record hash; ledger validation resolves the
-target from those frozen bytes even after later records or reopens. Review's
-wire shape is unchanged. Immutable-byte replay precedes current-record checks;
-a changed act or frozen receipt refuses without writing.
+`REVIEW_ACT_RECORD_TARGET_INVALID`. Create's compact receipt retains
+`record_sha256`, equal to the act's record hash, plus the resolved
+`target_version` and `verdict` reference. Ledger validation and replay compare
+that target with the recorded signoff and verify the act's hash binding even
+after later records or reopens. The full record is not copied into its receipt;
+Review's wire shape is unchanged. Immutable-byte replay precedes current-record
+checks; a changed act or compact receipt refuses without writing.
 
 The default in `parts` and `parts-review` publishes the latest recorded draft.
 `--draft` names a recorded draft in any stage. Opening asks every subject that publication declares (see

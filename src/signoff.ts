@@ -137,7 +137,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       return { stdout: json ? JSON.stringify(ingest.replay, null, 2) : `signoff: ${stage} checkpoint ${opts['--checkpoint']} already recorded from ${ingest.source}; nothing written`, exit: 0 };
     }
   }
-  // A target stage signs the version Review displayed: the act's selector, never a flag, names it.
+  // A target stage signs Review's selector or the exact displayed record, never a flag-selected replacement.
   let targetVersion = opts['--version'];
   if (review !== undefined && stage in SIGNOFF_TARGET_KINDS && !isRecordDirectionSignoff(review.act)) {
     const shown = signoffActVersion(review.act);
@@ -291,7 +291,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (review !== undefined) {
     project.review_acts = [...asArray(project.review_acts), { schema: 'rig-create/review-act@1', kind: 'signoff', jobId: review.act.jobId, actId: review.act.actId,
       stage, bytes: review.bytes, sha256: jobHash(review.bytes), version_hash: jobHash(JSON.stringify(signoffActIdentity(review.act))),
-      ...(isRecordDirectionSignoff(review.act) ? { record_bytes: original!.toString('utf8') } : {}) }];
+      ...(isRecordDirectionSignoff(review.act) ? { record_sha256: review.act.source.projectHash,
+        target_version: target!.version!, verdict: target!.verdict! } : {}) }];
     const invalid = reviewActFindings(project)[0];
     if (invalid !== undefined) refuse(invalid.code, invalid.message);
   }

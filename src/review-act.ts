@@ -475,7 +475,7 @@ export function signoffActVersion(act: SignoffAct): number | null {
   return Number.isSafeInteger(selector.version) && Number(selector.version) >= 1 ? Number(selector.version) : null;
 }
 
-/** The Review wire shape stays unchanged; Create retains the hash-bound record for replay/check. */
+/** The Review wire shape stays unchanged; Create resolves record targets before ingest. */
 export function isRecordDirectionSignoff(act: SignoffAct): boolean {
   return act.schema === 'rig-review/act@4' && String(act.value.stage) === 'direction-review';
 }
@@ -550,11 +550,15 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
         const expected = reviewActSignoff(act);
         const recorded = asArray(project.signoffs).filter(object).filter(signoff => signoff.source === expected.source);
         const target = recorded.length === 1 && object(recorded[0]!.target) ? recorded[0]!.target : null;
-        const shown = isRecordDirectionSignoff(act)
-          ? typeof entry.record_bytes === 'string' ? recordSignoffActVersion(act, entry.record_bytes) : null
+        const recordDirection = isRecordDirectionSignoff(act);
+        const shown = recordDirection
+          ? Number.isSafeInteger(entry.target_version) && Number(entry.target_version) > 0
+            && entry.record_sha256 === act.source.projectHash
+            && 'record' in act.source && act.source.record?.sha256 === entry.record_sha256 ? Number(entry.target_version) : null
           : signoffActVersion(act);
         if (entry.stage !== act.value.stage || entry.version_hash !== jobHash(JSON.stringify(signoffActIdentity(act))) || recorded.length !== 1
           || Object.entries(expected).some(([key, value]) => recorded[0]![key] !== value)
+          || recordDirection && (typeof entry.verdict !== 'string' || target?.verdict !== entry.verdict)
           // A target stage's signature belongs to the version the person was shown.
           || act.value.stage in SIGNOFF_TARGET_KINDS && (target === null || shown === null || target.version !== shown)) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded signoff differs from the immutable act');

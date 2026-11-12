@@ -41,6 +41,9 @@ declaration checks sibling inputs for the same artwork. Older records may omit i
    Record verdicts with `review <version> --from-review <actId>` through the live job API.
 4. **Direction**. Ask after rig acceptance; judge at direction-review.
 
+Show a registered set: `job open --reviewer <id> --role owner --question <id>`;
+use `--plan` for plan asks. Ingest with `--from-review <actId>`, then advance.
+
 Use `advance <stage>`, `step-status <id>`; see `rig-create --help`.
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
 refusing {{PARTS_CHECK_LINK}}.

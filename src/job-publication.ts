@@ -22,11 +22,11 @@ import {
   withCandidateProject,
 } from './collection-binding-reader.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
-import { approvalStageOfStep, hasStageOrder, stageOfStep } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, stageOfStep } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { packageSignSubjects, stageSignable } from './signable.ts';
 import { latestPartsApproval, riggingContext } from './structure.ts';
-import { jobHash, type JobIdentity } from './job-outbox.ts';
+import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -245,10 +245,24 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     // The closure is every project file the check reads, so a retained copy gives the check identical bytes.
     const report = checkProject(root, project, { now, readOnly: true, recordReads: true });
     for (const { path, sha256 } of report.reads ?? []) seal({ path, sha256 });
-    if (report.refusals.length && phase === 'retained') {
-      throw new RecordClosureIncomplete(report.refusals.map(({ code, path }) => ({ code, path })));
+    // A pick is how an open interview receives its first answer. Its own silent
+    // questions are todos, as in next/advance; they are not a plan-approval waiver.
+    const openQuestions = result.kind === 'option-set' && ['interview', 'rigging-interview', 'post-interview'].includes(String(report.effective_stage))
+      ? new Set(items.filter(item => item.state.state === 'silent'
+        && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === report.effective_stage).map(item => item.path))
+      : new Set<string>();
+    const blocking = report.refusals.filter(finding => finding.code !== 'INTERVIEW_INCOMPLETE' || !openQuestions.has(finding.path));
+    if (blocking.length && phase === 'retained') {
+      throw new RecordClosureIncomplete(blocking.map(({ code, path }) => ({ code, path })));
     }
-    const finding = report.refusals[0] ?? report.holes?.[0];
+    // A record publication necessarily owns an outbox entry while its official reader
+    // inventories it. Ignore only that exact record/result's pending transport hole;
+    // an unrelated, stale or malformed outbox continues to block publication.
+    const pending = phase === 'inventory' ? pendingPublications(root) : [];
+    const ownPending = pending.length > 0 && pending.every(entry => entry.phase === 'pending'
+      && entry.recordHash === record.sha256 && isRecordResult(entry.result) && isDeepStrictEqual(entry.result, result));
+    const holes = ownPending ? report.holes?.filter(hole => hole.code !== 'JOB_PUBLISH_PENDING') : report.holes;
+    const finding = blocking[0] ?? holes?.[0];
     if (finding) throw Error(`${finding.code} at ${finding.path}`);
     const stage = report.effective_stage;
     let subjects: RecordPlanSubject[] = [];
@@ -297,7 +311,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
   }
 }
 
-export function currentJobIdentity(saved: Pick<JobIdentity, 'root' | 'stateDir' | 'fingerprint' | 'reviewer'>, root: string): JobIdentity {
+export function currentJobIdentity(saved: Pick<JobIdentity, 'root' | 'stateDir' | 'fingerprint' | 'reviewer' | 'publicationMode'>, root: string): JobIdentity {
   return { ...saved, root: realpathSync(root), readerId: JOB_READER_ID, bindingId: JOB_BINDING_ID,
     partsEnumeratorId: JOB_ENUMERATOR_ID, apiSchema: JOB_API_SCHEMA, actSchema: JOB_ACT_SCHEMA,
     enumeratorVersion: partsEnumerator.version };

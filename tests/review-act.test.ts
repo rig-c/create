@@ -72,7 +72,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     return result.value;
   }
   const selector = n === 1 ? { kind: 'rig', version: n } : { kind: 'post', version: n, rigVersion: 1 };
-  const entry = enqueuePublication(root, readWriterBinding(root)!, { path, selector: selector as Parameters<typeof enqueuePublication>[2]['selector'] });
+  const entry = enqueuePublication(root, readWriterBinding(root)!, { path, selector: selector as NonNullable<Parameters<typeof enqueuePublication>[2]['selector']> });
   const publication = await agent('publish', { result: { path, selector }, freeze: { kind: 'producer-held', holdId: 'synthetic-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) } } });
   acknowledgePublication(entry, String(publication.publicationId), Number(publication.generation), 'synthetic-request');
   rmSync(join(root, '.rig-create-review/outbox'), { recursive: true });

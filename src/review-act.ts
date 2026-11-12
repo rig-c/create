@@ -27,7 +27,7 @@ export type PartsIssue = {
 };
 /** Review's JobAct now includes comments; legacy adapters keep their original source guarantees. */
 type LegacyJobAct = Exclude<JobAct, { schema: typeof JOB_COMMENTS_ACT_SCHEMA }>;
-export type InterviewPicksAct = Extract<LegacyJobAct, { kind: 'interview-picks' }>;
+export type InterviewPicksAct = Extract<LegacyJobAct | RecordAct, { kind: 'interview-picks' }>;
 export type PartsVerdictActV2 = Extract<LegacyJobAct, { kind: 'parts-verdict' }>;
 export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
   readonly schema: 'rig-review/act@5';
@@ -46,7 +46,7 @@ type CommentsReviewVerdictAct = Extract<JobCommentsAct, { kind: 'review-verdict'
 export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct;
 type LegacyCheckpointAct = Extract<LegacyJobAct | RecordAct, { kind: 'checkpoint' }>;
 export type CheckpointAct = LegacyCheckpointAct | (Extract<JobCommentsAct, { kind: 'checkpoint' }> & { source: LegacyCheckpointAct['source'] });
-type LegacySignoffAct = Extract<LegacyJobAct, { kind: 'signoff' }>;
+type LegacySignoffAct = Extract<LegacyJobAct | RecordAct, { kind: 'signoff' }>;
 export type SignoffAct = LegacySignoffAct | (Extract<JobCommentsAct, { kind: 'signoff' }> & { source: LegacySignoffAct['source'] });
 /** Review requires a displayed plan before it creates a signoff act for these stages (job-contract JOB_PLAN_BOUND_SIGNOFF_STAGES). */
 export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'rigging-interview', 'post-interview'];
@@ -152,12 +152,12 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
   if (act.schema === JOB_COMMENTS_ACT_SCHEMA) return decodeCommentsReviewAct(act, kind);
-  if (kind === 'checkpoint' && act.schema === 'rig-review/act@4') {
+  if (['checkpoint', 'interview-picks', 'signoff'].includes(kind) && act.schema === 'rig-review/act@4') {
     try {
       const recordAct = parseRecordAct(act);
-      if (recordAct.kind !== 'checkpoint') return failure('REVIEW_ACT_KIND_MISMATCH', 'record act is not a checkpoint');
-      return recordAct;
-    } catch { return failure('REVIEW_ACT_INVALID', 'record checkpoint act or its sealed source is malformed'); }
+      if (recordAct.kind !== kind) return failure('REVIEW_ACT_KIND_MISMATCH', 'record act kind differs from requested kind');
+      return recordAct as CheckpointAct | InterviewPicksAct | SignoffAct;
+    } catch { return failure('REVIEW_ACT_INVALID', 'record act or its sealed source is malformed'); }
   }
   if (act.schema !== 'rig-review/act@2' && !(kind === 'review-verdict' && act.schema === 'rig-review/act@3')
     && !(kind === 'parts-verdict' && act.schema === 'rig-review/act@5')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
@@ -453,12 +453,12 @@ export function reviewActSignoff(act: SignoffAct): JsonObject {
  * acknowledged receipt keeps the subjects create published; a receipt that predates
  * them, or none (a clone), leaves only Review's own ask binding to vouch for it.
  */
-export function assertActSubjectDeclared(root: string, act: SignoffAct | CheckpointAct, path: string): void {
+export function assertActSubjectDeclared(root: string, act: SignoffAct | CheckpointAct | InterviewPicksAct, path: string): void {
   const receipt = readAcknowledgedPublication(root, act.jobId, act.publicationId);
   if (receipt?.subjects === undefined) return;
-  const subject = act.kind === 'signoff' ? { kind: 'signoff', stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
+  const subject = act.kind === 'interview-picks' ? { kind: 'interview-picks', questionId: act.value.questionId, setId: act.source.optionSet.id } : act.kind === 'signoff' ? { kind: 'signoff', stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
   if (receipt.subjects.some(declared => isDeepStrictEqual(declared, subject))) return;
-  const named = act.kind === 'signoff' ? `signs ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
+  const named = act.kind === 'interview-picks' ? `answers ${act.value.questionId}` : act.kind === 'signoff' ? `signs ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
   refuse('REVIEW_ACT_SUBJECT_UNDECLARED', `${path}: act ${act.jobId}/${act.actId} ${named}, which its publication ${act.publicationId} did not declare; ask for it in Review on a publication made while the record can sign it`);
 }
 

@@ -155,6 +155,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       if (recorded === undefined) refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json.review_acts: the signoff this act recorded is absent; restore its signoffs[] entry');
       return { stdout: json ? JSON.stringify(recorded, null, 2) : `signoff: replayed ${stage} by ${by} at ${String(recorded.at)}; stage unchanged`, exit: 0 };
     }
+    if (review.act.schema === 'rig-review/act@4' && review.act.source.projectHash !== jobHash(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: displayed signoff record differs; publish the current plan and ask again');
     if (PLAN_BOUND_SIGNOFF_STAGES.includes(stage)) {
       const displayed = review.act.source.plan?.steps ?? [];
       const current = asArray(isObject(project.plan) ? project.plan.steps : undefined).map(raw => ({ id: isObject(raw) ? raw.id ?? null : null, hash: isObject(raw) ? stepHash(raw) : null }));

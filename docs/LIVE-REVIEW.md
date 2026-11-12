@@ -355,7 +355,8 @@ again.
 Interview picks use `job open --question <id>`. After ingesting every pick,
 run `interview --check`, then `job open --plan` for the interview signature.
 This record route requires the [Review #803](https://github.com/rig-c/review/pull/803)
-carrier (issue #800); registry Review 2.13.0
+carrier (issue #800) at dev pin
+`1c9cc67edec3258ce2467cc50fa37275f4e452cf`; registry Review 2.13.0
 does not accept that stage. The record subject is `plan`, with non-empty
 displayed steps, even though the signature approves the interview answers
 and does not approve or fill the plan's checkpoints. After advancing,

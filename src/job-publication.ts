@@ -25,6 +25,8 @@ import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, stageOfStep } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { packageSignSubjects, stageSignable } from './signable.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
+import { acceptedReviewVerdict } from './review.ts';
 import { latestPartsApproval, riggingContext } from './structure.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -277,6 +279,16 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       label = `option-set ${result.questionId} / ${result.setId}`;
     } else if (result.kind === 'plan') {
       if (!plan) throw Error('the requested plan is absent');
+      if (stage === 'direction-review') {
+        const reopens = collectReopens(project, []);
+        const post = asArray(project.versions).filter(isObject).filter(version => version.kind === 'post'
+          && liveSignoff(reopens, 'post', Date.parse(String(version.at)))).at(-1);
+        const verdictIndex = post ? acceptedReviewVerdict(post, stage) : -1;
+        const verdict = verdictIndex >= 0 ? asArray(post?.verdicts)[verdictIndex] : undefined;
+        if (!isObject(verdict) || !liveSignoff(reopens, 'post', Date.parse(String(verdict.at)))) {
+          refuse('JOB_DIRECTION_VERDICT_REQUIRED', 'project.json.versions: the current live post has no accepted direction-review verdict; open it with job open --rig <n> and ingest review <n> --from-review <actId> before requesting the direction sign-off');
+        }
+      }
       const planPhase = stage === 'post-interview' ? 'post' : 'rig';
       const covered = steps.filter(step => step.phase === planPhase && approvalStageOfStep(planPhase, String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage);
       const signable = stage !== null && ['plan-approved', 'rigging-interview', 'post-interview'].includes(stage) && stageSignable(project, stage);
@@ -307,7 +319,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     return { label, parts, inputs, files, ...evidence,
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
-    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING'].includes(error.code))) throw error;
+    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED'].includes(error.code))) throw error;
     refuse('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
   }
 }
@@ -450,7 +462,8 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
   const subjects: JobPublishedContext['subjects'] = [{ kind: 'review-verdict', stage: selector.kind === 'post' ? 'direction-review' : 'rig-review' },
-    ...packageSignSubjects(project, effectiveStage(root, project), selector, steps.length)];
+    // The legacy direction panel accepts only the verdict on a post publication.
+    ...(selector.kind === 'post' ? [] : packageSignSubjects(project, effectiveStage(root, project), selector, steps.length))];
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },

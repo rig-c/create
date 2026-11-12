@@ -485,9 +485,14 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
   const draftContext = targetSelector?.kind === 'draft'
     ? draftPublicationContext(root, JSON.parse(bytes.toString('utf8')), targetSelector.id, warnings)
     : undefined;
+  // Re-publish an older post head that still declares a sign-off or checkpoint:
+  // either pending ask would prevent the legacy direction panel from rendering.
+  const currentSubjects = draftContext?.subjects ?? (targetSelector?.kind === 'post'
+    ? [{ kind: 'review-verdict' as const, stage: 'direction-review' as const }]
+    : undefined);
   const reuseHead = Boolean(head && headSelector && source?.projectHash === jobHash(bytes) && (
     targetSelector === undefined || isDeepStrictEqual(headSelector, targetSelector)
-  ) && (draftContext === undefined || isDeepStrictEqual(acknowledged?.subjects, draftContext.subjects)));
+  ) && (currentSubjects === undefined || isDeepStrictEqual(acknowledged?.subjects, currentSubjects)));
   let selector: JobSelector;
   let outcomes: AskOutcome[];
   let published: boolean;

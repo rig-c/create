@@ -192,7 +192,7 @@ test('advance rig-review on a bound job publishes the current rig, asks review-v
   expect(pendingPublications(root)).toEqual([]);
 });
 
-test('advance direction-review on a bound job publishes the current post, asks review-verdict and signoff, and ingests both UI acts via CLI', async () => {
+test('advance direction-review on a bound job publishes the current post, asks only the verdict, ingests it, and leaves acceptance blocked', async () => {
   const root = copy('example-chain', project => {
     project.stage = 'post';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'direction-review' && entry.stage !== 'accepted');
@@ -206,24 +206,23 @@ test('advance direction-review on a bound job publishes the current post, asks r
   expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(read(root).stage).toBe('direction-review');
 
-  const person = await page(opening.url);
+  const person = await page(opening.url, 1);
   expect((person.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
   expect(person.asks.map(ask => ask.subject)).toEqual([
     { kind: 'review-verdict', stage: 'direction-review' },
-    { kind: 'signoff', stage: 'direction-review' },
   ]);
 
   const verdict = await person.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
-  const signed = await person.act('signoff', 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
 
   const reviewed = await cli(root, ['review', '2', root, '--from-review', String(verdict.actId), '--json']);
   expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
-  const signoffRes = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId), '--json']);
-  expect({ exit: signoffRes.exit, stderr: signoffRes.stderr }).toEqual({ exit: 0, stderr: '' });
-
+  const frozen = readFileSync(join(root, 'project.json'));
   const toAccepted = await cli(root, ['advance', 'accepted', root, '--json']);
-  expect({ exit: toAccepted.exit, stderr: toAccepted.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(read(root).stage).toBe('accepted');
+  expect(toAccepted.exit).toBe(1);
+  expect(toAccepted.stderr).toContain('ADVANCE_UNAUTHORIZED:');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(frozen);
+  expect(read(root).stage).toBe('direction-review');
+  expect((read(root).signoffs as JsonObject[]).some(signature => signature.stage === 'direction-review')).toBe(false);
   const report = checkProject(root, undefined, { now: Date.now() });
   expect(report.refusals).toEqual([]);
   expect(report.holes ?? []).toEqual([]);

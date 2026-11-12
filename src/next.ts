@@ -1321,7 +1321,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             field: `versions[v${postN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${postN}] (direction-review)`,
+            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>; direction-review sign-off remains blocked pending an upstream Review change (rig-c/review#794)`,
             review_act: {
               kind: 'review-verdict',
               stage: 'direction-review',
@@ -1343,8 +1343,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           command: null,
           act:
             postN === null
-              ? `review-tool act signoff for stage direction-review (unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
-              : 'review-tool act signoff for stage direction-review',
+              ? `direction-review sign-off is blocked pending an upstream Review change (rig-c/review#794; unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json); do not advance to accepted`
+              : `direction-review sign-off for v${postN} is blocked pending an upstream Review change (rig-c/review#794); retain the recorded verdict and do not advance to accepted`,
           review_act: {
             kind: 'signoff',
             stage: 'direction-review',

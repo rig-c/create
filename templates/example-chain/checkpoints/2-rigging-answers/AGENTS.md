@@ -39,12 +39,14 @@ Older records may omit it.
    and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ([PROJECT.md § Labelled draft rigs](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#labelled-draft-rigs-and-structure-decisions)).
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
    against approved parts/structure; use interview-options/answer/decision.
-3. **Rig and animation**. Hand pass is rig-review's correction loop; keep feedback.
-   Record verdicts with `review <version> --from-review <actId>` through the live job API.
-4. **Direction**. Ask after rig acceptance; judge at direction-review.
+3. **Rig and animation**. Keep rig feedback.
+   Ingest: `review <version> --from-review <actId>`.
+4. **Direction**. `job open --rig <post>` asks the verdict only.
+   Ingest `review <post> --from-review <actId>`. Sign-off is blocked
+   pending an upstream Review change; do not advance to accepted.
 
-Show a registered set: `job open --reviewer <id> --role owner --question <id>`;
-use `--plan` for plan asks. Ingest with `--from-review <actId>`, then advance.
+Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
+ingest `--from-review <actId>`, then advance.
 
 Use `advance <stage>`, `step-status <id>`; see `rig-create --help`.
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,

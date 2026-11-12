@@ -1,12 +1,13 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { askOutcomeLines, assertRequestedDraft, assertRequestedRig, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
+import { askOutcomeLines, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, reconcilePublication } from './job-outbox.ts';
+import { jobActsText } from './job-acts.ts';
 import { Refusal, refuse } from './refusal.ts';
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; now: number };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; now: number; json?: boolean };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'publish': {
@@ -23,6 +24,11 @@ async function run(): Promise<void> {
       const lines = askOutcomeLines(outcomes);
       if (lines.length) console.log(lines.join('\n'));
       refuseAskOutcomes(outcomes);
+      break;
+    }
+    case 'acts': {
+      const result = await listCreateJobActs(root);
+      console.log(input.json ? JSON.stringify(result) : jobActsText(result));
       break;
     }
     case 'reconcile': console.log(`job: reconciled ${await reconcileCreateJob(root)} publication(s)`); break;
@@ -78,7 +84,7 @@ async function run(): Promise<void> {
       }
       break;
     }
-    default: refuse('JOB_BINDING_INVALID', 'project.json: use rig-create job open|reconcile|close');
+    default: refuse('JOB_BINDING_INVALID', 'project.json: use rig-create job open|acts|reconcile|close');
   }
 }
 

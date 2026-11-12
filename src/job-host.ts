@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector, type JobSubject } from '@rig-c/review/job-host';
+import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector, type JobSubject, type JobEventV3, type ActV3 } from '@rig-c/review/job-host';
 import { asArray, checkProject, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { liveManifestPath, draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, type JobIdentity, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
+import { attachCreateJobForClose } from './job-close.ts';
+import { pendingJobActs, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -218,21 +220,53 @@ async function agentCall(host: JobOwnerHost, body: object): Promise<AgentReply> 
   return await response.json() as AgentReply;
 }
 
-/** The subjects already asked on this publication, from the job's own event log. */
-async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise<JobSubject[]> {
-  const asked: JobSubject[] = [];
+/** The shared agent-next traversal; listing is strict while existing ask retries retain their contract. */
+async function* jobEvents(host: JobOwnerHost, strict = false): AsyncGenerator<JobEventV3> {
   let after: unknown = null;
   for (let page = 0; page < 10_000; page++) {
-    const reply = await agentCall(host, { verb: 'next', after, waitMs: 0 });
-    const events = reply.ok ? reply.value?.events : undefined;
-    if (!Array.isArray(events)) break;
-    for (const event of events as { type?: unknown; ask?: { publicationId?: unknown; subject?: JobSubject } }[]) {
-      if (event?.type === 'pending' && event.ask?.publicationId === publicationId && event.ask.subject) asked.push(event.ask.subject);
+    let reply: AgentReply;
+    try { reply = await agentCall(host, { verb: 'next', after, waitMs: 0 }); }
+    catch (error) {
+      if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job event read failed; restore the bound host and retry job acts');
+      throw error;
     }
-    if (reply.value?.status !== 'events' || reply.value.cursor === after) break;
+    const events = reply.ok ? reply.value?.events : undefined;
+    if (!Array.isArray(events)) {
+      if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job refused its event stream; restore the bound host and retry job acts');
+      return;
+    }
+    for (const event of events as JobEventV3[]) yield event;
+    if (reply.value?.status !== 'events' || reply.value.cursor === after) return;
     after = reply.value.cursor;
   }
+  if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live event stream exceeded the paging bound; retry job acts on a quiescent job');
+}
+
+/** The subjects already asked on this publication, from the same event reader as job acts. */
+async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise<JobSubject[]> {
+  const asked: JobSubject[] = [];
+  for await (const event of jobEvents(host)) {
+    if (event.type === 'pending' && event.ask.publicationId === publicationId) asked.push(event.ask.subject as JobSubject);
+  }
   return asked;
+}
+
+/** Read through the official strict attachment; never bootstrap, publish or install a writer binding. */
+export async function listCreateJobActs(
+  root: string,
+  startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+): Promise<{ jobId: string; acts: PendingJobAct[] }> {
+  try { root = realpathSync(root); }
+  catch { refuse('JOB_HOST_ATTACH_REFUSED', 'project.json: project has no bound live host; open it with job open before job acts'); }
+  const binding = readWriterBinding(root);
+  if (!binding) refuse('JOB_HOST_ATTACH_REFUSED', 'project.json: no bound live host; open it with job open before job acts');
+  const host = await attachCreateJobForClose(root, binding, startHost);
+  try {
+    const project: JsonObject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+    const acts: ActV3[] = [];
+    for await (const event of jobEvents(host, true)) if (event.type === 'act') acts.push(event.act);
+    return { jobId: binding.jobId, acts: pendingJobActs(project, acts, root) };
+  } finally { host.stop(); }
 }
 
 /**

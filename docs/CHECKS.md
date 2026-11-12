@@ -1566,3 +1566,18 @@ the recorded generation; the original publication remains byte-identical.
 | `SOURCE_PIN_ANCESTRY` | `scripts/source-ci-pins.json` names a SHA before the package's release tag, or release metadata/history is unavailable or not exact | fetch complete sibling history and tags; choose a SHA at or after the exact `package.json` release pin; play uses the dependency at the release-pinned Review tag |
 
 | `CONSUMER_CI_COVERAGE` | `scripts/consumer-ci-tests.json` names an absent case, registry check does not pass it, or source CI skips any other case | restore exact consumerOnlyTest registration and registry execution; run every other source case |
+
+### Listing finalized Review acts
+
+`job acts [<dir>] [--json]` reads the bound live host's agent `next` events,
+using the same reader as publication ask reconciliation. It lists finalized
+acts absent from `project.json.review_acts` and signoff source identities,
+with their exact writer arguments/POSIX-quoted command. It never ingests, advances,
+creates a host or writes the project/binding/outbox. Empty lists succeed.
+A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
+`job open`. The existing strict close attachment preserves stored identities.
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `JOB_ACTS_READ_REFUSED` | `project.json`: the live job refused or failed its event stream, or paging did not finish within the bound. Restore the bound live host and retry `job acts` on a quiescent job. |
+| `JOB_ACTS_WRITER_UNAVAILABLE` | `project.json`: a listed act has no current writer target (for example a removed checkpoint step or a subject without a Create adapter). Its command is null, not guessed. Restore the named plan step or use a supported Review subject before ingestion. |

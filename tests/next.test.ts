@@ -18,6 +18,7 @@ import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewComm
 import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import type { JsonObject } from '../src/templates.ts';
 
 const REPO = join(import.meta.dir, '..');
 const CHAIN_DIR = join(REPO, 'templates/example-chain');
@@ -26,6 +27,40 @@ const REMESH_DIR = join(REPO, 'templates/example-remesh');
 const CHAIN_NOW = EXAMPLE_NOW;
 
 afterEach(() => testClock.reset());
+
+test('#467 next offers the direction verdict page and retains the upstream sign-off blocker after ingest', () => {
+  const dir = join(tempDir(), 'direction-pages');
+  cpSync(CHAIN_DIR, dir, { recursive: true });
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  project.stage = 'direction-review';
+  project.signoffs = arr(project.signoffs).filter(entry => obj(entry).stage !== 'direction-review');
+  project.advances = arr(project.advances).filter(entry => obj(entry).stage !== 'accepted');
+  const post = arr(project.versions).map(obj).find(version => version.n === 2)!;
+  const accepted = post.verdicts;
+  post.verdicts = [];
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  const before = nextProject(dir, CHAIN_NOW);
+  expect(before.moves.find(move => move.review_act?.kind === 'review-verdict')).toMatchObject({
+    command: null,
+    act: expect.stringContaining('job open --rig 2'),
+    review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v2', review: 'direction-review' },
+  });
+  const pendingSignoff = before.moves.find(move => move.review_act?.kind === 'signoff');
+  expect(pendingSignoff?.act).toContain('blocked pending an upstream Review change');
+  expect(pendingSignoff?.act).not.toContain('job open --plan');
+
+  post.verdicts = accepted!;
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  const after = nextProject(dir, CHAIN_NOW);
+  expect(after.moves.some(move => move.review_act?.kind === 'review-verdict')).toBe(false);
+  expect(after.moves.find(move => move.review_act?.kind === 'signoff')).toMatchObject({
+    command: null,
+    act: expect.stringContaining('blocked pending an upstream Review change'),
+    review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v2' },
+  });
+  expect(after.moves.find(move => move.review_act?.kind === 'signoff')?.act).toContain('do not advance to accepted');
+});
 
 interface CheckpointSpec {
   schema: string;

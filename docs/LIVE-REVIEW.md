@@ -5,7 +5,7 @@ running while writers commit results. The reviewer identity is the trusted
 bootstrap identity used by Review.
 
 ```sh
-rig-create job open <project> --reviewer <id> --role owner [--draft <id> | --rig <n>]
+rig-create job open <project> --reviewer <id> --role owner [--draft <id> | --rig <n> | --plan | --question <id>]
 rig-create job reconcile <project>
 rig-create job close <project>
 ```
@@ -17,9 +17,25 @@ The version, complete retained package inventory and compiled model are checked
 before starting the host or installing its binding, including pre-interview rigs.
 Invalid selections refuse with `JOB_PUBLICATION_INVALID`; missing or changed
 package files use the existing package-check refusal codes. Choose one of `--draft` and `--rig`; combining them
-refuses with `JOB_BINDING_INVALID`. For a post, it retains the recorded parent rig and asks the direction-review
-verdict and sign-off subjects. Reopening the same result over unchanged record
+refuses with `JOB_BINDING_INVALID`. For a post, it retains the recorded parent rig and asks only
+`review-verdict direction-review`. The legacy direction panel cannot render a post
+publication with pending sign-off or checkpoint asks. Reopening an older post head
+that declares those subjects replaces it with a verdict-only publication.
+Reopening the same result over unchanged record
 bytes reuses its publication and asks each declared subject once.
+
+Judge direction on the post page with `job open --rig <post>`,
+then ingest `review <post> --from-review <actId>`. Before the current live post has an accepted live verdict,
+the record request refuses `JOB_DIRECTION_VERDICT_REQUIRED` without writing.
+Direction-review sign-off is blocked pending the upstream Review change in
+[rig-c/review#794](https://github.com/rig-c/review/issues/794).
+Review 2.13.0's record-subject parser
+permits only `plan-approved`, `rigging-interview` and `post-interview`, and rejects
+`signoff direction-review` with `JOB_ASK_INVALID`; its act parser rejects it with
+`JOB_ACT_INVALID`. After verdict ingest, `job open --plan` declares no direction
+sign-off subject. Neither page can provide that signature yet; retain the verdict
+and leave the project at direction-review. Do not advance to accepted or substitute
+an interview-stage signature or an API-only acceptance.
 
 The default in `parts` and `parts-review` publishes the latest recorded draft.
 `--draft` names a recorded draft in any stage. Opening asks every subject that publication declares (see
@@ -65,8 +81,9 @@ HOLE visible.
 | --- | --- | --- |
 | `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector and `parts-verdict`, plus sign subjects |
 | `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
-| `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and `review-verdict` for `direction-review`, plus sign subjects |
-| `advance rig-review` and `advance direction-review` | The current live rig or post version at the entered review stage | `rig` or `post` selector, `review-verdict`, and the stage's `signoff` subject |
+| `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
+| `advance rig-review` | The current live rig at the entered review stage | `rig` selector, `review-verdict`, and the stage's `signoff` subject |
+| `advance direction-review` | The current live post at the entered review stage | `post` selector and only `review-verdict direction-review` |
 
 The sign subjects are the `signoff` and `checkpoint` subjects of
 [Live sign-off routes](#live-sign-off-routes).
@@ -108,7 +125,7 @@ same commit-then-durable-outbox order for the current live `rig` or `post`
 version: holding the shared job write lock, the writer validates the post-advance
 candidate and live version before writing, records the outbox intent for the
 post-advance record bytes, atomically replaces `project.json`, and publishes the
-version with its `review-verdict` and stage `signoff` subjects. If publication
+version with its `review-verdict` and, for a rig, stage `signoff` subjects. If publication
 fails after `project.json` is committed, the stage advance stays committed in
 `project.json`, `JOB_PUBLISH_PENDING` remains in the durable outbox and is
 reported in `interview --check` `holes[]`, and `rig-create job reconcile`
@@ -262,7 +279,7 @@ path uses `--from-review` and preserves the fetched act directly.
 
 ## Live sign-off routes
 
-Every package publication also declares the `signoff` and `checkpoint` subjects
+Every draft or rig package publication also declares the `signoff` and `checkpoint` subjects
 that its record can sign, in the stage the check reads that record in (its
 effective stage). The rules are in `src/signable.ts`:
 
@@ -271,8 +288,9 @@ effective stage). The rules are in `src/signable.ts`:
   the stage and its checkpoint is enabled. `signoff` uses the same function.
 - A `signoff` subject is declared for the stage itself while it closes on a
   sign-off and has no live stage-level signature. `rig-review` is declared only
-  on a `rig` publication and `direction-review` only on a `post` one, because
-  the act's selector is the signature's target. A plan-bound stage
+  on a `rig` publication, because the act's selector is the signature's target.
+  Post publications carry only the direction verdict; direction sign-off remains
+  blocked pending the upstream Review change described above. A plan-bound stage
   (`plan-approved`, `rigging-interview`, `post-interview`) also needs displayed
   plan steps.
 
@@ -280,11 +298,11 @@ Review 2.8.0 asks only for a declared subject and refuses any other with
 `JOB_ASK_INVALID` (`bindJobAsk`, `src/job-act.ts`). Both the ask and the act
 also require `project.json` to still hold the published bytes
 (`assertJobSourceCurrent`, `src/job-source.ts`). So either the owner submits
-both the verdict and `signoff` acts in the Review UI before any writer mutates
+both the verdict and `signoff` acts for parts or rig review in the Review UI before any writer mutates
 `project.json`, or after a CLI writer (`parts-review --from-review`,
 `diff-classes`, or `review <n> --from-review`) updates `project.json`, the
 agent runs `rig-create job open` to republish the current selector (`draft`,
-`rig`, or `post`) over the updated `project.json` bytes and re-ask the stage's
+or `rig`) over the updated `project.json` bytes and re-ask the stage's
 declared subjects before the owner signs off in the UI.
 
 `job reconcile` keeps the declared subjects in the acknowledged receipt.
@@ -317,15 +335,15 @@ again.
 | --- | --- | --- |
 | `parts` checkpoints | draft | `draft-rig` commits while the record is in `parts` and the checkpoint is enabled |
 | `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
-| `post` checkpoints | post version | `direction write` or `direction patch` commits in `post` |
+| `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
 | `parts-review` | draft | `draft-rig` commits in `parts-review`, or the agent runs `job open` to refresh the draft after `parts-review --from-review` / `diff-classes` |
 | `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, `rig-version` commits in `rig-review`, or the agent runs `job open` to refresh the live `rig` head after `review <n> --from-review` |
-| `direction-review` | post version | `advance direction-review` commits the move into `direction-review`, `direction write` / `direction patch` commits in `direction-review`, or the agent runs `job open` to refresh the live `post` head after `review <n> --from-review` |
-| `rigging-interview`, `post-interview` | any package publication with plan steps | only when a package writer commits in that stage, which the usual order does not do |
-| `interview`, `plan-approved` | none | no draft or version exists before they are signed |
+| `direction-review` | none; blocked pending an upstream Review change | verdict ingest preserves the verdict but supplies no signature; never advance to accepted without the real sign-off |
+| `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
+| `interview` | none | no record-mode stage-signature subject |
 
-A stage with no carrier has no live route yet. The plan-bound stages wait for
-record mode (create#317), and `interview` has no record-mode subject.
+A stage with no carrier has no live route yet. `interview` has no record-mode
+stage-signature subject; its picks use `job open --question <id>`.
 
 ## Parts drafts and independent verdicts
 

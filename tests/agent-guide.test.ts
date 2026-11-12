@@ -36,6 +36,15 @@ const GUIDE_HEADINGS = [
  */
 const GUIDE_MAX_BYTES = 10_000;
 
+test('#467 the direction guide names the verdict page and the upstream sign-off blocker', () => {
+  const guide = renderAgentGuide();
+  expect(guide).toContain('`job open --rig <post>`');
+  expect(guide).toContain('asks the verdict only');
+  expect(guide).toContain('Ingest `review <post> --from-review <actId>`');
+  expect(guide).toContain('Sign-off is blocked\n   pending an upstream Review change');
+  expect(guide).toContain('do not advance to accepted');
+});
+
 function markdownLinks(text: string): string[] {
   return [...text.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1] as string);
 }

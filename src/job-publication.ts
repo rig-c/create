@@ -374,6 +374,34 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   const rig = selector.kind === 'post' ? selector.rigVersion : n;
   const model = `derived/review/v${rig}/out/check/build/skeleton.model.json`;
   publicationFile(root, model);
+  let scene: string | undefined;
+  if (selector.kind === 'post') {
+    const directionPath = `evidence/direction/v${n}.json`;
+    let direction: JsonObject | undefined;
+    try { direction = JSON.parse(publicationFile(root, directionPath).toString('utf8')) as JsonObject; } catch { /* Legacy manifests did not require a direction document. */ }
+    if (direction?.schema === 'rig-create/direction@2') {
+      const reference = direction.scene;
+      if (!isObject(reference) || typeof reference.path !== 'string' || typeof reference.sha256 !== 'string') refuse('JOB_PUBLICATION_SCENE_MISSING', `${directionPath}: direction.scene is missing; restore its committed scene reference before publishing`);
+      const entry = asArray(project.scenes).filter(isObject).find(value => value.n === reference.n && value.path === reference.path && value.sha256 === reference.sha256);
+      if (!entry || reference.path !== `evidence/scene/s${String(reference.n)}.json`) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${directionPath}: direction.scene differs from project.scenes; restore the committed scene reference before publishing`);
+      let bytes: Buffer;
+      try { bytes = publicationFile(root, reference.path); }
+      catch { refuse('JOB_PUBLICATION_SCENE_MISSING', `${reference.path}: scene is missing or unreadable; restore its retained bytes before publishing`); }
+      if (jobHash(bytes) !== reference.sha256) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene hash moved; restore its retained bytes before publishing`);
+      let doc: JsonObject;
+      try { doc = JSON.parse(bytes.toString('utf8')) as JsonObject; }
+      catch { refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene is not JSON; restore its retained bytes before publishing`); }
+      if (!isObject(doc) || doc.schema !== 'rig-create/scene@1' || doc.n !== reference.n || !Array.isArray(doc.plates) || !doc.plates.length) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene identity or plates differ; restore the committed scene before publishing`);
+      for (const plate of doc.plates) {
+        if (!isObject(plate) || typeof plate.path !== 'string' || typeof plate.sha256 !== 'string') refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: plate identity is missing; restore every retained plate before publishing`);
+        let plateBytes: Buffer;
+        try { plateBytes = publicationFile(root, plate.path); }
+        catch { refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: ${plate.path} is missing or unreadable; restore the retained plate before publishing`); }
+        if (jobHash(plateBytes) !== plate.sha256) refuse('JOB_PUBLICATION_PLATE_CHANGED', `${reference.path}: ${plate.path} hash moved; restore the retained plate bytes before publishing`);
+      }
+      scene = reference.path;
+    }
+  }
   const legacyManifest = {
     schema: 'rig-review/1', id: `create-v${n}`, revision: `v${n}`,
     title: selector.kind === 'post' ? `post v${n} (rig v${rig})` : `rig v${n}`,
@@ -384,11 +412,13 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   const existing = existsSync(join(root, path)) ? publicationFile(root, path) : undefined;
   // Reopening an exact old publication preserves both its bytes and its identity.
   const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
-  if (existing?.equals(legacyBytes)) return path;
+  const sceneManifest = { ...legacyManifest, ...(scene ? { scene } : {}) };
+  const sceneBytes = scene ? Buffer.from(`${JSON.stringify(sceneManifest, null, 2)}\n`) : legacyBytes;
+  if (existing?.equals(legacyBytes) || existing?.equals(sceneBytes)) return path;
   // init permits projects without an original; publication did not require one.
   if (project.inputs === undefined || (Array.isArray(project.inputs) && project.inputs.length === 0)) {
     if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
-    writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
+    writeFileSync(join(root, path), sceneBytes, { flag: 'wx' });
     return path;
   }
   try { publishedSourcePainting(root, project, `versions[v${n}]`); }
@@ -399,13 +429,15 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
     if (!legacy) throw error;
     if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
     warnings.push(legacy);
-    writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
+    writeFileSync(join(root, path), sceneBytes, { flag: 'wx' });
     return path;
   }
-  const manifest = { ...legacyManifest, references: [originalPaintingReference(root, project, n)] };
+  const reference = originalPaintingReference(root, project, n);
+  const manifest = { ...sceneManifest, references: [reference] };
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
   if (existing) {
-    if (!existing.equals(bytes)) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
+    const previous = Buffer.from(`${JSON.stringify({ ...legacyManifest, references: [reference] }, null, 2)}\n`);
+    if (!existing.equals(bytes) && !existing.equals(previous)) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
   } else writeFileSync(join(root, path), bytes, { flag: 'wx' });
   return path;
 }
@@ -452,7 +484,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     if (retained && retained.sha256 !== sha256) refuse('JOB_PUBLICATION_INVALID', `versions[v${rig}].review_package.from: ${row.path} differs from its recorded package hash; restore the declared producer bytes`);
     return { ...row, sha256 };
   });
-  if (result.path !== `review-live-v${selector.version}.json`) files.push(publishedSourcePainting(root, project, `versions[v${selector.version}]`));
+  if (selector.kind === 'rig' && result.path !== `review-live-v${selector.version}.json`) files.push(publishedSourcePainting(root, project, `versions[v${selector.version}]`));
   files.push({ path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
   if (selector.kind === 'post') {
     const direction = `evidence/direction/v${selector.version}.json`;
@@ -461,6 +493,31 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     const sha256 = jobHash(publicationFile(root, direction));
     if (binding?.path !== direction || binding.sha256 !== sha256) refuse('JOB_PUBLICATION_INVALID', `versions[v${selector.version}].provenance.direction: retained direction changed; restore its recorded bytes before reconciling`);
     files.push({ path: direction, sha256 });
+    let docDirection: JsonObject | undefined;
+    try { docDirection = JSON.parse(publicationFile(root, direction).toString('utf8')) as JsonObject; } catch { /* Preserve the legacy direction publication contract. */ }
+    if (docDirection?.schema === 'rig-create/direction@2') {
+      const reference = docDirection.scene;
+      if (!isObject(reference) || typeof reference.path !== 'string' || typeof reference.sha256 !== 'string') refuse('JOB_PUBLICATION_SCENE_MISSING', `${direction}: direction.scene is missing; restore its committed scene reference before publishing`);
+      const entry = asArray(project.scenes).filter(isObject).find(value => value.n === reference.n && value.path === reference.path && value.sha256 === reference.sha256);
+      if (!entry || reference.path !== `evidence/scene/s${String(reference.n)}.json`) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${direction}: direction.scene differs from project.scenes; restore the committed scene reference before publishing`);
+      let bytes: Buffer;
+      try { bytes = publicationFile(root, reference.path); }
+      catch { refuse('JOB_PUBLICATION_SCENE_MISSING', `${reference.path}: scene is missing or unreadable; restore its retained bytes before publishing`); }
+      if (jobHash(bytes) !== reference.sha256) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene hash moved; restore its retained bytes before publishing`);
+      let doc: JsonObject;
+      try { doc = JSON.parse(bytes.toString('utf8')) as JsonObject; }
+      catch { refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene is not JSON; restore its retained bytes before publishing`); }
+      if (!isObject(doc) || doc.schema !== 'rig-create/scene@1' || doc.n !== reference.n || !Array.isArray(doc.plates) || !doc.plates.length) refuse('JOB_PUBLICATION_SCENE_CHANGED', `${reference.path}: scene identity or plates differ; restore the committed scene before publishing`);
+      for (const plate of doc.plates) {
+        if (!isObject(plate) || typeof plate.path !== 'string' || typeof plate.sha256 !== 'string') refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: plate identity is missing; restore every retained plate before publishing`);
+        let plateBytes: Buffer;
+        try { plateBytes = publicationFile(root, plate.path); }
+        catch { refuse('JOB_PUBLICATION_PLATE_MISSING', `${reference.path}: ${plate.path} is missing or unreadable; restore the retained plate before publishing`); }
+        files.push({ path: plate.path, sha256: jobHash(plateBytes) });
+        if (jobHash(plateBytes) !== plate.sha256) refuse('JOB_PUBLICATION_PLATE_CHANGED', `${reference.path}: ${plate.path} hash moved; restore the retained plate bytes before publishing`);
+      }
+      files.push({ path: reference.path, sha256: reference.sha256 });
+    }
   }
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
@@ -605,7 +662,7 @@ export function liveManifestPath(root: string, project: JsonObject, n: number, i
   const legacy = `review-live-v${n}.json`;
   if (history === undefined) return legacy;
   const fail = (): never => refuse('PUBLICATION_GENERATION_INVALID', `versions[v${n}].publication_generations: broken generation chain; restore the immutable predecessor, manifest hashes, timestamp and reason`);
-  if (version?.kind !== 'rig' || !Array.isArray(history) || history.length !== 1) return fail();
+  if ((version?.kind !== 'rig' && version?.kind !== 'post') || !Array.isArray(history) || history.length !== 1) return fail();
   const entry = history[0];
   if (!isObject(entry) || entry.generation !== 2 || !isObject(entry.supersedes) || !isObject(entry.manifest) ||
       entry.supersedes.generation !== 1 || entry.supersedes.path !== legacy || entry.manifest.path !== `review-live-v${n}-g2.json` ||
@@ -616,6 +673,22 @@ export function liveManifestPath(root: string, project: JsonObject, n: number, i
     if (jobHash(old) !== entry.supersedes.sha256 || jobHash(bytes) !== entry.manifest.sha256) return fail();
     const previous = JSON.parse(old.toString('utf8'));
     const current = JSON.parse(bytes.toString('utf8'));
+    if (version.kind === 'post') {
+      const directionPath = `evidence/direction/v${n}.json`;
+      const directionBytes = publicationFile(root, directionPath);
+      const direction = JSON.parse(directionBytes.toString('utf8')) as JsonObject;
+      const binding = isObject(version.provenance) ? version.provenance.direction : undefined;
+      const scene = direction.scene;
+      if (!isObject(binding) || binding.path !== directionPath || binding.sha256 !== jobHash(directionBytes) ||
+          direction.schema !== 'rig-create/direction@2' || !isObject(scene) || typeof scene.path !== 'string' ||
+          !asArray(project.scenes).filter(isObject).some(value => value.n === scene.n && value.path === scene.path && value.sha256 === scene.sha256) ||
+          jobHash(publicationFile(root, scene.path)) !== scene.sha256) return fail();
+      if (previous.schema !== 'rig-review/1' || previous.id !== `create-v${n}` || previous.revision !== `v${n}` ||
+          previous.model !== `derived/review/v${String(version.rig_version)}/out/check/build/skeleton.model.json` ||
+          previous.direction !== directionPath || previous.scene !== undefined || !Array.isArray(previous.references) ||
+          !isDeepStrictEqual(current, { ...previous, revision: `v${n}-g2`, scene: scene.path })) return fail();
+      return identity && previous.id === identity.id && previous.revision === identity.revision ? legacy : selected;
+    }
     if (previous.schema !== 'rig-review/1' || previous.model !== `derived/review/v${n}/out/check/build/skeleton.model.json` || previous.id !== `create-v${n}` || previous.revision !== `v${n}`) return fail();
     if (!Array.isArray(previous.references) || previous.references.length !== 0 ||
         !isDeepStrictEqual(current, { ...previous, revision: `v${n}-g2`, references: [originalPaintingReference(root, project, n)] })) return fail();

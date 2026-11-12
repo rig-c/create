@@ -34,17 +34,37 @@ export function republishCommand(args: string[], now: number): { stdout: string;
     assertRequestedRig(root, String(n));
     const version = asArray(project.versions).filter(isObject).find(v => v.n === n)!;
     liveManifestPath(root, project, n);
-    if (version.publication_generations !== undefined) refuse('PUBLICATION_GENERATION_DUPLICATE', `versions[v${n}].publication_generations: a painting generation already exists; reopen it with job open --rig ${n}`);
-    if (!Array.isArray(project.inputs) || project.inputs.length === 0) refuse('PUBLICATION_PAINTING_MISSING', `versions[v${n}]: no inputs[0] original painting is declared; register it with input add before republishing`);
-    const reference = originalPaintingReference(root, project, n);
+    if (version.publication_generations !== undefined) refuse('PUBLICATION_GENERATION_DUPLICATE', `versions[v${n}].publication_generations: a publication generation already exists; reopen it with job open --rig ${n}`);
+    if (version.kind !== 'post' && (!Array.isArray(project.inputs) || project.inputs.length === 0)) refuse('PUBLICATION_PAINTING_MISSING', `versions[v${n}]: no inputs[0] original painting is declared; register it with input add before republishing`);
+    const reference = version.kind === 'post' ? null : originalPaintingReference(root, project, n);
     const legacyPath = `review-live-v${n}.json`;
     const old = publicationFile(root, legacyPath);
     const manifest = JSON.parse(old.toString('utf8')) as JsonObject;
-    if (Array.isArray(manifest.references) && manifest.references.length) refuse('PUBLICATION_GENERATION_DUPLICATE', `versions[v${n}]: the publication already carries a reference; reopen it with job open --rig ${n}`);
+    if (version.kind !== 'post' && Array.isArray(manifest.references) && manifest.references.length) refuse('PUBLICATION_GENERATION_DUPLICATE', `versions[v${n}]: the publication already carries a reference; reopen it with job open --rig ${n}`);
     // Check the exact immutable legacy shape through the original publisher.
     prepareLiveManifest(root, project, n);
+    let scene: string | undefined;
+    const sources = new Map<string, string>();
+    if (version.kind === 'post') {
+      const directionPath = `evidence/direction/v${n}.json`;
+      const directionBytes = publicationFile(root, directionPath);
+      const direction = JSON.parse(directionBytes.toString('utf8')) as JsonObject;
+      if (direction.schema !== 'rig-create/direction@2' || !isObject(direction.scene)) refuse('PUBLICATION_GENERATION_INVALID', `${directionPath}: post generation requires direction@2 and its committed scene; retain the existing publication for a scene-less post`);
+      if (manifest.scene !== undefined) refuse('PUBLICATION_GENERATION_DUPLICATE', `${legacyPath}: the publication already carries a scene; reopen it with job open --rig ${n}`);
+      scene = String(direction.scene.path);
+      const sceneBytes = publicationFile(root, scene);
+      const doc = JSON.parse(sceneBytes.toString('utf8')) as JsonObject;
+      const binding = (version.provenance as JsonObject).direction as JsonObject;
+      if (binding.path !== directionPath || binding.sha256 !== jobHash(directionBytes) || direction.scene.sha256 !== jobHash(sceneBytes)) refuse('PUBLICATION_GENERATION_INVALID', `${directionPath}: publication sources changed during republish; restore the frozen direction and scene bytes`);
+      sources.set(directionPath, String(binding.sha256));
+      sources.set(scene, String(direction.scene.sha256));
+      for (const plate of asArray(doc.plates).filter(isObject)) {
+        if (jobHash(publicationFile(root, String(plate.path))) !== plate.sha256) refuse('JOB_PUBLICATION_PLATE_CHANGED', `${scene}: ${String(plate.path)} hash moved; restore the retained plate bytes before publishing`);
+        sources.set(String(plate.path), String(plate.sha256));
+      }
+    }
     const before = baselineOf(checkProject(root, project, { now, readOnly: true }));
-    const bytes = Buffer.from(`${JSON.stringify({ ...manifest, revision: `v${n}-g2`, references: [reference] }, null, 2)}\n`);
+    const bytes = Buffer.from(`${JSON.stringify({ ...manifest, revision: `v${n}-g2`, ...(scene ? { scene } : { references: [reference] }) }, null, 2)}\n`);
     const next = structuredClone(project);
     const target = asArray(next.versions).filter(isObject).find(v => v.n === n)!;
     target.publication_generations = [{ generation: 2, supersedes: { generation: 1, path: legacyPath, sha256: jobHash(old) },
@@ -56,14 +76,15 @@ export function republishCommand(args: string[], now: number): { stdout: string;
     findings.push(...newFindings(before, checkProject(root, next, { now, readOnly: true }).refusals));
     if (findings[0]) refuse(findings[0].code, findings[0].message);
     if (!publicationFile(root, 'project.json').equals(original) || !publicationFile(root, legacyPath).equals(old) ||
-        !isDeepStrictEqual(originalPaintingReference(root, project, n), reference)) refuse('PUBLICATION_GENERATION_INVALID', 'project.json: source changed during republish; freeze the record and painting and retry');
+        (reference !== null && !isDeepStrictEqual(originalPaintingReference(root, project, n), reference)) ||
+        [...sources].some(([path, sha256]) => jobHash(publicationFile(root, path)) !== sha256)) refuse('PUBLICATION_GENERATION_INVALID', 'project.json: source changed during republish; freeze the record and publication sources and retry');
     const record = Buffer.from(`${JSON.stringify(next, null, 2)}\n`);
     intent = prepareVersionIntent(root, record, n);
     fchmodSync(fd, statSync(join(root, 'project.json')).mode);
     writeFileSync(fd, record);
     renameSync(lock, join(root, 'project.json')); committed = true;
     publishCommittedVersion(root, n);
-    return { stdout: `republish: rig v${n} generation 2 recorded (${path})`, exit: 0 };
+    return { stdout: `republish: ${version.kind === 'post' ? 'post' : 'rig'} v${n} generation 2 recorded (${path})`, exit: 0 };
   } finally {
     closeSync(fd);
     if (!committed) {

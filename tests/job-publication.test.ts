@@ -1302,3 +1302,142 @@ test.each(['Retained source is above the producer limit', '', undefined])('Revie
   expect(failure.message).not.toContain('undefined');
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });
+
+function scenePostSetup(references: 'empty' | 'painting' = 'painting', registered = false) {
+  const { root, project } = registered ? generationSetup() : setup();
+  const scenePath = 'evidence/scene/s1.json';
+  const plates = ['background', 'foreground'].map(role => {
+    const path = `${role}.png`;
+    const bytes = Buffer.from(`synthetic ${role}`);
+    writeFileSync(join(root, path), bytes);
+    return { role, path, sha256: jobHash(bytes) };
+  });
+  mkdirSync(join(root, 'evidence/scene'), { recursive: true });
+  mkdirSync(join(root, 'evidence/direction'), { recursive: true });
+  const scene = Buffer.from(JSON.stringify({ schema: 'rig-create/scene@1', n: 1, plates }));
+  writeFileSync(join(root, scenePath), scene);
+  const entry = { n: 1, path: scenePath, sha256: jobHash(scene) };
+  project.scenes = [entry];
+  const direction = Buffer.from(JSON.stringify({ schema: 'rig-create/direction@2', scene: entry }));
+  const directionPath = 'evidence/direction/v2.json';
+  writeFileSync(join(root, directionPath), direction);
+  (project.versions as JsonObject[]).push({ n: 2, kind: 'post', rig_version: 1, provenance: { direction: { path: directionPath, sha256: jobHash(direction) } } });
+  if (references === 'empty') project.inputs = [];
+  const save = () => writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  save();
+  const read = (path = 'review-live-v2.json') => readPublished({ root,
+    record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) },
+    result: { path, selector: { kind: 'post', version: 2, rigVersion: 1 } } });
+  return { root, project, plates, scenePath, directionPath, entry, save, read };
+}
+
+test('direction@2 publication seals the committed scene and every plate with its manifest', async () => {
+  const f = scenePostSetup();
+  const before = readFileSync(join(f.root, 'project.json'));
+  const path = prepareLiveManifest(f.root, f.project, 2);
+  const manifest = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
+  expect(manifest).toMatchObject({ scene: f.scenePath, direction: f.directionPath });
+  const context = await f.read();
+  for (const file of [f.entry, ...f.plates]) expect(context.files).toContainEqual({ path: file.path, sha256: file.sha256 });
+  expect(context.files).toContainEqual({ path, sha256: jobHash(readFileSync(join(f.root, path))) });
+  expect(readFileSync(join(f.root, 'project.json'))).toEqual(before);
+});
+
+test.each(['@1', 'scene-less'] as const)('%s post manifest and files remain byte-identical to the previous contract', async schema => {
+  const f = scenePostSetup();
+  const doc = { schema: schema === '@1' ? 'rig-create/direction@1' : 'legacy-direction' };
+  const bytes = Buffer.from(JSON.stringify(doc));
+  writeFileSync(join(f.root, f.directionPath), bytes);
+  ((f.project.versions as JsonObject[])[1]!.provenance as JsonObject).direction = { path: f.directionPath, sha256: jobHash(bytes) };
+  f.save();
+  const path = prepareLiveManifest(f.root, f.project, 2);
+  const expected = { schema: 'rig-review/1', id: 'create-v2', revision: 'v2', title: 'post v2 (rig v1)',
+    model: 'derived/review/v1/out/check/build/skeleton.model.json', direction: f.directionPath,
+    references: [{ id: 'original-painting', label: 'Original painting', type: 'image', path: 'derived/review/v1/out/painting_in_rig.png', width: 8, height: 16 }],
+    animations: [], checkpoints: [], authoring: [] };
+  expect(readFileSync(join(f.root, path))).toEqual(Buffer.from(`${JSON.stringify(expected, null, 2)}\n`));
+  const context = await f.read();
+  const packageFiles = (((f.project.versions as JsonObject[])[0]!.review_package as JsonObject).files as JsonObject[])
+    .map(file => ({ path: `derived/review/v1/${String(file.path)}`, sha256: String(file.sha256) }));
+  expect(context.files).toEqual([...packageFiles, { path, sha256: jobHash(readFileSync(join(f.root, path))) }, { path: f.directionPath, sha256: jobHash(bytes) }]);
+});
+
+for (const [defect, code] of [
+  ['scene-missing', 'JOB_PUBLICATION_SCENE_MISSING'], ['scene-hash', 'JOB_PUBLICATION_SCENE_CHANGED'],
+  ['plate-missing', 'JOB_PUBLICATION_PLATE_MISSING'], ['plate-hash', 'JOB_PUBLICATION_PLATE_CHANGED'],
+  ['unregistered-scene', 'JOB_PUBLICATION_SCENE_CHANGED'], ['direction-scene-hash', 'JOB_PUBLICATION_SCENE_CHANGED'],
+  ['reference-missing', 'JOB_PUBLICATION_SCENE_MISSING'],
+] as const) {
+  test(`${defect} refuses by ${code} before writing and during publication`, async () => {
+    const f = scenePostSetup();
+    prepareLiveManifest(f.root, f.project, 2);
+    const manifest = readFileSync(join(f.root, 'review-live-v2.json'));
+    rmSync(join(f.root, 'review-live-v2.json'));
+    if (defect === 'scene-missing') rmSync(join(f.root, f.scenePath));
+    if (defect === 'scene-hash') writeFileSync(join(f.root, f.scenePath), '{}');
+    if (defect === 'plate-missing') rmSync(join(f.root, f.plates[1]!.path));
+    if (defect === 'plate-hash') writeFileSync(join(f.root, f.plates[1]!.path), 'moved');
+    if (defect === 'unregistered-scene') f.project.scenes = [];
+    if (defect === 'direction-scene-hash' || defect === 'reference-missing') {
+      const direction: JsonObject = { schema: 'rig-create/direction@2', ...(defect === 'reference-missing' ? {} : { scene: { ...f.entry, sha256: '0'.repeat(64) } }) };
+      const bytes = Buffer.from(JSON.stringify(direction));
+      writeFileSync(join(f.root, f.directionPath), bytes);
+      ((f.project.versions as JsonObject[])[1]!.provenance as JsonObject).direction = { path: f.directionPath, sha256: jobHash(bytes) };
+    }
+    f.save();
+    const before = readFileSync(join(f.root, 'project.json'));
+    expect(() => prepareLiveManifest(f.root, f.project, 2)).toThrow(expect.objectContaining({ code }));
+    expect(existsSync(join(f.root, 'review-live-v2.json'))).toBe(false);
+    writeFileSync(join(f.root, 'review-live-v2.json'), manifest);
+    await expect(f.read()).rejects.toMatchObject({ code });
+    expect(readFileSync(join(f.root, 'project.json'))).toEqual(before);
+    expect(readFileSync(join(f.root, 'review-live-v2.json'))).toEqual(manifest);
+  });
+}
+
+test.each(['empty', 'painting'] as const)('post republish adds only scene and revision, preserving %s references and g1 identity', async references => {
+  const { republishCommand } = await import('../src/republish.ts');
+  const { liveManifestPath } = await import('../src/job-publication.ts');
+  const f = scenePostSetup(references, true);
+  const path = prepareLiveManifest(f.root, f.project, 2);
+  const legacy = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
+  delete legacy.scene;
+  const old = Buffer.from(`${JSON.stringify(legacy, null, 2)}\n`);
+  writeFileSync(join(f.root, path), old);
+  expect(prepareLiveManifest(f.root, f.project, 2)).toBe(path);
+  expect(readFileSync(join(f.root, path))).toEqual(old);
+  expect(republishCommand(['2', f.root, '--reason', 'Publish the retained scene.'], now).exit).toBe(0);
+  const record = JSON.parse(readFileSync(join(f.root, 'project.json'), 'utf8')) as JsonObject;
+  const generationPath = 'review-live-v2-g2.json';
+  expect(liveManifestPath(f.root, record, 2)).toBe(generationPath);
+  expect(liveManifestPath(f.root, record, 2, { id: 'create-v2', revision: 'v2' })).toBe(path);
+  expect(prepareLiveManifest(f.root, record, 2)).toBe(generationPath);
+  expect(JSON.parse(readFileSync(join(f.root, generationPath), 'utf8'))).toEqual({ ...legacy, revision: 'v2-g2', scene: f.scenePath });
+  expect(readFileSync(join(f.root, path))).toEqual(old);
+  const context = await f.read(generationPath);
+  for (const file of [f.entry, ...f.plates]) expect(context.files).toContainEqual({ path: file.path, sha256: file.sha256 });
+  expect(checkProject(f.root, record, { now, readOnly: true }).refusals.map(f => f.code)).not.toContain('PUBLICATION_GENERATION_INVALID');
+  const before = readFileSync(join(f.root, 'project.json'));
+  expect(() => republishCommand(['2', f.root, '--reason', 'Duplicate.'], now)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_DUPLICATE' }));
+  expect(readFileSync(join(f.root, 'project.json'))).toEqual(before);
+});
+
+test.each(['references', 'model', 'direction', 'title', 'extra'] as const)('post generation refuses an additional %s delta by name', async key => {
+  const { republishCommand } = await import('../src/republish.ts');
+  const { liveManifestPath } = await import('../src/job-publication.ts');
+  const f = scenePostSetup('painting', true);
+  const path = prepareLiveManifest(f.root, f.project, 2);
+  const legacy = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
+  delete legacy.scene;
+  writeFileSync(join(f.root, path), `${JSON.stringify(legacy, null, 2)}\n`);
+  republishCommand(['2', f.root, '--reason', 'Publish the retained scene.'], now);
+  const record = JSON.parse(readFileSync(join(f.root, 'project.json'), 'utf8')) as JsonObject;
+  const generationPath = 'review-live-v2-g2.json';
+  const manifest = JSON.parse(readFileSync(join(f.root, generationPath), 'utf8')) as JsonObject;
+  manifest[key] = key === 'references' ? [] : 'unexpected';
+  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileSync(join(f.root, generationPath), bytes);
+  const history = (record.versions as JsonObject[])[1]!.publication_generations as JsonObject[];
+  (history[0]!.manifest as JsonObject).sha256 = jobHash(bytes);
+  expect(() => liveManifestPath(f.root, record, 2)).toThrow(expect.objectContaining({ code: 'PUBLICATION_GENERATION_INVALID' }));
+});

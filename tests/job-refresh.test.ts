@@ -58,8 +58,8 @@ async function cli(root: string, args: string[]): Promise<{ stdout: string; stde
   return { stdout, stderr, exit };
 }
 
-async function open(root: string): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -74,6 +74,7 @@ async function open(root: string): Promise<{ url: URL; lines: string[] }> {
     text += decoder.decode(chunk.value);
   }
   reader.releaseLock();
+  if (!text.trim()) throw new Error(await new Response(proc.stderr).text());
   const lines = text.trim().split('\n');
   return { url: new URL(lines[0]!), lines: lines.slice(1) };
 }
@@ -373,7 +374,7 @@ test('direction-review verdict -> ingest -> job open refresh -> UI signoff -> in
     const postVersion = (project.versions as JsonObject[]).find(v => v.n === 2)!;
     postVersion.verdicts = [];
   });
-  const opening = await open(root);
+  const opening = await open(root, ['--rig', '2']);
   expectExit0(await cli(root, ['advance', 'direction-review', root, '--json']));
 
   const firstView = await page(root, opening.url);
@@ -388,7 +389,7 @@ test('direction-review verdict -> ingest -> job open refresh -> UI signoff -> in
   expect((staleSignoff.error as JsonObject | undefined)?.code).toBe('JOB_RECORD_MOVED');
 
   // Refresh via job open republishes post v2 over the current project.json and asks review-verdict and signoff.
-  const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v2']);
   expectExit0(refreshed);
   expect(refreshed.stdout.trim().split('\n')).toEqual([
     opening.url.href,
@@ -401,10 +402,19 @@ test('direction-review verdict -> ingest -> job open refresh -> UI signoff -> in
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
 
+  const reused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '2']);
+  expectExit0(reused);
+  expect(reused.stdout).toContain('job: post v2 already published');
+  expect((await page(root, opening.url)).head.publicationId).toBe(refreshedView.head.publicationId);
+
   const signed = await refreshedView.act('signoff', 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
   const signoffRes = await cli(root, ['signoff', 'direction-review', root, '--from-review', String(signed.actId), '--json']);
   expectExit0(signoffRes);
 
+  const next = await cli(root, ['next', root, '--json']);
+  expectExit0(next);
+  expect(JSON.parse(next.stdout).effective_stage).toBe('direction-review');
+  expect(JSON.parse(next.stdout).moves.some((move: { review_act?: { stage?: string } }) => move.review_act?.stage === 'direction-review')).toBe(false);
   expectExit0(await cli(root, ['advance', 'accepted', root, '--json']));
   const report = checkProject(root, undefined, { now: Date.now() });
   expect(report.refusals).toEqual([]);

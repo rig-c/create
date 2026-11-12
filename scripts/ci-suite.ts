@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { consumerCases, guardConsumerCoverage, skippedTestNames } from './consumer-ci.ts';
@@ -10,17 +10,16 @@ export function runCiSuite(root: string, mode: 'source' | 'registry', extraEnv: 
   const stdout = openSync(join(scratch,'stdout'), 'w');
   const stderr = openSync(join(scratch,'stderr'), 'w');
   const registrations = join(scratch,'registrations');
-  symlinkSync(scratch, join(scratch,'alias'), 'dir');
   try {
     const result = Bun.spawnSync([process.execPath, ...(mode === 'source' ? ['--conditions=@rig-c/source'] : []), 'test'], {
       cwd: root,
       env: { ...process.env, ...extraEnv, RIG_CREATE_CONSUMER_REGISTRATIONS: registrations,
-        ...(mode === 'source' ? { RIG_CREATE_SOURCE_CI: '1', RIG_CREATE_NETWORK: '1', TMPDIR: join(scratch,'alias') } : {}) },
+        ...(mode === 'source' ? { RIG_CREATE_SOURCE_CI: '1', RIG_CREATE_NETWORK: '1' } : {}) },
       stdout, stderr,
     });
     closeSync(stdout); closeSync(stderr);
     const output = `${readFileSync(join(scratch,'stdout'),'utf8')}\n${readFileSync(join(scratch,'stderr'),'utf8')}`;
-    process.stdout.write(output);
+    writeSync(1, output);
     const skipped = skippedTestNames(output);
     const summary = `### ${mode} suite\nSkipped cases: ${skipped.size}\n${[...skipped].map(name => `- SKIP ${name}${consumerCases.find(e=>e.displayName===name)?.reason ? `: ${consumerCases.find(e=>e.displayName===name)!.reason}` : ''}`).join('\n')}\n`;
     console.log(summary);

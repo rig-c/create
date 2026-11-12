@@ -365,10 +365,16 @@ describe('frozen rig registration', () => {
     expect(readFileSync(join(external, 'backdrop.png'))).toEqual(assetBytes);
   });
 
-  test.skipIf(realpathSync(os.tmpdir()) === resolve(os.tmpdir()))('system temp aliases retain project-contained config and requirements inputs', () => {
+  test('system temp aliases retain project-contained config and requirements inputs', () => {
     const { dir, args, load } = setup();
-    const external = mkdtempSync(join(os.tmpdir(), 'rig-version-system-alias-'));
-    roots.push(external);
+    const aliasRoot = mkdtempSync(join(realpathSync(os.tmpdir()), 'rig-version-system-alias-'));
+    roots.push(aliasRoot);
+    mkdirSync(join(aliasRoot, 'real'));
+    symlinkSync(join(aliasRoot, 'real'), join(aliasRoot, 'alias'), 'dir');
+    const previousTmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = join(aliasRoot, 'alias');
+    try {
+    const external = mkdtempSync(join(os.tmpdir(), 'external-'));
     const maskBytes = readFileSync(join(dir, 'source/rig/images/rectangle.png'));
     writeFileSync(join(dir, 'mask.png'), maskBytes);
     put(dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: {
@@ -397,6 +403,10 @@ describe('frozen rig registration', () => {
     expect(readFileSync(join(dir, 'source/requirements.json'))).toEqual(originalRequirements);
     expect(rigRegistrationFindings(dir, project)).toEqual([]);
     expect(checkProject(dir).refusals).toEqual([]);
+    } finally {
+      if (previousTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previousTmpdir;
+    }
   });
 
   test('legacy absolute adapter rows on relative values remain unused declarations', () => {

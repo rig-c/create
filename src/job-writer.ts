@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication } from './job-outbox.ts';
-import { draftPublicationContext, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
+import { liveManifestPath, draftPublicationContext, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
 import type { Finding } from './check.ts';
 import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -20,7 +20,7 @@ export function prepareVersionIntent(root: string, bytes: Buffer, n: number): Pe
   const binding = readWriterBinding(root);
   if (!binding) return null;
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
-  return enqueuePublication(root, binding, { path: `review-live-v${n}.json`, selector: publicationSelector(project, n) }, bytes);
+  return enqueuePublication(root, binding, { path: liveManifestPath(root, project, n), selector: publicationSelector(project, n) }, bytes);
 }
 
 export const SOURCE_CONDITION = '@rig-c/source';
@@ -70,7 +70,7 @@ export function publishCommittedVersion(root: string, n: number | string): strin
     draftPublicationContext(root, project, n, warnings);
     publishedLines.push(...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`));
   }
-  const result = typeof n === 'string' ? draftPublicationResult(n) : { path: `review-live-v${n}.json`, selector: publicationSelector(project, n) };
+  const result = typeof n === 'string' ? draftPublicationResult(n) : { path: liveManifestPath(root, project, n), selector: publicationSelector(project, n) };
   const entry = enqueuePublication(root, binding, result);
   entry.phase = 'pending';
   failPublication(root, entry, entry.failure);

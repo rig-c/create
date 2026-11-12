@@ -1,3 +1,4 @@
+import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
@@ -973,6 +974,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkPartsChecks(ctx, options.forwardWrite);
   checkPreInterview(ctx);
   checkReviews(ctx);
+  checkPublicationGenerations(dir, project, refusals);
   checkReviewPackages(ctx);
   refusals.push(...rigRegistrationFindings(dir, project, warnings));
   checkAppliedReview(ctx);

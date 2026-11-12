@@ -1543,3 +1543,18 @@ restarted record carries exactly the refusals a fresh `init` record carries
 A valid withdrawal removes only the current matching checkpoint requirement.
 `CHECKPOINT_UNSIGNED` and step-status use that effective requirement. Historical
 status entries keep their original checkpoint_required and signoff requirements.
+
+## Publication generations
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `PUBLICATION_PAINTING_MISSING` | The republished version has no declared `inputs[0]` original painting; register the original with `input add`. |
+| `PUBLICATION_GENERATION_DUPLICATE` | The version already has a painting publication; reopen its existing generation with `job open --rig`. |
+| `PUBLICATION_GENERATION_INVALID` | The version's optional publication chain has invalid identity, predecessor, timestamp, reason or bytes; restore its immutable generation files and recorded hashes. |
+
+`republish <rig> [<dir>] --reason <words>` upgrades a legacy empty-reference
+publication once, to `review-live-v<rig>-g2.json`. `versions[].publication_generations`
+records generation 2, its generation 1 predecessor and both file hashes, `at` and
+`reason`. No stage, verdict, sign-off or rig artifact changes. Legacy-only records
+remain valid without adoption or a new contract date. `job open --rig` selects
+the recorded generation; the original publication remains byte-identical.

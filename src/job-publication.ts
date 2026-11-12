@@ -324,10 +324,22 @@ export function publicationSelector(project: JsonObject, n: number): Exclude<Job
     : { kind: 'rig', version: n };
 }
 
+export function originalPaintingReference(root: string, project: JsonObject, n: number) {
+  const painting = publishedSourcePainting(root, project, `versions[v${n}]`);
+  let size: { width?: number; height?: number } = {};
+  if (/\.png$/i.test(painting.path)) {
+    try { size = pngDimensions(publicationFile(root, painting.path), painting.path); }
+    catch { refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${painting.path} needs a valid PNG header; restore the recorded original painting before publishing`); }
+  }
+  return { id: 'original-painting', label: 'Original painting', type: 'image', path: painting.path, ...size };
+}
+
 /** A manifest over the existing frozen model/direction, with project-relative paths.
  * Source documents and compiled producer output remain byte-identical.
  */
 export function prepareLiveManifest(root: string, project: JsonObject, n: number, warnings: Finding[] = []): string {
+  const selected = liveManifestPath(root, project, n);
+  if (selected !== `review-live-v${n}.json`) return selected;
   const selector = publicationSelector(project, n);
   const rig = selector.kind === 'post' ? selector.rigVersion : n;
   const model = `derived/review/v${rig}/out/check/build/skeleton.model.json`;
@@ -349,8 +361,7 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
     writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
     return path;
   }
-  let painting: { path: string; sha256: string };
-  try { painting = publishedSourcePainting(root, project, `versions[v${n}]`); }
+  try { publishedSourcePainting(root, project, `versions[v${n}]`); }
   catch (error) {
     const findings = { dir: root, project, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkInputs(findings);
@@ -361,12 +372,7 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
     writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
     return path;
   }
-  let size: { width?: number; height?: number } = {};
-  if (/\.png$/i.test(painting.path)) {
-    try { size = pngDimensions(publicationFile(root, painting.path), painting.path); }
-    catch { refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${painting.path} needs a valid PNG header; restore the recorded original painting before publishing`); }
-  }
-  const manifest = { ...legacyManifest, references: [{ id: 'original-painting', label: 'Original painting', type: 'image', path: painting.path, ...size }] };
+  const manifest = { ...legacyManifest, references: [originalPaintingReference(root, project, n)] };
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
   if (existing) {
     if (!existing.equals(bytes)) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
@@ -383,7 +389,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   if (result.selector.kind === 'draft') return readDraftPublished(root, project, result.selector.id, result.path);
   const selector = publicationSelector(project, result.selector.version);
-  if (!isDeepStrictEqual(selector, result.selector) || result.path !== `review-live-v${selector.version}.json`) {
+  if (!isDeepStrictEqual(selector, result.selector) || result.path !== liveManifestPath(root, project, selector.version)) {
     refuse('JOB_PUBLICATION_INVALID', 'project.json: publication result differs from its recorded version; restore the writer result');
   }
   const rig = selector.kind === 'post' ? selector.rigVersion : selector.version;
@@ -416,6 +422,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     if (retained && retained.sha256 !== sha256) refuse('JOB_PUBLICATION_INVALID', `versions[v${rig}].review_package.from: ${row.path} differs from its recorded package hash; restore the declared producer bytes`);
     return { ...row, sha256 };
   });
+  if (result.path !== `review-live-v${selector.version}.json`) files.push(publishedSourcePainting(root, project, `versions[v${selector.version}]`));
   files.push({ path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
   if (selector.kind === 'post') {
     const direction = `evidence/direction/v${selector.version}.json`;
@@ -558,4 +565,39 @@ function readDraftPublished(root: string, project: JsonObject, id: string, path:
 /** The stage the check reads the published record in: the stage its `signoff` and `checkpoint` subjects sign. */
 function effectiveStage(root: string, project: JsonObject): string | null {
   return checkProject(root, project, { now: Date.now(), readOnly: true }).effective_stage;
+}
+
+/** Optional, append-only legacy-to-painting upgrade. Absent history retains the old contract. */
+export function liveManifestPath(root: string, project: JsonObject, n: number): string {
+  const version = asArray(project.versions).filter(isObject).find(v => v.n === n);
+  const history = version?.publication_generations;
+  const legacy = `review-live-v${n}.json`;
+  if (history === undefined) return legacy;
+  const fail = (): never => refuse('PUBLICATION_GENERATION_INVALID', `versions[v${n}].publication_generations: broken generation chain; restore the immutable predecessor, manifest hashes, timestamp and reason`);
+  if (version?.kind !== 'rig' || !Array.isArray(history) || history.length !== 1) return fail();
+  const entry = history[0];
+  if (!isObject(entry) || entry.generation !== 2 || !isObject(entry.supersedes) || !isObject(entry.manifest) ||
+      entry.supersedes.generation !== 1 || entry.supersedes.path !== legacy || entry.manifest.path !== `review-live-v${n}-g2.json` ||
+      typeof entry.at !== 'string' || !Number.isFinite(Date.parse(entry.at)) || new Date(entry.at).toISOString() !== entry.at || typeof entry.reason !== 'string' || !entry.reason.trim()) return fail();
+  try {
+    const old = publicationFile(root, legacy), bytes = publicationFile(root, entry.manifest.path);
+    if (jobHash(old) !== entry.supersedes.sha256 || jobHash(bytes) !== entry.manifest.sha256) return fail();
+    const previous = JSON.parse(old.toString('utf8'));
+    const current = JSON.parse(bytes.toString('utf8'));
+    if (previous.schema !== 'rig-review/1' || previous.model !== `derived/review/v${n}/out/check/build/skeleton.model.json` || previous.id !== `create-v${n}` || previous.revision !== `v${n}`) return fail();
+    if (!Array.isArray(previous.references) || previous.references.length !== 0 ||
+        !isDeepStrictEqual(current, { ...previous, revision: `v${n}-g2`, references: [originalPaintingReference(root, project, n)] })) return fail();
+  } catch { return fail(); }
+  return entry.manifest.path;
+}
+
+export function checkPublicationGenerations(root: string, project: JsonObject, refusals: Finding[]): void {
+  for (const version of asArray(project.versions).filter(isObject)) {
+    if (version.publication_generations === undefined) continue;
+    try { liveManifestPath(root, project, Number(version.n)); }
+    catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      refusals.push({ code: error.code, path: `versions[v${String(version.n)}].publication_generations`, message: error.message });
+    }
+  }
 }

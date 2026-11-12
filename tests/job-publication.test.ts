@@ -1280,3 +1280,22 @@ test('an uncommitted replacement intent is discarded against the previous versio
   expect(readFileSync(join(jobPrivateRoot(root), 'discarded-intents.jsonl'), 'utf8')).toContain(intent.id);
   expect(JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'))).toEqual(record);
 });
+
+test.each(['Retained source is above the producer limit', '', undefined])('Review publication message %p reaches the refusal and pending receipt', async message => {
+  const { root, entry } = await bound();
+  const before = readFileSync(join(root, 'project.json'));
+  await expect(reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async options => {
+    const attached = await startJobHost(options);
+    return { ...attached, ports: { ...attached.ports, handleJobApi: async () => Response.json({
+      schema: entry.identity.apiSchema, ok: false,
+      error: { code: 'JOB_SOURCE_UNRETAINABLE', message, detail: 'not an API field' },
+    }) } };
+  }))).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  const failure = pendingPublications(root)[0]!.failure!;
+  expect(failure.code).toBe('JOB_SOURCE_UNRETAINABLE');
+  expect(failure.message).toContain('JOB_SOURCE_UNRETAINABLE');
+  if (message) expect(failure.message).toContain(message);
+  expect(failure.message).not.toContain('not an API field');
+  expect(failure.message).not.toContain('undefined');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+});

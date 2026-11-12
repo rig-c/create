@@ -105,7 +105,7 @@ export function readObject(dir: string, file: string, sha256: string | null): Re
 }
 
 /** Refuses an unknown `rig_type` and, on a CG project, every rig version whose config does not declare the three gates. */
-export function checkCgGates(ctx: Ctx): void {
+export function checkCgGates(ctx: Ctx, recordOnly = false): void {
   const rigType = rigTypeValue(ctx);
   if (rigType === null) return; // unanswered or not applicable: reported by the answer checks
   if (typeof rigType.value !== 'string' || !RIG_TYPES.includes(rigType.value)) {
@@ -116,7 +116,8 @@ export function checkCgGates(ctx: Ctx): void {
     });
     return;
   }
-  if (!rigType.value.startsWith(CG_RIG_TYPE_PREFIX)) return;
+  // The answer domain belongs to record asks; build declarations do not.
+  if (recordOnly || !rigType.value.startsWith(CG_RIG_TYPE_PREFIX)) return;
 
   asArray(ctx.project.versions).forEach((v, index) => {
     if (!isObject(v) || v.kind !== 'rig') return;

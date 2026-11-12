@@ -242,8 +242,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       if (isObject(approval?.evidence)) seal(approval.evidence);
       if (isObject(approval?.structure)) seal(approval.structure);
     } else throw Error('unknown record result');
-    // The closure is every project file the check reads, so a retained copy gives the check identical bytes.
-    const report = checkProject(root, project, { now, readOnly: true, recordReads: true });
+    // Seal the decision record and every file its record check reads, rather than
+    // revalidating all producer artifacts from earlier versions and drafts.
+    const report = checkProject(root, project, { now, readOnly: true, recordReads: true, recordPublication: true });
     for (const { path, sha256 } of report.reads ?? []) seal({ path, sha256 });
     // A pick is how an open interview receives its first answer. Its own silent
     // questions are todos, as in next/advance; they are not a plan-approval waiver.

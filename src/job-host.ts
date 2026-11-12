@@ -200,10 +200,11 @@ export async function publishPending(
       method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
       body: JSON.stringify(request),
     }));
-    const result = await response.json() as { schema: string; ok: boolean; error?: { code: string; detail?: string }; value?: { publicationId: string; generation: number } };
+    const result = await response.json() as { schema: string; ok: boolean; error?: { code: string; message?: string }; value?: { publicationId: string; generation: number } };
     if (result.schema !== request.schema || !result.ok) {
       const code = result.error?.code ?? 'JOB_PUBLICATION_INVALID';
-      refuse(code, `project.json: publication of record ${entry.recordHash} was refused by review (${code}); run rig-create job reconcile after restoring the bound sources`);
+      const reason = typeof result.error?.message === 'string' && result.error.message.trim() ? `: ${result.error.message}` : '';
+      refuse(code, `project.json: publication of record ${entry.recordHash} was refused by review (${code})${reason}; run rig-create job reconcile after restoring the bound sources`);
     }
     if (!result.value) refuse('JOB_OUTBOX_INVALID', 'project.json: publication response lacks its identity; reconcile the pending publication');
     acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt, subjects);

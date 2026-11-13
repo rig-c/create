@@ -37,7 +37,35 @@ jobs:
           set -euo pipefail
           x="$(npm pack . --pack-destination .)"
           bun scripts/verify-example-seals.ts --tarball "$x"
-          npm publish "$x" --dry-run --provenance --access public
+          version="$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')"
+          view_json="$(mktemp)"
+          view_err="$(mktemp)"
+          trap 'rm -f "$view_json" "$view_err"' EXIT
+          if npm view "@rig-c/create@$version" version --json > "$view_json" 2> "$view_err"; then
+            node -e '
+              const fs = require("node:fs");
+              const actual = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              if (actual !== process.argv[2]) {
+                console.error("npm view returned a different version; refusing dry-run");
+                process.exit(1);
+              }
+            ' "$view_json" "$version"
+            printf 'dry-run skipped: @rig-c/create@%s is already published; the tarball gate above is the check\n' "$version"
+            exit 0
+          fi
+          if ! node -e '
+            const fs = require("node:fs");
+            try {
+              const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              if (result?.error?.code === "E404") process.exit(0);
+            } catch {}
+            console.error("npm view failed without structured E404; refusing dry-run");
+            process.exit(1);
+          ' "$view_json"; then
+            cat "$view_err" >&2
+            exit 1
+          fi
+          npm publish "$x" --dry-run --access public
       - run: bun scripts/run-registry-ci.ts
   source-linked:
     name: source-linked

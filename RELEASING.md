@@ -50,8 +50,11 @@ publisher for the convenience alias `rig-create`.
 ## Verify the release candidate
 
 For a release candidate, from the create source checkout run the same staging
-and native pack sequence as CI and the release workflow. Use a fresh staging
-path outside the repository:
+and native pack sequence as CI and the release workflow. The manual dry-run
+below assumes the exact candidate version was confirmed unpublished by a
+structured E404 from `npm view`. CI enforces that lookup: an exact published
+version skips the dry-run, and every lookup failure other than structured E404
+stops the smoke. Use a fresh staging path outside the repository:
 
 ```sh
 (
@@ -62,13 +65,15 @@ path outside the repository:
   npm pack --dry-run --json
   x="$(npm pack . --pack-destination .)"
   bun scripts/verify-example-seals.ts --tarball "$x"
-  npm publish "$x" --dry-run --provenance --access public
+  npm publish "$x" --dry-run --access public
 )
 ```
 
-If auth, provenance or OIDC blocks the dry-run, record that in one line and stop
-at the verified tarball; do not publish. A successful dry-run does not verify
-real provenance signing, the OIDC exchange or registry publication.
+PR CI has no `id-token` permission and omits provenance; only the real release
+workflow performs provenance publication. If registry lookup or auth blocks the
+dry-run, record that in one line and stop at the verified tarball; do not publish.
+A successful dry-run does not verify real provenance signing, the OIDC exchange
+or registry publication.
 
 The existing one-command pack gate uses the same staging function:
 

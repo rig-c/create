@@ -163,6 +163,22 @@ it fails, naming the constant, when a `*_SINCE` date is still in the future.
   are synthetic fixture records, not a person's approval
   ([why](templates/example-draft/README.md)).
 
+## Verify the installed examples
+
+From a consumer project with `@rig-c/create` installed, run:
+
+```sh
+bun node_modules/@rig-c/create/scripts/verify-example-seals.ts
+```
+
+The shipped, dependency-free script verifies every `files[]` entry and
+`project_sha256` in the six example-chain checkpoint manifests (currently
+319 checks). It names missing files and hash mismatches and exits nonzero.
+It reads installed bytes only; it does not regenerate examples or run producers.
+The CLI creates projects from empty templates; it does not copy worked examples.
+
+See [release candidate verification](https://github.com/rig-c/create/blob/main/RELEASING.md#verify-the-release-candidate).
+
 ## Licence
 
 [MIT](LICENSE).

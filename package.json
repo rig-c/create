@@ -6,6 +6,7 @@
   "license": "MIT",
   "files": [
     "src/",
+    "scripts/verify-example-seals.ts",
     "templates/",
     "README.md",
     "LICENSE",

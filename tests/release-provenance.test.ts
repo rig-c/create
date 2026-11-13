@@ -3,12 +3,13 @@ import {chmodSync,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSy
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-type Step={id?:string;name?:string;uses?:string;if?:string;env?:Record<string,string>;with?:Record<string,unknown>;run?:string};
+type Step={id?:string;name?:string;uses?:string;if?:string;env?:Record<string,string>;with?:Record<string,unknown>;run?:string;'working-directory'?:string};
 type Job={'runs-on':string;'timeout-minutes':number;permissions:unknown;steps:Step[];outputs?:Record<string,string>;needs?:string;if?:string};
 type Workflow={on:unknown;permissions:unknown;concurrency:unknown;jobs:{release:Job;publish:Job}};
 const workflow=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/release.yml',import.meta.url),'utf8')) as Workflow;
 const steps=workflow.jobs.release.steps;
 const target=steps.find(step=>step.id==='target')!;
+const aliasGate='bun scripts/verify-example-seals.ts --tarball "$alias_tgz"';
 const tag='v0.11.1',commitSha='a'.repeat(40),oldSha='b'.repeat(40);
 type Fixture={
  event?:string;ref?:string;inputTag?:string;runSha?:string;repo?:string;
@@ -153,8 +154,12 @@ function checkWorkflowPolicy(wf:Workflow){
  expect(pub.steps.find(step=>step.env?.TAG_NAME)?.env?.TAG_NAME).toBe('${{ needs.release.outputs.tag }}');
  expect(pub.steps.filter(step=>step.run?.includes('npm publish')).map(step=>step.name)).toEqual(['Publish @rig-c/create','Publish the alias rig-create']);
  expect(pub.steps.find(step=>step.name==='Publish @rig-c/create')!.run!.trim()).toBe(
-  'set -euo pipefail\nx="$(npm pack . --pack-destination .)"\nnpm publish "$x" --provenance --access public\necho "tarball=$PWD/$x" >> "$GITHUB_OUTPUT"',
+  'set -euo pipefail\nx="$(npm pack . --pack-destination .)"\nbun scripts/verify-example-seals.ts --tarball "$x"\nnpm publish "$x" --provenance --access public\necho "tarball=$PWD/$x" >> "$GITHUB_OUTPUT"',
  );
+ const alias=pub.steps.find(step=>step.name==='Publish the alias rig-create')!;
+ expect(alias.run).toContain(aliasGate);
+ expect(alias.run!.indexOf(aliasGate)).toBeLessThan(alias.run!.indexOf('npm publish '));
+ expect(alias.run).toContain('npm publish "$alias_tgz" --provenance --access public');
 }
 
 test('parsed YAML removes release-please, triggers on version tags, preserves least privilege and gates, and checks out only the validated commit',()=>{
@@ -163,7 +168,91 @@ test('parsed YAML removes release-please, triggers on version tags, preserves le
  checkWorkflowPolicy(workflow);
 });
 
+test('registry smoke stages, packs and verifies the exact tarball before a publish dry-run',()=>{
+ const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {permissions:Record<string,string>;jobs:{check:{steps:Step[];permissions?:Record<string,string>}}};
+ const smokeSteps=ci.jobs.check.steps;
+ const stage=smokeSteps.findIndex(step=>step.run?.includes('scripts/verify-example-seals.ts --stage'));
+ const pack=smokeSteps.findIndex(step=>step.run?.includes('x="$(npm pack . --pack-destination .)"'));
+ expect(stage).toBeGreaterThan(-1);
+ expect(pack).toBeGreaterThan(stage);
+ expect(smokeSteps[stage]!.run).toContain('--stage "$RUNNER_TEMP/create-example-source"');
+ expect(smokeSteps[pack]!['working-directory']).toBe('${{ runner.temp }}/create-example-source');
+ const smoke=smokeSteps[pack]!.run!;
+ expect(smoke).toContain('x="$(npm pack . --pack-destination .)"\nbun scripts/verify-example-seals.ts --tarball "$x"');
+ expect(smoke.indexOf('npm view ')).toBeGreaterThan(smoke.indexOf('bun scripts/verify-example-seals.ts --tarball "$x"'));
+ expect(smoke.indexOf('npm publish ')).toBeGreaterThan(smoke.indexOf('npm view '));
+ expect(smoke).toContain('npm publish "$x" --dry-run --access public');
+ expect(smoke).not.toContain('--provenance');
+ expect(ci.permissions['id-token']).toBeUndefined();
+ expect(ci.jobs.check.permissions?.['id-token']).toBeUndefined();
+});
+
+// Execute the actual CI body with only local stubs; no real npm or network client is on PATH.
+function registrySmoke(view:{exit:number;stdout:string;stderr?:string}){
+ const root=mkdtempSync(join(tmpdir(),'create-registry-smoke-'));
+ try{
+  const bin=join(root,'bin');mkdirSync(bin);
+  const trace=join(root,'trace');writeFileSync(trace,'');
+  writeFileSync(join(root,'package.json'),JSON.stringify({version:'1.0.2'}));
+  const fixture=join(root,'view.json');writeFileSync(fixture,JSON.stringify(view));
+  const mock=String.raw`
+import {appendFileSync,readFileSync} from 'node:fs';
+import {basename} from 'node:path';
+const command=basename(process.argv[1]),args=process.argv.slice(2);
+appendFileSync(process.env.TRACE,JSON.stringify({command,args})+'\n');
+const is=(...expected)=>JSON.stringify(args)===JSON.stringify(expected);
+if(command==='npm'&&is('pack','.','--pack-destination','.')){console.log('candidate.tgz');process.exit(0);}
+if(command==='bun'&&is('scripts/verify-example-seals.ts','--tarball','candidate.tgz'))process.exit(0);
+if(command==='npm'&&is('view','@rig-c/create@1.0.2','version','--json')){
+ const view=JSON.parse(readFileSync(process.env.FIXTURE,'utf8'));
+ process.stdout.write(view.stdout);process.stderr.write(view.stderr??'');process.exit(view.exit);
+}
+if(command==='npm'&&is('publish','candidate.tgz','--dry-run','--access','public'))process.exit(0);
+console.error('UNEXPECTED_SMOKE_COMMAND',command,JSON.stringify(args));process.exit(97);
+`;
+  for(const name of ['npm','bun']){const file=join(bin,name);writeFileSync(file,`#!${process.execPath}
+${mock}
+`);chmodSync(file,0o755);}
+  for(const name of ['node','mktemp','rm','cat']){
+   const executable=Bun.which(name);if(!executable)throw Error(`${name} is required by the CI smoke`);
+   symlinkSync(executable,join(bin,name));
+  }
+  const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {jobs:{check:{steps:Step[]}}};
+  const body=ci.jobs.check.steps.find(step=>step.run?.includes('x="$(npm pack . --pack-destination .)"'))!.run!;
+  const result=Bun.spawnSync(['/bin/bash','--noprofile','--norc','-c',body],{cwd:root,timeout:10000,
+   env:{PATH:bin,HOME:root,TMPDIR:root,TRACE:trace,FIXTURE:fixture}});
+  const text=result.stdout.toString()+result.stderr.toString();
+  expect(text).not.toContain('UNEXPECTED_SMOKE_COMMAND');
+  return {exit:result.exitCode,text,calls:readFileSync(trace,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line) as Call)};
+ }finally{rmSync(root,{recursive:true,force:true});}
+}
+
+for(const [label,view,exit,publish] of [
+ ['published',{exit:0,stdout:'"1.0.2"'},0,false],
+ ['unpublished E404',{exit:1,stdout:JSON.stringify({error:{code:'E404'}})},0,true],
+ ['auth E401',{exit:1,stdout:JSON.stringify({error:{code:'E401'}})},1,false],
+ ['network timeout',{exit:1,stdout:JSON.stringify({error:{code:'ETIMEDOUT'}})},1,false],
+ ['unstructured E404 text',{exit:1,stdout:'request failed: E404'},1,false],
+ ['different served version',{exit:0,stdout:'"1.0.3"'},1,false],
+] as const){
+ test(`registry smoke ${label} preserves the gate and admits only a confirmed unpublished dry-run`,()=>{
+  const result=registrySmoke(view);expect(result.exit).toBe(exit);
+  expect(result.calls.slice(0,3)).toEqual([
+   {command:'npm',args:['pack','.','--pack-destination','.']},
+   {command:'bun',args:['scripts/verify-example-seals.ts','--tarball','candidate.tgz']},
+   {command:'npm',args:['view','@rig-c/create@1.0.2','version','--json']},
+  ]);
+  expect(result.calls.filter(call=>call.command==='npm'&&call.args[0]==='publish')).toEqual(publish?
+   [{command:'npm',args:['publish','candidate.tgz','--dry-run','--access','public']}]:[]);
+  const skip='dry-run skipped: @rig-c/create@1.0.2 is already published; the tarball gate above is the check';
+  if(label==='published')expect(result.text.trim()).toBe(skip);
+  else expect(result.text).not.toContain(skip);
+ });
+}
+
 for(const [label,mutate] of Object.entries<(copy:Workflow)=>void>({
+ 'alias gate checks the scoped tarball instead of its own output':copy=>{const alias=copy.jobs.publish.steps.find(step=>step.name==='Publish the alias rig-create')!;alias.run=alias.run!.replace(aliasGate,'bun scripts/verify-example-seals.ts --tarball "$SCOPED_TARBALL"');},
+ 'alias gate follows publication':copy=>{const alias=copy.jobs.publish.steps.find(step=>step.name==='Publish the alias rig-create')!;alias.run=alias.run!.replace(aliasGate+'\n','')+aliasGate+'\n';},
  'stored npm token':copy=>{copy.jobs.publish.steps.push({env:{NODE_AUTH_TOKEN:'${{ secrets.NPM_TOKEN }}'}});},
  'self-hosted publisher':copy=>{copy.jobs.publish['runs-on']='self-hosted';},
  'branch push trigger':copy=>{(copy.on as {push:unknown}).push={branches:['main']};},

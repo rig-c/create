@@ -9,7 +9,7 @@ import { fixture, retainSignoffs, arr, obj } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
-import { pendingJobActs, jobActsText } from '../src/job-acts.ts';
+import { pendingJobActs, jobActsText, type PendingJobAct } from '../src/job-acts.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
@@ -68,7 +68,7 @@ async function cli(root: string, args: string[]): Promise<{ stdout: string; stde
   return { stdout, stderr, exit };
 }
 
-async function open(root: string, options: string[] = [], printed?: string): Promise<{ url: URL; lines: string[] }> {
+async function open(root: string, options: string[] = [], printed?: string) {
   let env = process.env;
   if (printed) {
     const bin = realpathSync(mkdtempSync(join(tmpdir(), 'create-next-host-bin-')));
@@ -94,7 +94,7 @@ async function open(root: string, options: string[] = [], printed?: string): Pro
   reader.releaseLock();
   const lines = text.trim().split('\n');
   receipt({ command: printed ? scrub(printed, root) : ['rig-create', 'job', 'open', '<synthetic>', '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], serving: true, lines: lines.slice(1) });
-  return { url: new URL(lines[0]!), lines: lines.slice(1) };
+  return { url: new URL(lines[0]!), lines: lines.slice(1), proc };
 }
 
 async function page(root: string, url: URL, expectedAsks = 2) {
@@ -239,6 +239,7 @@ async function executePrinted(root: string, command: string) {
     const [stdout, stderr, exit] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     receipt({ command: scrub(command, root), exit, before, after: jobHash(readFileSync(join(root, 'project.json'))), stdout: scrub(stdout, root), stderr: scrub(stderr, root) });
     expectExit0({ exit, stderr, stdout });
+    return { stdout, stderr, exit };
   } finally { rmSync(bin, { recursive: true, force: true }); }
 }
 
@@ -457,21 +458,121 @@ async function nextReview(root: string, kind: string, value: object, question?: 
   const workflow = report.moves.slice(index - 1, index + 4);
   expect(workflow.map(move => move.role)).toEqual(['agent', 'human', 'agent', 'agent', 'agent']);
   expect(workflow[1]!.command).toBeNull();
-  expect(workflow[0]!.command).toContain(question ? `--question ${question}` : kind === 'review-verdict' ? '--rig 2' : '--plan');
+  const target = workflow[1]!.review_act!;
+  expect(workflow[0]!.command).toContain(question ? `--question ${question}` : target.draft_id ? `--draft ${target.draft_id}`
+    : kind === 'review-verdict' || target.stage === 'rig-review' ? `--rig ${target.version_id!.slice(1)}` : '--plan');
   expect(workflow[2]!.command).toBe(`rig-create job acts ${quote(root)} --json`);
   expect(workflow[3]!.command).toContain("--from-review '<actId>'");
   expect(workflow[4]!.command).toBe(`rig-create job close ${quote(root)}`);
   receipt({ rendered: scrub(nextCommand([root], testClock.now()).stdout, root) });
+  receipt({ workflow: { stage: target.stage, kind, question, draft: target.draft_id,
+    printed: workflow.map(move => ({ role: move.role, command: move.command === null ? null : scrub(move.command, root), act: move.act })) } });
   const opening = await open(root, [], workflow[0]!.command!.replace("'<reviewer>'", "'synthetic-owner'"));
   const view = await page(root, opening.url, 1);
-  const act = await view.act(kind, kind, value);
-  expect(act.schema).toBe(kind === 'review-verdict' ? 'rig-review/act@6' : 'rig-review/act@4');
-  await executePrinted(root, workflow[2]!.command!);
+  const capture = kind === 'review-verdict' && target.stage === 'rig-review'
+    ? rigCapture(root, view, String(view.asks.find(ask => obj(ask.subject).kind === kind)!.askId)) : {};
+  const act = await view.act(kind, kind, value, capture);
+  expect(act.kind).toBe(kind);
+  const listed = await executePrinted(root, workflow[2]!.command!);
+  const row = (JSON.parse(listed.stdout) as { acts: PendingJobAct[] }).acts.find(row => row.actId === act.actId)!;
+  expect(row.command).not.toBeNull();
+  for (const step of row.preconditions ?? []) {
+    expect(step.command).not.toBeNull();
+    await executePrinted(root, step.command!);
+  }
   await executePrinted(root, workflow[3]!.command!.replace("'<actId>'", quote(String(act.actId))));
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   await executePrinted(root, workflow[4]!.command!);
+  const [stdout, stderr, exit] = await Promise.all([
+    new Response(opening.proc.stdout).text(), new Response(opening.proc.stderr).text(), opening.proc.exited,
+  ]);
+  receipt({ command: scrub(workflow[0]!.command!, root), exit, stdout: scrub(stdout, root), stderr: scrub(stderr, root), closed: true });
+  expectExit0({ stdout, stderr, exit });
   expect(readWriterBinding(root)).toBeNull();
 }
+
+test.each([
+  { checkpoint: '0a-interview-options', question: 'rig_type' },
+  { checkpoint: '2-rigging-answers', question: 'bones' },
+])('#507 head picks $checkpoint/$question execute printed host, acts, ingest and close', async ({ checkpoint, question }) => {
+  receipt({ test: '#507 head picks', source: `checkpoint ${checkpoint}`, question });
+  const root = copy(checkpoint);
+  const project = read(root);
+  const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
+  const pending = obj(item.record.pending_options);
+  const set = JSON.parse(readFileSync(join(root, String(pending.path)), 'utf8')) as JsonObject;
+  const selections = arr(set.asks).map(obj).map(ask => ({ itemId: ask.id,
+    optionId: arr(ask.options).map(obj).find(option => option.kind === 'value')!.id, otherText: null }));
+  await nextReview(root, 'interview-picks', { questionId: question, selections, note: WORDS }, question);
+  const answered = collectItems(read(root), { collection: null }).find(item => item.id === question)!;
+  expect(answered.state.state).toBe('user');
+}, 30_000);
+
+test('#507 plan-approved signoff executes printed host, acts, ingest and close', async () => {
+  receipt({ test: '#507 plan-approved signoff', source: 'checkpoint 0b-plan-pending' });
+  const root = copy('0b-plan-pending');
+  await nextReview(root, 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
+  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'plan-approved')).toBe(true);
+}, 30_000);
+
+test('#507 reachable interview signoff executes printed host, acts, ingest and close', async () => {
+  receipt({ test: '#507 reachable interview signoff', source: 'synthetic fixture from checkpoint 0b-plan-pending' });
+  const root = copy('0b-plan-pending', project => {
+    project.stage = 'interview'; project.signoffs = []; project.advances = [];
+  });
+  await nextReview(root, 'signoff', { stage: 'interview', decision: 'approved', words: WORDS });
+  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'interview')).toBe(true);
+}, 30_000);
+
+test('#507 parts verdict then reachable parts-review signoff execute printed commands; checkpoint remains unanswered', async () => {
+  receipt({ test: '#507 parts verdict then reachable parts-review signoff', source: 'checkpoint 1-parts-verdict then writer-prepared synthetic fixture' });
+  const root = copy('1-parts-verdict');
+  const before = nextProject(root, testClock.now());
+  const unanswered = before.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')!;
+  expect(unanswered).toMatchObject({ role: 'human', command: null,
+    unanswered_by_record: 'review_acts[kind=parts-verdict,draft_id=chain], evidence/structure-chain.json' });
+  expect(unanswered.act).toContain('unanswered by record');
+  receipt({ checkpoint: '1-parts-verdict', stage: 'parts-review', prints_commands: false, move: unanswered });
+  await nextReview(root, 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
+  const advance = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create advance parts-review'))!;
+  await executePrinted(root, advance.command!);
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
+  const ready = nextProject(root, testClock.now());
+  expect(ready.moves.find(move => move.review_act?.kind === 'signoff')!.unanswered_by_record).toBeUndefined();
+  // next and job acts share the retained-name selection, including collision handling.
+  const snapshot = ready.moves.find(move => move.command?.startsWith('rig-create structure-snapshot'))!;
+  await executePrinted(root, snapshot.command!);
+  await nextReview(root, 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
+  expect(arr(read(root).signoffs).map(obj)).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
+}, 30_000);
+
+test('#507 reachable rigging-interview signoff executes printed host, acts, ingest and close', async () => {
+  receipt({ test: '#507 reachable rigging-interview signoff', source: 'synthetic fixture from checkpoint 3-rig-review; checkpoint 2-rigging-answers observed separately' });
+  const checkpoint = copy('2-rigging-answers');
+  const observed = nextProject(checkpoint, testClock.now());
+  const signoff = observed.moves.find(move => move.review_act?.kind === 'signoff')!;
+  receipt({ checkpoint: '2-rigging-answers', stage: 'rigging-interview',
+    prints_commands: observed.moves.some(move => move.command?.includes('signoff rigging-interview') && move.command.includes('--from-review')), move: signoff });
+  const root = copy('3-rig-review', project => {
+    project.stage = 'rigging-interview'; project.versions = [];
+    retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('rigging-interview'));
+    project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('rigging-interview'));
+    for (const step of arr(obj(project.plan).steps).map(obj).filter(step => ['bones', 'meshes', 'constraints', 'motion'].includes(String(step.id)))) {
+      step.status = 'pending'; delete step.status_history;
+    }
+  });
+  await nextReview(root, 'signoff', { stage: 'rigging-interview', decision: 'approved', words: WORDS });
+  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'rigging-interview')).toBe(true);
+}, 30_000);
+
+test('#507 rig-review verdict then signoff execute printed host, acts, ingest and close', async () => {
+  receipt({ test: '#507 rig-review verdict then signoff', source: 'checkpoint 3-rig-review' });
+  const root = copy('3-rig-review');
+  await nextReview(root, 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS });
+  await nextReview(root, 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
+  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'rig-review')).toBe(true);
+}, 30_000);
 
 test('#502 all post-interview picks and plan signoff execute next host, exported-act ingest and close commands', async () => {
   testClock.set(Date.now());

@@ -2515,6 +2515,16 @@ the project's next moves and whose they are from `project.json`:
   - `producer`: a command of a pinned package (`rig-parts`, `rigc`).
   - `human`: a person's act collected through the review tool (`review_act`),
     with `command: null` and never a `--by user` writer.
+- **Host and ingest human acts.** For a recorded Review subject, the human
+  move is surrounded by `job open` with its question, plan, draft or rig
+  selector, `job acts --json`, the writer with `--from-review '<actId>'`, and
+  `job close`. `job open` hosts and blocks until `job close`; keep it running
+  in a separate terminal. Fill the reviewer and exported act placeholders,
+  and follow the matching `job acts` preconditions before ingestion, including
+  its structure snapshot guidance for parts-review sign-off. Moves marked
+  `unanswered_by_record` retain their missing-field guidance.
+- **Scene writing does not plan work.** `scene write` adds no plan step.
+  Author the post plan steps through `plan add` before post-interview sign-off.
 - **Refusals come first.** When `check` reports refusals (or publication holes),
   `next` lists each in `refusals[]` with its `CHECKS.md` remedy (`fix`) before
   any forward move. A project with a blocking refusal has `moves: []` and

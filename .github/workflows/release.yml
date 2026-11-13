@@ -123,26 +123,8 @@ jobs:
           # Both paths check out the commit that passed provenance validation, not the (mutable) tag name.
           ref: ${{ needs.release.outputs.sha }}
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-
-      # Node 22 ships npm 10; the OIDC exchange landed in npm 11.5.1.
-      - name: Use an npm that speaks OIDC
-        run: |
-          npm install -g npm@latest
-          npm --version
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Stage and gate complete examples for npm pack
-        run: bun scripts/verify-example-seals.ts --stage "$RUNNER_TEMP/create-release-source"
+      - name: Set up and stage the release package
+        uses: ./.github/actions/stage-release
 
       # `--access public`: a scoped package is restricted unless told otherwise.
       - name: Publish @rig-c/create

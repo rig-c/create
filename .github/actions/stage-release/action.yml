@@ -1,0 +1,28 @@
+name: Stage the release package
+description: Set up the release toolchain, install dependencies and gate the staged source.
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        registry-url: https://registry.npmjs.org
+
+    # Use the exact npm version already proven by successful releases.
+    - name: Use an npm that speaks OIDC
+      shell: bash
+      run: |
+        npm install -g npm@12.2.2
+        npm --version
+
+    - name: Install dependencies
+      shell: bash
+      run: bun install --frozen-lockfile
+
+    - name: Stage and gate complete examples for npm pack
+      shell: bash
+      run: bun scripts/verify-example-seals.ts --stage "$RUNNER_TEMP/create-release-source"

@@ -96,6 +96,16 @@ tarball just published before alias publication,
 and internal packs suppress lifecycle scripts. Both names must be served by
 the registry for confirmation to pass.
 
+After both jobs succeed and `npm view` serves both names at the version, create
+the GitHub release for the tag:
+
+```sh
+gh release create vX.Y.Z --repo rig-c/create --verify-tag --title vX.Y.Z --generate-notes
+```
+
+This step stays outside `release.yml`, so the publishing job keeps only
+`contents: read` and `id-token: write`.
+
 If the tag push did not publish (for example, a registry or signing outage),
 first check whether npm already serves either name at the version. If neither
 is published, rerun the

@@ -29,7 +29,7 @@
   "dependencies": {
     "@rig-c/core": "3.7.0",
     "@rig-c/parts": "2.37.0",
-    "@rig-c/review": "4.0.1"
+    "@rig-c/review": "4.0.2"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",

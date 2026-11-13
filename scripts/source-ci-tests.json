@@ -173,16 +173,16 @@
   {
     "file": "tests/job-refresh.test.ts",
     "name": "#467 source-linked direction verdict then record sign-off ingests and advances accepted",
-    "reason": "Exercises registry Review 4.0.1 record direction-review sign-off under sibling source resolution."
+    "reason": "Exercises registry Review 4.0.2 record direction-review sign-off under sibling source resolution."
   },
   {
     "file": "tests/interview-signoff.test.ts",
     "name": "#475 record interview ingest rejects wrong stage stale source and unclean records without writing",
-    "reason": "Exercises registry Review 4.0.1 record interview sign-off under sibling source resolution."
+    "reason": "Exercises registry Review 4.0.2 record interview sign-off under sibling source resolution."
   },
   {
     "file": "tests/job-refresh.test.ts",
     "name": "#475 source-linked clean interview record signoff ingests advances and offers plan-approved",
-    "reason": "Exercises registry Review 4.0.1 record interview sign-off under sibling source resolution."
+    "reason": "Exercises registry Review 4.0.2 record interview sign-off under sibling source resolution."
   }
 ]

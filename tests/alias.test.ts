@@ -229,4 +229,3 @@ test('release packs after the scoped gate and publishes only an equal alias with
   }
   expect(steps[confirm].run).toContain('for package in @rig-c/create rig-create; do');
 }, commandBudget(2));
-

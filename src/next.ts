@@ -878,7 +878,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           ? effectiveStage === 'rigging-interview'
             ? 'review-tool act signoff for stage rigging-interview (unanswered by record: plan.steps has no rig steps approved at rigging-interview)'
             : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: plan.steps is empty in project.json)`
-          : `review-tool act signoff for stage ${effectiveStage}`,
+          : effectiveStage === 'interview'
+            ? 'review-tool act signoff for stage interview on the record page with job open --plan (source-linked Review); ingest signoff interview --from-review <actId>, then advance plan-approved'
+            : `review-tool act signoff for stage ${effectiveStage}`,
         review_act: {
           kind: 'signoff',
           stage: effectiveStage,

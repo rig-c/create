@@ -51,6 +51,10 @@ type LegacySignoffAct = Extract<LegacyJobAct | RecordAct, { kind: 'signoff' }>;
 export type SignoffAct = LegacySignoffAct | (Extract<JobCommentsAct, { kind: 'signoff' }> & { source: LegacySignoffAct['source'] });
 /** Review requires a displayed plan before it creates a signoff act for these stages (job-contract JOB_PLAN_BOUND_SIGNOFF_STAGES). */
 export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'rigging-interview', 'post-interview'];
+/** Interview is plan-bound only on the record route; legacy package acts keep their contract. */
+export function isRecordInterviewSignoff(act: SignoffAct): boolean {
+  return act.schema === 'rig-review/act@4' && String(act.value.stage) === 'interview';
+}
 export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string }
 
 /** The scalar consumed by the existing feedback writers and immutable replay checks. */

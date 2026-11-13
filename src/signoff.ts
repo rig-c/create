@@ -6,12 +6,12 @@ import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
-import { checkpointProblem } from './signable.ts';
+import { assertInterviewRecordSignable, checkpointProblem } from './signable.ts';
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobHash } from './job-outbox.ts';
-import { assertActSubjectDeclared, decodeReviewAct, isRecordDirectionSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, isRecordDirectionSignoff, isRecordInterviewSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap } from './diff-map.ts';
@@ -166,7 +166,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       if (targetVersion !== undefined && targetVersion !== String(shown)) refuse('REVIEW_ACT_TARGET_MISMATCH', `signoffs.target.version: --version ${targetVersion} differs from post ${shown} bound by the frozen record; drop --version and sign the displayed record`);
       targetVersion = String(shown);
     }
-    if (PLAN_BOUND_SIGNOFF_STAGES.includes(stage)) {
+    if (PLAN_BOUND_SIGNOFF_STAGES.includes(stage) || isRecordInterviewSignoff(review.act)) {
       const displayed = review.act.source.plan?.steps ?? [];
       const current = asArray(isObject(project.plan) ? project.plan.steps : undefined).map(raw => ({ id: isObject(raw) ? raw.id ?? null : null, hash: isObject(raw) ? stepHash(raw) : null }));
       if (displayed.length !== current.length || displayed.some((step, index) => step.id !== current[index]!.id || step.hash !== current[index]!.hash)) {
@@ -189,6 +189,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   // The record as read: its refusals are the baseline the candidate is judged against below.
   const asRead = checkProject(dir, project, { now });
+  if (review !== undefined && isRecordInterviewSignoff(review.act)) assertInterviewRecordSignable(project, asRead);
   const existingLag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');
   if (existingLag !== undefined) refuse(existingLag.code, existingLag.message);
   if (!Array.isArray(project.signoffs)) refuse('SIGNOFF_MALFORMED', 'signoffs must be a list');

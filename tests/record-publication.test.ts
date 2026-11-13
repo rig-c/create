@@ -237,6 +237,23 @@ test.each(['rigging-interview', 'post-interview'])('%s plan seals the current wr
   expect(snapshot(root)).toEqual(before);
 });
 
+test.each(['plan-approved', 'rigging-interview', 'post-interview', 'direction-review'])(
+  '#475 unchanged %s record publication is repeatable and byte-identical', stage => {
+    const root = stage === 'plan-approved' ? pending(stage).root
+      : stage === 'direction-review' ? realpathSync(fixture(project => {
+        project.stage = stage;
+        retainSignoffs(project, signature => obj(signature).stage !== stage);
+        project.advances = arr(project.advances).filter(value => obj(value).stage !== 'accepted');
+      }, 'example-project.json')) : approvalFixture(stage);
+    const input = { ...request(root), result: { kind: 'plan' as const } };
+    const before = snapshot(root);
+    const first = readRecordPublished(input, TEST_NOW);
+    expect(first.subjects.map(subject => JSON.stringify(subject))).toContain(JSON.stringify({ kind: 'signoff', stage }));
+    expect(readRecordPublished(input, TEST_NOW)).toEqual(first);
+    expect(snapshot(root)).toEqual(before);
+  },
+);
+
 
 test.each(['rigging-interview', 'post-interview'])('%s pending options seal retained context evidence', stage => {
   const root = approvalFixture(stage);

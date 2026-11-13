@@ -24,7 +24,7 @@ import {
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { hasStageOrder, interviewStageOfGuide, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
-import { packageSignSubjects, stageSignable } from './signable.ts';
+import { assertInterviewRecordSignable, packageSignSubjects, stageSignable } from './signable.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { requireRecordDirectionTarget } from './record-direction-target.ts';
@@ -231,6 +231,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       selectedSet = optionFile(root, binding).set;
       sealContext(selectedSet.context as JsonObject);
     } else if (result.kind === 'plan') {
+      if (!plan && project.stage === 'interview' && stageSignable(project, 'interview')) {
+        refuse('INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'project.json.plan.steps: interview record sign-off needs displayed plan steps; draft the plan through the writers and publish it with job open --plan');
+      }
       if (!plan) throw Error('the requested plan is absent');
       // Seal current answer evidence for every displayed step before checking eligibility.
       const basis = new Set(steps.flatMap(step => asArray(step.rests_on).map(String)));
@@ -247,7 +250,8 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     } else throw Error('unknown record result');
     // Seal the decision record and every file its record check reads, rather than
     // revalidating all producer artifacts from earlier versions and drafts.
-    const report = checkProject(root, project, { now, readOnly: true, recordReads: true, recordPublication: true });
+    const interviewSignoff = result.kind === 'plan' && project.stage === 'interview' && stageSignable(project, 'interview');
+    const report = checkProject(root, project, { now, readOnly: true, recordReads: true, recordPublication: !interviewSignoff });
     for (const { path, sha256 } of report.reads ?? []) seal({ path, sha256 });
     // A pick is how an open interview receives its first answer. Its own silent
     // questions are todos, as in next/advance; they are not a plan-approval waiver.
@@ -266,6 +270,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     const ownPending = pending.length > 0 && pending.every(entry => entry.phase === 'pending'
       && entry.recordHash === record.sha256 && isRecordResult(entry.result) && isDeepStrictEqual(entry.result, result));
     const holes = ownPending ? report.holes?.filter(hole => hole.code !== 'JOB_PUBLISH_PENDING') : report.holes;
+    if (interviewSignoff) assertInterviewRecordSignable(project, { ...report, holes });
     const finding = blocking[0] ?? holes?.[0];
     if (finding) throw Error(`${finding.code} at ${finding.path}`);
     const stage = report.effective_stage;
@@ -292,10 +297,11 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         requireRecordDirectionTarget(project, now);
       }
       const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
-      const signable = stage !== null && ['plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage) && stageSignable(project, stage);
+      const signable = stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
+        && (stage !== 'interview' || interviewSignoff) && stageSignable(project, stage);
       if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
-      if (signable && stage !== 'direction-review' && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
+      if (signable && stage !== 'interview' && stage !== 'direction-review' && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
       const signature: JsonObject = { stage, steps: covered.map(step => step.id!) };
       if (signable && stage !== 'direction-review') withCandidateProject(root, project, () => selectAnswerHashes(root, project, signature));
       if (signable && stage === 'rigging-interview') {
@@ -321,7 +327,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     return { label, parts, inputs, files, ...evidence,
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
-    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID'].includes(error.code))) throw error;
+    if (error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))) throw error;
     refuse('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
   }
 }

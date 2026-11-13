@@ -960,6 +960,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
 
+    const missingStepNames = missingPlanIds.length === planIds.length ? '' : `${missingPlanIds.join(', ')} `;
+    const missingStepKind = effectiveStage === 'post-interview' ? 'post' : 'rig';
+    const missingPlanReason = `plan.steps has no ${missingStepNames}${missingStepKind} step${missingPlanIds.length === 1 ? '' : 's'}`;
+
     const signoffAwait = `signoffs[stage=${effectiveStage}]`;
     if (!hasLiveStageSignoff(effectiveStage) && !recordedLapseTargets.has(signoffAwait)) {
       addAwait(signoffAwait);
@@ -970,8 +974,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         command: null,
         act: needsPlanSteps
           ? effectiveStage === 'rigging-interview'
-            ? 'review-tool act signoff for stage rigging-interview (unanswered by record: plan.steps has no rig steps approved at rigging-interview)'
-            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? 'plan.steps has no post steps' : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
+            ? `review-tool act signoff for stage rigging-interview (unanswered by record: ${missingPlanReason} approved at rigging-interview)`
+            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? missingPlanReason : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
           : effectiveStage === 'interview'
             ? 'review-tool act signoff for stage interview on the record page with job open --plan; ingest signoff interview --from-review <actId>, then advance plan-approved'
             : `review-tool act signoff for stage ${effectiveStage}`,

@@ -1519,3 +1519,104 @@ test.each([{ foreground: false, custom: false }, { foreground: true, custom: fal
   expect(arr(doc.plates).map(row => obj(row).role)).toEqual(foreground ? ['background', 'foreground'] : ['background']);
   expect(obj(arr(doc.plates)[0]).rect).toEqual(backgroundRect);
 });
+
+
+function postInterviewPlan(): string {
+  const dir = join(tempDir(), "synthetic post plan's folder");
+  cpSync(join(CHECKPOINTS_DIR, '4-direction-post'), dir, { recursive: true });
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  project.stage = 'post-interview';
+  retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('post-interview'));
+  project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('post-interview'));
+  for (const step of arr(obj(project.plan).steps).map(obj).filter(step => step.phase === 'post')) {
+    step.status = 'pending'; delete step.status_history;
+  }
+  writeFileSync(file, JSON.stringify(project));
+  return dir;
+}
+
+function followupReceipt(row: object): void {
+  if (process.env.NEXT_FOLLOWUP_RECEIPT) appendFileSync(process.env.NEXT_FOLLOWUP_RECEIPT, JSON.stringify(row) + '\n');
+}
+
+test('#502 followup composition order follows existing camera 7 timing 8 and unrelated 9', () => {
+  const dir = postInterviewPlan();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const steps = arr(obj(project.plan).steps).map(obj);
+  const composition = steps.find(step => step.id === 'composition')!;
+  composition.id = 'finishing'; composition.order = 9; composition.rests_on = ['camera_depth'];
+  expect(steps.find(step => step.id === 'camera')!.order).toBe(7);
+  expect(steps.find(step => step.id === 'timing')!.order).toBe(8);
+  writeFileSync(file, JSON.stringify(project));
+  const before = readFileSync(file);
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.refusals).toEqual([]);
+  const adds = report.moves.filter(move => move.command?.startsWith('rig-create plan add '));
+  expect(adds).toHaveLength(1);
+  const move = adds[0]!;
+  expect(move.command).toStartWith('rig-create plan add composition ');
+  expect(move.command).toContain('--order 10');
+  const existingOrders = steps.map(step => Number(step.order));
+  for (const add of adds) {
+    const args = printedArgs(add.command!);
+    expect(existingOrders).not.toContain(Number(args[args.indexOf('--order') + 1]));
+  }
+  expect(readFileSync(file)).toEqual(before);
+  const argv = printedArgs(move.command!).slice(1).map(arg => arg === '<work>' ? 'Write the approved scene composition'
+    : arg === '<result>' ? 'A cited composition scene' : arg === '<acceptance bar>' ? 'Scene roles and placements match the approved choice' : arg);
+  const result = runMainCapture(argv, CHAIN_NOW);
+  expect(result).toMatchObject({ code: 0, stderr: '' });
+  const recorded = arr(obj(JSON.parse(readFileSync(file, 'utf8')).plan).steps).map(obj);
+  expect(recorded.find(step => step.id === 'composition')).toMatchObject({ order: 10, phase: 'post', rests_on: ['post_composition'] });
+  expect(recorded.filter(step => step.id !== 'composition').map(step => step.order)).toEqual(steps.map(step => step.order));
+  followupReceipt({ kind: 'order-measurement', command: move.command, argv: ['rig-create', ...argv], exit: result.code,
+    existing_orders: existingOrders, printed_order: 10, recorded_order: recorded.find(step => step.id === 'composition')!.order });
+});
+
+test.each([
+  { missing: ['composition'], reason: 'plan.steps has no composition post step' },
+  { missing: ['composition', 'camera'], reason: 'plan.steps has no camera, composition post steps' },
+  { missing: ['camera', 'timing', 'composition'], reason: 'plan.steps has no post steps' },
+])('#502 followup post signoff names the missing plan steps %j', ({ missing, reason }) => {
+  const dir = postInterviewPlan();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  obj(project.plan).steps = arr(obj(project.plan).steps).filter(step => !missing.some(id => id === obj(step).id));
+  writeFileSync(file, JSON.stringify(project));
+  const before = readFileSync(file);
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.refusals).toEqual([]);
+  const signoff = report.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'post-interview')!;
+  expect(signoff).toMatchObject({ role: 'human', command: null, unanswered_by_record: 'plan.steps',
+    act: `review-tool act signoff for stage post-interview (unanswered by record: ${reason} in project.json)` });
+  expect(readFileSync(file)).toEqual(before);
+  followupReceipt({ kind: 'post-reason', missing, act: signoff.act });
+});
+
+test.each([
+  { missing: ['motion'], reason: 'plan.steps has no motion rig step approved at rigging-interview' },
+  { missing: ['motion', 'bones'], reason: 'plan.steps has no bones, motion rig steps approved at rigging-interview' },
+  { missing: ['bones', 'meshes', 'constraints', 'motion'], reason: 'plan.steps has no rig steps approved at rigging-interview' },
+])('#502 followup rig signoff names the missing plan steps %j', ({ missing, reason }) => {
+  const dir = realpathSync(fixture(project => {
+    project.stage = 'rigging-interview'; project.versions = []; project.scenes = [];
+    delete project.direction_contract;
+    retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('rigging-interview'));
+    project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('rigging-interview'));
+    for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
+    obj(project.plan).steps = arr(obj(project.plan).steps).filter(step => obj(step).phase !== 'post' && !missing.some(id => id === obj(step).id));
+    for (const step of arr(obj(project.plan).steps).map(obj).filter(step => !['seethrough', 'assemble'].includes(String(step.id)))) {
+      step.status = 'pending'; delete step.status_history;
+    }
+  }, 'example-project.json'));
+  const before = readFileSync(join(dir, 'project.json'));
+  const report = nextProject(dir, CHAIN_NOW);
+  expect(report.refusals).toEqual([]);
+  const signoff = report.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rigging-interview')!;
+  expect(signoff).toMatchObject({ role: 'human', command: null, unanswered_by_record: 'plan.steps',
+    act: `review-tool act signoff for stage rigging-interview (unanswered by record: ${reason})` });
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  followupReceipt({ kind: 'rig-reason', missing, act: signoff.act });
+});

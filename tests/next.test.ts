@@ -416,7 +416,7 @@ describe('Frozen Bar 3 — No human act is offered as an agent command', () => {
     /--by\s+owner\b/,
   ];
 
-  test('no agent or producer move writes signoffs[], a verdict or an approval, and no human move offers a create writer command', () => {
+  test('agent moves never record human acts and ordinary Review acts retain tool routing', () => {
     const dirs = [
       ...readdirSync(CHECKPOINTS_DIR)
         .filter(name => !name.endsWith('.json'))
@@ -945,7 +945,29 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       'camera_depth:user',
     ]);
 
-    const postReport = nextProject(postDir, CHAIN_NOW + 2000);
+    const beforeReopen = readFileSync(join(postDir, 'project.json'));
+    const closedReport = nextProject(postDir, CHAIN_NOW + 2000);
+    expect(closedReport.moves).toHaveLength(1);
+    expect(closedReport.moves[0]).toMatchObject({ role: 'human', field: 'reopens', awaits: 'reopens[stage=direction-review]' });
+    expect(closedReport.moves[0]!.command).toContain("--by '<human>' --verbatim-file '<absolute-human-words-file>'");
+    expect(closedReport.moves[0]!.act).toContain('unchanged words');
+    expect(closedReport.moves[0]!.act).toContain('Create cannot ingest Review reopen acts yet');
+    expect(closedReport.moves.some(move => move.command?.includes('direction write'))).toBe(false);
+    expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeReopen);
+    const ownerWords = join(postDir, 'reopen-owner.txt');
+    writeFileSync(ownerWords, 'Reopen the direction review to answer the camera feedback.\n');
+    const reopenArgs = printedArgs(closedReport.moves[0]!.command!).slice(1).map(arg =>
+      arg === '<human>' ? 'synthetic-owner' : arg === '<absolute-human-words-file>' ? ownerWords : arg);
+    // A project path and an absolute words-file path work from an unrelated cwd.
+    const previousCwd = process.cwd();
+    try {
+      process.chdir(tempDir());
+      expect(runMainCapture(reopenArgs, CHAIN_NOW + 3000)).toMatchObject({ code: 0, stderr: '' });
+    } finally { process.chdir(previousCwd); }
+    const reopened = JSON.parse(readFileSync(join(postDir, 'project.json'), 'utf8')) as JsonObject;
+    expect(obj(arr(reopened.reopens).at(-1))).toMatchObject({ by: 'synthetic-owner', verbatim: readFileSync(ownerWords, 'utf8') });
+    expect(checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true }).warnings.map(row => row.code)).toContain('FEEDBACK_OPEN');
+    const postReport = nextProject(postDir, CHAIN_NOW + 3000);
     expect(postReport.moves).toHaveLength(1);
     expect(postReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=3]' });
     expect(postReport.moves[0]!.command).toContain('direction write 3');
@@ -953,9 +975,9 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const rebuiltArgs = printedArgs(postReport.moves[0]!.command!).slice(1).map(arg =>
       arg === '<direction.json>' ? 'evidence/direction-input.json' : arg === '<rig-version>' ? '1' : arg);
     expect(rebuiltArgs.slice(0, 4)).toEqual(['direction', 'write', '3', postDir]);
-    const beforeRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 2000, readOnly: true });
-    expect(runMainCapture(rebuiltArgs, CHAIN_NOW + 2000)).toMatchObject({ code: 0, stderr: '' });
-    const afterRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 2000, readOnly: true });
+    const beforeRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true });
+    expect(runMainCapture(rebuiltArgs, CHAIN_NOW + 3000)).toMatchObject({ code: 0, stderr: '' });
+    const afterRebuild = checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true });
     expect(newFindings(baselineOf(beforeRebuild), afterRebuild.refusals)).toEqual([]);
     expect(afterRebuild.refusals).toEqual([]);
     expect(postReport.moves[0]!.act).toContain('answers_feedback');

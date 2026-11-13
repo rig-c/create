@@ -620,6 +620,24 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       groups.set(kind, [...(groups.get(kind) ?? []), { version: summary.version, verdict: summary.index }]);
     }
     for (const [kind, refs] of groups) {
+      if (kind === 'post') {
+        // Match the direction writer's authoring gate, including earlier
+        // accepted verdicts that a later bounce does not itself reopen.
+        const reopens = collectReopens(project, []);
+        const closed = collectSignoffs(project, []).some(s => s.stage === 'direction-review'
+          && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at))
+          || versions.some(v => v.kind === 'post' && asArray(v.verdicts).filter(isObject).some(d =>
+            d.review === 'direction-review' && d.verdict === 'accepted'
+            && liveSignoff(reopens, 'direction-review', Date.parse(String(d.at)))));
+        if (closed) {
+          const target = 'reopens[stage=direction-review]';
+          addAwait(target);
+          moves.push({ role: 'human', field: 'reopens', awaits: target,
+            command: `rig-create reopen direction-review ${shellWord(dir)} --by '<human>' --verbatim-file '<absolute-human-words-file>'`,
+            act: 'A human must reopen direction-review with their identity and unchanged words before the agent writes another direction. Supply an absolute words-file path; Create cannot ingest Review reopen acts yet.' });
+          continue;
+        }
+      }
       const field = `versions[n=${n}]`;
       addAwait(field);
       const writer = kind === 'rig' ? `rig-version ${n}` : `direction write ${n}`;

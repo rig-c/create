@@ -1,6 +1,7 @@
 import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
+import { signoffPairFinding } from './signoff-pair.ts';
 import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
@@ -157,6 +158,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       }
       const recorded = asArray(project.signoffs).filter(isObject).find(entry => entry.source === review.human.source);
       if (recorded === undefined) refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json.review_acts: the signoff this act recorded is absent; restore its signoffs[] entry');
+      const pair = signoffPairFinding(project, recorded, `signoffs[${asArray(project.signoffs).indexOf(recorded)}]`, true);
+      if (pair) refuse(pair.code, pair.message);
       return { stdout: json ? JSON.stringify(recorded, null, 2) : `signoff: replayed ${stage} by ${by} at ${String(recorded.at)}; stage unchanged`, exit: 0 };
     }
     if (review.act.schema === 'rig-review/act@4' && review.act.source.projectHash !== jobHash(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: displayed signoff record differs; publish the current plan and ask again');
@@ -302,6 +305,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     const invalid = reviewActFindings(project)[0];
     if (invalid) refuse(invalid.code, invalid.message);
   }
+  const pair = signoffPairFinding(project, signoff, `signoffs[${project.signoffs.length - 1}]`, true);
+  if (pair) refuse(pair.code, pair.message);
   const reopens = collectReopens(project, []);
   const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
   const ownLag = signoff.checkpoint === null && frontier?.index === project.signoffs.length - 1;

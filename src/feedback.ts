@@ -27,6 +27,7 @@ import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
+import { ingestedVerdictPairFinding } from './signoff-pair.ts';
 import { dirname, join, resolve } from 'node:path';
 
 import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
@@ -541,7 +542,7 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
         bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
         version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence };
       project.review_acts = [...asArray(project.review_acts), receipt];
-      const invalid = reviewActFindings(project)[0] ?? newRefusals(dir, original, project, { now })[0];
+      const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? newRefusals(dir, original, project, { now })[0];
       if (invalid) refuse(invalid.code, invalid.message);
       assertReviewActSource(dir, original, fetched.act);
       if (!readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during verdict validation; retry against the current live job');
@@ -556,7 +557,7 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
       } finally { closeSync(fd); rmSync(temporary, { force: true }); }
       return result;
     }
-    const invalid = newRefusals(dir, original, project, { now })[0];
+    const invalid = ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? newRefusals(dir, original, project, { now })[0];
     if (invalid) refuse(invalid.code, invalid.message);
     writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
     return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
@@ -589,6 +590,8 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
         ? existing.bytes === response.bytes
         : isDeepStrictEqual(JSON.parse(String(existing.bytes)), act);
       if (!sameAct) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable act changed; restore the original receipt');
+      const pair = ingestedVerdictPairFinding(project, requestedVersion, Number(existing.verdict));
+      if (pair) refuse(pair.code, pair.message);
       if (existing.version_hash !== reviewActVersionHash(project, act, Number(existing.verdict))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed version changed; request a new review act');
       const version = asArray(project.versions).find(v => isObject(v) && v.n === requestedVersion) as JsonObject;
       return { project_dir: root, verdict_path: `versions[v${requestedVersion}].verdicts[${existing.verdict}]`,

@@ -4,11 +4,11 @@
   "question": "post_composition",
   "stage": "post-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-09T00:00:52.000Z",
+  "drafted_at": "2026-11-13T00:00:52.000Z",
   "context": {
     "kind": "rig",
     "rig_version": 2,
-    "signoff_at": "2026-11-09T00:00:51.000Z",
+    "signoff_at": "2026-11-13T00:00:51.000Z",
     "config": {
       "path": "evidence/v2/interview-config.json",
       "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
@@ -60,7 +60,7 @@
           "id": "keep",
           "kind": "value",
           "label": "Keep the whole lighthouse in frame. It's night; don't brighten it.",
-          "effect": "As answered on 2026-11-09T00:00:56.000Z in post-interview, chat",
+          "effect": "As answered on 2026-11-13T00:00:56.000Z in post-interview, chat",
           "fragment": {
             "framing": "lighthouse fully in frame",
             "light": "as painted",

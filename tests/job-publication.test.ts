@@ -783,9 +783,7 @@ test('#382 draft publication binds inputs[0] in producer.source, seals it in fil
   });
 
   expect(validateSourceOnlyList(SOURCE_ONLY_TESTS).size).toBe(SOURCE_ONLY_TESTS.length);
-  const directionCase = SOURCE_ONLY_TESTS.find(entry => entry.name === '#467 source-linked direction verdict then record sign-off ingests and advances accepted');
-  expect(directionCase?.file).toBe('tests/job-refresh.test.ts');
-  expect(directionCase?.reason).toContain('837909932bc3406fa0ec87f19091daba4d9d69d3');
+  expect(SOURCE_ONLY_TESTS).toEqual([]);
   expect(validateSourceOnlyList([]).size).toBe(0);
   expect(() =>
     validateSourceOnlyList([

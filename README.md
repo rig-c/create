@@ -1,4 +1,14 @@
-# rig-c/create
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rig-c/create/main/assets/banner.svg" alt="@rig-c/create — Project direction, an interview and a signed plan before rigging" width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@rig-c/create"><img src="https://img.shields.io/npm/v/@rig-c/create.svg?style=flat-square&color=FF6B4A" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@rig-c/create"><img src="https://img.shields.io/npm/dm/@rig-c/create.svg?style=flat-square&color=EC4899" alt="npm downloads" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-38BDF8.svg?style=flat-square" alt="license" /></a>
+</p>
+
+# @rig-c/create
 
 **Every rig starts as a project, and every project starts with the user's direction.**
 
@@ -8,6 +18,37 @@ guide an agent reads before it touches anything. It does not cut parts
 ([rig-c/parts](https://github.com/rig-c/parts) does) and it does not compile or
 gate rigs ([rig-c/core](https://github.com/rig-c/core) does). It decides *what* and
 *why*; those packages do *how*.
+
+## Install and start
+
+Requires [Bun](https://bun.sh) 1.4.0 or newer and Git. Run the published CLI
+without a global install:
+
+```sh
+bunx --package @rig-c/create rig-create --help
+bunx --package @rig-c/create rig-create init p1
+bunx --package @rig-c/create rig-create interview --check p1 --json
+bunx --package @rig-c/create rig-create next p1 --json
+```
+
+Or install it globally:
+
+```sh
+bun add -g @rig-c/create
+rig-create --help
+rig-create init p1
+rig-create interview --check p1 --json
+rig-create next p1 --json
+```
+
+Choose one route and a new or empty `p1` folder. `init` creates the project,
+installs its pinned rig-c dependencies, and makes its first Git commit. If the
+install fails, the project is still created; run `bun install` inside `p1` to
+recover. Use `init p1 --no-install` only to defer dependency installation.
+A fresh project's interview check reports the work still needed and exits
+nonzero until its stage requirements are met. `next` reports the available
+next actions; follow those through the review tool rather than editing records
+by hand.
 
 ## Why it exists
 
@@ -33,7 +74,7 @@ work starts:
 Choosing "auto" at any place is allowed. It is recorded as the user handing that
 decision to the agent, never left blank for the agent to fill.
 
-## What will live here
+## What it provides
 
 - A project scaffold: one folder per rig, one record of its direction, sign-offs
   and versions, and data split by lifetime (inputs and evidence kept; derived data,
@@ -46,8 +87,8 @@ decision to the agent, never left blank for the agent to fill.
 - The guide an agent starts from, pointing at the installed packages' own
   documentation rather than copying it.
 
-Nothing is published yet. The structure is being piloted by hand first; the issues
-here track what moves in, in order.
+Release preparation and the owner-operated publication steps are in
+[RELEASING.md](https://github.com/rig-c/create/blob/main/RELEASING.md).
 
 ## Recording approvals
 
@@ -78,11 +119,11 @@ is the only place create reads the wall clock; it passes `Date.now()` to `main`.
 
 Tests and generators never read or replace the global clock. Generators pass
 their declared example instants. Tests call create through
-[tests/clock.ts](tests/clock.ts), which passes the suite's instant, by default
+[tests/clock.ts](https://github.com/rig-c/create/blob/main/tests/clock.ts), which passes the suite's instant, by default
 twelve hours after the latest `*_SINCE` date; `testClock.set` moves it for the
 next call. A test that needs a real process spawns
-[tests/cli-at.ts](tests/cli-at.ts) with that instant. The only test that reads
-the real clock is [tests/contract-dates.test.ts](tests/contract-dates.test.ts):
+[tests/cli-at.ts](https://github.com/rig-c/create/blob/main/tests/cli-at.ts) with that instant. The only test that reads
+the real clock is [tests/contract-dates.test.ts](https://github.com/rig-c/create/blob/main/tests/contract-dates.test.ts):
 it fails, naming the constant, when a `*_SINCE` date is still in the future.
 
 ## Docs

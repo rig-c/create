@@ -1,10 +1,22 @@
 {
   "name": "@rig-c/create",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
   "type": "module",
   "description": "Create a rig project: its folder, decision record, repository and pinned rig-c packages",
   "license": "MIT",
+  "files": [
+    "src/",
+    "templates/",
+    "README.md",
+    "LICENSE",
+    "docs/PROJECT.md",
+    "docs/INTERVIEW.md",
+    "docs/CHECKS.md",
+    "docs/COLLECTIONS.md",
+    "docs/CRAFT.md",
+    "docs/SOURCE.md",
+    "docs/LESSONS.md"
+  ],
   "bin": {
     "rig-create": "src/cli.ts"
   },
@@ -16,7 +28,7 @@
   "dependencies": {
     "@rig-c/core": "3.7.0",
     "@rig-c/parts": "2.37.0",
-    "@rig-c/review": "2.13.0"
+    "@rig-c/review": "4.0.0"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",

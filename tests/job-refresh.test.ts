@@ -9,7 +9,6 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
-import { sourceOnlyTest } from './source-only.ts';
 import { reviewActFindings } from '../src/review-act.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -204,7 +203,7 @@ function expectExit0(result: { stdout: string; stderr: string; exit: number }): 
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
 }
 
-sourceOnlyTest('#475 source-linked clean interview record signoff ingests advances and offers plan-approved', async () => {
+test('#475 source-linked clean interview record signoff ingests advances and offers plan-approved', async () => {
   const root = copy('0b-plan-pending', project => {
     project.stage = 'interview'; project.signoffs = []; project.advances = [];
   });
@@ -400,7 +399,7 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
   expect(report.holes ?? []).toEqual([]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
-sourceOnlyTest('#467 source-linked direction verdict then record sign-off ingests and advances accepted', async () => {
+test('#467 source-linked direction verdict then record sign-off ingests and advances accepted', async () => {
   const historyWords = `Synthetic direction history. ${'retained review words. '.repeat(400)}`;
   const root = copy('example-chain', project => {
     project.stage = 'post';

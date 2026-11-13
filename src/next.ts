@@ -204,18 +204,28 @@ function optionCommand(id: string, dir: string): string {
 }
 
 /** The person acts in Review; the agent only hosts and ingests its exported act. */
-function reviewCommands(dir: string, move: NextMove): NextMove[] {
+function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextMove[] {
   const act = move.review_act;
-  if (move.role !== 'human' || move.unanswered_by_record || !act) return [move];
+  if (move.role !== 'human' || move.unanswered_by_record || move.field === 'pauses' || !act) return [move];
   let selector: string;
   let writer: string;
-  if (act.stage === 'post-interview' && act.kind === 'interview-picks' && act.question_id) {
+  if (act.kind === 'interview-picks' && act.question_id) {
     selector = `--question ${shellWord(act.question_id)}`;
     writer = `interview-answer ${shellWord(act.question_id)}`;
-  } else if (act.kind === 'signoff' && ['post-interview', 'direction-review'].includes(act.stage)) {
+  } else if (act.kind === 'signoff' && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(act.stage)) {
     selector = '--plan';
     writer = `signoff ${act.stage}`;
-  } else if (act.stage === 'direction-review' && act.kind === 'review-verdict' && act.version_id) {
+  } else if (act.kind === 'parts-verdict' && act.draft_id) {
+    selector = `--draft ${shellWord(act.draft_id)}`;
+    writer = 'parts-review';
+  } else if (act.kind === 'signoff' && act.stage === 'parts-review' && act.draft_id) {
+    selector = `--draft ${shellWord(act.draft_id)}`;
+    const structure = partsStructureSnapshot(dir, project, act.draft_id);
+    writer = `signoff parts-review --draft ${shellWord(act.draft_id)} --structure-file ${shellWord(structure.path)}`;
+  } else if (act.kind === 'signoff' && act.stage === 'rig-review' && act.version_id) {
+    selector = `--rig ${shellWord(act.version_id.slice(1))}`;
+    writer = 'signoff rig-review';
+  } else if (['rig-review', 'direction-review'].includes(act.stage) && act.kind === 'review-verdict' && act.version_id) {
     const n = act.version_id.slice(1);
     selector = `--rig ${shellWord(n)}`;
     writer = `review ${shellWord(n)}`;
@@ -227,7 +237,7 @@ function reviewCommands(dir: string, move: NextMove): NextMove[] {
   return [
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'host this Review page; keep the host running in a separate terminal until job close'),
     move,
-    agent(`rig-create job acts ${root} --json`, 'after the person submits in Review, list exported acts and use the matching actId below'),
+    agent(`rig-create job acts ${root} --json`, `after the person submits in Review, list exported acts and use the matching actId below${act.stage === 'parts-review' ? '; run its reported preconditions before ingestion (parts-review signoff includes structure-snapshot)' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
     agent(`rig-create job close ${root}`, 'after successful ingestion, close this job before opening the next Review page'),
   ];
@@ -1568,7 +1578,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const runnableMoves = moves.flatMap(move => {
     if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
       && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
-    return reviewCommands(dir, move);
+    return reviewCommands(dir, project, move);
   });
 
   return {

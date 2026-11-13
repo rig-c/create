@@ -213,6 +213,10 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
       const res = nextCommand([cpDir, '--json'], CHAIN_NOW);
       expect(res.exit).toBe(0);
       const report = JSON.parse(res.stdout) as NextReport;
+      // Compare the checkpoint's original moves; exported-act execution tests
+      // separately exercise the four commands surrounding each human move.
+      report.moves = report.moves.filter(move => !move.command?.startsWith('rig-create job ')
+        && !move.command?.includes('--from-review'));
       const project = JSON.parse(readFileSync(join(cpDir, 'project.json'), 'utf8')) as Record<string, unknown>;
 
       expect(report.schema).toBe(NEXT_SCHEMA);
@@ -410,7 +414,7 @@ describe('Frozen Bar 3 — Agent commands never invent human acts', () => {
   const FORBIDDEN_WRITERS = [
     /^rig-create\s+signoff\b(?!.*--from-review\b)/,
     /^rig-create\s+review\b(?!.*--from-review\b)/,
-    /^rig-create\s+parts-review\b/,
+    /^rig-create\s+parts-review\b(?!.*--from-review\b)/,
     /^rig-create\s+interview-answer\b(?!.*--from-review\b)/,
     /^rig-create\s+reopen\b/,
     /^rig-create\s+pause\b/,
@@ -1308,9 +1312,9 @@ test('#478 answered rigging guides request plan steps before the publishable sig
   }
   const after = nextProject(dir, CHAIN_NOW);
   expect(after.refusals).toEqual([]);
-  expect(after.moves).toHaveLength(1);
-  expect(after.moves[0]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
-  expect(after.moves[0]!.unanswered_by_record).toBeUndefined();
+  expect(after.moves).toHaveLength(5);
+  expect(after.moves[1]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
+  expect(after.moves[1]!.unanswered_by_record).toBeUndefined();
   expect(after.awaits).toEqual(['signoffs[stage=rigging-interview]']);
   const context = readRecordPublished({ root: dir,
     record: { path: 'project.json', sha256: sha256(readFileSync(join(dir, 'project.json'))) },

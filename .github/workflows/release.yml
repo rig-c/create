@@ -141,9 +141,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Stage and gate complete examples for npm pack
+        run: bun scripts/verify-example-seals.ts --stage "$RUNNER_TEMP/create-release-source"
+
       # `--access public`: a scoped package is restricted unless told otherwise.
       - name: Publish @rig-c/create
         id: scoped
+        working-directory: ${{ runner.temp }}/create-release-source
         run: |
           set -euo pipefail
           x="$(npm pack . --pack-destination .)"

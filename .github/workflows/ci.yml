@@ -29,6 +29,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
+      - name: Verify packed example seals and planted deletion
+        run: bun scripts/verify-example-seals.ts --pack "$RUNNER_TEMP/create-example-pack"
       - run: bun scripts/run-registry-ci.ts
   source-linked:
     name: source-linked

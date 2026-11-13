@@ -163,6 +163,47 @@ it fails, naming the constant, when a `*_SINCE` date is still in the future.
   are synthetic fixture records, not a person's approval
   ([why](templates/example-draft/README.md)).
 
+## Verify the installed examples
+
+From a consumer project with `@rig-c/create` installed, run:
+
+```sh
+bun node_modules/@rig-c/create/scripts/verify-example-seals.ts
+```
+
+The shipped, dependency-free script verifies every `files[]` entry and
+`project_sha256` in the six example-chain checkpoint manifests (currently
+319 checks). It names missing files and hash mismatches and exits nonzero.
+It reads installed bytes only; it does not regenerate examples or run producers.
+The CLI creates projects from empty templates; it does not copy worked examples.
+The worked examples are reached through the relative documentation links above.
+
+For a release candidate, from the create source checkout run:
+
+```sh
+bun scripts/verify-example-seals.ts --pack /tmp/create-package-check
+# Or check an existing candidate tarball:
+bun scripts/verify-example-seals.ts --tarball /path/to/candidate.tgz
+```
+
+`--pack` copies the package allowlist into temporary staging, adds `.npmignore`
+only beside staged example `.gitignore` files, then runs `npm pack`. Root ignore
+rules and `files` globs alone do not override the nested exclusions. Direct
+`npm pack .` on the checkout still omits sealed files; use this staging command,
+as registry CI does. The release workflow uses `--stage <fresh-dir>` to retain
+the same gated staging tree, then runs its usual `npm pack` there.
+The eight staged `.npmignore` files
+ship too, preserving the same bytes through the existing alias repacker.
+Repository ignore files, example
+bytes and seals stay unchanged. The gate extracts the tarball, checks the seals,
+and compares every template byte with the source, including example-remesh.
+Both tarball modes also delete a sealed `.gitignore` in the disposable extraction
+and require its exact missing-file diagnostic before succeeding.
+
+The package `files` allowlist includes `scripts/verify-example-seals.ts` so the
+installed check needs no checkout or generator. Complete examples increase the
+package size; no example assets are trimmed to offset that growth.
+
 ## Licence
 
 [MIT](LICENSE).

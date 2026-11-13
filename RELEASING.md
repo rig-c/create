@@ -1,10 +1,13 @@
 # Releasing @rig-c/create
 
-Releases are manual. The first public version is `1.0.0`. For each later release
-the owner chooses and bumps the version before tagging or publishing. There is no release
-workflow. Only the owner creates the tag, GitHub release and npm publication,
-using an interactive terminal and npm's interactive two-factor authentication.
-Never pass a one-time code through `--otp`, an environment variable or a script.
+The first public version, `1.0.0`, was published manually. From the second
+version on, the cut is **merge the release PR → tag on main → `release.yml`
+publishes**. The owner chooses and bumps each version in the release PR.
+The owner sets the npm trusted publisher for `@rig-c/create` on npm to repository
+`rig-c/create` and workflow filename `release.yml`. This is an npm setting,
+not a repository secret. The workflow uses OIDC with provenance on GitHub-hosted
+runners; it needs no npm token or OTP. The owner configures the same trusted
+publisher for the convenience alias `rig-create`.
 
 ## Prepare the candidate
 
@@ -74,12 +77,51 @@ labelled `release`, the explicit Create release trigger. After that protection
 change, a consumer-entry generation failure is caught on main rather than on
 the PR. Release preparation must include the registry result.
 
-## Owner publication
+## Tag publication
 
-After the approved candidate lands, the owner verifies its exact commit,
-version and checks, creates the matching `v<version>` tag on that commit and
-publishes a GitHub release with the reviewed notes and candidate identity.
-These are explicit owner actions, not side effects of package scripts.
+After the approved candidate lands, the owner verifies its exact main commit,
+version and checks, then pushes the matching strict `vX.Y.Z` tag on that commit.
+Creating the tag and GitHub release with reviewed notes remains an explicit
+owner action, not a side effect of package scripts.
+
+`.github/workflows/release.yml` resolves the tag to a full commit SHA and
+requires that SHA to match the run's `GITHUB_SHA` and fetched tag, be reachable
+from `origin/main`, and contain exactly `@rig-c/create@X.Y.Z` in `package.json`.
+It refuses an already published version. The publish job checks out that
+validated SHA, packs the package, publishes it with `--provenance --access public`
+over OIDC, then publishes `rig-create` with the same provenance flags. The alias
+is packed using `scripts/alias_tarball.ts`, ported from Review: only the manifest's
+name line changes, every other unpacked byte must match the exact scoped
+tarball just published before alias publication,
+and internal packs suppress lifecycle scripts. Both names must be served by
+the registry for confirmation to pass.
+
+If the tag push did not publish (for example, a registry or signing outage),
+first check whether npm already serves either name at the version. If neither
+is published, rerun the
+same workflow on the existing tag:
+
+```sh
+gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z
+```
+
+If only the scoped name was published, the selector refuses to republish it.
+Use the owner-directed manual fallback to publish only the missing alias, after
+packing it from the reviewed scoped tarball and verifying byte equality with
+`scripts/alias_tarball.ts compare`. Do not retry the scoped publication.
+
+A dispatch on a branch is refused. Do not move the cut tag or dispatch on main:
+npm provenance records the run's `GITHUB_SHA`. A failed registry confirmation
+does not undo a publication; inspect npm before attempting recovery.
+
+## Manual fallback
+
+Use manual publication when trusted publishing is unavailable and tag-based
+workflow recovery cannot complete, after the owner explicitly chooses the
+fallback and confirms the version is still unpublished. Reuse the reviewed
+candidate identity and repeat packing and consumer validation if its bytes
+changed. Manual publication does not prove the workflow's OIDC/provenance path;
+that proof is the next real workflow cut, not a test release.
 
 The owner authenticates to npm interactively, confirms the intended account
 and scope access, and publishes the reviewed tarball from an interactive
@@ -93,7 +135,7 @@ npm publish <reviewed-tarball-path> --access public
 
 Complete npm's interactive 2FA/browser prompt. If authentication cannot finish,
 stop and resolve it interactively; do not add `--otp`, embed credentials or
-introduce an unattended publishing workflow. If the candidate bytes change,
+add stored npm credentials to the workflow. If the candidate bytes change,
 repeat packing and consumer validation before publishing.
 
 After publication, verify the registry version and integrity against the

@@ -1663,3 +1663,20 @@ optional on older records; present rows are validated by the writer and check.
 | `PACKAGE_UPGRADE_CHECK_FAILED` | The project check could not complete; repair the record or installed packages and retry. |
 | `PACKAGE_UPGRADE_REFUSAL` | The named package move adds or changes the named check finding; preserve the original pins and resolve that finding before retrying. |
 | `PACKAGE_UPGRADE_CONFLICT` | Another package writer holds the lock, or a source changed during staging; finish the other write and retry against current bytes. |
+
+## Release workflow gates
+
+These CI-only codes name `.github/workflows/release.yml` or its tagged
+`package.json`; they do not validate project records.
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `RELEASE_REF_NOT_TAG` | `release.yml`: use a tag push or dispatch with matching `--ref vX.Y.Z -f tag=vX.Y.Z`. |
+| `RELEASE_TAG_FORM` | `release.yml`: supply a strict `vX.Y.Z` tag without prerelease or leading zeros. |
+| `RELEASE_TAG_UNRESOLVED` | `release.yml`: restore tag/API access so the explicit tag ref resolves to a full commit SHA. |
+| `PROVENANCE_SHA_MISMATCH` | `release.yml`: the run, API or fetched tag commits differ; inspect the cut tag and recover on that exact tag ref without moving it. |
+| `RELEASE_TAG_NOT_ON_MAIN` | `release.yml`: restore fetched main/tag history or land the reviewed release commit on main before cutting a new tag. |
+| `RELEASE_TAG_VERSION_MISMATCH` | Tagged `package.json`: release the exact `@rig-c/create@X.Y.Z` matching the tag; do not move an existing cut tag. |
+| `RELEASE_ALREADY_PUBLISHED` | `release.yml`: npm already serves the version; verify that publication rather than republishing it. |
+| `RELEASE_REGISTRY_UNCONFIRMED` | `release.yml`: confirmation of both names timed out; inspect npm before recovery because publication may already have succeeded. |
+| `ALIAS_SAME_CONTENT` | `scripts/alias_tarball.ts compare`: an alias differs beyond the `package/package.json` name line; rebuild it from the reviewed scoped tarball and resolve every named file difference before publication. |

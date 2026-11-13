@@ -59,8 +59,8 @@ function makeProject(): string {
   return root;
 }
 
-test('installed @rig-c/review is pinned at 4.0.0 while create keeps package-only job schemas', () => {
-  expect(reviewPackage.version).toBe('4.0.0');
+test('installed @rig-c/review is pinned at 4.0.1 while create keeps package-only job schemas', () => {
+  expect(reviewPackage.version).toBe('4.0.1');
   expect(JOB_API_SCHEMA).toBe('rig-review/job-api@2');
   expect(JOB_ACT_SCHEMA).toBe('rig-review/act@2');
   expect(JOB_API_V3_SCHEMA).toBe('rig-review/job-api@3');

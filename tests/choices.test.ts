@@ -19,8 +19,12 @@ import { PARTS_CLI_RECEIPT, partsReadFindings } from '../src/parts-verdict-recor
 import { Refusal } from '../src/refusal.ts';
 import { fixture, obj, arr, waypoint, framing } from './fixtures.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 
 afterEach(()=>testClock.reset());
+// Fresh test acts follow the complete generated narrative (at most two minutes).
+const sourceDraftAt=EXAMPLE_ANCHOR+3*60_000;
+const riggingDraftAt=sourceDraftAt+60_000;
 const load=(dir:string):JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
 const save=(dir:string,p:JsonObject):void=>writeFileSync(join(dir,'project.json'),JSON.stringify(p,null,2)+'\n');
 const current=(p:JsonObject,q:string)=>collectItems(p,{collection:null}).find(i=>i.id===q)!;
@@ -36,10 +40,11 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
   },'example-project.json');
   const p=load(dir);const item=current(p,question);const original=obj(obj(item.raw).choice).set as JsonObject;
   const set=JSON.parse(readFileSync(join(dir,String(original.path)),'utf8')) as JsonObject;
-  set.id=`test-${question}`;set.drafted_at=source?'2026-11-10T14:10:00Z':'2026-11-11T11:20:00Z';
+  const draftedAt=source?sourceDraftAt:riggingDraftAt;
+  set.id=`test-${question}`;set.drafted_at=new Date(draftedAt).toISOString();
   set.context=optionContext(p,String(set.stage),Date.parse(set.drafted_at as string));
   const path=`evidence/interview/test-${question}.json`;const bytes=JSON.stringify(set,null,2)+'\n';writeFileSync(join(dir,path),bytes);
-  testClock.set(new Date(source?'2026-11-10T14:11:00Z':'2026-11-11T11:21:00Z'));
+  testClock.set(draftedAt+1_000);
   interviewOptionsCommand([question,dir,'--file',path]);
   return{dir,set,path,hash:sha256(Buffer.from(bytes))};
 }
@@ -215,11 +220,11 @@ test('Other with multiline Unicode and explicit fragment preserves text; unresol
   const w=working('reference');const words='첫 줄\nSecond line  \ne\u0301';writeFileSync(join(w.dir,'other.txt'),words);writeFileSync(join(w.dir,'fragment.json'),JSON.stringify('custom'));
   const other=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','reference=other','--other',`reference=${join(w.dir,'other.txt')}`]));
   expect(other.value).toBeNull();expect(other.asks).toEqual([{id:'reference',state:'other-pending'}]);expect(other.choice.picks[0].other_text).toBe(words);
-  const before=readFileSync(join(w.dir,'project.json'));testClock.set(new Date('2026-11-10T16:10:00Z'));const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
+  const before=readFileSync(join(w.dir,'project.json'));testClock.set(sourceDraftAt+30_000);const snapshot=readFileSync(join(w.dir,'project.json'));writeFileSync(join(w.dir,'yes.txt'),'Approve');
   expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'yes.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(snapshot);
   // A new tailored option preserves the pending record as history; its date is not rewritten.
-  const next=structuredClone(w.set);next.id='resolved-reference';next.drafted_at='2026-11-10T14:12:00Z';obj(arr(obj(arr(next.asks)[0]).options)[0]).label=words;obj(arr(obj(arr(next.asks)[0]).options)[0]).fragment='custom';obj(arr(obj(arr(next.asks)[0]).options)[0]).effect=`As answered on ${String(other.at)} in review questionnaire`;
-  const path='evidence/interview/resolved-reference.json';const bytes=JSON.stringify(next);writeFileSync(join(w.dir,path),bytes);testClock.set(new Date('2026-11-10T14:13:00Z'));interviewOptionsCommand(['reference',w.dir,'--file',path]);
+  const next=structuredClone(w.set);next.id='resolved-reference';next.drafted_at=new Date(sourceDraftAt+2_000).toISOString();obj(arr(obj(arr(next.asks)[0]).options)[0]).label=words;obj(arr(obj(arr(next.asks)[0]).options)[0]).fragment='custom';obj(arr(obj(arr(next.asks)[0]).options)[0]).effect=`As answered on ${String(other.at)} in review questionnaire`;
+  const path='evidence/interview/resolved-reference.json';const bytes=JSON.stringify(next);writeFileSync(join(w.dir,path),bytes);testClock.set(sourceDraftAt+3_000);interviewOptionsCommand(['reference',w.dir,'--file',path]);
   const resolved=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',path,'--sha256',sha256(Buffer.from(bytes)),'--by','user','--pick','reference=keep']));expect(resolved.value).toBe('custom');expect(arr(current(load(w.dir),'reference').record.history)).toContainEqual(other);expect(before.length).toBeGreaterThan(0);
 });
 test('mixed auto needs exact ordered fragments/covers and blocks approval until decided',()=>{
@@ -269,7 +274,7 @@ test('landed constrained Other is checked even when another constrained ask is s
   expect(code(()=>checkChoiceConstraints(w.set,choice,new Map([['ground',{ground:'plain'}]])))).toBe('INTERVIEW_CHOICE_CONSTRAINT');
 });
 test('a later reopen preserves the historical choice but refuses selecting its stale set again',()=>{
-  const w=working();answer(w);testClock.set(new Date('2026-11-11T11:22:00Z'));writeFileSync(join(w.dir,'words.txt'),'Review parts again.');
+  const w=working();answer(w);testClock.set(riggingDraftAt+2_000);writeFileSync(join(w.dir,'words.txt'),'Review parts again.');
   reopenCommand(['parts',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);expect(checkProject(w.dir).refusals).toEqual([]);
   const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>interviewOptionsCommand(['motion',w.dir,'--file',w.path]))).toBe('INTERVIEW_OPTIONS_STALE');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
 });
@@ -320,7 +325,7 @@ test('pending Other is legal for rig_type and a projection-bearing guide until q
     const w=working(question);writeFileSync(join(w.dir,'words.txt'),'A different choice.');const ask=question==='assemble'?'cut':'rig_type';
     const flags=arr(w.set.asks).flatMap(a=>['--pick',`${String(obj(a).id)}=${obj(a).id===ask?'other':'keep'}`]);
     const selected=JSON.parse(interviewAnswerCommand([question,w.dir,'--set',w.path,'--sha256',w.hash,'--by','user',...flags,'--other',`${ask}=${join(w.dir,'words.txt')}`]));expect(selected.value).toBeNull();expect(checkProject(w.dir).refusals).toEqual([]);
-    testClock.set(new Date('2026-11-10T16:10:00Z'));const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+    testClock.set(sourceDraftAt+30_000);const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]))).toBe('INTERVIEW_CHOICE_REQUIRED');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
   }
 });
 
@@ -339,7 +344,7 @@ test.each(['plain','busy'])('visible config accepts pending auto ground, blocks 
   expect(checkProject(w.dir).refusals).toEqual([]);
   const picks=arr(w.set.asks).map(a=>`${String(obj(a).id)}=${obj(a).id==='projection'?'alternative':obj(a).id==='ground'?'auto':'keep'}`);
   const selected=JSON.parse(answer(w,picks));expect(selected.asks).toContainEqual({id:'ground',state:'delegated'});expect(checkProject(w.dir).refusals).toEqual([]);
-  writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');testClock.set(new Date('2026-11-10T16:10:00Z'));
+  writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');testClock.set(sourceDraftAt+30_000);
   signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
   expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
   advanceCommand(['plan-approved',w.dir]);
@@ -383,8 +388,8 @@ test('override job picks and fresh replacement require exact reasons, preserve t
   const selected=JSON.parse(reviewAnswer(w,payload,['--why-file',w.reason]));
   expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:'2026-11-09T00:00:00Z'});expect(selected.why_verbatim).toBe(w.why);
   expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);expect(checkProject(w.dir).warnings).toEqual([]);
-  const q=obj(arr(obj(w.parent.interview).framing)[0]);q.history=[q.answer as Json];q.answer={...obj(q.answer),at:'2026-11-10T14:12:00Z'};writeFileSync(w.parentFile,JSON.stringify(w.parent));const changedParent=readFileSync(w.parentFile);
-  testClock.set(new Date('2026-11-10T14:13:00Z'));interviewOptionsCommand(['reference',w.dir,'--file',w.path]);
+  const q=obj(arr(obj(w.parent.interview).framing)[0]);q.history=[q.answer as Json];q.answer={...obj(q.answer),at:new Date(sourceDraftAt+2_000).toISOString()};writeFileSync(w.parentFile,JSON.stringify(w.parent));const changedParent=readFileSync(w.parentFile);
+  testClock.set(sourceDraftAt+3_000);interviewOptionsCommand(['reference',w.dir,'--file',w.path]);
   const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>overrideAnswer(w))).toBe('OVERRIDE_REASON_MISSING');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
   writeFileSync(w.reason,'A newly stated reason.\n');const replacement=JSON.parse(overrideAnswer(w,['--why-file',w.reason]));
   expect(replacement.overrides).toEqual(selected.overrides);expect(replacement.why_verbatim).toBe('A newly stated reason.\n');expect(arr(framing(load(w.dir),'reference').history)).toContainEqual(selected);

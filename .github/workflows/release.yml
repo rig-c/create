@@ -1,0 +1,170 @@
+# Release: triggered by pushing a deliberate vX.Y.Z tag on main, with no stored npm secret.
+#
+# Pushing a version tag vX.Y.Z (after merging the release commit to protected
+# main) runs this workflow. The `release` job checks out main's history and
+# tags, requires a strict vX.Y.Z tag ref, resolves the tag to a full commit SHA
+# via the commits API, requires the run's GITHUB_SHA and the local tag commit
+# to equal that SHA, verifies the commit is reachable from origin/main,
+# verifies package.json in the tagged commit tree matches @rig-c/create@X.Y.Z,
+# and refuses a version the registry already serves. The `publish` job checks
+# out the validated commit SHA and publishes @rig-c/create to
+# npm over OIDC (trusted publishing) with provenance. No npm token, no OTP.
+#
+# Two constraints are load-bearing, do not "simplify" them away:
+#   - The publish must stay in THIS file. npm's trusted publisher for
+#     @rig-c/create names the repository rig-c/create and the workflow
+#     filename `release.yml`.
+#   - It must stay on a GitHub-hosted runner. npm does not support OIDC from
+#     self-hosted runners.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  # Publishes an existing release tag when the tag push's publish did not land
+  # (a registry or signing outage after the tag was pushed). It runs the same
+  # selector and gate on the tagged tree and publishes from this same file, so
+  # the trusted publisher and provenance are unchanged. It refuses a non-tag
+  # dispatch ref, a tag not in strict vX.Y.Z form, a tag whose commit is not on
+  # main, a tagged commit whose package.json does not match @rig-c/create@X.Y.Z,
+  # a version the registry already serves, and a run whose GITHUB_SHA is not
+  # the tag's commit (npm provenance names GITHUB_SHA):
+  # dispatch it on the tag, `gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z`.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing release tag to publish, e.g. v0.7.1
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # fetch main history and tags to validate the release commit
+    outputs:
+      publish: ${{ steps.target.outputs.publish }}
+      tag: ${{ steps.target.outputs.tag }}
+      sha: ${{ steps.target.outputs.sha }}
+    steps:
+      # Both tag push and manual dispatch prove the tag is reachable from
+      # protected main and validate package.json from the exact tagged tree.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      # What to publish: a pushed or dispatched vX.Y.Z tag whose workflow ref
+      # is refs/tags/vX.Y.Z, whose commit matches GITHUB_SHA, is reachable from
+      # origin/main, carries matching @rig-c/create@X.Y.Z in package.json, and
+      # is not on the registry yet. Write access alone can push a tag at an
+      # unreviewed commit; reachability from protected main and exact package
+      # version equality gate what can reach publish.
+      - name: Resolve the tag to publish
+        id: target
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          INPUT_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then
+            case "$REF" in
+              refs/tags/*) release_tag="${REF#refs/tags/}" ;;
+              *) echo "::error::RELEASE_REF_NOT_TAG: workflow ref \"$REF\" is not refs/tags/vX.Y.Z"; exit 1 ;;
+            esac
+            if [[ ! "$release_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then echo "::error::RELEASE_TAG_FORM: \"$release_tag\" is not vX.Y.Z"; exit 1; fi
+          elif [ "$EVENT" = workflow_dispatch ]; then
+            if [[ ! "$INPUT_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then echo "::error::RELEASE_TAG_FORM: \"$INPUT_TAG\" is not vX.Y.Z"; exit 1; fi
+            if [ "$REF" != "refs/tags/$INPUT_TAG" ]; then echo "::error::RELEASE_REF_NOT_TAG: workflow ref \"$REF\" is not refs/tags/$INPUT_TAG; dispatch with --ref $INPUT_TAG -f tag=$INPUT_TAG"; exit 1; fi
+            release_tag="$INPUT_TAG"
+          else
+            echo "::error::RELEASE_REF_NOT_TAG: unsupported event \"$EVENT\""; exit 1
+          fi
+          # The commit API resolves both lightweight and annotated tags to a commit,
+          # rather than returning an annotated tag object's SHA. Use an explicit tag ref to avoid branch ambiguity.
+          if ! tag_sha="$(gh api "repos/$REPO/commits/refs%2Ftags%2F$release_tag" --jq .sha)"; then echo "::error::RELEASE_TAG_UNRESOLVED: cannot resolve $release_tag to a commit"; exit 1; fi
+          if [[ ! "$tag_sha" =~ ^[0-9a-f]{40}$ ]]; then echo "::error::RELEASE_TAG_UNRESOLVED: $release_tag did not resolve to a full commit SHA"; exit 1; fi
+          # npm provenance records GITHUB_SHA, not the checked-out HEAD. A run whose GITHUB_SHA is not the tag's
+          # commit would publish provenance naming a commit it did not build, so it is refused.
+          if [ "$GITHUB_SHA" != "$tag_sha" ]; then echo "::error::PROVENANCE_SHA_MISMATCH: the run's GITHUB_SHA $GITHUB_SHA is not $release_tag's commit $tag_sha; the tag remains cut; recover with gh workflow run release.yml --ref $release_tag -f tag=$release_tag"; exit 1; fi
+          if ! local_sha="$(git rev-parse --verify --quiet "refs/tags/$release_tag^{commit}")"; then echo "::error::RELEASE_TAG_NOT_ON_MAIN: tag $release_tag does not resolve to a commit"; exit 1; fi
+          if [ "$local_sha" != "$tag_sha" ]; then echo "::error::PROVENANCE_SHA_MISMATCH: fetched tag $release_tag ($local_sha) does not match resolved commit $tag_sha"; exit 1; fi
+          if ! git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null; then echo "::error::RELEASE_TAG_NOT_ON_MAIN: origin/main was not fetched"; exit 1; fi
+          if ! git merge-base --is-ancestor "$tag_sha" refs/remotes/origin/main; then echo "::error::RELEASE_TAG_NOT_ON_MAIN: $release_tag ($tag_sha) is not reachable from origin/main"; exit 1; fi
+          version="${release_tag#v}"
+          if ! pkg_json="$(git show "$tag_sha:package.json" 2>/dev/null)"; then echo "::error::RELEASE_TAG_VERSION_MISMATCH: cannot read package.json from $release_tag ($tag_sha)"; exit 1; fi
+          if ! pkg_id="$(PKG_JSON="$pkg_json" node -e 'const p = JSON.parse(process.env.PKG_JSON); if (typeof p.name === "string" && typeof p.version === "string") process.stdout.write(`${p.name}@${p.version}`); else process.exit(1);' 2>/dev/null)"; then echo "::error::RELEASE_TAG_VERSION_MISMATCH: invalid package.json in $release_tag ($tag_sha)"; exit 1; fi
+          if [ "$pkg_id" != "@rig-c/create@$version" ]; then echo "::error::RELEASE_TAG_VERSION_MISMATCH: $release_tag ($tag_sha) package.json is $pkg_id, expected @rig-c/create@$version"; exit 1; fi
+          if served="$(npm view "@rig-c/create@$version" version 2>/dev/null)" && [ "$served" = "$version" ]; then echo "::error::RELEASE_ALREADY_PUBLISHED: the registry already serves @rig-c/create@$version"; exit 1; fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"; echo "tag=$release_tag" >> "$GITHUB_OUTPUT"; echo "sha=$tag_sha" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: release
+    if: ${{ needs.release.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read # check out the validated commit
+      id-token: write # OIDC token for npm trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Both paths check out the commit that passed provenance validation, not the (mutable) tag name.
+          ref: ${{ needs.release.outputs.sha }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Node 22 ships npm 10; the OIDC exchange landed in npm 11.5.1.
+      - name: Use an npm that speaks OIDC
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # `--access public`: a scoped package is restricted unless told otherwise.
+      - name: Publish @rig-c/create
+        run: |
+          set -euo pipefail
+          x="$(npm pack . --pack-destination .)"
+          npm publish "$x" --provenance --access public
+
+      - name: Confirm the registry serves @rig-c/create
+        env:
+          TAG_NAME: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#v}"
+          confirmed=false
+          for attempt in $(seq 1 30); do
+            if served="$(npm view "@rig-c/create@$version" version 2>/dev/null)" && [ "$served" = "$version" ]; then
+              echo "registry serves @rig-c/create@$version (attempt $attempt)"
+              confirmed=true
+              break
+            fi
+            echo "waiting for @rig-c/create@$version (attempt $attempt)"
+            sleep 30
+          done
+          if [ "$confirmed" != true ]; then
+            echo "::error::RELEASE_REGISTRY_UNCONFIRMED: @rig-c/create@$version was not served within 15 minutes; confirmation NOT taken; check the registry before recovery"
+            exit 1
+          fi

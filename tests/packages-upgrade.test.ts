@@ -12,7 +12,7 @@ import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.0.1' };
+const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.0.2' };
 function fixture(dependencies: Record<string, string>) {
   const dir = tempDir(); roots.push(dir);
   const project = readTemplate('project.json');
@@ -70,7 +70,7 @@ test('an older synthetic project upgrades all release pins and preserves unrelat
   const record = readFileSync(join(dir, 'project.json'), 'utf8');
   const project = JSON.parse(record);
   expect(record.slice(0, bytes.lastIndexOf('}'))).toBe(bytes.slice(0, bytes.lastIndexOf('}')));
-  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.0.1', to: '4.0.1' }] });
+  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.0.2', to: '4.0.2' }] });
   expect(packageUpgradeFindings(project)).toEqual([]);
   expect(existsSync(join(dir, 'node_modules/sentinel'))).toBe(false);
 }, 30000);

@@ -7,7 +7,9 @@ import { collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { fixture, retainSignoffs, arr, obj } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
-import { pendingJobActs } from '../src/job-acts.ts';
+import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { nextProject } from '../src/next.ts';
+import { pendingJobActs, jobActsText } from '../src/job-acts.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
@@ -398,4 +400,38 @@ test('post scene route: Review pick act, from-review ingestion, scene write with
   expectExit0(await cli(root, ['scene', 'write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root]));
   expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');
   expectExit0(await cli(root, ['interview', '--check', root]));
+}, 30_000);
+
+
+test('#490 parts signoff prints ordered verdict and structure prerequisites with retained writer flags', async () => {
+  testClock.set(Date.now());
+  const root = copy('1-parts-verdict');
+  const signoff = { jobId: 'synthetic', actId: 'parts-sign', kind: 'signoff', at: testClock.iso(),
+    source: { selector: { kind: 'draft', id: 'chain' } }, value: { stage: 'parts-review' } } as unknown as ActV3;
+  const [pending] = pendingJobActs(read(root), [signoff], root);
+  expect(pending!.args).toEqual(['signoff', 'parts-review', root, '--draft', 'chain', '--structure-file', 'evidence/structure-chain.json', '--from-review', 'parts-sign']);
+  expect(pending!.preconditions).toHaveLength(2);
+  expect(pending!.preconditions![0]!.command).toBeNull();
+  expect(pending!.preconditions![0]!.act).toContain('ingest the approved parts-verdict');
+  const text = jobActsText({ acts: [pending!] });
+  expect(text.indexOf('ingest the approved parts-verdict')).toBeLessThan(text.indexOf('rig-create structure-snapshot'));
+  expect(text.indexOf('rig-create structure-snapshot')).toBeLessThan(text.indexOf('rig-create signoff'));
+  recordPartsReceipt(root, 'chain', testClock.now());
+  const [ready] = pendingJobActs(read(root), [signoff], root);
+  expect(ready!.preconditions).toHaveLength(1);
+  await executePrinted(root, ready!.preconditions![0]!.command!);
+  expect(pendingJobActs(read(root), [signoff], root)[0]!.preconditions).toBeUndefined();
+  // The exact final command needs a real Review act. Open the draft after the
+  // prerequisite writes so its source binds the current record.
+  expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
+  const opening = await open(root);
+  const view = await page(root, opening.url);
+  const act = await view.act('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
+  const row = pendingJobActs(read(root), [act as unknown as ActV3], root)[0]!;
+  expect(row.command).toContain('--structure-file');
+  await executePrinted(root, row.command!);
+  expect(read(root).signoffs).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
+  expect(nextProject(root, testClock.now()).refusals.map(row => row.code)).not.toContain('STRUCTURE_DECISIONS_MISSING');
 }, 30_000);

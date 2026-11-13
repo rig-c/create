@@ -3,7 +3,7 @@
 exports[`#454 no-bounce direction write and next preserve previous bytes and output 1`] = `
 {
   "exit": 0,
-  "nextJson": "dc73311409a4902a41a5840c07e99f01ebe3f7ac93e0467bab1087c17892817b",
+  "nextJson": "0ba36641f24805e65ec3c31011662b3235433af7353bb4484668a341216e4969",
   "nextText": "5b8c1dce34b5501b5793b15969601a62320387513c5db49ead9438d41f66d9b5",
   "record": "73b247795fff4014f27440deccc93e86547e9e0cd0dc49b00d259a6d96ccaa3d",
   "stdout": "4c4c2cb5d2ed4ae18a58a9b30da2f9706fb47b430349b411044e9ad8e1507f99",
@@ -13,7 +13,7 @@ exports[`#454 no-bounce direction write and next preserve previous bytes and out
 exports[`#454 no-bounce direction patch and next preserve previous bytes and output 1`] = `
 {
   "exit": 0,
-  "nextJson": "dc73311409a4902a41a5840c07e99f01ebe3f7ac93e0467bab1087c17892817b",
+  "nextJson": "0ba36641f24805e65ec3c31011662b3235433af7353bb4484668a341216e4969",
   "nextText": "5b8c1dce34b5501b5793b15969601a62320387513c5db49ead9438d41f66d9b5",
   "record": "fa8dd51a76a57284091491b4c80a95511e834d62432b942b0bd8b5e697cac179",
   "stdout": "4c4c2cb5d2ed4ae18a58a9b30da2f9706fb47b430349b411044e9ad8e1507f99",

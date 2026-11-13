@@ -14,7 +14,9 @@ publisher for the convenience alias `rig-create`.
 1. Read the current `AGENTS.md` and the release issue. Keep `private` absent and
    audit the `files` allowlist: runtime source, templates, README, licence and
    the README-linked docs. `docs/CHECKS.md` is also read by `next` at runtime.
-   Repository tests, scripts, workflows and development instructions do not ship.
+   Repository tests, workflows and development instructions do not ship.
+   Scripts are excluded except `scripts/verify-example-seals.ts`, the installed
+   example verifier explicitly included in `files`.
 2. Choose an unused version and edit `package.json` manually. Do not use an
    automatic version command that also commits or tags. Update `bun.lock` with
    Bun when the manifest changes require it. Keep dependency pins exact and
@@ -25,13 +27,15 @@ publisher for the convenience alias `rig-create`.
    paths and module references, following the current validation policy. Review
    every command's exit and first error. Required PR checks and the cross-family
    review in `AGENTS.md` must pass at the candidate head before release.
-5. Run `npm pack --dry-run --json`, then `npm pack --json --pack-destination
-   <evidence-dir>`. Keep the evidence directory outside the repository. Record
-   the exact file list, entry count, packed and unpacked byte sizes, integrity
-   and tarball SHA-256. Audit public content and runtime reads, including
-   `readFileSync`, `import.meta.dir` and `new URL`. A runtime dependency on an
-   excluded test or script blocks release; do not add those development folders
-   to hide it.
+5. Follow [Verify the release candidate](#verify-the-release-candidate): stage
+   the package outside the repository, run native `npm pack` in that directory,
+   verify the exact resulting tarball, then try publication with `--dry-run`.
+   Never pack the checkout directly: its nested ignore rules omit sealed files.
+   Record the exact file list, entry count, packed and unpacked byte sizes,
+   integrity and tarball SHA-256. Audit public content and runtime reads,
+   including `readFileSync`, `import.meta.dir` and `new URL`. A runtime dependency
+   on an excluded test or script blocks release; do not add those development
+   folders to hide it.
 6. In an empty directory outside the repository, install that tarball using Bun
    and registry dependencies. Run the installed `rig-create --help`,
    `rig-create init p1`, `rig-create interview --check p1 --json` and
@@ -42,6 +46,56 @@ publisher for the convenience alias `rig-create`.
    `bunx --package <absolute-tarball-path> rig-create` followed by the same four
    command arguments. Verify both routes resolve the tarball, not a checkout or
    global installation. Keep command, exit, first-error and output receipts.
+
+## Verify the release candidate
+
+For a release candidate, from the create source checkout run the same staging
+and native pack sequence as CI and the release workflow. Use a fresh staging
+path outside the repository:
+
+```sh
+(
+  set -euo pipefail
+  stage_root="$(mktemp -d)"
+  bun scripts/verify-example-seals.ts --stage "$stage_root/source"
+  cd "$stage_root/source"
+  npm pack --dry-run --json
+  x="$(npm pack . --pack-destination .)"
+  bun scripts/verify-example-seals.ts --tarball "$x"
+  npm publish "$x" --dry-run --provenance --access public
+)
+```
+
+If auth, provenance or OIDC blocks the dry-run, record that in one line and stop
+at the verified tarball; do not publish. A successful dry-run does not verify
+real provenance signing, the OIDC exchange or registry publication.
+
+The existing one-command pack gate uses the same staging function:
+
+```sh
+bun scripts/verify-example-seals.ts --pack /tmp/create-package-check
+# Or check an existing candidate tarball:
+bun scripts/verify-example-seals.ts --tarball /path/to/candidate.tgz
+```
+
+`--pack` copies the package allowlist into temporary staging, adds `.npmignore`
+only beside staged example `.gitignore` files, then runs `npm pack`. Root ignore
+rules and `files` globs alone do not override the nested exclusions. Direct
+`npm pack .` on the checkout still omits sealed files. CI and the release
+workflow use `--stage <fresh-dir>` to retain the same gated staging tree, run
+native `npm pack` there, and verify that exact output with `--tarball` before
+publication or its dry-run. The eight staged `.npmignore` files ship too,
+preserving the same bytes through the existing alias repacker. Repository
+ignore files, example bytes and seals stay unchanged. The gate extracts the
+tarball, checks the seals, and compares every template byte with the source,
+including example-remesh. Both tarball modes also delete a sealed `.gitignore`
+in the disposable extraction and require its exact missing-file diagnostic
+before succeeding. The release workflow also verifies the exact alias output
+before publishing it.
+
+The package `files` allowlist includes `scripts/verify-example-seals.ts` so the
+installed check needs no checkout or generator. Complete examples increase the
+package size; no example assets are trimmed to offset that growth.
 
 ## Dependency pins: AGENTS.md invariant 4
 

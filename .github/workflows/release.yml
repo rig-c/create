@@ -151,6 +151,7 @@ jobs:
         run: |
           set -euo pipefail
           x="$(npm pack . --pack-destination .)"
+          bun scripts/verify-example-seals.ts --tarball "$x"
           npm publish "$x" --provenance --access public
           echo "tarball=$PWD/$x" >> "$GITHUB_OUTPUT"
 
@@ -162,6 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           alias_tgz=$(bun scripts/alias_tarball.ts pack --name rig-create --out "$RUNNER_TEMP/alias-rig-create" --tarball "$SCOPED_TARBALL" --pack-timeout-ms 300000)
+          bun scripts/verify-example-seals.ts --tarball "$alias_tgz"
           npm publish "$alias_tgz" --provenance --access public
 
       - name: Confirm the registry serves both names

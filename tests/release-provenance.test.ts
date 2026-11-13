@@ -3,12 +3,13 @@ import {chmodSync,existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,symlinkSy
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-type Step={id?:string;name?:string;uses?:string;if?:string;env?:Record<string,string>;with?:Record<string,unknown>;run?:string};
+type Step={id?:string;name?:string;uses?:string;if?:string;env?:Record<string,string>;with?:Record<string,unknown>;run?:string;'working-directory'?:string};
 type Job={'runs-on':string;'timeout-minutes':number;permissions:unknown;steps:Step[];outputs?:Record<string,string>;needs?:string;if?:string};
 type Workflow={on:unknown;permissions:unknown;concurrency:unknown;jobs:{release:Job;publish:Job}};
 const workflow=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/release.yml',import.meta.url),'utf8')) as Workflow;
 const steps=workflow.jobs.release.steps;
 const target=steps.find(step=>step.id==='target')!;
+const aliasGate='bun scripts/verify-example-seals.ts --tarball "$alias_tgz"';
 const tag='v0.11.1',commitSha='a'.repeat(40),oldSha='b'.repeat(40);
 type Fixture={
  event?:string;ref?:string;inputTag?:string;runSha?:string;repo?:string;
@@ -153,8 +154,12 @@ function checkWorkflowPolicy(wf:Workflow){
  expect(pub.steps.find(step=>step.env?.TAG_NAME)?.env?.TAG_NAME).toBe('${{ needs.release.outputs.tag }}');
  expect(pub.steps.filter(step=>step.run?.includes('npm publish')).map(step=>step.name)).toEqual(['Publish @rig-c/create','Publish the alias rig-create']);
  expect(pub.steps.find(step=>step.name==='Publish @rig-c/create')!.run!.trim()).toBe(
-  'set -euo pipefail\nx="$(npm pack . --pack-destination .)"\nnpm publish "$x" --provenance --access public\necho "tarball=$PWD/$x" >> "$GITHUB_OUTPUT"',
+  'set -euo pipefail\nx="$(npm pack . --pack-destination .)"\nbun scripts/verify-example-seals.ts --tarball "$x"\nnpm publish "$x" --provenance --access public\necho "tarball=$PWD/$x" >> "$GITHUB_OUTPUT"',
  );
+ const alias=pub.steps.find(step=>step.name==='Publish the alias rig-create')!;
+ expect(alias.run).toContain(aliasGate);
+ expect(alias.run!.indexOf(aliasGate)).toBeLessThan(alias.run!.indexOf('npm publish '));
+ expect(alias.run).toContain('npm publish "$alias_tgz" --provenance --access public');
 }
 
 test('parsed YAML removes release-please, triggers on version tags, preserves least privilege and gates, and checks out only the validated commit',()=>{
@@ -163,7 +168,21 @@ test('parsed YAML removes release-please, triggers on version tags, preserves le
  checkWorkflowPolicy(workflow);
 });
 
+test('registry smoke stages, packs and verifies the exact tarball before a publish dry-run',()=>{
+ const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {jobs:{check:{steps:Step[]}}};
+ const smokeSteps=ci.jobs.check.steps;
+ const stage=smokeSteps.findIndex(step=>step.run?.includes('scripts/verify-example-seals.ts --stage'));
+ const pack=smokeSteps.findIndex(step=>step.run?.includes('x="$(npm pack . --pack-destination .)"'));
+ expect(stage).toBeGreaterThan(-1);
+ expect(pack).toBeGreaterThan(stage);
+ expect(smokeSteps[stage]!.run).toContain('--stage "$RUNNER_TEMP/create-example-source"');
+ expect(smokeSteps[pack]!['working-directory']).toBe('${{ runner.temp }}/create-example-source');
+ expect(smokeSteps[pack]!.run).toContain('x="$(npm pack . --pack-destination .)"\nbun scripts/verify-example-seals.ts --tarball "$x"\nnpm publish "$x" --dry-run --provenance --access public');
+});
+
 for(const [label,mutate] of Object.entries<(copy:Workflow)=>void>({
+ 'alias gate checks the scoped tarball instead of its own output':copy=>{const alias=copy.jobs.publish.steps.find(step=>step.name==='Publish the alias rig-create')!;alias.run=alias.run!.replace(aliasGate,'bun scripts/verify-example-seals.ts --tarball "$SCOPED_TARBALL"');},
+ 'alias gate follows publication':copy=>{const alias=copy.jobs.publish.steps.find(step=>step.name==='Publish the alias rig-create')!;alias.run=alias.run!.replace(aliasGate+'\n','')+aliasGate+'\n';},
  'stored npm token':copy=>{copy.jobs.publish.steps.push({env:{NODE_AUTH_TOKEN:'${{ secrets.NPM_TOKEN }}'}});},
  'self-hosted publisher':copy=>{copy.jobs.publish['runs-on']='self-hosted';},
  'branch push trigger':copy=>{(copy.on as {push:unknown}).push={branches:['main']};},

@@ -29,8 +29,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run lint
-      - name: Verify packed example seals and planted deletion
-        run: bun scripts/verify-example-seals.ts --pack "$RUNNER_TEMP/create-example-pack"
+      - name: Stage and gate complete examples for npm pack
+        run: bun scripts/verify-example-seals.ts --stage "$RUNNER_TEMP/create-example-source"
+      - name: Pack, verify and dry-run the staged package
+        working-directory: ${{ runner.temp }}/create-example-source
+        run: |
+          set -euo pipefail
+          x="$(npm pack . --pack-destination .)"
+          bun scripts/verify-example-seals.ts --tarball "$x"
+          npm publish "$x" --dry-run --provenance --access public
       - run: bun scripts/run-registry-ci.ts
   source-linked:
     name: source-linked

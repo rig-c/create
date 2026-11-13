@@ -3,7 +3,7 @@
 The direction a user gives before any rig work starts, and the shape every
 answer takes in `project.json`. The interview is organised by the **waypoints**
 the rig work always passes through — the sections of a `@rig-c/parts` config —
-and the user's decisions attach at each one. New adopted records use [per-ask choices](#per-ask-choices-interview2); the sentence format below remains historical. Camera, 2.5D depth and timing are
+and the user's decisions attach at each one. New adopted records use [per-ask choices](#per-ask-choices-interview2); the sentence format below remains historical. Camera framing and timing are
 **post-production**, asked separately after the rig is accepted. The plan the
 work follows is drafted from these answers ([PROJECT.md § The plan](PROJECT.md#the-plan));
 a worked example is in [../templates/example-interview.md](../templates/example-interview.md),
@@ -223,7 +223,7 @@ seeing a build. Read from `@rig-c/parts` 2.4.0:
 | `meshes`, `regions` | waypoint `meshes` | what deforms and what rides rigid |
 | `constraints`, `stops`, `cloth` | waypoint `constraints` | what moves on physics and how far |
 | `motion` | waypoint `motion` | what moves, how far, how fast |
-| `turn`, `depth` | post item `camera_depth` | head-turn and 2.5D depth are direction, asked after the rig is accepted |
+| `turn`, `depth` | post item `camera_depth` | historical question mapping only; direction cannot carry depth or turn, so do not offer these as options |
 | `key`, `generation`, `proposed_rig_scale`, `requirements`, `motion_seams`, `note` | not a waypoint | a name, a record of a run, a value the tool proposes, a path to a checks file, an observation, an annotation — none is a direction call. `requirements` is where translated guide sentences will land, not where they are asked. |
 
 The agent writes the checks file named by the config's `requirements` path.
@@ -330,7 +330,7 @@ it means they look again.
 
 ## Post-production: asked after the rig is accepted
 
-2.5D depth and camera work are far from rigging: nothing in the rig is built or
+Camera framing and timing are separate from rigging: nothing in the rig is built or
 judged for them. They are not rig waypoints. Their guides are asked when
 `post-interview` opens, after the rig has passed `rig-review`, in the same
 answer shape and under the same rule: every post item the plan passes carries a
@@ -341,9 +341,15 @@ names ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-t
 
 | id | Config sections | Prompt | What the agent decides there | Guide sentence, example |
 | --- | --- | --- | --- | --- |
-| `camera_depth` | `turn`, `depth` | Does the view move — a 2.5D head-turn with parallax, a push-in — or is it fixed? | whether depth is built, how far layers shift, the camera path | *"Fixed camera, no parallax."* · *"A slow head-turn to the left, as if she notices someone."* |
+| `camera_depth` | camera boxes | Does the view move — a 2.5D head-turn with parallax, a push-in — or is it fixed? | fixed framing or a camera-box path only | *"Fixed camera, no parallax."* · *"A slow push-in."* |
 | `post_timing` | — | How long, does it loop, and where are the beats? | clip length, loop point, timing of motions against each other | *"Ten seconds, looping; the gust comes once, in the middle."* |
 | `post_composition` | — | What is around the figure — background, framing, other figures, light? | framing, background plate, what else is on screen | *"Frame from the knees up; keep the lighthouse in shot."* |
+
+The `camera_depth` question is unchanged, but its options must fit the current
+writers. Offer fixed framing, a push-in or another camera-box path. A head turn
+is not available yet: the direction format cannot carry depth or turn. It also
+has no relative plate motion for parallax, or take-wide gaze/dial cycle. Do not
+offer those as buildable choices or sign plan bars promising them.
 
 ## Bars have reading commands
 

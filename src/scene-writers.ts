@@ -12,7 +12,8 @@ import type { JsonObject } from './templates.ts';
 
 export const SCENE_HELP = `scene write --rig <R> --background <path> [--foreground <path>]
   [--background-rect x,y,w,h] [--foreground-rect x,y,w,h]
-  --citations-file <file> [<dir>]
+  --citations-file <retained project-relative JSON> [<dir>]
+  Retain citations inside the project, for example evidence/scene-src/citations.json; absolute paths are refused.
   Citations are a role map {background: citation, foreground?: citation}.
   Each citation names post_composition, asks:["post_composition"], and quote or delegated:true.
   Paths and rects must match the current ingested post_composition choice.

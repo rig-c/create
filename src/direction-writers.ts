@@ -18,6 +18,8 @@ direction write <N> [<dir>] --file <retained JSON> --rig <R> [--answers <version
 direction patch <N> [<dir>] --patch-file <retained direction-patch/1> [--answers <version>:<verdict>]
 direction check <N> [<dir>] [--json]
   Documents are immutable evidence/direction/v<N>.json. No rendering or producer builds.
+  --file and --patch-file are retained, non-ignored project-relative paths.
+  A bounced predecessor needs --answers <version>:<verdict> on write/patch.
   Capture a made correction with correction record --direction-patch-file before patch ingestion;
   resolve it against the result post. Review exports patches, never invokes this writer.`;
 function usage(why:string):never {refuse('DIRECTION_USAGE',`direction: ${why}; ${DIRECTION_HELP}`,USAGE_EXIT);}
@@ -32,7 +34,7 @@ function prospective(dir:string,before:JsonObject,next:JsonObject,now:number):vo
 /** A narrow seam for fault-injected transaction tests; CLI never supplies a hook. */
 export interface DirectionWriteHooks { beforeCommit?:()=>void; }
 export function directionCommand(args:string[],now:number,hooks:DirectionWriteHooks={}):{stdout:string;exit:number} {
-  try{return command(args,now,hooks);}catch(e){if(e instanceof DirectionError)refuse(e.code,e.message,e.code==='DIRECTION_USAGE'?USAGE_EXIT:1);throw e;}
+  try{return command(args,now,hooks);}catch(e){if(e instanceof DirectionError)refuse(e.code,e.code==='FEEDBACK_UNANSWERED'?`${e.message}; retry direction write/patch with --answers <version>:<verdict> naming the bounced verdict`:e.message,e.code==='DIRECTION_USAGE'?USAGE_EXIT:1);throw e;}
 }
 function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:string;exit:number} {
   const action=args[0];const positional:string[]=[];const opts:Record<string,string>={};const answerValues:string[]=[];let json=false;

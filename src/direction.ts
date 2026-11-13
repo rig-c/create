@@ -35,7 +35,8 @@ export function directionFinding(e: DirectionError): Finding { return { code: e.
 export function directionBytes(dir: string, path: string): Buffer { return retainedBytes(dir, path, false); }
 function retainedBytes(dir: string, path: string, boundOutput: boolean): Buffer {
   try {
-    if (isAbsolute(path) || path.includes('\\') || path.split('/').some(p => !p || p === '.' || p === '..') || !boundOutput && structurePathIsIgnored(dir, path) && !/^derived\/review\/v[1-9][0-9]*\/out\/check\/build\/skeleton\.model\.json$/.test(path)) throw Error('literal retained POSIX path required');
+    if (isAbsolute(path) || path.includes('\\') || path.split('/').some(p => !p || p === '.' || p === '..')) throw Error('literal project-relative POSIX path required');
+    if (!boundOutput && structurePathIsIgnored(dir, path) && !/^derived\/review\/v[1-9][0-9]*\/out\/check\/build\/skeleton\.model\.json$/.test(path)) throw Error('path is ignored; retain the source in a non-ignored project folder such as evidence/direction-src/ and pass that project-relative path');
     let current = realpathSync(dir);
     for (const [i, segment] of path.split('/').entries()) {
       current = join(current, segment); const stat = lstatSync(current);

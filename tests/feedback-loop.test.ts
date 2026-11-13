@@ -39,6 +39,7 @@ function refused(dir: string, code: string, fn: () => unknown) {
   try { fn(); } catch (e) { caught = e; }
   expect(caught).toBeInstanceOf(Refusal);
   expect((caught as Refusal).code).toBe(code);
+  if (code === 'FEEDBACK_UNANSWERED') expect((caught as Refusal).message).toContain('--answers <version>:<verdict>');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   expect(existsSync(join(dir, 'evidence/direction/v3.json'))).toBe(false);
 }

@@ -113,12 +113,20 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
+job open / job reconcile / bound writers:
+  --rig <n>      selects a registered rig OR post version; the flag name is shared
+  Keep the Review host up across bound writes (including advance and republish).
+  If it stopped, job open again with --reviewer <id> --role owner|delegate,
+  then job reconcile; a pending publication blocks later bound writes.
+
 init:
   <dir>          an empty or missing folder; a non-empty one is refused
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
   --painting <file> --origin <words>
                  copy the painting into inputs/, register it and declare project.painting; refused (INIT_ARTWORK_EXISTS) when a
-                 project directly under --projects-root (default: the parent folder) binds the same sha256
+                 project directly under --projects-root (default: the parent folder) binds the same sha256.
+                 Continue there as a new version; restart keeps its correction ledger.
+                 A new project is for different artwork or a different rig kind only.
   --same-artwork-reason <file>
                  record why this artwork needs a second project (a different rig kind)
 

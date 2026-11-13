@@ -53,7 +53,7 @@ export const PACKAGE_DOCS: readonly PackageDoc[] = [
   {
     package: '@rig-c/parts',
     path: 'docs/DEPTH.md',
-    why: 'when the plan has a head turn driven by depth',
+    why: 'depth reference; unavailable in current direction',
   },
   {
     package: '@rig-c/parts',
@@ -88,7 +88,7 @@ export const PACKAGE_DOCS: readonly PackageDoc[] = [
   {
     package: '@rig-c/core',
     path: 'docs/FACE.md',
-    why: 'blink, gaze and head-turn plans',
+    why: 'blink and gaze in the accepted rig',
   },
   {
     package: '@rig-c/core',

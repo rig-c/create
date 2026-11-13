@@ -1,20 +1,18 @@
 # Agent guide
 
-One painting in, one rig and its takes out. Start here.
+One painting in, one rig and its takes out.
 
 ## Start here
 
-1. Read `project.json` first. Only its decisions count. Copy chat decisions
-   verbatim, with speaker and time.
+1. Read `project.json` first. Human acts go through Review; ingest its exports.
 2. Run `rig-create next` to derive the next moves and whose they are.
 3. Resume per {{RESUME_LINK}}.
 
-Update stale pins with `rig-create packages upgrade --by <operator>`; see PROJECT.md.
+Stale pins: `rig-create packages upgrade --by <operator>` (PROJECT.md).
 
-Declare the project's painting with `init --painting <file> --origin <words>`
-or `input add <path> --painting --origin <words>`. `project.json.painting` binds
-one input and survives restart; only it checks siblings for duplicate artwork.
-Older records may omit it.
+Declare the painting with `init --painting <file> --origin <words>` or
+`input add <path> --painting --origin <words>`. `project.json.painting` binds
+one input, survives restart and checks sibling artwork. Older records may omit it.
 
 ## The order, and what you may not do
 
@@ -47,6 +45,8 @@ Older records may omit it.
 
 Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
 ingest `--from-review <actId>`, then advance.
+Keep the host up across bound writes. If stopped, `job open` again with reviewer/role,
+then `job reconcile` before more writes.
 
 Use `advance <stage>`, `step-status <id>`; see `rig-create --help`.
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
@@ -54,14 +54,16 @@ refusing {{PARTS_CHECK_LINK}}.
 In `parts`, record an `intake-report` preflight and offer its choice, both advisory:
 {{INTAKE_LINK}}.
 
-Drafts stay under `derived/drafts/<id>/`, never versions/handoff. Old records
-warn: preserve history and dates; adopt choices explicitly.
+Drafts stay in `derived/drafts/<id>/`, outside versions/handoff. Preserve old
+history and dates; adopt choices explicitly.
 
 ## Before you ask, plan or show
 
 - **Prior words.** In adopted projects, show them verbatim as a tailored option
   with source/date; require a pick. Legacy derivation: {{DERIVED_LINK}}.
 - **Projection.** Ask and record it per {{PROJECTION_LINK}}.
+- **Camera options.** Offer fixed view or camera-box moves only. Head turn,
+  depth and plate parallax are unavailable: direction has no depth/turn fields.
 - **Upscale first** a painting smaller than the rig needs (SOURCE.md, step 2 below).
 - **The crux is a bar.** Before rigging, name every risk band, count background
   or doubled pixels over every frame and both physics/breath extremes, and
@@ -70,9 +72,8 @@ warn: preserve history and dates; adopt choices explicitly.
   installed `--help`. A reading with no command is a STOP before sign-off.
   Loop bars: INTERVIEW.md, "Bars have reading commands".
 - **Appearance needs a person**, not a step bar: {{APPEARANCE_LINK}}.
-- **Nothing unnamed.** Add no motion, chain or physics the user did not name. A
-  reference ("move like X") is read for what it shows; anything more is a
-  question, not a default.
+- **Nothing unnamed.** Add no unnamed motion, chain or physics. Read references
+  for what they show; ask about anything more.
 - **Re-run first, cut last**, never a polygon in code or config: the ladder in
   SOURCE.md, step 2 below.
 - **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each
@@ -83,12 +84,10 @@ warn: preserve history and dates; adopt choices explicitly.
   eyelids) holds none of that part's pixels, or the animation shows its copy.
 - **Pairs.** Measure left/right symmetry against the painting before calling a
   pair uneven ({{GATES_LINK}}).
-- **Look before the user does**, at native resolution and every boundary the
-  crux names: a whole-figure |composite − painting| map, every component listed
-  by box and part with a status (in the painting / fixed / left, why). Use the
-  true stack of part images, not a render flattened on white; crop on white and
-  on mid-grey, as white hides light fringes. Eye boxes a
-  reviewer chose are not the check: a seam outside them got through.
+- **Look before the user does**, at native resolution and every crux boundary:
+  a whole-figure |composite − painting| map, each component by box/part and
+  status (in the painting / fixed / left, why). Use the true part stack; crop on
+  white and mid-grey to show light fringes. Check beyond reviewer-chosen boxes.
 
 ## Where things go
 
@@ -99,10 +98,10 @@ Each folder's lifetime and git status: {{LIFETIME_LINK}}.
 {{READ_FIRST}}
 
 Read installed docs here at `package.json`'s pins to match tools, not memory.
-Run refusal `(see … guide …)` commands before changes.
+Run refusal `(see … guide …)` commands first.
 
 {{PACKAGE_DOCS}}
 
-Project organisation: rig-c/create docs (not installed).
+Project organisation (create docs, not installed):
 
 {{CREATE_DOCS}}

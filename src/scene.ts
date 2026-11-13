@@ -9,6 +9,7 @@ import { collectReopens, liveSignoff } from './reopen.ts';
 import { humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
 import { SCENE_CHOICE_MISMATCH, SCENE_CHOICE_MISSING, sceneAuthor, validateAgentSceneAuthority } from './scene-authority.ts';
 import { reviewPackageHash } from './signoff-target.ts';
+import { samePublicationReviewPair } from './signoff-pair.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export { SCENE_CHOICE_MISMATCH, SCENE_CHOICE_MISSING, sceneAuthor };
@@ -197,7 +198,8 @@ function validateSceneAcceptance(project: JsonObject, rig: JsonObject): JsonObje
   const signature = collectSignoffs(project, []).find(value => value.stage === identity.stage && value.checkpoint === identity.checkpoint && value.record.at === identity.at)?.record;
   const match = /^versions\[(\d+)\]\.verdicts\[(\d+)\]$/.exec(String(acceptance.verdict));
   const verdict = match && Number(match[1]) === index ? humanReviewVerdicts(version.verdicts, 'rig-review').find(value => value.index === Number(match[2]) && value.record.verdict === 'accepted') : undefined;
-  if (!verdict || !Number.isFinite(Date.parse(String(verdict.record.at))) || Date.parse(String(verdict.record.at)) > Date.parse(String(identity.at))) sceneFail('SCENE_RIG_STALE', 'scene.rig.acceptance.verdict', 'the cited rig must have been human-accepted before this signoff');
+  if (!verdict || !Number.isFinite(Date.parse(String(verdict.record.at))) || Date.parse(String(verdict.record.at)) > Date.parse(String(identity.at))
+    && (!signature || !samePublicationReviewPair(project, signature, version, verdict.index))) sceneFail('SCENE_RIG_STALE', 'scene.rig.acceptance.verdict', 'the cited rig needs human acceptance before signing or a same-publication, same-version human accepted pair');
   const pkg = version.review_package;
   const target = { version: version.n!, verdict: acceptance.verdict!, review_package: { path: `versions[${index}].review_package`, sha256: isObject(pkg) ? reviewPackageHash(pkg) : '' } };
   if (!signature || !equal(signature.target, target) || !equal(acceptance.review_package, target.review_package)) sceneFail('SCENE_ACCEPTANCE_STALE', 'scene.rig.acceptance.review_package', 'restore the recorded acceptance target and its matching package sha256');

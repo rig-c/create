@@ -7,6 +7,7 @@ import type { RigInvariants } from '@rig-c/core/rig';
 import { translateInvariants, type InvariantsDocument } from '../src/invariants.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { generateInvariantsExample } from '../scripts/generate-invariants-example.ts';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { tempDir } from './helpers.ts';
 import { stageIndex } from '../src/stages.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
@@ -123,14 +124,15 @@ function writtenMotion(otherPending = false): InvariantsDocument {
     const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
     const binding = obj(obj(obj(waypoint(load(), 'motion').guide).choice).set);
     const set: JsonObject = JSON.parse(readFileSync(join(dir, String(binding.path)), 'utf8'));
-    set.id = 'invariants-motion'; set.drafted_at = '2026-11-11T11:20:00Z';
+    const draftedAt = EXAMPLE_ANCHOR + 3 * 60_000;
+    set.id = 'invariants-motion'; set.drafted_at = new Date(draftedAt).toISOString();
     const setPath = 'evidence/interview/invariants-motion.json';
     const bytes = `${JSON.stringify(set, null, 2)}\n`;
     writeFileSync(join(dir, setPath), bytes);
     writeFileSync(join(dir, 'other.txt'), 'Allow this deliberate page fold.\n');
     const fragment = { deformMayFold: [{ slot: 'page', why: 'deliberate page fold' }] };
     writeFileSync(join(dir, 'fragment.json'), JSON.stringify(fragment));
-    testClock.set(new Date('2026-11-11T11:21:00Z'));
+    testClock.set(draftedAt + 1_000);
     interviewOptionsCommand(['motion', dir, '--file', setPath]);
     const picks = arr(set.asks).flatMap(a => ['--pick', `${String(obj(a).id)}=${obj(a).id === 'tracks' || (otherPending && obj(a).id === 'extent') ? 'other' : 'keep'}`]);
     interviewAnswerCommand(['motion', dir, '--set', setPath, '--sha256', sha(bytes), '--by', 'user', ...picks,

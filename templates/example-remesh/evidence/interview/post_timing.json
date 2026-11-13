@@ -4,11 +4,11 @@
   "question": "post_timing",
   "stage": "post-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-09T00:01:19.000Z",
+  "drafted_at": "2026-11-13T00:01:19.000Z",
   "context": {
     "kind": "rig",
     "rig_version": 3,
-    "signoff_at": "2026-11-09T00:01:14.000Z",
+    "signoff_at": "2026-11-13T00:01:14.000Z",
     "config": {
       "path": "evidence/v3/registration/config.json",
       "sha256": "b4d5c9dd7d65a303c8b97abf257a6797aaf2350021fa5f817d79ef45b7ea2b99",

@@ -7,6 +7,7 @@ import { sha256 } from '../src/choices.ts';
 import { INVARIANTS_SPEC, translateInvariants } from '../src/invariants.ts';
 import { stageIndex } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
 import { clockedCli, tempDir } from './helpers.ts';
 import { checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewCommand, testClock } from './clock.ts';
@@ -107,13 +108,14 @@ test('actual answer writer changes the next derived report, with the previous re
     const snapshot = JSON.stringify(before.invariants);
     const binding = obj(obj(obj(waypoint(load(), 'motion').guide).choice).set);
     const set: JsonObject = JSON.parse(readFileSync(join(dir, String(binding.path)), 'utf8'));
-    set.id = 'derived-invariants-motion'; set.drafted_at = '2026-11-11T11:20:00Z';
+    const draftedAt = EXAMPLE_ANCHOR + 3 * 60_000;
+    set.id = 'derived-invariants-motion'; set.drafted_at = new Date(draftedAt).toISOString();
     const setPath = 'evidence/interview/derived-invariants-motion.json';
     const bytes = JSON.stringify(set);
     writeFileSync(join(dir, setPath), bytes);
     writeFileSync(join(dir, 'other.txt'), 'Allow a deliberate page fold.');
     writeFileSync(join(dir, 'fragment.json'), JSON.stringify({ deformMayFold: [{ slot: 'page', why: 'deliberate fold' }] }));
-    testClock.set(new Date('2026-11-11T11:21:00Z'));
+    testClock.set(draftedAt + 1_000);
     interviewOptionsCommand(['motion', dir, '--file', setPath]);
     interviewAnswerCommand(['motion', dir, '--set', setPath, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user',
       ...arr(set.asks).flatMap(a => ['--pick', `${String(obj(a).id)}=${obj(a).id === 'tracks' ? 'other' : 'keep'}`]),

@@ -10,6 +10,7 @@ import { checkReviewPackages } from './review-package.ts';
 import { refuse } from './refusal.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import { sorted } from './step-hash.ts';
+import { signoffPairFinding } from './signoff-pair.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const SIGNOFF_TARGET_SINCE = '2026-11-06T00:00:00Z';
@@ -75,7 +76,11 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
       if (!isDeepStrictEqual(target, expected)) throw Error(expected.outputs ? 'outputs changed since signing' : stage === 'rig-review' ? 'review_package changed since signing' : expected.direction ? 'direction changed since signing' : 'post config changed since signing');
     } catch (error) { reason = error instanceof Error ? error.message : String(error); }
   }
-  if (!reason) return;
+  if (!reason) {
+    const pair = signoffPairFinding(project, signoff, path);
+    if (pair) (pair.code.endsWith('_LEGACY') ? warnings : refusals).push(pair);
+    return;
+  }
   const legacy = Date.parse(String(signoff.at)) < Date.parse(SIGNOFF_TARGET_SINCE);
   const code = `SIGNOFF_TARGET_${missing ? 'MISSING' : 'STALE'}${legacy ? '_LEGACY' : ''}`;
   const at = `${path}.target`;
@@ -120,8 +125,6 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     if (mask) refuse(mask.code, mask.message);
     if (ctx.refusals.length || ctx.warnings.some(w => w.code === 'REVIEW_PACKAGE_MISSING')) fail('review package is missing or differs from its recorded binding');
   }
-  const errors: Finding[] = [];
-  checkSignoffTarget(dir, project, { stage, target, at: SIGNOFF_TARGET_SINCE }, `signoffs[${asArray(project.signoffs).length}]`, errors, []);
-  if (errors[0]) refuse(errors[0].code, errors[0].message);
+  // The writer validates the actual dated signature after attaching its immutable receipt.
   return target;
 }

@@ -6,45 +6,45 @@
     "version": "0.0.0-synthetic"
   },
   "source": {
-    "sha256": "682fe155d2df3b3f9986cd3380051c6d08ca078c04fe26603b5a31c8d17cff1f",
+    "sha256": "787b4898dfcd3b4b333cb89e054838e4e97e11dab313095e06247e572455ef3b",
     "files": [
       {
-        "path": "../derived/drafts/remesh/input/parts.json",
+        "path": "../derived/parts/rig/parts.json",
         "bytes": 4162,
         "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
       },
       {
-        "path": "../derived/drafts/remesh/input/parts/background.png",
+        "path": "../derived/parts/rig/parts/background.png",
         "bytes": 300,
         "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
       },
       {
-        "path": "../derived/drafts/remesh/input/parts/torso.png",
+        "path": "../derived/parts/rig/parts/torso.png",
         "bytes": 137,
         "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
       },
       {
-        "path": "../derived/drafts/remesh/input/parts/lantern.png",
+        "path": "../derived/parts/rig/parts/lantern.png",
         "bytes": 87,
         "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
       },
       {
-        "path": "../derived/drafts/remesh/input/parts/face.png",
+        "path": "../derived/parts/rig/parts/face.png",
         "bytes": 109,
         "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
       },
       {
-        "path": "../derived/drafts/remesh/input/parts/eye_r.png",
+        "path": "../derived/parts/rig/parts/eye_r.png",
         "bytes": 76,
         "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
       },
       {
-        "path": "../derived/drafts/remesh/input/parts/eye_l.png",
+        "path": "../derived/parts/rig/parts/eye_l.png",
         "bytes": 76,
         "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
       },
       {
-        "path": "../derived/drafts/remesh/input/painting_in_rig.png",
+        "path": "../derived/parts/rig/painting_in_rig.png",
         "bytes": 421,
         "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
       }
@@ -53,7 +53,7 @@
   },
   "status": "approved",
   "issues": [],
-  "updatedAt": "2026-11-09T00:00:28.000Z",
+  "updatedAt": "2026-11-13T00:00:36.000Z",
   "by": null,
-  "savedFileSha256": "617024c1f313771da595d288a9f31f4c244abde156873b80179eabf49a08890d"
+  "savedFileSha256": "6d0d4da5c9836446ab02fc3a03b2335c6787bb42844ed7e610a6d4b305223095"
 }

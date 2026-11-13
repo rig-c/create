@@ -4,7 +4,7 @@
   "question": "reference",
   "stage": "interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-09T00:00:02.000Z",
+  "drafted_at": "2026-11-13T00:00:02.000Z",
   "context": {
     "kind": "inputs",
     "files": [
@@ -27,7 +27,7 @@
           "id": "keep",
           "kind": "value",
           "label": "None.",
-          "effect": "As answered on 2026-11-09T00:00:03.000Z in interview, chat",
+          "effect": "As answered on 2026-11-13T00:00:03.000Z in interview, chat",
           "fragment": "none",
           "recommended": true,
           "reason": "Preserves the stated synthetic direction and the accepted structure."

@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
 import { arr, fixture, framing, obj, waypoint } from './fixtures.ts';
 import { checkProject, interviewAnswerCommand, interviewDecisionCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
+const draftAt = EXAMPLE_ANCHOR + 3 * 60_000;
 
 function transition(value: string) {
   let setPath = '';
@@ -21,19 +23,19 @@ function transition(value: string) {
     // Preserve existing versions, whose missing configs are held only for CG values.
     for (const version of arr(p.versions)) delete obj(obj(version).provenance).config;
     framing(p, 'rig_type').answer = {
-      delegated: false, by: 'user', at: '2026-11-10T14:00:00Z',
+      delegated: false, by: 'user', at: new Date(draftAt - 1_000).toISOString(),
       verbatim: 'Use the recorded rig type.', value,
     };
   }, 'example-project.json');
   const file = join(dir, 'project.json');
   const set = JSON.parse(readFileSync(join(dir, setPath), 'utf8')) as JsonObject;
   set.id = 'transition-rig-type';
-  set.drafted_at = '2026-11-10T14:10:00Z';
+  set.drafted_at = new Date(draftAt).toISOString();
   set.context = optionContext(JSON.parse(readFileSync(file, 'utf8')) as JsonObject, String(set.stage), Date.parse(set.drafted_at));
   const path = 'evidence/interview/transition-rig-type.json';
   const bytes = JSON.stringify(set, null, 2) + '\n';
   writeFileSync(join(dir, path), bytes);
-  testClock.set(new Date('2026-11-10T14:11:00Z'));
+  testClock.set(draftAt + 1_000);
   interviewOptionsCommand(['rig_type', dir, '--file', path]);
   interviewAnswerCommand(['rig_type', dir, '--set', path, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user', '--pick', `rig_type=${value === 'character.idle' ? 'keep' : 'alternative'}`]);
   interviewOptionsCommand(['rig_type', dir, '--file', path]);

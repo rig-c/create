@@ -25,17 +25,13 @@ Requires [Bun](https://bun.sh) 1.4.0 or newer and Git. Run the published CLI
 without a global install:
 
 ```sh
-bunx --package @rig-c/create rig-create --help
-bunx --package @rig-c/create rig-create init p1
-bunx --package @rig-c/create rig-create interview --check p1 --json
-bunx --package @rig-c/create rig-create next p1 --json
-```
-
-The convenience alias provides the short form:
-
-```sh
+bunx rig-create --help
 bunx rig-create init p1
+bunx rig-create interview --check p1 --json
+bunx rig-create next p1 --json
 ```
+
+To pin the canonical scoped name, use `bunx --package @rig-c/create rig-create …`.
 
 Or install it globally:
 

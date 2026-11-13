@@ -1,7 +1,7 @@
 # Releasing @rig-c/create
 
-Releases are manual. This draft retains `0.0.0`; the release owner chooses and
-bumps the first public version before tagging or publishing. There is no release
+Releases are manual. The first public version is `1.0.0`. For each later release
+the owner chooses and bumps the version before tagging or publishing. There is no release
 workflow. Only the owner creates the tag, GitHub release and npm publication,
 using an interactive terminal and npm's interactive two-factor authentication.
 Never pass a one-time code through `--otp`, an environment variable or a script.

@@ -107,7 +107,7 @@ async function open(root: string, options: string[] = [], printed?: string) {
   return { url: new URL(lines[0]!), lines: lines.slice(1), proc, remainingOutput };
 }
 
-async function page(root: string, url: URL, expectedAsks = 2) {
+async function page(root: string, url: URL, expectedAsks = 2, requiredSubject?: string) {
   const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
   const receipts = join(jobPrivateRoot(root), 'acknowledged-publications');
   const expectedPublication = readdirSync(receipts)
@@ -135,7 +135,8 @@ async function page(root: string, url: URL, expectedAsks = 2) {
   };
   // Reconnect replays history. Ask counts on an older head do not establish the current page.
   const ready = () => pending().head?.publicationId === expectedPublication.publicationId
-    && pending().asks.length >= expectedAsks;
+    && pending().asks.length >= expectedAsks
+    && (requiredSubject === undefined || pending().asks.some(ask => obj(ask.subject).kind === requiredSubject));
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline && !ready()) {
     const next = await reader.read();
@@ -478,7 +479,7 @@ async function nextReview(root: string, kind: string, value: object, question?: 
   receipt({ workflow: { stage: target.stage, kind, question, draft: target.draft_id,
     printed: workflow.map(move => ({ role: move.role, command: move.command === null ? null : scrub(move.command, root), act: move.act })) } });
   const opening = await open(root, [], workflow[0]!.command!.replace("'<reviewer>'", "'synthetic-owner'"));
-  const view = await page(root, opening.url, 1);
+  const view = await page(root, opening.url, 1, kind);
   const capture = kind === 'review-verdict' && target.stage === 'rig-review'
     ? rigCapture(root, view, String(view.asks.find(ask => obj(ask.subject).kind === kind)!.askId)) : {};
   const act = await view.act(kind, kind, value, capture);

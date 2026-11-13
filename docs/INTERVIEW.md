@@ -341,12 +341,13 @@ names ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-t
 
 | id | Config sections | Prompt | What the agent decides there | Guide sentence, example |
 | --- | --- | --- | --- | --- |
-| `camera_depth` | camera boxes | Does the view move — a 2.5D head-turn with parallax, a push-in — or is it fixed? | fixed framing or a camera-box path only | *"Fixed camera, no parallax."* · *"A slow push-in."* |
+| `camera_depth` | camera boxes | Is the view fixed, or does it move along a camera-box path such as a push-in? | fixed framing or a camera-box path only | *"Fixed camera, no parallax."* · *"A slow push-in."* |
 | `post_timing` | — | How long, does it loop, and where are the beats? | clip length, loop point, timing of motions against each other | *"Ten seconds, looping; the gust comes once, in the middle."* |
 | `post_composition` | — | What is around the figure — background, framing, other figures, light? | framing, background plate, what else is on screen | *"Frame from the knees up; keep the lighthouse in shot."* |
 
-The `camera_depth` question is unchanged, but its options must fit the current
-writers. Offer fixed framing, a push-in or another camera-box path. A head turn
+The `camera_depth` question text in `project.json` still names a head turn and
+parallax: recorded projects and the hash-sealed examples carry those bytes, so they stay.
+Ask it as this table words it, with options that fit the current writers. Offer fixed framing, a push-in or another camera-box path. A head turn
 is not available yet: the direction format cannot carry depth or turn. It also
 has no relative plate motion for parallax, or take-wide gaze/dial cycle. Do not
 offer those as buildable choices or sign plan bars promising them.

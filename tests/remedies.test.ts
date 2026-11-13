@@ -48,7 +48,7 @@ test('duplicate artwork refuses with the existing version and correction-ledger 
   catch (error) {
     expect(error).toBeInstanceOf(Refusal);
     expect((error as Refusal).message).toContain('restart there inherits its correction ledger');
-    expect((error as Refusal).message).toContain('different artwork or a different rig type');
+    expect((error as Refusal).message).toContain('different artwork or a different rig kind');
   }
   expect(readFileSync(join(existing, 'project.json'), 'utf8')).toBe(record);
 });

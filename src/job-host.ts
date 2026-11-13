@@ -424,7 +424,7 @@ export function requestedRecordResult(root: string, question?: string, plan = fa
   if (question !== undefined) {
     const items = collectItems(project, { collection: loadCollection(root, project) }).filter(item => item.id === question);
     const binding = items.length === 1 ? items[0]!.record.pending_options : undefined;
-    if (!isObject(binding) || typeof binding.path !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: requested question has no unique pending option set; register it with interview-options first');
+    if (!isObject(binding) || typeof binding.path !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', `project.json: requested question has no unique pending option set; register it with rig-create interview-options ${question} '${root.replaceAll("'", "'\\''")}' --file '<option-set.json>' first (draft a new option set to re-ask an answered question)`);
     const set = JSON.parse(publicationFile(root, binding.path).toString('utf8')) as JsonObject;
     if (typeof set.id !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: pending option set has no id; restore its original identity');
     result = { kind: 'option-set', questionId: question, setId: set.id };

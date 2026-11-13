@@ -155,13 +155,13 @@ function createLink(label: string, path: string, anchor?: string): string {
  * linked, because the package links below are exactly PACKAGE_DOCS.
  */
 export const READ_FIRST = [
-  '1. **Before the interview**: INTERVIEW.md, and CRAFT.md for the default at each',
-  '   waypoint (both linked below); parts AUTHORING §3, *`config.json`, field by',
-  `   field*; ${createLink('CHECKS.md', 'docs/CHECKS.md')} before a sign-off.`,
-  '2. **Before `seethrough` and `assemble`**: SOURCE.md, the order of the split and',
-  `   the cut: ${createLink('re-running a bad split', 'docs/SOURCE.md', 're-run-first')},`,
-  `   ${createLink('where a cut is allowed', 'docs/SOURCE.md', 'where-a-cut-is-allowed')};`,
-  '   then parts AUTHORING *See-through head-run source reading*, *Source before',
+  '1. **Before the interview**: INTERVIEW.md; CRAFT.md (waypoint defaults);',
+  '   parts AUTHORING §3, *`config.json`, field by field*;',
+  `   ${createLink('CHECKS.md', 'docs/CHECKS.md')} before a sign-off.`,
+  '2. **Before `seethrough` and `assemble`**: SOURCE.md, split/cut order:',
+  `   ${createLink('bad-split reruns', 'docs/SOURCE.md', 're-run-first')},`,
+  `   ${createLink('allowed cuts', 'docs/SOURCE.md', 'where-a-cut-is-allowed')};`,
+  '   parts AUTHORING *See-through head-run source reading*, *Source before',
   '   scissors* and *Limbs: cut at their joints*.',
   `3. **Before rigging**: ${createLink('CRAFT.md § For the gates', 'docs/CRAFT.md', 'for-the-gates-not-the-interview')}`,
   '   (G1–G9); core RIGGING and MOTION; parts AUTHORING §7, the bars `check` enforces.',
@@ -175,7 +175,9 @@ export const READ_FIRST = [
  * rig-c/create#3 it is `rig-create interview --check`, which refuses every
  * `null` answer by name, so the line names the command, not the doc reference.
  */
-export const INTERVIEW_CHECK_LINE = 'Before asking the user to sign the interview, run `rig-create interview --check`: it names every `null` answer.';
+export const INTERVIEW_CHECK_LINE = 'Run `rig-create interview --check` before interview sign-off: it names every `null` answer.';
+
+export const REOPEN_EXCEPTION = 'Until create#493, agents may type `reopen` only from Review host raw export `act@4`: save nonempty `value.words` byte-for-byte to a verbatim file; `--source` names `actId`. Empty/missing words: STOP. Never supply words. `job fetch-act` rejects act@4.';
 
 export const GUIDE_TEMPLATE = 'agent-guide.md';
 
@@ -198,12 +200,13 @@ function linkLine(label: string, href: string, why: string): string {
 /** The text of AGENTS.md, from the template and the tables above. */
 export function renderAgentGuide(): string {
   const fills: Record<string, string> = {
-    RESUME_LINK: `[PROJECT.md § How an agent resumes a project](${createDocUrl(RESUME_LINK.path, RESUME_LINK.anchor)})`,
+    RESUME_LINK: `[Resume](${createDocUrl(RESUME_LINK.path, RESUME_LINK.anchor)})`,
     INTERVIEW_CHECK: INTERVIEW_CHECK_LINE,
+    REOPEN_EXCEPTION,
     DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
     GATES_LINK: `[CRAFT.md G8](${createDocUrl(GATES_LINK.path, GATES_LINK.anchor)})`,
-    DRAFTS_LINK: `[PROJECT.md § Labelled draft rigs](${createDocUrl(DRAFTS_LINK.path, DRAFTS_LINK.anchor)})`,
-    STAGES_LINK: `[PROJECT.md § Stages](${createDocUrl(STAGES_LINK.path, STAGES_LINK.anchor)})`,
+    DRAFTS_LINK: `[Draft rigs](${createDocUrl(DRAFTS_LINK.path, DRAFTS_LINK.anchor)})`,
+    STAGES_LINK: `[Stages](${createDocUrl(STAGES_LINK.path, STAGES_LINK.anchor)})`,
     LIFETIME_LINK: `[PROJECT.md § Data is split by lifetime](${createDocUrl(LIFETIME_LINK.path, LIFETIME_LINK.anchor)})`,
     INTAKE_LINK: `[PROJECT.md § Advisory intake reports](${createDocUrl(INTAKE_LINK.path, INTAKE_LINK.anchor)})`,
     CG_GATES_LINK: `[CHECKS.md § CG gates](${createDocUrl(CG_GATES_LINK.path, CG_GATES_LINK.anchor)})`,

@@ -1,18 +1,20 @@
 # Agent guide
 
-One painting in, one rig and its takes out.
+One painting; one rig and its takes.
 
 ## Start here
 
-1. Read `project.json` first. Human acts go through Review; ingest its exports.
+1. Read `project.json`. Human acts go through Review; ingest exports. Never type human answers/signatures.
 2. Run `rig-create next` to derive the next moves and whose they are.
 3. Resume per {{RESUME_LINK}}.
 
-Stale pins: `rig-create packages upgrade --by <operator>` (PROJECT.md).
+{{REOPEN_EXCEPTION}}
 
-Declare the painting with `init --painting <file> --origin <words>` or
+Stale pins: `rig-create packages upgrade --by <operator>`.
+
+Declare the painting: `init --painting <file> --origin <words>` or
 `input add <path> --painting --origin <words>`. `project.json.painting` binds
-one input, survives restart and checks sibling artwork. Older records may omit it.
+one input, survives restart and checks sibling artwork; optional on older records.
 
 ## The order, and what you may not do
 
@@ -20,19 +22,16 @@ one input, survives restart and checks sibling artwork. Older records may omit i
 `rigging-interview` → `rigging` → `rig-review` (the rig, still frame) → `post-interview` → `post` →
 `direction-review` → `accepted`. Any stage can become `paused`.
 
-- Only a person's `signoffs[]` advances `stage` or passes a plan checkpoint.
-  You may draft, propose, build and measure in any stage; production rigging
-  waits for `rigging-interview` ({{STAGES_LINK}}).
-- Never derive answers from the image. Offer a pick per ask, with one reasoned
+- Only human `signoffs[]` advance `stage` or pass plan checkpoints.
+  Draft, propose, build and measure in any stage; production rigging waits for `rigging-interview` ({{STAGES_LINK}}).
+- Never infer answers from images. Offer a pick per ask: one reasoned
   recommendation, Other and auto. Retain the shown set; never preselect.
-- Record "auto" as delegated, with your decision on the item. It is never a
-  blank for you to fill later.
+- Record "auto" as delegated with your decision on the item; never leave it blank.
 - {{INTERVIEW_CHECK}}
 
 ## The user's four steps
 
-1. **Parts and meshes**. Ask framing/source. Review a labelled draft's parts and
-   mesh/chest structure. `parts-review` records its Review API response.
+1. **Parts and meshes**. Ask framing/source; review a labelled draft's parts and mesh/chest structure. `parts-review` records its Review API response.
    The latest receipt must approve the draft for `structure-snapshot --draft <id> --out <f>`
    and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ({{DRAFTS_LINK}}).
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
@@ -45,17 +44,17 @@ one input, survives restart and checks sibling artwork. Older records may omit i
 
 Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
 ingest `--from-review <actId>`, then advance.
-Keep the host up across bound writes. If stopped, `job open` again with reviewer/role,
-then `job reconcile` before more writes.
+Keep the host up across bound writes; after a stop, `job open` with reviewer/role,
+then `job reconcile` before writing.
 
-Use `advance <stage>`, `step-status <id>`; see `rig-create --help`.
+Use `advance <stage>` and `step-status <id>` (`rig-create --help`).
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
 refusing {{PARTS_CHECK_LINK}}.
 In `parts`, record an `intake-report` preflight and offer its choice, both advisory:
 {{INTAKE_LINK}}.
 
-Drafts stay in `derived/drafts/<id>/`, outside versions/handoff. Preserve old
-history and dates; adopt choices explicitly.
+Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
+Preserve history/dates; adopt choices explicitly.
 
 ## Before you ask, plan or show
 
@@ -97,11 +96,11 @@ Each folder's lifetime and git status: {{LIFETIME_LINK}}.
 
 {{READ_FIRST}}
 
-Read installed docs here at `package.json`'s pins to match tools, not memory.
+Use installed docs at `package.json`'s pins, not memory.
 Run refusal `(see … guide …)` commands first.
 
 {{PACKAGE_DOCS}}
 
-Project organisation (create docs, not installed):
+Project docs (not installed):
 
 {{CREATE_DOCS}}

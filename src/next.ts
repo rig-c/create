@@ -24,6 +24,7 @@ import {
   resolveDiffMapPartsFile,
   validateDiffMapRecord,
 } from './diff-map.ts';
+import { partsStructureSnapshot } from './job-acts.ts';
 import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
 import { isPartsCheckMove, partsCheckRecord } from './parts-check.ts';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -50,9 +51,9 @@ import {
   STAGE_VALUES,
   stageIndex,
   stageOfStep,
-  stepCoveredByApproval,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
+import { sceneCurrentAt } from './scene.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -109,6 +110,8 @@ export interface NextReport {
   accepted: boolean;
   refusals: NextRefusal[];
   warnings?: Finding[];
+  /** A view of existing answers, never a new project record. */
+  answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
   awaits: string[];
   moves: NextMove[];
 }
@@ -191,6 +194,14 @@ function isOpenInterviewTodo(finding: Finding, effectiveStage: string): boolean 
   return isOpenInterviewStage(effectiveStage) && finding.code === 'INTERVIEW_INCOMPLETE';
 }
 
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9_./:-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function optionCommand(id: string, dir: string): string {
+  return `rig-create interview-options ${shellWord(id)} ${shellWord(dir)} --file '<option-set.json>'`;
+}
+
 function candidateAdvance(
   dir: string,
   project: JsonObject,
@@ -264,8 +275,8 @@ function candidateAdvance(
   const checked = checkProject(dir, clone, { now, forwardWrite: true, readOnly: true });
   if (newFindings(allowed, checked.refusals).length > 0) return null;
   return partsCheck
-    ? `rig-create advance ${targetStage} --parts-check ${partsCheck.report} --parts ${partsCheck.root}`
-    : `rig-create advance ${targetStage}`;
+    ? `rig-create advance ${targetStage} ${shellWord(dir)} --parts-check ${shellWord(partsCheck.report)} --parts ${shellWord(partsCheck.root)}`
+    : `rig-create advance ${targetStage} ${shellWord(dir)}`;
 }
 
 function candidateStepStatus(
@@ -327,7 +338,7 @@ function candidateStepStatus(
   const allowed = carriedRefusals(dir, before, { now, forwardWrite: false });
   const checked = checkProject(dir, clone, { now, forwardWrite: false, readOnly: true });
   if (newFindings(allowed, checked.refusals).length > 0) return null;
-  return `rig-create step-status ${stepId} ${nextStatus} --by agent`;
+  return `rig-create step-status ${shellWord(stepId)} ${nextStatus} ${shellWord(dir)} --by agent`;
 }
 
 function nextStageInOrder(project: JsonObject, currentStage: string): string | null {
@@ -362,6 +373,7 @@ function resolveLaggingAdvance(
     }
     return null;
   }
+  if (stage === 'post' && (!asArray(project.scenes).length || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post'))) return null;
   const cmd = candidateAdvance(dir, project, nextStage, now);
   return cmd !== null ? { targetStage: nextStage, command: cmd } : null;
 }
@@ -473,7 +485,7 @@ function resolveDiffComponentsMove(
         const recordedPaintingSha = (draftReport.painting as { sha256: string }).sha256;
         if (stackSha === recordedStackSha && paintingSha === recordedPaintingSha) {
           return {
-            command: `cp ${draftReportPath} evidence/diff-components.json`,
+            command: `cp ${shellWord(resolve(dir, draftReportPath))} ${shellWord(resolve(dir, 'evidence/diff-components.json'))}`,
             act: `copy ${draftReportPath} for drafts[${draftId}] to evidence/diff-components.json`,
           };
         }
@@ -483,9 +495,9 @@ function resolveDiffComponentsMove(
     }
   }
 
-  const figureFlag = figureMaskPath !== undefined ? ` --figure ${figureMaskPath}` : '';
+  const figureFlag = figureMaskPath !== undefined ? ` --figure ${shellWord(resolve(dir, figureMaskPath))}` : '';
   return {
-    command: `rig-parts diff-components --stack ${stackPath} --painting ${paintingPath} --parts ${partsRoot}/parts.json${figureFlag} --floor 2 --threshold 40 --out evidence/diff-components.json`,
+    command: `rig-parts diff-components --stack ${shellWord(resolve(dir, stackPath))} --painting ${shellWord(resolve(dir, paintingPath))} --parts ${shellWord(resolve(dir, partsRoot, 'parts.json'))}${figureFlag} --floor 2 --threshold 40 --out ${shellWord(resolve(dir, 'evidence/diff-components.json'))}`,
     act: `run rig-parts diff-components for drafts[${draftId}]`,
   };
 }
@@ -524,13 +536,13 @@ function resolveDiffClassesCommand(dir: string): string {
       const bytes = diffReportBytes(dir, 'evidence/diff-components.json');
       const parsed = JSON.parse(bytes.toString('utf8')) as Json;
       if (isObject(parsed) && reportShape(parsed) && (parsed.components as unknown[]).length === 0) {
-        return 'rig-create diff-classes --diff-report evidence/diff-components.json --by agent';
+        return `rig-create diff-classes ${shellWord(dir)} --diff-report evidence/diff-components.json --by agent`;
       }
     } catch {
       // Fall through to default command with --triage-file.
     }
   }
-  return 'rig-create diff-classes --diff-report evidence/diff-components.json --triage-file evidence/diff-triage.json --by agent';
+  return `rig-create diff-classes ${shellWord(dir)} --diff-report evidence/diff-components.json --triage-file evidence/diff-triage.json --by agent`;
 }
 
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
@@ -543,7 +555,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
   const structureWarnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW');
-  const warningFields = structureWarnings.length ? { warnings: structureWarnings } : {};
+  const answers = collectItems(project, { collection: loadCollection(dir) }).flatMap(item => {
+    const answer = item.state.state === 'user' || item.state.state === 'delegated' || item.state.state === 'not_applicable'
+      ? item.state.answer : isObject(item.raw) ? item.raw : null;
+    if (!answer) return [];
+    return [{ question_id: item.id, field: item.path, by: answer.by ?? null, at: answer.at ?? null,
+      picks: asArray(isObject(answer.choice) ? answer.choice.picks : undefined).filter(isObject).map(pick => ({
+        ask: pick.ask ?? null, option_id: pick.option_id ?? null, label: isObject(pick.shown) ? pick.shown.label ?? null : null,
+      })),
+      ...(interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === effectiveStage
+        ? { command: optionCommand(item.id, dir) } : {}) }];
+  });
+  const warningFields = { ...(structureWarnings.length ? { warnings: structureWarnings } : {}), answers };
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
 
@@ -559,7 +582,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     ? resolveLaggingAdvance(dir, project, stage, now)
     : null;
   const isResolvableLagging = (finding: Finding): boolean =>
-    finding.code === 'STAGE_LAGGING' && laggingAdvance !== null;
+    finding.code === 'STAGE_LAGGING' && (laggingAdvance !== null || stage === 'post' && (!asArray(project.scenes).length || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post')));
 
   const hasBlockingRefusal =
     holes.length > 0 ||
@@ -597,14 +620,32 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       groups.set(kind, [...(groups.get(kind) ?? []), { version: summary.version, verdict: summary.index }]);
     }
     for (const [kind, refs] of groups) {
+      if (kind === 'post') {
+        // Match the direction writer's authoring gate, including earlier
+        // accepted verdicts that a later bounce does not itself reopen.
+        const reopens = collectReopens(project, []);
+        const closed = collectSignoffs(project, []).some(s => s.stage === 'direction-review'
+          && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at))
+          || versions.some(v => v.kind === 'post' && asArray(v.verdicts).filter(isObject).some(d =>
+            d.review === 'direction-review' && d.verdict === 'accepted'
+            && liveSignoff(reopens, 'direction-review', Date.parse(String(d.at)))));
+        if (closed) {
+          const target = 'reopens[stage=direction-review]';
+          addAwait(target);
+          moves.push({ role: 'human', field: 'reopens', awaits: target,
+            command: `rig-create reopen direction-review ${shellWord(dir)} --by '<human>' --verbatim-file '<absolute-human-words-file>' --source '<reopen-act-id>'`,
+            act: 'Until create#493, an agent may type this human reopen only from Review host raw export act@4: save its unchanged nonempty value.words byte-for-byte to an absolute verbatim-file path and name actId with --source. Empty/missing words: STOP; the agent never supplies words. Do not use job fetch-act (it rejects act@4). Create cannot ingest Review reopen acts yet.' });
+          continue;
+        }
+      }
       const field = `versions[n=${n}]`;
       addAwait(field);
       const writer = kind === 'rig' ? `rig-version ${n}` : `direction write ${n}`;
       const inputs = kind === 'rig'
-        ? '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --at-source <file> --at-pointer <pointer> --by <agent>'
+        ? '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>'
         : '--file <direction.json> --rig <rig-version>';
       moves.push({ role: 'agent', field: 'versions', awaits: field,
-        command: `rig-create ${writer} ${inputs} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
+        command: `rig-create ${writer} ${shellWord(dir)} ${inputs.replace(/<[^>]+>/g, shellWord)} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
         act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
     }
     if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
@@ -816,17 +857,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           });
         } else {
           moves.push({
-            role: 'human',
+            role: 'agent',
             field: answerField,
             awaits: answerField,
-            command: null,
-            act: `review-tool act interview-picks for ${questionPath} (unanswered by record: ${questionPath}.pending_options is not recorded in project.json)`,
-            review_act: {
-              kind: 'interview-picks',
-              stage: effectiveStage,
-              question_id: item.id,
-              ...(jobId ? { job_id: jobId } : {}),
-            },
+            command: optionCommand(item.id, dir),
+            act: `draft an option-set file for ${item.id}, then register it for a Review pick`,
             unanswered_by_record: `${questionPath}.pending_options`,
           });
         }
@@ -844,25 +879,26 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
 
-    const needsPlanSteps =
-      (effectiveStage === 'interview' && steps.length === 0) ||
-      (effectiveStage === 'post-interview' && !steps.some(s => s.phase === 'post')) ||
-      (effectiveStage === 'rigging-interview' && !steps.some(step => stepCoveredByApproval(project, step, effectiveStage)));
+    const planIds = effectiveStage === 'rigging-interview' ? ['bones', 'meshes', 'constraints', 'motion']
+      : effectiveStage === 'post-interview' ? ['camera', 'timing'] : ['seethrough', 'assemble'];
+    const missingPlanIds = planIds.filter(id => {
+      const guide = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id;
+      const phase = effectiveStage === 'post-interview' ? 'post' : 'rig';
+      return !steps.some(step => step.phase === phase && (step.id === id
+        || phase === 'post' && asArray(step.rests_on).includes(guide)));
+    });
+    const needsPlanSteps = missingPlanIds.length > 0;
     if (needsPlanSteps) {
       addAwait('plan.steps');
-      if (effectiveStage === 'rigging-interview') {
-        for (const id of ['bones', 'meshes', 'constraints', 'motion']) {
-          const item = stageItems.find(item => item.id === id);
-          if (!item || item.state.state === 'silent' || (item.state.state === 'delegated' && !item.state.decided) || steps.some(step => step.id === id)) continue;
-          moves.push({
-            role: 'agent',
-            field: 'plan.steps',
-            awaits: 'plan.steps',
-            command: `rig-create plan add ${id} '${dir.replaceAll("'", "'\\''")}' --by agent --phase rig …`,
-            act: `author the ${id} plan step for approval at rigging-interview; supply order, does, produces, rests-on, bar and checkpoint-proposed`,
-            unanswered_by_record: 'plan.steps',
-          });
-        }
+      for (const [index, id] of missingPlanIds.entries()) {
+        const guideId = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id;
+        const item = stageItems.find(item => item.id === guideId);
+        if (!item || item.state.state === 'silent' || (item.state.state === 'delegated' && !item.state.decided)) continue;
+        const order = Math.max(0, ...steps.map(step => Number(step.order) || 0)) + index + 1;
+        moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps',
+          command: `rig-create plan add ${id} ${shellWord(dir)} --by agent --phase ${effectiveStage === 'post-interview' ? 'post' : 'rig'} --order ${order} --does '<work>' --produces '<result>' --rests-on ${guideId} --bar '<acceptance bar>' --checkpoint-proposed false`,
+          act: `author the ${id} plan step for approval at ${effectiveStage}; replace the work, result and acceptance bar placeholders`,
+          unanswered_by_record: 'plan.steps' });
       }
     }
 
@@ -877,7 +913,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         act: needsPlanSteps
           ? effectiveStage === 'rigging-interview'
             ? 'review-tool act signoff for stage rigging-interview (unanswered by record: plan.steps has no rig steps approved at rigging-interview)'
-            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: plan.steps is empty in project.json)`
+            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? 'plan.steps has no post steps' : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
           : effectiveStage === 'interview'
             ? 'review-tool act signoff for stage interview on the record page with job open --plan (source-linked Review); ingest signoff interview --from-review <actId>, then advance plan-approved'
             : `review-tool act signoff for stage ${effectiveStage}`,
@@ -992,6 +1028,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           : undefined;
       const hasApprovedPartsVerdict = hasApprovedPartsVerdictReceipt(dir, project, draftId);
 
+      if (effectiveStage === 'parts' && partsRoot !== undefined
+        && candidateAdvance(dir, project, 'parts-review', now, { report: 'evidence/parts-check.json', root: partsRoot }) === null) {
+        addAwait('evidence/parts-check.json');
+        moves.push({ role: 'producer', field: 'drafts', awaits: 'evidence/parts-check.json',
+          command: `rig-parts check-parts --parts ${shellWord(resolve(dir, partsRoot))} --out ${shellWord(resolve(dir, 'evidence'))}`,
+          act: 'produce and retain evidence/parts-check.json before advance parts-review' });
+      }
+
       if (effectiveStage === 'parts' && partsRoot !== undefined && existsSync(join(dir, 'evidence/parts-check.json'))) {
         const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
           report: 'evidence/parts-check.json',
@@ -1026,17 +1070,15 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         });
       }
 
-      const hasStructureFile =
-        existsSync(join(dir, 'evidence/structure.json')) ||
-        existsSync(join(dir, 'evidence/structure-decisions.json'));
-      if (draftId !== undefined && hasApprovedPartsVerdict && !hasStructureFile) {
-        addAwait('evidence/structure.json');
+      const structure = draftId === undefined ? undefined : partsStructureSnapshot(dir, project, draftId);
+      if (draftId !== undefined && hasApprovedPartsVerdict && structure !== undefined && !structure.valid) {
+        addAwait(structure.path);
         moves.push({
           role: 'agent',
           field: `drafts[${draftId}]`,
-          awaits: 'evidence/structure.json',
-          command: `rig-create structure-snapshot --draft ${draftId} --out evidence/structure.json`,
-          act: `write structure-snapshot for drafts[${draftId}] to evidence/structure.json`,
+          awaits: structure.path,
+          command: `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(draftId)} --out ${shellWord(structure.path)}`,
+          act: `write structure-snapshot for drafts[${draftId}] to ${structure.path}`,
         });
       }
 
@@ -1085,7 +1127,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           awaits: signoffAwait,
           command: null,
           act: hasApprovedPartsVerdict
-            ? 'review-tool act signoff for stage parts-review'
+            ? `review-tool act signoff for stage parts-review; after structure-snapshot, ingest rig-create signoff parts-review ${shellWord(dir)} --draft ${shellWord(draftId!)} --structure-file ${shellWord(structure!.path)} --from-review '<actId>'`
             : `review-tool act signoff for stage parts-review (unanswered by record: review_acts[kind=parts-verdict,draft_id=${draftId ?? 'unknown'}] is absent)`,
           review_act: {
             kind: 'signoff',
@@ -1095,7 +1137,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           },
           ...(!hasApprovedPartsVerdict
             ? {
-                unanswered_by_record: `review_acts[kind=parts-verdict,draft_id=${draftId ?? 'unknown'}], evidence/structure.json`,
+                unanswered_by_record: `review_acts[kind=parts-verdict,draft_id=${draftId ?? 'unknown'}], ${structure?.path ?? 'structure snapshot'}`,
               }
             : {}),
         });
@@ -1323,7 +1365,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       );
       const nextPostN = postN ?? maxVersionN + 1;
 
-      if (effectiveStage === 'post') {
+      if (effectiveStage === 'post' && postN !== null && scenes.length > 0) {
         const advCmd = candidateAdvance(dir, project, 'direction-review', now);
         if (advCmd !== null) {
           moves.push({
@@ -1336,9 +1378,27 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
 
-      if (scenes.length === 0) {
-        addAwait('scenes[n=1]');
+      if (postN === null) {
+        const rig = versions.filter(v => v.kind === 'rig').at(-1);
+        const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
+        const currentScene = sceneCurrentAt(dir, project, now);
+        if (!isObject(project.direction_contract)) {
+          addAwait('direction_contract');
+          moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
+            command: `rig-create direction --adopt ${shellWord(dir)}`, act: 'adopt direction before authoring the post' });
+        } else if (currentScene === undefined) {
+          addAwait('scenes[n=1]');
+          moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
+            command: `rig-create scene write ${shellWord(dir)} --rig ${shellWord(rigN)} --background '<background.png>' --citations-file '<scene-citations.json>'`,
+            act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
+        } else {
+          addAwait(`versions[n=${nextPostN}]`);
+          moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
+            command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction.json>' --rig ${shellWord(rigN)}`,
+            act: 'author a direction document binding the current scene, then record the post version' });
+        }
       }
+      if (scenes.length === 0) addAwait('scenes[n=1]');
       if (postN === null) {
         addAwait(`versions[n=${nextPostN}]`);
         const verdictAwait = `versions[n=${nextPostN}].verdicts[review=direction-review]`;

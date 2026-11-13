@@ -22,7 +22,7 @@ import {
   withCandidateProject,
 } from './collection-binding-reader.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
-import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, stageOfStep } from './stages.ts';
+import { hasStageOrder, interviewStageOfGuide, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { assertInterviewRecordSignable, packageSignSubjects, stageSignable } from './signable.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -296,8 +296,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         }
         requireRecordDirectionTarget(project, now);
       }
-      const planPhase = stage === 'post-interview' ? 'post' : 'rig';
-      const covered = steps.filter(step => step.phase === planPhase && approvalStageOfStep(planPhase, String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage);
+      const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
       const signable = stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
         && (stage !== 'interview' || interviewSignoff) && stageSignable(project, stage);
       if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');

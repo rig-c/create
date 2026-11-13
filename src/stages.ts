@@ -126,6 +126,12 @@ export function approvalStageOfStep(phase: 'rig' | 'post', id: string, newOrder 
   return PHASE_APPROVED_BY.rig;
 }
 
+/** Whether a step belongs to the plan published for this approval stage. */
+export function stepCoveredByApproval(project: JsonObject, step: JsonObject, stage: string | null): boolean {
+  const phase = stage === 'post-interview' ? 'post' : 'rig';
+  return step.phase === phase && approvalStageOfStep(phase, String(step.id), hasStageOrder(project) || stage === 'rigging-interview') === stage;
+}
+
 export function interviewStageOfGuide(id: string, post = false, newOrder = false): string {
   if (post) return 'post-interview';
   return newOrder ? GUIDE_INTERVIEW[id] ?? 'rigging-interview' : 'interview';

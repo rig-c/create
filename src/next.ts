@@ -50,6 +50,7 @@ import {
   STAGE_VALUES,
   stageIndex,
   stageOfStep,
+  stepCoveredByApproval,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -107,6 +108,7 @@ export interface NextReport {
   effective_stage: string;
   accepted: boolean;
   refusals: NextRefusal[];
+  warnings?: Finding[];
   awaits: string[];
   moves: NextMove[];
 }
@@ -540,6 +542,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
+  const structureWarnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW');
+  const warningFields = structureWarnings.length ? { warnings: structureWarnings } : {};
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
 
@@ -568,6 +572,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       effective_stage: effectiveStage,
       accepted: false,
       refusals,
+      ...warningFields,
       awaits: [],
       moves: [],
     };
@@ -602,7 +607,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         command: `rig-create ${writer} ${inputs} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
         act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
     }
-    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, awaits: awaitsList, moves };
+    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
   }
   const recordedLapseTargets = new Set<string>();
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
@@ -740,6 +745,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       effective_stage: effectiveStage,
       accepted: true,
       refusals,
+      ...warningFields,
       awaits: [],
       moves: [],
     };
@@ -840,9 +846,24 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 
     const needsPlanSteps =
       (effectiveStage === 'interview' && steps.length === 0) ||
-      (effectiveStage === 'post-interview' && !steps.some(s => s.phase === 'post'));
+      (effectiveStage === 'post-interview' && !steps.some(s => s.phase === 'post')) ||
+      (effectiveStage === 'rigging-interview' && !steps.some(step => stepCoveredByApproval(project, step, effectiveStage)));
     if (needsPlanSteps) {
       addAwait('plan.steps');
+      if (effectiveStage === 'rigging-interview') {
+        for (const id of ['bones', 'meshes', 'constraints', 'motion']) {
+          const item = stageItems.find(item => item.id === id);
+          if (!item || item.state.state === 'silent' || (item.state.state === 'delegated' && !item.state.decided) || steps.some(step => step.id === id)) continue;
+          moves.push({
+            role: 'agent',
+            field: 'plan.steps',
+            awaits: 'plan.steps',
+            command: `rig-create plan add ${id} '${dir.replaceAll("'", "'\\''")}' --by agent --phase rig …`,
+            act: `author the ${id} plan step for approval at rigging-interview; supply order, does, produces, rests-on, bar and checkpoint-proposed`,
+            unanswered_by_record: 'plan.steps',
+          });
+        }
+      }
     }
 
     const signoffAwait = `signoffs[stage=${effectiveStage}]`;
@@ -854,7 +875,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         awaits: signoffAwait,
         command: null,
         act: needsPlanSteps
-          ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: plan.steps is empty in project.json)`
+          ? effectiveStage === 'rigging-interview'
+            ? 'review-tool act signoff for stage rigging-interview (unanswered by record: plan.steps has no rig steps approved at rigging-interview)'
+            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: plan.steps is empty in project.json)`
           : effectiveStage === 'interview'
             ? 'review-tool act signoff for stage interview on the record page with job open --plan (source-linked Review); ingest signoff interview --from-review <actId>, then advance plan-approved'
             : `review-tool act signoff for stage ${effectiveStage}`,
@@ -1194,7 +1217,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             field: `versions[v${rigN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)`,
+            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)${structureWarnings.some(w => w.path === `versions[v${rigN}].provenance.structure_delta`) ? '; verdict covers changed structure' : ''}`,
             review_act: {
               kind: 'review-verdict',
               stage: 'rig-review',
@@ -1427,6 +1450,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     effective_stage: effectiveStage,
     accepted: false,
     refusals,
+    ...warningFields,
     awaits: awaitsList,
     moves,
   };
@@ -1439,6 +1463,7 @@ export function formatNext(report: NextReport): string {
       report.effective_stage !== report.stage ? ` (effective: ${report.effective_stage})` : ''
     }`,
   );
+  for (const w of report.warnings ?? []) lines.push(`  WARN [${w.code}]: ${w.message}`);
   if (report.refusals.length > 0) {
     lines.push(`refusals (${report.refusals.length}):`);
     for (const r of report.refusals) {

@@ -1,13 +1,13 @@
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { expect, test, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, symlinkSync, cpSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
-import { STRUCTURE_SCHEMA, latestPartsApproval } from '../src/structure.ts';
+import { STRUCTURE_SCHEMA, latestPartsApproval, acceptsStructureDelta, structureDelta } from '../src/structure.ts';
 import { Refusal } from '../src/refusal.ts';
 import { arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './fixtures.ts';
-import { writeReviewedInput } from './parts-package.ts';
+import { partsPackage, writeReviewedInput } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -17,7 +17,7 @@ const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'pro
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
 function write(dir: string, path: string, data: string): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), data); }
 afterEach(() => testClock.reset());
-function setup(density?: number, reopen = true): string {
+function setup(density?: number, reopen = true, productionParts = false): string {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'parts-review'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
@@ -27,6 +27,14 @@ function setup(density?: number, reopen = true): string {
     for (const raw of arr(obj(p.plan).steps)) if (!['seethrough', 'assemble'].includes(String(obj(raw).id))) obj(raw).status = 'pending';
     step(p, 'assemble').rests_on = ['assemble']; rehashSignoffs(p);
   });
+  if (productionParts) {
+    const image = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/rig/images/rectangle.png'));
+    const manifest = JSON.stringify({ rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
+      painting_in_rig: { path: 'painting_in_rig.png', sha256: createHash('sha256').update(image).digest('hex'), resample: 'lanczos3-rgb-opaque' },
+      parts: [{ name: 'rectangle', from: 'painting:rectangle', x: 0, y: 0, w: 8, h: 16, opaque_px: 128, projected_core_px: 128, source_px_taken: 128, refused_drift_px: 0, merged_px: 0, seam_override_px: 0 }] });
+    const pkg = partsPackage({ partsDir: 'derived/parts/rig', verdict: 'evidence/parts-review.json', input: { 'parts.json': manifest, 'parts/rectangle.png': image, 'painting_in_rig.png': image } });
+    for (const [path, bytes] of Object.entries(pkg.files)) { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); }
+  }
   const root = 'derived/drafts/shape';
   const entry = density === undefined ? { contour: { bust: { alpha: 0.5 } } } : { density };
   write(dir, `${root}/config.json`, JSON.stringify({ meshes: { torso: entry } }));
@@ -174,8 +182,8 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   expect(JSON.stringify(arr(p.versions)[0])).toBe(frozenV1);
   expect(checkProject(dir).refusals).toEqual([]);
   obj(arr(p.versions)[1]).provenance = production(2, 10, '2026-11-28T00:00:00Z').provenance as JsonObject; save(dir, p);
-  const conflicts = checkProject(dir).refusals.filter(f => f.code === 'STRUCTURE_DECISIONS_CONFLICT');
-  expect(conflicts.map(f => f.path)).toEqual(['versions[v2].provenance.config']);
+  const conflicts = checkProject(dir).refusals.filter(f => f.code === 'STRUCTURE_DELTA_MISMATCH');
+  expect(conflicts.map(f => f.path)).toEqual(['versions[v2].provenance.structure_delta']);
 });
 
 
@@ -189,3 +197,70 @@ test('live bound plan bases nulled during adoption stay refused by check; the ca
   expect(stale.some(f => f.message.includes('bones'))).toBe(true);
   expect(stale.some(f => f.message.includes('constraints'))).toBe(true);
 });
+
+
+test.each(['valid', 'missing', 'early', 'late', 'equal', 'reopened'])('meshes approval gate: %s', mode => {
+  const project: JsonObject = { interview: { waypoints: [{ id: 'meshes', guide: { at: mode === 'early' ? '2026-11-01T00:00:00Z' : mode === 'late' ? '2026-11-05T00:00:00Z' : mode === 'equal' ? '2026-11-02T00:00:00Z' : '2026-11-03T00:00:00Z' } }] },
+    signoffs: mode === 'missing' ? [] : [{ stage: 'rigging-interview', checkpoint: null, at: '2026-11-04T00:00:00Z', by: 'owner', verbatim: 'Approved.' }],
+    reopens: mode === 'reopened' ? [{ stage: 'rigging-interview', from_stage: 'rigging', by: 'owner', at: '2026-11-05T00:00:00Z', verbatim: 'Reopen.', steps_before: [] }] : [] };
+  expect(acceptsStructureDelta(project, { at: '2026-11-02T00:00:00Z' })).toBe(mode === 'valid');
+});
+
+test('delta preserves snapshot pointer order and absent declarations', () => {
+  expect(structureDelta({ entries: [{ path: '/meshes/a~1b', value: { density: 2 } }, { path: '/meshes/gone', value: { density: 3 } }] }, { meshes: { 'a/b': { density: 4 } } })).toEqual([
+    { entry: '/meshes/a~1b', snapshot: { density: 2 }, version: { density: 4 } },
+    { entry: '/meshes/gone', snapshot: { density: 3 }, version: null },
+  ]);
+});
+
+test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structure delta: %s', mode => {
+  const dir = setup(10, true, true); partsSign(dir); freshRigInterview(dir);
+  signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  advanceCommand(['rigging', dir]);
+  for (const path of ['outputs', 'derived/review']) rmSync(join(dir, path), { recursive: true, force: true });
+  cpSync(join(import.meta.dir, 'fixtures/rig-registration'), join(dir, 'source'), { recursive: true });
+  write(dir, 'source/config.json', JSON.stringify({ key: 'synthetic', meshes: { torso: { density: mode === 'unchanged' ? 10 : 20 } }, requirements: 'requirements.json' }));
+  write(dir, 'source/requirements.json', JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: { required: true } }));
+  write(dir, 'source/adapter.json', '[]');
+  cpSync(join(dir, 'derived/drafts/shape/input'), join(dir, 'source/parts'), { recursive: true });
+  write(dir, 'source/at-source.json', JSON.stringify({ finished_at: '2026-11-23T00:00:00Z' }));
+  write(dir, 'source/citations.json', JSON.stringify({ meshes: [{ entry: 'torso', guide: 'meshes', quote: 'Fresh synthetic answer after viewing parts.', asks: ['bend'] }] }));
+  write(dir, 'source/run.json', JSON.stringify({ spec: 'rigc-run/1', package: { name: 'rig-c', version: '3.4.1' }, command: 'build', started_at: '2026-11-23T00:00:00.000Z', finished_at: '2026-11-23T00:00:00.000Z', inputs: [{ role: 'rig', path: 'rig/rig.json', sha256: '1'.repeat(64) }, { role: 'motion', path: 'rig/motion.json', sha256: '2'.repeat(64) }], outputs: [{ path: 'build/skeleton.model.json', sha256: '2'.repeat(64) }] }));
+  if (mode === 'missing' || mode === 'early') {
+    const p = read(dir);
+    if (mode === 'missing') p.signoffs = arr(p.signoffs).filter(s => obj(s).stage !== 'rigging-interview');
+    else obj(waypoint(p, 'meshes').guide).at = '2026-11-19T00:00:00Z';
+    save(dir, p);
+  }
+  testClock.set(new Date('2026-11-24T00:00:00Z'));
+  const before = readFileSync(join(dir, 'project.json'));
+  const args = ['1', dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle', '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json', '--toolchain-lock', 'source/package-lock.json', '--run-record', 'source/run.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--citations', 'source/citations.json', '--by', 'registrant'];
+  if (mode === 'missing' || mode === 'early') {
+    let caught: unknown;
+    try { rigVersionCommand(args); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(Refusal);
+    expect((caught as Refusal).code).toBe('STRUCTURE_DECISIONS_CONFLICT');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    return;
+  }
+  expect(rigVersionCommand(args).exit).toBe(0);
+  const p = read(dir); const provenance = obj(obj(arr(p.versions)[0]).provenance);
+  if (mode === 'unchanged') {
+    expect(provenance.structure_delta).toBeUndefined();
+    expect(checkProject(dir).warnings.filter(f => f.code === 'STRUCTURE_DELTA_REVIEW')).toEqual([]);
+    const frozen = readFileSync(join(dir, 'project.json'));
+    expect(nextProject(dir, testClock.now()).warnings).toBeUndefined();
+    expect(interviewCommand(['--check', dir, '--json'], testClock.now()).stdout).not.toContain('STRUCTURE_DELTA_REVIEW');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(frozen);
+    return;
+  }
+  expect(provenance.structure_delta).toEqual([{ entry: '/meshes/torso', snapshot: { density: 10 }, version: { density: 20 } }]);
+  const report = JSON.parse(interviewCommand(['--check', dir, '--json'], testClock.now()).stdout);
+  expect(report.warnings.find((f: { code: string }) => f.code === 'STRUCTURE_DELTA_REVIEW').message).toContain('1 changed structure entries');
+  expect(nextProject(dir, testClock.now()).warnings?.map(f => f.code)).toContain('STRUCTURE_DELTA_REVIEW');
+  obj(arr(provenance.structure_delta)[0]).version = { density: 99 }; save(dir, p);
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DELTA_MISMATCH');
+});
+import { rigVersionCommand } from './clock.ts';
+import { interviewCommand } from '../src/interview.ts';
+import { nextProject } from '../src/next.ts';

@@ -949,15 +949,24 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const closedReport = nextProject(postDir, CHAIN_NOW + 2000);
     expect(closedReport.moves).toHaveLength(1);
     expect(closedReport.moves[0]).toMatchObject({ role: 'human', field: 'reopens', awaits: 'reopens[stage=direction-review]' });
-    expect(closedReport.moves[0]!.command).toContain("--by '<human>' --verbatim-file '<absolute-human-words-file>'");
-    expect(closedReport.moves[0]!.act).toContain('unchanged words');
+    expect(closedReport.moves[0]!.command).toContain("--by '<human>' --verbatim-file '<absolute-human-words-file>' --source '<reopen-act-id>'");
+    for (const required of ['Until create#493', 'Review host raw export act@4', 'unchanged nonempty value.words',
+      'byte-for-byte', 'actId with --source', 'Empty/missing words: STOP', 'agent never supplies words',
+      'Do not use job fetch-act (it rejects act@4)']) expect(closedReport.moves[0]!.act).toContain(required);
     expect(closedReport.moves[0]!.act).toContain('Create cannot ingest Review reopen acts yet');
     expect(closedReport.moves.some(move => move.command?.includes('direction write'))).toBe(false);
     expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeReopen);
     const ownerWords = join(postDir, 'reopen-owner.txt');
-    writeFileSync(ownerWords, 'Reopen the direction review to answer the camera feedback.\n');
+    // Synthetic raw-export fields: preserve the exported scalar, including its
+    // comment label, Unicode, CRLF and final spaces; do not author replacement words.
+    const exportedReopen = { schema: 'rig-review/act@4', actId: 'synthetic-reopen-act',
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+      value: { stage: 'direction-review', words: '[general]\nReopen the direction review.\r\nKeep the framing — unchanged.  ' } };
+    writeFileSync(ownerWords, Buffer.from(exportedReopen.value.words, 'utf8'));
+    expect(readFileSync(ownerWords)).toEqual(Buffer.from(exportedReopen.value.words, 'utf8'));
     const reopenArgs = printedArgs(closedReport.moves[0]!.command!).slice(1).map(arg =>
-      arg === '<human>' ? 'synthetic-owner' : arg === '<absolute-human-words-file>' ? ownerWords : arg);
+      arg === '<human>' ? exportedReopen.authority.reviewer.id : arg === '<absolute-human-words-file>' ? ownerWords
+        : arg === '<reopen-act-id>' ? exportedReopen.actId : arg);
     // A project path and an absolute words-file path work from an unrelated cwd.
     const previousCwd = process.cwd();
     try {
@@ -965,7 +974,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(runMainCapture(reopenArgs, CHAIN_NOW + 3000)).toMatchObject({ code: 0, stderr: '' });
     } finally { process.chdir(previousCwd); }
     const reopened = JSON.parse(readFileSync(join(postDir, 'project.json'), 'utf8')) as JsonObject;
-    expect(obj(arr(reopened.reopens).at(-1))).toMatchObject({ by: 'synthetic-owner', verbatim: readFileSync(ownerWords, 'utf8') });
+    expect(obj(arr(reopened.reopens).at(-1))).toMatchObject({ by: exportedReopen.authority.reviewer.id, verbatim: exportedReopen.value.words, source: exportedReopen.actId });
     expect(checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true }).warnings.map(row => row.code)).toContain('FEEDBACK_OPEN');
     const postReport = nextProject(postDir, CHAIN_NOW + 3000);
     expect(postReport.moves).toHaveLength(1);

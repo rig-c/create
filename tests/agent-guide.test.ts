@@ -36,6 +36,17 @@ const GUIDE_HEADINGS = [
  */
 const GUIDE_MAX_BYTES = 10_000;
 
+test('#490 the temporary reopen exception preserves exported words and names its act', () => {
+  const readme = readFileSync(join(REPO, 'README.md'), 'utf8');
+  for (const text of [renderAgentGuide(), readme]) {
+    for (const required of ['create#493', 'Review host raw export', '`act@4`', 'nonempty `value.words`',
+      'byte-for-byte', 'verbatim', '`--source`', '`actId`', 'Empty/missing words', 'STOP',
+      '`job fetch-act`', 'rejects']) expect(text).toContain(required);
+    expect(text).toMatch(/(?:Never supply|the agent never supplies) words\./);
+  }
+  expect(Buffer.byteLength(renderAgentGuide())).toBeLessThan(GUIDE_MAX_BYTES);
+});
+
 test('#467 the direction guide names verdict ingest before source-linked record-page sign-off', () => {
   const guide = renderAgentGuide();
   expect(guide).toContain('`job open --rig <post>`');

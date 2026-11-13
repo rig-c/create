@@ -117,7 +117,11 @@ selects either a rig or a post version.
 `--by` sign-off/review and `interview-answer --pick` are low-level interfaces for
 people operating the CLI themselves and synthetic fixtures, not an agent route
 for human acts. Agents must not type an owner's answer or signature, or request
-one in chat in place of Review. See [the live Review flow](docs/LIVE-REVIEW.md)
+one in chat in place of Review. Until create#493, an agent may type `reopen` only
+using a Review host raw export `act@4`: save its nonempty `value.words`
+byte-for-byte to the `--verbatim-file` and name `actId` with `--source`.
+Empty/missing words are a STOP; the agent never supplies words. `job fetch-act`
+rejects `act@4`; use the host raw export. See [the live Review flow](docs/LIVE-REVIEW.md)
 and [the record contract](docs/PROJECT.md#recording-a-sign-off).
 
 ## The clock

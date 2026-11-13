@@ -1,18 +1,20 @@
 # Agent guide
 
-One painting in, one rig and its takes out.
+One painting; one rig and its takes.
 
 ## Start here
 
-1. Read `project.json` first. Human acts go through Review; ingest its exports.
+1. Read `project.json`. Human acts go through Review; ingest exports. Never type human answers/signatures.
 2. Run `rig-create next` to derive the next moves and whose they are.
-3. Resume per [PROJECT.md § How an agent resumes a project](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
+3. Resume per [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
 
-Stale pins: `rig-create packages upgrade --by <operator>` (PROJECT.md).
+Until create#493, agents may type `reopen` only from Review host raw export `act@4`: save nonempty `value.words` byte-for-byte to a verbatim file; `--source` names `actId`. Empty/missing words: STOP. Never supply words. `job fetch-act` rejects act@4.
 
-Declare the painting with `init --painting <file> --origin <words>` or
+Stale pins: `rig-create packages upgrade --by <operator>`.
+
+Declare the painting: `init --painting <file> --origin <words>` or
 `input add <path> --painting --origin <words>`. `project.json.painting` binds
-one input, survives restart and checks sibling artwork. Older records may omit it.
+one input, survives restart and checks sibling artwork; optional on older records.
 
 ## The order, and what you may not do
 
@@ -20,21 +22,18 @@ one input, survives restart and checks sibling artwork. Older records may omit i
 `rigging-interview` → `rigging` → `rig-review` (the rig, still frame) → `post-interview` → `post` →
 `direction-review` → `accepted`. Any stage can become `paused`.
 
-- Only a person's `signoffs[]` advances `stage` or passes a plan checkpoint.
-  You may draft, propose, build and measure in any stage; production rigging
-  waits for `rigging-interview` ([PROJECT.md § Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages)).
-- Never derive answers from the image. Offer a pick per ask, with one reasoned
+- Only human `signoffs[]` advance `stage` or pass plan checkpoints.
+  Draft, propose, build and measure in any stage; production rigging waits for `rigging-interview` ([Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages)).
+- Never infer answers from images. Offer a pick per ask: one reasoned
   recommendation, Other and auto. Retain the shown set; never preselect.
-- Record "auto" as delegated, with your decision on the item. It is never a
-  blank for you to fill later.
-- Before asking the user to sign the interview, run `rig-create interview --check`: it names every `null` answer.
+- Record "auto" as delegated with your decision on the item; never leave it blank.
+- Run `rig-create interview --check` before interview sign-off: it names every `null` answer.
 
 ## The user's four steps
 
-1. **Parts and meshes**. Ask framing/source. Review a labelled draft's parts and
-   mesh/chest structure. `parts-review` records its Review API response.
+1. **Parts and meshes**. Ask framing/source; review a labelled draft's parts and mesh/chest structure. `parts-review` records its Review API response.
    The latest receipt must approve the draft for `structure-snapshot --draft <id> --out <f>`
-   and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ([PROJECT.md § Labelled draft rigs](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#labelled-draft-rigs-and-structure-decisions)).
+   and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ([Draft rigs](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#labelled-draft-rigs-and-structure-decisions)).
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
    against approved parts/structure; use interview-options/answer/decision.
 3. **Rig and animation**. Keep rig feedback.
@@ -45,17 +44,17 @@ one input, survives restart and checks sibling artwork. Older records may omit i
 
 Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
 ingest `--from-review <actId>`, then advance.
-Keep the host up across bound writes. If stopped, `job open` again with reviewer/role,
-then `job reconcile` before more writes.
+Keep the host up across bound writes; after a stop, `job open` with reviewer/role,
+then `job reconcile` before writing.
 
-Use `advance <stage>`, `step-status <id>`; see `rig-create --help`.
+Use `advance <stage>` and `step-status <id>` (`rig-create --help`).
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
 refusing [`PARTS_CHECK_MISSING`, `PARTS_CHECK_UNREAD`, `PARTS_CHECK_INVALID`, `PARTS_CHECK_CHANGED`, `PARTS_CHECK_FAILED`, `PARTS_CHECK_STALE`](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#parts-stage-check-at-the-parts--parts-review-move).
 In `parts`, record an `intake-report` preflight and offer its choice, both advisory:
 [PROJECT.md § Advisory intake reports](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#advisory-intake-reports).
 
-Drafts stay in `derived/drafts/<id>/`, outside versions/handoff. Preserve old
-history and dates; adopt choices explicitly.
+Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
+Preserve history/dates; adopt choices explicitly.
 
 ## Before you ask, plan or show
 
@@ -95,13 +94,13 @@ Each folder's lifetime and git status: [PROJECT.md § Data is split by lifetime]
 
 ## What to read, and why
 
-1. **Before the interview**: INTERVIEW.md, and CRAFT.md for the default at each
-   waypoint (both linked below); parts AUTHORING §3, *`config.json`, field by
-   field*; [CHECKS.md](https://github.com/rig-c/create/blob/main/docs/CHECKS.md) before a sign-off.
-2. **Before `seethrough` and `assemble`**: SOURCE.md, the order of the split and
-   the cut: [re-running a bad split](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#re-run-first),
-   [where a cut is allowed](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#where-a-cut-is-allowed);
-   then parts AUTHORING *See-through head-run source reading*, *Source before
+1. **Before the interview**: INTERVIEW.md; CRAFT.md (waypoint defaults);
+   parts AUTHORING §3, *`config.json`, field by field*;
+   [CHECKS.md](https://github.com/rig-c/create/blob/main/docs/CHECKS.md) before a sign-off.
+2. **Before `seethrough` and `assemble`**: SOURCE.md, split/cut order:
+   [bad-split reruns](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#re-run-first),
+   [allowed cuts](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#where-a-cut-is-allowed);
+   parts AUTHORING *See-through head-run source reading*, *Source before
    scissors* and *Limbs: cut at their joints*.
 3. **Before rigging**: [CRAFT.md § For the gates](https://github.com/rig-c/create/blob/main/docs/CRAFT.md#for-the-gates-not-the-interview)
    (G1–G9); core RIGGING and MOTION; parts AUTHORING §7, the bars `check` enforces.
@@ -109,7 +108,7 @@ Each folder's lifetime and git status: [PROJECT.md § Data is split by lifetime]
    the [per-frame seam count](https://github.com/rig-c/create/blob/main/docs/LESSONS.md#count-the-seam-bar-over-every-frame),
    [what to show first](https://github.com/rig-c/create/blob/main/docs/LESSONS.md#what-to-show-the-user-first).
 
-Read installed docs here at `package.json`'s pins to match tools, not memory.
+Use installed docs at `package.json`'s pins, not memory.
 Run refusal `(see … guide …)` commands first.
 
 - [@rig-c/parts README.md](node_modules/@rig-c/parts/README.md): painting-to-rig pipeline and command order.
@@ -125,7 +124,7 @@ Run refusal `(see … guide …)` commands first.
 - [@rig-c/core docs/FACE.md](node_modules/@rig-c/core/docs/FACE.md): blink and gaze in the accepted rig.
 - [@rig-c/core docs/INGEST.md](node_modules/@rig-c/core/docs/INGEST.md): only when you were handed a skeleton this project did not author.
 
-Project organisation (create docs, not installed):
+Project docs (not installed):
 
 - [docs/PROJECT.md](https://github.com/rig-c/create/blob/main/docs/PROJECT.md): the folder, stages and sign-offs, the plan, versions, and `project.json` field by field.
 - [docs/INTERVIEW.md](https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md): how to ask, and the shape every answer, delegation and piece of feedback takes.

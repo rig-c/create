@@ -633,8 +633,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           const target = 'reopens[stage=direction-review]';
           addAwait(target);
           moves.push({ role: 'human', field: 'reopens', awaits: target,
-            command: `rig-create reopen direction-review ${shellWord(dir)} --by '<human>' --verbatim-file '<absolute-human-words-file>'`,
-            act: 'A human must reopen direction-review with their identity and unchanged words before the agent writes another direction. Supply an absolute words-file path; Create cannot ingest Review reopen acts yet.' });
+            command: `rig-create reopen direction-review ${shellWord(dir)} --by '<human>' --verbatim-file '<absolute-human-words-file>' --source '<reopen-act-id>'`,
+            act: 'Until create#493, an agent may type this human reopen only from Review host raw export act@4: save its unchanged nonempty value.words byte-for-byte to an absolute verbatim-file path and name actId with --source. Empty/missing words: STOP; the agent never supplies words. Do not use job fetch-act (it rejects act@4). Create cannot ingest Review reopen acts yet.' });
           continue;
         }
       }

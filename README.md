@@ -94,23 +94,31 @@ Release preparation and the owner-operated publication steps are in
 
 ## Recording approvals
 
+Agents route human picks, corrections, verdicts and signatures through Review.
+Open the relevant question, draft, rig/post version or plan, let the person act
+in the tool, then use `job acts` and ingest its printed writer command:
+
 ```sh
-rig-create signoff plan-approved --by user --verbatim-file approval.txt <project dir>
-rig-create parts-review <project dir> --draft <id> --from-review-cli --by user -- <rig-review parts arguments>
+rig-create job open <project dir> --reviewer <id> --role owner --plan
+rig-create job acts <project dir>
+rig-create signoff plan-approved --from-review <actId> <project dir>
+rig-create parts-review <project dir> --from-review <actId>
 rig-create structure-snapshot <project dir> --draft <id> --out evidence/structure-decisions.json
-rig-create diff-classes <project dir> --diff-report <report> --triage-file <triage> --by agent
-rig-create signoff parts-review --by user --draft <id> --structure-file evidence/structure-decisions.json --verbatim-file approval.txt <project dir>
-rig-create signoff rigging --checkpoint constraints --by user --verbatim-file approval.txt <project dir>
-rig-create signoff post-interview --by user --steps camera,timing --verbatim-file - <project dir>
-rig-create review 2 --verdict accepted --by user --review rig-review --source note --verbatim-file feedback.txt --at 2026-11-04T12:00:00Z --answers-feedback 1:0 <project dir>
+rig-create signoff parts-review --from-review <actId> --draft <id> --structure-file evidence/structure-decisions.json <project dir>
+rig-create review <version> --from-review <actId> <project dir>
 ```
 
-`signoff` records without moving the stage. It uses the clock, signs all steps
-of the stage's phase unless `--steps` narrows them, fills null checkpoints from
-the draft and preserves existing answers and delegations. Input is UTF-8 and
-keeps every byte, including spaces and final newlines. Omitting
-`--verbatim-file` reads stdin. Review also supports the existing `--verbatim`
-option. See [the record contract](docs/PROJECT.md#recording-a-sign-off).
+The commands illustrate separate acts; publish the matching subject before each
+human act. Keep the Review host up across bound writes. If it stops, `job open`
+again with reviewer/role, then `job reconcile` before more writes. `--rig <n>`
+selects either a rig or a post version.
+
+`signoff` records without moving the stage; `advance` uses its authority. Direct
+`--by` sign-off/review and `interview-answer --pick` are low-level interfaces for
+people operating the CLI themselves and synthetic fixtures, not an agent route
+for human acts. Agents must not type an owner's answer or signature, or request
+one in chat in place of Review. See [the live Review flow](docs/LIVE-REVIEW.md)
+and [the record contract](docs/PROJECT.md#recording-a-sign-off).
 
 ## The clock
 
@@ -158,7 +166,7 @@ it fails, naming the constant, when a `*_SINCE` date is still in the future.
 New projects ask a separate multiple-choice question for each applicable ask,
 with a reasoned agent recommendation, Other and explicit delegation. The shown
 option file is retained by raw sha256. Record it with `interview-options`, then
-use `interview-answer --pick` or fetch Review's finalized act with `--from-review <actId>`;
+open the question in Review and ingest its finalized act with `interview-answer --from-review <actId>`;
 `interview-decision` records only the explicitly delegated asks. See
 [the choice contract](docs/INTERVIEW.md#per-ask-choices-interview2) and the
 [generated consumer fixture](templates/example-interview-choice.json).

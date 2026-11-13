@@ -177,7 +177,7 @@ export function optionContext(project: JsonObject, stage: string, at: number, di
   if (!signoff || !rig || !isObject(provenance.config)) fail('INTERVIEW_OPTIONS_STALE', 'accept a rig with retained config before drafting post options');
   const approval = latestPartsApproval(project, date(rig.at));
   const draft = objects(project.drafts).find(d => d.id === approval?.draft_id);
-  if (!draft || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', 'retain the accepted rig parts identity before drafting post options');
+  if (!draft || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', `versions[v${String(rig.n)}]: no retained approved draft parts are available at rig.at ${String(rig.at)}; restore the parts-review approval and draft live at that build date, or register a new rig version after parts-review before drafting post options`);
   return { kind: 'rig', rig_version: rig.n as Json, signoff_at: signoff.record.at as Json, config: provenance.config, parts: draft.parts };
 }
 

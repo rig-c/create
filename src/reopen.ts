@@ -95,7 +95,7 @@ export function liveSignoff(reopens: readonly Reopen[], stage: string, at: numbe
 export const REOPEN_HELP = `reopen:
   <stage> [<project dir>]  record a human backward move and set project.stage
   --by <who>              human signer (agent is refused)
-  --verbatim-file <file>  unchanged UTF-8 words, or - for stdin (default)
+  --verbatim-file <file>  unchanged UTF-8 words; relative to the current working directory, not the project; or - for stdin (default)
   --source <text>         optional origin of the words, separate from verbatim
   --json                  print the reopen record
   The clock supplies at; sign-offs and versions remain history.`;

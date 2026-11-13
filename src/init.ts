@@ -65,7 +65,7 @@ export function sameArtworkFor(dir: string, name: string, sha256: string, now: n
     return inputs.some(input => input !== null && typeof input === 'object' && (input as JsonObject).sha256 === sha256);
   });
   if (matches.length > 0 && options.sameArtworkReason === undefined) {
-    refuse('INIT_ARTWORK_EXISTS', `inputs[${options.index ?? 0}]: ${name} (sha256 ${sha256}) is already an input of ${matches.join(', ')} under ${root}; one artwork is one project, so record a redo, a new source or a new tool as a version there, or give --same-artwork-reason <file> for a different rig kind`);
+    refuse('INIT_ARTWORK_EXISTS', `inputs[${options.index ?? 0}]: ${name} (sha256 ${sha256}) is already an input of ${matches.join(', ')} under ${root}; continue in that existing project as a new version; restart there inherits its correction ledger. A new project is only for different artwork or a different rig kind (--same-artwork-reason <file> for the latter); do not copy the artwork to bypass this refusal`);
   }
   if (options.sameArtworkReason !== undefined) {
     if (matches.length === 0) refuse('INIT_ARTWORK_USAGE', `--same-artwork-reason: no project under ${root} binds ${name}; drop the reason`, USAGE_EXIT);

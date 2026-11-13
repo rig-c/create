@@ -33,7 +33,7 @@ test('legacy adoption outside post interview refuses without a write', () => {
   const file = join(root, 'project.json');
   const before = readFileSync(file);
   testClock.set(now);
-  expect(() => interviewOptionsCommand(['--adopt', root])).toThrow(expect.objectContaining({ code: 'INTERVIEW_CHOICE_INVALID' }));
+  expect(() => interviewOptionsCommand(['--adopt', root])).toThrow(expect.objectContaining({ code: 'INTERVIEW_CHOICE_INVALID', message: expect.stringContaining('split stage order') }));
   expect(readFileSync(file)).toEqual(before);
 });
 

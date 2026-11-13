@@ -1,4 +1,5 @@
 import { recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
+import reviewPackage from '@rig-c/review/package.json';
 import { configInputReferences, configInputsLegacy, DIRECTORY_INPUT_RECEIPT, plateReceiptSpec, receiptSpec, type ConfigInputsWarning } from './config-inputs.ts';
 import { DirectionError, objects as directionObjects, readDirection } from './direction.ts';
 /** Frozen producer inputs in review's fixed discovery layout (create#38). */
@@ -40,7 +41,7 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
     if (finding.code === 'PARTS_VERDICT_FILE_LEGACY') {
       if (!ctx.warnings.some(existing => existing.code === finding.code && existing.path === finding.path)) ctx.warnings.push(finding);
     } else findings.push({ code: 'REVIEW_PACKAGE_PARTS_UNREAD', path: `${path}.files[out/parts.json]`,
-      message: `${path}.files[out/parts.json]: accepted parts receipt is unavailable (${finding.code}); restore its recorded API response and selected draft before packaging this version` });
+      message: `${path}.files[out/parts.json]: accepted parts receipt cannot be read (${finding.code}: ${finding.message}); compare the Review version that recorded the act (not carried by API act receipts) with the current @rig-c/review ${reviewPackage.version} reader. For an act parsing failure, register with a Review version that parses that act, or wait until support lands; preserve the retained bytes. For missing or changed evidence, restore its recorded API response and selected draft before packaging this version` });
     return;
   }
   recordedPartsVerdict(ctx.dir, ctx.project, approval.draft_id, approval.evidence, { requireAvailable: false });

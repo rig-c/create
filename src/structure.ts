@@ -154,7 +154,7 @@ export function checkRiggingContext(dir: string, project: JsonObject, effectiveS
     const delta = structureDelta(snapshot, config);
     const path = `versions[v${String(version.n)}].provenance`;
     if (delta.length > 0 && !acceptsStructureDelta(project, historicalReview, Date.parse(String(version.at)))) {
-      errors.push({ code: 'STRUCTURE_DECISIONS_CONFLICT', path: `${path}.config`, message: `${path}.config: mesh/chest declaration overrides the person-approved structure; answer the rigging meshes guide, or renew parts-review` });
+      errors.push({ code: 'STRUCTURE_DECISIONS_CONFLICT', path: `${path}.config`, message: `${path}.config: mesh/chest declaration overrides the person-approved structure; answer the rigging meshes guide and sign off rigging-interview, then rebuild the rig after that sign-off; or renew parts-review and rebuild` });
       continue;
     }
     if ((delta.length > 0 || provenance.structure_delta !== undefined) && !isDeepStrictEqual(provenance.structure_delta, delta)) {

@@ -24,7 +24,13 @@ interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <huma
   [--note-file <file>] [--source <location>] [--why-file <file> for a member override]
 interview-decision <question> [<dir>] --by <agent> --reasoning-file <file>
   --fragment <ask>=<JSON file>...
-Retain the shown set first. Each ask is picked explicitly; no recommended option is preselected.`;
+Retain the shown set first. Each ask is picked explicitly; no recommended option is preselected.
+To ask an answered question again, retain and register a new set id/path with
+interview-options <question> --file <path>, then job open --question <question>
+and ingest interview-answer <question> --from-review <actId>; history is kept.
+--adopt: split-order projects adopt all choices; legacy-order projects may adopt
+post choices at post-interview only. For full adoption, first adopt the split
+stage order with a fresh parts/rigging interview (docs/INTERVIEW.md).`;
 function usage(why: string): never { refuse('INTERVIEW_OPTIONS_USAGE', `interview: ${why}; ${CHOICE_HELP}`, USAGE_EXIT); }
 interface Args { positional: string[]; one: Record<string,string>; many: Record<string,Map<string,string>>; adopt: boolean; }
 function parse(args: string[], allowed: string[], repeat: string[] = []): Args {
@@ -97,7 +103,7 @@ export function interviewOptionsCommand(args: string[], now: number): string { r
     const dir = resolve(opts.positional[0] ?? process.cwd()); const {file,project} = readProject(dir); const next = structuredClone(project);
     const interview = isObject(next.interview) ? next.interview : null;
     if (interview && interview.order === undefined && isObject(interview.post)) {
-      if (project.stage !== 'post-interview') refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: advance to post-interview before adopting post choices');
+      if (project.stage !== 'post-interview') refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: for post-only choices, advance to post-interview before interview-options --adopt; for full adoption, first adopt the split stage order with a fresh parts/rigging interview (docs/INTERVIEW.md)');
       if (interview.post.choices_adopted_at !== undefined) {
         if (!Number.isFinite(Date.parse(String(interview.post.choices_adopted_at)))) refuse('INTERVIEW_CHOICE_INVALID', 'interview.post: restore the original valid choices_adopted_at');
         return 'interview: post choices already adopted; original date preserved';

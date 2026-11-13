@@ -8,7 +8,7 @@ export function readVerbatim(file: string): string {
   try {
     bytes = readFileSync(file === '-' ? 0 : file);
   } catch (error) {
-    refuse('VERBATIM_UNREADABLE', `${file}: ${error instanceof Error ? error.message : String(error)}`);
+    refuse('VERBATIM_UNREADABLE', `${file}: ${error instanceof Error ? error.message : String(error)}; --verbatim-file paths resolve against the current working directory, not the project folder; supply an absolute path or run from the folder containing the file`);
   }
   try {
     return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);

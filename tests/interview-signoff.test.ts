@@ -14,7 +14,6 @@ import { assertInterviewRecordSignable } from '../src/signable.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
-import { sourceOnlyTest } from './source-only.ts';
 
 const roots: string[] = [];
 const jobId = 'synthetic-interview-signoff';
@@ -128,7 +127,7 @@ function ingest(root: string, act: JsonObject, stage = 'interview'): unknown {
   return signoffCommand([stage, root, '--from-review', String(act.actId)], TEST_NOW, { fetch: () => ({ bytes: JSON.stringify(act) }) });
 }
 
-sourceOnlyTest('#475 record interview ingest rejects wrong stage stale source and unclean records without writing', async () => {
+test('#475 record interview ingest rejects wrong stage stale source and unclean records without writing', async () => {
   const root = cleanInterview();
   const context = publication(root);
   const act = await actFor(root, context);

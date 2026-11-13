@@ -91,10 +91,20 @@ async function open(root: string, options: string[] = [], printed?: string) {
     if (chunk.done) break;
     text += decoder.decode(chunk.value);
   }
-  reader.releaseLock();
+  // Continue with the same reader: Response cannot wrap a disturbed stream.
+  const remainingOutput = (async () => {
+    let rest = '';
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) return rest;
+        rest += decoder.decode(chunk.value);
+      }
+    } finally { reader.releaseLock(); }
+  })();
   const lines = text.trim().split('\n');
   receipt({ command: printed ? scrub(printed, root) : ['rig-create', 'job', 'open', '<synthetic>', '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], serving: true, lines: lines.slice(1) });
-  return { url: new URL(lines[0]!), lines: lines.slice(1), proc };
+  return { url: new URL(lines[0]!), lines: lines.slice(1), proc, remainingOutput };
 }
 
 async function page(root: string, url: URL, expectedAsks = 2) {
@@ -484,7 +494,7 @@ async function nextReview(root: string, kind: string, value: object, question?: 
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   await executePrinted(root, workflow[4]!.command!);
   const [stdout, stderr, exit] = await Promise.all([
-    new Response(opening.proc.stdout).text(), new Response(opening.proc.stderr).text(), opening.proc.exited,
+    opening.remainingOutput, new Response(opening.proc.stderr).text(), opening.proc.exited,
   ]);
   receipt({ command: scrub(workflow[0]!.command!, root), exit, stdout: scrub(stdout, root), stderr: scrub(stderr, root), closed: true });
   expectExit0({ stdout, stderr, exit });

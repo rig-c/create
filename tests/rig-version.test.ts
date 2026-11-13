@@ -1596,6 +1596,8 @@ test('#454 no-bounce rig writer and next preserve previous bytes and output', as
   const f = setup(true);
   const result = rigVersionCommand(f.args);
   const record = readFileSync(join(f.dir, 'project.json'));
-  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: jobHash(nextCommand([f.dir, '--json'], testClock.now()).stdout), nextText: jobHash(nextCommand([f.dir], testClock.now()).stdout) }).toMatchSnapshot();
+  // Printed Review commands include the synthetic project's temporary root.
+  const outputHash = (json = false): string => jobHash(nextCommand([f.dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(f.dir, '<project>'));
+  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(record);
 });

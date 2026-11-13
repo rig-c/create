@@ -3,8 +3,8 @@
 exports[`#454 no-bounce rig writer and next preserve previous bytes and output 1`] = `
 {
   "exit": 0,
-  "nextJson": "27e461e947275112d6097e9e61d9f0379f12b961a3f0fefe3eefe1e317bd2969",
-  "nextText": "349014efe42b8df627a951911e334920469930f7f8808b2e8e705c2807845652",
+  "nextJson": "73d7333778c61fed0a7b354a22c69efbfbb5cd9acff1d31c8f0a78731d07f7d6",
+  "nextText": "557335f9bf4a003182baa4cd134b4979bb58e1aae49a57535f22bab8cfe845ed",
   "record": "bc18b7a5ce2561ac9d6c6d2ae478d1740fc44d80f3e5fe836d06d84eb667e709",
   "stdout": "c234a55d1a5dfb59f658697ec19ce4e7e854dfe0d49254fb50f94c2de4019f05",
 }

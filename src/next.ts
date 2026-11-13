@@ -237,7 +237,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   return [
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'host this Review page; keep the host running in a separate terminal until job close'),
     move,
-    agent(`rig-create job acts ${root} --json`, 'after the person submits in Review, list exported acts and use the matching actId below; run its reported preconditions before ingestion (parts-review signoff includes structure-snapshot)'),
+    agent(`rig-create job acts ${root} --json`, `after the person submits in Review, list exported acts and use the matching actId below${act.stage === 'parts-review' ? '; run its reported preconditions before ingestion (parts-review signoff includes structure-snapshot)' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
     agent(`rig-create job close ${root}`, 'after successful ingestion, close this job before opening the next Review page'),
   ];

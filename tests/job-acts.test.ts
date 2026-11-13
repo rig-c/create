@@ -8,7 +8,7 @@ import { optionContext } from '../src/choices.ts';
 import { fixture, retainSignoffs, arr, obj } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
-import { nextProject } from '../src/next.ts';
+import { nextCommand, nextProject } from '../src/next.ts';
 import { pendingJobActs, jobActsText } from '../src/job-acts.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -23,6 +23,7 @@ const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>
 const WORDS = '  Synthetic owner review words.\r\n';
 const roots: string[] = [];
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
+const printedBins: string[] = [];
 
 afterEach(async () => {
   for (const { proc, root } of opened.splice(0)) {
@@ -37,6 +38,7 @@ afterEach(async () => {
     rmSync(jobHostStateRoot(root), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
+  for (const bin of printedBins.splice(0)) rmSync(bin, { recursive: true, force: true });
   testClock.reset();
 });
 
@@ -66,8 +68,16 @@ async function cli(root: string, args: string[]): Promise<{ stdout: string; stde
   return { stdout, stderr, exit };
 }
 
-async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
+async function open(root: string, options: string[] = [], printed?: string): Promise<{ url: URL; lines: string[] }> {
+  let env = process.env;
+  if (printed) {
+    const bin = realpathSync(mkdtempSync(join(tmpdir(), 'create-next-host-bin-')));
+    printedBins.push(bin);
+    writeFileSync(join(bin, 'rig-create'), '#!/bin/sh\nexec ' + [process.execPath, ...jobRuntimeExecArgv(), ...clockedCli()].map(quote).join(' ') + ' "$@"\n', { mode: 0o700 });
+    env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+  }
+  const proc = Bun.spawn(printed ? ['sh', '-c', printed] : [process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
+    env,
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -83,7 +93,7 @@ async function open(root: string, options: string[] = []): Promise<{ url: URL; l
   }
   reader.releaseLock();
   const lines = text.trim().split('\n');
-  receipt({ command: ['rig-create', 'job', 'open', '<synthetic>', '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], serving: true, lines: lines.slice(1) });
+  receipt({ command: printed ? scrub(printed, root) : ['rig-create', 'job', 'open', '<synthetic>', '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], serving: true, lines: lines.slice(1) });
   return { url: new URL(lines[0]!), lines: lines.slice(1) };
 }
 
@@ -434,4 +444,82 @@ test('#490 parts signoff prints ordered verdict and structure prerequisites with
   await executePrinted(root, row.command!);
   expect(read(root).signoffs).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
   expect(nextProject(root, testClock.now()).refusals.map(row => row.code)).not.toContain('STRUCTURE_DECISIONS_MISSING');
+}, 30_000);
+
+
+/** Execute the surrounding commands from next, with an actual owner-page export in between. */
+async function nextReview(root: string, kind: string, value: object, question?: string): Promise<void> {
+  const report = nextProject(root, testClock.now());
+  expect(report.refusals.filter(row => row.code !== 'INTERVIEW_INCOMPLETE')).toEqual([]);
+  const index = report.moves.findIndex(move => move.role === 'human' && move.review_act?.kind === kind
+    && (question === undefined || move.review_act.question_id === question));
+  expect(index).toBeGreaterThan(0);
+  const workflow = report.moves.slice(index - 1, index + 4);
+  expect(workflow.map(move => move.role)).toEqual(['agent', 'human', 'agent', 'agent', 'agent']);
+  expect(workflow[1]!.command).toBeNull();
+  expect(workflow[0]!.command).toContain(question ? `--question ${question}` : kind === 'review-verdict' ? '--rig 2' : '--plan');
+  expect(workflow[2]!.command).toBe(`rig-create job acts ${quote(root)} --json`);
+  expect(workflow[3]!.command).toContain("--from-review '<actId>'");
+  expect(workflow[4]!.command).toBe(`rig-create job close ${quote(root)}`);
+  receipt({ rendered: scrub(nextCommand([root], testClock.now()).stdout, root) });
+  const opening = await open(root, [], workflow[0]!.command!.replace("'<reviewer>'", "'synthetic-owner'"));
+  const view = await page(root, opening.url, 1);
+  const act = await view.act(kind, kind, value);
+  expect(act.schema).toBe(kind === 'review-verdict' ? 'rig-review/act@6' : 'rig-review/act@4');
+  await executePrinted(root, workflow[2]!.command!);
+  await executePrinted(root, workflow[3]!.command!.replace("'<actId>'", quote(String(act.actId))));
+  expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
+  await executePrinted(root, workflow[4]!.command!);
+  expect(readWriterBinding(root)).toBeNull();
+}
+
+test('#502 all post-interview picks and plan signoff execute next host, exported-act ingest and close commands', async () => {
+  testClock.set(Date.now());
+  const root = copy('4-direction-post', project => {
+    project.stage = 'post-interview';
+    retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('post-interview'));
+    project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('post-interview'));
+    obj(project.plan).steps = arr(obj(project.plan).steps).filter(step => obj(step).id !== 'composition');
+    for (const step of arr(obj(project.plan).steps).map(obj).filter(step => step.phase === 'post')) {
+      step.status = 'pending'; delete step.status_history;
+    }
+  });
+  for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
+    const project = read(root);
+    const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
+    const binding = obj(obj(obj(item.raw).choice).set);
+    const set = JSON.parse(readFileSync(join(root, String(binding.path)), 'utf8')) as JsonObject;
+    set.id = `next-${question}`; set.drafted_at = testClock.iso();
+    set.context = optionContext(project, 'post-interview', testClock.now(), root);
+    item.record.guide = null; write(root, project);
+    const path = `evidence/interview/next-${question}.json`;
+    writeFileSync(join(root, path), JSON.stringify(set));
+    expectExit0(await cli(root, ['interview-options', question, root, '--file', path]));
+    const selections = arr(set.asks).map(obj).map(ask => ({ itemId: ask.id,
+      optionId: arr(ask.options).map(obj).find(option => option.kind === 'value')!.id, otherText: null }));
+    await nextReview(root, 'interview-picks', { questionId: question, selections, note: WORDS }, question);
+  }
+  const composition = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create plan add composition'))!;
+  expect(composition.command).toContain('--rests-on post_composition');
+  await executePrinted(root, composition.command!.replace("'<work>'", "'Write the approved composition scene'")
+    .replace("'<result>'", "'A cited scene document'").replace("'<acceptance bar>'", "'Roles and rects match the approved choice'"));
+  await nextReview(root, 'signoff', { stage: 'post-interview', decision: 'approved', words: WORDS });
+  expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'post-interview')).toBe(true);
+}, 30_000);
+
+test('#502 direction verdict then record signoff execute next host, exported-act ingest and close commands', async () => {
+  testClock.set(Date.now());
+  const root = copy('example-chain', project => {
+    project.stage = 'direction-review';
+    retainSignoffs(project, row => row.stage !== 'direction-review');
+    project.advances = arr(project.advances).filter(row => obj(row).stage !== 'accepted');
+    arr(project.versions).map(obj).find(version => version.n === 2)!.verdicts = [];
+  });
+  const before = nextProject(root, testClock.now());
+  expect(before.moves.filter(move => move.command?.includes('--plan'))).toEqual([]);
+  await nextReview(root, 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
+  await nextReview(root, 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
+  const advance = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create advance accepted'))!;
+  await executePrinted(root, advance.command!);
+  expect(nextProject(root, testClock.now()).accepted).toBe(true);
 }, 30_000);

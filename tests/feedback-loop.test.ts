@@ -85,7 +85,9 @@ for (const action of ['write', 'patch']) {
     const { dir } = setup();
     const result = directionCommand(args(action, dir));
     const record = readFileSync(join(dir, 'project.json'));
-    expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: jobHash(nextCommand([dir, '--json'], testClock.now()).stdout), nextText: jobHash(nextCommand([dir], testClock.now()).stdout) }).toMatchSnapshot();
+    // next prints runnable commands containing this synthetic project's temporary root.
+    const outputHash = (json = false): string => jobHash(nextCommand([dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(dir, '<project>'));
+    expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
     expect(readFileSync(join(dir, 'project.json'))).toEqual(record);
   });
 }

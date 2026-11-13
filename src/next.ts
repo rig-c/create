@@ -53,7 +53,8 @@ import {
   stageOfStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { sceneCurrentAt } from './scene.ts';
+import { sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
+import { resolveAgentCitationSpec } from './scene-authority.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -200,6 +201,63 @@ function shellWord(value: string): string {
 
 function optionCommand(id: string, dir: string): string {
   return `rig-create interview-options ${shellWord(id)} ${shellWord(dir)} --file '<option-set.json>'`;
+}
+
+/** The person acts in Review; the agent only hosts and ingests its exported act. */
+function reviewCommands(dir: string, move: NextMove): NextMove[] {
+  const act = move.review_act;
+  if (move.role !== 'human' || move.unanswered_by_record || !act) return [move];
+  let selector: string;
+  let writer: string;
+  if (act.stage === 'post-interview' && act.kind === 'interview-picks' && act.question_id) {
+    selector = `--question ${shellWord(act.question_id)}`;
+    writer = `interview-answer ${shellWord(act.question_id)}`;
+  } else if (act.kind === 'signoff' && ['post-interview', 'direction-review'].includes(act.stage)) {
+    selector = '--plan';
+    writer = `signoff ${act.stage}`;
+  } else if (act.stage === 'direction-review' && act.kind === 'review-verdict' && act.version_id) {
+    const n = act.version_id.slice(1);
+    selector = `--rig ${shellWord(n)}`;
+    writer = `review ${shellWord(n)}`;
+  } else return [move];
+  const agent = (command: string, description: string): NextMove => ({
+    role: 'agent', field: move.field, awaits: move.awaits, command, act: description,
+  });
+  const root = shellWord(dir);
+  return [
+    agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'host this Review page; keep the host running in a separate terminal until job close'),
+    move,
+    agent(`rig-create job acts ${root} --json`, 'after the person submits in Review, list exported acts and use the matching actId below'),
+    agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
+    agent(`rig-create job close ${root}`, 'after successful ingestion, close this job before opening the next Review page'),
+  ];
+}
+
+function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): string {
+  let flags = ` --background '<background.png>'`;
+  const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.id === 'post_composition');
+  if (item && (item.state.state === 'user' || item.state.state === 'delegated')) {
+    const answer = item.state.answer;
+    const citation = { guide: 'post_composition', asks: ['post_composition'],
+      ...(item.state.state === 'delegated' ? { delegated: true } : { quote: answer.verbatim! }) };
+    try {
+      const spec = resolveAgentCitationSpec(dir, project, citation);
+      const stage = sceneRig(dir, project, Number(rigN)).stage;
+      for (const role of ['background', 'foreground'] as const) {
+        const plate = spec[role];
+        if (!plate) continue;
+        if (role === 'foreground') flags += ` --foreground '<foreground.png>'`;
+        const { x, y, width, height } = plate.rect;
+        if (x !== stage.x || y !== stage.y || width !== stage.width || height !== stage.height) {
+          flags += ` --${role}-rect ${shellWord([x, y, width, height].join(','))}`;
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof SceneError)) throw error;
+      // The scene writer reports the existing named refusal for an unresolved choice.
+    }
+  }
+  return `rig-create scene write ${shellWord(dir)} --rig ${shellWord(rigN)}${flags} --citations-file '<scene-citations.json>'`;
 }
 
 function candidateAdvance(
@@ -880,9 +938,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     }
 
     const planIds = effectiveStage === 'rigging-interview' ? ['bones', 'meshes', 'constraints', 'motion']
-      : effectiveStage === 'post-interview' ? ['camera', 'timing'] : ['seethrough', 'assemble'];
+      : effectiveStage === 'post-interview' ? ['camera', 'timing', 'composition'] : ['seethrough', 'assemble'];
     const missingPlanIds = planIds.filter(id => {
-      const guide = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id;
+      const guide = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
       const phase = effectiveStage === 'post-interview' ? 'post' : 'rig';
       return !steps.some(step => step.phase === phase && (step.id === id
         || phase === 'post' && asArray(step.rests_on).includes(guide)));
@@ -891,7 +949,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     if (needsPlanSteps) {
       addAwait('plan.steps');
       for (const [index, id] of missingPlanIds.entries()) {
-        const guideId = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id;
+        const guideId = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
         const item = stageItems.find(item => item.id === guideId);
         if (!item || item.state.state === 'silent' || (item.state.state === 'delegated' && !item.state.decided)) continue;
         const order = Math.max(0, ...steps.map(step => Number(step.order) || 0)) + index + 1;
@@ -901,6 +959,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           unanswered_by_record: 'plan.steps' });
       }
     }
+
+    const missingStepNames = missingPlanIds.length === planIds.length ? '' : `${missingPlanIds.join(', ')} `;
+    const missingStepKind = effectiveStage === 'post-interview' ? 'post' : 'rig';
+    const missingPlanReason = `plan.steps has no ${missingStepNames}${missingStepKind} step${missingPlanIds.length === 1 ? '' : 's'}`;
 
     const signoffAwait = `signoffs[stage=${effectiveStage}]`;
     if (!hasLiveStageSignoff(effectiveStage) && !recordedLapseTargets.has(signoffAwait)) {
@@ -912,10 +974,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         command: null,
         act: needsPlanSteps
           ? effectiveStage === 'rigging-interview'
-            ? 'review-tool act signoff for stage rigging-interview (unanswered by record: plan.steps has no rig steps approved at rigging-interview)'
-            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? 'plan.steps has no post steps' : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
+            ? `review-tool act signoff for stage rigging-interview (unanswered by record: ${missingPlanReason} approved at rigging-interview)`
+            : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? missingPlanReason : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
           : effectiveStage === 'interview'
-            ? 'review-tool act signoff for stage interview on the record page with job open --plan (source-linked Review); ingest signoff interview --from-review <actId>, then advance plan-approved'
+            ? 'review-tool act signoff for stage interview on the record page with job open --plan; ingest signoff interview --from-review <actId>, then advance plan-approved'
             : `review-tool act signoff for stage ${effectiveStage}`,
         review_act: {
           kind: 'signoff',
@@ -1389,7 +1451,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         } else if (currentScene === undefined) {
           addAwait('scenes[n=1]');
           moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
-            command: `rig-create scene write ${shellWord(dir)} --rig ${shellWord(rigN)} --background '<background.png>' --citations-file '<scene-citations.json>'`,
+            command: sceneWriteCommand(dir, project, rigN),
             act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
         } else {
           addAwait(`versions[n=${nextPostN}]`);
@@ -1432,7 +1494,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             field: `versions[v${postN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>; then request record-page sign-off with job open --plan (source-linked Review)`,
+            act: `review-tool act review-verdict for versions[v${postN}] (direction-review) on the post page: job open --rig ${postN}; ingest with review ${postN} --from-review <actId>; then request record-page sign-off with job open --plan`,
             review_act: {
               kind: 'review-verdict',
               stage: 'direction-review',
@@ -1454,8 +1516,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           command: null,
           act:
             postN === null
-              ? `after recording the current post and accepted direction verdict, request review-tool act signoff for direction-review on the record page with job open --plan (source-linked Review; unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
-              : `after ingesting the accepted direction-review verdict for v${postN}, request review-tool act signoff on the record page with job open --plan (source-linked Review), ingest signoff direction-review --from-review <actId>, then advance accepted`,
+              ? `after recording the current post and accepted direction verdict, request review-tool act signoff for direction-review on the record page with job open --plan (unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
+              : `after ingesting the accepted direction-review verdict for v${postN}, request review-tool act signoff on the record page with job open --plan, ingest signoff direction-review --from-review <actId>, then advance accepted`,
           review_act: {
             kind: 'signoff',
             stage: 'direction-review',
@@ -1503,6 +1565,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     });
   }
 
+  const runnableMoves = moves.flatMap(move => {
+    if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
+      && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
+    return reviewCommands(dir, move);
+  });
+
   return {
     schema: NEXT_SCHEMA,
     project_id: String(project.name ?? ''),
@@ -1512,7 +1580,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     refusals,
     ...warningFields,
     awaits: awaitsList,
-    moves,
+    moves: runnableMoves,
   };
 }
 

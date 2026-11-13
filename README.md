@@ -31,6 +31,12 @@ bunx --package @rig-c/create rig-create interview --check p1 --json
 bunx --package @rig-c/create rig-create next p1 --json
 ```
 
+The convenience alias provides the short form:
+
+```sh
+bunx rig-create init p1
+```
+
 Or install it globally:
 
 ```sh

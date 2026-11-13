@@ -6,7 +6,8 @@ publishes**. The owner chooses and bumps each version in the release PR.
 The owner sets the npm trusted publisher for `@rig-c/create` on npm to repository
 `rig-c/create` and workflow filename `release.yml`. This is an npm setting,
 not a repository secret. The workflow uses OIDC with provenance on GitHub-hosted
-runners; it needs no npm token or OTP.
+runners; it needs no npm token or OTP. The owner configures the same trusted
+publisher for the convenience alias `rig-create`.
 
 ## Prepare the candidate
 
@@ -88,15 +89,26 @@ requires that SHA to match the run's `GITHUB_SHA` and fetched tag, be reachable
 from `origin/main`, and contain exactly `@rig-c/create@X.Y.Z` in `package.json`.
 It refuses an already published version. The publish job checks out that
 validated SHA, packs the package, publishes it with `--provenance --access public`
-over OIDC, and confirms the registry serves the version. No alias is published.
+over OIDC, then publishes `rig-create` with the same provenance flags. The alias
+is packed using `scripts/alias_tarball.ts`, ported from Review: only the manifest's
+name line changes, every other unpacked byte must match the exact scoped
+tarball just published before alias publication,
+and internal packs suppress lifecycle scripts. Both names must be served by
+the registry for confirmation to pass.
 
 If the tag push did not publish (for example, a registry or signing outage),
-first check whether npm already serves the version. If it does not, rerun the
+first check whether npm already serves either name at the version. If neither
+is published, rerun the
 same workflow on the existing tag:
 
 ```sh
 gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z
 ```
+
+If only the scoped name was published, the selector refuses to republish it.
+Use the owner-directed manual fallback to publish only the missing alias, after
+packing it from the reviewed scoped tarball and verifying byte equality with
+`scripts/alias_tarball.ts compare`. Do not retry the scoped publication.
 
 A dispatch on a branch is refused. Do not move the cut tag or dispatch on main:
 npm provenance records the run's `GITHUB_SHA`. A failed registry confirmation

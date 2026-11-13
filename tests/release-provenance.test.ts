@@ -151,9 +151,9 @@ function checkWorkflowPolicy(wf:Workflow){
  expect(pub.permissions).toEqual({contents:'read','id-token':'write'});
  expect(pub.steps[0]).toMatchObject({uses:'actions/checkout@v4',with:{ref:'${{ needs.release.outputs.sha }}'}});
  expect(pub.steps.find(step=>step.env?.TAG_NAME)?.env?.TAG_NAME).toBe('${{ needs.release.outputs.tag }}');
- expect(pub.steps.filter(step=>step.run?.includes('npm publish')).map(step=>step.name)).toEqual(['Publish @rig-c/create']);
+ expect(pub.steps.filter(step=>step.run?.includes('npm publish')).map(step=>step.name)).toEqual(['Publish @rig-c/create','Publish the alias rig-create']);
  expect(pub.steps.find(step=>step.name==='Publish @rig-c/create')!.run!.trim()).toBe(
-  'set -euo pipefail\nx="$(npm pack . --pack-destination .)"\nnpm publish "$x" --provenance --access public',
+  'set -euo pipefail\nx="$(npm pack . --pack-destination .)"\nnpm publish "$x" --provenance --access public\necho "tarball=$PWD/$x" >> "$GITHUB_OUTPUT"',
  );
 }
 

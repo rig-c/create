@@ -1678,4 +1678,5 @@ These CI-only codes name `.github/workflows/release.yml` or its tagged
 | `RELEASE_TAG_NOT_ON_MAIN` | `release.yml`: restore fetched main/tag history or land the reviewed release commit on main before cutting a new tag. |
 | `RELEASE_TAG_VERSION_MISMATCH` | Tagged `package.json`: release the exact `@rig-c/create@X.Y.Z` matching the tag; do not move an existing cut tag. |
 | `RELEASE_ALREADY_PUBLISHED` | `release.yml`: npm already serves the version; verify that publication rather than republishing it. |
-| `RELEASE_REGISTRY_UNCONFIRMED` | `release.yml`: registry confirmation timed out; inspect npm before recovery because publication may already have succeeded. |
+| `RELEASE_REGISTRY_UNCONFIRMED` | `release.yml`: confirmation of both names timed out; inspect npm before recovery because publication may already have succeeded. |
+| `ALIAS_SAME_CONTENT` | `scripts/alias_tarball.ts compare`: an alias differs beyond the `package/package.json` name line; rebuild it from the reviewed scoped tarball and resolve every named file difference before publication. |

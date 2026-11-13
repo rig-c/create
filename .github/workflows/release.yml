@@ -7,7 +7,7 @@
 # to equal that SHA, verifies the commit is reachable from origin/main,
 # verifies package.json in the tagged commit tree matches @rig-c/create@X.Y.Z,
 # and refuses a version the registry already serves. The `publish` job checks
-# out the validated commit SHA and publishes @rig-c/create to
+# out the validated commit SHA and publishes @rig-c/create and rig-create to
 # npm over OIDC (trusted publishing) with provenance. No npm token, no OTP.
 #
 # Two constraints are load-bearing, do not "simplify" them away:
@@ -143,12 +143,24 @@ jobs:
 
       # `--access public`: a scoped package is restricted unless told otherwise.
       - name: Publish @rig-c/create
+        id: scoped
         run: |
           set -euo pipefail
           x="$(npm pack . --pack-destination .)"
           npm publish "$x" --provenance --access public
+          echo "tarball=$PWD/$x" >> "$GITHUB_OUTPUT"
 
-      - name: Confirm the registry serves @rig-c/create
+      # Internal packs suppress lifecycle scripts and require every unpacked byte
+      # to match the scoped package except package.json's name line.
+      - name: Publish the alias rig-create
+        env:
+          SCOPED_TARBALL: ${{ steps.scoped.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          alias_tgz=$(bun scripts/alias_tarball.ts pack --name rig-create --out "$RUNNER_TEMP/alias-rig-create" --tarball "$SCOPED_TARBALL" --pack-timeout-ms 300000)
+          npm publish "$alias_tgz" --provenance --access public
+
+      - name: Confirm the registry serves both names
         env:
           TAG_NAME: ${{ needs.release.outputs.tag }}
         run: |
@@ -156,15 +168,19 @@ jobs:
           version="${TAG_NAME#v}"
           confirmed=false
           for attempt in $(seq 1 30); do
-            if served="$(npm view "@rig-c/create@$version" version 2>/dev/null)" && [ "$served" = "$version" ]; then
-              echo "registry serves @rig-c/create@$version (attempt $attempt)"
-              confirmed=true
-              break
-            fi
-            echo "waiting for @rig-c/create@$version (attempt $attempt)"
+            confirmed=true
+            for package in @rig-c/create rig-create; do
+              if served="$(npm view "$package@$version" version 2>/dev/null)" && [ "$served" = "$version" ]; then
+                echo "registry serves $package@$version (attempt $attempt)"
+              else
+                echo "waiting for $package@$version (attempt $attempt)"
+                confirmed=false
+              fi
+            done
+            if [ "$confirmed" = true ]; then break; fi
             sleep 30
           done
           if [ "$confirmed" != true ]; then
-            echo "::error::RELEASE_REGISTRY_UNCONFIRMED: @rig-c/create@$version was not served within 15 minutes; confirmation NOT taken; check the registry before recovery"
+            echo "::error::RELEASE_REGISTRY_UNCONFIRMED: both names at $version were not served within 15 minutes; confirmation NOT taken; check the registry before recovery"
             exit 1
           fi

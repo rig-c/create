@@ -370,10 +370,10 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect(report.refusals.map((finding: JsonObject) => finding.code)).toEqual(['STAGE_LAGGING']);
   expect(report.holes ?? []).toEqual([]);
 
-  // The writes changed the record, so a re-open publishes the draft again. The stage is signed, so only the verdict is asked.
+  // The writes changed the record, so a re-open publishes the draft again. Both the verdict and the stage are recorded, so nothing is asked.
   const after = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: after.exit, stderr: after.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(after.stdout.trim().split('\n').slice(1)).toEqual(['job: draft next published', 'job: asked parts-verdict next']);
+  expect(after.stdout.trim().split('\n').slice(1)).toEqual(['job: draft next published']);
 }, 20_000);
 
 test('a --draft that the record does not hold refuses before writing project.json or starting a host', async () => {
@@ -517,15 +517,15 @@ test('#467 a post page asks only the direction verdict before and after ingest, 
 
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v2']);
   expect({ exit: refreshed.exit, stderr: refreshed.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(refreshed.stdout.trim().split('\n').slice(1)).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
-  const current = await publication(root, opening.url, 1);
+  expect(refreshed.stdout.trim().split('\n').slice(1)).toEqual(['job: post v2 published']);
+  const current = await publication(root, opening.url, 0);
   expect(current.head.publicationId).not.toBe(first.head.publicationId);
-  expect(current.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'direction-review' }]);
+  expect(current.asks.map(ask => ask.subject)).toEqual([]);
   const saved = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '2']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(again.stdout.trim().split('\n').slice(1)).toEqual(['job: post v2 already published', 'job: already asked review-verdict direction-review']);
-  expect((await publication(root, opening.url, 1)).head.publicationId).toBe(current.head.publicationId);
+  expect(again.stdout.trim().split('\n').slice(1)).toEqual(['job: post v2 already published']);
+  expect((await publication(root, opening.url, 0)).head.publicationId).toBe(current.head.publicationId);
   expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
   expect(pendingPublications(root)).toEqual([]);
 }, 20_000);

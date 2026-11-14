@@ -12,6 +12,7 @@ import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose } from './job-close.ts';
 import { pendingJobActs, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
+import { reviewVerdictSignable } from './signable.ts';
 import type { JsonObject } from './templates.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
@@ -482,13 +483,16 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       ? headSelector
       : undefined);
   const warnings: Finding[] = [];
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const draftContext = targetSelector?.kind === 'draft'
-    ? draftPublicationContext(root, JSON.parse(bytes.toString('utf8')), targetSelector.id, warnings)
+    ? draftPublicationContext(root, project, targetSelector.id, warnings)
     : undefined;
   // Re-publish an older post head that still declares a sign-off or checkpoint:
   // either pending ask would prevent the legacy direction panel from rendering.
   const currentSubjects = draftContext?.subjects ?? (targetSelector?.kind === 'post'
-    ? [{ kind: 'review-verdict' as const, stage: 'direction-review' as const }]
+    ? (reviewVerdictSignable(project, targetSelector.version, 'direction-review')
+      ? [{ kind: 'review-verdict' as const, stage: 'direction-review' as const }]
+      : [])
     : undefined);
   const reuseHead = Boolean(head && headSelector && source?.projectHash === jobHash(bytes) && (
     targetSelector === undefined || isDeepStrictEqual(headSelector, targetSelector)

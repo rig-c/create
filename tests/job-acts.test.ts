@@ -280,7 +280,7 @@ test('job acts discovers a finalized rig verdict and signoff; its exact quoted c
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   const checked = await cli(root, ['interview', '--check', root]); expectExit0(checked);
   expectExit0(await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']));
-  const refreshed = await page(root, opening.url);
+  const refreshed = await page(root, opening.url, 1);
   const signoff = await refreshed.act('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
   const signing = await cli(root, ['job', 'acts', root, '--json']); expectExit0(signing);
   const row = JSON.parse(signing.stdout).acts[0];
@@ -449,7 +449,7 @@ test('#490 parts signoff prints ordered verdict and structure prerequisites with
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
   const opening = await open(root);
-  const view = await page(root, opening.url);
+  const view = await page(root, opening.url, 1);
   const act = await view.act('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
   const row = pendingJobActs(read(root), [act as unknown as ActV3], root)[0]!;
   expect(row.command).toContain('--structure-file');

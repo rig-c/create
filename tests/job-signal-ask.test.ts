@@ -101,7 +101,7 @@ async function open(root: string): Promise<{ proc: Bun.Subprocess; url: URL; lin
 for (const signal of ['SIGTERM', 'SIGINT'] as const) test(`job open CLI forwards ${signal} to its runtime and stops its own host port without leaving an orphan listener`, async () => {
   const root = copyCheckpoint('1-parts-verdict');
   const { proc, url, lines } = await open(root);
-  expect(lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
+  expect(lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
   expect(await isOriginListening(url.origin)).toBe(true);
 
   proc.kill(signal);
@@ -173,7 +173,9 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
   ]);
 
   // Also verify via draftRigCommand and the CLI entrypoint on a bound draft-rig writer that JOB_ASK_REFUSED exits 1 with the named code.
-  const draftRoot = copyCheckpoint('1-parts-verdict');
+  const draftRoot = copyCheckpoint('1-parts-verdict', project => {
+    project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.checkpoint !== 'assemble');
+  });
   cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-2'), { recursive: true });
   cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-3'), { recursive: true });
   await open(draftRoot);
@@ -230,7 +232,9 @@ test('bound writers print concise asked/already subject lines in text mode and p
     'job: asked review-verdict rig-review, signoff rig-review',
   ]);
 
-  const draftRoot = copyCheckpoint('1-parts-verdict');
+  const draftRoot = copyCheckpoint('1-parts-verdict', project => {
+    project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.checkpoint !== 'assemble');
+  });
   cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-2'), { recursive: true });
   cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-3'), { recursive: true });
   await open(draftRoot);

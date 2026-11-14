@@ -274,11 +274,11 @@ test('advances into other stages on a bound job and advances without a bound job
   const boundRoot = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(boundRoot, 'evidence/diff-components.json'));
   const opening = await open(boundRoot);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
+  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
 
   const ackDir = join(jobPrivateRoot(boundRoot), 'acknowledged-publications');
   const receiptsBefore = readdirSync(ackDir).sort();
-  const beforePage = await page(opening.url, 2);
+  const beforePage = await page(opening.url, 1);
   const headBefore = beforePage.head.publicationId;
   const generationBefore = Number(beforePage.events.at(-1)!.generation);
 
@@ -297,7 +297,7 @@ test('advances into other stages on a bound job and advances without a bound job
   expect(pendingPublications(boundRoot)).toEqual([]);
   expect(readdirSync(ackDir).sort()).toEqual(receiptsBefore);
 
-  const afterPage = await page(opening.url, 2);
+  const afterPage = await page(opening.url, 1);
   expect(afterPage.head.publicationId).toBe(headBefore);
   expect(Number(afterPage.events.at(-1)!.generation)).toBe(generationBefore);
 

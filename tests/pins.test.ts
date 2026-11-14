@@ -841,7 +841,7 @@ for (const [label, execFlags] of [
     reader.releaseLock();
     const lines = text.trim().split('\n');
     expect(lines[0]).toStartWith('http://127.0.0.1:');
-    expect(lines.slice(1)).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
+    expect(lines.slice(1)).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
 
     const drafted = Bun.spawnSync(
       [
@@ -863,7 +863,7 @@ for (const [label, execFlags] of [
     expect({ exit: drafted.exitCode, stderr: drafted.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
     expect(drafted.stdout.toString('utf8').trim().split('\n')).toEqual([
       'draft-rig: recorded chain-2; no production version created',
-      'job: asked parts-verdict chain-2, checkpoint assemble',
+      'job: asked parts-verdict chain-2',
     ]);
 
     const reconciled = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'reconcile', projectRoot], {

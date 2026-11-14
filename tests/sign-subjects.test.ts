@@ -13,6 +13,7 @@ import { checkProject } from '../src/check.ts';
 import { openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, type PublicationSubject } from '../src/job-outbox.ts';
+import { currentScene, sceneReference } from '../src/scene.ts';
 import { packageSignSubjects } from '../src/signable.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -203,4 +204,187 @@ test('a target stage needs its own version kind and a plan-bound stage needs pla
   project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.stage !== 'rigging-interview');
   expect(packageSignSubjects(project, 'rigging-interview', { kind: 'draft', id: 'chain' }, 6)).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
   expect(packageSignSubjects(project, 'rigging-interview', { kind: 'draft', id: 'chain' }, 0)).toEqual([]);
+});
+
+test('bar: parts-verdict is not declared once the verdict for the draft is ingested', async () => {
+  const root = copy('1-parts-verdict');
+  const host = await open(root);
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  const verdictAsk = await ask(host, { kind: 'parts-verdict', draftId: 'chain' });
+  expect(verdictAsk.ok).toBe(true);
+  const verdict = await (await page(host)).act(String(verdictAsk.value.askId), 'parts-verdict', {
+    verdict: 'approved',
+    issues: [],
+    words: WORDS,
+  });
+  const ingested = await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']);
+  expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([]);
+});
+
+test('bar: parts-verdict is declared when the draft has no receipt or a new draft is recorded', async () => {
+  const root = copy('1-parts-verdict');
+  const host = await open(root);
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+  expect(await reconcileCreateJob(root)).toBe(1);
+  // Initial draft with no receipt declares parts-verdict.
+  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  const verdictAsk = await ask(host, { kind: 'parts-verdict', draftId: 'chain' });
+  const verdict = await (await page(host)).act(String(verdictAsk.value.askId), 'parts-verdict', {
+    verdict: 'approved',
+    issues: [],
+    words: WORDS,
+  });
+  expect((await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json'])).exit).toBe(0);
+  // Recording a new draft through draft-rig publishes it and declares parts-verdict for the new draft id.
+  cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/chain-2'), { recursive: true });
+  const drafted = await cli(root, [
+    'draft-rig', 'chain-2', root,
+    '--config', 'derived/drafts/chain-2/config.json',
+    '--from', 'derived/drafts/chain-2/out',
+    '--parts', 'derived/drafts/chain-2/input',
+    '--json',
+  ]);
+  expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
+});
+
+test('bar: review-verdict is not declared once the verdict for the displayed version is ingested', async () => {
+  const root = copy('3-rig-review');
+  const host = await open(root);
+  enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([
+    { kind: 'review-verdict', stage: 'rig-review' },
+    { kind: 'signoff', stage: 'rig-review' },
+  ]);
+  const verdictAsk = await ask(host, { kind: 'review-verdict', stage: 'rig-review' });
+  const { pageId, act } = await page(host);
+  const publication = host.session.status().publication!;
+  const png = readFileSync(join(root, 'evidence/setup.png'));
+  const verdict = await act(String(verdictAsk.value.askId), 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
+    capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+      camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
+      binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
+        pageId, askId: verdictAsk.value.askId, drawGeneration: 1, playerGeneration: 0 } } });
+  const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
+  expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
+  enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([{ kind: 'signoff', stage: 'rig-review' }]);
+});
+
+test('bar: review-verdict is declared when only an earlier version has a verdict or the stage was reopened', async () => {
+  // 1) Verdict for an earlier version only: v1 has an accepted verdict; authoring v2 via direction write declares review-verdict for v2.
+  const postRoot = copy('4-direction-post');
+  const postHost = await open(postRoot);
+  cpSync(join(postRoot, 'derived/drafts/chain/input/parts/background.png'), join(postRoot, 'inputs/background.png'));
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/scene-citations.json'), join(postRoot, 'evidence/scene-citations.json'));
+  expect((await cli(postRoot, ['input', 'add', 'inputs/background.png', postRoot, '--origin', 'synthetic background plate, generated by generateExampleParts'])).exit).toBe(0);
+  expect((await cli(postRoot, ['scene', 'write', postRoot, '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json'])).exit).toBe(0);
+  const directionInput = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/evidence/direction-input.json'), 'utf8')) as JsonObject;
+  directionInput.scene = sceneReference(currentScene(read(postRoot))!);
+  writeFileSync(join(postRoot, 'evidence/direction-input.json'), `${JSON.stringify(directionInput, null, 2)}\n`);
+  const written = await cli(postRoot, ['direction', 'write', '2', postRoot, '--file', 'evidence/direction-input.json', '--rig', '1']);
+  expect({ exit: written.exit, stderr: written.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(declared(postRoot, postHost)).toEqual([{ kind: 'review-verdict', stage: 'direction-review' }]);
+
+  // 2) Stage reopened: after v1's verdict and signoff are ingested, reopening rig-review re-declares review-verdict.
+  const rigRoot = copy('3-rig-review');
+  const rigHost = await open(rigRoot);
+  enqueuePublication(rigRoot, readWriterBinding(rigRoot)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(rigRoot)).toBe(1);
+  const verdictAsk = await ask(rigHost, { kind: 'review-verdict', stage: 'rig-review' });
+  const signoffAsk = await ask(rigHost, { kind: 'signoff', stage: 'rig-review' });
+  const { pageId, act } = await page(rigHost);
+  const publication = rigHost.session.status().publication!;
+  const png = readFileSync(join(rigRoot, 'evidence/setup.png'));
+  const verdict = await act(String(verdictAsk.value.askId), 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
+    capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+      camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
+      binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
+        pageId, askId: verdictAsk.value.askId, drawGeneration: 1, playerGeneration: 0 } } });
+  const signed = await act(String(signoffAsk.value.askId), 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
+  expect((await cli(rigRoot, ['review', '1', rigRoot, '--from-review', String(verdict.actId), '--json'])).exit).toBe(0);
+  expect((await cli(rigRoot, ['signoff', 'rig-review', rigRoot, '--from-review', String(signed.actId), '--json'])).exit).toBe(0);
+  enqueuePublication(rigRoot, readWriterBinding(rigRoot)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(rigRoot)).toBe(1);
+  expect(declared(rigRoot, rigHost)).toEqual([]);
+  const reopened = await cli(rigRoot, ['reopen', 'rig-review', rigRoot, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', '--json']);
+  expect({ exit: reopened.exit, stderr: reopened.stderr }).toEqual({ exit: 0, stderr: '' });
+  enqueuePublication(rigRoot, readWriterBinding(rigRoot)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(rigRoot)).toBe(1);
+  expect(declared(rigRoot, rigHost)).toEqual([
+    { kind: 'review-verdict', stage: 'rig-review' },
+    { kind: 'signoff', stage: 'rig-review' },
+  ]);
+});
+
+test('bar: checkpoint is not declared once the step is signed and its signature is live', async () => {
+  const root = partsAtCheckpoint();
+  const host = await open(root);
+  expect((await cli(root, draftArgs)).exit).toBe(0);
+  expect(declared(root, host)).toEqual([
+    { kind: 'parts-verdict', draftId: 'chain' },
+    { kind: 'checkpoint', checkpointId: 'assemble' },
+  ]);
+  const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
+  const passed = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
+  const signed = await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', String(passed.actId), '--json']);
+  expect({ exit: signed.exit, stderr: signed.stderr }).toEqual({ exit: 0, stderr: '' });
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+});
+
+test('bar: checkpoint is declared when its signature lapsed or the stage was reopened', async () => {
+  const root = partsAtCheckpoint();
+  const host = await open(root);
+  expect((await cli(root, draftArgs)).exit).toBe(0);
+  const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
+  const passed = await (await page(host)).act(String(asked.value.askId), 'checkpoint', { checkpointId: 'assemble', outcome: 'pass', words: WORDS });
+  expect((await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', String(passed.actId), '--json'])).exit).toBe(0);
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  const reopened = await cli(root, ['reopen', 'parts', root, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', '--json']);
+  expect({ exit: reopened.exit, stderr: reopened.stderr }).toEqual({ exit: 0, stderr: '' });
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([
+    { kind: 'parts-verdict', draftId: 'chain' },
+    { kind: 'checkpoint', checkpointId: 'assemble' },
+  ]);
+});
+
+test('bar: signoff subject behaviour is unchanged across unsigned, signed and reopened stages', async () => {
+  const root = copy('3-rig-review');
+  const host = await open(root);
+  enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toContainEqual({ kind: 'signoff', stage: 'rig-review' });
+  const verdictAsk = await ask(host, { kind: 'review-verdict', stage: 'rig-review' });
+  const signoffAsk = await ask(host, { kind: 'signoff', stage: 'rig-review' });
+  const { pageId, act } = await page(host);
+  const publication = host.session.status().publication!;
+  const png = readFileSync(join(root, 'evidence/setup.png'));
+  const verdict = await act(String(verdictAsk.value.askId), 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
+    capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+      camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
+      binding: { publicationId: publication.publicationId, instanceKey: publication.instanceKey, sourceHash: publication.source.sourceHash,
+        pageId, askId: verdictAsk.value.askId, drawGeneration: 1, playerGeneration: 0 } } });
+  const signed = await act(String(signoffAsk.value.askId), 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
+  expect((await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json'])).exit).toBe(0);
+  expect((await cli(root, ['signoff', 'rig-review', root, '--from-review', String(signed.actId), '--json'])).exit).toBe(0);
+  enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toEqual([]);
+  expect((await cli(root, ['reopen', 'rig-review', root, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', '--json'])).exit).toBe(0);
+  enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
+  expect(await reconcileCreateJob(root)).toBe(1);
+  expect(declared(root, host)).toContainEqual({ kind: 'signoff', stage: 'rig-review' });
 });

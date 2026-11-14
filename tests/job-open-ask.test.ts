@@ -5,7 +5,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobSelector } from '@rig-c/review/job-host';
@@ -42,6 +42,24 @@ afterEach(async () => {
   }
 });
 
+/** Allocate while the original inode is still live: rm/copy alone can reuse it on Linux. */
+function replaceProjectRoot(root: string, source: string, scenario: string): void {
+  const replacement = mkdtempSync(join(dirname(root), `${basename(root)}-replacement-`));
+  const identity = (path: string) => { const info = lstatSync(path); return { dev: info.dev, ino: info.ino }; };
+  try {
+    cpSync(source, replacement, { recursive: true });
+    const previous = identity(root), allocated = identity(replacement);
+    console.log('#523 replacement precondition', { scenario, previous, allocated });
+    expect(allocated.dev).toBe(previous.dev);
+    expect(allocated.ino).not.toBe(previous.ino);
+    rmSync(root, { recursive: true });
+    renameSync(replacement, root);
+    const installed = identity(root);
+    console.log('#523 replacement installed', { scenario, previous, installed });
+    expect(installed).toEqual(allocated);
+  } finally { rmSync(replacement, { recursive: true, force: true }); }
+}
+
 test('#523 a killed host permits a pristine same-path redo and retains the old state bytes', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-redo-'))); roots.push(root);
   const source = join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict');
@@ -55,7 +73,7 @@ test('#523 a killed host permits a pristine same-path redo and retains the old s
   expect(await opened.at(-1)!.proc.exited).toBe(137);
   const retainedDb = readFileSync(join(state, 'host/jobs.sqlite'));
   const retainedDescriptor = readFileSync(descriptor);
-  rmSync(root, { recursive: true }); cpSync(source, root, { recursive: true });
+  replaceProjectRoot(root, source, 'killed-host');
   const second = await open(root);
   expect(second.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
   expect(readWriterBinding(root)!.jobId).not.toBe(binding.jobId);
@@ -75,7 +93,7 @@ test('#523 reconcile recovers a dead same-path host before job open, and live re
   const descriptor = join(jobHostStateRoot(root), 'host/job-ui', `${binding.jobId}.json`);
   const { pid } = JSON.parse(readFileSync(descriptor, 'utf8')) as { pid: number };
   // Keep the old host live while replacing only this synthetic project directory.
-  rmSync(root, { recursive: true }); cpSync(source, root, { recursive: true });
+  replaceProjectRoot(root, source, 'live-host');
   const pristine = readFileSync(join(root, 'project.json'));
   for (const action of ['open', 'reconcile']) {
     const result = await cli(root, ['job', action, root, ...(action === 'open' ? ['--reviewer', 'synthetic-owner', '--role', 'owner'] : [])]);

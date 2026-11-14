@@ -39,6 +39,7 @@ describe('init --no-install into an empty folder', () => {
   test('writes the layout of docs/PROJECT.md and nothing else', () => {
     expect(listTree(dir)).toEqual([
       '.gitignore',
+      'AGENT-REFERENCE.md',
       'AGENTS.md',
       'CLAUDE.md',
       'derived/',
@@ -96,6 +97,7 @@ describe('init --no-install into an empty folder', () => {
     const tracked = run(['git', 'ls-files'], dir, env).stdout.trim().split('\n').sort();
     expect(tracked).toEqual([
       '.gitignore',
+      'AGENT-REFERENCE.md',
       'AGENTS.md',
       'CLAUDE.md',
       'evidence/.gitkeep',

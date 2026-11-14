@@ -3,6 +3,14 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  AGENT_REFERENCE,
+  APPEARANCE_LINK,
+  BUST_LINK,
+  CG_GATES_LINK,
+  GATES_LINK,
+  PROJECTION_LINK,
+  createDocUrl,
+  writeAgentGuide,
   CLAUDE_MD,
   CREATE_DOCS,
   CREATE_DOCS_BASE,
@@ -16,6 +24,7 @@ import { PINNED_PACKAGES } from '../src/pins.ts';
 import { cli, gitEnv, run, tempDir } from './helpers.ts';
 
 const REPO = join(import.meta.dir, '..');
+const reference = readFileSync(join(REPO, 'docs', AGENT_REFERENCE), 'utf8');
 
 /** The guide's own headings, in order. A heading copied in from a package's docs would break this list. */
 const GUIDE_HEADINGS = [
@@ -92,6 +101,7 @@ describe('init --no-install writes the agent guide', () => {
     const tracked = run(['git', 'ls-files'], dir, env).stdout.trim().split('\n');
     expect(tracked).toContain('AGENTS.md');
     expect(tracked).toContain('CLAUDE.md');
+    expect(tracked).toContain(AGENT_REFERENCE);
     expect(run(['git', 'rev-list', '--count', 'HEAD'], dir, env).stdout.trim()).toBe('1');
     expect(run(['git', 'status', '--porcelain', '--ignored=no'], dir, env).stdout).toBe('');
   });
@@ -110,17 +120,18 @@ describe('init --no-install writes the agent guide', () => {
 
   test('AGENTS.md carries no package documentation: size bound and only its own headings', () => {
     expect(statSync(join(dir, 'AGENTS.md')).size).toBeLessThan(GUIDE_MAX_BYTES);
+    expect(Buffer.byteLength(agents)).toBeLessThan(8_000);
     expect(agents.split('\n').filter((line) => /^#{1,6}\s/.test(line))).toEqual(GUIDE_HEADINGS);
   });
 
   test('the package links are exactly the data table', () => {
-    const local = markdownLinks(agents).filter((href) => !/^[a-z]+:/.test(href));
+    const local = markdownLinks(agents).filter((href) => href.startsWith('node_modules/'));
     expect(local).toEqual(PACKAGE_DOCS.map(packageDocPath));
     for (const href of local) expect(href).toStartWith('node_modules/@rig-c/');
   });
 
   test('every link to rig-c/create points at a file (and heading) in this repository', () => {
-    const remote = markdownLinks(agents).filter((href) => href.startsWith('https://'));
+    const remote = markdownLinks(`${agents}\n${reference}`).filter((href) => href.startsWith('https://'));
     expect(remote.length).toBeGreaterThan(0);
     for (const href of remote) expect(href).toStartWith(CREATE_DOCS_BASE);
     for (const doc of CREATE_DOCS) expect(remote).toContain(`${CREATE_DOCS_BASE}${doc.path}`);
@@ -131,6 +142,49 @@ describe('init --no-install writes the agent guide', () => {
       if (anchor !== undefined) {
         expect(anchorsOf(readFileSync(file, 'utf8')).has(anchor), `${path}#${anchor} is a heading`).toBe(true);
       }
+    }
+  });
+});
+
+const DEFERRED_RULES = [
+  "- **Projection.** Ask and record it per [CHECKS.md § Projection and ground](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#projection-and-ground).",
+  "- **Camera options.** Offer fixed view or camera-box moves only. Head turn,\n  depth and plate parallax are unavailable: direction has no depth/turn fields.",
+  "- **Upscale first** a painting smaller than the rig needs (SOURCE.md, step 2 below).",
+  "- **The crux is a bar.** Before rigging, name every risk band, count background\n  or doubled pixels over every frame and both physics/breath extremes, and\n  report the maximum and its frame. Cover every band crossing another bone.",
+  "- **Appearance needs a person**, not a step bar: [CHECKS.md § Appearance bar wording](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#appearance-bar-wording).",
+  "- **Nothing unnamed.** Add no unnamed motion, chain or physics. Read references\n  for what they show; ask about anything more.",
+  "- **Re-run first, cut last**, never a polygon in code or config: the ladder in\n  SOURCE.md, step 2 below.",
+  "- **A full-screen scene is a CG build.** For `rig_type` `fullscreen.*`, each\n  rig version declares the gates in [CHECKS.md § CG gates](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#cg-gates). Refusals are the art's to fix.",
+  "- **The bust is meshed** unless the `meshes` guide excludes it with a reason\n  ([CHECKS.md § The bust at meshes](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#the-bust-at-meshes)).",
+  "- **Overlaps.** A piece over a part with its own animation (glasses over\n  eyelids) holds none of that part's pixels, or the animation shows its copy.",
+  "- **Pairs.** Measure left/right symmetry against the painting before calling a\n  pair uneven ([CRAFT.md G8](https://github.com/rig-c/create/blob/main/docs/CRAFT.md#for-the-gates-not-the-interview)).",
+  "- **Look before the user does**, at native resolution and every crux boundary:\n  a whole-figure |composite − painting| map, each component by box/part and\n  status (in the painting / fixed / left, why). Use the true part stack; crop on\n  white and mid-grey to show light fringes. Check beyond reviewer-chosen boxes.",
+];
+
+describe('the shipped stage reference', () => {
+  test('one relative link resolves without installing create as a project dependency', () => {
+    const dir = tempDir();
+    const written = writeAgentGuide(dir);
+    const guide = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+    const local = markdownLinks(guide).filter(href => !/^[a-z]+:/.test(href) && !href.startsWith('node_modules/'));
+    expect(local).toEqual([AGENT_REFERENCE]);
+    expect(written).toContain(AGENT_REFERENCE);
+    expect(readFileSync(join(dir, AGENT_REFERENCE))).toEqual(readFileSync(join(REPO, 'docs', AGENT_REFERENCE)));
+    expect(reference).not.toContain('{{');
+  });
+
+  test.each(DEFERRED_RULES)('keeps the deferred rule verbatim: %s', rule => {
+    expect(reference).toContain(rule);
+    expect(renderAgentGuide()).not.toContain(rule);
+  });
+
+  test('keeps first-read authority and stage routing in the guide', () => {
+    const guide = renderAgentGuide();
+    for (const required of ['Human acts go through Review', 'rig-create next', 'Only human `signoffs[]`',
+      '**Prior words.**', '**Bars before sign-off.**', "## The user's four steps"]) expect(guide).toContain(required);
+    expect(reference).toContain(READ_FIRST);
+    for (const link of [APPEARANCE_LINK, BUST_LINK, CG_GATES_LINK, GATES_LINK, PROJECTION_LINK]) {
+      expect(markdownLinks(reference)).toContain(createDocUrl(link.path, link.anchor));
     }
   });
 });

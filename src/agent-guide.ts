@@ -180,6 +180,8 @@ export const INTERVIEW_CHECK_LINE = 'Run `rig-create interview --check` before i
 export const REOPEN_EXCEPTION = 'Until create#493, agents may type `reopen` only from Review host raw export `act@4`: save nonempty `value.words` byte-for-byte to a verbatim file; `--source` names `actId`. Empty/missing words: STOP. Never supply words. `job fetch-act` rejects act@4.';
 
 export const GUIDE_TEMPLATE = 'agent-guide.md';
+/** Copied from the same installed create distribution as the rendered guide. */
+export const AGENT_REFERENCE = 'AGENT-REFERENCE.md';
 
 /** CLAUDE.md is a pointer: Claude Code reads CLAUDE.md, and an `@path` line imports that file into it. */
 export const CLAUDE_MD = [
@@ -230,11 +232,12 @@ export function renderAgentGuide(): string {
 
 /**
  * Writes the guide an agent reads first in a project — AGENTS.md, and a
- * CLAUDE.md that imports it — and returns the paths written (relative to the
+ * CLAUDE.md that imports it, plus its shipped reference — and returns the paths written (relative to the
  * project) so init can add exactly those to git.
  */
 export function writeAgentGuide(dir: string): string[] {
   writeFileSync(join(dir, 'AGENTS.md'), renderAgentGuide());
   writeFileSync(join(dir, 'CLAUDE.md'), CLAUDE_MD);
-  return ['AGENTS.md', 'CLAUDE.md'];
+  writeFileSync(join(dir, AGENT_REFERENCE), readFileSync(join(TEMPLATES_DIR, '..', 'docs', AGENT_REFERENCE)));
+  return ['AGENTS.md', 'CLAUDE.md', AGENT_REFERENCE];
 }

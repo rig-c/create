@@ -1,6 +1,6 @@
 {
   "name": "@rig-c/create",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "description": "Create a rig project: its folder, decision record, repository and pinned rig-c packages",
   "license": "MIT",

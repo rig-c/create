@@ -248,7 +248,8 @@ test.each(['plan-approved', 'rigging-interview', 'post-interview', 'direction-re
     const input = { ...request(root), result: { kind: 'plan' as const } };
     const before = snapshot(root);
     const first = readRecordPublished(input, TEST_NOW);
-    expect(first.subjects.map(subject => JSON.stringify(subject))).toContain(JSON.stringify({ kind: 'signoff', stage }));
+    expect(first.subjects).toEqual([{ kind: 'signoff', stage }]);
+    expect(first.subjects.some(subject => subject.kind === 'reopen')).toBe(false);
     expect(readRecordPublished(input, TEST_NOW)).toEqual(first);
     expect(snapshot(root)).toEqual(before);
   },

@@ -7,7 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
-import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage } from '@rig-c/review/job-host';
+import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
@@ -25,9 +25,9 @@ import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { hasStageOrder, interviewStageOfGuide, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { assertInterviewRecordSignable, packageSignSubjects, stageSignable } from './signable.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
+import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
-import { requireRecordDirectionTarget } from './record-direction-target.ts';
+import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, riggingContext } from './structure.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -57,8 +57,6 @@ type RecordContextBase = {
   readonly files: JobPublishedContext['files'];
 };
 type RecordSignoffStage = JobRecordSignoffStage;
-type RecordPlanSubject = { readonly kind: 'checkpoint'; readonly checkpointId: string }
-  | { readonly kind: 'signoff'; readonly stage: RecordSignoffStage };
 export type RecordOptionContext = RecordContextBase & {
   readonly plan: null;
   readonly subjects: readonly [{ readonly kind: 'interview-picks'; readonly questionId: string; readonly setId: string }];
@@ -285,7 +283,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       label = `option-set ${result.questionId} / ${result.setId}`;
     } else if (result.kind === 'plan') {
       if (!plan) throw Error('the requested plan is absent');
-      if (stage === 'direction-review') {
+      const reopenDirection = stage === 'direction-review' && directionReviewClosed(project)
+        && recordDirectionTarget(project, now) === null;
+      if (stage === 'direction-review' && !reopenDirection) {
         const reopens = collectReopens(project, []);
         const post = asArray(project.versions).filter(isObject).filter(version => version.kind === 'post'
           && liveSignoff(reopens, 'post', Date.parse(String(version.at)))).at(-1);
@@ -297,7 +297,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         requireRecordDirectionTarget(project, now);
       }
       const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
-      const signable = stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
+      const signable = !reopenDirection && stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
         && (stage !== 'interview' || interviewSignoff) && stageSignable(project, stage);
       if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
@@ -314,6 +314,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         return checkpointRequired(project, step, now);
       }).map(step => ({ kind: 'checkpoint' as const, checkpointId: String(step.id) }));
       if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
+      if (reopenDirection) subjects = [{ kind: 'reopen', stage: 'direction-review' }];
       label = `plan / ${stage}`;
     } else throw Error('unknown record result');
     // Detect record changes during closure reads as well as changes before entry.

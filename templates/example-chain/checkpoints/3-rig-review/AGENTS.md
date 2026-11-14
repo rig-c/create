@@ -8,7 +8,7 @@ One painting; one rig and its takes.
 2. Run `rig-create next` to derive the next moves and whose they are.
 3. Resume per [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
 
-Until create#493, agents may type `reopen` only from Review host raw export `act@4`: save nonempty `value.words` byte-for-byte to a verbatim file; `--source` names `actId`. Empty/missing words: STOP. Never supply words. `job fetch-act` rejects act@4.
+After an accepted post is bounced, reopen direction-review through Review: `job open --plan`, then `job acts --json`, ingest `reopen direction-review --from-review <actId>`, and `job close`. The exported act supplies the reviewer, date and verbatim words.
 
 Stale pins: `rig-create packages upgrade --by <operator>`.
 

@@ -32,7 +32,7 @@ import { pausedFrom } from './pause.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
+import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import {
   advanceOrder,
@@ -72,7 +72,7 @@ export interface NextRefusal {
 }
 
 export interface NextReviewAct {
-  kind: 'parts-verdict' | 'interview-picks' | 'review-verdict' | 'signoff' | 'signoff-checkpoint';
+  kind: 'parts-verdict' | 'interview-picks' | 'review-verdict' | 'signoff' | 'signoff-checkpoint' | 'reopen';
   stage: string;
   draft_id?: string;
   question_id?: string;
@@ -209,7 +209,10 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   if (move.role !== 'human' || move.unanswered_by_record || move.field === 'pauses' || !act) return [move];
   let selector: string;
   let writer: string;
-  if (act.kind === 'interview-picks' && act.question_id) {
+  if (act.kind === 'reopen') {
+    selector = '--plan';
+    writer = `reopen ${act.stage}`;
+  } else if (act.kind === 'interview-picks' && act.question_id) {
     selector = `--question ${shellWord(act.question_id)}`;
     writer = `interview-answer ${shellWord(act.question_id)}`;
   } else if (act.kind === 'signoff' && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(act.stage)) {
@@ -691,18 +694,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       if (kind === 'post') {
         // Match the direction writer's authoring gate, including earlier
         // accepted verdicts that a later bounce does not itself reopen.
-        const reopens = collectReopens(project, []);
-        const closed = collectSignoffs(project, []).some(s => s.stage === 'direction-review'
-          && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at))
-          || versions.some(v => v.kind === 'post' && asArray(v.verdicts).filter(isObject).some(d =>
-            d.review === 'direction-review' && d.verdict === 'accepted'
-            && liveSignoff(reopens, 'direction-review', Date.parse(String(d.at)))));
-        if (closed) {
+        if (directionReviewClosed(project)) {
           const target = 'reopens[stage=direction-review]';
           addAwait(target);
           moves.push({ role: 'human', field: 'reopens', awaits: target,
-            command: `rig-create reopen direction-review ${shellWord(dir)} --by '<human>' --verbatim-file '<absolute-human-words-file>' --source '<reopen-act-id>'`,
-            act: 'Until create#493, an agent may type this human reopen only from Review host raw export act@4: save its unchanged nonempty value.words byte-for-byte to an absolute verbatim-file path and name actId with --source. Empty/missing words: STOP; the agent never supplies words. Do not use job fetch-act (it rejects act@4). Create cannot ingest Review reopen acts yet.' });
+            command: null, review_act: { kind: 'reopen', stage: 'direction-review' },
+            act: 'reopen direction-review in Review, then ingest the exported reopen act before writing the replacement post' });
           continue;
         }
       }
@@ -716,7 +713,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         command: `rig-create ${writer} ${shellWord(dir)} ${inputs.replace(/<[^>]+>/g, shellWord)} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
         act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });
     }
-    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
+    if (moves.length > 0) return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves: moves.flatMap(move => reviewCommands(dir, project, move)) };
   }
   const recordedLapseTargets = new Set<string>();
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);

@@ -12,7 +12,7 @@ import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobSubject }
 import { checkProject } from '../src/check.ts';
 import { openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
-import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
+import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, type PublicationSubject } from '../src/job-outbox.ts';
 import { packageSignSubjects } from '../src/signable.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -76,7 +76,7 @@ async function page(host: JobOwnerHost) {
   } };
 }
 
-function declared(root: string, host: JobOwnerHost): readonly JobSubject[] | undefined {
+function declared(root: string, host: JobOwnerHost): readonly PublicationSubject[] | undefined {
   return readAcknowledgedPublication(root, host.session.jobId, host.session.status().publication!.publicationId)?.subjects;
 }
 const codes = (root: string): string[] => checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code);

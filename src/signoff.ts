@@ -6,13 +6,12 @@ import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { assertInterviewRecordSignable, checkpointProblem } from './signable.ts';
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { jobHash } from './job-outbox.ts';
-import { assertActSubjectDeclared, decodeReviewAct, isRecordDirectionSignoff, isRecordInterviewSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordDirectionSignoff, isRecordInterviewSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap } from './diff-map.ts';
@@ -52,18 +51,7 @@ function fetchSignoffAct(dir: string, stage: string, actId: string, now: number,
   const invalid = reviewActFindings(readProject(dir).project)[0];
   if (invalid) refuse(invalid.code, invalid.message);
   const transport: ReviewActTransport = { ...reviewActTransport(dir, actId), kind: 'signoff' };
-  let bytes: string;
-  if (hooks.fetch) bytes = hooks.fetch(transport).bytes;
-  else {
-    const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
-      stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
-    });
-    let response: { ok: boolean; bytes: string; code: string; message: string };
-    try { response = JSON.parse(child.stdout.toString()); }
-    catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
-    if (!response.ok || child.exitCode) refuse(response.code, response.message);
-    bytes = response.bytes;
-  }
+  const bytes = hooks.fetch ? hooks.fetch(transport).bytes : fetchReviewActBytes(transport);
   const act = decodeReviewAct(bytes, 'signoff');
   if (act.jobId !== transport.jobId || act.actId !== transport.actId || Date.parse(act.at) > now) {
     refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: fetched signoff identity or date differs from the request; fetch the correct signoff act');

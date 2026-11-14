@@ -85,6 +85,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     move to the next stage authorized by a live signoff
   rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>]
                                                     record an audited forward step status
+  rig-create reopen <stage> [<project dir>] --from-review <actId>
   rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
                                                     record a human backward move without deleting history
   rig-create pause --by <who> [--verbatim-file <file>] [<project dir>]

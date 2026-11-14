@@ -52,6 +52,7 @@ test('#475 clean interview declares the record signoff without changing bytes or
   const before = bytes(root);
   const context = publication(root);
   expect<unknown>(context.subjects).toEqual([{ kind: 'signoff', stage: 'interview' }]);
+  expect(context.subjects.some(subject => subject.kind === 'reopen')).toBe(false);
   expect(context.plan.steps.length).toBeGreaterThan(0);
   expect(bytes(root)).toEqual(before);
   const nextReport = nextProject(root, TEST_NOW);

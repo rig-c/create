@@ -20,12 +20,11 @@ import { assertCorrectionApproval } from './correction-writers.ts';
  */
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, readFileSync } from './check-reads.ts';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
-import { assertReviewActSource, decodeReviewAct, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
+import { assertReviewActSource, decodeReviewAct, fetchReviewActRuntime, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { ingestedVerdictPairFinding } from './signoff-pair.ts';
 import { dirname, join, resolve } from 'node:path';
@@ -569,13 +568,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
-    const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
-      stdin: Buffer.from(JSON.stringify(reviewActTransport(root, actId))), stdout: 'pipe', stderr: 'pipe',
-    });
-    let response: { ok: boolean; bytes: string; stillBytes?: string; code: string; message: string };
-    try { response = JSON.parse(child.stdout.toString()); }
-    catch (error) { if (error instanceof Refusal) throw error; return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
-    if (!response.ok || child.exitCode !== 0) refuse(response.code, response.message);
+    const response = fetchReviewActRuntime(reviewActTransport(root, actId));
     const act = decodeReviewAct(response.bytes);
     const selector = act.source.selector!;
     if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');

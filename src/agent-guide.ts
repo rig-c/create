@@ -177,7 +177,7 @@ export const READ_FIRST = [
  */
 export const INTERVIEW_CHECK_LINE = 'Run `rig-create interview --check` before interview sign-off: it names every `null` answer.';
 
-export const REOPEN_EXCEPTION = 'Agents route reopen through Review: `job open --plan`, then `job acts --json`, ingest `reopen <stage> --from-review <actId>`, and `job close`. The exported act supplies the stage, reviewer, date and verbatim words.';
+export const REOPEN_EXCEPTION = 'After an accepted post is bounced, reopen direction-review through Review: `job open --plan`, then `job acts --json`, ingest `reopen direction-review --from-review <actId>`, and `job close`. The exported act supplies the reviewer, date and verbatim words.';
 
 export const GUIDE_TEMPLATE = 'agent-guide.md';
 /** Copied from the same installed create distribution as the rendered guide. */

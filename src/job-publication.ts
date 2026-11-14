@@ -25,7 +25,7 @@ import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { hasStageOrder, interviewStageOfGuide, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { assertInterviewRecordSignable, packageSignSubjects, stageSignable } from './signable.ts';
-import { collectReopens, directionReviewClosed, liveSignoff, reopenableStages } from './reopen.ts';
+import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, riggingContext } from './structure.ts';
@@ -314,7 +314,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         return checkpointRequired(project, step, now);
       }).map(step => ({ kind: 'checkpoint' as const, checkpointId: String(step.id) }));
       if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
-      subjects = [...subjects, ...reopenableStages(project, now).map(stage => ({ kind: 'reopen' as const, stage }))];
+      if (reopenDirection) subjects = [{ kind: 'reopen', stage: 'direction-review' }];
       label = `plan / ${stage}`;
     } else throw Error('unknown record result');
     // Detect record changes during closure reads as well as changes before entry.

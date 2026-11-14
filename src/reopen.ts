@@ -83,14 +83,6 @@ function reachedIndex(project: JsonObject, at: number, fromStage: string): numbe
   return reached;
 }
 
-/** The same reach rule the writer validates, exposed as Review's reopen subjects. */
-export function reopenableStages(project: JsonObject, at: number): string[] {
-  const fromStage = asString(project.stage) ?? '';
-  if (!STAGE_VALUES.includes(fromStage)) return [];
-  const reached = reachedIndex(project, at, fromStage);
-  return STAGE_VALUES.filter(stage => stage !== 'accepted' && stageIndex(stage) >= 0 && stageIndex(stage) <= reached);
-}
-
 /** An acceptance remains authoring authority until an explicit reopen supersedes it. */
 export function directionReviewClosed(project: JsonObject): boolean {
   const reopens = collectReopens(project, []);

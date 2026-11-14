@@ -7,7 +7,7 @@ import { join, relative } from 'node:path';
 import type { ActV3, JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { reopenCommand as ingestReopen } from '../src/reopen.ts';
-import { exportedReopen, expectedReopenSubjectsThrough } from './reopen-act-fixture.ts';
+import { exportedReopen } from './reopen-act-fixture.ts';
 import { checkProject } from '../src/check.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
@@ -1317,7 +1317,7 @@ test('#478 answered rigging guides request plan steps before the publishable sig
   const context = readRecordPublished({ root: dir,
     record: { path: 'project.json', sha256: sha256(readFileSync(join(dir, 'project.json'))) },
     result: { kind: 'plan' }, phase: 'inventory' }, CHAIN_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }, ...expectedReopenSubjectsThrough('rigging-interview')]);
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
 });
 
 

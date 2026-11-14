@@ -10,7 +10,6 @@ import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
 import { reviewActFindings } from '../src/review-act.ts';
-import { expectedReopenSubjectsThrough } from './reopen-act-fixture.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
@@ -444,14 +443,12 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
 
   const record = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
   expectExit0(record);
-  const subjects = [{ kind: 'signoff', stage: 'direction-review' }, ...expectedReopenSubjectsThrough('direction-review')];
-  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: plan published',
-    `job: asked ${subjects.map(subject => `${subject.kind} ${subject.stage}`).join(', ')}`]);
-  const recordView = await page(root, opening.url, subjects.length);
+  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: plan published', 'job: asked signoff direction-review']);
+  const recordView = await page(root, opening.url, 1);
   expect((recordView.head.source as JsonObject).subject).toBe('plan');
   expect((recordView.head.source as JsonObject).selector).toBeUndefined();
-  expect((recordView.head.source as JsonObject).subjects).toEqual(subjects);
-  expect(recordView.asks.map(ask => ask.subject)).toEqual(subjects);
+  expect((recordView.head.source as JsonObject).subjects).toEqual([{ kind: 'signoff', stage: 'direction-review' }]);
+  expect(recordView.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'direction-review' }]);
   const signed = await recordView.act('signoff', 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
   expect(signed.schema).toBe('rig-review/act@4');
   expect((signed.source as JsonObject).selector).toBeUndefined();

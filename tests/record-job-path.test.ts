@@ -346,7 +346,7 @@ test('record selectors refuse a legacy package-only host byte-identically with t
   expect(closed.exit, closed.stderr).toBe(0);
   await opened.at(-1)!.proc.exited;
   const record = await open(root, ['--plan']);
-  expect(record.lines).toContain('job: asked signoff rigging-interview, reopen interview, reopen plan-approved, reopen parts, reopen parts-review, reopen rigging-interview');
+  expect(record.lines).toContain('job: asked signoff rigging-interview');
 }, 20_000);
 
 
@@ -473,7 +473,10 @@ test('#493 normal plan job exports and ingests a bounced-post reopen before the 
   expect(commands[2]).toBe(`rig-create reopen direction-review ${root} --from-review '<actId>'`);
   expect(commands[3]).toBe(`rig-create job close ${root}`);
   const opened = await open(root, ['--plan']);
-  const owner = await page(root, opened.url, 10);
+  const owner = await page(root, opened.url, 1);
+  const reopenSubject = { kind: 'reopen', stage: 'direction-review' };
+  expect(obj(owner.head.source).subjects).toEqual([reopenSubject]);
+  expect(owner.asks.map(ask => ask.subject)).toEqual([reopenSubject]);
   const exported = await owner.act('reopen', 'reopen', { stage: 'direction-review', words: WORDS });
   expect(exported.schema).toBe('rig-review/act@4');
   const listed = await cli(root, ['job', 'acts', root, '--json']); expect(listed.exit, listed.stderr).toBe(0);

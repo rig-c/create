@@ -52,11 +52,3 @@ export function syntheticReopenReader(stage: string): RecordPublicationReader {
   }
   return read;
 }
-
-
-/** Independent expected stage order for synthetic publication assertions. */
-export function expectedReopenSubjectsThrough(stage: string): { kind: 'reopen'; stage: string }[] {
-  const order = ['interview', 'plan-approved', 'parts', 'parts-review', 'rigging-interview',
-    'rigging', 'rig-review', 'post-interview', 'post', 'direction-review'];
-  return order.slice(0, order.indexOf(stage) + 1).map(stage => ({ kind: 'reopen', stage }));
-}

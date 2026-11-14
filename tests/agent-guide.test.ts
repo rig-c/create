@@ -47,11 +47,11 @@ const GUIDE_MAX_BYTES = 10_000;
 
 test('#493 reopen instructions ingest the exported human act', () => {
   const guide = renderAgentGuide();
-  for (const text of ['`job open --plan`', '`job acts --json`', '`reopen <stage> --from-review <actId>`', '`job close`', 'verbatim words']) expect(guide).toContain(text);
+  for (const text of ['`job open --plan`', '`job acts --json`', '`reopen direction-review --from-review <actId>`', '`job close`', 'verbatim words', 'After an accepted post is bounced']) expect(guide).toContain(text);
   expect(guide).not.toContain('Until create#493');
   const readme = readFileSync(join(REPO, 'README.md'), 'utf8');
   expect(readme).not.toContain('Until create#493');
-  expect(readme).toContain('reopen <stage> --from-review <actId>');
+  expect(readme).toContain('reopen direction-review --from-review <actId>');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 

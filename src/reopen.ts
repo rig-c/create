@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { resolve } from 'node:path';
 

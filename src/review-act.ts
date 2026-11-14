@@ -163,6 +163,9 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
   if (kind === 'reopen' && act.schema !== 'rig-review/act@4') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'reopen requires a record act@4');
+  if (act.schema === 'rig-review/act@4' && act.kind === 'reopen' && kind !== 'reopen') {
+    failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts require the reopen writer');
+  }
   if (act.schema === JOB_COMMENTS_ACT_SCHEMA) return decodeCommentsReviewAct(act, kind);
   if (['checkpoint', 'interview-picks', 'signoff', 'reopen'].includes(kind) && act.schema === 'rig-review/act@4') {
     try {

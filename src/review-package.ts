@@ -13,6 +13,7 @@ import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { draftFileUnavailable, draftVersionFindings } from './drafts.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
+import { registeredDepthPartsMatch } from './rig-version.ts';
 import { latestPartsApproval, retainedJson } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -50,7 +51,8 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   const files = asArray(parts.files).filter(isObject);
   const manifest = files.find(file => file.path === `${parts.path}/parts.json`);
   const packaged = asArray(record.files).find(f => isObject(f) && f.path === 'out/parts.json');
-  if (isObject(manifest) && typeof manifest.sha256 === 'string' && isObject(packaged) && typeof packaged.sha256 === 'string' && manifest.sha256 !== packaged.sha256) {
+  if (isObject(manifest) && typeof manifest.sha256 === 'string' && isObject(packaged) && typeof packaged.sha256 === 'string' && manifest.sha256 !== packaged.sha256
+    && !registeredDepthPartsMatch(ctx.dir, version, manifest.sha256, packaged.sha256)) {
     mismatch('REVIEW_PACKAGE_PARTS_MISMATCH', 'files[out/parts.json]', manifest.sha256, packaged.sha256);
   }
   if (!isObject(manifest) || typeof manifest.path !== 'string') return;

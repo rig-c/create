@@ -25,6 +25,7 @@
   "signoffs": [],
   "interview": {
     "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.37.0)",
+    "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
     "interviewer": null,
@@ -161,6 +162,25 @@
         "history": []
       },
       {
+        "id": "turn",
+        "config": [
+          "turn",
+          "depth"
+        ],
+        "prompts": [
+          {
+            "id": "view",
+            "text": "Should this rig keep the painted view, or turn its head with depth?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": null,
+        "history": []
+      },
+      {
         "id": "motion",
         "config": [
           "motion"
@@ -196,11 +216,8 @@
       "items": [
         {
           "id": "camera_depth",
-          "config": [
-            "turn",
-            "depth"
-          ],
-          "text": "Does the view move (a 2.5D head-turn with parallax, a push-in) or is it fixed?",
+          "config": [],
+          "text": "Is the view fixed, or does it move along a camera-box path such as a push-in?",
           "source": "rig-create",
           "guide": null,
           "history": []

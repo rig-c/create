@@ -36,7 +36,7 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
     retainSignoffs(p, s => stageIndex(String(obj(s).stage))<(source?stageIndex('interview'):stageIndex('rigging-interview')));
     for(const s of arr(obj(p.plan).steps).map(obj))if(source||!['seethrough','assemble'].includes(String(s.id)))s.status='pending';
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
-    if(source)for(const id of ['bones','meshes','constraints','motion'])waypoint(p,id).guide=null;
+    if(source)for(const id of ['bones','meshes','constraints','turn','motion'])waypoint(p,id).guide=null;
   },'example-project.json');
   const p=load(dir);const item=current(p,question);const original=obj(obj(item.raw).choice).set as JsonObject;
   const set=JSON.parse(readFileSync(join(dir,String(original.path)),'utf8')) as JsonObject;

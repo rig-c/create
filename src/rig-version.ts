@@ -8,7 +8,7 @@ import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { asArray, checkProject, isObject, type Finding } from './check.ts';
+import { asArray, checkProject, collectItems, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { parseFeedbackAnswers, readProject } from './feedback.ts';
@@ -18,7 +18,9 @@ import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
-import { approvedStructureDelta, structurePathIsIgnored } from './structure.ts';
+import { approvedStructureDelta, latestPartsApproval, structurePathIsIgnored } from './structure.ts';
+import { stageOfStep } from './stages.ts';
+import { HEAD_TURN_SINCE } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -38,6 +40,9 @@ const RESERVED_REGISTRATION_NAMES = new Set([
   'package-lock.json',
   'path-adapter.json',
   'citations.json',
+  'depth-manifest.json',
+  'depth-report.json',
+  'depth-source-parts.json',
 ]);
 function isValidAdaptedTarget(target: string): boolean {
   return literal(target)
@@ -389,13 +394,137 @@ function collectRequirementsAssetRefs(requirements: JsonObject, portableRequirem
   return refs;
 }
 
-/** Only explicitly registered versions opt in. Older version contracts are unchanged. */
-export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = []): Finding[] {
+/** A declared depth/turn config is the existing registration's depth input branch. */
+function usesDepth(config: JsonObject): boolean {
+  const turn = isObject(config.turn) ? config.turn : {};
+  const body = isObject(turn.body) ? turn.body : {};
+  return isObject(config.depth) || [turn.roles, body.roles].some(roles => isObject(roles) && Object.keys(roles).length > 0);
+}
+
+/** Reads only producer declarations and bytes, never producer measurements. */
+function depthBindingFindings(dir: string, version: JsonObject, config: JsonObject, record: JsonObject | undefined, warnings: Finding[]): Finding[] {
+  if (!usesDepth(config) && record?.depth === undefined) return [];
+  const path = `versions[v${String(version.n)}].registration.depth`;
   const findings: Finding[] = [];
+  const missing = (why: string): void => {
+    const finding = { code: 'RIG_DEPTH_BINDING_MISSING', path, message: `${path}: ${why}; retain rig's depth_sheets.json and, for per-part maps, --depth-manifest and parts' depth-report.json when registering a new rig version` };
+    (typeof version.at === 'string' && Date.parse(version.at) < Date.parse(HEAD_TURN_SINCE) ? warnings : findings).push(finding);
+  };
+  const depth = record?.depth;
+  if (!isObject(depth)) { missing('no producer depth binding'); return findings; }
+  if (!isObject(depth.sheets) || depth.route === 'per-part' && (!isObject(depth.manifest) || !isObject(depth.report))) {
+    missing('incomplete producer depth binding'); return findings;
+  }
+  try {
+    if (depth.route !== 'per-part' && depth.route !== 'per-layer') throw Error('expected per-part or per-layer route');
+    if (depth.route === 'per-layer' && (depth.manifest !== undefined || depth.report !== undefined)) throw Error('per-part reports require the per-part route');
+    const read = (binding: Json | undefined, spec: string, output = false): JsonObject => {
+      const inventory = asArray(output ? version.outputs : record?.files).filter(isObject);
+      if (!isObject(binding) || !inventory.some(row => row.path === binding.path && row.sha256 === binding.sha256)) throw Error('depth file is absent from the retained inventory');
+      const doc: Json = JSON.parse(bytesAt(dir, binding, output).toString('utf8'));
+      if (!isObject(doc) || doc.spec !== spec || !Array.isArray(doc.parts)) throw Error(`expected ${spec} with parts[]`);
+      return doc;
+    };
+    const digest = (value: Json | undefined, field: string): string => {
+      if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw Error(`${field}: expected producer SHA-256`);
+      return value;
+    };
+    const namedRows = (value: Json | undefined, label: string): JsonObject[] => {
+      if (!Array.isArray(value) || value.length === 0 || value.some(row => !isObject(row) || typeof row.part !== 'string' || !row.part)) throw Error(`${label}: expected nonempty named parts[]`);
+      const rows = value as JsonObject[];
+      if (new Set(rows.map(row => row.part)).size !== rows.length) throw Error(`${label}: duplicate part`);
+      return rows;
+    };
+    const outputRoot = `outputs/v${String(version.n)}/out`;
+    const outputs = asArray(version.outputs).filter(isObject);
+    const outputBytes = (path: string): Buffer => {
+      const binding = outputs.find(row => row.path === path);
+      if (!binding) throw Error(`${path}: absent from retained outputs`);
+      return bytesAt(dir, binding, true);
+    };
+    const parts: Json = JSON.parse(outputBytes(`${outputRoot}/parts.json`).toString('utf8'));
+    if (!isObject(parts) || !Array.isArray(parts.parts)) throw Error('retained assembled parts.json has no parts[]');
+    const mappedParts = parts.parts.filter(isObject);
+    const sourceList = (raw: Json | undefined, label: string): JsonObject[] => {
+      if (!Array.isArray(raw) || raw.length === 0 || raw.some(row => !isObject(row))) throw Error(`${label}: expected depth sources[]`);
+      const rows = raw as JsonObject[];
+      for (const row of rows) {
+        digest(row.sha256, `${label}.sha256`);
+        if (typeof row.from !== 'string' || !row.from || typeof row.image !== 'string' || !literal(row.image)
+          || !Array.isArray(row.crop) || row.crop.length !== 4 || row.crop.some(v => typeof v !== 'number' || !Number.isFinite(v))) throw Error(`${label}: invalid declared depth source`);
+      }
+      return rows;
+    };
+    const sheets = namedRows(read(depth.sheets, 'rig-parts-depth-sheets/1', true).parts, 'rig sheets');
+    for (const row of sheets) {
+      const ref = row.depth;
+      if (!isObject(ref) || typeof ref.image !== 'string' || !literal(ref.image) || ref.image.includes('/')
+        || !['white', 'black'].includes(String(ref.near)) || typeof ref.zScale !== 'number' || !(ref.zScale > 0) || !Number.isFinite(ref.zScale)
+        || !Array.isArray(row.size) || row.size.length !== 2 || row.size.some(v => typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1)) throw Error('invalid consumed sheet metadata');
+      const sources = sourceList(ref.sources, 'rig sheet sources');
+      // Rig may pad/crop a sheet. Its declared source provenance must still match
+      // an assembled part; comparing the padded sheet hash to apply's would be wrong.
+      if (!mappedParts.some(part => isObject(part.depth) && part.depth.near === ref.near && part.depth.zScale === ref.zScale
+        && isDeepStrictEqual(sourceList(part.depth.sources, 'assembled sheet sources'), sources))) throw Error('rig sheet sources do not bind the retained assembled parts');
+      outputBytes(`${outputRoot}/rig/images/${ref.image}`);
+    }
+    if (depth.route === 'per-part') {
+      const manifest = read(depth.manifest, 'rig-parts-depth-inputs/1');
+      const report = read(depth.report, 'rig-parts-depth-report/1');
+      for (const field of ['partsSha256', 'recipeSha256'] as const) {
+        if (digest(report[field], `report.${field}`) !== digest(manifest[field], `manifest.${field}`)) throw Error(`producer ${field} declarations disagree`);
+      }
+      digest(report.rigConfigSha256, 'report.rigConfigSha256');
+      if (digest(report.manifestSha256, 'report.manifestSha256') !== (depth.manifest as JsonObject).sha256) throw Error('producer report does not bind the retained prepare manifest');
+      if (depth.source_parts !== undefined) {
+        const binding = depth.source_parts;
+        if (!isObject(binding) || !asArray(record?.files).filter(isObject).some(f => f.path === binding.path && f.sha256 === binding.sha256)
+          || digest(binding.sha256, 'source parts') !== manifest.partsSha256) throw Error('prepare manifest does not bind the retained source parts');
+        bytesAt(dir, binding);
+      }
+      const prepared = namedRows(manifest.parts, 'prepared parts');
+      const applied = namedRows(report.parts, 'applied parts');
+      if (!isDeepStrictEqual(prepared.map(row => row.part).sort(), applied.map(row => row.part).sort())) throw Error('prepare/apply part sets disagree');
+      for (const row of applied) {
+        const input = prepared.find(p => p.part === row.part)!;
+        const part = mappedParts.find(p => p.name === row.part);
+        if (!part || !isObject(part.depth) || typeof part.name !== 'string' || !literal(part.name) || part.name.includes('/')
+          || typeof part.depth.image !== 'string' || !literal(part.depth.image) || part.depth.image.includes('/')) throw Error('report part has no retained assembled depth declaration');
+        const partDepth = part.depth;
+        for (const field of ['sourceSha256', 'inputSha256'] as const) {
+          if (digest(row[field], `report.${field}`) !== digest(input[field], `manifest.${field}`)) throw Error(`producer ${field} declarations disagree`);
+        }
+        if (digest(row.sourceSha256, 'report.sourceSha256') !== sha(outputBytes(`${outputRoot}/parts/${part.name}.png`))) throw Error('applied part art differs from the retained assembled part');
+        if (digest(row.sheetSha256, 'report.sheetSha256') !== sha(outputBytes(`${outputRoot}/parts/${partDepth.image}`))) throw Error('applied sheet differs from the retained assembled sheet');
+        const map = digest(row.mapSha256, 'report.mapSha256');
+        const sources = sourceList(partDepth.sources, 'applied sheet sources');
+        if (!sources.some(source => source.sha256 === map && source.from === part.from)) throw Error('applied map hash is absent from the assembled depth sources');
+        if (row.near !== partDepth.near || row.zScale !== partDepth.zScale) throw Error('applied depth units disagree with the assembled declaration');
+        if (!sheets.some(sheet => isObject(sheet.depth) && isDeepStrictEqual(sheet.depth.sources, sources)
+          && sheet.depth.near === partDepth.near && sheet.depth.zScale === partDepth.zScale)) throw Error('rig consumed no sheet from the reported applied part');
+      }
+    }
+  } catch (error) {
+    findings.push({ code: 'RIG_DEPTH_BINDING_INVALID', path, message: `${path}: ${String(error)}; restore the exact producer files or register a new rig version` });
+  }
+  return findings;
+}
+
+/** Only explicitly registered versions opt in. Older version contracts are unchanged. */
+export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = [], collection: JsonObject | null = null): Finding[] {
+  const findings: Finding[] = depthPlanFindings(project, warnings, collection);
   const allVersions = asArray(project.versions).filter(isObject);
   const registeredNumbers = new Set(allVersions.map(v => v.n).filter((n): n is number => typeof n === 'number' && Number.isSafeInteger(n)));
   for (const [index, version] of allVersions.entries()) {
-    if (version.registration === undefined) continue;
+    if (version.registration === undefined) {
+      if (version.kind === 'rig' && version.pre_interview !== true && isObject(version.provenance)) {
+        try {
+          const config: Json = JSON.parse(bytesAt(dir, version.provenance.config).toString('utf8'));
+          if (isObject(config)) findings.push(...depthBindingFindings(dir, version, config, undefined, warnings));
+        } catch { /* Existing provenance checks own unreadable config evidence. */ }
+      }
+      continue;
+    }
     const path = `versions[v${String(version.n)}]`;
     const add = (code: string, field: string, why: string): void => { findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: ${why}; restore the retained registration inputs or register a new rig version` }); };
     const record = version.registration;
@@ -457,6 +586,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const configSourceRaw = JSON.parse(bytesAt(dir, record.config_source).toString()) as Json;
       const portable = JSON.parse(bytesAt(dir, config).toString()) as Json;
       if (!isObject(configSourceRaw) || !isObject(portable)) throw Error('config-source and portable config must be JSON objects');
+      findings.push(...depthBindingFindings(dir, version, configSourceRaw, record, warnings));
       const checkPortable = (value: Json, document: string, requirementsDocument = false, location: string[] = []): void => {
         if (typeof value === 'string' && absolute(value)) {
           const field = `${document}#/${location.map(escapePointerToken).join('/')}`;
@@ -635,7 +765,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
 
 export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <render dir>
   --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <package-lock.json>
-  --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--json]
+  --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--json]
   Copy and hash frozen producer outputs. Retain an explicitly declared npm lock, producer run records and UTC not-after date.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
   Repeat --answers <version>:<verdict> to answer earlier human bounced feedback.
@@ -648,7 +778,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const options: Record<string, string> = {};
   const runRecords: string[] = [];
   const answerValues: string[] = [];
-  const flags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by', '--citations'];
+  const flags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by', '--citations', '--depth-manifest'];
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -669,7 +799,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     else positional.push(arg);
   }
   const n = Number(positional[0]?.replace(/^v/, ''));
-  if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || flags.filter(f => f !== '--citations').some(f => !options[f])) refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_HELP, USAGE_EXIT);
+  if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || flags.filter(f => f !== '--citations' && f !== '--depth-manifest').some(f => !options[f])) refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_HELP, USAGE_EXIT);
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
   let { file, project } = readProject(dir);
   let original = readFileSync(file);
@@ -973,6 +1103,27 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const partsDir = resolve(dir, options['--parts']!);
     copyTree(join(partsDir, 'parts.json'), `${out}/out/parts.json`, true);
     copyTree(join(partsDir, 'parts'), `${out}/out/parts`, true);
+    // Keep the producer's complete depth reports in this same frozen registration.
+    // The config.depth image references above still use the ordinary path adapter.
+    let depthBinding: JsonObject | undefined;
+    const depthReport = join(partsDir, 'depth-report.json');
+    if (usesDepth(config) || options['--depth-manifest'] || existsSync(depthReport)) {
+      const perPart = options['--depth-manifest'] !== undefined || existsSync(depthReport) || !isObject(config.depth);
+      const sheets = join(dir, out, 'out/rig/depth_sheets.json');
+      // Rig files are copied below; bind the exact frozen source now.
+      const sourceSheets = resolve(dir, options['--rig']!, 'depth_sheets.json');
+      depthBinding = { route: perPart ? 'per-part' : 'per-layer' };
+      const approval = latestPartsApproval(project, Date.parse(String(at)));
+      const draft = asArray(project.drafts).filter(isObject).find(d => d.id === approval?.draft_id);
+      if (perPart && approval && isObject(draft?.parts) && typeof draft.parts.path === 'string') {
+        const originalParts = resolve(dir, draft.parts.path, 'parts.json');
+        if (!existsSync(originalParts)) fail('RIG_DEPTH_BINDING_MISSING', `versions[v${n}].registration.depth.source_parts`, 'restore the accepted assembled parts manifest before registering the depth-enriched version');
+        depthBinding.source_parts = retain(`${evidence}/depth-source-parts.json`, sourceBytes(originalParts));
+      }
+      if (existsSync(sourceSheets)) depthBinding.sheets = { path: relative(dir, sheets).split(sep).join('/'), sha256: sha(sourceBytes(sourceSheets)) };
+      if (options['--depth-manifest']) depthBinding.manifest = input('--depth-manifest', 'depth-manifest.json');
+      if (existsSync(depthReport)) depthBinding.report = retain(`${evidence}/depth-report.json`, sourceBytes(depthReport));
+    }
     const partReferences = partsFileReferences(partsDir);
     for (const reference of partReferences) {
       const target = `${out}/out/${reference.path}`;
@@ -1005,6 +1156,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections, ...(structureChanges.length ? { structure_delta: structureChanges } : {}) },
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
         ...(runs.length ? { runs } : {}),
+        ...(depthBinding ? { depth: depthBinding } : {}),
         ...(skipped.length ? { skipped } : {}),
         files: retained, config_source: configSource,
         ...(requirementsSourceBinding ? { requirements_source: requirementsSourceBinding } : {}),
@@ -1012,6 +1164,8 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
         path_adapter: { ...adapterBinding, ...(pointerAdapted ? { format: 'json-pointer/1' } : {}) }, idle, compile,
         copied: { files: outputFiles.length, bytes: outputFiles.reduce((total, f) => total + Number(f.bytes), 0) } } };
     const candidate = { ...project, versions: [...project.versions, version] };
+    const depthProblem = depthBindingFindings(dir, { ...version, at: new Date(now).toISOString() }, config, version.registration as JsonObject, [])[0];
+    if (depthProblem) refuse(depthProblem.code, depthProblem.message);
     const problem = rigRegistrationFindings(dir, candidate)[0];
     if (problem) refuse(problem.code, problem.message);
     created.push(join(dir, pkg));
@@ -1044,4 +1198,61 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     rmSync(lock);
     releasePublication();
   }
+}
+
+/** The optional plan step consumes approved parts before the ordinary rig step. */
+export function depthPlanMoves(project: JsonObject, collection: JsonObject | null = null): { role: 'agent'; field: string; awaits: string; command: null; act: string }[] {
+  const { answer, mode } = depthAnswer(project, collection);
+  if (mode !== 'depth') return [];
+  const answerAt = typeof answer.at === 'string' ? Date.parse(answer.at) : -Infinity;
+  const rig = asArray(project.versions).filter(isObject).find(v => v.kind === 'rig' && typeof v.at === 'string' && Date.parse(v.at) >= answerAt && isObject(v.registration) && isObject(v.registration.depth));
+  if (rig) return [];
+  const steps = ["Record the chosen depth route and reason in the turn plan step text. Default per-part sequence: rig-parts depth-prepare --parts <accepted assembled parts> --config <depth recipe> --out <inference directory>",
+    "Run the supplied depth model on each prepared image; retain raw rig-parts-map/1 maps (face normals, scalar depth for other parts).",
+    "rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory>; then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json>."];
+  return steps.map((act, i) => ({ role: 'agent', field: `plan.steps[turn].moves[${i}]`, awaits: 'versions[].registration.depth', command: null, act }));
+}
+
+function depthAnswer(project: JsonObject, collection: JsonObject | null = null): { answer: JsonObject; mode: Json | undefined } {
+  const item = collectItems(project, { collection }).find(item => item.id === 'turn');
+  const answer = item?.state.state === 'user' || item?.state.state === 'delegated' ? item.state.answer : {};
+  const decision = answer.delegated === true && isObject(answer.agent_decision) ? answer.agent_decision.value : answer.value;
+  return { answer, mode: isObject(decision) ? decision.mode : undefined };
+}
+
+/** The optional depth step is drafted before its rigging-interview approval, just like the other rig steps. */
+export function depthPlanFindings(project: JsonObject, warnings: Finding[], collection: JsonObject | null = null): Finding[] {
+  const { answer, mode } = depthAnswer(project, collection);
+  if (mode !== 'depth') return [];
+  const answerAt = typeof answer.at === 'string' ? Date.parse(answer.at) : NaN;
+  const approved = asArray(project.signoffs).filter(isObject).some(s => s.stage === 'rigging-interview' && (s.checkpoint ?? null) === null && Date.parse(String(s.at)) >= answerAt);
+  if (!approved && !['rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'].includes(String(project.stage))) return [];
+  const plan = isObject(project.plan) ? project.plan : {};
+  const steps = asArray(plan.steps).filter(isObject);
+  const depth = steps.find(s => s.id === 'turn' && s.phase === 'rig' && asArray(s.rests_on).includes('turn'));
+  if (depth && steps.filter(s => s !== depth && s.phase === 'rig' && stageOfStep('rig', String(s.id)) === 'rigging').every(s => Number(depth.order) < Number(s.order))) return [];
+  const path = 'plan.steps[turn]';
+  const finding = { code: 'RIG_DEPTH_PLAN_MISSING', path, message: `${path}: a depth turn needs a rig-phase depth step resting on turn, ordered before the rig steps; draft it with plan add turn and approve it at rigging-interview before running rig` };
+  if (answerAt < Date.parse(HEAD_TURN_SINCE)) { warnings.push(finding); return []; }
+  return [finding];
+}
+
+/** Depth-apply may enrich only depth declarations; accepted art/geometry/measurements stay identical. */
+export function registeredDepthPartsMatch(dir: string, version: JsonObject, acceptedSha256: string, packagedSha256: string): boolean {
+  try {
+    const record = version.registration;
+    if (!isObject(record) || !isObject(record.depth) || record.depth.route !== 'per-part' || !isObject(record.depth.source_parts)
+      || record.depth.source_parts.sha256 !== acceptedSha256) return false;
+    const binding = asArray(version.outputs).filter(isObject).find(f => f.path === `outputs/v${String(version.n)}/out/parts.json` && f.sha256 === packagedSha256);
+    if (!binding) return false;
+    const config: Json = JSON.parse(bytesAt(dir, record.config_source).toString('utf8'));
+    if (!isObject(config) || depthBindingFindings(dir, version, config, record, []).length > 0) return false;
+    const withoutDepth = (bytes: Buffer): JsonObject => {
+      const doc: Json = JSON.parse(bytes.toString('utf8'));
+      if (!isObject(doc) || !Array.isArray(doc.parts) || doc.parts.some(p => !isObject(p))) throw Error('invalid parts manifest');
+      for (const part of doc.parts as JsonObject[]) delete part.depth;
+      return doc;
+    };
+    return isDeepStrictEqual(withoutDepth(bytesAt(dir, record.depth.source_parts)), withoutDepth(bytesAt(dir, binding, true)));
+  } catch { return false; }
 }

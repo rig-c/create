@@ -19,7 +19,7 @@ function transition(value: string) {
     p.signoffs = [];
     for (const step of arr(obj(p.plan).steps)) obj(step).status = 'pending';
     for (const item of arr(obj(obj(p.interview).post).items)) obj(item).guide = null;
-    for (const id of ['bones', 'meshes', 'constraints', 'motion']) waypoint(p, id).guide = null;
+    for (const id of ['bones', 'meshes', 'constraints', 'turn', 'motion']) waypoint(p, id).guide = null;
     // Preserve existing versions, whose missing configs are held only for CG values.
     for (const version of arr(p.versions)) delete obj(obj(version).provenance).config;
     framing(p, 'rig_type').answer = {

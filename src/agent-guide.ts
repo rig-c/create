@@ -53,7 +53,7 @@ export const PACKAGE_DOCS: readonly PackageDoc[] = [
   {
     package: '@rig-c/parts',
     path: 'docs/DEPTH.md',
-    why: 'depth reference; unavailable in current direction',
+    why: 'depth-driven head turn before rigging; timed direction is separate',
   },
   {
     package: '@rig-c/parts',

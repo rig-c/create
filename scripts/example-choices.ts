@@ -1,3 +1,4 @@
+import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
 import { exampleTime } from './example-time.ts';
 /** Synthetic authoring inputs; public writers alone construct the selected answer records. */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -35,6 +36,9 @@ export function writeExampleChoices(dir: string, stage: string, clock: { now: nu
       {id:'other',kind:'other',label:'Other',effect:'Describe this decision.',recommended:false},
       {id:'auto',kind:'auto',label:'Let the agent decide',effect:'The agent must record this decision before approval.',recommended:false},
     ]}));
+    if (item.id === 'turn') {
+      asks.splice(0, asks.length, { id: 'view', prompt: TURN_QUESTION, options: TURN_OPTIONS.map(option => ({ ...structuredClone(option), recommended: option.id === 'fixed', ...(option.id === 'fixed' ? { reason: 'This synthetic project keeps its approved painted view.' } : {}) })) as Json });
+    }
     const set: JsonObject = {schema:OPTIONS_SPEC,id:`example-${item.id.replaceAll('_','-')}`,question:item.id,stage,drafted_by:'agent',drafted_at:drafted,context:optionContext(project,stage,Date.parse(drafted)),asks,assembly:{rule:item.kind==='waypoint'?'merge':'single'}};
     if(item.id==='assemble') set.constraints=[{asks:['projection','ground'],allowed:[['keep','keep'],['alternative','keep'],['alternative','alternative']]}];
     const path = `evidence/interview/${String(set.id)}.json`;
@@ -43,7 +47,7 @@ export function writeExampleChoices(dir: string, stage: string, clock: { now: nu
     interviewOptionsCommand([item.id,dir,'--file',path],clock.now);
     const binding = JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
     const registered = collectItems(binding,{collection:null}).find(i=>i.id===item.id)?.record.pending_options as JsonObject;
-    const flags = names.flatMap(name=>['--pick',`${name}=${item.id==='seethrough'&&name==='seed'?'auto':'keep'}`]);
+    const flags = names.flatMap(name=>['--pick',`${name}=${item.id==='turn'?'fixed':item.id==='seethrough'&&name==='seed'?'auto':'keep'}`]);
     clock.now = Date.parse(exampleTime(`${day}03:00Z`));
     if(item.id==='reference') {
       const picksPath = 'evidence/interview/example-picks.json';

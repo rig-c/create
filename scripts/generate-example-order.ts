@@ -15,7 +15,7 @@ import { correctionCommand } from '../src/correction-writers.ts';
 import { writeExampleChoices } from './example-choices.ts';
 import { writeExampleLedger } from './example-ledger.ts';
 import { sha256, CHOICE_ORDER_SPEC } from '../src/choices.ts';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { checkProject } from '../src/check.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
@@ -119,6 +119,13 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   const interview = obj(p.interview);
   interview.order = { spec: CHOICE_ORDER_SPEC, adopted_at: exampleTime('2026-11-10T14:00:00Z'), choices_adopted_at: exampleTime('2026-11-10T14:00:00Z') };
   interview.question_set = String(obj(readTemplate('project.json').interview).question_set);
+  interview.turn_question = obj(readTemplate('project.json').interview).turn_question!;
+  const turn = arr(obj(readTemplate('project.json').interview).waypoints).map(obj).find(w => w.id === 'turn')!;
+  arr(interview.waypoints).splice(arr(interview.waypoints).findIndex(w => obj(w).id === 'motion'), 0, turn);
+  for (const item of arr(obj(interview.post).items).map(obj)) if (item.id === 'camera_depth') {
+    item.config = [];
+    item.text = 'Is the view fixed, or does it move along a camera-box path such as a push-in?';
+  }
   for (const item of arr(obj(interview.post).items).map(obj)) item.guide = null;
   p.signoffs = [];
   for (const w of arr(interview.waypoints).map(obj)) if (['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) w.guide = null;
@@ -272,6 +279,11 @@ if (import.meta.main) {
   for (const [path, bytes] of Object.entries(outputs)) {
     if (check) { if (!readFileSync(join(root, path)).equals(Buffer.from(bytes))) throw new Error(`${path}: generated order differs`); }
     else { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), bytes); }
+  }
+  if (!check) {
+    const receipts = join(root, 'example-draft/evidence/review-reads');
+    const expected = new Set(Object.keys(outputs).filter(path => path.startsWith('example-draft/evidence/review-reads/')).map(path => path.slice('example-draft/evidence/review-reads/'.length)));
+    if (existsSync(receipts)) for (const name of readdirSync(receipts)) if (!expected.has(name)) rmSync(join(receipts, name));
   }
   const captions = `${JSON.stringify(splitCaptions(join(root, 'example-project.json'), join(root, 'example-split/config.json')), null, 2)}\n`;
   const captionsFile = join(root, 'example-split/captions.json');

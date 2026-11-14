@@ -4,15 +4,15 @@
   "question": "meshes",
   "stage": "rigging-interview",
   "drafted_by": "agent",
-  "drafted_at": "2026-11-13T00:00:39.000Z",
+  "drafted_at": "2026-11-14T00:00:39.000Z",
   "context": {
     "kind": "parts",
     "accepted_parts": {
-      "signoff_at": "2026-11-13T00:00:37.000Z",
+      "signoff_at": "2026-11-14T00:00:37.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/52673b635b9cbc92da1a9e3d4c023a249bbacf79cd21b59724f03f18f8caf09b.json",
-        "sha256": "52673b635b9cbc92da1a9e3d4c023a249bbacf79cd21b59724f03f18f8caf09b",
+        "path": "evidence/review-reads/8866887a00012b5d5944b7525a478aea70931935bff35ddfcb186ffc515ef5af.json",
+        "sha256": "8866887a00012b5d5944b7525a478aea70931935bff35ddfcb186ffc515ef5af",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },
@@ -68,7 +68,7 @@
           "id": "keep",
           "kind": "value",
           "label": "Synthetic meshes answer after viewing the approved parts and structure.",
-          "effect": "As answered on 2026-11-13T00:00:38.000Z in interview, chat",
+          "effect": "As answered on 2026-11-14T00:00:38.000Z in interview, chat",
           "fragment": {
             "bend": "synthetic bend on the approved parts"
           },

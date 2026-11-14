@@ -8,7 +8,7 @@ import { readTemplate } from '../src/templates.ts';
 import { checkProject } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
 import { tempDir } from './helpers.ts';
-import { EXAMPLE_NOW } from '../scripts/example-time.ts';
+import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -123,8 +123,11 @@ test('job open --question publishes after upgrading an actual older synthetic in
     const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
     const retained = obj(obj(item.raw).choice).set as import('../src/templates.ts').JsonObject;
     const set = JSON.parse(readFileSync(join(dir, String(retained.path)), 'utf8'));
-    set.id = 'upgrade-motion'; set.drafted_at = new Date(EXAMPLE_NOW - 1000).toISOString();
-    set.context = optionContext(project, 'rigging-interview', EXAMPLE_NOW - 1000, dir);
+    // The live host validates at its real clock; keep this pending set in the
+    // completed synthetic narrative, rather than twelve hours after its anchor.
+    const draftedAt = EXAMPLE_ANCHOR + 180_000;
+    set.id = 'upgrade-motion'; set.drafted_at = new Date(draftedAt).toISOString();
+    set.context = optionContext(project, 'rigging-interview', draftedAt, dir);
     const path = 'evidence/interview/upgrade-motion.json';
     writeFileSync(join(dir, path), JSON.stringify(set, null, 2) + '\n');
     interviewOptionsCommand(['motion', dir, '--file', path], EXAMPLE_NOW);

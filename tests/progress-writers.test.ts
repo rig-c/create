@@ -69,7 +69,7 @@ beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
 afterEach(() => testClock.reset());
 
 test.each([
-  ['rigging-interview', ['bones', 'meshes', 'constraints', 'motion'].map(id => `interview.waypoints[${id}].guide`)],
+  ['rigging-interview', ['bones', 'meshes', 'constraints', 'turn', 'motion'].map(id => `interview.waypoints[${id}].guide`)],
   ['post-interview', ['camera_depth', 'post_timing', 'post_composition'].map(id => `interview.post.items[${id}].guide`)],
 ] as const)('advance admits only target-owned silent items on arrival at %s', (stage, paths) => {
   const dir = interviewArrival(stage);
@@ -758,4 +758,18 @@ test('check refuses mismatched or incomplete status-history notes', () => {
     expect(codes(dir)).toContain('PROGRESS_OPTION_INVALID');
   }
   save(dir, original); expect(codes(dir)).toEqual([]);
+});
+
+test('#514 explicit fresh turn-question adoption refuses a removed required waypoint', () => {
+  const dir = fixture(p => {
+    const interview = obj(p.interview);
+    interview.date = '2026-11-14T01:00:00Z';
+    interview.waypoints = arr(interview.waypoints).filter(w => obj(w).id !== 'turn');
+  }, 'project.json');
+  expect(checkProject(dir).refusals).toContainEqual(expect.objectContaining({ code: 'WAYPOINT_MISSING', path: 'interview.waypoints[turn]' }));
+});
+
+test('#514 a later date alone does not retrofit the new question into historical interviews', () => {
+  const dir = fixture(p => { obj(p.interview).date = '2026-11-14T01:00:00Z'; });
+  expect(checkProject(dir).refusals).not.toContainEqual(expect.objectContaining({ code: 'WAYPOINT_MISSING', path: 'interview.waypoints[turn]' }));
 });

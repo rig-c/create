@@ -13,6 +13,9 @@
       "agent draft evidence/interview/constraints.json",
       "rig-create interview-options constraints --file evidence/interview/constraints.json",
       "rig-create interview-answer constraints --set evidence/interview/constraints.json --sha256 <sha256 of evidence/interview/constraints.json> --by user --pick effects=keep --pick strength=keep --pick extent=keep --pick gravity=keep --pick stops=keep",
+      "agent draft evidence/interview/turn.json",
+      "rig-create interview-options turn --file evidence/interview/turn.json",
+      "rig-create interview-answer turn --set evidence/interview/turn.json --sha256 <sha256 of evidence/interview/turn.json> --by user --pick view=fixed",
       "agent draft evidence/interview/motion.json",
       "rig-create interview-options motion --file evidence/interview/motion.json",
       "rig-create interview-answer motion --set evidence/interview/motion.json --sha256 <sha256 of evidence/interview/motion.json> --by user --pick tracks=keep --pick extent=keep --pick speed=keep --pick loop=keep --pick blink=keep",
@@ -29,12 +32,16 @@
       "agent",
       "agent",
       "human",
+      "agent",
+      "agent",
+      "human",
       "human"
     ],
     "awaits": [
       "interview.waypoints[bones].guide",
       "interview.waypoints[meshes].guide",
       "interview.waypoints[constraints].guide",
+      "interview.waypoints[turn].guide",
       "interview.waypoints[motion].guide",
       "signoffs[stage=rigging-interview]"
     ]
@@ -58,13 +65,18 @@
       },
       {
         "code": "INTERVIEW_INCOMPLETE",
+        "path": "interview.waypoints[turn].guide",
+        "message": "interview.waypoints[turn].guide: not answered yet; the interview is incomplete"
+      },
+      {
+        "code": "INTERVIEW_INCOMPLETE",
         "path": "interview.waypoints[motion].guide",
         "message": "interview.waypoints[motion].guide: not answered yet; the interview is incomplete"
       }
     ],
     "warnings": []
   },
-  "project_sha256": "5f596a00ecb64a0641c4d43bcadf7d7b522c2c77372278d486e61cc7d2b3e574",
+  "project_sha256": "1538d638c241d9d066eb35186fa137612d8b930342ed0681fca175c308e18e18",
   "files": [
     {
       "path": ".gitignore",
@@ -72,11 +84,11 @@
     },
     {
       "path": "AGENT-REFERENCE.md",
-      "sha256": "ebaa444ac8be2fc25c30b9c182d2ff5fe0ae2f85d6375b1a6c740c422f506d1d"
+      "sha256": "ada0e9e7491dcfc09f4afeab8e737df3f143c7c9d6b15a68d02d25113e4876a0"
     },
     {
       "path": "AGENTS.md",
-      "sha256": "9ba9ac32a6ef2822163374171bf00726cc4ead02a9fef7e5c82f9291c9a2b990"
+      "sha256": "e37e5793e9233ff8c685076f42e002fbf614e460a56dedb3e56acead59a824f2"
     },
     {
       "path": "CLAUDE.md",
@@ -128,7 +140,7 @@
     },
     {
       "path": "derived/drafts/chain/out/check/build/run.json",
-      "sha256": "9db089413698547b7b4dd922c87229c59b4e3965c3ed2235b46388a095435b25"
+      "sha256": "0495aaab65a68e7967eaf2e8ea5b009d480cfc5798e1dfc03d61576fc740f714"
     },
     {
       "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -184,7 +196,7 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "daffd86f81fa1e59cf0087e11f2e99ab362ae6e29c19df19c14ef4f1abb9a52e"
+      "sha256": "de4ef394c4bfadfdb08200308bf07ef40bc5edec46e3722d642326c6eb535ea4"
     },
     {
       "path": "evidence/.gitkeep",
@@ -252,7 +264,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "5f596a00ecb64a0641c4d43bcadf7d7b522c2c77372278d486e61cc7d2b3e574"
+      "sha256": "1538d638c241d9d066eb35186fa137612d8b930342ed0681fca175c308e18e18"
     }
   ]
 }

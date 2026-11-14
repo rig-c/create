@@ -54,6 +54,7 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
+import { depthPlanMoves } from './rig-version.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
@@ -870,6 +871,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const splitOrder = hasStageOrder(project);
   const drafts = asArray(project.drafts).filter(isObject);
   const versions = asArray(project.versions).filter(isObject);
+  if (effectiveStage === 'rigging-interview' && depthPlanMoves(project, collection).length > 0
+    && !steps.some(s => s.id === 'turn' && s.phase === 'rig')) {
+    addAwait('plan.steps[turn]');
+    moves.push({ role: 'agent', field: 'plan.steps[turn]', awaits: 'plan.steps[turn]', command: null,
+      act: 'Draft plan add turn --phase rig --rests-on turn before the rig steps, record the chosen depth route and reason in its text, with a bar that reads the producer depth reports; approve it at rigging-interview.' });
+  }
 
   if (stage === PAUSED_STAGE) {
     const resumeTarget = pausedFrom(project);
@@ -1232,6 +1239,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
   } else if (effectiveStage === 'rigging' || effectiveStage === 'rig-review') {
+    if (effectiveStage === 'rigging') for (const move of depthPlanMoves(project, collection)) {
+      addAwait(move.awaits);
+      moves.push(move);
+    }
     const rigSteps = steps.filter(
       s => (s.phase === 'rig' || s.phase === 'post') && stageOfStep(s.phase, String(s.id)) === 'rigging',
     );

@@ -306,6 +306,7 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[bones].guide'],
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[meshes].guide'],
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[constraints].guide'],
+          ['INTERVIEW_INCOMPLETE', 'interview.waypoints[turn].guide'],
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[motion].guide'],
         ]);
         // bones has pending_options in project.json; meshes, constraints, motion do not.
@@ -323,7 +324,8 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         });
         expect(report.moves[1]?.unanswered_by_record).toBe('interview.waypoints[meshes].pending_options');
         expect(report.moves[2]?.unanswered_by_record).toBe('interview.waypoints[constraints].pending_options');
-        expect(report.moves[3]?.unanswered_by_record).toBe('interview.waypoints[motion].pending_options');
+        expect(report.moves[3]?.unanswered_by_record).toBe('interview.waypoints[turn].pending_options');
+        expect(report.moves[4]?.unanswered_by_record).toBe('interview.waypoints[motion].pending_options');
       } else if (spec.name === '3-rig-review') {
         // Awaits and roles match pending 100%.
         expect(report.awaits).toEqual(spec.pending.awaits);

@@ -480,7 +480,7 @@ function answerRiggingInterview(root: string): void {
     interviewOptionsCommand([item.id, root, '--file', path], now);
     const asks = set.asks as JsonObject[];
     interviewAnswerCommand([item.id, root, '--set', path, '--sha256', jobHash(readFileSync(join(root, path))), '--by', 'user',
-      ...asks.flatMap(ask => ['--pick', `${ask.id}=keep`])], now);
+      ...asks.flatMap(ask => ['--pick', `${ask.id}=${item.id === 'turn' ? 'fixed' : 'keep'}`])], now);
   }
 }
 

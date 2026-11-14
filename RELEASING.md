@@ -9,14 +9,16 @@ not a repository secret. The workflow uses OIDC with provenance on GitHub-hosted
 runners; it needs no npm token or OTP. The owner configures the same trusted
 publisher for the convenience alias `rig-create`.
 
+1.0.3 was tagged and not published; 1.0.4 carries its contents.
+
 ## Prepare the candidate
 
 1. Read the current `AGENTS.md` and the release issue. Keep `private` absent and
    audit the `files` allowlist: runtime source, templates, README, licence and
    the README-linked docs. `docs/CHECKS.md` is also read by `next` at runtime.
    Repository tests, workflows and development instructions do not ship.
-   Scripts are excluded except `scripts/verify-example-seals.ts`, the installed
-   example verifier explicitly included in `files`.
+   Scripts are excluded except `scripts/verify-example-seals.ts` and its
+   `scripts/npm-json.ts` reader, explicitly included in `files`.
 2. Choose an unused version and edit `package.json` manually. Do not use an
    automatic version command that also commits or tags. Update `bun.lock` with
    Bun when the manifest changes require it. Keep dependency pins exact and

@@ -23,49 +23,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - run: bun install --frozen-lockfile
+      - name: Set up and stage the release package
+        uses: ./.github/actions/stage-release
       - run: bun run typecheck
       - run: bun run lint
-      - name: Stage and gate complete examples for npm pack
-        run: bun scripts/verify-example-seals.ts --stage "$RUNNER_TEMP/create-example-source"
-      - name: Pack, verify and dry-run the staged package
-        working-directory: ${{ runner.temp }}/create-example-source
+      - name: Pack, verify and dry-run both package names
         run: |
           set -euo pipefail
-          x="$(npm pack . --pack-destination .)"
-          bun scripts/verify-example-seals.ts --tarball "$x"
+          staged="$RUNNER_TEMP/create-release-source"
+          x="$(cd "$staged" && npm pack . --pack-destination .)"
+          scoped_tgz="$staged/$x"
+          bun scripts/verify-example-seals.ts --tarball "$scoped_tgz"
+          alias_tgz=$(bun scripts/alias_tarball.ts pack --name rig-create --out "$RUNNER_TEMP/alias-rig-create" --tarball "$scoped_tgz" --pack-timeout-ms 300000)
+          bun scripts/verify-example-seals.ts --tarball "$alias_tgz"
           version="$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).version')"
           view_json="$(mktemp)"
           view_err="$(mktemp)"
           trap 'rm -f "$view_json" "$view_err"' EXIT
-          if npm view "@rig-c/create@$version" version --json > "$view_json" 2> "$view_err"; then
-            node -e '
-              const fs = require("node:fs");
-              const actual = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-              if (actual !== process.argv[2]) {
-                console.error("npm view returned a different version; refusing dry-run");
-                process.exit(1);
-              }
-            ' "$view_json" "$version"
-            printf 'dry-run skipped: @rig-c/create@%s is already published; the tarball gate above is the check\n' "$version"
-            exit 0
-          fi
-          if ! node -e '
-            const fs = require("node:fs");
-            try {
-              const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-              if (result?.error?.code === "E404") process.exit(0);
-            } catch {}
-            console.error("npm view failed without structured E404; refusing dry-run");
-            process.exit(1);
-          ' "$view_json"; then
-            cat "$view_err" >&2
-            exit 1
-          fi
-          npm publish "$x" --dry-run --access public
+          for package in @rig-c/create rig-create; do
+            tarball="$scoped_tgz"
+            if [ "$package" = rig-create ]; then tarball="$alias_tgz"; fi
+            if npm view "$package@$version" version --json > "$view_json" 2> "$view_err"; then
+              bun scripts/npm-json.ts version "$view_json" "$package@$version" "$version"
+              printf 'dry-run skipped: %s@%s is already published; the tarball gate above is the check\n' "$package" "$version"
+              continue
+            fi
+            if ! bun scripts/npm-json.ts e404 "$view_json" "$package@$version"; then
+              cat "$view_err" >&2
+              exit 1
+            fi
+            npm publish "$tarball" --dry-run --access public
+          done
       - run: bun scripts/run-registry-ci.ts
   source-linked:
     name: source-linked

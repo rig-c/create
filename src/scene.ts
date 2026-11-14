@@ -175,7 +175,17 @@ function modelForRig(dir: string, version: JsonObject, snapshots?: Map<string, B
   const binding = { path, sha256: row.sha256 };
   return { binding, model: json(boundBytes(dir, binding, 'SCENE_MODEL_MISMATCH', snapshots), path) };
 }
-export function sceneRig(dir: string, project: JsonObject, n: number, snapshots?: Map<string, Buffer>): { rig: JsonObject; stage: JsonObject } {
+/** New non-idle scenes omit frames. Retain the old reader's exact idle binding as legacy metadata. */
+function validateSceneAnimation(model: JsonObject, animation: JsonObject, registration: JsonObject): void {
+  if (!objects(model.animations).some(value => value.name === animation.name)) sceneFail('SCENE_ANIMATION_MISSING', 'scene.rig.animation.name', 'choose an animation named by the bound model', 'pass --animation with a name from the accepted model and run scene write');
+  if (registration.idle !== undefined && !sceneBinding(registration.idle)) sceneFail('SCENE_MALFORMED', 'scene.rig.animation.frames', 'registration.idle must be a frames binding');
+  if (animation.name === 'idle') {
+    if (!equal(animation.frames, registration.idle)) sceneFail('SCENE_MALFORMED', 'scene.rig.animation.frames', 'idle frames must be present exactly when registration.idle exists and equal that binding');
+  } else if (animation.frames !== undefined && !equal(animation.frames, registration.idle)) {
+    sceneFail('SCENE_ANIMATION_FRAMES_UNBOUND', 'scene.rig.animation.frames', 'frames differ from the only legacy binding, registration.idle', 'omit frames for a non-idle animation and record a new scene with scene write --animation <name>');
+  }
+}
+export function sceneRig(dir: string, project: JsonObject, n: number, snapshots?: Map<string, Buffer>, animation = 'idle'): { rig: JsonObject; stage: JsonObject } {
   const { version } = rigVersion(project, n);
   const reopens = collectReopens(project, []);
   const signature = collectSignoffs(project, []).filter(value => value.stage === 'rig-review' && value.checkpoint === null && liveSignoff(reopens, value.stage, value.at)
@@ -185,7 +195,8 @@ export function sceneRig(dir: string, project: JsonObject, n: number, snapshots?
   const { binding, model } = modelForRig(dir, version, snapshots);
   const registration = isObject(version.registration) ? version.registration : {};
   const rig: JsonObject = { version: n, acceptance: { signoff: { stage: 'rig-review', checkpoint: null, at: signature.record.at! }, verdict: target.verdict!, review_package: target.review_package! },
-    model: binding, animation: { name: 'idle', ...(registration.idle === undefined ? {} : { frames: registration.idle }) } };
+    model: binding, animation: { name: animation, ...(animation !== 'idle' || registration.idle === undefined ? {} : { frames: registration.idle }) } };
+  validateSceneAnimation(model, rig.animation as JsonObject, registration);
   validateSceneCurrent(project, rig, true);
   if (model.stage === null || model.stage === undefined) sceneFail('SCENE_STAGE_MISSING', String(binding.path), 'compile a model with a stage box');
   return { rig, stage: model.stage as JsonObject };
@@ -218,9 +229,8 @@ export function validateScene(dir: string, project: JsonObject, doc: JsonObject,
   const { binding, model } = modelForRig(dir, version, snapshots);
   if (!equal(rig.model, binding)) sceneFail('SCENE_MODEL_MISMATCH', 'scene.rig.model', 'use the accepted package model path and hash');
   const animation = rig.animation as JsonObject;
-  if (!objects(model.animations).some(value => value.name === animation.name)) sceneFail('SCENE_ANIMATION_MISSING', 'scene.rig.animation.name', 'choose an animation named by the model');
   const registration = isObject(version.registration) ? version.registration : {};
-  if (registration.idle !== undefined && !sceneBinding(registration.idle) || !equal(animation.frames, registration.idle)) sceneFail('SCENE_MALFORMED', 'scene.rig.animation.frames', 'frames must be present exactly when registration.idle exists and equal that binding');
+  validateSceneAnimation(model, animation, registration);
   if (isObject(animation.frames)) boundBytes(dir, animation.frames, 'SCENE_FILE_CHANGED', snapshots);
   if (model.stage === null || model.stage === undefined) sceneFail('SCENE_STAGE_MISSING', String(binding.path), 'compile a model with a stage box');
   if (!boxShape(model.stage) || !Object.values(model.stage).every(finite) || Number(model.stage.width) <= 0 || Number(model.stage.height) <= 0) sceneFail('SCENE_MALFORMED', `${String(binding.path)}.stage`, 'the model stage must be a finite positive box');

@@ -1353,6 +1353,15 @@ cited by the latest live post. With no live post, no scene is current. Every
 scene still requires historical human acceptance, its matching package identity
 and all schema, raw-byte seal, model, animation, frame, plate and citation checks.
 
+`scene write --animation <name>` selects an exact name from the bound model's
+catalog, defaulting to `idle`. Idle still copies `registration.idle` exactly.
+New non-idle scenes omit optional `animation.frames`: there is no named-animation
+registration to copy. The reader preserves the previously accepted non-idle
+`frames === registration.idle` binding as legacy metadata, verifying its bytes
+without claiming it proves frames of the selected non-idle clip. Other provided
+non-idle frame bindings were already refused and remain refused. No historical
+acceptance is narrowed, so this change introduces no SINCE date or pilot migration.
+
 | Code | Refuses when | Remedy |
 | --- | --- | --- |
 | `SCENE_MALFORMED` | unknown keys at any level, wrong types, schema, n, paths or registration frames | restore the closed scene@1 record and run scene write |
@@ -1360,7 +1369,8 @@ and all schema, raw-byte seal, model, animation, frame, plate and citation check
 | `SCENE_RIG_STALE` | rig lacks the cited historical human acceptance, or the current rig is not the latest live accepted rig | accept the current rig and run scene write |
 | `SCENE_ACCEPTANCE_STALE` | historical acceptance/package identity differs, or a current signoff has lapsed | restore the accepted package and sign rig-review again |
 | `SCENE_MODEL_MISMATCH` | model path or raw-byte hash differs from the accepted package inventory | retain the accepted compiled model and run scene write |
-| `SCENE_ANIMATION_MISSING` | animation is absent from the model | select a model naming the animation and run scene write |
+| `SCENE_ANIMATION_MISSING` | animation is absent from the bound model catalog | pass --animation with a name from the accepted model and run scene write (default: idle) |
+| `SCENE_ANIMATION_FRAMES_UNBOUND` | non-idle frames are present but differ from registration.idle, which the previous reader also refused | omit optional frames and run scene write --animation <name> |
 | `SCENE_STAGE_MISSING` | compiled model stage is null or absent | compile a model declaring a stage before scene write |
 | `SCENE_STAGE_MISMATCH` | frame.stage differs from model.stage | copy the exact compiled stage through scene write |
 | `SCENE_PLATE_CONFLICT` | background is absent, roles duplicate, or roles share a path or hash | designate one background and at most one distinct foreground |

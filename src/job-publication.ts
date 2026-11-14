@@ -1,6 +1,6 @@
 import { checkInputs } from './inputs.ts';
 import { pngDimensions } from './scene.ts';
-import { checkpointRequired } from './plan-history.ts';
+import { hasPartsReceipt } from './fix-ledger.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -24,7 +24,7 @@ import {
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { hasStageOrder, interviewStageOfGuide, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
-import { assertInterviewRecordSignable, packageSignSubjects, stageSignable } from './signable.ts';
+import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, stageSignable } from './signable.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
@@ -311,7 +311,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       }
       subjects = steps.filter(step => {
         if (step.status !== 'at-checkpoint' || (step.phase !== 'rig' && step.phase !== 'post') || stageOfStep(step.phase, String(step.id)) !== stage) return false;
-        return checkpointRequired(project, step, now);
+        return checkpointSignable(project, stage, String(step.id), now);
       }).map(step => ({ kind: 'checkpoint' as const, checkpointId: String(step.id) }));
       if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
       if (reopenDirection) subjects = [{ kind: 'reopen', stage: 'direction-review' }];
@@ -514,9 +514,12 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   }
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
-  const subjects: JobPublishedContext['subjects'] = [{ kind: 'review-verdict', stage: selector.kind === 'post' ? 'direction-review' : 'rig-review' },
+  const reviewStage = selector.kind === 'post' ? 'direction-review' as const : 'rig-review' as const;
+  const subjects: JobPublishedContext['subjects'] = [
+    ...(reviewVerdictSignable(project, selector.version, reviewStage) ? [{ kind: 'review-verdict' as const, stage: reviewStage }] : []),
     // The legacy direction panel accepts only the verdict on a post publication.
-    ...(selector.kind === 'post' ? [] : packageSignSubjects(project, effectiveStage(root, project), selector, steps.length))];
+    ...(selector.kind === 'post' ? [] : packageSignSubjects(project, effectiveStage(root, project), selector, steps.length)),
+  ];
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
@@ -577,7 +580,7 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
   const plan = project.plan as JsonObject | undefined;
   return { selector: { kind: 'draft', id }, plan: plan ? { steps: (plan.steps as JsonObject[] ?? []).map(step => ({ id: String(step.id), hash: stepHash(step) })) } : null,
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
-    subjects: [{ kind: 'parts-verdict', draftId: id }],
+    subjects: hasPartsReceipt(project, id) ? [] : [{ kind: 'parts-verdict', draftId: id }],
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files };
 }
 

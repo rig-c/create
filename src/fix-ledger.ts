@@ -148,7 +148,7 @@ const manifestOf = (draft: JsonObject): string | undefined => {
   return typeof entry?.sha256 === 'string' ? entry.sha256 : undefined;
 };
 
-const hasPartsReceipt = (project: JsonObject, id: string): boolean => asArray(project.review_acts)
+export const hasPartsReceipt = (project: JsonObject, id: string): boolean => asArray(project.review_acts)
   .some(entry => isObject(entry) && entry.kind === 'parts-verdict' && entry.draft_id === id);
 
 /**

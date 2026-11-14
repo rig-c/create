@@ -957,7 +957,6 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   });
   expect(partsPublished.subjects).toEqual([
     { kind: 'parts-verdict', draftId: 'chain' },
-    { kind: 'checkpoint', checkpointId: 'assemble' },
   ]);
 
   // Advance to parts-review without recording diff_map.
@@ -1060,6 +1059,7 @@ test('normal publication omits only the withdrawn checkpoint and retains its sig
   const steps = plan.steps as JsonObject[];
   const assemble = steps.find(step => step.id === 'assemble')!;
   assemble.status = 'at-checkpoint'; assemble.status_history = [];
+  project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.checkpoint !== 'assemble');
   writeFileSync(join(root, 'project.json'), JSON.stringify(project));
   const reason = join(root, 'reason.txt'); const quote = join(root, 'quote.txt');
   writeFileSync(reason, 'Retire one checkpoint.'); writeFileSync(quote, 'Keep its evidence.');

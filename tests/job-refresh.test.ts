@@ -258,16 +258,16 @@ test('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff
   const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
   expect((staleSignoff.error as JsonObject | undefined)?.code).toBe('JOB_RECORD_MOVED');
 
-  // Refresh via job open republishes the draft over the current project.json and re-asks declared subjects.
+  // Refresh via job open republishes the draft over the current project.json and asks the remaining signoff subject.
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expectExit0(refreshed);
   expect(refreshed.stdout.trim().split('\n')).toEqual([
     opening.url.href,
     'job: draft chain published',
-    'job: asked parts-verdict chain, signoff parts-review',
+    'job: asked signoff parts-review',
   ]);
 
-  const refreshedView = await page(root, opening.url);
+  const refreshedView = await page(root, opening.url, 1);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'chain' });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
@@ -310,13 +310,13 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
   const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
   expect((staleSignoff.error as JsonObject | undefined)?.code).toBe('JOB_RECORD_MOVED');
 
-  // Refresh via job open republishes rig v1 with the current project.json hash and asks review-verdict and signoff.
+  // Refresh via job open republishes rig v1 with the current project.json hash and asks the remaining signoff subject.
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expectExit0(refreshed);
   expect(refreshed.stdout.trim().split('\n')).toEqual([
     opening.url.href,
     'job: rig v1 published',
-    'job: asked review-verdict rig-review, signoff rig-review',
+    'job: asked signoff rig-review',
   ]);
 
   // Re-opening again when project.json has not moved reuses the refreshed head without republishing.
@@ -325,15 +325,14 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
   expect(reused.stdout.trim().split('\n')).toEqual([
     opening.url.href,
     'job: rig v1 already published',
-    'job: already asked review-verdict rig-review, signoff rig-review',
+    'job: already asked signoff rig-review',
   ]);
 
-  const refreshedView = await page(root, opening.url);
+  const refreshedView = await page(root, opening.url, 1);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
   expect(refreshedView.asks.map(ask => ask.subject)).toEqual([
-    { kind: 'review-verdict', stage: 'rig-review' },
     { kind: 'signoff', stage: 'rig-review' },
   ]);
 
@@ -421,17 +420,16 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
   const reviewed = await cli(root, ['review', '2', root, '--from-review', String(verdict.actId), '--json']);
   expectExit0(reviewed);
 
-  // Refresh the post page after ingest; it must still carry only the verdict.
+  // Refresh the post page after ingest; its verdict is already recorded, so no subject is declared.
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v2']);
   expectExit0(refreshed);
   expect(refreshed.stdout.trim().split('\n')).toEqual([
     opening.url.href,
     'job: post v2 published',
-    'job: asked review-verdict direction-review',
   ]);
 
-  const refreshedView = await page(root, opening.url, 1);
-  expect(refreshedView.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'direction-review' }]);
+  const refreshedView = await page(root, opening.url, 0);
+  expect(refreshedView.asks.map(ask => ask.subject)).toEqual([]);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
@@ -439,7 +437,7 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
   const reused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '2']);
   expectExit0(reused);
   expect(reused.stdout).toContain('job: post v2 already published');
-  expect((await page(root, opening.url, 1)).head.publicationId).toBe(refreshedView.head.publicationId);
+  expect((await page(root, opening.url, 0)).head.publicationId).toBe(refreshedView.head.publicationId);
 
   const record = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
   expectExit0(record);

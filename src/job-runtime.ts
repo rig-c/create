@@ -5,6 +5,16 @@ import { askOutcomeLines, assertRequestedDraft, assertRequestedRig, closeCreateJ
 import { failPublication, pendingPublications, reconcilePublication } from './job-outbox.ts';
 import { jobActsText } from './job-acts.ts';
 import { Refusal, refuse } from './refusal.ts';
+import { replacedRootRefusal } from './job-host-state.ts';
+
+/** Preserve this known producer refusal without printing an uncontrolled producer message. */
+export function publicationFailure(error: unknown, root: string): Refusal | undefined {
+  if (error instanceof Refusal) return error;
+  if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'JOB_ROOT_REPLACED') {
+    try { replacedRootRefusal(root); } catch (failure) { return failure as Refusal; }
+  }
+  return undefined;
+}
 
 async function run(): Promise<void> {
   const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; json?: boolean };
@@ -16,7 +26,8 @@ async function run(): Promise<void> {
       let outcomes: AskOutcome[] = [];
       try { await reconcilePublication(root, entry, async item => { outcomes = await publishPending(item); }); }
       catch (error) {
-        const failure = error instanceof Refusal ? { code: error.code, message: error.message }
+        const named = publicationFailure(error, root);
+        const failure = named ? { code: named.code, message: named.message }
           : { code: 'JOB_PUBLISH_PENDING', message: 'project.json: host publication failed; restore the bound host before rig-create job reconcile' };
         failPublication(root, entry, failure);
         throw new Refusal('JOB_PUBLISH_PENDING', 'project.json: committed publication is pending; run rig-create job reconcile');
@@ -31,7 +42,7 @@ async function run(): Promise<void> {
       console.log(input.json ? JSON.stringify(result) : jobActsText(result));
       break;
     }
-    case 'reconcile': console.log(`job: reconciled ${await reconcileCreateJob(root)} publication(s)`); break;
+    case 'reconcile': console.log(`job: reconciled ${await reconcileCreateJob(root, undefined, input.now)} publication(s)`); break;
     case 'close': await closeCreateJob(root); console.log('job: closed'); break;
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
@@ -64,7 +75,8 @@ async function run(): Promise<void> {
           host.stop();
           throw error;
         }
-        console.error(error instanceof Refusal ? `${error.code}: ${error.message}` : 'JOB_PUBLISH_PENDING: project.json: draft publication failed; run rig-create job reconcile');
+        const named = publicationFailure(error, root);
+        console.error(named ? `${named.code}: ${named.message}` : 'JOB_PUBLISH_PENDING: project.json: draft publication failed; run rig-create job reconcile');
         process.exitCode = 1;
       }
       if (host.reused || stopping) {
@@ -93,7 +105,8 @@ if (import.meta.main) {
   try { await run(); }
   catch (error) {
     // Unexpected errors may embed producer input. Only controlled refusals leave this process.
-    console.error(error instanceof Refusal ? `${error.code}: ${error.message}` : 'JOB_PUBLISH_PENDING: project.json: publication operation failed; run rig-create job reconcile');
+    const named = publicationFailure(error, 'the requested project directory');
+    console.error(named ? `${named.code}: ${named.message}` : 'JOB_PUBLISH_PENDING: project.json: publication operation failed; run rig-create job reconcile');
     process.exitCode = 1;
   }
 }

@@ -14,6 +14,7 @@ import { pendingJobActs, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import type { JsonObject } from './templates.ts';
+import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -80,10 +81,23 @@ export async function openCreateJob(
     if (existing) assertJobIdentity(existing.identity, identity);
     privateDirectory(identity.stateDir);
     let writerGrant: WriterGrant | undefined;
-    const host = await startHost({
+    const start = () => startHost({
       ...options(identity, true, undefined, grant => { writerGrant = grant; }),
       ...(existing ? { port: Number(new URL(existing.origin).port) } : {}),
     });
+    let host: JobOwnerHost;
+    try {
+      host = await start();
+    } catch (error) {
+      if (typeof error !== 'object' || error === null || (error as { code?: unknown }).code !== 'JOB_ROOT_REPLACED') throw error;
+      if (identity.stateDir !== join(jobHostStateRoot(root), 'host') || !await recoverReplacedJobHostState(root, now)) replacedRootRefusal(root);
+      privateDirectory(identity.stateDir);
+      try { host = await start(); }
+      catch (retryError) {
+        if (typeof retryError === 'object' && retryError !== null && (retryError as { code?: unknown }).code === 'JOB_ROOT_REPLACED') replacedRootRefusal(root);
+        throw retryError;
+      }
+    }
     const file = join(root, 'project.json');
     const temporary = join(root, '.rig-create-job-record.tmp');
     try {
@@ -326,11 +340,16 @@ export function refuseAskOutcomes(outcomes: readonly AskOutcome[]): void {
   refuse('JOB_ASK_REFUSED', `project.json: the publication is acknowledged but review refused the ask for ${named}; restore the published record bytes and run rig-create job open to ask again`);
 }
 
-export async function reconcileCreateJob(root: string, publish: (entry: PendingPublication) => Promise<unknown> = publishPending): Promise<number> {
+export async function reconcileCreateJob(root: string, publish: (entry: PendingPublication) => Promise<unknown> = publishPending, now?: number): Promise<number> {
+  root = realpathSync(root);
   const release = acquireJobLock(root)!;
   let outcomes: AskOutcome[];
   let count: number;
-  try { ({ count, outcomes } = await reconcileLocked(root, publish)); }
+  try {
+    const binding = readWriterBinding(root);
+    if (!binding || binding.identity.stateDir === join(jobHostStateRoot(root), 'host')) await recoverReplacedJobHostState(root, now);
+    ({ count, outcomes } = await reconcileLocked(root, publish));
+  }
   finally { release(); }
   refuseAskOutcomes(outcomes);
   return count;

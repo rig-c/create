@@ -6,7 +6,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobSelector } from '@rig-c/review/job-host';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
@@ -16,6 +16,7 @@ import { askDeclaredSubjects, openCreateJob, openDraftPublication, publishPendin
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { draftPublicationContext, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { hostPortRefuses } from '../src/job-host-state.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -31,10 +32,70 @@ afterEach(async () => {
   }
   for (const root of roots.splice(0)) {
     rmSync(jobPrivateRoot(root), { recursive: true, force: true });
-    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
+    const state = jobHostStateRoot(root);
+    rmSync(state, { recursive: true, force: true });
+    // These uniquely keyed siblings were preserved by this test's same-path redo.
+    if (existsSync(dirname(state))) for (const name of readdirSync(dirname(state))) {
+      if (name.startsWith(`${basename(state)}.replaced-`)) rmSync(join(dirname(state), name), { recursive: true, force: true });
+    }
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('#523 a killed host permits a pristine same-path redo and retains the old state bytes', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-redo-'))); roots.push(root);
+  const source = join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict');
+  cpSync(source, root, { recursive: true });
+  await open(root);
+  // Kill the recorded host, not an arbitrary process matching a command or port.
+  const state = jobHostStateRoot(root), binding = readWriterBinding(root)!;
+  const descriptor = join(state, 'host/job-ui', `${binding.jobId}.json`);
+  const record = JSON.parse(readFileSync(descriptor, 'utf8')) as { pid: number };
+  process.kill(record.pid, 'SIGKILL');
+  expect(await opened.at(-1)!.proc.exited).toBe(137);
+  const retainedDb = readFileSync(join(state, 'host/jobs.sqlite'));
+  const retainedDescriptor = readFileSync(descriptor);
+  rmSync(root, { recursive: true }); cpSync(source, root, { recursive: true });
+  const second = await open(root);
+  expect(second.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
+  expect(readWriterBinding(root)!.jobId).not.toBe(binding.jobId);
+  const archives = readdirSync(dirname(state)).filter(name => name.startsWith(`${basename(state)}.replaced-`));
+  expect(archives).toHaveLength(1);
+  const archived = join(dirname(state), archives[0]!, 'host');
+  expect(readFileSync(join(archived, 'jobs.sqlite'))).toEqual(retainedDb);
+  expect(readFileSync(join(archived, 'job-ui', `${binding.jobId}.json`))).toEqual(retainedDescriptor);
+}, 20_000);
+
+test('#523 reconcile recovers a dead same-path host before job open, and live replaced-root refuses before writes', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-redo-reconcile-'))); roots.push(root);
+  const source = join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict');
+  cpSync(source, root, { recursive: true });
+  await open(root);
+  const binding = readWriterBinding(root)!;
+  const descriptor = join(jobHostStateRoot(root), 'host/job-ui', `${binding.jobId}.json`);
+  const { pid } = JSON.parse(readFileSync(descriptor, 'utf8')) as { pid: number };
+  // Keep the old host live while replacing only this synthetic project directory.
+  rmSync(root, { recursive: true }); cpSync(source, root, { recursive: true });
+  const pristine = readFileSync(join(root, 'project.json'));
+  for (const action of ['open', 'reconcile']) {
+    const result = await cli(root, ['job', action, root, ...(action === 'open' ? ['--reviewer', 'synthetic-owner', '--role', 'owner'] : [])]);
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toStartWith('JOB_ROOT_REPLACED: ');
+    expect(result.stderr).toContain(`recorded PID ${pid}`);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(pristine);
+    expect(readWriterBinding(root)).toBeNull();
+    expect(existsSync(descriptor)).toBe(true);
+  }
+  // The live listener was preserved even though requests against replaced sources may refuse.
+  expect(await hostPortRefuses(Number(new URL(binding.origin).port))).toBe(false);
+  process.kill(pid, 'SIGKILL');
+  expect(await opened.at(-1)!.proc.exited).toBe(137);
+  const reconciled = await cli(root, ['job', 'reconcile', root]);
+  expect({ exit: reconciled.exit, stderr: reconciled.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(reconciled.stdout).toContain('reconciled 0 publication(s)');
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+  expect((await open(root)).lines[0]).toBe('job: draft chain published');
+}, 20_000);
 
 const WORDS = '  Synthetic page words.\n';
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));

@@ -17,6 +17,12 @@
   model manifest.
 - **Camera options.** Post decides fixed framing or camera-box moves. Timed
   head-turn dials, plate parallax and take-wide gaze remain unavailable in direction.
+- **Seamless loop on a rig with physics.** A looping take that starts at
+  source 0 begins with springs at rest and ends with them moving, so hair and
+  ribbons jump at the seam. Map the take onto a source interval that starts
+  after whole periods of the clip; ten were enough on the measured rig. The
+  number depends on the rig's damping, so compare the first and last frames
+  before choosing it.
 - **Upscale first** a painting smaller than the rig needs (SOURCE.md, step 2 below).
 - **The crux is a bar.** Before rigging, name every risk band, count background
   or doubled pixels over every frame and both physics/breath extremes, and

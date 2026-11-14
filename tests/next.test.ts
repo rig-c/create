@@ -6,11 +6,13 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import type { ActV3, JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
+import { reopenCommand as ingestReopen } from '../src/reopen.ts';
+import { exportedReopen, expectedReopenSubjectsThrough } from './reopen-act-fixture.ts';
 import { checkProject } from '../src/check.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
 import { stageIndex } from '../src/stages.ts';
-import { jobHostStateRoot } from '../src/job-outbox.ts';
+import { JOB_BINDING_FILE, jobHostStateRoot } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { baselineOf, newFindings } from '../src/refusal-baseline.ts';
 import { partsStructureSnapshot, pendingJobActs } from '../src/job-acts.ts';
@@ -792,7 +794,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     }
   });
 
-  test('plant 6 (human bounce): rig and direction reviews name the agent rebuild instead of stale human acts', () => {
+  test('plant 6 (human bounce): rig and direction reviews name the agent rebuild instead of stale human acts', async () => {
     // rig-review: accepted followed by changes-requested
     const rigDir = join(tempDir(), 'rig-withdrawn');
     cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), rigDir, { recursive: true });
@@ -955,34 +957,30 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
 
     const beforeReopen = readFileSync(join(postDir, 'project.json'));
     const closedReport = nextProject(postDir, CHAIN_NOW + 2000);
-    expect(closedReport.moves).toHaveLength(1);
-    expect(closedReport.moves[0]).toMatchObject({ role: 'human', field: 'reopens', awaits: 'reopens[stage=direction-review]' });
-    expect(closedReport.moves[0]!.command).toContain("--by '<human>' --verbatim-file '<absolute-human-words-file>' --source '<reopen-act-id>'");
-    for (const required of ['Until create#493', 'Review host raw export act@4', 'unchanged nonempty value.words',
-      'byte-for-byte', 'actId with --source', 'Empty/missing words: STOP', 'agent never supplies words',
-      'Do not use job fetch-act (it rejects act@4)']) expect(closedReport.moves[0]!.act).toContain(required);
-    expect(closedReport.moves[0]!.act).toContain('Create cannot ingest Review reopen acts yet');
+    expect(closedReport.moves).toHaveLength(5);
+    expect(closedReport.moves.find(move => move.role === 'human')).toMatchObject({ field: 'reopens', awaits: 'reopens[stage=direction-review]',
+      review_act: { kind: 'reopen', stage: 'direction-review' }, command: null });
+    const commands = closedReport.moves.filter(move => move.role === 'agent').map(move => move.command!);
+    expect(commands).toEqual([
+      `rig-create job open ${postDir} --plan --reviewer '<reviewer>' --role owner`,
+      `rig-create job acts ${postDir} --json`,
+      `rig-create reopen direction-review ${postDir} --from-review '<actId>'`,
+      `rig-create job close ${postDir}`,
+    ]);
+    expect(JSON.stringify(closedReport)).not.toContain('Until create#493');
     expect(closedReport.moves.some(move => move.command?.includes('direction write'))).toBe(false);
     expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeReopen);
-    const ownerWords = join(postDir, 'reopen-owner.txt');
-    // Synthetic raw-export fields: preserve the exported scalar, including its
-    // comment label, Unicode, CRLF and final spaces; do not author replacement words.
-    const exportedReopen = { schema: 'rig-review/act@4', actId: 'synthetic-reopen-act',
-      authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
-      value: { stage: 'direction-review', words: '[general]\nReopen the direction review.\r\nKeep the framing — unchanged.  ' } };
-    writeFileSync(ownerWords, Buffer.from(exportedReopen.value.words, 'utf8'));
-    expect(readFileSync(ownerWords)).toEqual(Buffer.from(exportedReopen.value.words, 'utf8'));
-    const reopenArgs = printedArgs(closedReport.moves[0]!.command!).slice(1).map(arg =>
-      arg === '<human>' ? exportedReopen.authority.reviewer.id : arg === '<absolute-human-words-file>' ? ownerWords
-        : arg === '<reopen-act-id>' ? exportedReopen.actId : arg);
-    // A project path and an absolute words-file path work from an unrelated cwd.
+    const exported = await exportedReopen(postDir, 'direction-review', CHAIN_NOW + 3000);
+    const reopenArgs = printedArgs(commands[2]!).slice(2).map(arg => arg === '<actId>' ? exported.act.actId : arg);
     const previousCwd = process.cwd();
     try {
       process.chdir(tempDir());
-      expect(runMainCapture(reopenArgs, CHAIN_NOW + 3000)).toMatchObject({ code: 0, stderr: '' });
+      expect(ingestReopen(reopenArgs, CHAIN_NOW + 3000, { fetch: () => ({ bytes: exported.bytes }) }).exit).toBe(0);
     } finally { process.chdir(previousCwd); }
     const reopened = JSON.parse(readFileSync(join(postDir, 'project.json'), 'utf8')) as JsonObject;
-    expect(obj(arr(reopened.reopens).at(-1))).toMatchObject({ by: exportedReopen.authority.reviewer.id, verbatim: exportedReopen.value.words, source: exportedReopen.actId });
+    // The unit fixture's injected read grant has no host; model the printed job close before the next writer.
+    rmSync(join(postDir, JOB_BINDING_FILE));
+    expect(obj(arr(reopened.reopens).at(-1))).toMatchObject({ by: exported.act.authority.reviewer.id, verbatim: exported.act.value.words, source: `review act ${exported.act.jobId}/${exported.act.actId}` });
     expect(checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true }).warnings.map(row => row.code)).toContain('FEEDBACK_OPEN');
     const postReport = nextProject(postDir, CHAIN_NOW + 3000);
     expect(postReport.moves).toHaveLength(1);
@@ -1319,7 +1317,7 @@ test('#478 answered rigging guides request plan steps before the publishable sig
   const context = readRecordPublished({ root: dir,
     record: { path: 'project.json', sha256: sha256(readFileSync(join(dir, 'project.json'))) },
     result: { kind: 'plan' }, phase: 'inventory' }, CHAIN_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }, ...expectedReopenSubjectsThrough('rigging-interview')]);
 });
 
 

@@ -2,13 +2,11 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject } from './check.ts';
 import { jobHash } from './job-outbox.ts';
-import { jobRuntimeExecArgv } from './job-writer.ts';
 import { refuse } from './refusal.ts';
-import { assertActSubjectDeclared, checkpointActSignoff, decodeReviewAct, reviewActFindings, reviewActTransport, type CheckpointAct, type ReviewActTransport } from './review-act.ts';
+import { assertActSubjectDeclared, checkpointActSignoff, decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, type CheckpointAct, type ReviewActTransport } from './review-act.ts';
 import { stepHash } from './step-hash.ts';
 import { readCheckpointEvidence } from './checkpoint-evidence.ts';
 import type { JsonObject } from './templates.ts';
@@ -29,24 +27,12 @@ export interface CheckpointIngest {
   replay?: JsonObject;
 }
 
-function fetchBytes(transport: ReviewActTransport, hooks: SignoffHooks): string {
-  if (hooks.fetch) return hooks.fetch(transport).bytes;
-  const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
-    stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
-  });
-  let response: { ok: boolean; bytes: string; code: string; message: string };
-  try { response = JSON.parse(child.stdout.toString()); }
-  catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
-  if (!response.ok || child.exitCode) refuse(response.code, response.message);
-  return response.bytes;
-}
-
 /** Fetches, decodes and binds the act to the `--checkpoint` step the command already accepted. */
 export function ingestCheckpointAct(dir: string, project: JsonObject, actId: string, checkpointId: string, now: number, hooks: SignoffHooks): CheckpointIngest {
   const invalid = reviewActFindings(project)[0];
   if (invalid) refuse(invalid.code, invalid.message);
   const transport: ReviewActTransport = { ...reviewActTransport(dir, actId), kind: 'checkpoint' };
-  const bytes = fetchBytes(transport, hooks);
+  const bytes = hooks.fetch ? hooks.fetch(transport).bytes : fetchReviewActBytes(transport);
   const act = decodeReviewAct(bytes, 'checkpoint');
   if (act.jobId !== transport.jobId || act.actId !== transport.actId || Date.parse(act.at) > now) {
     refuse('REVIEW_ACT_INVALID', `signoffs.checkpoint ${checkpointId}: fetched act identity or date differs from the request; fetch the checkpoint act again`);

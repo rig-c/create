@@ -125,7 +125,7 @@ async function page(root: string, url: URL, expectedAsks = 2) {
   return {
     head: head!, asks,
     act: async (subject: string, kind: string, value: object): Promise<JsonObject> => {
-      const ask = asks.find(item => (item.subject as JsonObject).kind === subject)!;
+      const ask = asks.find(item => obj(item.subject).kind === subject && (!('stage' in value) || obj(item.subject).stage === value.stage))!;
       const result = await post('ui/acts', { publicationId: head!.publicationId, askId: ask.askId, pageId,
         displayedNonce: (displayed.value as JsonObject).displayedNonce, expectedGeneration, submissionId: randomUUID(), kind, value });
       expect(result.error).toBeUndefined();
@@ -346,7 +346,7 @@ test('record selectors refuse a legacy package-only host byte-identically with t
   expect(closed.exit, closed.stderr).toBe(0);
   await opened.at(-1)!.proc.exited;
   const record = await open(root, ['--plan']);
-  expect(record.lines).toContain('job: asked signoff rigging-interview');
+  expect(record.lines).toContain('job: asked signoff rigging-interview, reopen interview, reopen plan-approved, reopen parts, reopen parts-review, reopen rigging-interview');
 }, 20_000);
 
 
@@ -445,3 +445,49 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
   expect(move.stdout).toContain('camera');
   await checked(root);
 }, 60_000);
+
+
+test('#493 normal plan job exports and ingests a bounced-post reopen before the printed direction write', async () => {
+  const root = realpathSync(fixture(() => {}, 'example-chain/checkpoints/4-direction-post/project.json'));
+  roots.push(root);
+  const chain = join(import.meta.dir, '../templates/example-chain');
+  // Retain the checkpoint's real producer bytes, then exercise public writers.
+  cpSync(join(chain, 'checkpoints/4-direction-post'), root, { recursive: true });
+  for (const path of ['inputs/background.png', 'evidence/scene-citations.json', 'evidence/direction-input.json']) cpSync(join(chain, path), join(root, path));
+  for (const args of [
+    ['input', 'add', 'inputs/background.png', root, '--origin', 'synthetic background plate'],
+    ['scene', 'write', root, '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json'],
+    ['direction', 'write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'],
+    ['advance', 'direction-review', root],
+    ['review', '2', root, '--verdict', 'accepted', '--by', 'user', '--review', 'direction-review', '--verbatim-file', join(root, 'evidence/approval.txt'), '--source', 'synthetic acceptance'],
+  ]) { const result = await cli(root, args); expect(result.exit, result.stderr).toBe(0); }
+  const bounce = join(root, 'bounce.txt'); writeFileSync(bounce, 'Tighten the final camera hold.\n');
+  const bounced = await cli(root, ['review', '2', root, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review',
+    '--verbatim-file', bounce, '--source', 'synthetic direction bounce', '--item', 'camera_depth:user']);
+  expect(bounced.exit, bounced.stderr).toBe(0);
+  const before = JSON.parse((await cli(root, ['next', root, '--json'])).stdout) as { moves: { role: string; command: string | null }[] };
+  const commands = before.moves.filter(move => move.role === 'agent').map(move => move.command!);
+  expect(commands).toHaveLength(4);
+  expect(commands[0]).toContain('job open'); expect(commands[0]).toContain('--plan'); expect(commands[0]).toContain('--role owner');
+  expect(commands[1]).toBe(`rig-create job acts ${root} --json`);
+  expect(commands[2]).toBe(`rig-create reopen direction-review ${root} --from-review '<actId>'`);
+  expect(commands[3]).toBe(`rig-create job close ${root}`);
+  const opened = await open(root, ['--plan']);
+  const owner = await page(root, opened.url, 10);
+  const exported = await owner.act('reopen', 'reopen', { stage: 'direction-review', words: WORDS });
+  expect(exported.schema).toBe('rig-review/act@4');
+  const listed = await cli(root, ['job', 'acts', root, '--json']); expect(listed.exit, listed.stderr).toBe(0);
+  const pending = (JSON.parse(listed.stdout) as { acts: { actId: string; command: string | null }[] }).acts.find(act => act.actId === exported.actId)!;
+  expect(pending.command).toContain(`reopen direction-review ${root} --from-review`);
+  const ingested = await cli(root, ['reopen', 'direction-review', root, '--from-review', String(exported.actId), '--json']);
+  expect(ingested.exit, ingested.stderr).toBe(0);
+  expect(JSON.parse(ingested.stdout)).toMatchObject({ by: 'synthetic-owner', at: exported.at, verbatim: WORDS });
+  const closed = await cli(root, ['job', 'close', root]); expect(closed.exit, closed.stderr).toBe(0);
+  const next = await cli(root, ['next', root, '--json']); expect(next.exit, next.stderr).toBe(0);
+  const move = (JSON.parse(next.stdout) as { moves: { command: string | null }[] }).moves.find(move => move.command?.startsWith('rig-create direction write'))!;
+  expect(move.command).toContain('direction write 3');
+  const args = move.command!.match(/'[^']*'|\S+/g)!.slice(1).map(arg => arg.startsWith("'") ? arg.slice(1, -1) : arg)
+    .map(arg => arg === '<direction.json>' ? 'evidence/direction-input.json' : arg === '<rig-version>' ? '1' : arg);
+  const written = await cli(root, args); expect(written.exit, written.stderr).toBe(0);
+  await checked(root);
+}, 30_000);

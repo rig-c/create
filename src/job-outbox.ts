@@ -4,7 +4,9 @@ import { existsSync, JOB_PRIVATE_DIRECTORY, lstatSync, readFileSync, readdirSync
 import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import type { JobPublishRequest, JobReviewerBinding, JobSubject, RecordResult } from '@rig-c/review/job-host';
+import type { JobPublishRequest, JobReviewerBinding, JobSubject, RecordSubject, RecordResult } from '@rig-c/review/job-host';
+
+export type PublicationSubject = JobSubject | RecordSubject;
 import { refuse } from './refusal.ts';
 
 export const JOB_BINDING_FILE = '.rig-create-review-binding.json';
@@ -342,7 +344,7 @@ export interface AcknowledgedPublication {
   result: PendingPublication['result'];
   versionHash: string;
   /** The subjects the published context declared. Receipts written before they were retained omit it. */
-  subjects?: readonly JobSubject[];
+  subjects?: readonly PublicationSubject[];
 }
 
 function acknowledgedPath(root: string, jobId: string, publicationId: string): string {
@@ -350,7 +352,7 @@ function acknowledgedPath(root: string, jobId: string, publicationId: string): s
 }
 
 /** Persist the version identity before the pending publication is removed. */
-export function acknowledgePublication(entry: PendingPublication, publicationId: string, generation: number, requestId: string, subjects?: readonly JobSubject[]): void {
+export function acknowledgePublication(entry: PendingPublication, publicationId: string, generation: number, requestId: string, subjects?: readonly PublicationSubject[]): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(publicationId) || !Number.isSafeInteger(generation) || generation < 0 || !entry.versionHash) {
     refuse('JOB_OUTBOX_INVALID', 'project.json: publication acknowledgment lacks its identity; reconcile the original pending publication');
   }

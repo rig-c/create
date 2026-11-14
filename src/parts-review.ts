@@ -3,12 +3,11 @@ import { assertPartsCliArgs, assertPartsReadDraft, decodePartsRead, partsReadFin
 import { randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { readProject } from './feedback.ts';
 import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
-import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { decodeReviewAct, reviewActFindings, reviewActTransport, reviewActVerbatim } from './review-act.ts';
+import { decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, reviewActVerbatim } from './review-act.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -58,14 +57,8 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
   let committed = false;
   const temporary = join(root, `.parts-review-${randomUUID()}.tmp`);
   try {
-    const transport = { ...reviewActTransport(root, actId!), kind: 'parts-verdict' };
-    const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
-      stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
-    });
-    let response: { ok: boolean; bytes: string; code: string; message: string };
-    try { response = JSON.parse(child.stdout.toString()); }
-    catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
-    if (!response.ok || child.exitCode) refuse(response.code, response.message);
+    const transport = { ...reviewActTransport(root, actId!), kind: 'parts-verdict' as const };
+    const response = { bytes: fetchReviewActBytes(transport) };
     const act = decodeReviewAct(response.bytes, 'parts-verdict');
     if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
     const { file } = readProject(root);

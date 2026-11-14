@@ -45,15 +45,14 @@ const GUIDE_HEADINGS = [
  */
 const GUIDE_MAX_BYTES = 10_000;
 
-test('#490 the temporary reopen exception preserves exported words and names its act', () => {
+test('#493 reopen instructions ingest the exported human act', () => {
+  const guide = renderAgentGuide();
+  for (const text of ['`job open --plan`', '`job acts --json`', '`reopen <stage> --from-review <actId>`', '`job close`', 'verbatim words']) expect(guide).toContain(text);
+  expect(guide).not.toContain('Until create#493');
   const readme = readFileSync(join(REPO, 'README.md'), 'utf8');
-  for (const text of [renderAgentGuide(), readme]) {
-    for (const required of ['create#493', 'Review host raw export', '`act@4`', 'nonempty `value.words`',
-      'byte-for-byte', 'verbatim', '`--source`', '`actId`', 'Empty/missing words', 'STOP',
-      '`job fetch-act`', 'rejects']) expect(text).toContain(required);
-    expect(text).toMatch(/(?:Never supply|the agent never supplies) words\./);
-  }
-  expect(Buffer.byteLength(renderAgentGuide())).toBeLessThan(GUIDE_MAX_BYTES);
+  expect(readme).not.toContain('Until create#493');
+  expect(readme).toContain('reopen <stage> --from-review <actId>');
+  expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 
 test('#467 the direction guide names verdict ingest before source-linked record-page sign-off', () => {

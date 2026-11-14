@@ -2,9 +2,8 @@ import { overrideFindings } from './overrides.ts';
 import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
-import { assertActSubjectDeclared, decodeReviewAct, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
+import { acquireBoundJobWrite } from './job-writer.ts';
+import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
@@ -155,17 +154,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
       const invalid = reviewActFindings(next)[0];
       if (invalid) refuse(invalid.code,invalid.message);
       const transport: ReviewActTransport = { ...reviewActTransport(dir, opts.one['--from-review']), kind: 'interview-picks' };
-      if (hooks.fetch) fetched = hooks.fetch(transport);
-      else {
-        const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
-          stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
-        });
-        let response: { ok: boolean; bytes: string; code: string; message: string };
-        try { response = JSON.parse(child.stdout.toString()); }
-        catch { return refuse('REVIEW_ACT_FETCH_REFUSED', 'project.json.review_acts: fetch adapter failed; restore the live Review job'); }
-        if (!response.ok || child.exitCode) refuse(response.code, response.message);
-        fetched = response;
-      }
+      fetched = hooks.fetch ? hooks.fetch(transport) : { bytes: fetchReviewActBytes(transport) };
       act = decodeReviewAct(fetched.bytes, 'interview-picks');
       if (act.jobId !== transport.jobId || act.actId !== transport.actId || Date.parse(act.at) > now
         || act.value.questionId !== item.id) refuse('REVIEW_ACT_INVALID', `${item.path}: fetched identity, question or date differs; fetch the correct interview act`);

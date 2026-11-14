@@ -75,6 +75,10 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         subject = `question ${act.value.questionId}`;
         args = ['interview-answer', act.value.questionId, root];
         break;
+      case 'reopen':
+        subject = `stage ${act.value.stage}`;
+        args = ['reopen', act.value.stage, root];
+        break;
       case 'signoff': {
         subject = `stage ${act.value.stage}`;
         args = ['signoff', act.value.stage, root];

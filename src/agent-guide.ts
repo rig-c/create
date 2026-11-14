@@ -177,7 +177,7 @@ export const READ_FIRST = [
  */
 export const INTERVIEW_CHECK_LINE = 'Run `rig-create interview --check` before interview sign-off: it names every `null` answer.';
 
-export const REOPEN_EXCEPTION = 'Until create#493, agents may type `reopen` only from Review host raw export `act@4`: save nonempty `value.words` byte-for-byte to a verbatim file; `--source` names `actId`. Empty/missing words: STOP. Never supply words. `job fetch-act` rejects act@4.';
+export const REOPEN_EXCEPTION = 'Agents route reopen through Review: `job open --plan`, then `job acts --json`, ingest `reopen <stage> --from-review <actId>`, and `job close`. The exported act supplies the stage, reviewer, date and verbatim words.';
 
 export const GUIDE_TEMPLATE = 'agent-guide.md';
 /** Copied from the same installed create distribution as the rendered guide. */

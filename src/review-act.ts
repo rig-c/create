@@ -3,6 +3,8 @@ import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { jobRuntimeExecArgv } from './job-writer.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, parseRecordAct, projectComments,
   type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
@@ -28,6 +30,9 @@ export type PartsIssue = {
 };
 /** Review's JobAct now includes comments; legacy adapters keep their original source guarantees. */
 type LegacyJobAct = Exclude<JobAct, { schema: typeof JOB_COMMENTS_ACT_SCHEMA }>;
+export type ReopenAct = Extract<RecordAct, { kind: 'reopen' }>;
+export type ReviewActKind = 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' | 'reopen';
+export type DecodedReviewAct = ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct | ReopenAct;
 export type InterviewPicksAct = Extract<LegacyJobAct | RecordAct, { kind: 'interview-picks' }>;
 export type PartsVerdictActV2 = Extract<LegacyJobAct, { kind: 'parts-verdict' }>;
 export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
@@ -88,7 +93,7 @@ function failure(code: string, detail: string): never {
 }
 
 /** The shared decoder validates grammar; Create separately admits its existing source adapters. */
-function decodeCommentsReviewAct(raw: JsonObject, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff'): ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct {
+function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct {
   if (kind === 'interview-picks' || raw.kind === 'interview-picks') failure('REVIEW_ACT_KIND_MISMATCH', 'comments acts do not carry interview answers');
   let act: JobCommentsAct;
   try { act = parseCommentsAct(raw); }
@@ -151,18 +156,19 @@ export function decodeReviewAct(bytes: string, kind: 'interview-picks'): Intervi
 export function decodeReviewAct(bytes: string, kind: 'parts-verdict'): PartsVerdictAct;
 export function decodeReviewAct(bytes: string, kind: 'checkpoint'): CheckpointAct;
 export function decodeReviewAct(bytes: string, kind: 'signoff'): SignoffAct;
-export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct;
-export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' = 'review-verdict'): ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct {
+export function decodeReviewAct(bytes: string, kind: 'reopen'): ReopenAct;
+export function decodeReviewAct(bytes: string, kind: ReviewActKind): DecodedReviewAct;
+export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-verdict'): DecodedReviewAct {
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
+  if (kind === 'reopen' && act.schema !== 'rig-review/act@4') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'reopen requires a record act@4');
   if (act.schema === JOB_COMMENTS_ACT_SCHEMA) return decodeCommentsReviewAct(act, kind);
-  if (act.schema === 'rig-review/act@4' && act.kind === 'reopen' && kind !== 'checkpoint') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'record reopen acts have no Create writer mapping');
-  if (['checkpoint', 'interview-picks', 'signoff'].includes(kind) && act.schema === 'rig-review/act@4') {
+  if (['checkpoint', 'interview-picks', 'signoff', 'reopen'].includes(kind) && act.schema === 'rig-review/act@4') {
     try {
       const recordAct = parseRecordAct(act);
       if (recordAct.kind !== kind) return failure('REVIEW_ACT_KIND_MISMATCH', 'record act kind differs from requested kind');
-      return recordAct as CheckpointAct | InterviewPicksAct | SignoffAct;
+      return recordAct as CheckpointAct | InterviewPicksAct | SignoffAct | ReopenAct;
     } catch { return failure('REVIEW_ACT_INVALID', 'record act or its sealed source is malformed'); }
   }
   if (act.schema !== 'rig-review/act@2' && !(kind === 'review-verdict' && act.schema === 'rig-review/act@3')
@@ -292,7 +298,7 @@ export function decodeReviewAct(bytes: string, kind: 'review-verdict' | 'parts-v
   return act as unknown as ReviewVerdictAct;
 }
 
-export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' = 'review-verdict'): { act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct; bytes: string } {
+export function decodeReviewResponse(text: string, jobId: string, actId: string, requestId: string, kind: ReviewActKind = 'review-verdict'): { act: DecodedReviewAct; bytes: string } {
   let response: JsonObject;
   try { const parsed: unknown = JSON.parse(text); if (!object(parsed)) throw Error(); response = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'Review response is not JSON'); }
@@ -312,7 +318,23 @@ export interface ReviewActTransport {
   jobId: string;
   actId: string;
   fetchCapability: string;
-  kind?: 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff';
+  kind?: Exclude<ReviewActKind, 'review-verdict'>;
+}
+
+/** Synchronous writers use the same authenticated fetch/decoder through the private runtime. */
+export function fetchReviewActRuntime(transport: ReviewActTransport): { bytes: string; stillBytes?: string } {
+  const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
+    stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
+  });
+  let response: { ok: boolean; bytes: string; stillBytes?: string; code: string; message: string };
+  try { response = JSON.parse(child.stdout.toString()); }
+  catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'fetch adapter failed'); }
+  if (!response.ok || child.exitCode !== 0) refuse(response.code, response.message);
+  return { bytes: response.bytes, stillBytes: response.stillBytes };
+}
+
+export function fetchReviewActBytes(transport: ReviewActTransport): string {
+  return fetchReviewActRuntime(transport).bytes;
 }
 
 /** Only the route and fetch grant leave the binding reader. Never attach a host. */
@@ -329,7 +351,7 @@ export function reviewActTransport(root: string, actId: string): ReviewActTransp
   return { origin: origin.origin, jobId: binding.jobId, actId, fetchCapability: binding.fetchCapability };
 }
 
-export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct; bytes: string; stillBytes?: string }> {
+export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: DecodedReviewAct; bytes: string; stillBytes?: string }> {
   const requestId = randomUUID();
   const request = JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId });
   async function read(accept: string): Promise<Response> {
@@ -342,7 +364,7 @@ export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter
       return response;
     } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
   }
-  if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks' || transport.kind === 'checkpoint' || transport.kind === 'signoff') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
+  if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks' || transport.kind === 'checkpoint' || transport.kind === 'signoff' || transport.kind === 'reopen') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
   const bytes = await (await read('application/vnd.rig-review.act+json')).text();
   const act = decodeReviewAct(bytes);
   if (act.jobId !== transport.jobId || act.actId !== transport.actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
@@ -459,12 +481,12 @@ export function reviewActSignoff(act: SignoffAct): JsonObject {
  * acknowledged receipt keeps the subjects create published; a receipt that predates
  * them, or none (a clone), leaves only Review's own ask binding to vouch for it.
  */
-export function assertActSubjectDeclared(root: string, act: SignoffAct | CheckpointAct | InterviewPicksAct, path: string): void {
+export function assertActSubjectDeclared(root: string, act: SignoffAct | CheckpointAct | InterviewPicksAct | ReopenAct, path: string): void {
   const receipt = readAcknowledgedPublication(root, act.jobId, act.publicationId);
   if (receipt?.subjects === undefined) return;
-  const subject = act.kind === 'interview-picks' ? { kind: 'interview-picks', questionId: act.value.questionId, setId: act.source.optionSet.id } : act.kind === 'signoff' ? { kind: 'signoff', stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
+  const subject = act.kind === 'interview-picks' ? { kind: 'interview-picks', questionId: act.value.questionId, setId: act.source.optionSet.id } : act.kind === 'signoff' || act.kind === 'reopen' ? { kind: act.kind, stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
   if (receipt.subjects.some(declared => isDeepStrictEqual(declared, subject))) return;
-  const named = act.kind === 'interview-picks' ? `answers ${act.value.questionId}` : act.kind === 'signoff' ? `signs ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
+  const named = act.kind === 'interview-picks' ? `answers ${act.value.questionId}` : act.kind === 'signoff' || act.kind === 'reopen' ? `${act.kind} ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
   refuse('REVIEW_ACT_SUBJECT_UNDECLARED', `${path}: act ${act.jobId}/${act.actId} ${named}, which its publication ${act.publicationId} did not declare; ask for it in Review on a publication made while the record can sign it`);
 }
 
@@ -512,7 +534,7 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
     try {
       if (!object(entry) || entry.schema !== 'rig-create/review-act@1' || typeof entry.bytes !== 'string'
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
-      const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : 'review-verdict');
+      const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : entry.kind === 'reopen' ? 'reopen' : 'review-verdict');
       if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
       const key = JSON.stringify([act.jobId, act.actId]);
       if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
@@ -534,6 +556,16 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
           || (choice.note ?? '') !== act.value.note || !isDeepStrictEqual(picks.map(raw => object(raw)
             ? { itemId: raw.ask, optionId: raw.option_id, otherText: raw.other_text ?? null } : null), act.value.selections)) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded interview answer differs from the immutable act');
+        }
+        return;
+      }
+      if (act.kind === 'reopen') {
+        const recorded = Number.isSafeInteger(entry.reopen) && Number(entry.reopen) >= 0 ? asArray(project.reopens)[Number(entry.reopen)] : null;
+        if (!object(recorded) || entry.version_hash !== jobHash(JSON.stringify(recorded))
+          || recorded.stage !== act.value.stage || recorded.by !== act.authority.reviewer.id
+          || recorded.at !== act.at || recorded.verbatim !== act.value.words
+          || recorded.source !== `review act ${act.jobId}/${act.actId}`) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'recorded reopen differs from the immutable act');
         }
         return;
       }

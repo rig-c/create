@@ -7,6 +7,7 @@ type Step={id?:string;name?:string;uses?:string;if?:string;env?:Record<string,st
 type Job={'runs-on':string;'timeout-minutes':number;permissions:unknown;steps:Step[];outputs?:Record<string,string>;needs?:string;if?:string};
 type Workflow={on:unknown;permissions:unknown;concurrency:unknown;jobs:{release:Job;publish:Job}};
 const workflow=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/release.yml',import.meta.url),'utf8')) as Workflow;
+const sharedAction=Bun.YAML.parse(readFileSync(new URL('../.github/actions/stage-release/action.yml',import.meta.url),'utf8')) as {runs:{using:string;steps:Step[]}};
 const steps=workflow.jobs.release.steps;
 const target=steps.find(step=>step.id==='target')!;
 const aliasGate='bun scripts/verify-example-seals.ts --tarball "$alias_tgz"';
@@ -146,9 +147,9 @@ function checkWorkflowPolicy(wf:Workflow){
  expect(serialized).not.toContain('NODE_AUTH_TOKEN');
  expect(serialized).not.toContain('secrets.');
  expect(serialized).not.toContain('--otp');
- expect(pub.steps.find(step=>step.uses==='actions/setup-node@v4')?.with).toEqual({'node-version':22,'registry-url':'https://registry.npmjs.org'});
- expect(pub.steps.some(step=>step.run?.includes('npm install -g npm@latest'))).toBe(true);
- expect(pub.steps.some(step=>step.run==='bun install --frozen-lockfile')).toBe(true);
+ expect(pub.steps.filter(step=>step.uses==='./.github/actions/stage-release')).toHaveLength(1);
+ expect(pub.steps.some(step=>step.uses==='actions/setup-node@v4'||step.uses==='oven-sh/setup-bun@v2')).toBe(false);
+ expect(pub.steps.some(step=>step.run?.includes('npm install -g'))).toBe(false);
  expect(pub.permissions).toEqual({contents:'read','id-token':'write'});
  expect(pub.steps[0]).toMatchObject({uses:'actions/checkout@v4',with:{ref:'${{ needs.release.outputs.sha }}'}});
  expect(pub.steps.find(step=>step.env?.TAG_NAME)?.env?.TAG_NAME).toBe('${{ needs.release.outputs.tag }}');
@@ -168,87 +169,133 @@ test('parsed YAML removes release-please, triggers on version tags, preserves le
  checkWorkflowPolicy(workflow);
 });
 
-test('registry smoke stages, packs and verifies the exact tarball before a publish dry-run',()=>{
+test('CI and release share the exact proven toolchain and original staging command',()=>{
  const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {permissions:Record<string,string>;jobs:{check:{steps:Step[];permissions?:Record<string,string>}}};
  const smokeSteps=ci.jobs.check.steps;
- const stage=smokeSteps.findIndex(step=>step.run?.includes('scripts/verify-example-seals.ts --stage'));
- const pack=smokeSteps.findIndex(step=>step.run?.includes('x="$(npm pack . --pack-destination .)"'));
- expect(stage).toBeGreaterThan(-1);
- expect(pack).toBeGreaterThan(stage);
- expect(smokeSteps[stage]!.run).toContain('--stage "$RUNNER_TEMP/create-example-source"');
- expect(smokeSteps[pack]!['working-directory']).toBe('${{ runner.temp }}/create-example-source');
+ const setup=smokeSteps.findIndex(step=>step.uses==='./.github/actions/stage-release');
+ const pack=smokeSteps.findIndex(step=>step.name==='Pack, verify and dry-run both package names');
+ expect(setup).toBeGreaterThan(-1);expect(pack).toBeGreaterThan(setup);
+ expect(smokeSteps.filter(step=>step.uses==='./.github/actions/stage-release')).toHaveLength(1);
+ expect(smokeSteps.some(step=>step.uses==='actions/setup-node@v4'||step.uses==='oven-sh/setup-bun@v2')).toBe(false);
+ expect(sharedAction.runs.using).toBe('composite');
+ const setupSteps=sharedAction.runs.steps;
+ expect(setupSteps.map(step=>step.uses??step.run)).toEqual([
+  'oven-sh/setup-bun@v2','actions/setup-node@v4','npm install -g npm@12.2.2\nnpm --version\n',
+  'bun install --frozen-lockfile','bun scripts/verify-example-seals.ts --stage "$RUNNER_TEMP/create-release-source"',
+ ]);
+ expect(setupSteps[0]!.with).toEqual({'bun-version':'latest'});
+ expect(setupSteps[1]!.with).toEqual({'node-version':22,'registry-url':'https://registry.npmjs.org'});
  const smoke=smokeSteps[pack]!.run!;
- expect(smoke).toContain('x="$(npm pack . --pack-destination .)"\nbun scripts/verify-example-seals.ts --tarball "$x"');
- expect(smoke.indexOf('npm view ')).toBeGreaterThan(smoke.indexOf('bun scripts/verify-example-seals.ts --tarball "$x"'));
+ expect(smoke).toContain('staged="$RUNNER_TEMP/create-release-source"');
+ expect(smoke).toContain('npm pack . --pack-destination .');
+ expect(smoke).toContain('bun scripts/alias_tarball.ts pack --name rig-create');
+ const scopedGate=smoke.indexOf('bun scripts/verify-example-seals.ts --tarball "$scoped_tgz"');
+ const aliasGate=smoke.indexOf('bun scripts/verify-example-seals.ts --tarball "$alias_tgz"');
+ expect(scopedGate).toBeGreaterThan(-1);expect(aliasGate).toBeGreaterThan(scopedGate);
+ expect(smoke.indexOf('npm view ')).toBeGreaterThan(aliasGate);
  expect(smoke.indexOf('npm publish ')).toBeGreaterThan(smoke.indexOf('npm view '));
- expect(smoke).toContain('npm publish "$x" --dry-run --access public');
+ expect(smoke).toContain('for package in @rig-c/create rig-create; do');
+ expect(smoke).toContain('bun scripts/npm-json.ts version');
+ expect(smoke).toContain('bun scripts/npm-json.ts e404');
+ expect(smoke).toContain('npm publish "$tarball" --dry-run --access public');
  expect(smoke).not.toContain('--provenance');
- expect(ci.permissions['id-token']).toBeUndefined();
- expect(ci.jobs.check.permissions?.['id-token']).toBeUndefined();
+ expect(ci.permissions['id-token']).toBeUndefined();expect(ci.jobs.check.permissions?.['id-token']).toBeUndefined();
 });
 
-// Execute the actual CI body with only local stubs; no real npm or network client is on PATH.
-function registrySmoke(view:{exit:number;stdout:string;stderr?:string}){
+type View={exit:number;stdout:string;stderr?:string};
+// Execute the CI body with isolated command stubs; only the JSON reader runs for real.
+function registrySmoke(view:View,aliasView:View=view,gateExit=0){
  const root=mkdtempSync(join(tmpdir(),'create-registry-smoke-'));
  try{
   const bin=join(root,'bin');mkdirSync(bin);
+  const runner=join(root,'runner temp');mkdirSync(join(runner,'create-release-source'),{recursive:true});
   const trace=join(root,'trace');writeFileSync(trace,'');
   writeFileSync(join(root,'package.json'),JSON.stringify({version:'1.0.2'}));
-  const fixture=join(root,'view.json');writeFileSync(fixture,JSON.stringify(view));
+  const fixture=join(root,'view.json');writeFileSync(fixture,JSON.stringify({scoped:view,alias:aliasView,gateExit}));
   const mock=String.raw`
 import {appendFileSync,readFileSync} from 'node:fs';
-import {basename} from 'node:path';
+import {basename,join} from 'node:path';
+import {spawnSync} from 'node:child_process';
 const command=basename(process.argv[1]),args=process.argv.slice(2);
 appendFileSync(process.env.TRACE,JSON.stringify({command,args})+'\n');
+const fixture=JSON.parse(readFileSync(process.env.FIXTURE,'utf8'));
 const is=(...expected)=>JSON.stringify(args)===JSON.stringify(expected);
 if(command==='npm'&&is('pack','.','--pack-destination','.')){console.log('candidate.tgz');process.exit(0);}
-if(command==='bun'&&is('scripts/verify-example-seals.ts','--tarball','candidate.tgz'))process.exit(0);
-if(command==='npm'&&is('view','@rig-c/create@1.0.2','version','--json')){
- const view=JSON.parse(readFileSync(process.env.FIXTURE,'utf8'));
- process.stdout.write(view.stdout);process.stderr.write(view.stderr??'');process.exit(view.exit);
+if(command==='bun'&&args[0]==='scripts/verify-example-seals.ts'&&args[1]==='--tarball')process.exit(fixture.gateExit);
+if(command==='bun'&&args[0]==='scripts/alias_tarball.ts'&&args[1]==='pack'){
+ console.log(join(process.env.RUNNER_TEMP,'alias-rig-create','alias.tgz'));process.exit(0);
 }
-if(command==='npm'&&is('publish','candidate.tgz','--dry-run','--access','public'))process.exit(0);
+if(command==='bun'&&args[0]==='scripts/npm-json.ts'){
+ const result=spawnSync(process.execPath,[process.env.NPM_JSON_HELPER,...args.slice(1)],{stdio:'inherit'});
+ process.exit(result.status??98);
+}
+if(command==='npm'&&args[0]==='view'&&args[2]==='version'&&args[3]==='--json'){
+ const view=args[1]==='@rig-c/create@1.0.2'?fixture.scoped:args[1]==='rig-create@1.0.2'?fixture.alias:null;
+ if(view){process.stdout.write(view.stdout);process.stderr.write(view.stderr??'');process.exit(view.exit);}
+}
+if(command==='npm'&&args[0]==='publish'&&args[2]==='--dry-run'&&args[3]==='--access'&&args[4]==='public')process.exit(0);
 console.error('UNEXPECTED_SMOKE_COMMAND',command,JSON.stringify(args));process.exit(97);
 `;
-  for(const name of ['npm','bun']){const file=join(bin,name);writeFileSync(file,`#!${process.execPath}
-${mock}
-`);chmodSync(file,0o755);}
+  for(const name of ['npm','bun']){const file=join(bin,name);writeFileSync(file,`#!${process.execPath}\n${mock}\n`);chmodSync(file,0o755);}
   for(const name of ['node','mktemp','rm','cat']){
    const executable=Bun.which(name);if(!executable)throw Error(`${name} is required by the CI smoke`);
    symlinkSync(executable,join(bin,name));
   }
   const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {jobs:{check:{steps:Step[]}}};
-  const body=ci.jobs.check.steps.find(step=>step.run?.includes('x="$(npm pack . --pack-destination .)"'))!.run!;
+  const body=ci.jobs.check.steps.find(step=>step.name==='Pack, verify and dry-run both package names')!.run!;
   const result=Bun.spawnSync(['/bin/bash','--noprofile','--norc','-c',body],{cwd:root,timeout:10000,
-   env:{PATH:bin,HOME:root,TMPDIR:root,TRACE:trace,FIXTURE:fixture}});
-  const text=result.stdout.toString()+result.stderr.toString();
-  expect(text).not.toContain('UNEXPECTED_SMOKE_COMMAND');
-  return {exit:result.exitCode,text,calls:readFileSync(trace,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line) as Call)};
+   env:{PATH:bin,HOME:root,TMPDIR:root,TRACE:trace,FIXTURE:fixture,RUNNER_TEMP:runner,
+    NPM_JSON_HELPER:new URL('../scripts/npm-json.ts',import.meta.url).pathname}});
+  const text=result.stdout.toString()+result.stderr.toString();expect(text).not.toContain('UNEXPECTED_SMOKE_COMMAND');
+  return {exit:result.exitCode,text,calls:readFileSync(trace,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line) as Call),runner};
  }finally{rmSync(root,{recursive:true,force:true});}
 }
 
 for(const [label,view,exit,publish] of [
- ['published',{exit:0,stdout:'"1.0.2"'},0,false],
+ ['published npm 11',{exit:0,stdout:'"1.0.2"'},0,false],
+ ['published npm 12',{exit:0,stdout:'["1.0.2"]'},0,false],
  ['unpublished E404',{exit:1,stdout:JSON.stringify({error:{code:'E404'}})},0,true],
  ['auth E401',{exit:1,stdout:JSON.stringify({error:{code:'E401'}})},1,false],
  ['network timeout',{exit:1,stdout:JSON.stringify({error:{code:'ETIMEDOUT'}})},1,false],
  ['unstructured E404 text',{exit:1,stdout:'request failed: E404'},1,false],
- ['different served version',{exit:0,stdout:'"1.0.3"'},1,false],
+ ['different served version',{exit:0,stdout:'["1.0.3"]'},1,false],
+ ['invalid success JSON',{exit:0,stdout:'not JSON'},1,false],
+ ['wrong version envelope',{exit:0,stdout:'{"version":"1.0.2"}'},1,false],
+ ['empty version array',{exit:0,stdout:'[]'},1,false],
 ] as const){
- test(`registry smoke ${label} preserves the gate and admits only a confirmed unpublished dry-run`,()=>{
+ test(`registry smoke ${label} gates both tarballs and admits only a confirmed unpublished dry-run`,()=>{
   const result=registrySmoke(view);expect(result.exit).toBe(exit);
-  expect(result.calls.slice(0,3)).toEqual([
+  expect(result.calls.slice(0,4)).toEqual([
    {command:'npm',args:['pack','.','--pack-destination','.']},
-   {command:'bun',args:['scripts/verify-example-seals.ts','--tarball','candidate.tgz']},
-   {command:'npm',args:['view','@rig-c/create@1.0.2','version','--json']},
+   {command:'bun',args:['scripts/verify-example-seals.ts','--tarball',join(result.runner,'create-release-source','candidate.tgz')]},
+   {command:'bun',args:['scripts/alias_tarball.ts','pack','--name','rig-create','--out',join(result.runner,'alias-rig-create'),'--tarball',join(result.runner,'create-release-source','candidate.tgz'),'--pack-timeout-ms','300000']},
+   {command:'bun',args:['scripts/verify-example-seals.ts','--tarball',join(result.runner,'alias-rig-create','alias.tgz')]},
   ]);
-  expect(result.calls.filter(call=>call.command==='npm'&&call.args[0]==='publish')).toEqual(publish?
-   [{command:'npm',args:['publish','candidate.tgz','--dry-run','--access','public']}]:[]);
-  const skip='dry-run skipped: @rig-c/create@1.0.2 is already published; the tarball gate above is the check';
-  if(label==='published')expect(result.text.trim()).toBe(skip);
-  else expect(result.text).not.toContain(skip);
+  const publications=result.calls.filter(call=>call.command==='npm'&&call.args[0]==='publish');
+  expect(publications).toEqual(publish?[
+   {command:'npm',args:['publish',join(result.runner,'create-release-source','candidate.tgz'),'--dry-run','--access','public']},
+   {command:'npm',args:['publish',join(result.runner,'alias-rig-create','alias.tgz'),'--dry-run','--access','public']},
+  ]:[]);
+  if(label.startsWith('published')){
+   for(const name of ['@rig-c/create','rig-create'])expect(result.text).toContain(`dry-run skipped: ${name}@1.0.2 is already published; the tarball gate above is the check`);
+   expect(result.calls.filter(call=>call.command==='npm'&&call.args[0]==='view')).toHaveLength(2);
+  }else expect(result.text).not.toContain('dry-run skipped:');
+  if(exit!==0){expect(result.text).toContain('npm view @rig-c/create@1.0.2 version --json:');expect(result.text).toContain('expected');expect(result.text).toContain('actual');}
  });
 }
+
+test('a published scoped name still checks and dry-runs an unpublished alias',()=>{
+ const result=registrySmoke({exit:0,stdout:'["1.0.2"]'},{exit:1,stdout:'{"error":{"code":"E404"}}'});
+ expect(result.exit).toBe(0);
+ expect(result.calls.filter(call=>call.command==='npm'&&call.args[0]==='publish')).toEqual([
+  {command:'npm',args:['publish',join(result.runner,'alias-rig-create','alias.tgz'),'--dry-run','--access','public']},
+ ]);
+});
+
+test('a failed scoped tarball gate prevents alias packing, registry queries and dry-run publication',()=>{
+ const result=registrySmoke({exit:0,stdout:'["1.0.2"]'},undefined,23);
+ expect(result.exit).toBe(23);expect(result.calls).toHaveLength(2);
+});
 
 for(const [label,mutate] of Object.entries<(copy:Workflow)=>void>({
  'alias gate checks the scoped tarball instead of its own output':copy=>{const alias=copy.jobs.publish.steps.find(step=>step.name==='Publish the alias rig-create')!;alias.run=alias.run!.replace(aliasGate,'bun scripts/verify-example-seals.ts --tarball "$SCOPED_TARBALL"');},

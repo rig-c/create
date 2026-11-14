@@ -44,26 +44,11 @@ jobs:
             tarball="$scoped_tgz"
             if [ "$package" = rig-create ]; then tarball="$alias_tgz"; fi
             if npm view "$package@$version" version --json > "$view_json" 2> "$view_err"; then
-              node -e '
-                const fs = require("node:fs");
-                const actual = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-                if (actual !== process.argv[2]) {
-                  console.error("npm view returned a different version; refusing dry-run");
-                  process.exit(1);
-                }
-              ' "$view_json" "$version"
+              bun scripts/npm-json.ts version "$view_json" "$package@$version" "$version"
               printf 'dry-run skipped: %s@%s is already published; the tarball gate above is the check\n' "$package" "$version"
               continue
             fi
-            if ! node -e '
-              const fs = require("node:fs");
-              try {
-                const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-                if (result?.error?.code === "E404") process.exit(0);
-              } catch {}
-              console.error("npm view failed without structured E404; refusing dry-run");
-              process.exit(1);
-            ' "$view_json"; then
+            if ! bun scripts/npm-json.ts e404 "$view_json" "$package@$version"; then
               cat "$view_err" >&2
               exit 1
             fi

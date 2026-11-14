@@ -7,6 +7,7 @@
   "files": [
     "src/",
     "scripts/verify-example-seals.ts",
+    "scripts/npm-json.ts",
     "templates/",
     "README.md",
     "LICENSE",

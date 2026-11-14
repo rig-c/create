@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { readNpmJson } from './npm-json.ts';
 
 const packageRoot = resolve(import.meta.dir, '..');
 const hash = (path: string): string => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -118,11 +119,11 @@ export function packExamples(output: string, stageOutput?: string): string {
     mkdirSync(destination, { recursive: true });
     const staged = stageOutput === undefined ? join(scratch, 'source') : resolve(stageOutput);
     stage(packageRoot, staged);
-    const [packed] = JSON.parse(run('npm', ['pack', '.', '--json', '--pack-destination', destination], staged)) as {
-      filename: string; entryCount: number; size: number; unpackedSize: number;
-    }[];
-    const tarball = join(destination, packed!.filename);
-    console.error(`npm pack: ${packed!.entryCount} files / ${packed!.size} bytes compressed / ${packed!.unpackedSize} bytes unpacked`);
+    const name = (JSON.parse(readFileSync(join(staged, 'package.json'), 'utf8')) as { name: string }).name;
+    const args = ['pack', '.', '--json', '--pack-destination', destination];
+    const packed = readNpmJson(run('npm', args, staged), `npm ${args.join(' ')}`, 'pack', name);
+    const tarball = join(destination, packed.filename);
+    console.error(`npm pack: ${packed.entryCount} files / ${packed.size} bytes compressed / ${packed.unpackedSize} bytes unpacked`);
     verifyTarball(tarball, packageRoot);
     return tarball;
   } finally { rmSync(scratch, { recursive: true, force: true }); }

@@ -64,6 +64,7 @@ test('rendered guide fits its byte bar and scopes camera choices to the directio
   expect(Buffer.byteLength(guide)).toBeLessThan(10_000);
   expect(guide).toContain('Keep the host up across bound writes');
   expect(guide).toContain('then `job reconcile`');
-  expect(guide).toContain('direction has no depth/turn fields');
-  expect(guide).not.toContain('when the plan has a head turn driven by depth');
+  expect(guide).toContain('](AGENT-REFERENCE.md)');
+  expect(readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8')).toContain('direction has no depth/turn fields');
+  expect(`${guide}\n${readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8')}`).not.toContain('when the plan has a head turn driven by depth');
 });

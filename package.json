@@ -11,6 +11,7 @@
     "templates/",
     "README.md",
     "LICENSE",
+    "docs/AGENT-REFERENCE.md",
     "docs/PROJECT.md",
     "docs/INTERVIEW.md",
     "docs/CHECKS.md",

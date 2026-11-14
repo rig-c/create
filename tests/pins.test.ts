@@ -116,7 +116,7 @@ test('package.json, bun.lock, and tsconfig.json declare direct @rig-c/core and t
     dependencies?: Record<string, string>;
   };
   expect(pkg.private).toBeUndefined();
-  expect(pkg.version).toBe('1.0.4');
+  expect(pkg.version).toBe('1.1.0');
   expect(pkg.dependencies?.['@rig-c/core']).toBe(PINNED_PACKAGES['@rig-c/core']);
   expect(pkg.dependencies?.['@rig-c/parts']).toBe(PINNED_PACKAGES['@rig-c/parts']);
 

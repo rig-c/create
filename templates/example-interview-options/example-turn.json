@@ -1,0 +1,108 @@
+{
+  "schema": "rig-create/interview-options@1",
+  "id": "example-turn",
+  "question": "turn",
+  "stage": "rigging-interview",
+  "drafted_by": "agent",
+  "drafted_at": "2026-11-14T00:00:39.000Z",
+  "context": {
+    "kind": "parts",
+    "accepted_parts": {
+      "signoff_at": "2026-11-14T00:00:37.000Z",
+      "evidence": {
+        "kind": "parts-verdict",
+        "path": "evidence/review-reads/8866887a00012b5d5944b7525a478aea70931935bff35ddfcb186ffc515ef5af.json",
+        "sha256": "8866887a00012b5d5944b7525a478aea70931935bff35ddfcb186ffc515ef5af",
+        "spec": "rig-create/parts-verdict-cli@1"
+      }
+    },
+    "structure": {
+      "path": "evidence/structure-decisions.json",
+      "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
+    },
+    "draft_id": "example",
+    "parts": {
+      "path": "derived/drafts/example/input",
+      "files": [
+        {
+          "path": "derived/drafts/example/input/painting_in_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/background.png",
+          "sha256": "c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/eye_l.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/eye_r.png",
+          "sha256": "c080dceac3b4d8fbc824ebb0ebffe61047f10af4e2cdd8d51b32bf779691617e"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/face.png",
+          "sha256": "9626a5008eb90b22ab7623cb79048ed521c6aa651254287bbc9df8606b9f0bf7"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/lantern.png",
+          "sha256": "79ff42136a509e98032352ef9f8c0857a5d7f16667eb629bc048b9b8ef24d96a"
+        },
+        {
+          "path": "derived/drafts/example/input/parts/torso.png",
+          "sha256": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912"
+        },
+        {
+          "path": "derived/drafts/example/input/parts.json",
+          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+        }
+      ]
+    }
+  },
+  "asks": [
+    {
+      "id": "view",
+      "prompt": "Should this rig keep the painted view, or turn its head with depth?",
+      "options": [
+        {
+          "id": "fixed",
+          "kind": "value",
+          "label": "Fixed view",
+          "effect": "Keep the painted view.",
+          "fragment": {
+            "mode": "fixed"
+          },
+          "recommended": true,
+          "reason": "This synthetic project keeps its approved painted view."
+        },
+        {
+          "id": "turn",
+          "kind": "value",
+          "label": "Head turn",
+          "effect": "The head turns with depth, like the head-turn demo.",
+          "fragment": {
+            "mode": "depth"
+          },
+          "recommended": false
+        },
+        {
+          "id": "other",
+          "kind": "other",
+          "label": "Other",
+          "effect": "Describe the view you want.",
+          "recommended": false
+        },
+        {
+          "id": "auto",
+          "kind": "auto",
+          "label": "Let the agent decide",
+          "effect": "The agent records its decision before approval.",
+          "recommended": false
+        }
+      ]
+    }
+  ],
+  "assembly": {
+    "rule": "merge"
+  }
+}

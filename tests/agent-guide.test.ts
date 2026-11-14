@@ -147,7 +147,7 @@ describe('init --no-install writes the agent guide', () => {
 
 const DEFERRED_RULES = [
   "- **Projection.** Ask and record it per [CHECKS.md § Projection and ground](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#projection-and-ground).",
-  "- **Camera options.** Offer fixed view or camera-box moves only. Head turn,\n  depth and plate parallax are unavailable: direction has no depth/turn fields.",
+  "- **Camera options.** Post decides fixed framing or camera-box moves. Timed\n  head-turn dials, plate parallax and take-wide gaze remain unavailable in direction.",
   "- **Upscale first** a painting smaller than the rig needs (SOURCE.md, step 2 below).",
   "- **The crux is a bar.** Before rigging, name every risk band, count background\n  or doubled pixels over every frame and both physics/breath extremes, and\n  report the maximum and its frame. Cover every band crossing another bone.",
   "- **Appearance needs a person**, not a step bar: [CHECKS.md § Appearance bar wording](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#appearance-bar-wording).",

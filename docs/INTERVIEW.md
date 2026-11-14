@@ -223,7 +223,7 @@ seeing a build. Read from `@rig-c/parts` 2.4.0:
 | `meshes`, `regions` | waypoint `meshes` | what deforms and what rides rigid |
 | `constraints`, `stops`, `cloth` | waypoint `constraints` | what moves on physics and how far |
 | `motion` | waypoint `motion` | what moves, how far, how fast |
-| `turn`, `depth` | post item `camera_depth` | historical question mapping only; direction cannot carry depth or turn, so do not offer these as options |
+| `turn`, `depth` | rigging waypoint `turn` | fixed view or head turn with depth; before rig, after approved parts |
 | `key`, `generation`, `proposed_rig_scale`, `requirements`, `motion_seams`, `note` | not a waypoint | a name, a record of a run, a value the tool proposes, a path to a checks file, an observation, an annotation — none is a direction call. `requirements` is where translated guide sentences will land, not where they are asked. |
 
 The agent writes the checks file named by the config's `requirements` path.
@@ -345,12 +345,24 @@ names ([PROJECT.md § The hand-off to post-production](PROJECT.md#the-hand-off-t
 | `post_timing` | — | How long, does it loop, and where are the beats? | clip length, loop point, timing of motions against each other | *"Ten seconds, looping; the gust comes once, in the middle."* |
 | `post_composition` | — | What is around the figure — background, framing, other figures, light? | framing, background plate, what else is on screen | *"Frame from the knees up; keep the lighthouse in shot."* |
 
-The `camera_depth` question text in `project.json` still names a head turn and
-parallax: recorded projects and the hash-sealed examples carry those bytes, so they stay.
-Ask it as this table words it, with options that fit the current writers. Offer fixed framing, a push-in or another camera-box path. A head turn
-is not available yet: the direction format cannot carry depth or turn. It also
-has no relative plate motion for parallax, or take-wide gaze/dial cycle. Do not
-offer those as buildable choices or sign plan bars promising them.
+Ask `turn` at rigging-interview, against the accepted parts: “Should this rig
+keep the painted view, or turn its head with depth?” Offer **Fixed view**,
+**Head turn**, **Other** and **Let the agent decide**. Fixed view adds no depth
+step. Head turn records only `{ "mode": "depth" }`; the agent records the chosen
+route and reason in the `turn` plan step text. Draft that step in phase `rig`,
+resting on `turn`, before the steps that run rig. Its bar reads the retained
+producer reports, and rigging-interview approval covers it. The default
+per-part sequence runs `depth-prepare`, a separately supplied model (face
+normals, scalar depth for the other parts), then `depth-apply`; the ordinary
+`rig` writes the consumed `depth_sheets.json`. Read parts' `docs/DEPTH.md` for
+the producer contract. `rig-version --depth-manifest <file>` retains the
+prepare manifest with the applied report and rig sheet manifest; all are bound
+by bytes and spec, without redoing producer measurements.
+
+Post `camera_depth` asks only about fixed framing or a camera-box path such as
+a push-in. Historical question text and citations keep their original bytes.
+Timed head-turn dials, relative plate parallax and take-wide gaze remain
+unavailable in direction; do not promise them in plan bars.
 
 ## Bars have reading commands
 

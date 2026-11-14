@@ -84,7 +84,7 @@
       "stage": "rigging-interview",
       "checkpoint": null,
       "by": "user",
-      "at": "2026-11-06T01:00:51.000Z",
+      "at": "2026-11-06T01:00:54.000Z",
       "verbatim": "Approve this synthetic geometric example.\n",
       "steps": [
         "bones",
@@ -93,16 +93,16 @@
         "motion"
       ],
       "step_hashes": {
-        "bones": "01538a971af3e2660d16e09dd134ead4315d96f95f1881fbb5390c60f190b277",
-        "meshes": "b295b8235a32067981729ccd6964f640ebecbf26c4be3cffbdafbdf0e94255ac",
-        "constraints": "02981c08d2222596034d35266369323a42043e97e2528d2a193888510406084a",
-        "motion": "b64611dc943b8a8b98a10a33eb47eded09f8386ae4390c2ee971f2907c26447e"
+        "bones": "94dc05f173ea780f34210bde676be1838e5ae8bb2331c8387beb55b38c8bfadc",
+        "meshes": "ad53bc5dac7eb56479fc2912442a52a0490375261a90a8d1ae60ec1030a36b74",
+        "constraints": "0d142b7fc27029cd2b86e678f70b2025c29d1632acb38e8f98c6646826b564c3",
+        "motion": "518ff49c26fa26b0fd8fe95308ab991468fbed4756336f5d4ee473e9165985ac"
       },
       "answer_hashes": {
         "bones": "a5b71f01dfef5f46671e2c9a1c6516771ef41aa5eaf561bd0fc530b98348248f",
         "meshes": "de83fc1e842143cdfd6b17555320df765dbaa3629d5e0e996255a596bff2831f",
         "constraints": "42d3713ca972e1e06f87595aff5df9b581b273582a06ea9415b0ffc18688494b",
-        "motion": "d4e6254c466379b13f88f75c3cd53baf6326b2095ecf39aba8fcf8cddb543fee"
+        "motion": "cdf557ef308c8242c2038f13a92acad8e3022b8ef7ba33cf96890899cc1035e3"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-06T01:00:37.000Z",
@@ -121,6 +121,7 @@
   ],
   "interview": {
     "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.37.0)",
+    "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
     "interviewer": null,
@@ -694,6 +695,57 @@
         "history": []
       },
       {
+        "id": "turn",
+        "config": [
+          "turn",
+          "depth"
+        ],
+        "prompts": [
+          {
+            "id": "view",
+            "text": "Should this rig keep the painted view, or turn its head with depth?",
+            "source": "rig-create",
+            "required_for": [
+              "all"
+            ]
+          }
+        ],
+        "guide": {
+          "delegated": false,
+          "by": "user",
+          "at": "2026-11-06T01:00:50.000Z",
+          "verbatim": "Fixed view\nKeep the painted view.",
+          "source": "review questionnaire",
+          "choice": {
+            "spec": "rig-create/interview-choice@1",
+            "set": {
+              "path": "evidence/interview/turn.json",
+              "sha256": "415305189be92ad844c9570b24d338d2ca9abde327bfe59a1ca149f43ef7cdcb"
+            },
+            "picks": [
+              {
+                "ask": "view",
+                "option_id": "fixed",
+                "shown": {
+                  "label": "Fixed view",
+                  "effect": "Keep the painted view."
+                }
+              }
+            ]
+          },
+          "asks": [
+            {
+              "id": "view",
+              "state": "user"
+            }
+          ],
+          "value": {
+            "mode": "fixed"
+          }
+        },
+        "history": []
+      },
+      {
         "id": "motion",
         "config": [
           "motion"
@@ -722,14 +774,14 @@
         "guide": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:50.000Z",
+          "at": "2026-11-06T01:00:53.000Z",
           "verbatim": "Use the synthetic tracks\nKeep the declared geometric example.\n\nUse the synthetic extent\nKeep the declared geometric example.\n\nUse the synthetic speed\nKeep the declared geometric example.\n\nUse the synthetic loop\nKeep the declared geometric example.\n\nUse the synthetic blink\nKeep the declared geometric example.",
           "source": "review questionnaire",
           "choice": {
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/motion.json",
-              "sha256": "82a3831e8f95abee27c19bdcb81cd7448d9d20cb84b43b45fcee121bd77d4373"
+              "sha256": "1d95bcbb75d4eca7ffc7df1b39f45a8c5159c3ae909b27d71eca08bc3e10562f"
             },
             "picks": [
               {
@@ -813,11 +865,8 @@
       "items": [
         {
           "id": "camera_depth",
-          "config": [
-            "turn",
-            "depth"
-          ],
-          "text": "Does the view move (a 2.5D head-turn with parallax, a push-in) or is it fixed?",
+          "config": [],
+          "text": "Is the view fixed, or does it move along a camera-box path such as a push-in?",
           "source": "rig-create",
           "guide": null,
           "history": []
@@ -975,7 +1024,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:51.000Z",
+          "at": "2026-11-06T01:00:54.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -995,7 +1044,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:51.000Z",
+          "at": "2026-11-06T01:00:54.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -1015,7 +1064,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:51.000Z",
+          "at": "2026-11-06T01:00:54.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -1035,7 +1084,7 @@
         "checkpoint": {
           "delegated": false,
           "by": "user",
-          "at": "2026-11-06T01:00:51.000Z",
+          "at": "2026-11-06T01:00:54.000Z",
           "verbatim": "Approve this synthetic geometric example.\n",
           "value": false
         },
@@ -1104,7 +1153,7 @@
       "n": 1,
       "kind": "rig",
       "rig_version": null,
-      "at": "2026-11-06T01:00:53.000Z",
+      "at": "2026-11-06T01:00:56.000Z",
       "built_by": "agent",
       "built_with": {
         "@rig-c/parts": "2.37.0",
@@ -1221,7 +1270,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "9db089413698547b7b4dd922c87229c59b4e3965c3ed2235b46388a095435b25"
+            "sha256": "0495aaab65a68e7967eaf2e8ea5b009d480cfc5798e1dfc03d61576fc740f714"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1305,7 +1354,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "daffd86f81fa1e59cf0087e11f2e99ab362ae6e29c19df19c14ef4f1abb9a52e"
+            "sha256": "de4ef394c4bfadfdb08200308bf07ef40bc5edec46e3722d642326c6eb535ea4"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -1610,7 +1659,7 @@
     {
       "stage": "rigging",
       "from_stage": "rigging-interview",
-      "at": "2026-11-06T01:00:52.000Z",
+      "at": "2026-11-06T01:00:55.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -1637,13 +1686,13 @@
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:51.000Z"
+          "at": "2026-11-06T01:00:54.000Z"
         }
       ],
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:51.000Z"
+        "at": "2026-11-06T01:00:54.000Z"
       },
       "steps_before": [
         {
@@ -1681,7 +1730,7 @@
     {
       "stage": "rig-review",
       "from_stage": "rigging",
-      "at": "2026-11-06T01:00:55.000Z",
+      "at": "2026-11-06T01:00:58.000Z",
       "post_not_passed": false,
       "order": "split",
       "signoffs_before": [
@@ -1708,13 +1757,13 @@
         {
           "stage": "rigging-interview",
           "checkpoint": null,
-          "at": "2026-11-06T01:00:51.000Z"
+          "at": "2026-11-06T01:00:54.000Z"
         }
       ],
       "signoff": {
         "stage": "rigging-interview",
         "checkpoint": null,
-        "at": "2026-11-06T01:00:51.000Z"
+        "at": "2026-11-06T01:00:54.000Z"
       },
       "steps_before": [
         {
@@ -1803,7 +1852,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "9db089413698547b7b4dd922c87229c59b4e3965c3ed2235b46388a095435b25"
+          "sha256": "0495aaab65a68e7967eaf2e8ea5b009d480cfc5798e1dfc03d61576fc740f714"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -1859,7 +1908,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "daffd86f81fa1e59cf0087e11f2e99ab362ae6e29c19df19c14ef4f1abb9a52e"
+          "sha256": "de4ef394c4bfadfdb08200308bf07ef40bc5edec46e3722d642326c6eb535ea4"
         }
       ],
       "config_inputs": [

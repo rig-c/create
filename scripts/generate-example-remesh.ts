@@ -1,5 +1,6 @@
+import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
 /** A five-version synthetic lifecycle with a producer-made torso mesh, reopened to parts-review. */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { main } from '../src/cli.ts';
 import { asArray, checkProject, collectItems, isObject } from '../src/check.ts';
@@ -224,6 +225,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
           ],
         })),
       };
+      if (item.id === 'turn') set.asks = [{ id: 'view', prompt: TURN_QUESTION, options: TURN_OPTIONS.map(option => ({ ...structuredClone(option), recommended: option.id === 'fixed', ...(option.id === 'fixed' ? { reason: 'This synthetic project keeps its approved painted view.' } : {}) })) as Json }];
       const path = `evidence/interview/${item.id}.json`;
       json(path, set);
       writer(['interview-options', item.id, '--file', path]);
@@ -236,7 +238,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
         String(binding(path).sha256),
         '--by',
         'user',
-        ...asks.flatMap(ask => ['--pick', `${ask}=keep`]),
+        ...asks.flatMap(ask => ['--pick', `${ask}=${item.id === 'turn' ? 'fixed' : 'keep'}`]),
       ]);
     }
   };
@@ -450,6 +452,7 @@ if (import.meta.main) {
     }
     console.log('example remesh reproduces byte for byte through writers and producers');
   } else {
+    rmSync(root, { recursive: true, force: true });
     for (const [path, bytes] of Object.entries(files)) {
       mkdirSync(dirname(join(root, path)), { recursive: true });
       writeFileSync(join(root, path), bytes);

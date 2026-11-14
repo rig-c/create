@@ -24,7 +24,7 @@ export function checkpointWorkspace(sourceFormat: 'png' | 'svg' = 'png') {
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('parts'));
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     for (const item of arr(obj(project.interview).waypoints).map(obj)) {
-      if (['bones', 'meshes', 'constraints', 'motion'].includes(String(item.id))) item.guide = null;
+      if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
     }
     for (const step of arr(obj(project.plan).steps).map(obj)) {
       step.status = step.id === 'assemble' ? 'at-checkpoint' : step.id === 'seethrough' ? 'done' : 'pending';

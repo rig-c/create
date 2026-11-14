@@ -169,7 +169,7 @@ test('the finished chain binds its own approved parts, package model and signed 
   const receipt = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[]; stack_equals_painting: boolean };
   validateChainSteps(receipt.steps);
   expect(receipt.stack_equals_painting).toBe(true);
-  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(69);
+  expect(receipt.steps.filter(step => step.kind === 'writer')).toHaveLength(71);
   expect(receipt.steps.some(step => step.seed?.field === 'plan.steps')).toBe(false);
   expect(receipt.steps.some(step => step.seed?.field === 'plan.steps[seethrough].status' || step.seed?.field === 'plan.steps[assemble].status')).toBe(false);
   expect(receipt.steps.filter(step => step.command[1] === 'plan' && step.command[2] === 'add').map(step => step.command[3])).toEqual([
@@ -281,9 +281,9 @@ test.each([
   ['0a-interview-options', 0, 8, 'interview', 4],
   ['0b-plan-pending', 0, 26, 'plan-approved', 0],
   ['1-parts-verdict', 1, 39, 'parts', 0],
-  ['2-rigging-answers', 2, 49, 'rigging-interview', 4],
-  ['3-rig-review', 3, 71, 'rig-review', 0],
-  ['4-direction-post', 4, 92, 'post', 0],
+  ['2-rigging-answers', 2, 49, 'rigging-interview', 5],
+  ['3-rig-review', 3, 74, 'rig-review', 0],
+  ['4-direction-post', 4, 95, 'post', 0],
 ] as const)('checkpoint %s preserves its complete prefix and pending state', (name, stage, index, projectStage, count) => {
   const root = join(shipped, 'checkpoints', name);
   const declaration = JSON.parse(readFileSync(`${root}.json`, 'utf8')) as CheckpointDeclaration;
@@ -350,8 +350,8 @@ test.each([
   }
   if (stage === 2) {
     expect(report.refusals.map(finding => [finding.code, finding.path])).toEqual(
-      ['bones', 'meshes', 'constraints', 'motion'].map(id => ['INTERVIEW_INCOMPLETE', `interview.waypoints[${id}].guide`]));
-    expect(declaration.pending.command_roles).toEqual(['human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'human']);
+      ['bones', 'meshes', 'constraints', 'turn', 'motion'].map(id => ['INTERVIEW_INCOMPLETE', `interview.waypoints[${id}].guide`]));
+    expect(declaration.pending.command_roles).toEqual(['human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'agent', 'agent', 'human', 'human']);
   }
   if (stage === 3) {
     expect(report.refusals).toEqual([]);
@@ -402,7 +402,7 @@ test('agent-authored inputs are declared at their true position before public wr
     ['evidence/scene-citations.json', ['rig-create', 'scene', 'write']],
     ['evidence/direction-input.json', ['rig-create', 'direction', 'write']],
   ];
-  for (const id of ['rig_type', 'reference', 'seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion', 'camera_depth', 'post_timing', 'post_composition']) {
+  for (const id of ['rig_type', 'reference', 'seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'turn', 'motion', 'camera_depth', 'post_timing', 'post_composition']) {
     const path = `evidence/interview/${id}.json`;
     inputs.push([path, ['rig-create', 'interview-options', id]]);
     const draft = chain.steps.find(step => step.step === `agent-drafted option set ${id}`)!;

@@ -34,7 +34,7 @@ test('npm files allowlist ships the reader and verifier, which execute from stag
         cwd: root, encoding: 'utf8', timeout: 10_000,
       });
       expect(verified.status, verified.stderr).toBe(0);
-      expect(verified.stderr).toContain('checkpoint seals: 325 ok / 0 fail');
+      expect(verified.stderr).toContain('checkpoint seals: 327 ok / 0 fail');
       expect(verified.stderr).toContain('planted deletion detected:');
     }
   } finally { rmSync(root, { recursive: true, force: true }); }

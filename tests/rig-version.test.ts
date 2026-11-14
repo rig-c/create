@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { rigRegistrationFindings } from '../src/rig-version.ts';
+import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
+import { depthPlanFindings, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -1600,4 +1601,157 @@ test('#454 no-bounce rig writer and next preserve previous bytes and output', as
   const outputHash = (json = false): string => jobHash(nextCommand([f.dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(f.dir, '<project>'));
   expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(record);
+});
+
+describe('#514 producer depth bindings in frozen registration', () => {
+  function depthSetup(layer = false) {
+    const base = setup();
+    const config = { key: 'synthetic', requirements: 'requirements.json', turn: { roles: { rectangle: 'surface' } }, ...(layer ? { depth: { full: { layers: { rectangle: { image: 'sheet.png', near: 'white', zScale: 30 } } } } } : {}) };
+    put(base.dir, 'source/config.json', config);
+    const art = readFileSync(join(base.dir, 'source/parts/parts/rectangle.png'));
+    const sourceSha256 = jobHash(art), inputSha256 = 'c'.repeat(64), mapSha256 = 'd'.repeat(64);
+    const reference = { image: 'rectangle_depth.png', near: 'white', zScale: 30, sources: [{ from: 'full:author:rectangle', image: 'rectangle.json', sha256: mapSha256, crop: [0, 0, 8, 16], reading: { orderingMedian: null, sheetMedian: 128, relation: 'indeterminate' } }] };
+    const assembled = JSON.parse(readFileSync(join(base.dir, 'source/parts/parts.json'), 'utf8'));
+    assembled.parts[0].from = 'full:author:rectangle';
+    const partsSha256 = jobHash(Buffer.from(JSON.stringify(assembled)));
+    assembled.parts[0].depth = reference;
+    put(base.dir, 'source/parts/parts.json', assembled);
+    writeFileSync(join(base.dir, 'source/parts/parts/rectangle_depth.png'), art);
+    writeFileSync(join(base.dir, 'source/rig/images/rectangle_depth.png'), art);
+    writeFileSync(join(base.dir, 'source/sheet.png'), art);
+    put(base.dir, 'source/depth-citations.json', Object.fromEntries(['turn', ...(layer ? ['depth'] : [])].map(section => [section, [{ entry: 'synthetic historical depth choice', guide: 'motion', quote: 'Breath and blink.', asks: ['tracks'] }]])));
+    put(base.dir, 'source/rig/depth_sheets.json', { spec: 'rig-parts-depth-sheets/1', parts: [{ part: 'rectangle', size: [8, 16], depth: reference }] });
+    if (!layer) {
+      put(base.dir, 'source/manifest.json', { spec: 'rig-parts-depth-inputs/1', partsSha256, recipeSha256: 'b'.repeat(64), parts: [{ part: 'rectangle', sourceSha256, inputSha256 }] });
+      put(base.dir, 'source/parts/depth-report.json', { spec: 'rig-parts-depth-report/1', manifestSha256: jobHash(readFileSync(join(base.dir, 'source/manifest.json'))), partsSha256, recipeSha256: 'b'.repeat(64), rigConfigSha256: jobHash(readFileSync(join(base.dir, 'source/config.json'))), parts: [{ part: 'rectangle', sourceSha256, inputSha256, mapSha256, sheetSha256: jobHash(art), near: 'white', zScale: 30, levels: 30, clip: 0 }] });
+    }
+    return { ...base, args: [...base.args, '--citations', 'source/depth-citations.json', ...(!layer ? ['--depth-manifest', 'source/manifest.json'] : [])] };
+  }
+
+  test('retains per-part manifest/report/sheets by exact bytes and checks their producer spec', () => {
+    const { dir, args, load } = depthSetup();
+    const source = readFileSync(join(dir, 'source/manifest.json'));
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const version = obj(arr(load().versions)[0]);
+    const depth = obj(obj(version.registration).depth);
+    expect(depth.route).toBe('per-part');
+    expect(readFileSync(join(dir, String(obj(depth.manifest).path)))).toEqual(source);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    writeFileSync(join(dir, String(obj(depth.manifest).path)), '{}');
+    expect(rigRegistrationFindings(dir, load()).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+  });
+
+  test('a synthetic answer to the new turn/view question drives the depth plan and positive registration', () => {
+    const { dir, args, load } = depthSetup();
+    const chosen = TURN_OPTIONS[1];
+    const p = load();
+    arr(obj(p.interview).waypoints).push({ id: 'turn', config: ['turn', 'depth'], prompts: [{ id: 'view', text: TURN_QUESTION }], history: [],
+      guide: { delegated: false, by: 'synthetic-owner', at: '2026-11-14T01:00:00Z', verbatim: chosen.label, source: 'synthetic new-question fixture', value: { ...chosen.fragment }, asks: [{ id: 'view', state: 'user' }] } });
+    arr(obj(p.plan).steps).push({ id: 'turn', phase: 'rig', order: 2.5, rests_on: ['turn'], status: 'pending', does: 'Prepare and apply depth before rig', produces: 'Producer depth reports', bar: 'Producer depth files are bound', checkpoint_proposed: false, checkpoint: null });
+    writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
+    put(dir, 'source/depth-citations.json', { turn: [{ entry: 'new synthetic head turn', guide: 'turn', quote: chosen.label, asks: ['view'] }] });
+    put(dir, 'source/at-source.json', { finished_at: '2026-11-14T01:30:00Z' });
+    testClock.set(new Date('2026-11-14T02:00:00Z'));
+    expect(depthPlanFindings({ ...p, stage: 'rigging' }, [])).toEqual([]);
+    expect(rigVersionCommand(args).exit).toBe(0);
+    expect(obj(obj(obj(arr(load().versions)[0]).provenance).sections).turn).toEqual([{ entry: 'new synthetic head turn', guide: 'turn', quote: chosen.label, asks: ['view'] }]);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test('depth-only manifest enrichment is accepted, while changed art declarations are not', () => {
+    const { dir, args, load } = depthSetup();
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const p = load(), v = obj(arr(p.versions)[0]), registration = obj(v.registration), depth = obj(registration.depth);
+    const original = JSON.parse(readFileSync(join(dir, 'source/parts/parts.json'), 'utf8'));
+    delete original.parts[0].depth;
+    const bytes = Buffer.from(JSON.stringify(original)), path = 'evidence/v1/registration/depth-source-parts.json';
+    writeFileSync(join(dir, path), bytes);
+    depth.source_parts = { path, sha256: jobHash(bytes) };
+    arr(registration.files).push(depth.source_parts);
+    const output = arr(v.outputs).map(obj).find(f => f.path === 'outputs/v1/out/parts.json')!;
+    expect(registeredDepthPartsMatch(dir, v, jobHash(bytes), String(output.sha256))).toBe(true);
+    original.parts[0].x += 1;
+    const changed = Buffer.from(JSON.stringify(original)); writeFileSync(join(dir, path), changed);
+    obj(depth.source_parts).sha256 = jobHash(changed);
+    const reseal = (binding: JsonObject, value: JsonObject): void => {
+      const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+      writeFileSync(join(dir, String(binding.path)), bytes); binding.sha256 = jobHash(bytes);
+      for (const row of arr(registration.files).map(obj)) if (row.path === binding.path) row.sha256 = binding.sha256;
+    };
+    const manifestBinding = obj(depth.manifest), reportBinding = obj(depth.report);
+    const manifest = JSON.parse(readFileSync(join(dir, String(manifestBinding.path)), 'utf8')) as JsonObject;
+    manifest.partsSha256 = jobHash(changed); reseal(manifestBinding, manifest);
+    const report = JSON.parse(readFileSync(join(dir, String(reportBinding.path)), 'utf8')) as JsonObject;
+    report.partsSha256 = jobHash(changed); report.manifestSha256 = manifestBinding.sha256!; reseal(reportBinding, report);
+    // All producer and retained hashes now agree; only the non-depth geometry differs.
+    expect(rigRegistrationFindings(dir, p)).toEqual([]);
+    expect(registeredDepthPartsMatch(dir, v, jobHash(changed), String(output.sha256))).toBe(false);
+  });
+
+  test('per-layer route keeps the existing config.depth image binding without an inference manifest', () => {
+    const { dir, args, load } = depthSetup(true);
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const registration = obj(obj(arr(load().versions)[0]).registration);
+    expect(obj(registration.depth).route).toBe('per-layer');
+    expect(obj(registration.depth).manifest).toBeUndefined();
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(arr(registration.files).some(raw => obj(raw).path === 'evidence/v1/registration/inputs/depth/full/layers/rectangle/image')).toBe(true);
+  });
+
+  test.each(['manifest', 'sheets', 'report'] as const)('missing %s refuses before changing the project', missing => {
+    const { dir, args } = depthSetup();
+    if (missing === 'manifest') args.splice(args.indexOf('--depth-manifest'), 2);
+    if (missing === 'sheets') rmSync(join(dir, 'source/rig/depth_sheets.json'));
+    if (missing === 'report') rmSync(join(dir, 'source/parts/depth-report.json'));
+    testClock.set(new Date('2026-11-14T01:00:00Z'));
+    refused(args, 'RIG_DEPTH_BINDING_MISSING');
+  });
+
+  test('a producer report bound to another manifest refuses and leaves the record byte-identical', () => {
+    const { dir, args } = depthSetup();
+    const report = JSON.parse(readFileSync(join(dir, 'source/parts/depth-report.json'), 'utf8'));
+    report.manifestSha256 = 'd'.repeat(64);
+    put(dir, 'source/parts/depth-report.json', report);
+    refused(args, 'RIG_DEPTH_BINDING_INVALID');
+  });
+
+  test.each(['sourceSha256', 'sheetSha256', 'mapSha256', 'inputSha256'] as const)('another rig %s cannot be paired with this report', field => {
+    const { dir, args } = depthSetup();
+    const report = JSON.parse(readFileSync(join(dir, 'source/parts/depth-report.json'), 'utf8'));
+    report.parts[0][field] = 'e'.repeat(64);
+    put(dir, 'source/parts/depth-report.json', report);
+    refused(args, 'RIG_DEPTH_BINDING_INVALID');
+  });
+
+  test.each(['partsSha256', 'recipeSha256', 'rigConfigSha256'] as const)('missing mandatory digest %s is invalid even when both reports omit it', field => {
+    const { dir, args } = depthSetup();
+    const manifest = JSON.parse(readFileSync(join(dir, 'source/manifest.json'), 'utf8'));
+    const report = JSON.parse(readFileSync(join(dir, 'source/parts/depth-report.json'), 'utf8'));
+    delete manifest[field]; delete report[field];
+    put(dir, 'source/manifest.json', manifest);
+    report.manifestSha256 = jobHash(readFileSync(join(dir, 'source/manifest.json')));
+    put(dir, 'source/parts/depth-report.json', report);
+    refused(args, 'RIG_DEPTH_BINDING_INVALID');
+  });
+
+  test('a valid prepare/apply pair cannot be attached to unrelated consumed sheet sources', () => {
+    const { dir, args } = depthSetup();
+    const sheets = JSON.parse(readFileSync(join(dir, 'source/rig/depth_sheets.json'), 'utf8'));
+    sheets.parts[0].depth.sources[0].sha256 = 'e'.repeat(64);
+    put(dir, 'source/rig/depth_sheets.json', sheets);
+    refused(args, 'RIG_DEPTH_BINDING_INVALID');
+  });
+
+  test('an unregistered depth rig before the boundary WARNs, and on the boundary refuses', () => {
+    const { dir } = depthSetup();
+    const configPath = 'source/config.json';
+    const config = { path: configPath, sha256: jobHash(readFileSync(join(dir, configPath))) };
+    for (const [at, count] of [['2026-11-13T23:59:59Z', 0], ['2026-11-14T00:00:00Z', 1]] as const) {
+      const project: JsonObject = { versions: [{ n: 1, kind: 'rig', at, provenance: { config } }] };
+      const warnings: import('../src/check.ts').Finding[] = [];
+      const findings = rigRegistrationFindings(dir, project, warnings);
+      expect(findings.filter(f => f.code === 'RIG_DEPTH_BINDING_MISSING')).toHaveLength(count);
+      expect(warnings.filter(f => f.code === 'RIG_DEPTH_BINDING_MISSING')).toHaveLength(1 - count);
+    }
+  });
 });

@@ -2,7 +2,7 @@
   "schema": "rig-review/interview-picks@1",
   "set": {
     "path": "evidence/interview/example-reference.json",
-    "sha256": "4893f8accfa98d7107566a9d574671a784b4a59249bd34f4cb0313b44f8395e5"
+    "sha256": "8231ab198f901efe943961ea9beed9e5e726623c9ce7700661bfe24188666672"
   },
   "picks": [
     {
@@ -11,5 +11,5 @@
     }
   ],
   "by": "user",
-  "at": "2026-11-13T00:00:04.000Z"
+  "at": "2026-11-14T00:00:04.000Z"
 }

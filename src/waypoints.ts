@@ -17,7 +17,6 @@ export type Placement =
   | { readonly kind: 'none'; readonly why: string };
 
 const wp = (waypoint: string): Placement => ({ kind: 'waypoint', waypoint });
-const post = (item: string): Placement => ({ kind: 'post', item });
 const none = (why: string): Placement => ({ kind: 'none', why });
 
 export const SECTION_PLACEMENT: Readonly<Record<string, Placement>> = {
@@ -33,8 +32,8 @@ export const SECTION_PLACEMENT: Readonly<Record<string, Placement>> = {
   stops: wp('constraints'),
   cloth: wp('constraints'),
   motion: wp('motion'),
-  turn: post('camera_depth'),
-  depth: post('camera_depth'),
+  turn: wp('turn'),
+  depth: wp('turn'),
   key: none('a name'),
   generation: none('a record of a run'),
   proposed_rig_scale: none('a value the tool proposes'),
@@ -49,17 +48,16 @@ export const SECTION_PLACEMENT: Readonly<Record<string, Placement>> = {
 };
 
 /** Pipeline order of the rig waypoints; a waypoint not listed here sorts last, by name. */
-export const WAYPOINT_ORDER: readonly string[] = ['seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'motion'];
+export const WAYPOINT_ORDER: readonly string[] = ['seethrough', 'assemble', 'bones', 'meshes', 'constraints', 'turn', 'motion'];
 
 /** The framing questions asked before the waypoints (INTERVIEW.md F1, F2). */
 export const FRAMING_IDS: readonly string[] = ['rig_type', 'reference'];
 
 /**
  * Post items with no config section of their own (INTERVIEW.md § Post-production).
- * `camera_depth` is not listed: it is derived from the `turn` and `depth`
- * sections through the table above.
+ * Camera framing remains post; rig depth and turn are asked before rigging.
  */
-export const SECTIONLESS_POST_ITEMS: readonly string[] = ['post_timing', 'post_composition'];
+export const SECTIONLESS_POST_ITEMS: readonly string[] = ['camera_depth', 'post_timing', 'post_composition'];
 
 export interface DerivedWaypoint {
   readonly id: string;
@@ -86,12 +84,13 @@ function byOrder(a: string, b: string): number {
 }
 
 /** Places every section parts has; the result is what a project's interview is checked against. */
-export function deriveWaypoints(sections: readonly string[]): DerivedSet {
+export function deriveWaypoints(sections: readonly string[], turnInterview = true): DerivedSet {
   const waypoints = new Map<string, string[]>();
   const items = new Map<string, string[]>();
   const unplaced: string[] = [];
   for (const section of sections) {
-    const placement = SECTION_PLACEMENT[section];
+    const placement = !turnInterview && (section === 'turn' || section === 'depth')
+      ? { kind: 'post' as const, item: 'camera_depth' } : SECTION_PLACEMENT[section];
     if (placement === undefined) {
       unplaced.push(section);
     } else if (placement.kind === 'waypoint') {
@@ -117,6 +116,17 @@ export interface WaypointAsk {
   readonly required_for?: 'fullscreen.game_logic' | 'other';
 }
 
+/** New depth obligations are dated by the rig build; old fixed-view records retain their mapping. */
+export const TURN_QUESTION_SPEC = 'rig-create/turn-question@1';
+export const HEAD_TURN_SINCE = '2026-11-14T00:00:00Z';
+export const TURN_QUESTION = 'Should this rig keep the painted view, or turn its head with depth?';
+export const TURN_OPTIONS = [
+  { id: 'fixed', kind: 'value', label: 'Fixed view', effect: 'Keep the painted view.', fragment: { mode: 'fixed' } },
+  { id: 'turn', kind: 'value', label: 'Head turn', effect: 'The head turns with depth, like the head-turn demo.', fragment: { mode: 'depth' } },
+  { id: 'other', kind: 'other', label: 'Other', effect: 'Describe the view you want.' },
+  { id: 'auto', kind: 'auto', label: 'Let the agent decide', effect: 'The agent records its decision before approval.' },
+] as const;
+
 export const WAYPOINT_ASKS: Readonly<Record<string, readonly WaypointAsk[]>> = {
   seethrough: [
     { id: 'layers', text: 'What must the layer split keep together or apart?' },
@@ -134,6 +144,7 @@ export const WAYPOINT_ASKS: Readonly<Record<string, readonly WaypointAsk[]>> = {
     { id: 'occluders', text: 'What is kept under occluders?' },
     { id: 'outfits', text: 'Which outfit sets exist?' },
   ],
+  turn: [{ id: 'view', text: TURN_QUESTION }],
   bones: [
     { id: 'chains', text: 'Which parts get chains or stay rigid?' },
     { id: 'placement', text: 'Where do bones sit?' },

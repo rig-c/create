@@ -154,7 +154,7 @@ function synthetic(stage: string, legacy = false): string {
       else if (stage === 'post-interview' ? step.phase === 'post' : !['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
     }
     if (stage === 'parts') for (const item of arr(obj(project.interview).waypoints).map(obj)) {
-      if (['bones', 'meshes', 'constraints', 'motion'].includes(String(item.id))) item.guide = null;
+      if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
     }
   }, legacy ? 'legacy-example-project.json' : 'example-project.json'));
   roots.push(root);

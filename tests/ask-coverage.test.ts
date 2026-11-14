@@ -8,7 +8,7 @@ test('filled synthetic example covers every applicable ask without warnings', ()
   const report = checkProject(fixture());
   expect(report.refusals).toEqual([]);
   expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
-  expect(Object.keys(WAYPOINT_ASKS)).toHaveLength(6);
+  expect(Object.keys(WAYPOINT_ASKS)).toHaveLength(7);
 });
 
 function crux(delegated: boolean): string {

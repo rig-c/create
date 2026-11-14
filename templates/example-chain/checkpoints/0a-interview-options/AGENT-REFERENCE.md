@@ -3,8 +3,20 @@
 ## Before you ask, plan or show
 
 - **Projection.** Ask and record it per [CHECKS.md § Projection and ground](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#projection-and-ground).
-- **Camera options.** Offer fixed view or camera-box moves only. Head turn,
-  depth and plate parallax are unavailable: direction has no depth/turn fields.
+- **Head turn is a rig decision.** Ask `turn` at rigging-interview: fixed view
+  or head turn with depth. Record the chosen route and reason in the `turn`
+  plan step text. Default to per-part depth: parts 2.37.0's `docs/DEPTH.md`
+  describes it as better by eye. Run `depth-prepare`, the supplied model,
+  `depth-apply`, then `rig`. Retain the prepare manifest with
+  `rig-version --depth-manifest`; registration binds it, `depth-report.json`
+  and rig's `depth_sheets.json` by SHA-256.
+  The layer alternative requires sheets already retained in the accepted
+  assembled parts, bound alongside the existing `config.depth` images:
+  `assemble` consumes `config.depth`, so declaring it after acceptance cannot
+  add sheets. Do not reassemble accepted parts here. Existing sheets need no
+  model manifest.
+- **Camera options.** Post decides fixed framing or camera-box moves. Timed
+  head-turn dials, plate parallax and take-wide gaze remain unavailable in direction.
 - **Upscale first** a painting smaller than the rig needs (SOURCE.md, step 2 below).
 - **The crux is a bar.** Before rigging, name every risk band, count background
   or doubled pixels over every frame and both physics/breath extremes, and

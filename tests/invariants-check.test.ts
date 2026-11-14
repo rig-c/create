@@ -19,10 +19,10 @@ function expectExampleShape(report: CheckReport): void {
   expect(report.warnings).toEqual([]);
   expect(report.invariants?.spec).toBe(INVARIANTS_SPEC);
   expect(report.invariants?.entries).toHaveLength(0);
-  expect(report.invariants?.gaps).toHaveLength(54);
+  expect(report.invariants?.gaps).toHaveLength(56);
 }
 
-test('filled example check exposes 0 entries and 54 gaps with no findings', () => {
+test('filled example check exposes 0 entries and 56 gaps with no findings', () => {
   const dir = fixture(() => {}, 'example-project.json');
   const bytes = readFileSync(join(dir, 'project.json'));
   const report = checkProject(dir);
@@ -77,7 +77,7 @@ test('JSON and text interview reports expose translation without calling it a ri
   const text = interviewCommand(['--check', dir]);
   expect(text.exit).toBe(0);
   expect(text.stdout.split('\n').filter(line => line.startsWith('invariants:'))).toEqual([
-    'invariants: 0 entries, 54 gaps (translated from the guide; not a rig check)',
+    'invariants: 0 entries, 56 gaps (translated from the guide; not a rig check)',
   ]);
   expect(interviewCommand(['--check', tempDir()]).stdout).not.toContain('invariants:');
 });

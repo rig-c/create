@@ -81,7 +81,7 @@ import { collectReopens, liveSignoff } from './reopen.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { stepHash } from './step-hash.ts';
 import { collectPlanReplaced, checkReplacedSignoffs, collectCheckpointWithdrawals, checkpointRequired } from './plan-history.ts';
-import { deriveWaypoints, FRAMING_IDS, type DerivedSet } from './waypoints.ts';
+import { deriveWaypoints, FRAMING_IDS, TURN_QUESTION_SPEC, type DerivedSet } from './waypoints.ts';
 
 export const PROJECT_SCHEMA = 'rig-create/project@0';
 export const STAGE_ORDER_LEGACY_FINDING: Finding = { code: 'STAGE_ORDER_LEGACY', path: 'interview.order', message: 'interview.order: legacy interview order; preserve old rig guides as history, not as answers asked after parts; adopt explicitly with a fresh rigging-interview sign-off' };
@@ -684,7 +684,7 @@ function checkPlan(ctx: Ctx): void {
   }
   if (planSigned) {
     for (const item of ctx.items) {
-      if (item.kind !== 'waypoint' || !signed(ctx, approvalStageOfStep('rig', item.id, hasStageOrder(ctx.project)))) continue;
+      if (item.kind !== 'waypoint' || item.id === 'turn' || !signed(ctx, approvalStageOfStep('rig', item.id, hasStageOrder(ctx.project)))) continue;
       if ((item.state.state === 'user' || item.state.state === 'delegated') && !ctx.steps.some((s) => s.phase === 'rig' && s.id === item.id)) {
         ctx.refusals.push({ code: 'STEP_MISSING_FOR_WAYPOINT', path: `plan.steps[${item.id}]`, message: `waypoint '${item.id}' has a guide but the signed plan has no rig step '${item.id}'; one step per waypoint the plan passes` });
       }
@@ -950,7 +950,10 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   let derived: DerivedSet | null = null;
   try {
     parts = readPartsSections(dir);
-    derived = deriveWaypoints(parts.sections);
+    const interview = isObject(project.interview) ? project.interview : {};
+    const turnInterview = asArray(interview.waypoints).some(w => isObject(w) && w.id === 'turn')
+      || interview.turn_question === TURN_QUESTION_SPEC;
+    derived = deriveWaypoints(parts.sections, turnInterview);
     checkDerived(ctx, parts, derived);
   } catch (e) {
     if (!(e instanceof PartsUnreadable)) throw e;
@@ -981,7 +984,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkReviews(ctx);
   if (!options.recordPublication) checkPublicationGenerations(dir, project, refusals);
   if (!options.recordPublication) checkReviewPackages(ctx);
-  if (!options.recordPublication) refusals.push(...rigRegistrationFindings(dir, project, warnings));
+  if (!options.recordPublication) refusals.push(...rigRegistrationFindings(dir, project, warnings, collection));
   if (!options.recordPublication) checkAppliedReview(ctx);
   const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
   const feedback = options.recordPublication ? [] : checkFeedback(ctx);

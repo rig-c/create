@@ -738,7 +738,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE` and `DRAFT_CONFIG_INPUTS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE` and `DRAFT_CONFIG_INPUTS_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1681,3 +1681,28 @@ These CI-only codes name `.github/workflows/release.yml` or its tagged
 | `RELEASE_ALREADY_PUBLISHED` | `release.yml`: npm already serves the version; verify that publication rather than republishing it. |
 | `RELEASE_REGISTRY_UNCONFIRMED` | `release.yml`: confirmation of both names timed out; inspect npm before recovery because publication may already have succeeded. |
 | `ALIAS_SAME_CONTENT` | `scripts/alias_tarball.ts compare`: an alias differs beyond the `package/package.json` name line; rebuild it from the reviewed scoped tarball and resolve every named file difference before publication. |
+
+## Head turn before rigging
+
+`HEAD_TURN_SINCE = 2026-11-14T00:00:00Z` dates new rig depth obligations
+by the rig version's build date. Earlier records WARN with the same code;
+fixed-view records retain their historical placement and need no depth outputs.
+New interviews put `turn` and `depth` on rigging waypoint `turn`.
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `RIG_DEPTH_PLAN_MISSING` | `plan.steps[turn]` is absent or ordered after the rig steps for an approved depth turn. Draft a rig-phase depth step resting on `turn` before the rig steps and approve it at rigging-interview. Answers before `HEAD_TURN_SINCE` WARN. |
+| `RIG_DEPTH_BINDING_MISSING` | A depth-driven rig lacks its retained producer manifests. Register a new rig version with rig's `depth_sheets.json`; for per-part depth include `--depth-manifest` and parts' `depth-report.json`. Before `HEAD_TURN_SINCE` this is a WARN. |
+| `RIG_DEPTH_BINDING_INVALID` | `versions[].registration.depth` has changed bytes, the wrong producer spec, or disagrees with its retained inventory/report manifest hash. Restore the exact retained producer files or register a new rig version. |
+
+For a per-part depth registration, `registration.depth.source_parts` retains
+the accepted pre-apply manifest. `REVIEW_PACKAGE_PARTS_MISMATCH` permits its
+depth-only enrichment only when that manifest matches the accepted hash, the
+new package matches the registered output hash, all other JSON declarations
+are identical, and the producer depth hash chain verifies. Art-file identity
+checks remain in force; no source measurement is recomputed.
+
+`interview.turn_question: "rig-create/turn-question@1"` explicitly adopts the
+new placement. Re-signing or adopting the split order on a later date alone
+does not retrofit it into historical interviews. Missing `turn` on an adopted
+interview is the existing `WAYPOINT_MISSING` refusal.

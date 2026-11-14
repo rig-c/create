@@ -11,11 +11,11 @@ import { tempDir } from './helpers.ts';
 import { inputCommand, sceneCommand, testClock } from './clock.ts';
 
 export const PLATE_WORDS = 'Place the background behind the rig and the foreground in front.';
-export function sceneFixture() {
+export function sceneFixture(animations = ['idle']) {
   const dir = join(tempDir(), 'project');
   const f = directionFixture(dir);
   const modelPath = 'derived/review/v1/out/check/build/skeleton.model.json';
-  const model = { spec: 'rigc-compiled/3', stage: { x: -64, y: 5, width: 128, height: 128 }, animations: [{ name: 'idle' }], pages: [] };
+  const model = { spec: 'rigc-compiled/3', stage: { x: -64, y: 5, width: 128, height: 128 }, animations: animations.map(name => ({ name })), pages: [] };
   const write = (path: string, bytes: string | Buffer): JsonObject => {
     writeFileSync(join(dir, path), bytes);
     return { path, sha256: directionHash(typeof bytes === 'string' ? Buffer.from(bytes) : bytes) };

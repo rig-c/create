@@ -8,7 +8,7 @@ import { DIRECTION_PATCH_SPEC, DIRECTION_SCENE_SINCE, DIRECTION_SCENE_SPEC, dire
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sceneFixture } from './scene-fixture.ts';
-import { checkDirections, directionCommand, testClock } from './clock.ts';
+import { checkDirections, directionCommand, sceneCommand, testClock } from './clock.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot } from '../src/job-outbox.ts';
 import { clockedCli } from './helpers.ts';
@@ -62,8 +62,10 @@ test('direction CLI publishes a committed example-chain post through its bound w
   }
 });
 
-function setup() {
-  const f = sceneFixture(); f.writeScene();
+function setup(animation?: string) {
+  const f = sceneFixture(animation === undefined ? ['idle'] : ['idle', animation]);
+  if (animation === undefined) f.writeScene();
+  else sceneCommand([...f.args(), '--animation', animation]);
   const doc: JsonObject = { ...f.doc, schema: DIRECTION_SCENE_SPEC, rig: { version: 1, model: f.modelBinding }, scene: sceneReference(currentScene(f.load())!) };
   const publish = (n = 2) => { f.write('evidence/input.json', JSON.stringify(doc)); return directionCommand(['write', String(n), f.dir, '--file', 'evidence/input.json', '--rig', '1']); };
   return { ...f, doc, publish };
@@ -90,6 +92,20 @@ test('direction@2 keeps direction@1 camera and timing and gains the scene-bound 
   expect(readDirection(f.dir, f.load(), 3).scene).toEqual(f.doc.scene);
   patch.replace = { scene: f.doc.scene! };
   expect(() => patchDirection(f.load(), f.doc, patch)).toThrow(expect.objectContaining({ code: 'DIRECTION_PATCH' }));
+});
+
+test('non-looping direction@2 retains the selected non-idle scene without idle frames', () => {
+  const f = setup('look');
+  expect((f.doc.take as JsonObject).loop).toBe(false);
+  expect(f.publish().exit).toBe(0);
+  const doc = readDirection(f.dir, f.load(), 2);
+  expect(doc.scene).toEqual(f.doc.scene);
+  expect((doc.take as JsonObject).loop).toBe(false);
+  validateDirectionScene(f.dir, f.load(), doc, true);
+  const scene = JSON.parse(readFileSync(join(f.dir, String((doc.scene as JsonObject).path)), 'utf8')) as JsonObject;
+  expect((scene.rig as JsonObject).animation).toEqual({ name: 'look' });
+  expect(checked(f).refusals).toEqual([]);
+  expect(checked(f).warnings).toEqual([]);
 });
 
 test('DIRECTION_SCENE_MISMATCH refuses direction rig/model differing from the scene', () => {

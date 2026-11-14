@@ -10,13 +10,15 @@ import { SCENE_CHOICE_MISMATCH, resolveAgentCitationSpec } from './scene-authori
 import { SCENE_SPEC, SceneError, checkScenes, plateRegistration, pngDimensions, sceneBytes, sceneEntries, sceneFail, scenePath, sceneRig, validateScene } from './scene.ts';
 import type { JsonObject } from './templates.ts';
 
-export const SCENE_HELP = `scene write --rig <R> --background <path> [--foreground <path>]
+export const SCENE_HELP = `scene write --rig <R> --background <path> [--foreground <path>] [--animation <name>]
   [--background-rect x,y,w,h] [--foreground-rect x,y,w,h]
   --citations-file <retained project-relative JSON> [<dir>]
   Retain citations inside the project, for example evidence/scene-src/citations.json; absolute paths are refused.
   Citations are a role map {background: citation, foreground?: citation}.
   Each citation names post_composition, asks:["post_composition"], and quote or delegated:true.
   Paths and rects must match the current ingested post_composition choice.
+  Animation defaults to idle and must name a clip in the accepted bound model.
+  Only idle binds registration.idle frames; other clips omit optional frames.
   Records by:agent; typed --by is refused. Earlier human scenes remain readable.
   Appends evidence/scene/s<N>.json and scenes[]; stage stays unchanged.`;
 export interface SceneWriteHooks { beforeCommit?: () => void; }
@@ -31,7 +33,7 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
   if (args[0] !== 'write') usage();
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;
-    if (['--rig', '--background', '--foreground', '--background-rect', '--foreground-rect', '--citations-file', '--by'].includes(arg)) {
+    if (['--rig', '--background', '--foreground', '--background-rect', '--foreground-rect', '--citations-file', '--animation', '--by'].includes(arg)) {
       const value = args[++index];
       if (!value || value.startsWith('--') || opts[arg] !== undefined) usage();
       opts[arg] = value;
@@ -62,7 +64,7 @@ function writeScene(args: string[], now: number, hooks: SceneWriteHooks): { stdo
   try {
     const entries = sceneEntries(project);
     const n = entries.length + 1;
-    const binding = sceneRig(dir, project, Number(opts['--rig']), snapshots);
+    const binding = sceneRig(dir, project, Number(opts['--rig']), snapshots, opts['--animation']);
     const citationsBytes = sceneBytes(dir, opts['--citations-file']!, 'SCENE_CITATION_MISSING', snapshots);
     let citations: JsonObject;
     try { citations = JSON.parse(citationsBytes.toString('utf8')) as JsonObject; }

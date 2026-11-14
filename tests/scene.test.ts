@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSyn
 import { join } from 'node:path';
 import { type Finding } from '../src/check.ts';
 import { directionHash, objects } from '../src/direction.ts';
-import { checkScenes, currentScene, plateRegistration, readScene, sceneReference, validateScene } from '../src/scene.ts';
+import { checkScenes, currentScene, plateRegistration, readScene, sceneReference, sceneRig, validateScene } from '../src/scene.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { clockedCli } from './helpers.ts';
@@ -217,6 +217,84 @@ test('registration.idle is retained exactly, absent for legacy, and raw-byte sea
   plant(f, doc => { ((doc.rig as JsonObject).animation as JsonObject).frames = (rig.registration as JsonObject).idle!; });
   f.write('idle-frames.json', '{}');
   expect(findings(f).map(value => value.code)).toEqual(['SCENE_FILE_CHANGED']);
+});
+
+test('default and explicit idle publish byte-identical scenes and project records', () => {
+  const implicit = sceneFixture();
+  expect(implicit.writeScene().exit).toBe(0);
+  const explicit = sceneFixture();
+  expect(sceneCommand([...explicit.args(), '--animation', 'idle']).exit).toBe(0);
+  for (const path of ['evidence/scene/s1.json', 'project.json']) {
+    expect(readFileSync(join(explicit.dir, path))).toEqual(readFileSync(join(implicit.dir, path)));
+  }
+});
+
+test('CLI selects a non-idle clip from the bound model without idle frame evidence', () => {
+  const f = sceneFixture(['idle', 'look']);
+  const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'scene', ...f.args(), '--animation', 'look'], { stdout: 'pipe', stderr: 'pipe' });
+  expect(result.stderr.toString()).toBe('');
+  expect(result.exitCode).toBe(0);
+  expect((loadScene(f).rig as JsonObject).animation).toEqual({ name: 'look' });
+  expect(findings(f)).toEqual([]);
+});
+
+test('unknown animation and a default idle absent from the model refuse without publishing bytes', () => {
+  const f = sceneFixture(['look']);
+  reject(f, 'SCENE_ANIMATION_MISSING', () => f.writeScene());
+  for (const name of ['unknown', 'LOOK', ' ']) {
+    reject(f, 'SCENE_ANIMATION_MISSING', () => sceneCommand([...f.args(), '--animation', name]));
+  }
+  expect(sceneCommand([...f.args(), '--animation', 'look']).exit).toBe(0);
+  expect((loadScene(f).rig as JsonObject).animation).toEqual({ name: 'look' });
+});
+
+test('non-idle selection reads the sealed model rather than trusting a changed catalog', () => {
+  const f = sceneFixture();
+  f.write(f.modelPath, JSON.stringify({ ...f.model, animations: [{ name: 'look' }] }));
+  reject(f, 'SCENE_MODEL_MISMATCH', () => sceneCommand([...f.args(), '--animation', 'look']));
+});
+
+test('missing and duplicate animation flags refuse before publishing bytes', () => {
+  const f = sceneFixture();
+  reject(f, 'SCENE_MALFORMED', () => sceneCommand([...f.args(), '--animation']));
+  reject(f, 'SCENE_MALFORMED', () => sceneCommand([...f.args(), '--animation', 'idle', '--animation', 'idle']));
+});
+
+test('non-idle omits idle frames while preserving the old reader binding as sealed legacy metadata', () => {
+  const f = sceneFixture(['idle', 'look']);
+  const p = f.load();
+  const registration = { idle: f.write('idle-frames.json', '{"spec":"rigc-frames/1","sets":[]}\n') };
+  objects(p.versions)[0]!.registration = registration;
+  f.save(p);
+  expect(sceneRig(f.dir, p, 1).rig.animation).toEqual({ name: 'idle', frames: registration.idle });
+  expect(sceneRig(f.dir, p, 1, undefined, 'look').rig.animation).toEqual({ name: 'look' });
+  f.seedHistoricalScene();
+  plant(f, doc => { (doc.rig as JsonObject).animation = { name: 'look' }; });
+  expect(findings(f)).toEqual([]);
+  validateScene(f.dir, f.load(), loadScene(f));
+  plant(f, doc => { ((doc.rig as JsonObject).animation as JsonObject).frames = registration.idle; });
+  const historicalBytes = readFileSync(join(f.dir, 'evidence/scene/s1.json'));
+  expect(findings(f)).toEqual([]);
+  validateScene(f.dir, f.load(), loadScene(f));
+  expect(readFileSync(join(f.dir, 'evidence/scene/s1.json'))).toEqual(historicalBytes);
+  f.write('idle-frames.json', '{}');
+  expect(findings(f).map(value => value.code)).toEqual(['SCENE_FILE_CHANGED']);
+  f.write('idle-frames.json', '{"spec":"rigc-frames/1","sets":[]}\n');
+  for (const frames of [f.write('look-frames.json', '{"spec":"rigc-frames/1","sets":[]}\n'), { ...registration.idle, sha256: '0'.repeat(64) }]) {
+    plant(f, doc => { ((doc.rig as JsonObject).animation as JsonObject).frames = frames; });
+    expect(findings(f).map(value => value.code)).toEqual(['SCENE_ANIMATION_FRAMES_UNBOUND']);
+    expect(checkProject(f.dir).refusals.map(value => value.code)).toContain('SCENE_ANIMATION_FRAMES_UNBOUND');
+    reject(f, 'SCENE_ANIMATION_FRAMES_UNBOUND', () => validateScene(f.dir, f.load(), loadScene(f)));
+    reject(f, 'SCENE_ANIMATION_FRAMES_UNBOUND', () => sceneCommand([...f.args(), '--animation', 'look']));
+  }
+});
+
+test('non-idle frames without registration were already unbound and remain refused', () => {
+  const f = sceneFixture(['idle', 'look']);
+  expect(sceneCommand([...f.args(), '--animation', 'look']).exit).toBe(0);
+  plant(f, doc => { ((doc.rig as JsonObject).animation as JsonObject).frames = f.write('frames.json', '{}'); });
+  expect(findings(f).map(value => value.code)).toEqual(['SCENE_ANIMATION_FRAMES_UNBOUND']);
+  reject(f, 'SCENE_ANIMATION_FRAMES_UNBOUND', () => sceneCommand([...f.args(), '--animation', 'look']));
 });
 
 test('historical human scene uniform scaling uses relative 1e-9 tolerance', () => {

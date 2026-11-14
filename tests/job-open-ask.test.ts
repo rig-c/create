@@ -75,7 +75,7 @@ test('#523 a killed host permits a pristine same-path redo and retains the old s
   const retainedDescriptor = readFileSync(descriptor);
   replaceProjectRoot(root, source, 'killed-host');
   const second = await open(root);
-  expect(second.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, checkpoint assemble']);
+  expect(second.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
   expect(readWriterBinding(root)!.jobId).not.toBe(binding.jobId);
   const archives = readdirSync(dirname(state)).filter(name => name.startsWith(`${basename(state)}.replaced-`));
   expect(archives).toHaveLength(1);

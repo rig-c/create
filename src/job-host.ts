@@ -369,7 +369,7 @@ async function reconcileLocked(root: string, publish: (entry: PendingPublication
       const failure = error instanceof Refusal ? { code: error.code, message: error.message }
         : { code: 'JOB_PUBLISH_PENDING', message: 'project.json: host publication failed; restore the live host before rig-create job reconcile' };
       failPublication(root, entry, failure);
-      refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} remains pending (${failure.code}: ${failure.message}); run rig-create job reconcile`);
+      refuse('JOB_PUBLISH_PENDING', `project.json: record ${entry.recordHash} remains pending (${failure.code}: ${failure.message}); run rig-create job reconcile after restoring the sources, or job close --retire-refused to archive failed publications and close without publishing them`);
     }
   }
   return { count: entries.length, outcomes };

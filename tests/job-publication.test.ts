@@ -1457,3 +1457,36 @@ test('post generation refuses truncated direction bytes with PUBLICATION_GENERAT
   expect(readFileSync(join(f.root, 'project.json'))).toEqual(recordBytes);
   expect(readFileSync(join(f.root, 'review-live-v2-g2.json'))).toEqual(generation);
 });
+
+
+test('#535 same-id registration replaces only an orphaned retained draft manifest', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-orphan-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  const project: JsonObject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+  const path = prepareDraftManifest(root, project, 'chain');
+  const oldManifest = readFileSync(join(root, path));
+  const oldDraft = structuredClone((project.drafts as JsonObject[])[0]!);
+  (project.drafts as JsonObject[])[0]!.at = '2026-11-15T00:00:00Z';
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  prepareDraftManifest(root, project, 'chain');
+  expect(readFileSync(join(root, path))).not.toEqual(oldManifest);
+  const currentManifest = readFileSync(join(root, path));
+  const changed = JSON.parse(currentManifest.toString());
+  changed.title = 'tampered current manifest';
+  writeFileSync(join(root, path), JSON.stringify(changed));
+  expect(() => prepareDraftManifest(root, project, 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(readFileSync(join(root, path), 'utf8')).toBe(JSON.stringify(changed));
+
+  // An older pending publication still owns the retained manifest, even after re-registration.
+  (project.drafts as JsonObject[])[0] = oldDraft;
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now);
+  hosts.push(host);
+  writeFileSync(join(root, path), oldManifest);
+  enqueuePublication(root, readWriterBinding(root)!, { path, selector: { kind: 'draft', id: 'chain' } });
+  (project.drafts as JsonObject[])[0]!.at = '2026-11-15T00:00:00Z';
+  writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  expect(() => prepareDraftManifest(root, project, 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(readFileSync(join(root, path))).toEqual(oldManifest);
+});

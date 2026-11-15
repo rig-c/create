@@ -13,6 +13,7 @@ import {
 import { attachCreateJob, closeCreateJob, openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import {
   enqueuePublication,
+  failPublication,
   JOB_BINDING_FILE,
   jobHash,
   jobHostStateRoot,
@@ -365,4 +366,27 @@ test('wrong or copied root, replaced root inode, tampered descriptor/binding fie
   })).rejects.toMatchObject({ code: 'JOB_BINDING_INVALID' });
   expect(readWriterBinding(originalRoot)).toEqual(replacementBinding);
   expect(readFileSync(join(originalRoot, 'project.json'))).toEqual(originalBeforeBytes);
+});
+
+
+test('#535 explicit close recovery archives refused pending publications without acknowledging or changing the record', async () => {
+  const { root, project } = setupProject();
+  const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, now);
+  hosts.push(host);
+  const path = prepareLiveManifest(root, project, 1);
+  const entry = enqueuePublication(root, readWriterBinding(root)!, { path, selector: { kind: 'rig', version: 1 } });
+  const before = readFileSync(join(root, 'project.json'));
+  await expect(closeCreateJob(root, undefined, true)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+  failPublication(root, entry, { code: 'JOB_PUBLICATION_INVALID', message: 'project.json: planted refusal; restore retained sources' });
+  await expect(closeCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING', message: expect.stringContaining('job close --retire-refused') });
+  const receipt = pendingPublications(root)[0]!;
+  const child = Bun.spawn([process.execPath, CLI, 'job', 'close', root, '--retire-refused'], { stdout: 'pipe', stderr: 'pipe' });
+  const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect({ exit, stdout: stdout.trim(), stderr }).toEqual({ exit: 0, stdout: 'job: closed', stderr: '' });
+  expect(host.session.status().status).toBe('closed');
+  expect(pendingPublications(root)).toEqual([]);
+  expect(JSON.parse(readFileSync(join(jobPrivateRoot(root), 'retired-publications', `${entry.id}.json`), 'utf8'))).toEqual(receipt);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(join(jobPrivateRoot(root), 'acknowledged-publications'))).toBe(false);
 });

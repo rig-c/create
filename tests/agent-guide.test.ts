@@ -45,6 +45,12 @@ const GUIDE_HEADINGS = [
  */
 const GUIDE_MAX_BYTES = 10_000;
 
+test('#543 the guide records an owner-accepted retouch through the existing draft writer', () => {
+  const guide = renderAgentGuide();
+  expect(guide).toContain("An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`.");
+  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
+});
+
 test('#493 reopen instructions ingest the exported human act', () => {
   const guide = renderAgentGuide();
   for (const text of ['`job open --plan`', '`job acts --json`', '`reopen direction-review --from-review <actId>`', '`job close`', 'verbatim words', 'After an accepted post is bounced']) expect(guide).toContain(text);

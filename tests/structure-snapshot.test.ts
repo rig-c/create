@@ -7,6 +7,9 @@ import { Refusal } from '../src/refusal.ts';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA } from '../src/structure.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
+import { locateParts } from '../src/parts-sections.ts';
+import { partsReviewCommand } from '../src/parts-review.ts';
+import { reviewStdout } from './review-read-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, main, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
@@ -27,18 +30,44 @@ const OUT = 'evidence/structure-decisions.json';
  * Records draft `id`; its parts (and the rig outputs a mesh verdict lists) are the ones `verdict` reviewed
  * unless `input` (parts-relative path → bytes) names others. Outputs the verdict does not list are written `{}`.
  */
-function draft(dir: string, id: string, config: JsonObject, input?: Record<string, string | Uint8Array>, verdict = EXAMPLE_VERDICT): void {
+function draft(dir: string, id: string, config: JsonObject, input?: Record<string, string | Uint8Array>, verdict = EXAMPLE_VERDICT, retouch?: string): void {
   const root = `derived/drafts/${id}`;
   write(dir, `${root}/config.json`, JSON.stringify(config));
   if (input === undefined) writeReviewedInput(dir, root, verdict);
   else for (const [path, bytes] of Object.entries(input)) { mkdirSync(dirname(join(dir, root, 'input', path)), { recursive: true }); writeFileSync(join(dir, root, 'input', path), bytes); }
   for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!existsSync(join(dir, root, 'out', name))) write(dir, `${root}/out/${name}`, '{}');
   writeFileSync(join(dir, `${root}/input/recomposite_rig.png`), readFileSync(join(dir, 'derived/parts/rig/recomposite_rig.png')));
+  if (retouch !== undefined) {
+    const source = join(locateParts(dir)!, 'src/config.ts');
+    const manifestPath = `${root}/input/parts.json`;
+    const manifest = JSON.parse(readFileSync(join(dir, manifestPath), 'utf8')) as JsonObject;
+    const part = obj(arr(manifest.parts)[0]);
+    const image = `${root}/input/parts/${String(part.name)}.png`;
+    const before = readFileSync(join(dir, image));
+    const edited = Buffer.concat([before, Buffer.from(retouch)]);
+    const file = `${String(part.name)}.png`;
+    const receipt = { part: part.name!, file, from_sha256: sha(before), sha256: sha(edited),
+      editor: 'Scripts and an image tool; retouched against the painting reference.' };
+    const editedDir = '../../../inputs/retouched';
+    config.assemble = { edited_parts: { dir: editedDir, receipts: [receipt] } };
+    part.provenance = { edited_part: { edit: 'edited_parts[0]', dir: editedDir, receipt,
+      changed_px: 1, changed_counted_px: 1, changed_excluded_px: 0, removed_opaque_px: 0 } };
+    write(dir, `${root}/config.json`, JSON.stringify(config));
+    write(dir, manifestPath, JSON.stringify(manifest));
+    mkdirSync(join(dir, 'inputs/retouched'), { recursive: true });
+    writeFileSync(join(dir, 'inputs/retouched', file), edited);
+    writeFileSync(join(dir, image), edited);
+    // Synthetic consumer fixture: declare the exact #1281 at, not the directory.
+    write(dir, 'node_modules/@rig-c/parts/package.json', JSON.stringify({ name: '@rig-c/parts', version: '0.0.0-synthetic', type: 'module' }));
+    write(dir, 'node_modules/@rig-c/parts/src/config.ts', `export * from ${JSON.stringify(source)};
+export function configFileReferences() { return [{ at: 'assemble.edited_parts.receipts[0].file', value: ${JSON.stringify(`${editedDir}/${file}`)} }]; }
+`);
+  }
   draftRigCommand([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
 }
 
 /** A new-order project at parts-review with the labelled draft `shape` recorded, as in tests/structure.test.ts. */
-function setup(): string {
+function setup(retouch?: string): string {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'parts-review'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
@@ -65,7 +94,7 @@ function setup(): string {
   }
   advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]);
   testClock.set(new Date('2026-11-20T00:00:00Z'));
-  draft(dir, 'shape', { meshes: MESHES, bones: { root: {} } });
+  draft(dir, 'shape', { meshes: MESHES, bones: { root: {} } }, undefined, EXAMPLE_VERDICT, retouch);
   recordPartsReceipt(dir, 'shape', testClock.now());
   diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:synthetic', '--component', 'p1000-n3=in-painting:synthetic', '--by', 'agent']);
@@ -77,6 +106,67 @@ const snapshot = (dir: string): { stdout: string; exit: number } =>
 const partsSign = (dir: string, structure = OUT): ReturnType<typeof signoffCommand> =>
   signoffCommand(['parts-review', dir, '--by', 'owner',
     '--verbatim-file', join(dir, 'words.txt'), '--draft', 'shape', '--structure-file', structure]);
+
+test('#543 an exact edited set with the current accepted parts verdict signs and reaches rigging-interview', () => {
+  const dir = setup('synthetic retouch A');
+  const bound = obj(arr(read(dir).drafts)[0]);
+  expect(arr(bound.config_inputs)).toHaveLength(1);
+  expect(snapshot(dir).exit).toBe(0);
+  expect(partsSign(dir).exit).toBe(0);
+  expect(advanceCommand(['rigging-interview', dir]).exit).toBe(0);
+  expect(read(dir).stage).toBe('rigging-interview');
+  expect(checkProject(dir).refusals.map(f => f.code)).not.toContain('DRAFT_EDITED_PART_UNBOUND');
+});
+
+test('#543 receipts without an owner verdict do not authorize the edited set or the next stage', () => {
+  const dir = setup('synthetic retouch A');
+  const project = read(dir);
+  project.review_acts = arr(project.review_acts).filter(raw => obj(raw).draft_id !== 'shape');
+  write(dir, 'project.json', JSON.stringify(project));
+  const before = readFileSync(join(dir, 'project.json'));
+  refused(() => snapshot(dir), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  refused(() => partsSign(dir), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  refused(() => advanceCommand(['rigging-interview', dir]), 'ADVANCE_UNAUTHORIZED');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  expect(existsSync(join(dir, OUT))).toBe(false);
+});
+
+test('#543 a newer changes-requested verdict keeps the edited set from signing or advancing', () => {
+  const dir = setup('synthetic retouch A');
+  recordPartsReceipt(dir, 'shape', testClock.now() + 1, 'changes-requested');
+  const before = readFileSync(join(dir, 'project.json'));
+  refused(() => snapshot(dir), 'PARTS_VERDICT_NOT_APPROVED');
+  refused(() => partsSign(dir), 'PARTS_VERDICT_LATEST_NOT_APPROVED');
+  refused(() => advanceCommand(['rigging-interview', dir]), 'ADVANCE_UNAUTHORIZED');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('#543 an accepted verdict for one edited set cannot be recorded for a draft binding different shas', () => {
+  const dir = setup('synthetic retouch A');
+  const project = read(dir);
+  const receipt = arr(project.review_acts).map(obj).find(raw => raw.draft_id === 'shape')!;
+  const response = readFileSync(join(dir, String(obj(receipt.evidence).path)));
+  const first = obj(arr(project.drafts)[0]);
+  // The fixture chooses the producer's first part; no part-name mapping enters create.
+  const manifest = JSON.parse(readFileSync(join(dir, String(obj(first.parts).path), 'parts.json'), 'utf8')) as JsonObject;
+  const file = `${String(obj(arr(manifest.parts)[0]).name)}.png`;
+  const original = readFileSync(join(dir, 'inputs/retouched', file));
+  // The second set lives in a distinct project so the first set is never overwritten.
+  const other = setup('synthetic retouch B');
+  expect(obj(arr(obj(arr(read(other).drafts)[0]).config_inputs)[0]).sha256)
+    .not.toBe(obj(arr(first.config_inputs)[0]).sha256);
+  const unsigned = read(other);
+  unsigned.review_acts = arr(unsigned.review_acts).filter(raw => obj(raw).draft_id !== 'shape');
+  write(other, 'project.json', JSON.stringify(unsigned));
+  const before = readFileSync(join(other, 'project.json'));
+  refused(() => partsReviewCommand([other, '--draft', 'shape', '--from-review-cli', '--by', 'owner', '--', 'synthetic-review'],
+    testClock.now(), { runCli: reviewStdout(response) }), 'PARTS_VERDICT_DRAFT_MISMATCH');
+  refused(() => snapshot(other), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  refused(() => partsSign(other), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  refused(() => advanceCommand(['rigging-interview', other]), 'ADVANCE_UNAUTHORIZED');
+  expect(readFileSync(join(other, 'project.json'))).toEqual(before);
+  expect(readFileSync(join(dir, 'inputs/retouched', file))).toEqual(original);
+});
 
 function refused(run: () => unknown, code: string): Refusal {
   try { run(); } catch (error) {

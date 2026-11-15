@@ -613,8 +613,21 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   if (existsSync(join(root, path))) {
     const existing = publicationFile(root, path);
     if (!existing.equals(bytes)) {
-      if (!existing.equals(legacyPanelsBytes) && !existing.equals(legacyBytes)) {
-        refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling`);
+      let orphaned = false;
+      try {
+        const retained: unknown = JSON.parse(existing.toString('utf8'));
+        if (isObject(retained as Json)) {
+          const prior = retained as JsonObject;
+          const revisions = asArray(project.drafts).filter(isObject).map(item => jobHash(`${JSON.stringify(item, null, 2)}\n`));
+          orphaned = prior.schema === 'rig-review/1' && prior.id === `create-draft-${id}`
+            && typeof prior.revision === 'string' && /^[a-f0-9]{64}$/.test(prior.revision)
+            && !revisions.includes(prior.revision)
+            && !pendingPublications(root).some(entry => !isRecordResult(entry.result)
+              && entry.result.path === path && entry.versionHash === prior.revision);
+        }
+      } catch { /* An unreadable manifest is never evidence of an orphaned revision. */ }
+      if (!existing.equals(legacyPanelsBytes) && !existing.equals(legacyBytes) && !orphaned) {
+        refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling, or run rig-create job close --retire-refused to retire a refused publication`);
       }
       const target = join(root, path);
       const tmp = `${target}.${process.pid}-${crypto.randomUUID()}.tmp`;

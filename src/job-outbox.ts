@@ -302,6 +302,18 @@ export function failPublication(root: string, entry: PendingPublication, failure
   writePrivateJson(pendingPath(root, entry.id), { ...entry, failure });
 }
 
+/** Explicit close recovery retains the complete failed receipt; it never acknowledges publication. */
+export function retireRefusedPublications(root: string, entries: PendingPublication[]): void {
+  for (const entry of entries) {
+    if (!entry.failure) refuse('JOB_PUBLISH_PENDING', 'project.json: an unfailed publication cannot be retired; run rig-create job reconcile first');
+    const directory = join(jobPrivateRoot(root), 'retired-publications');
+    privateDirectory(directory);
+    writePrivateJson(join(directory, `${entry.id}.json`), entry);
+    rmSync(pendingPath(root, entry.id));
+    syncDirectory(join(jobPrivateRoot(root), 'outbox'));
+  }
+}
+
 export async function reconcilePublication(root: string, entry: PendingPublication,
   publish: (entry: PendingPublication) => Promise<unknown>): Promise<void> {
   if (currentVersionHash(root, entry) !== entry.versionHash) {

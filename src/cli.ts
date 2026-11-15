@@ -51,7 +51,7 @@ Usage:
   rig-create republish <rig> [<dir>] --reason <words>
   rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --question <question> | --plan]
   rig-create job acts [<dir>] [--json]          list finalized acts and their ingest commands
-  rig-create job reconcile|close [<dir>]
+  rig-create job reconcile|close [<dir>] [--retire-refused (close only)]
 ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
   rig-create init <dir> --painting <file> --origin <words> [--projects-root <dir>] [--same-artwork-reason <file>]
                                                     also register the painting; refuse a second project for one artwork
@@ -310,6 +310,7 @@ export function main(argv: string[], now: number): number {
           if (!value || value.startsWith('-') || options[arg]) refuse('JOB_BINDING_INVALID', 'project.json: job open requires one value for each reviewer option', USAGE_EXIT);
           options[arg] = value;
         } else if (action === 'open' && arg === '--plan' && !options[arg]) options[arg] = 'true';
+        else if (action === 'close' && arg === '--retire-refused' && !options[arg]) options[arg] = 'true';
         else if (action === 'acts' && arg === '--json' && !options[arg]) options[arg] = 'true';
         else if (arg.startsWith('-')) refuse('JOB_BINDING_INVALID', 'project.json: unsupported job option; see help', USAGE_EXIT);
         else positional.push(arg);
@@ -320,7 +321,7 @@ export function main(argv: string[], now: number): number {
       if (['--draft', '--rig', '--question', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --question or --plan; choose one recorded result', USAGE_EXIT);
       }
-      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', now }));
+      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', retireRefused: options['--retire-refused'] === 'true', now }));
       const runtime = join(import.meta.dir, 'job-runtime.ts');
       if (action === 'open') {
         const child = Bun.spawn(jobRuntimeCommand(action, runtime), {

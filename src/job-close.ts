@@ -13,6 +13,7 @@ import {
   acquireJobLock,
   JOB_BINDING_FILE,
   pendingPublications,
+  retireRefusedPublications,
   readWriterBinding,
   type JobIdentity,
   type WriterBinding,
@@ -181,12 +182,14 @@ export async function attachCreateJobForClose(
 export async function closeCreateJob(
   root: string,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+  retireRefused = false,
 ): Promise<void> {
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
   try {
-    if (pendingPublications(root).length) {
-      refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile before closing');
+    const pending = pendingPublications(root);
+    if (pending.length && (!retireRefused || pending.some(entry => !entry.failure))) {
+      refuse('JOB_PUBLISH_PENDING', 'project.json: a committed publication remains pending; run rig-create job reconcile, or job close --retire-refused to archive failed publications and close without publishing them');
     }
     const binding = readWriterBinding(root);
     if (!binding) refuse('JOB_BINDING_INVALID', 'project.json: no writer-owned job binding; open the live job first');
@@ -216,6 +219,7 @@ export async function closeCreateJob(
       if (!current || !isDeepStrictEqual(current, binding)) {
         refuse('JOB_BINDING_INVALID', 'project.json: private live-job binding changed during close; restore the writer-owned binding');
       }
+      if (retireRefused) retireRefusedPublications(root, pending);
       rmSync(join(root, JOB_BINDING_FILE));
     } finally {
       host.stop();

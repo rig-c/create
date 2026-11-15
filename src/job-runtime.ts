@@ -17,7 +17,7 @@ export function publicationFailure(error: unknown, root: string): Refusal | unde
 }
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; json?: boolean };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; retireRefused?: boolean; json?: boolean };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'publish': {
@@ -43,7 +43,7 @@ async function run(): Promise<void> {
       break;
     }
     case 'reconcile': console.log(`job: reconciled ${await reconcileCreateJob(root, undefined, input.now)} publication(s)`); break;
-    case 'close': await closeCreateJob(root); console.log('job: closed'); break;
+    case 'close': await closeCreateJob(root, undefined, input.retireRefused); console.log('job: closed'); break;
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       requestedRecordResult(root, input.question, input.plan, input.now);

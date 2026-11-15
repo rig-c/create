@@ -23,17 +23,36 @@ export const PLAN_HELP = `plan add|revise|remove <id> [<project dir>] --by <draf
   Withdraw one enabled execution checkpoint without changing the signed step.
   Add requires all fields. Revise accepts any of these fields and preserves the id.
   Revise/remove retain the full previous step in plan.replaced[].
-  Reopen live covering plan signatures first. Completed steps require removal and a new id.
+  Reopen live covering plan signatures first. Completed rig steps require removal and a later plan-approved reopen before same-id replacement.
   Dates follow approval ownership: parts/legacy rig update drafted_at and drafted_by,
   production rigging updates rigging_drafted_at, and post preserves plan dates.
   Each candidate passes check's refusal delta before writing.`;
 
 const FIELDS = ['phase', 'order', 'does', 'produces', 'rests_on', 'bar', 'checkpoint_proposed'];
 
-/** Reopen resets status, but cannot make completed work a new draft under the same id. */
+/** Reopen resets status while retaining completion evidence. */
 function completed(project: JsonObject, step: JsonObject): boolean {
   return step.status === 'done' || asArray(step.status_history).some(event => isObject(event) && event.status === 'done')
     || asArray(project.reopens).some(entry => isObject(entry) && asArray(entry.steps_before).some(before => isObject(before) && before.id === step.id && before.status === 'done'));
+}
+
+/** A removed rig definition can be replaced only after its recorded completion. */
+function replacementReopened(project: JsonObject, step: JsonObject, now: number): boolean {
+  if (step.phase !== 'rig') return false;
+  const done = asArray(step.status_history).filter(isObject).filter(event => event.status === 'done');
+  const dates = done.map(event => Date.parse(String(event.at)));
+  if (!dates.length) {
+    // A legacy done snapshot supplies only an upper bound; do not invent a completion date.
+    dates.push(...asArray(project.reopens).filter(isObject)
+      .filter(entry => asArray(entry.steps_before).some(before => isObject(before) && before.id === step.id && before.status === 'done'))
+      .map(entry => Date.parse(String(entry.at))));
+  }
+  if (!dates.length || dates.some(date => !Number.isFinite(date))) return false;
+  const completion = Math.max(...dates);
+  // collectReopens also includes amendments. Only a recorded reopen authorizes this operation.
+  return collectReopens(project, []).some(reopen => reopen.stage === 'plan-approved'
+    && reopen.at > completion && reopen.at <= now
+    && asArray(project.reopens).some(raw => isObject(raw) && raw.stage === reopen.stage && Date.parse(String(raw.at)) === reopen.at));
 }
 
 export function planCommand(args: string[], now: number): { stdout: string; exit: number } {
@@ -114,8 +133,9 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
     const matches = steps.filter(step => isObject(step) && step.id === id);
     const previous = matches[0];
     if (action === 'add' ? matches.length !== 0 : matches.length !== 1) refuse('PLAN_STEP_INVALID', `plan.steps[${id}]: ${action === 'add' ? 'id already exists' : 'no unique current step'}; use a distinct id for add or an existing id for revise/remove`);
-    if (action === 'add' && asArray(plan.replaced).some(entry => isObject(entry) && isObject(entry.step) && entry.step.id === id && completed(project, entry.step))) {
-      refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in history; add the replacement under a new id`);
+    if (action === 'add' && asArray(plan.replaced).some(entry => isObject(entry) && isObject(entry.step) && entry.step.id === id && completed(project, entry.step)
+      && !(entry.action === 'removed' && patch.phase === 'rig' && replacementReopened(project, entry.step, now)))) {
+      refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in plan.replaced; for a rig step, record reopen plan-approved later than its completion, remove it, then add its waypoint id; post steps need a new id`);
     }
     const at = new Date(now).toISOString();
     if (amendingBar) {

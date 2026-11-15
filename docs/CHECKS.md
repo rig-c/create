@@ -406,7 +406,7 @@ Exit `1`. Each names its object in `path`.
 | `PLAN_OPTION_INVALID` | plan CLI arguments are missing, repeated or malformed (exit 2) | use plan add, revise or remove with the documented fields and drafter |
 | `PLAN_STEP_INVALID` | plan writer sees no steps list, a duplicate add id or no unique revise/remove target | restore the plan and use the appropriate action and id |
 | `PLAN_STEP_SIGNED` | revise/remove targets a step bound by a live covering plan signature | reopen its approving stage before replanning |
-| `PLAN_STEP_DONE` | revise targets completed work, including completion retained by reopen, or add reuses its archived id | remove the completed step and add a new id |
+| `PLAN_STEP_DONE` | revise targets completed work, including completion retained by reopen, or add reuses its archived id without a recorded `plan-approved` reopen later than its recorded completion | for rig steps, record `reopen plan-approved` after completion, remove the step and add the same waypoint id; keep the old step in `plan.replaced`; post replacements need a new id |
 | `PLAN_WRITE_CONFLICT` | another plan write holds the project lock, or project bytes change during validation | finish or recover the active writer, reload the project and retry |
 | `STEP_MALFORMED` | a step has no string `id`, a `phase` other than `rig` / `post`, or an id used twice | fix the step |
 | `STEP_NO_BASIS` | a step's `rests_on` is empty | name the answers it is built on; a step never rests on nothing — ask for the sentence first |

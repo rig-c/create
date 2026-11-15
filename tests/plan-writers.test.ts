@@ -275,6 +275,14 @@ test('a removed done rig step accepts its waypoint id after a later plan-approve
   expect(obj(after.plan).replaced).toEqual(history);
   expect(obj(obj(arr(history)[0]).step).status_history).toBeDefined();
   expect(codes(dir)).toEqual([]);
+  testClock.set('2026-11-20T00:00:01Z');
+  write(dir, 'revise', 'seethrough', ['--bar', 'A refined replacement bar.']);
+  expect(step(read(dir), 'seethrough').status).toBe('pending');
+  testClock.set('2026-11-20T00:00:02Z');
+  write(dir, 'remove', 'seethrough');
+  testClock.set('2026-11-20T00:00:03Z');
+  write(dir, 'add', 'seethrough', flags);
+  expect(codes(dir)).toEqual([]);
 });
 
 test.each(['absent', 'earlier', 'equal', 'later-stage', 'malformed', 'future'])('done rig replacement refuses %s reopen byte-identically', mode => {

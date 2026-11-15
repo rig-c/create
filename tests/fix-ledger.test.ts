@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node
 import { dirname, join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { FIX_LEDGER_REPORT_SPEC, FIX_LEDGER_SINCE, ledgerCommand } from '../src/fix-ledger.ts';
+import { nextCommand } from '../src/next.ts';
 import { restartCommand } from '../src/restart.ts';
 import { freshProjectRecord } from '../src/init.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -294,4 +295,69 @@ test('restart validates the declared painting before writing', () => {
   project.painting = 'inputs/missing.png'; save(dir, project); commit(dir);
   const error = refused(dir, 'RESTART_INPUT_INVALID', () => restartCommand(restartArgs(dir), step()));
   expect(error.message).toContain('INPUT_PAINTING_INVALID');
+});
+
+test('restart leaves out legacy INPUT_WRITER_MISSING entries after re-registration, names them, and next names interview', () => {
+  const dir = example(); const project = load(dir);
+  delete obj(arr(project.inputs)[0]).at;
+  save(dir, project); commit(dir);
+  cpSync(join(dir, 'inputs/preparation-source.svg'), join(dir, 'inputs/preparation-source-registered.svg'));
+  step(); inputCommand(['add', 'inputs/preparation-source-registered.svg', dir, '--origin', 'registered again for restart']);
+  commit(dir);
+  const result = restartCommand(restartArgs(dir), step());
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain('left out legacy input(s) inputs[0] (inputs/preparation-source.svg)');
+  expect(arr(load(dir).inputs).map(entry => obj(entry).path)).toEqual([
+    'inputs/painting.png',
+    'evidence/scene-background.png',
+    'inputs/preparation-source-registered.svg',
+  ]);
+  expect(checkProject(dir).warnings).toEqual([]);
+  const next = nextCommand([dir], testClock.now());
+  expect(next.exit).toBe(0);
+  expect(next.stdout).toContain('stage: interview');
+});
+
+test('restart leaves out an untwinned legacy entry, refuses when a left-out legacy entry is the painting without a twin, and keeps the painting when re-registered', () => {
+  const dir = example(); const project = load(dir);
+  delete obj(arr(project.inputs)[0]).at;
+  save(dir, project); commit(dir);
+  const untwinned = restartCommand(restartArgs(dir), step());
+  expect(untwinned.exit).toBe(0);
+  expect(untwinned.stdout).toContain('left out legacy input(s) inputs[0] (inputs/preparation-source.svg)');
+  expect(arr(load(dir).inputs).map(entry => obj(entry).path)).toEqual(['inputs/painting.png', 'evidence/scene-background.png']);
+
+  const painted = example(); const paintedRecord = load(painted);
+  delete obj(arr(paintedRecord.inputs)[1]).at;
+  paintedRecord.painting = 'inputs/painting.png';
+  save(painted, paintedRecord); commit(painted);
+  const paintingRefusal = refused(painted, 'RESTART_INPUT_INVALID', () => restartCommand(restartArgs(painted), step()));
+  expect(paintingRefusal.message).toContain('INPUT_PAINTING_INVALID');
+
+  writeFileSync(join(painted, 'inputs/other-bytes.png'), 'different synthetic bytes');
+  step(); inputCommand(['add', 'inputs/other-bytes.png', painted, '--origin', 'different bytes']);
+  commit(painted);
+  refused(painted, 'RESTART_INPUT_INVALID', () => restartCommand(restartArgs(painted), step()));
+
+  cpSync(join(painted, 'inputs/painting.png'), join(painted, 'inputs/painting-source.png'));
+  step(); inputCommand(['add', 'inputs/painting-source.png', painted, '--origin', 'registered painting twin']);
+  commit(painted);
+  writeFileSync(join(painted, 'evidence/scene-background.png'), 'changed writer-valid bytes');
+  const changedRefusal = refused(painted, 'RESTART_INPUT_INVALID', () => restartCommand(restartArgs(painted), step()));
+  expect(changedRefusal.message).toContain('INPUT_FILE_CHANGED');
+  cpSync(join(dir, 'evidence/scene-background.png'), join(painted, 'evidence/scene-background.png'));
+  expect(restartCommand(restartArgs(painted), step()).exit).toBe(0);
+  expect(load(painted).painting).toBe('inputs/painting-source.png');
+
+  const undeclared = example(); const undeclaredRecord = load(undeclared);
+  for (const raw of arr(undeclaredRecord.inputs)) delete obj(raw).at;
+  save(undeclared, undeclaredRecord); commit(undeclared);
+  cpSync(join(undeclared, 'inputs/painting.png'), join(undeclared, 'inputs/painting-source.png'));
+  step(); inputCommand(['add', 'inputs/painting-source.png', undeclared, '--painting', '--origin', 'registered painting again']);
+  commit(undeclared);
+  const restarted = restartCommand(restartArgs(undeclared), step());
+  expect(restarted.exit).toBe(0);
+  expect(restarted.stdout).toContain('inputs[0] (inputs/preparation-source.svg), inputs[1] (inputs/painting.png), inputs[2] (evidence/scene-background.png)');
+  expect(load(undeclared).painting).toBe('inputs/painting-source.png');
+  expect(arr(load(undeclared).inputs).map(entry => obj(entry).path)).toEqual(['inputs/painting-source.png']);
 });

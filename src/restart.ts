@@ -110,16 +110,36 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     } catch { return notProject(`is not a ${PROJECT_SCHEMA} record`); }
     const inputs = { dir, project, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkInputs(inputs);
-    const input = inputs.refusals[0] ?? inputs.warnings[0];
-    if (input !== undefined) refuse('RESTART_INPUT_INVALID', `${input.path}: ${input.code}: ${input.message}; a restart keeps only inputs the input writer would record, so restore the file or register it again with input add`);
-    const gaps = partSetGaps(project.inputs);
+    const invalidInput = (finding: Finding): never => refuse('RESTART_INPUT_INVALID', `${finding.path}: ${finding.code}: ${finding.message}; a restart keeps only inputs the input writer would record, so restore the file or register it again with input add`);
+    const firstRefusal = inputs.refusals[0] ?? inputs.warnings.find(finding => finding.code !== 'INPUT_WRITER_MISSING');
+    if (firstRefusal !== undefined) invalidInput(firstRefusal);
+    const legacyPaths = new Set(inputs.warnings.filter(finding => finding.code === 'INPUT_WRITER_MISSING').map(finding => finding.path));
+    const keptInputs: Json[] = [];
+    const leftOut: { index: number; entry: JsonObject }[] = [];
+    asArray(project.inputs).forEach((raw, index) => {
+      if (legacyPaths.has(`inputs[${index}]`)) leftOut.push({ index, entry: isObject(raw) ? raw : {} });
+      else keptInputs.push(raw);
+    });
+    let painting = project.painting;
+    if (typeof painting === 'string' && !keptInputs.some(entry => isObject(entry) && entry.path === painting)) {
+      const legacyPainting = leftOut.find(({ entry }) => entry.path === painting)?.entry;
+      const twin = legacyPainting !== undefined && typeof legacyPainting.sha256 === 'string' && typeof legacyPainting.bytes === 'number'
+        ? keptInputs.filter(isObject).find(entry => entry.sha256 === legacyPainting.sha256 && entry.bytes === legacyPainting.bytes && typeof entry.path === 'string')
+        : undefined;
+      if (twin !== undefined) painting = twin.path;
+    }
+    const keptCheck = { dir, project: { ...project, ...(painting !== undefined ? { painting } : {}), inputs: keptInputs }, refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkInputs(keptCheck);
+    const keptFinding = keptCheck.refusals[0] ?? keptCheck.warnings[0];
+    if (keptFinding !== undefined) invalidInput(keptFinding);
+    const gaps = partSetGaps(keptInputs);
     if (gaps.length) refuse('RESTART_PART_SET_INCOMPLETE', `inputs: a kept part set needs its parts.json and its rig with its PNGs, missing ${gaps.join('; ')}; register the missing files with input add, or stop keeping the set`);
     const candidate = freshProjectRecord(typeof project.name === 'string' ? project.name : '', now);
     if (project.name !== undefined) candidate.name = project.name;
     if (project.title !== undefined) candidate.title = project.title;
-    if (project.painting !== undefined) candidate.painting = project.painting;
+    if (painting !== undefined) candidate.painting = painting;
     if (project.same_artwork !== undefined) candidate.same_artwork = project.same_artwork;
-    candidate.inputs = project.inputs ?? [];
+    candidate.inputs = keptInputs;
     candidate.fix_ledger = project.fix_ledger ?? [];
     const entry: JsonObject = { at: new Date(now).toISOString(), by: opts['--by'], reason, previous_record_sha256: createHash('sha256').update(original).digest('hex') };
     candidate.restarts = [...asArray(project.restarts), entry];
@@ -132,9 +152,12 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     if (rejected !== undefined) refuse(rejected.code, rejected.message);
     writeRecord(file, original, candidate, 'restart');
     const rows = asArray(candidate.fix_ledger).length;
+    const leftOutText = leftOut.length
+      ? `; left out legacy input(s) ${leftOut.map(({ index, entry: item }) => typeof item.path === 'string' && item.path.trim() !== '' ? `inputs[${index}] (${item.path})` : `inputs[${index}]`).join(', ')}`
+      : '';
     return {
       stdout: json ? JSON.stringify(entry, null, 2)
-        : `restart: project record restarted at stage ${String(candidate.stage)}; kept ${asArray(candidate.inputs).length} input(s) and ${rows} ledger row(s); the earlier record (sha256 ${String(entry.previous_record_sha256)}) is in git history`,
+        : `restart: project record restarted at stage ${String(candidate.stage)}; kept ${asArray(candidate.inputs).length} input(s) and ${rows} ledger row(s)${leftOutText}; the earlier record (sha256 ${String(entry.previous_record_sha256)}) is in git history`,
       exit: 0,
     };
   } finally { release(); }

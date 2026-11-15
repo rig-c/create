@@ -1541,7 +1541,7 @@ and known regressions under `ledger`.
 | `RESTART_NOT_A_PROJECT` | the folder has no readable `rig-create/project@0` `project.json` | run restart on a create project folder |
 | `RESTART_NOT_IN_GIT` | the project folder is not inside a git work tree, so git history cannot hold the record restart replaces | put the project under git, commit `project.json`, then restart |
 | `RESTART_RECORD_UNCOMMITTED` | `project.json` is untracked, staged but never committed, or differs from its version at HEAD | commit `project.json`, then restart |
-| `RESTART_INPUT_INVALID` | a kept input fails the input writer's checks, including a legacy record without writer metadata | restore the file, or register it again with `input add` |
+| `RESTART_INPUT_INVALID` | a kept input fails the input writer's checks, or a left-out legacy entry is the declared `painting` without a writer-valid twin for the same bytes | restore the file, or register it again with `input add` (`input add --painting` for the painting) |
 | `RESTART_PART_SET_INCOMPLETE` | a kept part set (inputs under `<set>/parts/*.png` or `<set>/parts.json`) lacks `<set>/parts.json`, a part PNG, or its rig: `rig.json` and `mesh_report.json` at `<set>/rig/` or `<set>/` | register the missing files with `input add`, or stop keeping the set |
 | `RESTART_MALFORMED` | `restarts` is not a list, or an entry lacks `{ at, by, reason, previous_record_sha256 }` | restore the entry `restart` wrote |
 | `RESTART_SOURCE_CHANGED` | `project.json` changed while `restart` was validating | retry against the current record |

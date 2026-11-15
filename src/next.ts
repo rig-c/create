@@ -244,7 +244,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   const chatFlags = "--by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'";
   if (act.kind === 'signoff' && ownerChatSignoffAllowed(dir, project, act.stage, act.draft_id, act.version_id?.slice(1))) {
     const version = act.stage === 'rig-review' || act.stage === 'direction-review' ? ` --version ${shellWord(act.version_id?.slice(1) ?? '<current-version>')}` : '';
-    chatMoves.push({...move, command:`rig-create ${writer} ${root}${version} ${chatFlags}`, act:'relay the owner chat signoff with exact words, owner date and relay identity', review_act:undefined});
+    chatMoves.push({...move, command:`rig-create ${writer} ${root}${version} ${chatFlags}`, act:`${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act:undefined});
   } else if (act.kind === 'interview-picks' && act.question_id) {
     const item = collectItems(project, {collection:loadCollection(dir)}).find(item => item.id === act.question_id);
     const binding = item?.record.pending_options;
@@ -252,7 +252,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
       try {
         const {set} = optionFile(dir,binding);
         const picks = asArray(set.asks).filter(isObject).map(ask => ` --pick ${shellWord(`${String(ask.id)}=<option-id>`)}`).join('');
-        chatMoves.push({...move, command:`rig-create ${writer} ${root} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${chatFlags}${picks}`, act:'relay the owner chat answer and explicit option ids from the displayed set', review_act:undefined});
+        chatMoves.push({...move, command:`rig-create ${writer} ${root} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${chatFlags}${picks}`, act:`${move.act}; or relay the owner chat answer and explicit option ids from the displayed set`, review_act:undefined});
       } catch { /* The check's named option-file refusal supplies the repair route. */ }
     }
   }

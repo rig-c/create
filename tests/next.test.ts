@@ -217,8 +217,12 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
       const report = JSON.parse(res.stdout) as NextReport;
       // Compare the checkpoint's original moves; exported-act execution tests
       // separately exercise the four commands surrounding each human move.
+      const chatMoves=report.moves.filter(move=>move.command?.includes('--owner-chat'));
+      for(const move of chatMoves){
+        expect(move.role).toBe('human');expect(move.command).toContain('--said-at');expect(move.command).toContain('--relayed-by');
+      }
       report.moves = report.moves.filter(move => !move.command?.startsWith('rig-create job ')
-        && !move.command?.includes('--from-review'));
+        && !move.command?.includes('--from-review') && !move.command?.includes('--owner-chat'));
       const project = JSON.parse(readFileSync(join(cpDir, 'project.json'), 'utf8')) as Record<string, unknown>;
 
       expect(report.schema).toBe(NEXT_SCHEMA);
@@ -449,7 +453,11 @@ describe('Frozen Bar 3 — Agent commands never invent human acts', () => {
           }
         } else {
           expect(move.role).toBe('human');
-          expect(move.command).toBeNull();
+          if(move.command!==null){
+            expect(move.command).toMatch(/^rig-create (?:interview-answer|signoff) /);
+            for(const flag of ['--owner-chat','--said-at','--relayed-by'])expect(move.command).toContain(flag);
+            expect(move.command).not.toContain('--from-review');
+          } else expect(move.command).toBeNull();
           expect(move.act).not.toMatch(/--by\s+user\b/);
         }
       }
@@ -504,7 +512,10 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
 
     const report = nextProject(dir, reopenAt);
     expect(report.refusals).toEqual([]);
-    const lapseMoves = report.moves.filter(m => m.lapse !== undefined);
+    const lapseMoves = report.moves.filter(m => m.lapse !== undefined && !m.command?.includes('--owner-chat'));
+    for(const move of report.moves.filter(m=>m.lapse && m.command?.includes('--owner-chat'))){
+      expect(move.role).toBe('human');expect(move.act).toContain(move.lapse!.code);expect(move.command).toContain('--said-at');
+    }
     expect(lapseMoves.map(m => [m.role, m.field, m.lapse?.code, m.lapse?.target_field])).toEqual([
       ['human', 'reopens[0]', 'REOPEN_SIGNOFF_LAPSED', 'signoffs[2]'],
       ['human', 'reopens[0]', 'REOPEN_SIGNOFF_LAPSED', 'signoffs[3]'],
@@ -521,7 +532,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
 
     // Also verify example-remesh (which is reopened to parts-review).
     const remeshReport = nextProject(REMESH_DIR, CHAIN_NOW);
-    const remeshLapses = remeshReport.moves.filter(m => m.lapse !== undefined);
+    const remeshLapses = remeshReport.moves.filter(m => m.lapse !== undefined && !m.command?.includes('--owner-chat'));
     expect(remeshLapses.length).toBeGreaterThan(0);
     for (const move of remeshLapses) {
       expect(move.role).toBe('human');
@@ -1312,9 +1323,10 @@ test('#478 answered rigging guides request plan steps before the publishable sig
   }
   const after = nextProject(dir, CHAIN_NOW);
   expect(after.refusals).toEqual([]);
-  expect(after.moves).toHaveLength(5);
-  expect(after.moves[1]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
-  expect(after.moves[1]!.unanswered_by_record).toBeUndefined();
+  expect(after.moves).toHaveLength(6);
+  expect(after.moves[0]!.command).toContain('--owner-chat');
+  expect(after.moves[2]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
+  expect(after.moves[2]!.unanswered_by_record).toBeUndefined();
   expect(after.awaits).toEqual(['signoffs[stage=rigging-interview]']);
   const context = readRecordPublished({ root: dir,
     record: { path: 'project.json', sha256: sha256(readFileSync(join(dir, 'project.json'))) },

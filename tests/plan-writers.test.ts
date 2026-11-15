@@ -251,6 +251,55 @@ test('done work cannot be revised after reopen, can be removed with checkpoint h
   expect(step(read(dir), 'camera-next').status).toBe('pending');
 });
 
+function rigReplacement(): { dir: string; original: JsonObject; flags: string[] } {
+  testClock.set('2026-11-20T00:00:00Z');
+  const dir = fixture(() => {}, 'example-project.json');
+  const original = structuredClone(step(read(dir), 'seethrough'));
+  reopen(dir);
+  write(dir, 'remove', 'seethrough');
+  const flags = ['--phase', 'rig', '--order', String(original.order), '--does', 'Rebuild the approved parts.',
+    '--produces', 'Replacement parts.', '--rests-on', 'seethrough', '--bar', 'The replacement meets the owner answer.', '--checkpoint-proposed', 'false'];
+  return { dir, original, flags };
+}
+
+test('a removed done rig step accepts its waypoint id after a later plan-approved reopen and keeps full history', () => {
+  const { dir, flags } = rigReplacement();
+  const before = read(dir);
+  const history = structuredClone(obj(before.plan).replaced);
+  unchanged(dir, 'STEP_NOT_A_WAYPOINT', () => write(dir, 'add', 'seethrough-raw', flags));
+  write(dir, 'add', 'seethrough', flags);
+  const after = read(dir);
+  expect(arr(obj(after.plan).steps).filter(value => obj(value).id === 'seethrough')).toHaveLength(1);
+  expect(step(after, 'seethrough')).toMatchObject({ status: 'pending', checkpoint: null });
+  expect(step(after, 'seethrough').status_history).toBeUndefined();
+  expect(obj(after.plan).replaced).toEqual(history);
+  expect(obj(obj(arr(history)[0]).step).status_history).toBeDefined();
+  expect(codes(dir)).toEqual([]);
+  testClock.set('2026-11-20T00:00:01Z');
+  write(dir, 'revise', 'seethrough', ['--bar', 'A refined replacement bar.']);
+  expect(step(read(dir), 'seethrough').status).toBe('pending');
+  testClock.set('2026-11-20T00:00:02Z');
+  write(dir, 'remove', 'seethrough');
+  testClock.set('2026-11-20T00:00:03Z');
+  write(dir, 'add', 'seethrough', flags);
+  expect(codes(dir)).toEqual([]);
+});
+
+test.each(['absent', 'earlier', 'equal', 'later-stage', 'malformed', 'future'])('done rig replacement refuses %s reopen byte-identically', mode => {
+  const { dir, original, flags } = rigReplacement();
+  const project = read(dir);
+  const completion = obj(arr(original.status_history).find(event => obj(event).status === 'done')!).at as string;
+  const entry = obj(arr(project.reopens)[0]);
+  if (mode === 'absent') project.reopens = [];
+  if (mode === 'earlier') entry.at = new Date(Date.parse(completion) - 1).toISOString();
+  if (mode === 'equal') entry.at = completion;
+  if (mode === 'later-stage') entry.stage = 'parts';
+  if (mode === 'malformed') entry.by = 'agent';
+  if (mode === 'future') entry.at = '2026-11-21T00:00:00Z';
+  save(dir, project);
+  unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'seethrough', flags));
+});
+
 test('a live plan hash cannot resolve only to removed history', () => {
   testClock.set('2026-11-20T00:00:00Z');
   const dir = fixture();

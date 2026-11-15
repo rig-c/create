@@ -49,7 +49,10 @@ export class PartsUnreadable extends Error {
 const load = createRequire(import.meta.url);
 
 /** Create's runtime-resolved dependency install, used when a project has none (running the check in this repo, or before `bun install` in a project). */
-export const OWN_NODE_MODULES = dirname(dirname(dirname(load.resolve(`${PARTS_PACKAGE}/package.json`))));
+const checkoutNodeModules = join(import.meta.dir, '..', 'node_modules');
+export const OWN_NODE_MODULES = existsSync(join(checkoutNodeModules, PARTS_PACKAGE, 'package.json'))
+  ? checkoutNodeModules
+  : dirname(dirname(dirname(load.resolve(`${PARTS_PACKAGE}/package.json`))));
 
 /**
  * Where the installed package is looked for, in order: the project's own

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -37,4 +37,24 @@ test('host parts discovery supports a hoisted dependency beside installed Create
   const config = Bun.spawnSync([process.execPath, '-e', `import { configInputReferences, inputsUndeclaredByInstall } from ${JSON.stringify(join(src, 'config-inputs.ts'))}; const warnings = []; const refs = configInputReferences(${JSON.stringify(retained)}, {}, e => warnings.push(e.message)); console.log(JSON.stringify({ refs, warnings, undeclared: inputsUndeclaredByInstall(${JSON.stringify(retained)}, {}) }));`], { stdout: 'pipe', stderr: 'pipe' });
   expect(config.exitCode).toBe(0);
   expect(JSON.parse(config.stdout.toString())).toEqual({ refs: [], warnings: ['@rig-c/parts 1.0.0 has no configFileReferences export; install a version providing the config file declarations before recording new named inputs'], undeclared: { version: '1.0.0', refs: [{ at: 'source', value: 'source.png' }] } });
+});
+
+
+test('host parts discovery keeps the checkout path for a linked source dependency', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-linked-shape-')));
+  roots.push(root);
+  const src = join(root, 'create/src');
+  const target = join(root, 'parts');
+  const ownModules = join(root, 'create/node_modules');
+  const linked = join(ownModules, '@rig-c/parts');
+  mkdirSync(src, { recursive: true });
+  mkdirSync(join(target, 'src'), { recursive: true });
+  mkdirSync(join(ownModules, '@rig-c'), { recursive: true });
+  for (const name of ['parts-sections.ts', 'check-reads.ts', 'config-inputs.ts']) copyFileSync(join(import.meta.dir, '../src', name), join(src, name));
+  writeFileSync(join(target, 'package.json'), JSON.stringify({ name: '@rig-c/parts', version: '1.0.0' }));
+  writeFileSync(join(target, 'src/config.ts'), 'export const CONFIG_SECTIONS = ["synthetic"]; export function configFileReferences() { return []; }');
+  symlinkSync(target, linked);
+  const child = Bun.spawnSync([process.execPath, '-e', `import { OWN_NODE_MODULES, locateParts } from ${JSON.stringify(join(src, 'parts-sections.ts'))}; import { inputsUndeclaredByInstall } from ${JSON.stringify(join(src, 'config-inputs.ts'))}; console.log(JSON.stringify({ own: OWN_NODE_MODULES, parts: locateParts(${JSON.stringify(join(root, 'retained'))}), inputs: inputsUndeclaredByInstall(${JSON.stringify(join(root, 'retained'))}, {}) }));`], { stdout: 'pipe', stderr: 'pipe' });
+  expect(child.exitCode).toBe(0);
+  expect(JSON.parse(child.stdout.toString())).toEqual({ own: ownModules, parts: linked, inputs: { version: '1.0.0', refs: [] } });
 });

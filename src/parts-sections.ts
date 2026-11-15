@@ -46,8 +46,13 @@ export class PartsUnreadable extends Error {
   }
 }
 
-/** The create repository's own install, used when a project has none (running the check in this repo, or before `bun install` in a project). */
-export const OWN_NODE_MODULES = join(import.meta.dir, '..', 'node_modules');
+const load = createRequire(import.meta.url);
+
+/** Create's runtime-resolved dependency install, used when a project has none (running the check in this repo, or before `bun install` in a project). */
+const checkoutNodeModules = join(import.meta.dir, '..', 'node_modules');
+export const OWN_NODE_MODULES = existsSync(join(checkoutNodeModules, PARTS_PACKAGE, 'package.json'))
+  ? checkoutNodeModules
+  : dirname(dirname(dirname(load.resolve(`${PARTS_PACKAGE}/package.json`))));
 
 /**
  * Where the installed package is looked for, in order: the project's own
@@ -66,8 +71,6 @@ export function locateParts(projectDir: string): string | null {
   }
   return null;
 }
-
-const load = createRequire(import.meta.url);
 
 function isSections(v: unknown): v is Sections {
   return Array.isArray(v) && v.length > 0 && v.every((s) => typeof s === 'string');

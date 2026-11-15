@@ -903,3 +903,23 @@ screens a corpus reproduction away. A new report needs a fresh shown set
 and explicit choice; the old choice and set remain history. Choices are
 local, never inherited from a collection. They may be recorded only in
 parts, but later signatures do not make a pending optional choice invalid.
+
+### Relayed owner chat
+
+All interview questions may use `interview-answer --owner-chat <words file>
+--said-at <ISO date> --relayed-by <operator> --by <owner>` alongside the
+existing `--set`, `--sha256` and explicit `--pick` flags. Shared context images
+are background and do not change this route. The writer retains generated
+pick text in `verbatim`, exact UTF-8 chat in `owner_words`, the owner's original
+`said_at`, the relay's `relayed_by`, and source `owner chat, relayed`.
+`at` remains the write time; no review act id is created. Empty or whitespace
+words, missing clocks or relay identity, and agent owners are refused.
+If options ever carry their own images, those sets leave the chat path;
+that requires a new Review contract outside this change.
+
+Stage signoffs use the same flags, retaining the exact words in `verbatim`.
+Parts-review, rig-review and direction-review first require the current
+accepted live verdict from the review tool; changes-requested does not count.
+Get that verdict with `job open --draft <id>` (parts) or `job open --rig <n>`
+(rig/post), then ingest it through the existing verdict writer. Verdict writers
+have no owner-chat route. Review remains available for picks and signoffs.

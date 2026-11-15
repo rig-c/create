@@ -4,7 +4,7 @@ One painting; one rig and its takes.
 
 ## Start here
 
-1. Read `project.json`. Human acts go through Review; ingest exports. Never type human answers/signatures.
+1. Read `project.json`. Verdicts go through Review; interview picks and signoffs may relay owner words via `--owner-chat --said-at --relayed-by`. Never invent human words.
 2. Run `rig-create next` to derive the next moves and whose they are.
 3. Resume per {{RESUME_LINK}}.
 

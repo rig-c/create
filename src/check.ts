@@ -1,3 +1,4 @@
+import { ownerChatFinding } from './owner-chat.ts';
 import { packageUpgradeFindings } from './package-upgrades.ts';
 import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
@@ -1001,6 +1002,15 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkInputs(ctx);
   checkChoices(ctx);
+  const checkChat = (value: Json | undefined, path: string): void => {
+    if (Array.isArray(value)) value.forEach((entry, index) => checkChat(entry, `${path}[${index}]`));
+    else if (isObject(value)) {
+      const finding = ownerChatFinding(value, path);
+      if (finding) ctx.refusals.push(finding);
+      for (const [key, entry] of Object.entries(value)) checkChat(entry, `${path}.${key}`);
+    }
+  };
+  checkChat(project, 'project.json');
   if (!options.recordPublication) checkCorrections(ctx, options.now);
   if (!options.recordPublication) checkScenes(ctx);
   if (!options.recordPublication) checkDirections(ctx, options.now);

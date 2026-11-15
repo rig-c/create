@@ -438,3 +438,37 @@ for(const decided of [false,true]){
     const selected=JSON.parse(overrideAnswer(w,['--why-file',w.reason]));expect(selected.basis).toBe('overridden');expect(selected.overrides).toEqual({collection:'synthetic',question:'reference',collection_answer_at:shared.at});expect(selected.why_verbatim).toBe(w.why);expect(readFileSync(w.parentFile)).toEqual(parent);expect(checkProject(w.dir).refusals).toEqual([]);
   });
 }
+
+test.each(['rig_type','motion'])('owner chat retains exact words beside checked picks with shared images: %s', question => {
+  const w=working(question);const words='  Keep the shown choice.\r\n';const file=join(w.dir,'owner.txt');writeFileSync(file,words);
+  const said=new Date(testClock.now()-500).toISOString();
+  const args=[question,w.dir,'--set',w.path,'--sha256',w.hash,'--by','user',
+    ...arr(w.set.asks).flatMap(a=>['--pick',`${String(obj(a).id)}=keep`]),
+    '--owner-chat',file,'--said-at',said,'--relayed-by','operator'];
+  const record=JSON.parse(rawInterviewAnswer(args,testClock.now()));
+  expect(record.owner_words).toBe(words);expect(record.said_at).toBe(said);expect(record.relayed_by).toBe('operator');
+  expect(record.at).toBe(new Date(testClock.now()).toISOString());expect(record.at).not.toBe(said);
+  expect(record.verbatim).not.toBe(words);expect(record.source).toBe('owner chat, relayed');
+  expect(record.actId).toBeUndefined();expect(record.act_id).toBeUndefined();
+  expect(current(load(w.dir),question).raw).toEqual(record);
+});
+
+test.each(['','  \r\n'])('blank owner words refuse atomically: %j', words => {
+  const w=working('rig_type');const file=join(w.dir,'owner.txt');writeFileSync(file,words);
+  const before=readFileSync(join(w.dir,'project.json'));
+  expect(code(()=>rawInterviewAnswer(['rig_type',w.dir,'--set',w.path,'--sha256',w.hash,'--by','user','--pick','rig_type=keep',
+    '--owner-chat',file,'--said-at',new Date(testClock.now()-500).toISOString(),'--relayed-by','operator'],testClock.now()))).toBe('OWNER_CHAT_INVALID');
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+});
+
+test.each(['--said-at','--relayed-by','agent','--from-review','bad-pick'])('owner chat refuses missing/mixed authority and invalid picks atomically: %s', change => {
+  const w=working('rig_type');const file=join(w.dir,'owner.txt');writeFileSync(file,'Keep this.');
+  const args=['rig_type',w.dir,'--set',w.path,'--sha256',w.hash,'--by',change==='agent'?'agent':'user',
+    '--pick',change==='bad-pick'?'rig_type=missing':'rig_type=keep','--owner-chat',file,
+    '--said-at',new Date(testClock.now()-500).toISOString(),'--relayed-by','operator'];
+  if(change.startsWith('--') && change!=='--from-review')args.splice(args.indexOf(change),2);
+  if(change==='--from-review')args.push('--from-review','synthetic-act');
+  const before=readFileSync(join(w.dir,'project.json'));
+  expect(code(()=>rawInterviewAnswer(args,testClock.now()))).toBe(change==='bad-pick'||change==='agent'?'INTERVIEW_CHOICE_INVALID':'OWNER_CHAT_INVALID');
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+});

@@ -1,3 +1,4 @@
+import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
 import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
@@ -34,6 +35,9 @@ export const SIGNOFF_HELP = `signoff:
                           (excludes --by, --verbatim-file and --steps on both routes)
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
+  --owner-chat <file>     relay exact owner words (excludes --verbatim-file / --from-review)
+  --said-at <ISO date>    explicit owner clock; at remains the write time
+  --relayed-by <who>     operator relaying the owner chat
   --steps <id,id,...>      narrow parts plan, rigging-interview rig steps, or post steps
   --checkpoint <id>       sign an enabled checkpoint in this execution stage
   --from-review <actId>   with --checkpoint: record the passed Review checkpoint act (no --by or --verbatim-file)
@@ -75,7 +79,7 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
       i++;
     } else if (arg.startsWith('--component=') || arg.startsWith('--diff-report=') || arg.startsWith('--triage-file=')) {
       hasDiffFlag = true;
-    } else if (['--version', '--draft', '--structure-file', '--by', '--verbatim-file', '--steps', '--checkpoint', '--from-review'].includes(arg)) {
+    } else if (['--version', '--draft', '--structure-file', '--by', '--verbatim-file', '--steps', '--checkpoint', '--from-review', ...OWNER_CHAT_FLAGS].includes(arg)) {
       const value = args[++i];
       if (arg in opts || value === undefined || value === '') refuse('SIGNOFF_OPTION_INVALID', `${arg} needs one non-empty value`, USAGE_EXIT);
       opts[arg] = value;
@@ -94,7 +98,7 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   }
   const actId = opts['--from-review'];
   if (actId !== undefined) {
-    const mixed = ['--by', '--verbatim-file', '--steps'].filter(flag => opts[flag] !== undefined);
+    const mixed = ['--by', '--verbatim-file', '--steps', ...OWNER_CHAT_FLAGS].filter(flag => opts[flag] !== undefined);
     if (mixed.length > 0) refuse('SIGNOFF_OPTION_INVALID', `project.json.review_acts: --from-review excludes ${mixed.join(', ')}; the person's identity, words and covered steps come from the review act`, USAGE_EXIT);
   }
   if (actId === undefined) return recordSignoff(stage, positional, opts, json, now, hooks);
@@ -114,7 +118,9 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (opts['--by'] === undefined && actId === undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
+  const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
   const { file, project } = readProject(dir);
+  if (chat) assertOwnerChatSignoff(dir, project, stage, opts['--draft'], opts['--version']);
   const original = actId === undefined ? undefined : readFileSync(file);
   let ingest: CheckpointIngest | undefined;
   // Recorded checkpoint receipts replay before current eligibility, through the same immutable-byte validator.
@@ -224,7 +230,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
     if (typeof value !== 'boolean') refuse('SIGNOFF_CHECKPOINT_INVALID', `${String(step.id)}: checkpoint needs a boolean user answer or a decided boolean delegation`);
   }
-  const verbatim = review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : readVerbatim(opts['--verbatim-file'] ?? '-');
+  const verbatim = review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : chat ? String(chat.owner_words) : readVerbatim(opts['--verbatim-file'] ?? '-');
   const at = review !== undefined ? String(review.human.at) : ingest ? ingest.at : new Date(now).toISOString();
   const hashes: JsonObject = Object.create(null) as JsonObject;
   for (const step of covered) {
@@ -234,6 +240,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     hashes[step.id as string] = stepHash(step);
   }
   const signoff: JsonObject = { stage, checkpoint: checkpointId ?? null, by, at, verbatim };
+  if (chat) { signoff.source = chat.source!; signoff.said_at = chat.said_at!; signoff.relayed_by = chat.relayed_by!; }
   if (review !== undefined) signoff.source = review.human.source!;
   if (evidence !== undefined) signoff.evidence = evidence;
   if (phase !== undefined) {

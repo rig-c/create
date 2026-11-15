@@ -1624,3 +1624,27 @@ test.each([
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   followupReceipt({ kind: 'rig-reason', missing, act: signoff.act });
 });
+
+test('owner chat is offered beside Review for pending interview picks, including shared images',()=>{
+  const dir=join(tempDir(),'chat-options');cpSync(CHAIN_DIR,dir,{recursive:true});
+  const file=join(dir,'project.json');
+  cpSync(join(CHECKPOINTS_DIR,'0a-interview-options/project.json'),file);
+  const result=nextProject(dir,CHAIN_NOW);
+  const chats=result.moves.filter(move=>move.command?.includes('--owner-chat'));
+  expect(chats.length).toBeGreaterThan(0);
+  expect(chats.every(move=>move.role==='human')).toBe(true);
+  expect(chats.some(move=>move.command?.includes('interview-answer') && move.command.includes('--set') && move.command.includes('--sha256') && move.command.includes('--pick'))).toBe(true);
+  expect(result.moves.some(move=>move.command?.includes('job open'))).toBe(true);
+});
+
+test('owner chat signoff is absent before the direction verdict and present after acceptance',()=>{
+  const dir=join(tempDir(),'chat-direction');cpSync(CHAIN_DIR,dir,{recursive:true});
+  const file=join(dir,'project.json');const p=JSON.parse(readFileSync(file,'utf8')) as JsonObject;
+  p.stage='direction-review';p.signoffs=arr(p.signoffs).filter(s=>obj(s).stage!=='direction-review');
+  p.advances=arr(p.advances).filter(a=>obj(a).stage!=='accepted');
+  const version=arr(p.versions).map(obj).find(v=>v.kind==='post')!;const verdicts=version.verdicts;
+  version.verdicts=[];writeFileSync(file,JSON.stringify(p,null,2)+'\n');
+  expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.command?.includes('signoff direction-review')&&m.command.includes('--owner-chat'))).toBe(false);
+  version.verdicts=verdicts;writeFileSync(file,JSON.stringify(p,null,2)+'\n');
+  expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.command?.includes('signoff direction-review')&&m.command.includes('--owner-chat'))).toBe(true);
+});

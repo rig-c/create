@@ -17,6 +17,7 @@ import { newRefusals } from './refusal-baseline.ts';
 import { readVerbatim } from './record-input.ts';
 import { checkUnrecordedPartRepaints } from './corrections.ts';
 import { checkFixLedger, draftLedgerFields } from './fix-ledger.ts';
+import { EDITED_PART_INPUTS_SINCE, editedPartInputFindings } from './edited-part-inputs.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -185,6 +186,23 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         // Unreadable, escaping or changed bytes are DRAFT_RIG_FILE above; the producer is not read from them.
       }
     }
+    let editedInputs = new Set<string>();
+    const manifestPath = `${String(parts.path)}/parts.json`;
+    const manifestBinding = asArray(parts.files).find(f => binding(f) && f.path === manifestPath) as JsonObject;
+    try {
+      if (!draftFileUnavailable(dir, manifestPath, root)) {
+        const bytes = readFileSync(fileAt(dir, manifestPath, root));
+        // Changed producer bytes already refuse above; do not interpret their provenance.
+        if (sha(bytes) === manifestBinding.sha256) {
+          const manifest: Json = JSON.parse(bytes.toString('utf8'));
+          if (isObject(manifest)) {
+            const result = editedPartInputFindings(dir, raw, manifest, path);
+            editedInputs = result.paths;
+            (Date.parse(raw.at) < Date.parse(EDITED_PART_INPUTS_SINCE) ? warnings : refusals).push(...result.findings);
+          }
+        }
+      }
+    } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     const unbound = draftUnboundInputs(raw);
     const unrecorded = (why: string): void => { warnings.push({ code: 'DRAFT_CONFIG_INPUTS_UNRECORDED', path: `${path}.config_inputs`, message: `${path}.config_inputs: ${why}; the draft was recorded before ${DRAFT_CONFIG_INPUTS_SINCE} with no config_inputs key, so the parts install that recorded it could not declare its config-named inputs; the record is kept; record a new draft with draft-rig under a new id to bind them` }); };
     try {
@@ -192,6 +210,8 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         const config = JSON.parse(readFileSync(fileAt(dir, String(raw.config.path), root), 'utf8'));
         for (const ref of configInputReferences(dir, config)) {
           const named = relative(resolve(dir), resolve(dir, String(raw.config.path), '..', ref.value)).split(sep).join('/');
+          // Receipt-file omissions use their own dated contract, including when a newer loader declares them.
+          if (editedInputs.has(named)) continue;
           // A directory input (an occluder plate) is bound by its receipt and names the directory it stands for.
           if (!asArray(raw.config_inputs).some(f => binding(f) && (f.directory === undefined ? f.path === named : f.directory === named))) {
             if (unbound === 'unrecorded') { unrecorded(`config.${ref.at} names ${named}`); continue; }

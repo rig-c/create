@@ -4,9 +4,9 @@ One painting; one rig and its takes.
 
 ## Start here
 
-1. Read `project.json`. Verdicts go through Review; interview picks and signoffs may relay owner words via `--owner-chat --said-at --relayed-by`. Never invent human words.
-2. Run `rig-create next` to derive the next moves and whose they are.
-3. Resume per {{RESUME_LINK}}.
+1. Read `project.json`. Verdicts go through Review; relay interview picks/signoffs with owner words via `--owner-chat --said-at --relayed-by`. Never invent human words.
+2. Run `rig-create next` for next moves and owners.
+3. Resume: {{RESUME_LINK}}.
 
 {{REOPEN_EXCEPTION}}
 
@@ -23,10 +23,10 @@ one input, survives restart and checks sibling artwork; optional on older record
 `direction-review` → `accepted`. Any stage can become `paused`.
 
 - Only human `signoffs[]` advance `stage` or pass plan checkpoints.
-  Draft, propose, build and measure in any stage; production rigging waits for `rigging-interview` ({{STAGES_LINK}}).
-- Never infer answers from images. Offer a pick per ask: one reasoned
-  recommendation, Other and auto. Retain the shown set; never preselect.
-- Record "auto" as delegated with your decision on the item; never leave it blank.
+  Draft, propose, build and measure anytime; production rigging waits for `rigging-interview` ({{STAGES_LINK}}).
+- Never infer answers from images. Per ask, offer one reasoned recommendation,
+  Other and auto. Retain the shown set; never preselect.
+- Record "auto" as delegated with your decision; never leave it blank.
 - {{INTERVIEW_CHECK}}
 
 ## The user's four steps
@@ -54,21 +54,22 @@ In `parts`, record an `intake-report` preflight and offer its choice, both advis
 {{INTAKE_LINK}}.
 
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
+An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`.
 Preserve history/dates; adopt choices explicitly.
 
 ## Before you ask, plan or show
 
-- **Prior words.** In adopted projects, show them verbatim as a tailored option
-  with source/date; require a pick. Legacy derivation: {{DERIVED_LINK}}.
-- **Bars before sign-off.** Each reading names its command, checked against
-  installed `--help`. A reading with no command is a STOP before sign-off.
+- **Prior words.** Offer adopted projects verbatim prior words as a tailored option
+  with source/date; require a pick. Legacy: {{DERIVED_LINK}}.
+- **Bars before sign-off.** Each reading names a command verified against
+  installed `--help`; a missing command means STOP before sign-off.
   Loop bars: INTERVIEW.md, "Bars have reading commands".
 
-Stage reference: [Before you ask, plan or show](AGENT-REFERENCE.md).
+See: [Before you ask, plan or show](AGENT-REFERENCE.md).
 
 ## Where things go
 
-Each folder's lifetime and git status: {{LIFETIME_LINK}}.
+Folder lifetimes and git status: {{LIFETIME_LINK}}.
 
 ## What to read, and why
 
@@ -79,6 +80,6 @@ Run refusal `(see … guide …)` commands first.
 
 {{PACKAGE_DOCS}}
 
-Project docs (not installed):
+Project docs:
 
 {{CREATE_DOCS}}

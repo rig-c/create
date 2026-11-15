@@ -4,9 +4,9 @@ One painting; one rig and its takes.
 
 ## Start here
 
-1. Read `project.json`. Verdicts go through Review; interview picks and signoffs may relay owner words via `--owner-chat --said-at --relayed-by`. Never invent human words.
-2. Run `rig-create next` to derive the next moves and whose they are.
-3. Resume per [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
+1. Read `project.json`. Verdicts go through Review; relay interview picks/signoffs with owner words via `--owner-chat --said-at --relayed-by`. Never invent human words.
+2. Run `rig-create next` for next moves and owners.
+3. Resume: [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
 
 After an accepted post is bounced, reopen direction-review through Review: `job open --plan`, then `job acts --json`, ingest `reopen direction-review --from-review <actId>`, and `job close`. The exported act supplies the reviewer, date and verbatim words.
 
@@ -23,10 +23,10 @@ one input, survives restart and checks sibling artwork; optional on older record
 `direction-review` → `accepted`. Any stage can become `paused`.
 
 - Only human `signoffs[]` advance `stage` or pass plan checkpoints.
-  Draft, propose, build and measure in any stage; production rigging waits for `rigging-interview` ([Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages)).
-- Never infer answers from images. Offer a pick per ask: one reasoned
-  recommendation, Other and auto. Retain the shown set; never preselect.
-- Record "auto" as delegated with your decision on the item; never leave it blank.
+  Draft, propose, build and measure anytime; production rigging waits for `rigging-interview` ([Stages](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#stages)).
+- Never infer answers from images. Per ask, offer one reasoned recommendation,
+  Other and auto. Retain the shown set; never preselect.
+- Record "auto" as delegated with your decision; never leave it blank.
 - Run `rig-create interview --check` before interview sign-off: it names every `null` answer.
 
 ## The user's four steps
@@ -54,21 +54,22 @@ In `parts`, record an `intake-report` preflight and offer its choice, both advis
 [PROJECT.md § Advisory intake reports](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#advisory-intake-reports).
 
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
+An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`.
 Preserve history/dates; adopt choices explicitly.
 
 ## Before you ask, plan or show
 
-- **Prior words.** In adopted projects, show them verbatim as a tailored option
-  with source/date; require a pick. Legacy derivation: [INTERVIEW.md § Derived answers](https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md#derived-answers).
-- **Bars before sign-off.** Each reading names its command, checked against
-  installed `--help`. A reading with no command is a STOP before sign-off.
+- **Prior words.** Offer adopted projects verbatim prior words as a tailored option
+  with source/date; require a pick. Legacy: [INTERVIEW.md § Derived answers](https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md#derived-answers).
+- **Bars before sign-off.** Each reading names a command verified against
+  installed `--help`; a missing command means STOP before sign-off.
   Loop bars: INTERVIEW.md, "Bars have reading commands".
 
-Stage reference: [Before you ask, plan or show](AGENT-REFERENCE.md).
+See: [Before you ask, plan or show](AGENT-REFERENCE.md).
 
 ## Where things go
 
-Each folder's lifetime and git status: [PROJECT.md § Data is split by lifetime](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#data-is-split-by-lifetime).
+Folder lifetimes and git status: [PROJECT.md § Data is split by lifetime](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#data-is-split-by-lifetime).
 
 ## What to read, and why
 
@@ -102,7 +103,7 @@ Run refusal `(see … guide …)` commands first.
 - [@rig-c/core docs/FACE.md](node_modules/@rig-c/core/docs/FACE.md): blink and gaze in the accepted rig.
 - [@rig-c/core docs/INGEST.md](node_modules/@rig-c/core/docs/INGEST.md): only when you were handed a skeleton this project did not author.
 
-Project docs (not installed):
+Project docs:
 
 - [docs/PROJECT.md](https://github.com/rig-c/create/blob/main/docs/PROJECT.md): the folder, stages and sign-offs, the plan, versions, and `project.json` field by field.
 - [docs/INTERVIEW.md](https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md): how to ask, and the shape every answer, delegation and piece of feedback takes.

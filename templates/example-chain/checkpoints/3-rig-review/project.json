@@ -1270,7 +1270,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "0495aaab65a68e7967eaf2e8ea5b009d480cfc5798e1dfc03d61576fc740f714"
+            "sha256": "e6af0ac9f2a491d85475bff9017bc844cbb71674b6f55d5ad277bc8747d5f31e"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1354,7 +1354,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "de4ef394c4bfadfdb08200308bf07ef40bc5edec46e3722d642326c6eb535ea4"
+            "sha256": "9eda2f9f82ad3ba86a75554d58a01c8597e660fbc92c70caa6bb61f3d0d5bb04"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -1852,7 +1852,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "0495aaab65a68e7967eaf2e8ea5b009d480cfc5798e1dfc03d61576fc740f714"
+          "sha256": "e6af0ac9f2a491d85475bff9017bc844cbb71674b6f55d5ad277bc8747d5f31e"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -1908,7 +1908,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "de4ef394c4bfadfdb08200308bf07ef40bc5edec46e3722d642326c6eb535ea4"
+          "sha256": "9eda2f9f82ad3ba86a75554d58a01c8597e660fbc92c70caa6bb61f3d0d5bb04"
         }
       ],
       "config_inputs": [

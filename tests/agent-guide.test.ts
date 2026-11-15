@@ -179,7 +179,7 @@ describe('the shipped stage reference', () => {
 
   test('keeps first-read authority and stage routing in the guide', () => {
     const guide = renderAgentGuide();
-    for (const required of ['Human acts go through Review', 'rig-create next', 'Only human `signoffs[]`',
+    for (const required of ['Verdicts go through Review', '--owner-chat --said-at --relayed-by', 'rig-create next', 'Only human `signoffs[]`',
       '**Prior words.**', '**Bars before sign-off.**', "## The user's four steps"]) expect(guide).toContain(required);
     expect(reference).toContain(READ_FIRST);
     for (const link of [APPEARANCE_LINK, BUST_LINK, CG_GATES_LINK, GATES_LINK, PROJECTION_LINK]) {

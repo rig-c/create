@@ -1,3 +1,5 @@
+import { optionFile } from './choices.ts';
+import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from './check-reads.ts';
@@ -238,7 +240,24 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
     role: 'agent', field: move.field, awaits: move.awaits, command, act: description,
   });
   const root = shellWord(dir);
+  const chatMoves: NextMove[] = [];
+  const chatFlags = "--by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'";
+  if (act.kind === 'signoff' && ownerChatSignoffAllowed(dir, project, act.stage, act.draft_id, act.version_id?.slice(1))) {
+    const version = act.stage === 'rig-review' || act.stage === 'direction-review' ? ` --version ${shellWord(act.version_id?.slice(1) ?? '<current-version>')}` : '';
+    chatMoves.push({...move, command:`rig-create ${writer} ${root}${version} ${chatFlags}`, act:`${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act:undefined});
+  } else if (act.kind === 'interview-picks' && act.question_id) {
+    const item = collectItems(project, {collection:loadCollection(dir)}).find(item => item.id === act.question_id);
+    const binding = item?.record.pending_options;
+    if (isObject(binding) && typeof binding.path === 'string' && typeof binding.sha256 === 'string') {
+      try {
+        const {set} = optionFile(dir,binding);
+        const picks = asArray(set.asks).filter(isObject).map(ask => ` --pick ${shellWord(`${String(ask.id)}=<option-id>`)}`).join('');
+        chatMoves.push({...move, command:`rig-create ${writer} ${root} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${chatFlags}${picks}`, act:`${move.act}; or relay the owner chat answer and explicit option ids from the displayed set`, review_act:undefined});
+      } catch { /* The check's named option-file refusal supplies the repair route. */ }
+    }
+  }
   return [
+    ...chatMoves,
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'host this Review page; keep the host running in a separate terminal until job close'),
     move,
     agent(`rig-create job acts ${root} --json`, `after the person submits in Review, list exported acts and use the matching actId below${act.stage === 'parts-review' ? '; run its reported preconditions before ingestion (parts-review signoff includes structure-snapshot)' : ''}`),

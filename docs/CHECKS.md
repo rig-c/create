@@ -1717,3 +1717,10 @@ checks remain in force; no source measurement is recomputed.
 new placement. Re-signing or adopting the split order on a later date alone
 does not retrofit it into historical interviews. Missing `turn` on an adopted
 interview is the existing `WAYPOINT_MISSING` refusal.
+
+### Relayed owner chat
+
+| Code | Meaning and remedy |
+| --- | --- |
+| `OWNER_CHAT_INVALID` | The named project.json answer/signoff lacks exact nonblank owner words, a valid explicit ISO said_at, relay identity, or the relayed source, or mixes chat and Review flags. Supply `--owner-chat`, `--said-at`, `--relayed-by` and owner `--by` together; keep at as the write time and omit act ids. |
+| `OWNER_CHAT_GATE_VISUAL` | The named project.json stage signoff has no accepted live verdict for the current draft, rig or post. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |

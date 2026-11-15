@@ -1,3 +1,4 @@
+import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
 import { overrideFindings } from './overrides.ts';
 import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
@@ -20,6 +21,7 @@ interview-options --adopt [<dir>]
 interview-answer <question> [<dir>] --from-review <actId> [--why-file <file>]
 interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <human>
   [--pick <ask>=<option>...] [--other <ask>=<file> --other-fragment <ask>=<JSON file>]...
+  [--owner-chat <words file> --said-at <ISO date> --relayed-by <who>]
   [--note-file <file>] [--source <location>] [--why-file <file> for a member override]
 interview-decision <question> [<dir>] --by <agent> --reasoning-file <file>
   --fragment <ask>=<JSON file>...
@@ -139,8 +141,10 @@ export interface InterviewAnswerHooks {
 }
 export function interviewAnswerCommand(args: string[], now: number, hooks: InterviewAnswerHooks = {}): string { return run(() => {
   if (args.includes('--picks-file')) refuse('INTERVIEW_PICKS_FILE_REMOVED', 'project.json: --picks-file was removed; use interview-answer <question> --from-review <actId>', USAGE_EXIT);
-  const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--from-review','--why-file'],['--pick','--other','--other-fragment']);
+  const opts = parse(args,['--set','--sha256','--by','--note-file','--source','--from-review','--why-file',...OWNER_CHAT_FLAGS],['--pick','--other','--other-fragment']);
   if (opts.positional.length > 2 || (!opts.one['--from-review'] && (!opts.one['--set'] || !opts.one['--sha256'] || !opts.one['--by']))) usage('question and --from-review, or --set/--sha256/--by required');
+  if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
+  const chat = readOwnerChat(opts.one, opts.one['--by'] ?? '', now, 'project.json.interview');
   const dir = resolve(opts.positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(dir);
   try {
@@ -208,6 +212,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
     else if (opts.one['--note-file']) choice.note = readText(opts.one['--note-file']);
     const result = selection(set,choice);
     const answer: JsonObject = {delegated:result.delegated,by:payload?.by ?? opts.one['--by'],at:payload?.at ?? new Date(now).toISOString(),verbatim:choiceVerbatim(picks,choice.note),source:opts.one['--source'] ?? 'review questionnaire',choice,asks:result.asks};
+    if (chat) { answer.owner_words = chat.owner_words!; answer.said_at = chat.said_at!; answer.relayed_by = chat.relayed_by!; answer.source = chat.source!; }
     if (result.value !== undefined) answer.value = result.value;
     if (result.autos.length) answer.agent_decision = {covers:result.autos.join(',')};
     if (isObject(item.raw) && typeof item.raw.basis === 'string') answer.basis = item.raw.basis === 'inherited' ? (item.state.state === 'silent' ? 'own' : 'overridden') : item.raw.basis;

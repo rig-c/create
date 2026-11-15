@@ -5,7 +5,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobSelector } from '@rig-c/review/job-host';
@@ -20,10 +20,66 @@ import { hostPortRefuses } from '../src/job-host-state.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { sceneCommand } from '../src/scene-writers.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
 
 const CLI = join(import.meta.dir, '../src/cli.ts');
 const roots: string[] = [];
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
+
+test('#532 job open prints the retained producer code and full lockfile refusal in its host terminal', async () => {
+  const container = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-reader-output-')));
+  const root = join(container, 'project');
+  roots.push(root, container);
+  const host = join(container, 'host');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/0a-interview-options'), root, { recursive: true });
+  mkdirSync(host);
+  cpSync(join(import.meta.dir, '../src'), join(host, 'src'), { recursive: true });
+  cpSync(join(import.meta.dir, '../scripts'), join(host, 'scripts'), { recursive: true });
+  writeFileSync(join(host, 'package.json'), '{"type":"module"}\n');
+  // Inventory uses the project's valid lock. Only the host's fallback install has
+  // the planted npm entry: no shared install or checkout lockfile is changed.
+  for (const base of [root, host]) {
+    symlinkSync(OWN_NODE_MODULES, join(base, 'node_modules'));
+    cpSync(join(OWN_NODE_MODULES, '..', 'bun.lock'), join(base, 'bun.lock'));
+  }
+  const version = JSON.parse(readFileSync(join(OWN_NODE_MODULES, PARTS_PACKAGE, 'package.json'), 'utf8')).version as string;
+  writeFileSync(join(host, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3,
+    packages: { [`node_modules/${PARTS_PACKAGE}`]: { version } } }));
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(host, 'src/cli.ts'),
+    'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'rig_type'],
+  { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  opened.push({ proc, root });
+  let stderr = '';
+  const errors = (async () => {
+    const reader = proc.stderr.getReader();
+    const decoder = new TextDecoder();
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        stderr += decoder.decode(chunk.value, { stream: true });
+      }
+      stderr += decoder.decode();
+    } finally { reader.releaseLock(); }
+  })();
+  const reader = proc.stdout.getReader();
+  const first = await reader.read();
+  reader.releaseLock();
+  expect(new TextDecoder().decode(first.value)).toStartWith('http://');
+  const expected = `JOB_RECORD_PARTS_LOCK_MISSING: project.json: the host's @rig-c/parts ${version} has no matching package-lock.json entry with an integrity; install it from a lockfile that records its integrity and publish again`;
+  try {
+    for (let i = 0; i < 200 && !stderr.includes('JOB_PUBLISH_PENDING:'); i++) await Bun.sleep(25);
+    expect(stderr).toContain(`${expected}\n`);
+    expect(stderr).toContain('(JOB_RECORD_INCOMPLETE): JOB_RECORD_PARTS_LOCK_MISSING;');
+    // The full detail stays in the host terminal, outside Review's safe API reply.
+    expect(pendingPublications(root)[0]?.failure?.message).not.toContain('has no matching package-lock.json');
+  } finally {
+    proc.kill('SIGTERM');
+    expect(await proc.exited).toBe(1);
+    await errors;
+  }
+}, 15000);
+
 afterEach(async () => {
   for (const { proc, root } of opened.splice(0)) {
     if (readWriterBinding(root)) await cli(root, ['job', 'close', root]);

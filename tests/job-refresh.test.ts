@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { checkProject as rawCheckProject } from '../src/check.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -10,7 +11,9 @@ import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
-import { nextProject } from '../src/next.ts';
+import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
+import { locateParts } from '../src/parts-sections.ts';
+import { generateExampleParts } from '../scripts/generate-example-parts.ts';
 import { reviewActFindings } from '../src/review-act.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -316,6 +319,192 @@ test('#557 a stale projectHash refuses parts verdict ingestion before either rec
   expect((read(root).signoffs as JsonObject[]).some(row => row.stage === 'parts-review')).toBe(false);
   if (readdirSync(join(root, 'evidence')).includes('review-acts')) expect(readdirSync(join(root, 'evidence/review-acts'))).toEqual([]);
 }, REFRESH_FLOW_TIMEOUT_MS);
+
+interface RetouchRaster { width: number; height: number; data: Uint8ClampedArray }
+interface RetouchPng {
+  readPng(path: string): RetouchRaster;
+  encodePngBytes(image: RetouchRaster): Uint8Array;
+}
+
+/** Only synthetic producer inputs are authored here. Assemble writes the edited provenance and measurements. */
+async function produceRetouch(root: string, parts: string, id: string): Promise<{ args: string[]; input: string; sha256: string }> {
+  const relative = `derived/drafts/${id}`;
+  const target = join(root, relative);
+  mkdirSync(target, { recursive: true });
+  generateExampleParts(join(target, 'producer'));
+  expect(jobHash(readFileSync(join(target, 'producer/painting.png')))).toBe(jobHash(readFileSync(join(root, 'inputs/painting.png'))));
+  const png = await import(pathToFileURL(join(parts, 'src/raster/png.ts')).href) as RetouchPng;
+  const baseline = join(target, 'producer/assembled/rig/parts/torso.png');
+  const before = readFileSync(baseline);
+  const image = png.readPng(baseline);
+  const edited = { ...image, data: new Uint8ClampedArray(image.data) };
+  let pixel = 0;
+  while (pixel < edited.data.length && edited.data[pixel + 3]! <= 8) pixel += 4;
+  expect(pixel).toBeLessThan(edited.data.length);
+  // Change an opaque edge colour, leaving geometry and the one-pixel floor control explicit.
+  edited.data[pixel] = edited.data[pixel]! < 128 ? edited.data[pixel]! + 64 : edited.data[pixel]! - 64;
+  const bytes = png.encodePngBytes(edited);
+  const sha256 = jobHash(bytes);
+  expect(sha256).not.toBe(jobHash(before));
+  mkdirSync(join(target, 'edits'));
+  writeFileSync(join(target, 'edits/torso.png'), bytes);
+  const decoded = png.readPng(join(target, 'edits/torso.png'));
+  expect(decoded.data[pixel]).toBe(edited.data[pixel]);
+  expect([decoded.width, decoded.height]).toEqual([image.width, image.height]);
+  const config = JSON.parse(readFileSync(join(root, 'derived/drafts/chain/config.json'), 'utf8')) as JsonObject;
+  config.seethrough = (JSON.parse(readFileSync(join(target, 'producer/config.json'), 'utf8')) as JsonObject).seethrough!;
+  const receipt = { part: 'torso', file: 'torso.png', from_sha256: jobHash(before), sha256,
+    editor: 'Synthetic script: change one opaque edge pixel against the painting reference' };
+  (config.assemble as JsonObject).edited_parts = { dir: 'edits', receipts: [receipt] };
+  writeFileSync(join(target, 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+  cpSync(join(root, 'derived/drafts/chain/interview-requirements.json'), join(target, 'interview-requirements.json'));
+  // The rig output is a retained synthetic fixture; this test claims the real assemble edit route, not a rig rebuild.
+  cpSync(join(root, 'derived/drafts/chain/out'), join(target, 'out'), { recursive: true });
+  const args = ['assemble', '--source', join(target, 'producer/painting.png'), '--full', join(target, 'producer/layers'),
+    '--config', join(target, 'config.json'), '--out', join(target, 'build')];
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(parts, 'cli.ts'), ...args],
+    { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect({ exit, stdout, stderr }).toMatchObject({ exit: 0 });
+  expect(readFileSync(join(target, 'build/rig/parts/torso.png'))).toEqual(Buffer.from(bytes));
+  const manifest = JSON.parse(readFileSync(join(target, 'build/rig/parts.json'), 'utf8')) as JsonObject;
+  const torso = (manifest.parts as JsonObject[]).find(part => part.name === 'torso')!;
+  expect((torso.provenance as JsonObject).edited_part).toMatchObject({ receipt, changed_px: 1 });
+  return { args: ['draft-rig', id, root, '--config', `${relative}/config.json`, '--parts', `${relative}/build/rig`, '--from', `${relative}/out`, '--json'],
+    input: `${relative}/edits/torso.png`, sha256 };
+}
+
+function retouchArgs(command: string): string[] {
+  const words: string[] = [];
+  let word = '', quote = '', started = false;
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]!;
+    if (quote) { if (char === quote) quote = ''; else word += char; started = true; }
+    else if (char === "'" || char === '"') { quote = char; started = true; }
+    else if (char === '\\') { word += command[++i]!; started = true; }
+    else if (/\s/.test(char)) { if (started) { words.push(word); word = ''; started = false; } }
+    else { word += char; started = true; }
+  }
+  expect(quote).toBe('');
+  if (started) words.push(word);
+  return words;
+}
+
+test('#557 parts-review retouch lifecycle rejects once, records a real edited draft and folds one new approval', async () => {
+  const root = await preparedParts();
+  const id = 'retouched';
+  const parts = realpathSync(locateParts(root)!);
+  const scrub = (text: string) => text.replaceAll(root, '<synthetic>');
+  const trace = (step: string): NextReport => {
+    const output = nextCommand([root, '--json'], testClock.now());
+    console.log('RETOUCH_NEXT', step, scrub(output.stdout));
+    return JSON.parse(output.stdout) as NextReport;
+  };
+  const run = async (args: string[], structural = false) => {
+    const result = await cli(root, args);
+    console.log(structural && result.exit !== 0 ? 'RETOUCH_STRUCTURAL_STOP' : 'RETOUCH_COMMAND',
+      scrub(JSON.stringify({ argv: ['rig-create', ...args], ...result })));
+    expectExit0(result);
+    return result;
+  };
+  const initial = read(root);
+  const signoffCount = (initial.signoffs as JsonObject[]).length;
+  const advances = structuredClone(initial.advances);
+  const entry = (initial.advances as JsonObject[]).find(move => move.from_stage === 'parts' && move.stage === 'parts-review')!;
+  const entryReport = (entry.parts_check as JsonObject).path as string;
+  const oldReport = readFileSync(join(root, entryReport));
+  const oldStructure = readFileSync(join(root, 'evidence/structure-chain.json'));
+  const oldDiff = readFileSync(join(root, 'evidence/diff-components.json'));
+  const oldDraft = structuredClone((initial.drafts as JsonObject[])[0]!);
+  trace('ready-original');
+  const opening = await open(root);
+  const firstView = await page(root, opening.url, 1);
+  const bounced = await firstView.act('parts-verdict', 'parts-verdict', { verdict: 'changes-requested',
+    issues: [await partsIssue(root, opening.url, firstView.head)], words: 'Retouch the synthetic edge.' });
+  trace('owner-changes-requested');
+  await run(['parts-review', root, '--from-review', String(bounced.actId)]);
+  trace('changes-requested-ingested');
+  expect(read(root).stage).toBe('parts-review');
+  expect((read(root).signoffs as JsonObject[]).length).toBe(signoffCount);
+  const retouch = await produceRetouch(root, parts, id);
+  trace('edited-pixels-and-receipt-produced');
+  await run(retouch.args, true);
+  console.log('RETOUCH_PREFLIGHT', 'new edited_parts draft registered at parts-review without reopening');
+  const registered = read(root);
+  const fresh = (registered.drafts as JsonObject[]).find(draft => draft.id === id)!;
+  expect(fresh.config_inputs as JsonObject[]).toContainEqual({ path: retouch.input, sha256: retouch.sha256 });
+  expect((fresh.parts as JsonObject).files as JsonObject[]).toContainEqual({ path: `derived/drafts/${id}/build/rig/parts/torso.png`, sha256: retouch.sha256 });
+  expect(registered.stage).toBe('parts-review');
+  expect(registered.advances).toEqual(advances);
+  let pending = trace('new-draft-registered');
+  let structurePath = '';
+  for (const prefix of ['rig-parts check-parts', 'rig-create structure-snapshot', 'rig-parts diff-components', 'rig-create diff-classes']) {
+    expect(pending.moves.some(move => move.review_act?.kind === 'parts-verdict')).toBe(false);
+    const move = pending.moves.find(move => move.command?.startsWith(prefix));
+    expect(move, `EXPECTED_NEXT_HINT: ${prefix}`).toBeDefined();
+    const argv = retouchArgs(move!.command!);
+    if (prefix === 'rig-create structure-snapshot') structurePath = argv[argv.indexOf('--out') + 1]!;
+    if (argv[0] === 'rig-create') await run(argv.slice(1));
+    else {
+      const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(parts, 'cli.ts'), ...argv.slice(1)],
+        { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+      const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      console.log('RETOUCH_PRODUCER', scrub(JSON.stringify({ argv, exit, stdout, stderr })));
+      expectExit0({ stdout, stderr, exit });
+    }
+    expect(read(root).stage).toBe('parts-review');
+    expect(readFileSync(join(root, entryReport))).toEqual(oldReport);
+    pending = trace(prefix);
+  }
+  const ready = read(root);
+  const diffMap = ready.diff_map as JsonObject;
+  const report = diffMap.report as JsonObject;
+  expect(report.path).not.toBe('evidence/diff-components.json');
+  const currentDiff = JSON.parse(readFileSync(join(root, String(report.path)), 'utf8')) as JsonObject;
+  expect(report.sha256).toBe(jobHash(readFileSync(join(root, String(report.path)))));
+  expect((currentDiff.stack as JsonObject).sha256).toBe(jobHash(readFileSync(join(root, `derived/drafts/${id}/build/render/recomposite_rig.png`))));
+  expect((currentDiff.stack as JsonObject).sha256).not.toBe((JSON.parse(oldDiff.toString()) as { stack: JsonObject }).stack.sha256);
+  expect(pending.moves.find(move => move.review_act?.kind === 'parts-verdict')).toMatchObject({ review_act: { draft_id: id } });
+  await run(['job', 'open', root, '--draft', id, '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  trace('new-draft-published');
+  const secondView = await page(root, opening.url, 1);
+  expect(secondView.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: id }]);
+  const beforeApproval = readFileSync(join(root, 'project.json'));
+  const approved = await secondView.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: 'Approve the retouched synthetic edge.' });
+  expect((approved.source as JsonObject).projectHash).toBe(jobHash(beforeApproval));
+  trace('owner-approved-new-draft');
+  await run(['parts-review', root, '--from-review', String(approved.actId)], true);
+  const folded = read(root);
+  expect(folded.stage).toBe('parts-review');
+  expect(folded.advances).toEqual(advances);
+  expect(folded.diff_map).toEqual(diffMap);
+  expect((folded.drafts as JsonObject[])[0]).toEqual(oldDraft);
+  expect((folded.signoffs as JsonObject[]).length).toBe(signoffCount + 1);
+  const signature = (folded.signoffs as JsonObject[]).at(-1)!;
+  expect(signature).toMatchObject({ stage: 'parts-review', checkpoint: null, draft_id: id,
+    source: `review act ${String(approved.jobId)}/${String(approved.actId)}`,
+    structure: { path: structurePath, sha256: jobHash(readFileSync(join(root, structurePath))) } });
+  expect(structurePath).not.toBe('evidence/structure-chain.json');
+  expect(JSON.stringify(signature)).not.toContain('derived/drafts/chain/');
+  const acts = folded.review_acts as JsonObject[];
+  expect(acts).toHaveLength(2);
+  expect(acts.map(act => act.kind)).toEqual(['parts-verdict', 'parts-verdict']);
+  expect((signature.evidence as JsonObject).path).toBe((acts[1]!.evidence as JsonObject).path);
+  expect((signature.evidence as JsonObject).path).not.toBe((acts[0]!.evidence as JsonObject).path);
+  expect(folded.reopens).toEqual(initial.reopens);
+  expect(readFileSync(join(root, 'evidence/structure-chain.json'))).toEqual(oldStructure);
+  expect(readFileSync(join(root, 'evidence/diff-components.json'))).toEqual(oldDiff);
+  expect(checkProject(root).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
+  expect(checkProject(root).holes ?? []).toEqual([]);
+  const final = trace('new-approval-folded');
+  expect(final.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
+  const advance = final.moves.find(move => move.command?.startsWith('rig-create advance rigging-interview'))!;
+  expect(advance).toBeDefined();
+  await run(retouchArgs(advance.command!).slice(1), true);
+  trace('final-advance');
+  expect(read(root).stage).toBe('rigging-interview');
+  expect(readFileSync(join(root, entryReport))).toEqual(oldReport);
+}, 60_000);
 
 test('legacy approved unsigned parts refresh preserves JOB_RECORD_MOVED and the separate signoff route', async () => {
   const root = await preparedParts();

@@ -164,7 +164,7 @@ export function partsReadFindings(root: string, project: JsonObject): Finding[] 
 }
 
 /** Both routes append to one ledger, so its order also determines the current verdict. */
-export function latestPartsVerdictFinding(project: JsonObject, draftId: string, path: string): Finding | undefined {
+export function latestPartsVerdictStatus(project: JsonObject, draftId: string): 'approved' | 'changes-requested' | 'pending' | undefined {
   const entry = latestPartsReceipt(project, draftId);
   if (!object(entry)) return;
   let status = entry.status;
@@ -172,7 +172,11 @@ export function latestPartsVerdictFinding(project: JsonObject, draftId: string, 
     try { status = decodeReviewAct(String(entry.bytes), 'parts-verdict').value.verdict; }
     catch { return; } // The act reader reports malformed receipts.
   }
-  if (status === 'changes-requested') return { code: 'PARTS_VERDICT_LATEST_NOT_APPROVED', path,
+  return status === 'approved' || status === 'changes-requested' || status === 'pending' ? status : undefined;
+}
+
+export function latestPartsVerdictFinding(project: JsonObject, draftId: string, path: string): Finding | undefined {
+  if (latestPartsVerdictStatus(project, draftId) === 'changes-requested') return { code: 'PARTS_VERDICT_LATEST_NOT_APPROVED', path,
     message: `${path}: draft ${draftId}'s latest parts verdict requests changes; record a newer approved verdict with parts-review before signing` };
 }
 

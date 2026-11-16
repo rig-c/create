@@ -106,16 +106,22 @@ rig-create parts-review <project dir> --from-review <actId>
 rig-create review <version> --from-review <actId> <project dir>
 ```
 
-For parts-review, prepare `check-parts`, then `structure-snapshot --draft <id>
---out evidence/structure-<encodedDraft>.json` (the draft ID encoded with
-`encodeURIComponent`), `diff-components` and `diff-classes`. Run `advance
-parts-review --parts-check <report> --parts <assembled dir>`, then publish with
-`job open --draft <id>` and ask for one `parts-verdict`. Draft registration
-publishes inventory first; the verdict ask is deferred until parts-review, a
-valid conventional snapshot and a prepared diff map. Ingesting the approved
-UI act atomically records its receipt and the parts-review signature using that
-retained snapshot. Changes-requested leaves the stage unsigned. Finish all
-record changes before publishing: a stale `projectHash` refuses ingestion.
+The owner is asked for a parts verdict only at `parts-review`. As soon as the
+first draft has the agent's `check-parts` report, structure snapshot,
+`diff-components` report and `diff-classes` classifications, advance to
+`parts-review`. Draft registration publishes inventory before the verdict ask;
+publish the prepared draft with `job open --draft <id>` and ask for one
+`parts-verdict`.
+
+Stay at `parts-review` throughout retouch rounds. Changes-requested leaves the
+stage unsigned: the agent makes an `edited_parts` correction, registers a new
+draft and prepares fresh reports, snapshot and classifications for that draft.
+Open the new draft and ask for one new verdict. This correction loop requires
+no owner reopen, separate signoff or move back to `parts`. Ingesting an approved
+UI verdict atomically records its receipt and the parts-review signature.
+Finish each draft's record changes before publishing: a stale `projectHash`
+refuses ingestion. See [the live Review flow](docs/LIVE-REVIEW.md) for the order.
+
 Only a midflight approved verdict already ingested unsigned uses the separate
 `signoff parts-review --from-review <actId> --draft <id> --structure-file <path>`
 route. Other stages keep their existing acts. Publish the matching subject before each

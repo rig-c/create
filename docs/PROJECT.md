@@ -79,7 +79,7 @@ which stages end on a sign-off are written once, in `src/stages.ts`;
 | `interview` | 1 | Framing and source/parts guides (the later rig guides wait for rigging-interview) ([INTERVIEW.md](INTERVIEW.md)): the user's sentences, a delegation ("auto"), or not applicable — never left for the agent to fill. | The user signs `{ "stage": "interview" }`. |
 | `plan-approved` | 1 | The parts steps (`phase: "rig"`) are drafted from the guides, with the agent's decision written on every delegated item. The user sets each step's checkpoint and signs. | `{ "stage": "plan-approved" }`. |
 | `parts` | 1 | The rig steps that make the parts run: `seethrough` and `assemble`. At a step whose checkpoint is on, work stops until `{ "stage": "parts", "checkpoint": "<step id>" }` is signed (the split, [below](#split-approval-is-a-plan-checkpoint)). Only a labelled draft may contain proposed bones/weights for mesh/chest inspection; production rigging remains forbidden. | Every step it runs is `done`, `assemble`'s bar including the parts check passing on the assembled parts. |
-| `parts-review` | 1 | **The parts are reviewed before any production rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. A bounce is fixed here, in `parts`. | `{ "stage": "parts-review" }`, signed by a person, carrying the approved parts verdict as `evidence`. |
+| `parts-review` | 1 | **The parts are reviewed before any production rig is built** ([below](#the-parts-are-reviewed-before-rigging)): the user looks at the assembled parts in rig-review's parts view. Changes-requested is corrected here at `parts-review`, with a new draft and fresh agent evidence; it does not send the project back to `parts`. | `{ "stage": "parts-review" }`, signed by a person, carrying the approved parts verdict as `evidence`. |
 | `rigging-interview` | 2 | Ask bones, meshes, constraints and motion while viewing the approved parts and structure; draft their rigging plan. | The human signs `rigging-interview`, binding accepted parts and structure. |
 | `rigging` | 3 | The remaining rig steps run in order (`bones`, `meshes`, `constraints`, `motion`); each config section cites its guide (`versions[].provenance`). At a step whose checkpoint is on, work stops until `{ "stage": "rigging", "checkpoint": "<step id>" }` is signed. It does not start without the `parts-review` sign-off (`PARTS_REVIEW_UNSIGNED`), nor on a verdict that is missing, not approved or no longer the parts on disk (`PARTS_VERDICT_*`). | The last rig step's bar is met. |
 | `rig-review` | 1 → 3 | **First review, on a still frame**: the rig alone, fixed camera, no post-production — seams, cuts, physics and motion played in place. Feedback is recorded verbatim with `on_items`; a bounce makes a new rig version. | The user accepts one rig version: an `accepted` verdict with `review: "rig-review"` on it, resting on its still frame, and `{ "stage": "rig-review" }` signed ([below](#the-rig-review-rests-on-a-still-frame)). |
@@ -375,18 +375,31 @@ their existing shape when no amendment is present.
 
 ### The parts are reviewed before rigging
 
-For the current UI route, prepare `check-parts`, then `structure-snapshot
---draft <id> --out evidence/structure-<encodedDraft>.json` (using
-`encodeURIComponent(id)`), `diff-components` and `diff-classes`. Snapshot
-creation needs no verdict. Run `advance parts-review --parts-check <report>
---parts <assembled dir>` before publishing `job open --draft <id>` and asking
-for one `parts-verdict`. Ingest it with
+The owner is asked for a parts verdict only at `parts-review`. As soon as the
+first draft has the agent's `check-parts` report, structure snapshot,
+`diff-components` report and `diff-classes` classifications, advance to
+`parts-review`. Snapshot creation needs no verdict. Draft registration
+publishes inventory first; publish the prepared draft with `job open --draft
+<id>` and ask for one `parts-verdict`. Ingest it with
 `parts-review <project> --from-review <actId>` using the existing arguments.
 An approved UI verdict atomically appends its receipt and a human parts-review
-signature: `draft_id` comes from the verdict, `structure` from the retained
-conventional snapshot and `evidence` from that verdict. Pending or
-changes-requested verdicts leave the stage unsigned. `projectHash` must still
-match the prepared record; missing preparation requires completing it,
+signature: `draft_id` comes from the verdict, `structure` from that draft's
+retained snapshot and `evidence` from that verdict.
+
+Stay at `parts-review` throughout retouch rounds. A changes-requested verdict
+leaves the stage unsigned. The agent makes an `edited_parts` correction and
+registers a new draft, then prepares fresh `check-parts` and `diff-components`
+reports, a structure snapshot and `diff-classes` classifications for that
+draft. Publish the new draft with `job open --draft <new id>` and ask for one
+new verdict; approved ingestion also signs the stage. This loop requires no
+owner reopen, separate signoff or move back to `parts`. Retain earlier evidence
+as history; it must not stand in for the new draft's evidence or block its
+approval. If registering the new draft requires a reopen or a move back to
+`parts`, or old evidence prevents its approved verdict from signing, stop and
+report the structural blocker rather than adding another owner act.
+
+`projectHash` must still match the prepared record. Complete each draft's
+record changes before publishing; missing preparation requires completing it,
 republishing and asking for a new verdict, not modifying the record after the
 act and ingesting that stale act.
 
@@ -394,10 +407,6 @@ The separate signoff route is only for a midflight approved verdict already
 ingested unsigned. Existing separate signoffs remain valid. This additive
 flow introduces no SINCE date and changes no rig, direction or interview acts.
 The CLI-read route below still records evidence without folding a signature.
-Draft registration publishes inventory before asking for a verdict. Its
-`parts-verdict` subject is deferred until `parts-review`, a valid conventional
-`evidence/structure-<encodeURIComponent(id)>.json` snapshot and the prepared
-diff map. The fold takes no custom snapshot-path argument.
 See [LIVE-REVIEW.md](LIVE-REVIEW.md) for the complete UI sequence.
 
 `parts-review [<project>] --draft <id> --from-review-cli --by <name>
@@ -521,8 +530,8 @@ assembled parts before `rigging` starts.
 
   ```sh
   rig-create diff-classes --diff-report evidence/diff-components.json --component 'p10-n3=in-painting:the painting contains this edge' --by agent
-  # Finish evidence and advance before publishing and asking for one parts-verdict.
-  rig-create advance parts-review --parts-check evidence/parts-check.json --parts <assembled dir>
+  # Advance once the first draft has its agent evidence; stay at parts-review for retouches.
+  rig-create advance parts-review --parts-check <report> --parts <assembled dir>
   rig-create job open --draft <id> --reviewer <reviewer> --role owner
   rig-create parts-review --from-review <actId>
   ```
@@ -1521,12 +1530,15 @@ draft's proposed bones and weights are not the person's rigging answers.
 
 ```sh
 rig-create draft-rig <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--json]
-rig-create structure-snapshot [<dir>] --draft <id> --out evidence/structure-<encodedDraft>.json
-# After check-parts, snapshot, diff-components and diff-classes:
-rig-create advance parts-review [<dir>] --parts-check <report> --parts <assembled dir>
 rig-create job open [<dir>] --draft <id> --reviewer <reviewer> --role owner
 rig-create parts-review [<dir>] --from-review <actId>
 ```
+
+Before the first verdict ask, prepare the draft's check report, structure
+snapshot, difference report and classifications, then advance to parts-review.
+For each changes-requested retouch, register a new draft and prepare fresh
+evidence for it while staying at parts-review; then open that new draft for
+one verdict. See [the parts-review cycle](#the-parts-are-reviewed-before-rigging).
 
 The recorder reads existing output; it runs no producer or review command.
 It appends `drafts[]` with `{ id, kind: "draft-rig", at, producer: {name,version},
@@ -1615,10 +1627,9 @@ bytes (`STRUCTURE_SNAPSHOT_OUT_EXISTS`). The candidate is validated with the
 rules the check applies to a signed snapshot before any byte is written, and a
 refusal leaves no new or changed file. An `--out` that already holds the same
 bytes is left as it is and the command succeeds. It writes only `--out`, never
-`project.json`. Fresh approved UI ingestion binds the retained
-`evidence/structure-<encodedDraft>.json` snapshot (using `encodeURIComponent(id)`)
-without an extra argument. Retain it before publishing and asking for the
-verdict. Only the midflight separate signoff uses `--structure-file <path>` to
+`project.json`. Fresh approved UI ingestion binds the retained snapshot for
+that draft without an extra argument. Prepare a fresh snapshot for each new
+draft before publishing and asking for its verdict. Only the midflight separate signoff uses `--structure-file <path>` to
 bind the file.
 The snapshot must live outside ignored roots, such as `evidence/`; the writer
 refuses paths or aliases into ignored storage. The writer hashes the retained
@@ -1773,11 +1784,14 @@ file and atomic rename. Refusals leave project.json byte-identical. Unrelated
 pre-existing interview holes do not prevent capture, but a writer cannot add a
 new refusal or bypass correction validation.
 
-Stage-1 corrections use parts/drafts outside versions. The parts-review signoff
-must approve the corrected draft and structure snapshot (or a draft using the
-corrected parts inventory). Production versions still compare mesh declarations
-to that snapshot. Structure changes after approval require the existing reopen
-and fresh snapshot, never a correction override.
+Stage-1 corrections use parts/drafts outside versions. After changes-requested,
+the agent records an `edited_parts` correction, registers a new draft and
+prepares fresh evidence while staying at parts-review. Its approved verdict
+also records the parts-review signature for that corrected draft and snapshot;
+no owner reopen or separate signoff is needed for this unsigned correction
+loop. Production versions still compare mesh declarations to the accepted
+snapshot. Structure changes after approval require the existing reopen and
+fresh snapshot, never a correction override.
 
 A valid reopen supersedes the same stage suffix as signoffs: entries at or
 before its epoch remain history. A narrower later reopen cannot resurrect an

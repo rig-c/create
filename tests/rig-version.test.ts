@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
 import { depthPlanFindings, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
@@ -107,6 +107,121 @@ function setupProvenancePointers() {
 }
 
 describe('frozen rig registration', () => {
+  function setupEditedParts(nested = true, editedDir = nested ? '../../../inputs/edited' : '../inputs/edited') {
+    const base = setup();
+    const configPath = nested ? 'source/config/nested/config.json' : 'source/config.json';
+    const imageBytes = [
+      readFileSync(join(base.dir, 'source/rig/images/rectangle.png')),
+      readFileSync(join(base.dir, 'source/idle/idle@4fps/f0001.png')),
+    ];
+    const names = ['rectangle.png', 'accent.png'];
+    const assetDir = resolve(base.dir, dirname(configPath), editedDir);
+    mkdirSync(assetDir, { recursive: true });
+    imageBytes.forEach((image, index) => writeFileSync(join(assetDir, names[index]!), image));
+    put(base.dir, configPath, {
+      key: 'synthetic', requirements: nested ? '../../requirements.json' : 'requirements.json',
+      assemble: { edited_parts: { dir: editedDir, receipts: names.map((file, index) => ({
+        part: index === 0 ? 'rectangle' : 'accent', file,
+        sha256: jobHash(imageBytes[index]!), from_sha256: jobHash(imageBytes[index]!), editor: 'synthetic editor',
+      })) } },
+    });
+    put(base.dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    base.args[base.args.indexOf('--config') + 1] = configPath;
+    return { ...base, args: [...base.args, '--citations', 'source/citations.json'], imageBytes, names, editedDir, configPath };
+  }
+
+  function assertEditedPartsAccepted(f: ReturnType<typeof setupEditedParts>) {
+    const original = readFileSync(join(f.dir, f.configPath));
+    expect(rigVersionCommand(f.args).exit).toBe(0);
+    expect(readFileSync(join(f.dir, 'evidence/v1/registration/config-source.json'))).toEqual(original);
+    const runtimeBytes = readFileSync(join(f.dir, 'evidence/v1/registration/config.json'));
+    expect(readFileSync(join(f.dir, 'derived/review/v1/config.json'))).toEqual(runtimeBytes);
+    const edited = obj(obj(JSON.parse(runtimeBytes.toString()).assemble).edited_parts);
+    const rows = JSON.parse(readFileSync(join(f.dir, 'evidence/v1/registration/path-adapter.json'), 'utf8')) as JsonObject[];
+    const receipts = arr(edited.receipts).map(obj);
+    expect(receipts).toHaveLength(2);
+    for (const [index, receipt] of receipts.entries()) {
+      const row = rows.find(row => row.pointer === `/assemble/edited_parts/receipts/${index}/file`);
+      const runtimePath = posix.join(String(edited.dir), String(receipt.file));
+      expect(runtimePath).toBe(row ? String(row.after) : posix.join(f.editedDir, f.names[index]!));
+      expect(runtimePath.split('/')).not.toContain('..');
+      expect(receipt.sha256).toBe(jobHash(f.imageBytes[index]!));
+      for (const root of ['evidence/v1/registration', 'derived/review/v1']) {
+        expect(readFileSync(join(f.dir, root, runtimePath))).toEqual(f.imageBytes[index]!);
+      }
+    }
+    expect(readFileSync(join(f.dir, f.configPath))).toEqual(original);
+    expect(rigRegistrationFindings(f.dir, f.load())).toEqual([]);
+    const checked = checkProject(f.dir);
+    expect(checked.refusals).toEqual([]);
+    return f.load();
+  }
+
+  function rebindEditedPartsEvidence(dir: string, project: JsonObject, kind: 'config_source' | 'path_adapter', value: unknown) {
+    const registration = obj(obj(arr(project.versions)[0]).registration);
+    const binding = obj(registration[kind]);
+    const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+    writeFileSync(join(dir, String(binding.path)), bytes);
+    binding.sha256 = jobHash(bytes);
+    binding.bytes = bytes.length;
+    for (const entry of arr(registration.files).map(obj)) {
+      if (entry.path === binding.path) { entry.sha256 = jobHash(bytes); entry.bytes = bytes.length; }
+    }
+  }
+
+  test.each([false, true])('#570 edited_parts relative dir and bare receipts register and check (nested=%s)', nested => {
+    assertEditedPartsAccepted(setupEditedParts(nested));
+  });
+
+  test.each(['joined', 'raw'] as const)('#570 edited_parts accepts explicit %s before with shared-dir sibling rebasing', spelling => {
+    const f = setupEditedParts();
+    put(f.dir, 'source/adapter.json', f.names.map((name, index) => ({
+      doc: 'config', pointer: `/assemble/edited_parts/receipts/${index}/file`,
+      before: spelling === 'raw' ? name : posix.join(f.editedDir, name),
+      after: `inputs/selected-${index}/image.png`,
+    })));
+    assertEditedPartsAccepted(f);
+  });
+
+  test('#570 edited_parts already portable dir retains both receipt targets', () => {
+    const f = setupEditedParts(false, 'inputs/edited');
+    assertEditedPartsAccepted(f);
+    const runtime = JSON.parse(readFileSync(join(f.dir, 'evidence/v1/registration/config.json'), 'utf8')) as JsonObject;
+    const edited = obj(obj(runtime.assemble).edited_parts);
+    expect(edited.dir).toBe('inputs/edited');
+    expect(arr(edited.receipts).map(raw => obj(raw).file)).toEqual(f.names);
+  });
+
+  test('#570 invalid edited_parts caller before refuses before any record or evidence write', () => {
+    const f = setupEditedParts();
+    renameSync(join(f.dir, 'evidence/v1'), join(f.dir, 'source/prior-v1-evidence'));
+    expect(existsSync(join(f.dir, 'evidence/v1'))).toBe(false);
+    const evidenceBefore = (path: string): unknown[] => readdirSync(join(f.dir, path)).sort().map(name => {
+      const entry = `${path}/${name}`;
+      return lstatSync(join(f.dir, entry)).isDirectory() ? [entry, evidenceBefore(entry)] : [entry, jobHash(readFileSync(join(f.dir, entry)))];
+    });
+    const retained = evidenceBefore('evidence');
+    put(f.dir, 'source/adapter.json', [{
+      doc: 'config', pointer: '/assemble/edited_parts/receipts/0/file',
+      before: 'neither-form.png', after: 'inputs/selected/image.png',
+    }]);
+    refused(f.args, 'RIG_PATH_ADAPTER_INVALID');
+    expect(evidenceBefore('evidence')).toEqual(retained);
+    for (const path of ['outputs/v1', 'evidence/v1', 'derived/review/v1']) expect(existsSync(join(f.dir, path))).toBe(false);
+  });
+
+  test.each(['config_source', 'path_adapter'] as const)('#570 rejects rehashed edited_parts %s tampering with named adapter refusal', kind => {
+    const f = setupEditedParts();
+    const candidate = assertEditedPartsAccepted(f);
+    const registration = obj(obj(arr(candidate.versions)[0]).registration);
+    const value = JSON.parse(readFileSync(join(f.dir, String(obj(registration[kind]).path)), 'utf8'));
+    if (kind === 'config_source') value.assemble.edited_parts.receipts[0].file = 'changed-receipt.png';
+    else (value as JsonObject[]).find(row => row.pointer === '/assemble/edited_parts/receipts/0/file')!.before = 'neither-form.png';
+    rebindEditedPartsEvidence(f.dir, candidate, kind, value);
+    expect(rigRegistrationFindings(f.dir, candidate).map(finding => finding.code)).toContain('RIG_PATH_ADAPTER_INVALID');
+    expect(checkProject(f.dir, candidate).refusals.map(finding => finding.code)).toContain('RIG_PATH_ADAPTER_INVALID');
+  });
+
   test('#409 seven requirements provenance JSON pointers survive public writer registration', () => {
     const { dir, args, load, requirements } = setupProvenancePointers();
     const originalConfig = readFileSync(join(dir, 'source/config.json'));

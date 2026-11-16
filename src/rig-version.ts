@@ -208,6 +208,19 @@ interface AssetRefSpec {
   autoRelocate: boolean;
   pre394: boolean;
   declaredSha256?: string;
+  set?: (next: string) => void;
+}
+
+function configAdapterMatches(config: JsonObject, ref: AssetRefSpec, before: string): boolean {
+  return ref.value === before || /^assemble\.edited_parts\.receipts\.\d+\.file$/.test(ref.dotPath)
+    && pointerValue(config, ref.pointer) === before;
+}
+
+function adaptConfigReference(config: JsonObject, refs: AssetRefSpec[], pointer: string, value: string): void {
+  const ref = refs.find(entry => entry.pointer === pointer);
+  // The producer setter also rebases shared directories and sibling receipt names.
+  if (ref?.set) ref.set(value);
+  else setPointerValue(config, pointer, value);
 }
 
 function collectConfigAssetRefs(dir: string, config: JsonObject, strict = true): AssetRefSpec[] {
@@ -237,6 +250,7 @@ function collectConfigAssetRefs(dir: string, config: JsonObject, strict = true):
       pointer,
       dotPath,
       value: ref.value,
+      ...(ref.set ? { set: ref.set } : {}),
       kind: dotPath.endsWith('.plate') ? 'dir' : 'file-or-dir',
       autoRelocate: absolute(ref.value) || !isValidAdaptedTarget(ref.value),
       pre394: true,
@@ -618,6 +632,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const sourceConfigRefs = collectConfigAssetRefs(dir, configSourceRaw, isPointerAdaptedRecord);
       if (adapterRows !== null) {
         const expectedConfig = structuredClone(configSourceRaw);
+        const expectedConfigRefs = collectConfigAssetRefs(dir, expectedConfig, isPointerAdaptedRecord);
         const adaptedConfigPointers = new Set<string>();
         for (const row of adapterRows.filter(r => r.doc === 'config')) {
           if (row.kind === 'legacy-abs') {
@@ -633,12 +648,12 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
             continue;
           }
           const ref = sourceConfigRefs.find(r => r.pointer === row.pointer);
-          if (!ref || pointerValue(configSourceRaw, row.pointer) !== row.originalString) {
+          if (!ref || !configAdapterMatches(configSourceRaw, ref, row.originalString)) {
             add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `config ${row.pointer}: adapter does not match config-source`);
             throw Error(`config ${row.pointer}: adapter does not match config-source`);
           }
           adaptedConfigPointers.add(row.pointer);
-          setPointerValue(expectedConfig, row.pointer, row.adaptedString);
+          adaptConfigReference(expectedConfig, expectedConfigRefs, row.pointer, row.adaptedString);
         }
         if (!isPointerAdaptedRecord) {
           for (const ref of sourceConfigRefs) {
@@ -961,7 +976,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_REGISTRATION_FILE_INVALID', 'config', String(error)); }
     for (const row of callerAdapter.filter(r => r.kind === 'pointer' && r.doc === 'config')) {
       const ref = configRefs.find(r => r.pointer === row.pointer);
-      if (!ref || ref.value !== row.originalString) {
+      if (!ref || !configAdapterMatches(config, ref, row.originalString)) {
         return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, `config ${row.pointer}: adapter does not match config-source`);
       }
     }
@@ -969,6 +984,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       || configRefs.some(ref => !absolute(ref.value) && ref.autoRelocate);
     const configAllowedRoot = configUsesPointers || insideOrEqual(dir, configDir) ? dir : configDir;
     const portable = structuredClone(config);
+    const portableRefs = collectConfigAssetRefs(dir, portable);
     const effectiveAdapter: JsonObject[] = callerAdapter.map(r => r.raw);
     const reservedTargets = new Set<string>(RESERVED_REGISTRATION_NAMES);
     for (const { spec } of validatedRuns) reservedTargets.add(`${spec.replace('/', '-')}.json`);
@@ -1021,7 +1037,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       if (!isValidAdaptedTarget(adaptedValue) || conflictsWithReserved(adaptedValue)) {
         return fail('RIG_REGISTRATION_PATH_INVALID', `${evidence}/${adaptedValue}`, 'two distinct inputs collide or target is invalid');
       }
-      if (adaptedValue !== ref.value) setPointerValue(portable, ref.pointer, adaptedValue);
+      if (adaptedValue !== ref.value) adaptConfigReference(portable, portableRefs, ref.pointer, adaptedValue);
       if (ref.pointer === '/requirements') {
         reqSourcePath = sourcePath;
         portableReqRel = adaptedValue;

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { SOURCE_CONDITION_FLAG } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -127,10 +127,12 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     const moving = writeBuildFixture(root, png);
     const baselineConfig = readFileSync(join(root, 'config.json'));
     const env = { ...process.env, SOURCE_DATE_EPOCH: String(Math.trunc(testClock.now() / 1000)) };
+    // Registry children use published entries; linked-source children inherit only the explicit source condition.
+    const runtimeArgs = jobRuntimeExecArgv();
     const build = (config: string, output: string): void => {
       // This is the installed real CLI, with its real assemble/rig/check
       // runners. No injected stages, synthetic reports or success runners.
-      const result = Bun.spawnSync([process.execPath, SOURCE_CONDITION_FLAG, join(parts, 'cli.ts'),
+      const result = Bun.spawnSync([process.execPath, ...runtimeArgs, join(parts, 'cli.ts'),
         'build', '--config', join(root, config), '--source', join(root, 'painting.png'),
         '--full', join(root, 'full'), '--head', join(root, 'head'), '--out', join(root, output)],
       { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 60_000 });
@@ -202,7 +204,7 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     });
     expect(arr(json(join(dir, 'project.json')).drafts).map(obj).find(draft => draft.id === id)).toEqual(record);
     expect(checkProject(dir).refusals).toEqual([]);
-    const check = () => Bun.spawnSync([process.execPath, SOURCE_CONDITION_FLAG, ...clockedCli(),
+    const check = () => Bun.spawnSync([process.execPath, ...runtimeArgs, ...clockedCli(),
       'interview', '--check', dir, '--json'], { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 15_000 });
     const green = check();
     expect(green.exitCode, `${green.stdout}\n${green.stderr}`).toBe(0);

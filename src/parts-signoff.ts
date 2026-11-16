@@ -23,7 +23,12 @@ export function bindPartsSignoff(dir: string, project: JsonObject, signoff: Json
   const latest = latestPartsVerdictFinding(project, String(signoff.draft_id), `${path}.draft_id`);
   if (latest) refuse(latest.code, latest.message);
   const recorded = recordedPartsVerdict(dir, project, signoff.draft_id);
+  // Preserve the existing signature's property order as well as its values:
+  // generated examples and captions bind the serialized project bytes.
+  const draftId = signoff.draft_id!;
+  delete signoff.draft_id;
   signoff.evidence = recorded.evidence;
+  signoff.draft_id = draftId;
   if (signoff.checkpoint === null) {
     const errors: Finding[] = [];
     checkDiffMap(dir, signoff, path, recorded.partsFile, errors, [], project);

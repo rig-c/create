@@ -119,10 +119,10 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
   testClock.set(TEST_NOW);
   try {
     const painting = readFileSync(join(import.meta.dir, '../templates/example-draft/input/painting_in_rig.png'));
-    const dir = project = fixture(record => {
+    const dir = project = realpathSync(fixture(record => {
       Object.assign(obj(arr(record.inputs)[0]), { sha256: hash(painting), bytes: painting.length,
         origin: 'synthetic producer painting' });
-    }, 'legacy-example-project.json', { 'inputs/painting.png': painting });
+    }, 'legacy-example-project.json', { 'inputs/painting.png': painting }));
     const installed = locateParts(dir);
     if (installed === null) throw new Error('real build integration requires installed @rig-c/parts');
     const parts = realpathSync(installed);

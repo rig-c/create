@@ -45,6 +45,21 @@
   status (in the painting / fixed / left, why). Use the true part stack; crop on
   white and mid-grey to show light fringes. Check beyond reviewer-chosen boxes.
 
+## Parts-review: prepare before asking
+
+Retain `check-parts`, then `structure-snapshot --draft <id> --out
+evidence/structure-<encodedDraft>.json` (encode the draft ID with
+`encodeURIComponent`), `diff-components` and `diff-classes`. Snapshot creation
+needs no verdict. Draft registration publishes inventory first; the verdict
+subject is deferred until parts-review, a valid conventional snapshot and the
+prepared diff map. Run `advance parts-review` with the parts-check report and
+assembled parts root, then publish the draft and ask for one `parts-verdict`.
+Ingesting an approved UI verdict atomically records its parts-review signature
+from that draft, retained snapshot and verdict evidence. Changes-requested
+leaves it unsigned. Finish all record changes before publishing: a stale
+`projectHash` refuses. The separate signoff route is only for a midflight
+approved verdict already ingested unsigned. See [LIVE-REVIEW.md](LIVE-REVIEW.md).
+
 ## What to read, and why
 
 1. **Before the interview**: INTERVIEW.md; CRAFT.md (waypoint defaults);

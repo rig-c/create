@@ -260,7 +260,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
     ...chatMoves,
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'host this Review page; keep the host running in a separate terminal until job close'),
     move,
-    agent(`rig-create job acts ${root} --json`, `after the person submits in Review, list exported acts and use the matching actId below${act.stage === 'parts-review' ? '; run its reported preconditions before ingestion (parts-review signoff includes structure-snapshot)' : ''}`),
+    agent(`rig-create job acts ${root} --json`, `after the person submits in Review, list exported acts and use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : act.stage === 'parts-review' ? '; run its reported legacy signoff preconditions before ingestion' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
     agent(`rig-create job close ${root}`, 'after successful ingestion, close this job before opening the next Review page'),
   ];
@@ -1131,42 +1131,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           act: 'produce and retain evidence/parts-check.json before advance parts-review' });
       }
 
-      if (effectiveStage === 'parts' && partsRoot !== undefined && existsSync(join(dir, 'evidence/parts-check.json'))) {
-        const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
-          report: 'evidence/parts-check.json',
-          root: partsRoot,
-        });
-        if (advCmd !== null) {
-          moves.push({
-            role: 'agent',
-            field: 'stage',
-            awaits: 'project.stage',
-            command: advCmd,
-            act: 'advance stage from parts to parts-review',
-          });
-        }
-      }
-
-      if (draftId !== undefined && !hasApprovedPartsVerdict) {
-        const verdictAwait = `review_acts[kind=parts-verdict,draft_id=${draftId}]`;
-        addAwait(verdictAwait);
-        moves.push({
-          role: 'human',
-          field: 'review_acts',
-          awaits: verdictAwait,
-          command: null,
-          act: `review-tool act parts-verdict for drafts[${draftId}]`,
-          review_act: {
-            kind: 'parts-verdict',
-            stage: 'parts-review',
-            draft_id: draftId,
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-        });
-      }
-
       const structure = draftId === undefined ? undefined : partsStructureSnapshot(dir, project, draftId);
-      if (draftId !== undefined && hasApprovedPartsVerdict && structure !== undefined && !structure.valid) {
+      if (draftId !== undefined && structure !== undefined && !structure.valid) {
         addAwait(structure.path);
         moves.push({
           role: 'agent',
@@ -1213,28 +1179,56 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         });
       }
 
+      if (effectiveStage === 'parts' && partsRoot !== undefined && structure?.valid && hasValidDiffMap(dir, project) && existsSync(join(dir, 'evidence/parts-check.json'))) {
+        const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
+          report: 'evidence/parts-check.json',
+          root: partsRoot,
+        });
+        if (advCmd !== null) {
+          moves.push({
+            role: 'agent',
+            field: 'stage',
+            awaits: 'project.stage',
+            command: advCmd,
+            act: 'advance stage from parts to parts-review',
+          });
+        }
+      }
+
+      if (draftId !== undefined && !hasApprovedPartsVerdict && effectiveStage === 'parts-review' && structure?.valid && hasValidDiffMap(dir, project)) {
+        const verdictAwait = `review_acts[kind=parts-verdict,draft_id=${draftId}]`;
+        addAwait(verdictAwait);
+        moves.push({
+          role: 'human',
+          field: 'review_acts',
+          awaits: verdictAwait,
+          command: null,
+          act: `review-tool act parts-verdict for drafts[${draftId}]; approve once to record the verdict and parts-review signature`,
+          review_act: {
+            kind: 'parts-verdict',
+            stage: 'parts-review',
+            draft_id: draftId,
+            ...(jobId ? { job_id: jobId } : {}),
+          },
+        });
+      }
+
       const signoffAwait = 'signoffs[stage=parts-review]';
-      if (!hasLiveStageSignoff('parts-review') && !recordedLapseTargets.has(signoffAwait)) {
+      // Already-ingested approvals from before the fold retain their separate signing route.
+      if (hasApprovedPartsVerdict && !hasLiveStageSignoff('parts-review') && !recordedLapseTargets.has(signoffAwait)) {
         addAwait(signoffAwait);
         moves.push({
           role: 'human',
           field: 'signoffs',
           awaits: signoffAwait,
           command: null,
-          act: hasApprovedPartsVerdict
-            ? `review-tool act signoff for stage parts-review; after structure-snapshot, ingest rig-create signoff parts-review ${shellWord(dir)} --draft ${shellWord(draftId!)} --structure-file ${shellWord(structure!.path)} --from-review '<actId>'`
-            : `review-tool act signoff for stage parts-review (unanswered by record: review_acts[kind=parts-verdict,draft_id=${draftId ?? 'unknown'}] is absent)`,
+          act: `legacy approval already recorded: review-tool act signoff for stage parts-review; after structure-snapshot, ingest rig-create signoff parts-review ${shellWord(dir)} --draft ${shellWord(draftId!)} --structure-file ${shellWord(structure!.path)} --from-review '<actId>'`,
           review_act: {
             kind: 'signoff',
             stage: 'parts-review',
             ...(draftId ? { draft_id: draftId } : {}),
             ...(jobId ? { job_id: jobId } : {}),
           },
-          ...(!hasApprovedPartsVerdict
-            ? {
-                unanswered_by_record: `review_acts[kind=parts-verdict,draft_id=${draftId ?? 'unknown'}], ${structure?.path ?? 'structure snapshot'}`,
-              }
-            : {}),
         });
       }
 
@@ -1591,7 +1585,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     }
   }
 
-  if (laggingAdvance !== null && !moves.some(m => m.role === 'agent' && m.command === laggingAdvance.command)) {
+  const partsAdvancePrepared = laggingAdvance?.targetStage !== 'parts-review' || (() => {
+    const drafts = asArray(project.drafts).filter(isObject);
+    const id = drafts[drafts.length - 1]?.id;
+    return typeof id === 'string' && partsStructureSnapshot(dir, project, id).valid && hasValidDiffMap(dir, project);
+  })();
+  if (laggingAdvance !== null && partsAdvancePrepared && !moves.some(m => m.role === 'agent' && m.command === laggingAdvance.command)) {
     addAwait('project.stage');
     moves.unshift({
       role: 'agent',

@@ -103,12 +103,22 @@ rig-create job open <project dir> --reviewer <id> --role owner --plan
 rig-create job acts <project dir>
 rig-create signoff plan-approved --from-review <actId> <project dir>
 rig-create parts-review <project dir> --from-review <actId>
-rig-create structure-snapshot <project dir> --draft <id> --out evidence/structure-decisions.json
-rig-create signoff parts-review --from-review <actId> --draft <id> --structure-file evidence/structure-decisions.json <project dir>
 rig-create review <version> --from-review <actId> <project dir>
 ```
 
-The commands illustrate separate acts; publish the matching subject before each
+For parts-review, prepare `check-parts`, then `structure-snapshot --draft <id>
+--out evidence/structure-<encodedDraft>.json` (the draft ID encoded with
+`encodeURIComponent`), `diff-components` and `diff-classes`. Run `advance
+parts-review --parts-check <report> --parts <assembled dir>`, then publish with
+`job open --draft <id>` and ask for one `parts-verdict`. Draft registration
+publishes inventory first; the verdict ask is deferred until parts-review, a
+valid conventional snapshot and a prepared diff map. Ingesting the approved
+UI act atomically records its receipt and the parts-review signature using that
+retained snapshot. Changes-requested leaves the stage unsigned. Finish all
+record changes before publishing: a stale `projectHash` refuses ingestion.
+Only a midflight approved verdict already ingested unsigned uses the separate
+`signoff parts-review --from-review <actId> --draft <id> --structure-file <path>`
+route. Other stages keep their existing acts. Publish the matching subject before each
 human act. Keep the Review host up across bound writes. If it stops, `job open`
 again with reviewer/role, then `job reconcile` before more writes. `--rig <n>`
 selects either a rig or a post version.

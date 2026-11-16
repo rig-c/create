@@ -12,6 +12,7 @@ import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublic
 import { jobRuntimeExecArgv, prepareDraftIntent, prepareVersionIntent } from '../src/job-writer.ts';
 import { draftPublicationContext, draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
+import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { refuse } from '../src/refusal.ts';
@@ -947,7 +948,7 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   });
   const binding = readWriterBinding(root)!;
 
-  // In parts stage (before parts-review), draft publication does not declare signoff parts-review and does not require diff_map.
+  // Parts-stage inventory can publish without asking the owner before evidence and advance.
   const partsProject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const partsManifest = prepareDraftManifest(root, partsProject, 'chain');
   const partsPublished = await readPublished({
@@ -955,9 +956,8 @@ test('#389 parts-review drafts publish without unready approval and recover thro
     record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) },
     result: { path: partsManifest, selector: { kind: 'draft', id: 'chain' } },
   });
-  expect(partsPublished.subjects).toEqual([
-    { kind: 'parts-verdict', draftId: 'chain' },
-  ]);
+  expect(partsPublished.subjects).toEqual([]);
+  structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
 
   // Advance to parts-review without recording diff_map.
   advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], now);
@@ -970,7 +970,7 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   const unready = draftPublicationContext(root, unsignedProject, 'chain', warnings);
   expect(warnings.map(finding => finding.code)).toEqual(['DIFF_MAP_MISSING']);
   expect(warnings[0]!.message).toContain('signoffs[3] diff_map');
-  expect(unready.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect(unready.subjects).toEqual([]);
   const published = await readPublished({
     root, record: { path: 'project.json', sha256: jobHash(unsignedRecordBytes) }, result,
   });
@@ -979,14 +979,14 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined,
     async opts => makeHost(true, opts.reuseOnly!.expected)))).toBe(1);
   expect(apiCalls).toEqual([
-    { verb: 'publish' }, { verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
+    { verb: 'publish' },
   ]);
   expect(readAcknowledgedPublication(root, jobId, 'pub-synthetic-389-1')!.subjects).toEqual(unready.subjects);
   expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
   expect(pendingPublications(root)).toEqual([]);
   apiCalls.length = 0;
 
-  // An invalid agent map still withholds only approval, using its existing named finding.
+  // An invalid agent map still withholds the verdict, using its existing named finding.
   const brokenProject = structuredClone(unsignedProject);
   brokenProject.diff_map = { by: 'user', at: '2026-11-08T00:00:00Z' };
   const brokenWarnings: import('../src/check.ts').Finding[] = [];
@@ -1005,7 +1005,6 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   });
   expect(readyContext.subjects).toEqual([
     { kind: 'parts-verdict', draftId: 'chain' },
-    { kind: 'signoff', stage: 'parts-review' },
   ]);
 
   expect(prepareDraftIntent(root, readyBytes, 'chain')).not.toBeNull();
@@ -1016,12 +1015,10 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   expect(apiCalls).toEqual([
     { verb: 'publish' },
     { verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
-    { verb: 'ask', subject: { kind: 'signoff', stage: 'parts-review' } },
   ]);
   const acknowledged = readAcknowledgedPublication(root, jobId, 'pub-synthetic-389-2')!;
   expect(acknowledged.subjects).toEqual([
     { kind: 'parts-verdict', draftId: 'chain' },
-    { kind: 'signoff', stage: 'parts-review' },
   ]);
 
   // A structurally broken committed publication stays pending and blocks unrelated writes.
@@ -1072,7 +1069,7 @@ test('normal publication omits only the withdrawn checkpoint and retains its sig
   const path = prepareDraftManifest(root, after, 'chain');
   const published = await readPublished({ root, record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) },
     result: { path, selector: { kind: 'draft', id: 'chain' } } });
-  expect(published.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect(published.subjects).toEqual([]);
   expect(stepHash(((after.plan as JsonObject).steps as JsonObject[])[1]!)).toBe(hash);
   const rigStep = { id: 'meshes', phase: 'rig', checkpoint: { delegated: false, value: true, by: 'user', at: '2026-11-06T00:00:00Z', verbatim: 'Inspect.' } };
   const motionStep = { ...rigStep, id: 'motion' };

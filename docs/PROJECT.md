@@ -375,6 +375,31 @@ their existing shape when no amendment is present.
 
 ### The parts are reviewed before rigging
 
+For the current UI route, prepare `check-parts`, then `structure-snapshot
+--draft <id> --out evidence/structure-<encodedDraft>.json` (using
+`encodeURIComponent(id)`), `diff-components` and `diff-classes`. Snapshot
+creation needs no verdict. Run `advance parts-review --parts-check <report>
+--parts <assembled dir>` before publishing `job open --draft <id>` and asking
+for one `parts-verdict`. Ingest it with
+`parts-review <project> --from-review <actId>` using the existing arguments.
+An approved UI verdict atomically appends its receipt and a human parts-review
+signature: `draft_id` comes from the verdict, `structure` from the retained
+conventional snapshot and `evidence` from that verdict. Pending or
+changes-requested verdicts leave the stage unsigned. `projectHash` must still
+match the prepared record; missing preparation requires completing it,
+republishing and asking for a new verdict, not modifying the record after the
+act and ingesting that stale act.
+
+The separate signoff route is only for a midflight approved verdict already
+ingested unsigned. Existing separate signoffs remain valid. This additive
+flow introduces no SINCE date and changes no rig, direction or interview acts.
+The CLI-read route below still records evidence without folding a signature.
+Draft registration publishes inventory before asking for a verdict. Its
+`parts-verdict` subject is deferred until `parts-review`, a valid conventional
+`evidence/structure-<encodeURIComponent(id)>.json` snapshot and the prepared
+diff map. The fold takes no custom snapshot-path argument.
+See [LIVE-REVIEW.md](LIVE-REVIEW.md) for the complete UI sequence.
+
 `parts-review [<project>] --draft <id> --from-review-cli --by <name>
 [--json] -- <rig-review parts arguments>` records an independent parts verdict
 through `rig-review parts <arguments> --format json`. Put create's flags before
@@ -428,19 +453,14 @@ assembled parts before `rigging` starts.
   does not move to `rigging`, and no `rigging` step runs
   (`PARTS_REVIEW_UNSIGNED`). An agent's entry does not count.
 - **The sign-off carries the verdict it rests on**: `"evidence": { "kind":
-  "parts-verdict", "path": "<the file>", "sha256": "<its sha256>" }`, where
-  `path` is relative to the project and names the file rig-review's parts view
-  wrote (`rig-review parts`; by default `parts-review.json` beside
-  `parts.json`, or wherever `--verdict` put it). Write it to a tracked path,
-  `--verdict evidence/parts-review.json`, so the sign-off's evidence survives a
-  clone: `derived/`, where the parts are assembled, is not in git. The check
-  reads exactly that file, never a default location. Rigging is refused, each case by name
-  ([CHECKS.md § Refusals](CHECKS.md#refusals)), unless the verdict is the
-  `rig-review-parts-verdict/1` or `rig-review-parts-verdict/2` schema in `parts` mode (an `atlas` verdict is
-  informational and never gates), its `status` is `approved`, and every file
-  in its `source.files[]` is on disk with the bytes and sha256 it was reviewed
-  with. A part added, removed or repainted after the sign-off is a new review:
-  the user reviews again and signs again, with the new verdict as evidence.
+  "parts-verdict", "path": "<retained evidence>", "sha256": "<its sha256>" }`.
+  Current signatures bind the immutable response retained by `parts-review`,
+  selected from the draft's receipt ledger, rather than a review-saved file
+  passed on the command line. Approved UI ingestion also writes this signature.
+  Retained approval, source freshness and draft membership are checked before
+  writing. Historical saved-file signatures retain their legacy reader; the
+  `/1` and `/2` schema details below describe that reader, not new command
+  arguments. A part added, removed or repainted requires a new owner review.
   The latest `parts-review` sign-off is the one read. **The parts themselves
   must be on disk to rig**: on a fresh clone, re-assemble them before rigging
   continues. The verdict gates rigging only until a rig version is accepted at
@@ -501,7 +521,10 @@ assembled parts before `rigging` starts.
 
   ```sh
   rig-create diff-classes --diff-report evidence/diff-components.json --component 'p10-n3=in-painting:the painting contains this edge' --by agent
-  rig-create signoff parts-review --by user --draft <id> --structure-file evidence/structure-decisions.json --verbatim-file approval.txt
+  # Finish evidence and advance before publishing and asking for one parts-verdict.
+  rig-create advance parts-review --parts-check evidence/parts-check.json --parts <assembled dir>
+  rig-create job open --draft <id> --reviewer <reviewer> --role owner
+  rig-create parts-review --from-review <actId>
   ```
 
   The `diff-classes` writer hashes the report and validates the entire map
@@ -815,11 +838,12 @@ named stage and its recorded checkpoint is enabled. This records
 `checkpoint: <step id>`, without `steps` or `step_hashes`. It cannot be combined
 with `--steps`.
 
-`parts-review` requires `--evidence <verdict path>`. The command stores
-`{ kind: "parts-verdict", path, sha256 }`, resolving filesystem links,
-normalising the path to project-relative POSIX form and hashing the file. The existing parts-verdict reader validates
-approval, shape and source freshness before anything is written. Other stages
-refuse `--evidence`.
+Fresh parts-review UI approval is recorded by `parts-review --from-review
+<actId>` and also writes the stage signature. Only a midflight approved verdict
+already ingested unsigned uses `signoff parts-review --draft <id>
+--structure-file <path> --from-review <actId>`. It selects the draft's latest
+recorded verdict and validates approval, shape and source freshness before
+writing. The removed `--evidence` flag is not an input to this route.
 
 Only `plan-approved`, `rigging-interview` and `post-interview` accept `--steps`. Stage movement
 remains a separate act read by the check.
@@ -1497,8 +1521,11 @@ draft's proposed bones and weights are not the person's rigging answers.
 
 ```sh
 rig-create draft-rig <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--json]
-rig-create structure-snapshot [<dir>] --draft <id> --verdict <path> --out <path>
-rig-create signoff parts-review --by <who> --evidence <path> --diff-report <path> --component '<id>=<status>:<why>' --draft <id> --structure-file <path> --verbatim-file <file>
+rig-create structure-snapshot [<dir>] --draft <id> --out evidence/structure-<encodedDraft>.json
+# After check-parts, snapshot, diff-components and diff-classes:
+rig-create advance parts-review [<dir>] --parts-check <report> --parts <assembled dir>
+rig-create job open [<dir>] --draft <id> --reviewer <reviewer> --role owner
+rig-create parts-review [<dir>] --from-review <actId>
 ```
 
 The recorder reads existing output; it runs no producer or review command.
@@ -1536,8 +1563,10 @@ output root and numbered version. This checks declared artifact identity;
 it does not claim to recognise untracked byte copies after their identity is
 stripped. Identical model hashes alone are not blacklisted.
 
-`--structure-file` retains a declaration snapshot approved by the human parts
-sign-off, not a fabricated review export. `structure-snapshot` writes it:
+`structure-snapshot` retains a declaration snapshot from the draft before the
+human review. Approved UI verdict ingestion binds it as the parts-review
+signature's `structure`; the midflight separate signoff uses `--structure-file`.
+It is not a fabricated review export. The snapshot has this shape:
 
 ```json
 {
@@ -1573,18 +1602,11 @@ The parts verdict names no per-declaration approval: an approved verdict
 approves the reviewed draft. So `structure-snapshot` copies `draft_id` and the
 draft's own `config: {path, sha256}` binding, and writes one entry per key of
 that config's `meshes`, in the config's key order, each value copied exactly.
-A config without `meshes` gives `entries: []`. It computes no mesh. It reads
-`--verdict` with the parts-review sign-off's own reader, so a verdict that is
-not approved refuses `PARTS_VERDICT_NOT_APPROVED`, and a changes-requested
-review gives no snapshot. The verdict must also review that draft's parts: both
-writers and the check match its `source.files[]` against the draft's
-`parts.files[]` and `files[]` by sha256, never by path, leaving out only the
-declared `painting_in_rig` raster. Every verdict file must be one of the
-draft's, and every `parts.files[]` entry must be in the verdict; any other
-difference is refused as `PARTS_VERDICT_DRAFT_MISMATCH`. A parts view that
-shows meshes also lists `rig.json`, `mesh_report.json` and the mesh rasters,
-which the draft binds in `files[]`; an output the verdict does not list is not
-missing, since a parts-only view lists none. It refuses an unknown draft
+A config without `meshes` gives `entries: []`. It computes no mesh and requires
+no verdict: an absent, pending or changes-requested verdict does not prevent
+snapshot preparation. Approval and parts/output membership remain signature
+and verdict-ingestion gates; a snapshot alone authorizes neither signoff nor
+stage progression. It refuses an unknown draft
 (`STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN`), a draft config whose bytes changed since
 the draft was recorded (`STRUCTURE_SNAPSHOT_CONFIG_CHANGED`), and an `--out`
 that is not a literal project path (`STRUCTURE_SNAPSHOT_OUT_INVALID`), is under
@@ -1593,8 +1615,11 @@ bytes (`STRUCTURE_SNAPSHOT_OUT_EXISTS`). The candidate is validated with the
 rules the check applies to a signed snapshot before any byte is written, and a
 refusal leaves no new or changed file. An `--out` that already holds the same
 bytes is left as it is and the command succeeds. It writes only `--out`, never
-`project.json`; `signoff parts-review --draft <id> --structure-file <path>`
-then binds the file.
+`project.json`. Fresh approved UI ingestion binds the retained
+`evidence/structure-<encodedDraft>.json` snapshot (using `encodeURIComponent(id)`)
+without an extra argument. Retain it before publishing and asking for the
+verdict. Only the midflight separate signoff uses `--structure-file <path>` to
+bind the file.
 The snapshot must live outside ignored roots, such as `evidence/`; the writer
 refuses paths or aliases into ignored storage. The writer hashes the retained
 file and checks its config/declaration identity when the draft config is
@@ -2400,9 +2425,10 @@ refuses with `JOB_RECORD_COLLECTION_EXTERNAL`.
 This section supersedes earlier saved-verdict command examples and evidence
 requirements in this document.
 
-`signoff parts-review --draft <id>` and `structure-snapshot --draft <id>`
-select the latest parts-verdict receipt for that draft in `review_acts` ledger
-order. Both CLI-read and act receipts participate. The response retained by
+`signoff parts-review --draft <id>` selects the latest parts-verdict receipt
+for that draft in `review_acts` ledger order. `structure-snapshot --draft <id>`
+only reads the draft/config and does not require or select a verdict. Both
+CLI-read and act receipts participate. The response retained by
 `parts-review` is hash-bound and validated through the same reader in the
 writers and check. The signoff retains its selected response binding and spec.
 A later response does not replace that historical binding. The existing latest

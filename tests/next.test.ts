@@ -20,7 +20,6 @@ import { freshProjectRecord } from '../src/init.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { optionContext } from '../src/choices.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/next.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
@@ -282,27 +281,19 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
           review_act: { kind: 'signoff', stage: 'plan-approved' },
         });
       } else if (spec.name === '1-parts-verdict') {
-        // The runnable agent move matches pending.commands[4] verbatim, but its role is 'agent'
-        // (decided by stage="parts", plan.steps all done, drafts[0].parts.path, and evidence/parts-check.json),
-        // whereas pending.command_roles[4] mislabelled advance as 'human'.
-        const agentMove = report.moves.find(m => m.role === 'agent');
-        expect(agentMove?.command).toBe(`rig-create advance parts-review ${cpDir} --parts-check evidence/parts-check.json --parts derived/drafts/chain/input`);
-        expect(agentMove?.field).toBe('stage');
-        expect(agentMove?.awaits).toBe('project.stage');
-        // Producer diff-components uses project-relative paths from drafts[0].parts.path and inputs[0].path.
-        const producerMove = report.moves.find(m => m.role === 'producer');
-        expect(producerMove?.command).toBe(
+        // The frozen checkpoint predates #557: evidence now comes before the
+        // advance, and the owner is asked only after that advance is recorded.
+        expect(project.review_acts ?? []).toEqual([]);
+        expect(report.moves.find(m => m.role === 'agent')).toMatchObject({
+          field: 'drafts[chain]', awaits: 'evidence/structure-chain.json',
+          command: `rig-create structure-snapshot ${cpDir} --draft chain --out evidence/structure-chain.json`,
+        });
+        expect(report.moves.find(m => m.role === 'producer')?.command).toBe(
           `rig-parts diff-components --stack ${cpDir}/derived/drafts/chain/input/recomposite_rig.png --painting ${cpDir}/inputs/painting.png --parts ${cpDir}/derived/drafts/chain/input/parts.json --floor 2 --threshold 40 --out ${cpDir}/evidence/diff-components.json`,
         );
-        // Disagreement: pending.command_roles[1] labelled `parts-review --from-review-cli --by user` as 'agent',
-        // whereas review_acts is absent and a parts verdict is a human review-tool act.
-        expect(project.review_acts ?? []).toEqual([]);
-        expect(report.moves.find(m => m.review_act?.kind === 'parts-verdict')).toMatchObject({
-          role: 'human',
-          field: 'review_acts',
-          awaits: 'review_acts[kind=parts-verdict,draft_id=chain]',
-          command: null,
-        });
+        expect(report.moves.some(m => m.command?.startsWith('rig-create advance parts-review'))).toBe(false);
+        expect(report.moves.some(m => m.review_act?.kind === 'parts-verdict')).toBe(false);
+        expect(report.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
       } else if (spec.name === '2-rigging-answers') {
         // Awaits match the checkpoint's pending.awaits 100%.
         expect(report.awaits).toEqual(spec.pending.awaits);
@@ -631,7 +622,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(afterCheck.refusals).toEqual([]);
   });
 
-  test('plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move', async () => {
+  test('plant 5 (parts-verdict receipts): legacy CLI approval retains snapshot repair; API approval follows prepared evidence', async () => {
     // Route 1: CLI parts-verdict receipt (`rig-create/parts-verdict-cli@1`, uses `status: "approved"`).
     const cliDir = join(tempDir(), 'parts-cli-route');
     cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), cliDir, { recursive: true });
@@ -693,6 +684,17 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(draftStderr).toBe('');
       expect(draftExit).toBe(0);
 
+      for (const args of [
+        ['structure-snapshot', apiDir, '--draft', 'chain', '--out', 'evidence/structure-chain.json'],
+        ['diff-classes', apiDir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'],
+        ['advance', 'parts-review', apiDir, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'],
+        ['job', 'open', apiDir, '--reviewer', 'synthetic-owner', '--role', 'owner'],
+      ]) {
+        const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(REPO, 'src/cli.ts'), ...args],
+          { cwd: apiDir, stdout: 'pipe', stderr: 'pipe' });
+        const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited, new Response(child.stdout).text()]);
+        expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
+      }
       const publication = host.session.status().publication!;
       const askReq = {
         schema: 'rig-review/job-api@2',
@@ -781,25 +783,11 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
 
       const apiNow = Date.now();
       const apiReport = nextProject(apiDir, apiNow);
-      const apiSnapshotMove = apiReport.moves.find(
-        m => m.role === 'agent' && m.command?.startsWith('rig-create structure-snapshot'),
-      );
-      expect(apiSnapshotMove).toMatchObject({
-        role: 'agent',
-        field: 'drafts[chain]',
-        awaits: 'evidence/structure-chain.json',
-        command: `rig-create structure-snapshot ${apiDir} --draft chain --out evidence/structure-chain.json`,
-      });
-
-      // API receipts bind their host root; this owned temporary project is already the execution fixture.
-      const apiScratch = apiDir;
-      const apiRun = runMainCapture(
-        printedArgs(apiSnapshotMove!.command!).slice(1).map(arg => arg === apiDir ? apiScratch : arg),
-        apiNow,
-      );
-      expect(apiRun.stderr).toBe('');
-      expect(apiRun.code).toBe(0);
-      expect(checkProject(apiScratch, undefined, { now: apiNow, readOnly: true }).refusals).toEqual([]);
+      expect(apiReport.moves.some(move => move.command?.startsWith('rig-create structure-snapshot'))).toBe(false);
+      expect(apiReport.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
+      const recorded = JSON.parse(readFileSync(join(apiDir, 'project.json'), 'utf8')) as JsonObject;
+      expect(arr(recorded.signoffs).map(obj)).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
+      expect(checkProject(apiDir, undefined, { now: apiNow, readOnly: true }).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
     } finally {
       host?.stop();
       rmSync(jobHostStateRoot(apiDir), { recursive: true, force: true });
@@ -1188,7 +1176,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(afterRerunCheck.refusals).toEqual(beforeCheck.refusals);
   });
 
-  test('plant 8 (parts-review agent diff-classes move): when evidence/diff-components.json is present without project.diff_map, next emits the agent diff-classes move and keeps signoff human-only', () => {
+  test('plant 8 (parts-review agent diff-classes move): missing map withholds the fresh human verdict until evidence is ready', () => {
     const dir = join(tempDir(), 'diff-classes-move');
     cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
     cpSync(join(CHAIN_DIR, 'evidence/diff-components.json'), join(dir, 'evidence/diff-components.json'));
@@ -1219,14 +1207,10 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       command:
         `rig-create diff-classes ${dir} --diff-report evidence/diff-components.json --by agent`,
     });
-    const signoffMove = report.moves.find(m => m.review_act?.kind === 'signoff');
-    expect(signoffMove).toMatchObject({
-      role: 'human',
-      field: 'signoffs',
-      awaits: 'signoffs[stage=parts-review]',
-      command: null,
-      review_act: { kind: 'signoff', stage: 'parts-review', draft_id: 'chain' },
-    });
+    expect(report.moves.some(m => m.review_act?.kind === 'parts-verdict')).toBe(false);
+    expect(report.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
+    const snapshot = report.moves.find(m => m.command?.startsWith('rig-create structure-snapshot'))!;
+    expect(runMainCapture(printedArgs(snapshot.command!).slice(1), CHAIN_NOW + 1000)).toMatchObject({ code: 0, stderr: '' });
 
     const execArgs = printedArgs(diffMove!.command!).slice(1);
     const execRes = runMainCapture(execArgs, CHAIN_NOW + 1000);
@@ -1236,6 +1220,8 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const afterReport = nextProject(dir, CHAIN_NOW + 1000);
     expect(afterReport.awaits).not.toContain('diff_map');
     expect(afterReport.moves.find(m => m.field === 'diff_map')).toBeUndefined();
+    expect(afterReport.moves.find(m => m.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
+    expect(afterReport.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
   });
 
   test('usage errors refuse with NEXT_USAGE and exit 2', () => {
@@ -1434,24 +1420,38 @@ test('#490 agent guide remains below 10000 rendered bytes', () => {
   expect(Buffer.byteLength(renderAgentGuide())).toBeLessThan(10_000);
 });
 
-test('#490 parts emits producer check-parts before its executable advance', () => {
+test('#557 fresh parts prepares check, structure and diff before advance and the single human verdict', () => {
   const dir = join(tempDir(), 'parts-report');
   cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
   rmSync(join(dir, 'evidence/parts-check.json'));
-  const before = nextProject(dir, CHAIN_NOW);
-  const move = before.moves.find(move => move.command?.startsWith('rig-parts check-parts'))!;
-  expect(move.role).toBe('producer');
-  expect(before.moves.some(move => move.command?.startsWith('rig-create advance parts-review'))).toBe(false);
+  const expected = ['rig-parts check-parts', 'rig-create structure-snapshot', 'rig-parts diff-components',
+    'rig-create diff-classes', 'rig-create advance parts-review'];
   const require = createRequire(import.meta.url);
   const bin = join(require.resolve('@rig-c/parts/package.json'), '..', 'cli.ts');
-  const run = Bun.spawnSync([process.execPath, bin, ...printedArgs(move.command!).slice(1)], { cwd: REPO, stdout: 'pipe', stderr: 'pipe' });
-  expect(run.stderr.toString()).toBe(''); expect(run.exitCode).toBe(0);
-  const advance = nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create advance parts-review'))!;
-  expect(runMainCapture(printedArgs(advance.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  for (const prefix of expected) {
+    const report = nextProject(dir, CHAIN_NOW);
+    expect(report.refusals).toEqual([]);
+    expect(report.moves.some(move => move.review_act?.kind === 'parts-verdict')).toBe(false);
+    expect(report.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
+    const move = report.moves.find(move => move.command !== null)!;
+    expect(move.command).toStartWith(prefix);
+    if (prefix.startsWith('rig-parts ')) {
+      expect(move.role).toBe('producer');
+      const run = Bun.spawnSync([process.execPath, bin, ...printedArgs(move.command!).slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      expect({ exit: run.exitCode, stderr: run.stderr.toString() }).toEqual({ exit: 0, stderr: '' });
+    } else {
+      expect(move.role).toBe('agent');
+      expect(runMainCapture(printedArgs(move.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+    }
+  }
+  const ready = nextProject(dir, CHAIN_NOW);
+  expect(ready.moves.find(move => move.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
+  expect(ready.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
+  expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).stage).toBe('parts-review');
 });
 
 
-test.each(['generic', 'per-draft'])('#490 %s snapshot for another draft is retained and both command views select the same fresh path', slot => {
+test.each(['generic', 'per-draft'])('#490 legacy approved %s snapshot for another draft is retained and both command views select the same fresh path', slot => {
   const dir = join(tempDir(), 'snapshot-selection');
   cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
   recordPartsReceipt(dir, 'chain', CHAIN_NOW);

@@ -425,7 +425,7 @@ test('post scene route: Review pick act, from-review ingestion, scene write with
 }, 30_000);
 
 
-test('#490 parts signoff prints ordered verdict and structure prerequisites with retained writer flags', async () => {
+test('#490 legacy parts signoff prints ordered verdict and structure prerequisites with retained writer flags', async () => {
   testClock.set(Date.now());
   const root = copy('1-parts-verdict');
   const signoff = { jobId: 'synthetic', actId: 'parts-sign', kind: 'signoff', at: testClock.iso(),
@@ -434,9 +434,9 @@ test('#490 parts signoff prints ordered verdict and structure prerequisites with
   expect(pending!.args).toEqual(['signoff', 'parts-review', root, '--draft', 'chain', '--structure-file', 'evidence/structure-chain.json', '--from-review', 'parts-sign']);
   expect(pending!.preconditions).toHaveLength(2);
   expect(pending!.preconditions![0]!.command).toBeNull();
-  expect(pending!.preconditions![0]!.act).toContain('ingest the approved parts-verdict');
+  expect(pending!.preconditions![0]!.act).toContain('midflight approved parts-verdict already ingested unsigned');
   const text = jobActsText({ acts: [pending!] });
-  expect(text.indexOf('ingest the approved parts-verdict')).toBeLessThan(text.indexOf('rig-create structure-snapshot'));
+  expect(text.indexOf('midflight approved parts-verdict already ingested unsigned')).toBeLessThan(text.indexOf('rig-create structure-snapshot'));
   expect(text.indexOf('rig-create structure-snapshot')).toBeLessThan(text.indexOf('rig-create signoff'));
   recordPartsReceipt(root, 'chain', testClock.now());
   const [ready] = pendingJobActs(read(root), [signoff], root);
@@ -535,27 +535,23 @@ test('#507 reachable interview signoff executes printed host, acts, ingest and c
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'interview')).toBe(true);
 }, 30_000);
 
-test('#507 parts verdict then reachable parts-review signoff execute printed commands; checkpoint remains unanswered', async () => {
-  receipt({ test: '#507 parts verdict then reachable parts-review signoff', source: 'checkpoint 1-parts-verdict then writer-prepared synthetic fixture' });
+test('#557 fresh parts verdict executes printed commands and atomically signs without a second human act', async () => {
+  receipt({ test: '#557 fresh parts fold', source: 'writer-prepared synthetic checkpoint 1-parts-verdict' });
   const root = copy('1-parts-verdict');
   const before = nextProject(root, testClock.now());
-  const unanswered = before.moves.find(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')!;
-  expect(unanswered).toMatchObject({ role: 'human', command: null,
-    unanswered_by_record: 'review_acts[kind=parts-verdict,draft_id=chain], evidence/structure-chain.json' });
-  expect(unanswered.act).toContain('unanswered by record');
-  receipt({ checkpoint: '1-parts-verdict', stage: 'parts-review', prints_commands: false, move: unanswered });
-  await nextReview(root, 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
-  const advance = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create advance parts-review'))!;
-  await executePrinted(root, advance.command!);
+  expect(before.moves.some(move => move.review_act?.kind === 'parts-verdict')).toBe(false);
+  expect(before.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
+  const snapshot = before.moves.find(move => move.command?.startsWith('rig-create structure-snapshot'))!;
+  await executePrinted(root, snapshot.command!);
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
   expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
-  const ready = nextProject(root, testClock.now());
-  expect(ready.moves.find(move => move.review_act?.kind === 'signoff')!.unanswered_by_record).toBeUndefined();
-  // next and job acts share the retained-name selection, including collision handling.
-  const snapshot = ready.moves.find(move => move.command?.startsWith('rig-create structure-snapshot'))!;
-  await executePrinted(root, snapshot.command!);
-  await nextReview(root, 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
+  const advance = nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create advance parts-review'))!;
+  await executePrinted(root, advance.command!);
+  await nextReview(root, 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
   expect(arr(read(root).signoffs).map(obj)).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
+  const after = nextProject(root, testClock.now());
+  expect(after.refusals.map(row => row.code)).not.toContain('PARTS_REVIEW_UNSIGNED');
+  expect(after.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
 }, 30_000);
 
 test('#507 reachable rigging-interview signoff executes printed host, acts, ingest and close', async () => {

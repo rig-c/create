@@ -89,7 +89,7 @@ HOLE visible.
 
 | Writer | Published result | Review subject |
 | --- | --- | --- |
-| `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector and `parts-verdict`, plus sign subjects |
+| `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector; `parts-verdict` is deferred until parts-review, a valid conventional snapshot and the prepared diff map; eligible sign subjects |
 | `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
 | `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
 | `advance rig-review` | The current live rig at the entered review stage | `rig` selector, `review-verdict`, and the stage's `signoff` subject |
@@ -302,18 +302,22 @@ effective stage). The rules are in `src/signable.ts`:
   Post publications carry only the direction verdict; direction sign-off uses
   the separate source-linked record page described above. A plan-bound stage
   (`plan-approved`, `rigging-interview`, `post-interview`) also needs displayed
-  plan steps.
+  plan steps. Fresh parts-review uses its deferred `parts-verdict` subject;
+  its separate signoff subject is only the midflight compatibility route for
+  an approved verdict already ingested unsigned.
 
 Review 2.8.0 asks only for a declared subject and refuses any other with
 `JOB_ASK_INVALID` (`bindJobAsk`, `src/job-act.ts`). Both the ask and the act
 also require `project.json` to still hold the published bytes
 (`assertJobSourceCurrent`, `src/job-source.ts`). So either the owner submits
-both the verdict and `signoff` acts for parts or rig review in the Review UI before any writer mutates
-`project.json`, or after a CLI writer (`parts-review --from-review`,
-`diff-classes`, or `review <n> --from-review`) updates `project.json`, the
-agent runs `rig-create job open` to republish the current selector (`draft`,
-or `rig`) over the updated `project.json` bytes and re-ask the stage's
-declared subjects before the owner signs off in the UI.
+both the verdict and `signoff` acts for rig review in the Review UI before any
+writer mutates `project.json`, or after `review <n> --from-review` updates the
+record, the agent runs `job open --rig <n>` to republish and re-ask the stage's
+signoff. Parts-review instead asks one parts verdict after all evidence and the
+advance are recorded; its approved UI ingestion also signs the stage. Only a
+midflight approved parts verdict already ingested unsigned keeps the separate
+signoff route: finish the snapshot first, republish the draft over current
+record bytes, then ask and ingest that signoff.
 
 `job reconcile` keeps the declared subjects in the acknowledged receipt.
 `signoff … --from-review` compares the act's subject with that list and
@@ -346,7 +350,7 @@ again.
 | `parts` checkpoints | draft | `draft-rig` commits while the record is in `parts` and the checkpoint is enabled |
 | `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
 | `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
-| `parts-review` | draft | `draft-rig` commits in `parts-review`, or the agent runs `job open` to refresh the draft after `parts-review --from-review` / `diff-classes` |
+| `parts-review` | draft | prepare evidence and `advance parts-review`, then `job open --draft <id>` asks one `parts-verdict`; approved UI ingestion also signs. Separate signoff is only for a midflight approved verdict already ingested unsigned |
 | `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, `rig-version` commits in `rig-review`, or the agent runs `job open` to refresh the live `rig` head after `review <n> --from-review` |
 | `direction-review` | record plan, using release-pinned Review 4.3.0 | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
@@ -388,8 +392,13 @@ The writer publishes `review-draft-<id>.json` with a labelled draft title, an
 entry-hash revision, the recorded compiled model when available, declared image
 references, and read-only rig/motion/mesh-report artifacts. Standalone output
 without a compiled model uses Review's optional-model manifest form. The host
-reader supplies the draft selector and `parts-verdict` subject, part IDs and the
-exact C4 Parts enumeration over the recorded draft input. Config, config inputs
+reader supplies the draft selector, part IDs and the exact C4 Parts enumeration
+over the recorded draft input. Draft registration publishes this inventory
+before it asks for a verdict. The `parts-verdict` subject is deferred until the
+record is in `parts-review`, the conventional
+`evidence/structure-<encodeURIComponent(id)>.json` snapshot is valid, and the
+difference map is prepared. An inventory publication alone does not ask the
+owner to approve parts. Config, config inputs
 and retained outputs are sealed as publication files. Producer bytes are read
 and hash-bound. Publication performs no build or producer measurement.
 
@@ -412,20 +421,41 @@ binding obligations of create#236 and #245. The semantic form carries its actual
 C4 inventory and draft receipt, without synthesizing a legacy `source.files`
 report or interpreting mesh geometry.
 
-Use the returned evidence explicitly in the separate writers.
+Prepare the evidence before asking for the verdict:
 
-```sh
-rig-create structure-snapshot <project> --draft <id> --verdict <returned-path> --out evidence/structure.json
-rig-create signoff parts-review <project> --draft <id> --evidence <returned-path> --structure-file evidence/structure.json --diff-report <report> --by <human> --verbatim-file <words>
-```
+1. Run `rig-parts check-parts` for the assembled parts and retain its report.
+2. Run `rig-create structure-snapshot <project> --draft <id> --out
+   evidence/structure-<encodedDraft>.json`, with `encodeURIComponent(id)` in the
+   filename. It copies the draft config and needs no verdict.
+3. Run `rig-parts diff-components` and record every component with
+   `rig-create diff-classes <project> --diff-report <report> --component
+   '<id>=<status>:<why>' --by agent`.
+4. Run `rig-create advance parts-review <project> --parts-check <report>
+   --parts <assembled dir>`.
+5. Publish `rig-create job open <project> --draft <id> --reviewer <reviewer>
+   --role owner`. The one owner ask is `parts-verdict`.
+6. List `rig-create job acts <project>` and ingest its unchanged writer command:
+   `rig-create parts-review <project> --from-review <actId>`.
 
-The existing difference component options still apply to the report. A pending
-or changes-requested act can be retained, while the separate approval writer
-refuses it with `PARTS_VERDICT_NOT_APPROVED`. Recording evidence leaves signoff
-and stage progression to those explicit writes.
+Approved UI ingestion atomically records the receipt and `parts-review`
+signature, taking `draft_id` from the verdict, `structure` from the retained
+conventional snapshot and `evidence` from that verdict. Keep the snapshot at
+`evidence/structure-<encodeURIComponent(id)>.json`; an arbitrary snapshot path
+is not an argument to the fold writer. It requires no second human act.
+Pending and changes-requested verdicts can be retained but leave the stage
+unsigned. A stale `projectHash` refuses ingestion; do not modify the
+record after the act to satisfy prerequisites. Finish preparation, republish
+and ask for a new verdict instead.
 
-At check, structure-snapshot and signoff, retained parts approval checks its draft
-bindings independently of later plan changes, including checkpoint decisions.
+The separate `signoff parts-review <project> --draft <id> --structure-file
+<path> --from-review <actId>` route remains only for a midflight approved verdict
+already ingested unsigned. Prepare any missing snapshot before publishing and
+asking for that separate signoff. Legacy signatures remain readable; this
+additive route introduces no SINCE date and changes no other stage's acts.
+
+At check and signoff, retained parts approval checks its draft bindings
+independently of later plan changes, including checkpoint decisions. Snapshot
+creation checks the draft/config binding, without requiring an approval.
 The full plan comparison still applies at ingest and replay. Draft publications
 declare no direction document, so their acts have `source.direction: null`.
 

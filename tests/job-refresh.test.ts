@@ -2,13 +2,15 @@ import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { checkProject as rawCheckProject } from '../src/check.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
+import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { nextProject } from '../src/next.ts';
 import { reviewActFindings } from '../src/review-act.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -235,54 +237,107 @@ test('#475 source-linked clean interview record signoff ingests advances and off
   expect(approvalPage.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
-test('parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication', async () => {
+async function preparedParts(): Promise<string> {
   const root = copy('1-parts-verdict');
+  expectExit0(await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']));
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
-  expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
   expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
+  expectExit0(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']));
+  return root;
+}
 
-  const opening = await open(root);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, signoff parts-review']);
-
-  const firstView = await page(root, opening.url);
-  const verdict = await firstView.act('parts-verdict', 'parts-verdict', {
-    verdict: 'approved',
-    issues: [],
-    words: WORDS,
+/** Preserve a synthetic issue through Review's public crop writer before submitting a bounce. */
+async function partsIssue(root: string, url: URL, head: JsonObject): Promise<JsonObject> {
+  const source = head.source as JsonObject;
+  const parts = source.parts as JsonObject;
+  const part = (parts.images as JsonObject[]).find(row => row.role === 'part')!;
+  const png = readFileSync(join(root, dirname(String((parts.manifest as JsonObject).path)), String(part.path)));
+  const width = png.readUInt32BE(16), height = png.readUInt32BE(20), sha256 = jobHash(png);
+  const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
+  const entry = `/jobs/${jobId}/publications/${String(head.publicationId)}/instances/${String(head.instanceKey)}/`;
+  const response = await fetch(`${url.origin}${entry}api/stage-parts/comment`, {
+    method: 'POST',
+    headers: { origin: url.origin, 'X-Review-Capability': url.hash.replace('#cap=', ''), 'content-type': 'application/json' },
+    body: JSON.stringify({ schema: 'rig-review-parts-comment/2', id: 'synthetic-issue', summary: 'Synthetic edge needs correction.',
+      parts: [{ name: String(part.path).slice('parts/'.length, -'.png'.length), imageHash: part.sha256 }],
+      sourceHash: source.sourceHash, rigRegion: { x: 0, y: 0, width, height }, imageRegion: null,
+      view: { mode: 'assembled', camera: { zoom: 1, center: { x: 0, y: 0 }, viewport: { width: 800, height: 600 } },
+        cameraSync: true, referenceCamera: null, background: 'checker', alpha: false, footprints: true, mesh: false },
+      crop: { path: `comment-crops/${sha256}.png`, sha256, png: `data:image/png;base64,${png.toString('base64')}`, width, height }, nativeCrop: null }),
   });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { comment: JsonObject }).comment;
+}
 
+test.each(['approved', 'changes-requested'] as const)('#557 one parts %s act ingests with no second approval subject', async verdictValue => {
+  const root = await preparedParts();
+  const opening = await open(root);
+  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  const firstView = await page(root, opening.url, 1);
+  expect(firstView.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect((firstView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
+  const issues = verdictValue === 'changes-requested' ? [await partsIssue(root, opening.url, firstView.head)] : [];
+  const verdict = await firstView.act('parts-verdict', 'parts-verdict', { verdict: verdictValue, issues, words: WORDS });
   expectExit0(await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']));
-  expectExit0(await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure.json']));
+  const signatures = (read(root).signoffs as JsonObject[]).filter(row => row.stage === 'parts-review');
+  if (verdictValue === 'approved') {
+    expect(signatures).toHaveLength(1);
+    expect(signatures[0]).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user', draft_id: 'chain',
+      verbatim: `[general]\n${WORDS}`, source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}` });
+    const evidence = (read(root).review_acts as JsonObject[]).at(-1)!.evidence as JsonObject;
+    expect(signatures[0]!.evidence).toEqual({ ...evidence,
+      kind: 'parts-verdict', spec: verdict.schema });
+    expect(signatures[0]!.structure).toEqual({ path: 'evidence/structure-chain.json', sha256: jobHash(readFileSync(join(root, 'evidence/structure-chain.json'))) });
+    expect(nextProject(root, testClock.now()).moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
+    expect(checkProject(root).refusals.map(row => row.code)).toEqual(['STAGE_LAGGING']);
+    const saved = readFileSync(join(root, 'project.json'));
+    expectExit0(await cli(root, ['parts-review', root, '--from-review', String(verdict.actId)]));
+    expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
+    expectExit0(await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']));
+    expect((await page(root, opening.url, 0)).asks).toEqual([]);
+  } else {
+    expect(signatures).toEqual([]);
+    expect(nextProject(root, testClock.now()).moves.some(move => move.command?.startsWith('rig-create advance rigging-interview'))).toBe(false);
+  }
+}, REFRESH_FLOW_TIMEOUT_MS);
 
-  // The pre-ingest publication now has an old projectHash, so UI signoff on it is refused as JOB_RECORD_MOVED.
+test('#557 a stale projectHash refuses parts verdict ingestion before either receipt or signature is written', async () => {
+  const root = await preparedParts();
+  const opening = await open(root);
+  const view = await page(root, opening.url, 1);
+  const verdict = await view.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
+  const project = read(root); project.title = 'Synthetic edit after the owner saw the record'; write(root, project);
+  const before = readFileSync(join(root, 'project.json'));
+  const refused = await cli(root, ['parts-review', root, '--from-review', String(verdict.actId)]);
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(read(root).review_acts ?? []).toEqual([]);
+  expect((read(root).signoffs as JsonObject[]).some(row => row.stage === 'parts-review')).toBe(false);
+  if (readdirSync(join(root, 'evidence')).includes('review-acts')) expect(readdirSync(join(root, 'evidence/review-acts'))).toEqual([]);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+test('legacy approved unsigned parts refresh preserves JOB_RECORD_MOVED and the separate signoff route', async () => {
+  const root = await preparedParts();
+  recordPartsReceipt(root, 'chain', testClock.now());
+  const opening = await open(root);
+  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked signoff parts-review']);
+  const firstView = await page(root, opening.url, 1);
+  const project = read(root); project.title = 'Synthetic midflight title edit'; write(root, project);
   const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
   expect((staleSignoff.error as JsonObject | undefined)?.code).toBe('JOB_RECORD_MOVED');
-
-  // Refresh via job open republishes the draft over the current project.json and asks the remaining signoff subject.
   const refreshed = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expectExit0(refreshed);
-  expect(refreshed.stdout.trim().split('\n')).toEqual([
-    opening.url.href,
-    'job: draft chain published',
-    'job: asked signoff parts-review',
-  ]);
-
+  expect(refreshed.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: draft chain published', 'job: asked signoff parts-review']);
   const refreshedView = await page(root, opening.url, 1);
   expect(refreshedView.head.publicationId).not.toBe(firstView.head.publicationId);
   expect((refreshedView.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'chain' });
   expect((refreshedView.head.source as JsonObject).projectHash).toBe(jobHash(readFileSync(join(root, 'project.json'))));
-
   const signed = await refreshedView.act('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
-  const signoffRes = await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--structure-file', 'evidence/structure.json', '--json']);
-  expectExit0(signoffRes);
-  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({
-    stage: 'parts-review',
-    checkpoint: null,
-    by: 'user',
-    verbatim: `[general]\n${WORDS}`,
-    draft_id: 'chain',
-    source: `review act ${String(signed.jobId)}/${String(signed.actId)}`,
-  });
+  expectExit0(await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--structure-file', 'evidence/structure-chain.json', '--json']));
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user',
+    verbatim: `[general]\n${WORDS}`, draft_id: 'chain', source: `review act ${String(signed.jobId)}/${String(signed.actId)}` });
+  expect(checkProject(root).refusals.map(row => row.code)).toEqual(['STAGE_LAGGING']);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest preserves rig selector, updates projectHash, and keeps stale/authority guards', async () => {

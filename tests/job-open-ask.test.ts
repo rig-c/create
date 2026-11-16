@@ -131,7 +131,7 @@ test('#523 a killed host permits a pristine same-path redo and retains the old s
   const retainedDescriptor = readFileSync(descriptor);
   replaceProjectRoot(root, source, 'killed-host');
   const second = await open(root);
-  expect(second.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  expect(second.lines).toEqual(['job: draft chain published']);
   expect(readWriterBinding(root)!.jobId).not.toBe(binding.jobId);
   const archives = readdirSync(dirname(state)).filter(name => name.startsWith(`${basename(state)}.replaced-`));
   expect(archives).toHaveLength(1);
@@ -198,12 +198,14 @@ async function partsReview(prepareMap = true): Promise<string> {
   roots.push(root);
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
-  const advanced = await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']);
-  expect(advanced.exit).toBe(0);
+  const structure = await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
+  expect({ exit: structure.exit, stderr: structure.stderr }).toEqual({ exit: 0, stderr: '' });
   if (prepareMap) {
     const triaged = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
     expect(triaged.exit).toBe(0);
   }
+  const advanced = await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']);
+  expect(advanced.exit).toBe(0);
   return root;
 }
 
@@ -414,22 +416,22 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   const root = await partsReview(false);
   const opening = await open(root);
   expect(opening.lines[0]).toContain('WARN DIFF_MAP_MISSING:');
-  expect(opening.lines.slice(1)).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
-  expect(opening.lines.at(-1)).toBe('job: asked parts-verdict chain');
-  const missing = await page(root, opening.url, 1);
-  expect(missing.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect(opening.lines.slice(1)).toEqual(['job: draft chain published']);
+  expect(opening.lines.at(-1)).toBe('job: draft chain published');
+  const missing = await page(root, opening.url, 0);
+  expect(missing.asks.map(ask => ask.subject)).toEqual([]);
   expect(pendingPublications(root)).toEqual([]);
   const firstMap = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
   expect({ exit: firstMap.exit, stderr: firstMap.stderr }).toEqual({ exit: 0, stderr: '' });
   const initialReady = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(initialReady.exit).toBe(0);
   expect(initialReady.stdout.trim().split('\n').slice(1)).toEqual([
-    'job: draft chain published', 'job: asked parts-verdict chain, signoff parts-review',
+    'job: draft chain published', 'job: asked parts-verdict chain',
   ]);
   // A re-open while the host runs shows the same publication and asks nothing twice.
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: draft chain already published', 'job: already asked parts-verdict chain, signoff parts-review']);
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: draft chain already published', 'job: already asked parts-verdict chain']);
   // Producer report drift invalidates approval even when project.json and its selector are unchanged.
   const oldReport = readFileSync(join(root, 'evidence/diff-components.json'));
   const beforeDrift = readFileSync(join(root, 'project.json'));
@@ -438,8 +440,8 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect(invalid.exit).toBe(0);
   expect(invalid.stdout).toContain('WARN DIFF_MAP_REPORT:');
   expect(invalid.stdout).not.toContain('signoff parts-review');
-  expect(invalid.stdout.trim().split('\n').at(-1)).toBe('job: asked parts-verdict chain');
-  expect((await page(root, opening.url, 1)).asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect(invalid.stdout.trim().split('\n').at(-1)).toBe('job: draft chain published');
+  expect((await page(root, opening.url, 0)).asks.map(ask => ask.subject)).toEqual([]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeDrift);
   expect(pendingPublications(root)).toEqual([]);
   const invalidWrite = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
@@ -461,45 +463,41 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
     '--from', 'derived/drafts/next/out', '--parts', 'derived/drafts/next/input']);
   expect({ exit: replacement.exit, stderr: replacement.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(replacement.stdout).toContain('WARN DIFF_MAP_STACK_MISMATCH:');
-  expect(replacement.stdout.trim().split('\n').at(-1)).toBe('job: asked parts-verdict next');
+  expect(replacement.stdout).not.toContain('job: asked');
   expect((read(root).drafts as JsonObject[]).at(-1)!.id).toBe('next');
   expect(pendingPublications(root)).toEqual([]);
-  const unready = await page(root, opening.url, 1);
-  expect(unready.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'next' }]);
+  const unready = await page(root, opening.url, 0);
+  expect(unready.asks.map(ask => ask.subject)).toEqual([]);
   expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(unready.head.publicationId))!.subjects)
-    .toEqual([{ kind: 'parts-verdict', draftId: 'next' }]);
+    .toEqual([]);
   const unreadyOpen = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(unreadyOpen.exit).toBe(0);
   expect(unreadyOpen.stdout).toContain('WARN DIFF_MAP_STACK_MISMATCH:');
-  expect(unreadyOpen.stdout).toContain('already asked parts-verdict next');
+  expect(unreadyOpen.stdout).not.toContain('asked parts-verdict next');
   expect(unreadyOpen.stdout).not.toContain('signoff parts-review');
-  expect(unreadyOpen.stdout.trim().split('\n').at(-1)).toBe('job: already asked parts-verdict next');
+  expect(unreadyOpen.stdout.trim().split('\n').at(-1)).toBe('job: draft next already published');
+  expect((await cli(root, ['structure-snapshot', root, '--draft', 'next', '--out', 'evidence/structure-next.json'])).exit).toBe(0);
   const mapped = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/next-diff-components.json', '--by', 'agent']);
   expect({ exit: mapped.exit, stderr: mapped.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(pendingPublications(root)).toEqual([]);
   const ready = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: ready.exit, stderr: ready.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(ready.stdout.trim().split('\n').slice(1)).toEqual([
-    'job: draft next published', 'job: asked parts-verdict next, signoff parts-review',
+    'job: draft next published', 'job: asked parts-verdict next',
   ]);
   const readyAgain = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect(readyAgain.exit).toBe(0);
-  expect(readyAgain.stdout).toContain('already asked parts-verdict next, signoff parts-review');
-  const person = await page(root, opening.url);
+  expect(readyAgain.stdout).toContain('already asked parts-verdict next');
+  const person = await page(root, opening.url, 1);
   expect((person.head.source as JsonObject).selector).toEqual({ kind: 'draft', id: 'next' });
-  expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'next' }, { kind: 'signoff', stage: 'parts-review' }]);
+  expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'next' }]);
   const verdict = await person.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
-  const signed = await person.act('signoff', 'signoff', { stage: 'parts-review', decision: 'approved', words: WORDS });
 
   const ingested = await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json']);
   expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(JSON.parse(ingested.stdout)).toMatchObject({ draft_id: 'next', verdict: 'approved', by: 'user', verbatim: `[general]\n${WORDS}` });
-  expect((await cli(root, ['structure-snapshot', root, '--draft', 'next', '--out', 'evidence/structure.json'])).exit).toBe(0);
-  const signoff = await cli(root, ['signoff', 'parts-review', root, '--from-review', String(signed.actId), '--draft', 'next',
-    '--structure-file', 'evidence/structure.json', '--json']);
-  expect({ exit: signoff.exit, stderr: signoff.stderr }).toEqual({ exit: 0, stderr: '' });
   expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', checkpoint: null, by: 'user', verbatim: `[general]\n${WORDS}`,
-    source: `review act ${String(signed.jobId)}/${String(signed.actId)}` });
+    draft_id: 'next', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}` });
   // The signature authorizes the next stage; the separate advance writer records the move.
   const report = JSON.parse((await cli(root, ['interview', '--check', root, '--json'])).stdout);
   expect(report.refusals.map((finding: JsonObject) => finding.code)).toEqual(['STAGE_LAGGING']);
@@ -674,15 +672,15 @@ test('a binding copied from another root is replaced: the copy opens its own job
   cpSync(original, copy, { recursive: true });
   expect(readWriterBinding(copy)!.identity.root).toBe(original);
   const copied = await open(copy);
-  expect(copied.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain, signoff parts-review']);
+  expect(copied.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
   const binding = readWriterBinding(copy)!;
   expect(binding.identity.root).toBe(copy);
   expect(binding.identity.stateDir).toBe(join(jobHostStateRoot(copy), 'host'));
   expect(copied.url.origin === first.url.origin).toBe(false);
   expect((read(copy).review_job as JsonObject).jobId).toBe(binding.jobId);
   // The original job still has exactly its own publication and asks.
-  const person = await page(original, first.url);
-  expect(person.asks).toHaveLength(2);
+  const person = await page(original, first.url, 1);
+  expect(person.asks).toHaveLength(1);
   expect((read(original).review_job as JsonObject).origin).toBe(first.url.origin);
 });
 
@@ -706,6 +704,7 @@ test('unready parts-review draft context warns by name and leaves the public map
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-diffmap-')));
   roots.push(root);
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  expect((await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure-chain.json'])).exit).toBe(0);
   const advanced = await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input']);
   expect(advanced.exit).toBe(0);
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
@@ -713,9 +712,7 @@ test('unready parts-review draft context warns by name and leaves the public map
   const before = readFileSync(join(root, 'project.json'));
   try {
     const warnings: import('../src/check.ts').Finding[] = [];
-    expect(draftPublicationContext(root, read(root), 'chain', warnings).subjects).toEqual([
-      { kind: 'parts-verdict', draftId: 'chain' },
-    ]);
+    expect(draftPublicationContext(root, read(root), 'chain', warnings).subjects).toEqual([]);
     expect(warnings.map(finding => finding.code)).toEqual(['DIFF_MAP_MISSING']);
     expect(host.session.status().publication).toBeNull();
     expect(host.session.status().pending).toEqual([]);
@@ -724,7 +721,7 @@ test('unready parts-review draft context warns by name and leaves the public map
     const triaged = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
     expect(triaged.exit).toBe(0);
     expect(draftPublicationContext(root, read(root), 'chain').subjects).toEqual([
-      { kind: 'parts-verdict', draftId: 'chain' }, { kind: 'signoff', stage: 'parts-review' },
+      { kind: 'parts-verdict', draftId: 'chain' },
     ]);
     expect(pendingPublications(root)).toEqual([]);
   } finally { host.stop(); }

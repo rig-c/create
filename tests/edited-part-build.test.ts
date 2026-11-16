@@ -4,6 +4,9 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { JobPublishRequest } from '@rig-c/review/job-host';
+import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-outbox.ts';
+import { prepareDraftManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -16,6 +19,13 @@ interface Raster { width: number; height: number; data: Uint8ClampedArray }
 interface PngModule {
   readPng(file: string): Raster;
   encodePngBytes(image: Raster): Uint8Array;
+}
+interface ReviewSourceModule {
+  captureJobRoot(path: string): { path: string; dev: number; ino: number };
+  prepareJobSource(options: {
+    root: { path: string; dev: number; ino: number };
+    stateRoot: string; fingerprint: string; request: JobPublishRequest; readPublished: typeof readPublished;
+  }): Promise<unknown>;
 }
 interface ConfigModule {
   configFileReferences(config: unknown): { at: string; value: string }[];
@@ -108,7 +118,11 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
   let project: string | undefined;
   testClock.set(TEST_NOW);
   try {
-    const dir = project = fixture();
+    const painting = readFileSync(join(import.meta.dir, '../templates/example-draft/input/painting_in_rig.png'));
+    const dir = project = realpathSync(fixture(record => {
+      Object.assign(obj(arr(record.inputs)[0]), { sha256: hash(painting), bytes: painting.length,
+        origin: 'synthetic producer painting' });
+    }, 'legacy-example-project.json', { 'inputs/painting.png': painting }));
     const installed = locateParts(dir);
     if (installed === null) throw new Error('real build integration requires installed @rig-c/parts');
     const parts = realpathSync(installed);
@@ -283,6 +297,123 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     expect(depthGreen.exitCode, `${depthGreen.stdout}\n${depthGreen.stderr}`).toBe(0);
     expect((JSON.parse(depthGreen.stdout.toString()) as JsonObject).refusals).toEqual([]);
 
+    // Release regression: exercise the installed Review through the documented
+    // foreground CLI, not only create's draft/config-input checks above.
+    const opened = Bun.spawn([process.execPath, ...runtimeArgs, ...clockedCli(),
+      'job', 'open', dir, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', depthId],
+    { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+    let stdout = '', stderr = '';
+    const diagnostic = (text: string): string => text.replace(/#cap=[^\s]*/g, '');
+    const collect = async (stream: ReadableStream<Uint8Array>, append: (text: string) => void): Promise<void> => {
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          append(decoder.decode(chunk.value, { stream: true }));
+        }
+        append(decoder.decode());
+      } finally { reader.releaseLock(); }
+    };
+    const streams = Promise.all([
+      collect(opened.stdout, text => { stdout += text; }),
+      collect(opened.stderr, text => { stderr += text; }),
+    ]);
+    let openingFailure: { error: unknown } | undefined;
+    let cleanupFailure: { error: unknown } | undefined;
+    let closed: { exitCode: number; stdout: Buffer; stderr: Buffer } | undefined;
+    try {
+      for (let i = 0; i < 600 && !stdout.includes(`job: draft ${depthId} published\n`) &&
+        !stderr && opened.exitCode === null; i++) await Bun.sleep(25);
+      console.log('EDITED_DEPTH_REVIEW_OPEN', JSON.stringify({ stdout: diagnostic(stdout), stderr: diagnostic(stderr), exit: opened.exitCode }));
+      const lines = stdout.trim().split('\n');
+      expect(lines[0], stderr).toStartWith('http://127.0.0.1:');
+      expect(lines[1], `${diagnostic(stdout)}\n${diagnostic(stderr)}`).toBe(`job: draft ${depthId} published`);
+      expect(opened.exitCode).toBeNull();
+      console.log('EDITED_DEPTH_REVIEW_PUBLICATION', lines[1]);
+    } catch (error) { openingFailure = { error }; }
+    finally {
+      try {
+        if (readWriterBinding(dir)) {
+          closed = Bun.spawnSync([process.execPath, ...runtimeArgs, ...clockedCli(), 'job', 'close', dir],
+            { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 15_000 });
+        }
+      } catch (error) { cleanupFailure = { error }; }
+      finally {
+        try {
+          if (opened.exitCode === null && closed?.exitCode !== 0) opened.kill();
+          await opened.exited;
+          await streams;
+        } catch (error) { cleanupFailure ??= { error }; }
+        // No assertions in cleanup: a failed publication remains the primary
+        // failure even when the foreground host consequently exits nonzero.
+        console.log('EDITED_DEPTH_REVIEW_CLOSED', JSON.stringify({ stdout: diagnostic(stdout), stderr: diagnostic(stderr), exit: opened.exitCode,
+          close: closed ? { exit: closed.exitCode, stdout: diagnostic(closed.stdout.toString()), stderr: diagnostic(closed.stderr.toString()) } : null,
+          ...(cleanupFailure ? { cleanupError: diagnostic(String(cleanupFailure.error)) } : {}) }));
+      }
+    }
+    if (openingFailure) throw openingFailure.error;
+    if (cleanupFailure) throw cleanupFailure.error;
+    expect(closed).toBeDefined();
+    expect({ exit: closed!.exitCode, stdout: closed!.stdout.toString().trim(), stderr: closed!.stderr.toString() })
+      .toEqual({ exit: 0, stdout: 'job: closed', stderr: '' });
+    expect(opened.exitCode).toBe(0);
+    expect(readWriterBinding(dir)).toBeNull();
+
+    // Keep the malformed input honestly hash-bound so Review's handoff loader,
+    // rather than create's stale-byte guard, is the negative control. This is
+    // deliberate corruption of a synthetic record, never a writer workaround.
+    const projectFile = join(dir, 'project.json');
+    const beforeMalformed = readFileSync(projectFile);
+    const draftManifestPath = join(dir, `review-draft-${depthId}.json`);
+    const beforeMalformedManifest = readFileSync(draftManifestPath);
+    try {
+      const malformed = json(depthConfigPath);
+      obj(arr(obj(obj(malformed.assemble).edited_parts).receipts)[0]).file = '../../../../../../outside.png';
+      writeFileSync(depthConfigPath, `${JSON.stringify(malformed, null, 2)}\n`);
+      const corruptedProject = json(projectFile);
+      const changedConfigPath = `${depthRelativeRoot}/depth_out/config.json`;
+      const changedConfigHash = hash(readFileSync(depthConfigPath));
+      // The config also appears in retained artifact inventories. Rebind only
+      // this exact synthetic path wherever its identity is repeated.
+      const rebindConfig = (value: unknown): void => {
+        if (Array.isArray(value)) { value.forEach(rebindConfig); return; }
+        if (value === null || typeof value !== 'object') return;
+        const entry = value as Record<string, unknown>;
+        if (entry.path === changedConfigPath && typeof entry.sha256 === 'string') entry.sha256 = changedConfigHash;
+        Object.values(entry).forEach(rebindConfig);
+      };
+      rebindConfig(corruptedProject);
+      writeFileSync(projectFile, `${JSON.stringify(corruptedProject, null, 2)}\n`);
+      const manifestPath = prepareDraftManifest(dir, corruptedProject, depthId);
+      // Import the shipped implementation by its resolved public host entry;
+      // no producer reports or publication readers are stubbed.
+      const reviewSource = await import(new URL('./job-source.ts', import.meta.resolve('@rig-c/review/job-host')).href) as ReviewSourceModule;
+      let sourceError: unknown;
+      try { await reviewSource.prepareJobSource({
+        root: reviewSource.captureJobRoot(dir), stateRoot: join(dir, '.negative-review-state'),
+        fingerprint: 'synthetic-edited-depth-negative', readPublished,
+        request: {
+          schema: 'rig-review/job-api@2', jobId: 'synthetic-negative', requestId: 'malformed-edited-reference',
+          verb: 'publish', expectedGeneration: 0, idempotencyKey: 'malformed-edited-reference',
+          freeze: { kind: 'producer-held', holdId: 'synthetic-frozen-draft',
+            record: { path: 'project.json', sha256: hash(readFileSync(projectFile)) } },
+          result: { path: manifestPath, selector: { kind: 'draft', id: depthId } },
+        },
+      }); } catch (error) { sourceError = error; }
+      expect(sourceError).toBeInstanceOf(Error);
+      const refusalCode = (sourceError as Error & { code: string }).code;
+      const refusalMessage = (sourceError as Error).message;
+      console.log('EDITED_DEPTH_REVIEW_REFUSAL', refusalCode, refusalMessage);
+      expect(refusalCode).toBe('JOB_SOURCE_MISMATCH');
+      expect(refusalMessage).toContain('HANDOFF_PATH_OUTSIDE_ROOT config assemble.edited_parts.receipts[0].file:');
+    } finally {
+      writeFileSync(depthConfigPath, depthConfigBytes);
+      writeFileSync(projectFile, beforeMalformed);
+      writeFileSync(draftManifestPath, beforeMalformedManifest);
+    }
+
     // A complete clean candidate with a new id avoids an unrelated duplicate-id
     // or path-boundary refusal. The old draft's edited input alone will drift.
     const nextId = 'edited-alpha-next';
@@ -309,7 +440,11 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     }
     expect(readFileSync(join(dir, 'project.json'))).toEqual(frozenProject);
   } finally {
-    if (project !== undefined) rmSync(project, { recursive: true, force: true });
+    if (project !== undefined) {
+      rmSync(jobPrivateRoot(project), { recursive: true, force: true });
+      rmSync(jobHostStateRoot(project), { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    }
     testClock.set(previousClock);
   }
 }, 180_000);

@@ -143,7 +143,7 @@ describe('frozen rig registration', () => {
     for (const [index, receipt] of receipts.entries()) {
       const row = rows.find(row => row.pointer === `/assemble/edited_parts/receipts/${index}/file`);
       const runtimePath = posix.join(String(edited.dir), String(receipt.file));
-      expect(runtimePath).toBe(row ? row.after : posix.join(f.editedDir, f.names[index]!));
+      expect(runtimePath).toBe(row ? String(row.after) : posix.join(f.editedDir, f.names[index]!));
       expect(runtimePath.split('/')).not.toContain('..');
       expect(receipt.sha256).toBe(jobHash(f.imageBytes[index]!));
       for (const root of ['evidence/v1/registration', 'derived/review/v1']) {

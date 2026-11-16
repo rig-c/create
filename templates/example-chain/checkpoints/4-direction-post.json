@@ -42,7 +42,7 @@
     "refusals": [],
     "warnings": []
   },
-  "project_sha256": "dd89ecc889549463708d4abf0aa4a8693fc7113a19b0348727c6351e409f64e3",
+  "project_sha256": "934ac6fa23e35bd01383371166164aba5da1705d114fcb15b015f1f047cc4d1f",
   "files": [
     {
       "path": ".gitignore",
@@ -50,7 +50,7 @@
     },
     {
       "path": "AGENT-REFERENCE.md",
-      "sha256": "0ed614b405bd5df2475ea536a7e06b41d00212f3277f4337891125ceb3005b6b"
+      "sha256": "d856ed69753fb0e23b8879cf3284f2bc4ef73fac8824bb91515ce7d2a0b9e7a4"
     },
     {
       "path": "AGENTS.md",
@@ -162,7 +162,7 @@
     },
     {
       "path": "derived/drafts/chain/out/run.json",
-      "sha256": "0bb45217a969dad5d939daede016db3994f55269ffbca6430e3d346c601a6853"
+      "sha256": "bb6a5182ddcb2a5b20116040fa5fa14bcabafb62be3492a3e91eea2c66c19c5a"
     },
     {
       "path": "derived/review/v1/config.json",
@@ -258,7 +258,7 @@
     },
     {
       "path": "derived/review/v1/out/rig/run.json",
-      "sha256": "0bb45217a969dad5d939daede016db3994f55269ffbca6430e3d346c601a6853"
+      "sha256": "bb6a5182ddcb2a5b20116040fa5fa14bcabafb62be3492a3e91eea2c66c19c5a"
     },
     {
       "path": "evidence/.gitkeep",
@@ -450,15 +450,15 @@
     },
     {
       "path": "outputs/v1/out/rig/run.json",
-      "sha256": "0bb45217a969dad5d939daede016db3994f55269ffbca6430e3d346c601a6853"
+      "sha256": "bb6a5182ddcb2a5b20116040fa5fa14bcabafb62be3492a3e91eea2c66c19c5a"
     },
     {
       "path": "package.json",
-      "sha256": "6fd51106429bfcd29f3c41c8a613a12d5da6b486b8f1447196bd37d2732ea9a3"
+      "sha256": "540a0197ab4248d446f8aa0817c79168c061d6556584f409f06585a2f502c13a"
     },
     {
       "path": "project.json",
-      "sha256": "dd89ecc889549463708d4abf0aa4a8693fc7113a19b0348727c6351e409f64e3"
+      "sha256": "934ac6fa23e35bd01383371166164aba5da1705d114fcb15b015f1f047cc4d1f"
     }
   ]
 }

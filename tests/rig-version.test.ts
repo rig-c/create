@@ -1628,6 +1628,133 @@ describe('#514 producer depth bindings in frozen registration', () => {
     return { ...base, args: [...base.args, '--citations', 'source/depth-citations.json', ...(!layer ? ['--depth-manifest', 'source/manifest.json'] : [])] };
   }
 
+  function acceptedDepthSetup(predepth = false) {
+    const base = depthSetup();
+    const acceptedPath = predepth ? 'source/assembled' : 'source/parts';
+    if (predepth) {
+      cpSync(join(base.dir, 'source/parts'), join(base.dir, acceptedPath), { recursive: true });
+      const assembled = JSON.parse(readFileSync(join(base.dir, acceptedPath, 'parts.json'), 'utf8'));
+      delete assembled.parts[0].depth;
+      writeFileSync(join(base.dir, acceptedPath, 'parts.json'), JSON.stringify(assembled));
+    }
+    const project = base.load();
+    // Synthetic pre-receipt approval, shaped like the existing legacy fixture.
+    // It must be a stage-level signoff before the producer's cited build date.
+    project.drafts = [{ id: 'synthetic-depth', parts: { path: acceptedPath } }];
+    project.signoffs = [
+      { stage: 'parts-review', checkpoint: null, draft_id: 'synthetic-earlier', by: 'user', at: '2026-11-06T00:00:00Z', verbatim: 'Approve the earlier synthetic parts.' },
+      { stage: 'parts-review', checkpoint: null, draft_id: 'synthetic-depth', by: 'user', at: '2026-11-07T00:00:00Z', verbatim: 'Approve these synthetic parts.' },
+    ];
+    put(base.dir, 'project.json', project);
+    return { ...base, acceptedPath };
+  }
+
+  test('#567 accepted depth output binds the applied source and matches registered depth parts', () => {
+    const { dir, args, load, acceptedPath } = acceptedDepthSetup();
+    const source = readFileSync(join(dir, acceptedPath, 'parts.json'));
+    const manifest = readFileSync(join(dir, 'source/manifest.json'));
+    const report = readFileSync(join(dir, 'source/parts/depth-report.json'));
+    const sheets = readFileSync(join(dir, 'source/rig/depth_sheets.json'));
+    expect(JSON.parse(manifest.toString()).partsSha256).not.toBe(jobHash(source));
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const project = load(), version = obj(arr(project.versions)[0]);
+    const registration = obj(version.registration), depth = obj(registration.depth);
+    const output = arr(version.outputs).map(obj).find(file => file.path === 'outputs/v1/out/parts.json')!;
+    expect(depth.route).toBe('per-part');
+    expect(depth.source_parts_applied).toBe(true);
+    expect(obj(depth.source_parts).sha256).toBe(output.sha256);
+    expect(readFileSync(join(dir, String(obj(depth.source_parts).path)))).toEqual(source);
+    expect(readFileSync(join(dir, String(output.path)))).toEqual(source);
+    for (const [field, bytes] of [['manifest', manifest], ['report', report], ['sheets', sheets]] as const) {
+      expect(readFileSync(join(dir, String(obj(depth[field]).path)))).toEqual(bytes);
+    }
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    expect(registeredDepthPartsMatch(dir, version, jobHash(source), String(output.sha256))).toBe(true);
+  });
+
+  test.each(['partsSha256', 'manifestSha256'] as const)('#567 applied source still rejects a resealed report with wrong %s', field => {
+    const { dir, args, load, acceptedPath } = acceptedDepthSetup();
+    const acceptedSha256 = jobHash(readFileSync(join(dir, acceptedPath, 'parts.json')));
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const project = load(), version = obj(arr(project.versions)[0]);
+    const registration = obj(version.registration), depth = obj(registration.depth);
+    const output = arr(version.outputs).map(obj).find(file => file.path === 'outputs/v1/out/parts.json')!;
+    const binding = obj(depth.report);
+    const report = JSON.parse(readFileSync(join(dir, String(binding.path)), 'utf8'));
+    report[field] = 'e'.repeat(64);
+    const bytes = Buffer.from(`${JSON.stringify(report)}\n`);
+    writeFileSync(join(dir, String(binding.path)), bytes);
+    binding.sha256 = jobHash(bytes);
+    for (const file of arr(registration.files).map(obj)) if (file.path === binding.path) file.sha256 = binding.sha256;
+    expect(depth.source_parts_applied).toBe(true);
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RIG_DEPTH_BINDING_INVALID');
+    expect(registeredDepthPartsMatch(dir, version, acceptedSha256, String(output.sha256))).toBe(false);
+  });
+
+  for (const parents of ['absent', 'evidence', 'evidence/v1'] as const) {
+    test.each(['manifest parts hash', 'report manifest hash', 'other parts directory', 'missing report'] as const)(`#567 %s refuses without new directories with ${parents} parents`, scenario => {
+      const { dir, args } = acceptedDepthSetup();
+      if (scenario === 'manifest parts hash') {
+        const manifest = JSON.parse(readFileSync(join(dir, 'source/manifest.json'), 'utf8'));
+        manifest.partsSha256 = 'e'.repeat(64);
+        put(dir, 'source/manifest.json', manifest);
+        const report = JSON.parse(readFileSync(join(dir, 'source/parts/depth-report.json'), 'utf8'));
+        // Keep the report's manifest byte binding valid, isolating its parts-hash chain.
+        report.manifestSha256 = jobHash(readFileSync(join(dir, 'source/manifest.json')));
+        put(dir, 'source/parts/depth-report.json', report);
+      } else if (scenario === 'report manifest hash') {
+        const report = JSON.parse(readFileSync(join(dir, 'source/parts/depth-report.json'), 'utf8'));
+        report.manifestSha256 = 'e'.repeat(64);
+        put(dir, 'source/parts/depth-report.json', report);
+      } else if (scenario === 'other parts directory') {
+        cpSync(join(dir, 'source/parts'), join(dir, 'source/other-parts'), { recursive: true });
+        expect(readFileSync(join(dir, 'source/other-parts/parts.json'))).toEqual(readFileSync(join(dir, 'source/parts/parts.json')));
+        args[args.indexOf('--parts') + 1] = 'source/other-parts';
+      } else {
+        rmSync(join(dir, 'source/parts/depth-report.json'));
+        testClock.set(new Date('2026-11-14T01:00:00Z'));
+      }
+      // Preserve the fixture's existing evidence bytes outside the destination tree.
+      renameSync(join(dir, 'evidence'), join(dir, 'source/prior-evidence'));
+      if (parents !== 'absent') mkdirSync(join(dir, parents), { recursive: true });
+      const inventory = (): Map<string, Buffer | null> => {
+        const files = new Map<string, Buffer | null>();
+        const visit = (root: string): void => {
+          for (const entry of readdirSync(join(dir, root), { withFileTypes: true })) {
+            const path = root ? `${root}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) { files.set(path, null); visit(path); }
+            else files.set(path, readFileSync(join(dir, path)));
+          }
+        };
+        visit('');
+        return files;
+      };
+      const before = inventory();
+      refused(args, scenario === 'missing report' ? 'RIG_DEPTH_BINDING_MISSING' : 'RIG_DEPTH_BINDING_INVALID');
+      expect(inventory()).toEqual(before);
+      expect(existsSync(join(dir, 'evidence/v1'))).toBe(parents === 'evidence/v1');
+      for (const path of ['outputs', 'outputs/v1', 'evidence/v1/registration', 'derived/review']) expect(existsSync(join(dir, path))).toBe(false);
+    });
+  }
+
+  test('#567 predepth accepted source retains exact bytes and the original depth binding', () => {
+    const { dir, args, load, acceptedPath } = acceptedDepthSetup(true);
+    const source = readFileSync(join(dir, acceptedPath, 'parts.json'));
+    const applied = readFileSync(join(dir, 'source/parts/parts.json'));
+    expect(rigVersionCommand(args).exit).toBe(0);
+    const project = load(), version = obj(arr(project.versions)[0]);
+    const depth = obj(obj(version.registration).depth);
+    expect(depth.source_parts_applied).toBeUndefined();
+    expect(readFileSync(join(dir, String(obj(depth.source_parts).path)))).toEqual(source);
+    expect(readFileSync(join(dir, 'outputs/v1/out/parts.json'))).toEqual(applied);
+    expect(obj(depth.source_parts).sha256).toBe(jobHash(source));
+    expect(JSON.parse(readFileSync(join(dir, String(obj(depth.manifest).path)), 'utf8')).partsSha256).toBe(jobHash(source));
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    expect(registeredDepthPartsMatch(dir, version, jobHash(source), jobHash(applied))).toBe(true);
+    expect(jobHash(JSON.stringify(depth))).toMatchInlineSnapshot('"bff10528a3d7c3db783376855079cbbfa85b1c352c2f79899f4a28762f344c33"');
+    expect(jobHash(JSON.stringify(version))).toMatchInlineSnapshot(`"0a922bab292036c70df1aae621ed05ba94c9cc6a17bf56ce4cda95fcd0ffe8e4"`);
+  });
+
   test('retains per-part manifest/report/sheets by exact bytes and checks their producer spec', () => {
     const { dir, args, load } = depthSetup();
     const source = readFileSync(join(dir, 'source/manifest.json'));

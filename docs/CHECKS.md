@@ -1706,10 +1706,14 @@ New interviews put `turn` and `depth` on rigging waypoint `turn`.
 | --- | --- |
 | `RIG_DEPTH_PLAN_MISSING` | `plan.steps[turn]` is absent or ordered after the rig steps for an approved depth turn. Draft a rig-phase depth step resting on `turn` before the rig steps and approve it at rigging-interview. Answers before `HEAD_TURN_SINCE` WARN. |
 | `RIG_DEPTH_BINDING_MISSING` | A depth-driven rig lacks its retained producer manifests. Register a new rig version with rig's `depth_sheets.json`; for per-part depth include `--depth-manifest` and parts' `depth-report.json`. Before `HEAD_TURN_SINCE` this is a WARN. |
-| `RIG_DEPTH_BINDING_INVALID` | `versions[].registration.depth` has changed bytes, the wrong producer spec, or disagrees with its retained inventory/report manifest hash. Restore the exact retained producer files or register a new rig version. |
+| `RIG_DEPTH_BINDING_INVALID` | `versions[].registration.depth` has changed bytes, the wrong producer spec, or disagrees with its retained inventory/report manifest hash. Pre-depth accepted source parts bind the prepare manifest's parts hash; already depth-applied accepted parts bind the identical registered parts and the producer report-to-manifest chain. Restore the exact retained producer files or register a new rig version. |
 
 For a per-part depth registration, `registration.depth.source_parts` retains
-the accepted pre-apply manifest. `REVIEW_PACKAGE_PARTS_MISMATCH` permits its
+the accepted parts manifest. When `--parts` is the accepted directory and
+already holds its depth report, `source_parts_applied: true` binds that
+snapshot to the identical registered parts and the report-to-manifest chain.
+Otherwise it binds the prepare manifest's pre-apply parts hash.
+`REVIEW_PACKAGE_PARTS_MISMATCH` permits its
 depth-only enrichment only when that manifest matches the accepted hash, the
 new package matches the registered output hash, all other JSON declarations
 are identical, and the producer depth hash chain verifies. Art-file identity

@@ -1,6 +1,6 @@
 /** Register frozen bytes. Toolchain association and the not-after date are declarations. */
 import { createHash } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
@@ -478,8 +478,11 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
       if (digest(report.manifestSha256, 'report.manifestSha256') !== (depth.manifest as JsonObject).sha256) throw Error('producer report does not bind the retained prepare manifest');
       if (depth.source_parts !== undefined) {
         const binding = depth.source_parts;
+        const sourceSha256 = depth.source_parts_applied === true
+          ? outputs.find(row => row.path === `${outputRoot}/parts.json`)?.sha256
+          : manifest.partsSha256;
         if (!isObject(binding) || !asArray(record?.files).filter(isObject).some(f => f.path === binding.path && f.sha256 === binding.sha256)
-          || digest(binding.sha256, 'source parts') !== manifest.partsSha256) throw Error('prepare manifest does not bind the retained source parts');
+          || digest(binding.sha256, 'source parts') !== sourceSha256) throw Error('prepare manifest does not bind the retained source parts');
         bytesAt(dir, binding);
       }
       const prepared = namedRows(manifest.parts, 'prepared parts');
@@ -810,6 +813,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const evidence = `evidence/v${n}/registration`;
   const pkg = `derived/review/v${n}`;
   const created: string[] = [];
+  const createdParents: string[] = [];
   const sources: SourceFile[] = [];
   const sourceDirectories = new Map<string, string[]>();
   const outputFiles: JsonObject[] = [];
@@ -892,6 +896,14 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     }
     // Pre-existing refusals stay the project's; the candidate may not add a new one.
     const baseline = baselineOf(checkProject(dir, project, { now }));
+    // Remember only absent parents; never remove a pre-existing evidence tree.
+    for (const target of [evidence, out, pkg]) {
+      let parent = dirname(join(dir, target));
+      while (parent !== dir && !existsSync(parent)) {
+        if (!createdParents.includes(parent)) createdParents.push(parent);
+        parent = dirname(parent);
+      }
+    }
     created.push(join(dir, evidence), join(dir, out));
     mkdirSync(join(dir, evidence), { recursive: true });
     const toolchain = input('--toolchain-lock', 'package-lock.json');
@@ -1119,6 +1131,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
         const originalParts = resolve(dir, draft.parts.path, 'parts.json');
         if (!existsSync(originalParts)) fail('RIG_DEPTH_BINDING_MISSING', `versions[v${n}].registration.depth.source_parts`, 'restore the accepted assembled parts manifest before registering the depth-enriched version');
         depthBinding.source_parts = retain(`${evidence}/depth-source-parts.json`, sourceBytes(originalParts));
+        if (resolve(dir, draft.parts.path) === partsDir && existsSync(depthReport)) depthBinding.source_parts_applied = true;
       }
       if (existsSync(sourceSheets)) depthBinding.sheets = { path: relative(dir, sheets).split(sep).join('/'), sha256: sha(sourceBytes(sourceSheets)) };
       if (options['--depth-manifest']) depthBinding.manifest = input('--depth-manifest', 'depth-manifest.json');
@@ -1194,6 +1207,9 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   } finally {
     cancelUncommittedIntent(dir, publicationIntent);
     for (const path of created.reverse()) rmSync(path, { recursive: true, force: true });
+    for (const path of createdParents.sort((a, b) => b.length - a.length)) {
+      if (existsSync(path) && readdirSync(path).length === 0) rmdirSync(path);
+    }
     closeSync(descriptor);
     rmSync(lock);
     releasePublication();

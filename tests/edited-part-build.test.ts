@@ -322,7 +322,7 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     ]);
     let openingFailure: { error: unknown } | undefined;
     let cleanupFailure: { error: unknown } | undefined;
-    let closed: ReturnType<typeof Bun.spawnSync> | undefined;
+    let closed: { exitCode: number; stdout: Buffer; stderr: Buffer } | undefined;
     try {
       for (let i = 0; i < 600 && !stdout.includes(`job: draft ${depthId} published\n`) &&
         !stderr && opened.exitCode === null; i++) await Bun.sleep(25);

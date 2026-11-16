@@ -1,6 +1,6 @@
 /** Parts approval construction shared by verdict ingestion and the separate signoff writer. */
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, checkProject, collectSignoffs, isObject, type CheckReport, type Finding } from './check.ts';
 import { isPartsCheckMove, partsCheckFindings } from './parts-check.ts';

@@ -229,5 +229,20 @@
     "file": "tests/job-refresh.test.ts",
     "name": "#574 fresh approval refuses actual reopen rigging before ingest without downgrading to legacy",
     "reason": "Exercises published Review rig approval after an actual rigging reopen under sibling source resolution."
+  },
+  {
+    "file": "tests/sign-subjects.test.ts",
+    "name": "a fresh rig version published in rig-review folds its approval into the displayed version signature",
+    "reason": "Exercises published Review fresh rig approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/sign-subjects.test.ts",
+    "name": "bar: fresh rig approval folds its signature and reopened stages ask only for a new verdict",
+    "reason": "Exercises published Review fresh rig approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/advance-publication.test.ts",
+    "name": "advance rig-review on a bound job publishes the current rig and folds the approved UI verdict into its signature via CLI",
+    "reason": "Exercises published Review fresh rig approval/signature behavior under sibling source resolution."
   }
 ]

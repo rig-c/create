@@ -75,7 +75,7 @@ async function open(root: string): Promise<{ url: URL; lines: string[] }> {
 }
 
 /** Read the job's HTTP event stream and commit UI acts over the owner page's HTTP routes. */
-async function page(url: URL, expectedAsks = 2) {
+async function page(url: URL, expectedAsks = 1) {
   const jobId = /\/jobs\/([^/]+)\//.exec(url.pathname)![1]!;
   const capability = url.hash.replace('#cap=', '');
   const base = `${url.origin}/jobs/${jobId}/`;
@@ -142,7 +142,20 @@ async function page(url: URL, expectedAsks = 2) {
   };
 }
 
-test('advance rig-review on a bound job publishes the current rig, asks review-verdict and signoff, and ingests both UI acts via CLI', async () => {
+/** Submit the actual displayed rig capture and approval through Review, including after outbox recovery. */
+async function approveRig(root: string, person: Awaited<ReturnType<typeof page>>) {
+  const ask = person.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
+  const png = readFileSync(join(root, 'evidence/setup.png'));
+  return person.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, {
+    capture: { png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+      camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
+      binding: { publicationId: person.head.publicationId, instanceKey: person.head.instanceKey,
+        sourceHash: (person.head.source as JsonObject).sourceHash, pageId: person.pageId, askId: ask.askId,
+        drawGeneration: 1, playerGeneration: 0 } },
+  });
+}
+
+test('advance rig-review on a bound job publishes the current rig and folds the approved UI verdict into its signature via CLI', async () => {
   const root = copy('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
@@ -157,7 +170,6 @@ test('advance rig-review on a bound job publishes the current rig, asks review-v
   expect((person.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
   expect(person.asks.map(ask => ask.subject)).toEqual([
     { kind: 'review-verdict', stage: 'rig-review' },
-    { kind: 'signoff', stage: 'rig-review' },
   ]);
 
   const verdictAsk = person.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
@@ -183,12 +195,10 @@ test('advance rig-review on a bound job publishes the current rig, asks review-v
       },
     },
   });
-  const signed = await person.act('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
 
   const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
   expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
-  const signoffRes = await cli(root, ['signoff', 'rig-review', root, '--from-review', String(signed.actId), '--json']);
-  expect({ exit: signoffRes.exit, stderr: signoffRes.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}`, target: { version: 1 } });
   expect(pendingPublications(root)).toEqual([]);
 }, 30_000);
 
@@ -264,10 +274,13 @@ test('forced publish failure after advance commits project.json, leaves JOB_PUBL
   expect((person.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
   expect(person.asks.map(ask => ask.subject)).toEqual([
     { kind: 'review-verdict', stage: 'rig-review' },
-    { kind: 'signoff', stage: 'rig-review' },
   ]);
-  const signed = await person.act('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
-  expect(signed.kind).toBe('signoff');
+  const verdict = await approveRig(root, person);
+  expect(verdict.kind).toBe('review-verdict');
+  const ingested = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
+  expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}`, target: { version: 1 } });
+  expect(pendingPublications(root)).toEqual([]);
 }, 30_000);
 
 test('advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox', async () => {
@@ -350,7 +363,6 @@ test('planted write failures on advance with an existing version never leave an 
   const person = await page(opening.url);
   expect(person.asks.map(ask => ask.subject)).toEqual([
     { kind: 'review-verdict', stage: 'rig-review' },
-    { kind: 'signoff', stage: 'rig-review' },
   ]);
 }, 30_000);
 

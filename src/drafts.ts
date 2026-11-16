@@ -211,7 +211,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         for (const ref of configInputReferences(dir, config)) {
           const named = relative(resolve(dir), resolve(dir, String(raw.config.path), '..', ref.value)).split(sep).join('/');
           // Receipt-file omissions use their own dated contract, including when a newer loader declares them.
-          if (editedInputs.has(named)) continue;
+          if (editedInputs.has(named) || (ref.at.startsWith('assemble.edited_parts.') && [...editedInputs].some(file => named === file || named.endsWith(`/${file}`)))) continue;
           // A directory input (an occluder plate) is bound by its receipt and names the directory it stands for.
           if (!asArray(raw.config_inputs).some(f => binding(f) && (f.directory === undefined ? f.path === named : f.directory === named))) {
             if (unbound === 'unrecorded') { unrecorded(`config.${ref.at} names ${named}`); continue; }

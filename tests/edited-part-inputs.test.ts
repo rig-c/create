@@ -67,7 +67,7 @@ test('a declared edited receipt file is bound by the existing writer and check h
   expect(checkProject(dir).refusals).toEqual([]);
 });
 
-for (const defect of ['omitted', 'empty', 'wrong-sha', 'wrong-path'] as const) {
+for (const defect of ['omitted', 'empty', 'wrong-sha', 'directory'] as const) {
   for (const at of [new Date(Date.parse(EDITED_PART_INPUTS_SINCE) - 1).toISOString(), EDITED_PART_INPUTS_SINCE]) {
     test(`${defect} edited file binding is dated by draft.at=${at}, including with a loader declaring the ref`, () => {
       const { dir, args } = editedDraft(); draftRigCommand(args);
@@ -75,9 +75,10 @@ for (const defect of ['omitted', 'empty', 'wrong-sha', 'wrong-path'] as const) {
       draft.at = at;
       if (defect === 'omitted') delete draft.config_inputs;
       if (defect === 'empty') draft.config_inputs = [];
-      if (defect === 'wrong-path') {
-        put(dir, 'inputs/other-arm.png', PNG);
-        draft.config_inputs = [{ path: 'inputs/other-arm.png', sha256: sha(PNG) }];
+      if (defect === 'directory') {
+        const plateReceipt = JSON.stringify({ spec: 'rig-parts-plate/1' });
+        put(dir, 'inputs/plate/receipt.json', plateReceipt);
+        draft.config_inputs = [{ path: 'inputs/plate/receipt.json', sha256: sha(plateReceipt), directory: 'inputs/plate', spec: 'rig-parts-plate/1' }];
       }
       if (defect === 'wrong-sha') {
         // Both the file and its recorded binding are current; the producer receipt names another sha.
@@ -97,11 +98,52 @@ for (const defect of ['omitted', 'empty', 'wrong-sha', 'wrong-path'] as const) {
       }
       const found = [...result.refusals, ...result.warnings].find(f => f.code === CODE)!;
       expect(found.message).toContain('parts[0] (arm) provenance.edited_part');
-      expect(found.message).toContain(INPUT);
+      expect(found.message).toContain(defect === 'wrong-sha' ? INPUT : 'arm.png');
       expect(found.message).toContain('draft-rig');
     });
   }
 }
+
+test('a right-sha regular-file binding at another path is accepted, and two bound files with the same sha tie-break by /<receipt.file> when naming a finding', () => {
+  const { dir, args } = editedDraft(); draftRigCommand(args);
+  put(dir, 'inputs/other-arm.png', PNG);
+  put(dir, 'inputs/second-copy.png', PNG);
+  const project = read(dir), draft = obj(arr(project.drafts)[0]);
+  draft.at = EDITED_PART_INPUTS_SINCE;
+
+  // Right sha at a path not ending in /<receipt.file> must never be kept out.
+  draft.config_inputs = [{ path: 'inputs/other-arm.png', sha256: sha(PNG) }];
+  expect(report(dir, project).refusals).toEqual([]);
+  expect(report(dir, project).warnings.map(f => f.code)).not.toContain(CODE);
+
+  // Two bound files carrying the receipt sha count as bound.
+  draft.config_inputs = [
+    { path: 'inputs/other-arm.png', sha256: sha(PNG) },
+    { path: INPUT, sha256: sha(PNG) },
+  ];
+  expect(report(dir, project).refusals).toEqual([]);
+  expect(report(dir, project).warnings.map(f => f.code)).not.toContain(CODE);
+
+  // When unbound and two bound files share a wrong sha, /<receipt.file> tie-breaks which binding the finding names.
+  const manifest = JSON.parse(readFileSync(join(dir, MANIFEST), 'utf8')) as JsonObject;
+  obj(obj(obj(arr(manifest.parts)[0]).provenance).edited_part).receipt = {
+    ...obj(obj(obj(obj(arr(manifest.parts)[0]).provenance).edited_part).receipt), sha256: 'b'.repeat(64),
+  };
+  const bytes = JSON.stringify(manifest); put(dir, MANIFEST, bytes);
+  obj(arr(obj(draft.parts).files).find(file => obj(file).path === MANIFEST)).sha256 = sha(bytes);
+  const tied = report(dir, project);
+  expect(tied.refusals).toEqual([expect.objectContaining({ code: CODE, path: 'drafts[0].parts.files' })]);
+  expect(tied.refusals[0]!.message).toContain(`receipt ${INPUT} at sha256 ${'b'.repeat(64)}`);
+
+  // Without a /<receipt.file> match, the first regular-file binding in config_inputs is named.
+  draft.config_inputs = [
+    { path: 'inputs/other-arm.png', sha256: sha(PNG) },
+    { path: 'inputs/second-copy.png', sha256: sha(PNG) },
+  ];
+  const fallback = report(dir, project);
+  expect(fallback.refusals).toEqual([expect.objectContaining({ code: CODE, path: 'drafts[0].parts.files' })]);
+  expect(fallback.refusals[0]!.message).toContain(`receipt inputs/other-arm.png at sha256 ${'b'.repeat(64)}`);
+});
 
 test('an install silently omitting the edited reference refuses before draft-rig writes', () => {
   const { dir, args } = editedDraft(false);

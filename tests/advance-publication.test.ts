@@ -274,7 +274,7 @@ test('advances into other stages on a bound job and advances without a bound job
   const boundRoot = copy('1-parts-verdict');
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(boundRoot, 'evidence/diff-components.json'));
   const opening = await open(boundRoot);
-  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  expect(opening.lines).toEqual(['job: draft chain published']);
 
   const ackDir = join(jobPrivateRoot(boundRoot), 'acknowledged-publications');
   const receiptsBefore = readdirSync(ackDir).sort();

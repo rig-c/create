@@ -101,7 +101,8 @@ async function open(root: string): Promise<{ proc: Bun.Subprocess; url: URL; lin
 for (const signal of ['SIGTERM', 'SIGINT'] as const) test(`job open CLI forwards ${signal} to its runtime and stops its own host port without leaving an orphan listener`, async () => {
   const root = copyCheckpoint('1-parts-verdict');
   const { proc, url, lines } = await open(root);
-  expect(lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  // Parts-stage inventory is publishable, but approval waits for parts-review readiness.
+  expect(lines).toEqual(['job: draft chain published']);
   expect(await isOriginListening(url.origin)).toBe(true);
 
   proc.kill(signal);
@@ -172,18 +173,20 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
     { kind: 'signoff', stage: 'rig-review' },
   ]);
 
-  // Also verify via draftRigCommand and the CLI entrypoint on a bound draft-rig writer that JOB_ASK_REFUSED exits 1 with the named code.
+  // Parts-stage drafts still declare enabled checkpoints. Refuse that declared ask on
+  // both writer entrypoints, without relying on the now-gated parts-verdict subject.
   const draftRoot = copyCheckpoint('1-parts-verdict', project => {
     project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.checkpoint !== 'assemble');
   });
   cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-2'), { recursive: true });
   cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-3'), { recursive: true });
-  await open(draftRoot);
+  const draftOpening = await open(draftRoot);
+  expect(draftOpening.lines).toEqual(['job: draft chain published', 'job: asked checkpoint assemble']);
   const draftBinding = readWriterBinding(draftRoot)!;
   const draftDb = new Database(join(draftBinding.identity.stateDir, 'jobs.sqlite'));
   try {
     draftDb.exec(`
-      CREATE TRIGGER refuse_draft_ask AFTER UPDATE OF document ON jobs
+      CREATE TRIGGER refuse_checkpoint_ask AFTER UPDATE OF document ON jobs
       WHEN json_extract(NEW.document, '$.head') IS NOT NULL
         AND json_extract(OLD.document, '$.head') IS NOT json_extract(NEW.document, '$.head')
       BEGIN
@@ -205,9 +208,9 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
     '--parts', 'derived/drafts/chain-3/input',
   ]);
   expect(cliDraft.exit).toBe(1);
-  expect(cliDraft.stdout.trim()).toBe('job: asked checkpoint assemble');
+  expect(cliDraft.stdout.trim()).toBe('');
   expect(cliDraft.stderr).toContain('JOB_ASK_REFUSED: ');
-  expect(cliDraft.stderr).toContain('parts-verdict chain-3 (JOB_ASK_INVALID)');
+  expect(cliDraft.stderr).toContain('checkpoint assemble (JOB_ASK_INVALID)');
   expect(pendingPublications(draftRoot)).toEqual([]);
 });
 
@@ -248,7 +251,7 @@ test('bound writers print concise asked/already subject lines in text mode and p
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(drafted.stdout.trim().split('\n')).toEqual([
     'draft-rig: recorded chain-2; no production version created',
-    'job: asked parts-verdict chain-2, checkpoint assemble',
+    'job: asked checkpoint assemble',
   ]);
 
   const draftedJson = await cli(draftRoot, [

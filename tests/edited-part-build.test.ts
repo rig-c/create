@@ -210,6 +210,79 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     expect(green.exitCode, `${green.stdout}\n${green.stderr}`).toBe(0);
     expect((JSON.parse(green.stdout.toString()) as JsonObject).refusals).toEqual([]);
 
+    // #547: depth-prepare and depth-apply relocate depth_out/config.json while copying
+    // parts.json with its assemble-relative provenance unchanged.
+    const depthId = 'edited-alpha-depth';
+    const depthRelativeRoot = `derived/drafts/${depthId}`;
+    const depthRoot = join(dir, depthRelativeRoot);
+    cpSync(root, depthRoot, { recursive: true });
+    const turnConfig = { ...structuredClone(config), turn: { body: { pivot: 0.5, roles: { [part]: 'surface' } } } };
+    writeFileSync(join(depthRoot, 'edited-turn.json'), `${JSON.stringify(turnConfig, null, 2)}\n`);
+    const depthMap = {
+      spec: 'rig-parts-map/1',
+      width: decoded.width,
+      height: decoded.height,
+      channels: 1,
+      data: Array.from({ length: decoded.width * decoded.height }, (_, i) => i / (decoded.width * decoded.height)),
+    };
+    writeFileSync(join(depthRoot, 'topwear-depth.json'), `${JSON.stringify(depthMap, null, 2)}\n`);
+    const depthRecipe = {
+      spec: 'rig-parts-depth/1',
+      prepare: { longSide: Math.max(decoded.width, decoded.height), paddingFraction: 0, padding: 0 },
+      groups: { body: { near: 'white', zScale: 1, pivot: 0.5 } },
+      parts: { [part]: { map: 'topwear-depth.json', source: 'depth', frame: 'part', group: 'body', median: 0.5, relief: 0.1 } },
+      clear: [],
+    };
+    writeFileSync(join(depthRoot, 'depth-recipe.json'), `${JSON.stringify(depthRecipe, null, 2)}\n`);
+    const prepared = Bun.spawnSync([process.execPath, ...runtimeArgs, join(parts, 'cli.ts'),
+      'depth-prepare', '--parts', join(depthRoot, 'rebuilt'), '--config', join(depthRoot, 'depth-recipe.json'),
+      '--out', join(depthRoot, 'depth_in')],
+    { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+    expect(prepared.exitCode, `depth-prepare:\n${prepared.stdout}\n${prepared.stderr}`).toBe(0);
+    const applied = Bun.spawnSync([process.execPath, ...runtimeArgs, join(parts, 'cli.ts'),
+      'depth-apply', '--parts', join(depthRoot, 'rebuilt'), '--manifest', join(depthRoot, 'depth_in/manifest.json'),
+      '--config', join(depthRoot, 'depth-recipe.json'), '--rig-config', join(depthRoot, 'edited-turn.json'),
+      '--out', join(depthRoot, 'depth_out')],
+    { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+    expect(applied.exitCode, `depth-apply:\n${applied.stdout}\n${applied.stderr}`).toBe(0);
+    const depthConfigPath = join(depthRoot, 'depth_out/config.json');
+    const depthManifestPath = join(depthRoot, 'depth_out/parts.json');
+    const depthConfigBytes = readFileSync(depthConfigPath);
+    const depthManifestBytes = readFileSync(depthManifestPath);
+    expect(obj(obj(json(depthConfigPath).assemble).edited_parts)).toEqual({
+      dir: 'edits',
+      receipts: [{ ...receipt, file: `../../edits/${part}.png` }],
+    });
+    expect(obj(obj(arr(json(depthManifestPath).parts).map(obj).find(entry => entry.name === part)!).provenance).edited_part).toEqual(metadata);
+
+    const depthArgs = [depthId, dir, '--config', `${depthRelativeRoot}/depth_out/config.json`, '--from', `${depthRelativeRoot}/depth_out`, '--json'];
+    const beforeDepthControls = readFileSync(join(dir, 'project.json'));
+    const missingBindingConfig = json(depthConfigPath);
+    delete obj(missingBindingConfig.assemble).edited_parts;
+    writeFileSync(depthConfigPath, `${JSON.stringify(missingBindingConfig, null, 2)}\n`);
+    expect(() => draftRigCommand(depthArgs)).toThrow(expect.objectContaining({ code: 'DRAFT_EDITED_PART_UNBOUND' }));
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeDepthControls);
+    writeFileSync(depthConfigPath, depthConfigBytes);
+
+    const wrongShaManifest = json(depthManifestPath);
+    obj(obj(obj(arr(wrongShaManifest.parts).map(obj).find(entry => entry.name === part)!).provenance).edited_part).receipt = {
+      ...receipt, sha256: 'b'.repeat(64),
+    };
+    writeFileSync(depthManifestPath, `${JSON.stringify(wrongShaManifest, null, 2)}\n`);
+    expect(() => draftRigCommand(depthArgs)).toThrow(expect.objectContaining({ code: 'DRAFT_EDITED_PART_UNBOUND' }));
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeDepthControls);
+    writeFileSync(depthManifestPath, depthManifestBytes);
+
+    const depthWritten = draftRigCommand(depthArgs);
+    expect(depthWritten.exit).toBe(0);
+    const depthRecord = JSON.parse(depthWritten.stdout) as JsonObject;
+    const depthEditedPath = `${depthRelativeRoot}/edits/${part}.png`;
+    expect(arr(depthRecord.config_inputs).map(obj)).toEqual([{ path: depthEditedPath, sha256: receipt.sha256 }]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    const depthGreen = check();
+    expect(depthGreen.exitCode, `${depthGreen.stdout}\n${depthGreen.stderr}`).toBe(0);
+    expect((JSON.parse(depthGreen.stdout.toString()) as JsonObject).refusals).toEqual([]);
+
     // A complete clean candidate with a new id avoids an unrelated duplicate-id
     // or path-boundary refusal. The old draft's edited input alone will drift.
     const nextId = 'edited-alpha-next';

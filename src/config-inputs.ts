@@ -14,10 +14,10 @@ export class ConfigInputsUnavailable extends Error {
   }
 }
 export type ConfigInputsWarning = (error: ConfigInputsUnavailable) => void;
-export function configInputReferences(dir: string, config: unknown, unavailable?: ConfigInputsWarning): { at: string; value: string }[] {
+export function configInputReferences(dir: string, config: unknown, unavailable?: ConfigInputsWarning): { at: string; value: string; set?: (next: string) => void }[] {
   const parts = locateParts(dir);
   if (parts === null) throw new Error('install @rig-c/parts to read config-named inputs');
-  const mod = load(join(parts, 'src/config.ts')) as { configFileReferences?: (config: unknown) => { at: string; value: string }[] };
+  const mod = load(join(parts, 'src/config.ts')) as { configFileReferences?: (config: unknown) => { at: string; value: string; set?: (next: string) => void }[] };
   if (typeof mod.configFileReferences !== 'function') {
     // The pinned declaration only detects whether the unavailable capability matters.
     // It supplies no binding on behalf of the project's older loader.

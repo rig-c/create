@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { packagesCommand, jsonSpans } from '../src/packages-upgrade.ts';
 import { packageUpgradeFindings } from '../src/package-upgrades.ts';
@@ -12,7 +12,7 @@ import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.2.0' };
+const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.3.0' };
 function fixture(dependencies: Record<string, string>) {
   const dir = tempDir(); roots.push(dir);
   const project = readTemplate('project.json');
@@ -70,7 +70,7 @@ test('an older synthetic project upgrades all release pins and preserves unrelat
   const record = readFileSync(join(dir, 'project.json'), 'utf8');
   const project = JSON.parse(record);
   expect(record.slice(0, bytes.lastIndexOf('}'))).toBe(bytes.slice(0, bytes.lastIndexOf('}')));
-  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.2.0', to: '4.2.0' }] });
+  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.3.0', to: '4.3.0' }] });
   expect(packageUpgradeFindings(project)).toEqual([]);
   expect(existsSync(join(dir, 'node_modules/sentinel'))).toBe(false);
 }, 30000);
@@ -109,13 +109,13 @@ test('job open --question publishes after upgrading an actual older synthetic in
   const { jobRuntimeExecArgv } = await import('../src/job-writer.ts');
   const { jobPrivateRoot, jobHostStateRoot } = await import('../src/job-outbox.ts');
   const { closeCreateJob } = await import('../src/job-host.ts');
-  const dir = example(project => {
+  const dir = realpathSync(example(project => {
     project.stage = 'rigging-interview'; project.versions = []; project.scenes = []; delete project.direction_contract;
     retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex('rigging-interview'));
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('rigging-interview'));
     for (const item of arr(obj(obj(project.interview).post).items).map(obj)) item.guide = null;
     for (const step of arr(obj(project.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
-  }, 'example-project.json');
+  }, 'example-project.json'));
   roots.push(dir);
   let opening: Bun.Subprocess | undefined;
   try {

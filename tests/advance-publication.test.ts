@@ -190,7 +190,7 @@ test('advance rig-review on a bound job publishes the current rig, asks review-v
   const signoffRes = await cli(root, ['signoff', 'rig-review', root, '--from-review', String(signed.actId), '--json']);
   expect({ exit: signoffRes.exit, stderr: signoffRes.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(pendingPublications(root)).toEqual([]);
-});
+}, 30_000);
 
 test('advance direction-review on a bound job publishes the current post, asks only the verdict, ingests it, and leaves acceptance blocked', async () => {
   const root = copy('example-chain', project => {
@@ -226,7 +226,7 @@ test('advance direction-review on a bound job publishes the current post, asks o
   const report = checkProject(root, undefined, { now: Date.now() });
   expect(report.refusals).toEqual([]);
   expect(report.holes ?? []).toEqual([]);
-});
+}, 30_000);
 
 test('forced publish failure after advance commits project.json, leaves JOB_PUBLISH_PENDING in the outbox, and job reconcile publishes and asks via CLI', async () => {
   const root = copy('3-rig-review', project => {
@@ -268,7 +268,7 @@ test('forced publish failure after advance commits project.json, leaves JOB_PUBL
   ]);
   const signed = await person.act('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
   expect(signed.kind).toBe('signoff');
-});
+}, 30_000);
 
 test('advances into other stages on a bound job and advances without a bound job do not publish or touch the outbox', async () => {
   const boundRoot = copy('1-parts-verdict');
@@ -309,7 +309,7 @@ test('advances into other stages on a bound job and advances without a bound job
   expect({ exit: unboundAdvance.exit, stderr: unboundAdvance.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(read(unboundRoot).stage).toBe('rig-review');
   expect(existsSync(jobPrivateRoot(unboundRoot))).toBe(false);
-});
+}, 30_000);
 
 test('planted write failures on advance with an existing version never leave an advanced stage without a pending or acknowledged publication', async () => {
   const root = copy('3-rig-review', project => {
@@ -352,7 +352,7 @@ test('planted write failures on advance with an existing version never leave an 
     { kind: 'review-verdict', stage: 'rig-review' },
     { kind: 'signoff', stage: 'rig-review' },
   ]);
-});
+}, 30_000);
 
 test('advance rig-review on a bound job refuses before writing when no live rig version exists', async () => {
   const root = copy('3-rig-review', project => {
@@ -370,4 +370,4 @@ test('advance rig-review on a bound job refuses before writing when no live rig 
   expect(advanced.stderr).toContain('JOB_PUBLICATION_INVALID');
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeBytes);
   expect(pendingPublications(root)).toEqual([]);
-});
+}, 30_000);

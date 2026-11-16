@@ -8,18 +8,22 @@ import { checkProject as rawCheckProject } from '../src/check.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { testClock } from './clock.ts';
+import { testClock, interviewOptionsCommand, interviewAnswerCommand } from './clock.ts';
+import { optionContext } from '../src/choices.ts';
 import { clockedCli } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { generateExampleParts } from '../scripts/generate-example-parts.ts';
-import { reviewActFindings } from '../src/review-act.ts';
+import { reviewActFindings, decodeReviewAct, reviewActVerdict } from '../src/review-act.ts';
+import { foldRigSignoff } from '../src/rig-signoff.ts';
+import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
 const REFRESH_FLOW_TIMEOUT_MS = 15_000;
 const roots: string[] = [];
+const legacyClis = new Map<string, string>();
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
 const checkProject = (dir: string, candidate?: JsonObject, _options?: { now: number }) =>
   rawCheckProject(dir, candidate, { now: testClock.now() });
@@ -38,6 +42,7 @@ afterEach(async () => {
     rmSync(root, { recursive: true, force: true });
   }
   testClock.reset();
+  legacyClis.clear();
 });
 
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
@@ -59,13 +64,39 @@ function copy(checkpoint: string, edit?: (project: JsonObject) => void): string 
 }
 
 async function cli(root: string, args: string[]): Promise<{ stdout: string; stderr: string; exit: number }> {
-  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...cliAt(root), ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
 
+function cliAt(root: string): string[] {
+  const legacy = legacyClis.get(root);
+  return legacy ? [legacy, testClock.iso()] : clockedCli();
+}
+
+function useLegacyRigPublication(root: string): void {
+  const runtime = realpathSync(mkdtempSync(join(tmpdir(), 'create-legacy-publication-')));
+  roots.push(runtime);
+  legacyClis.set(root, legacyRigPublicationCli(runtime));
+}
+
+async function freshRigVerdict(verdict: 'approved' | 'changes-requested' | 'pending' = 'approved') {
+  const root = copy('3-rig-review', project => {
+    project.stage = 'rigging';
+    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
+  });
+  const opening = await open(root);
+  expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
+  const view = await page(root, opening.url, 1);
+  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
+  const ask = view.asks[0]!;
+  const act = await view.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict, words: WORDS },
+    rigCapture(root, view, String(ask.askId)));
+  return { root, opening, view, act };
+}
+
 async function open(root: string, options: string[] = []): Promise<{ url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...clockedCli(), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...cliAt(root), 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...options], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -534,6 +565,8 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
+  // Actual retained 1.7.2 subject producer; fresh jobs now fold instead of asking twice.
+  useLegacyRigPublication(root);
   const opening = await open(root);
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
 
@@ -549,6 +582,14 @@ test('rig-review verdict -> ingest -> job open refresh -> UI signoff -> ingest p
 
   const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']);
   expectExit0(reviewed);
+
+  // Replaying the actual old two-subject approval cannot retroactively add a folded signature.
+  const legacyBytes = readFileSync(join(root, 'project.json'));
+  // Upgrade the CLI/writer before replay and recovery; the already-running host retains its old reader.
+  legacyClis.delete(root);
+  expect((read(root).review_acts as JsonObject[]).at(-1)!.signoff).toBeUndefined();
+  expectExit0(await cli(root, ['review', '1', root, '--from-review', String(verdict.actId), '--json']));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(legacyBytes);
 
   // Submitting signoff on the pre-verdict publication fails with JOB_RECORD_MOVED because review modified project.json.
   const staleSignoff = await firstView.tryAct('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
@@ -756,6 +797,7 @@ test('both-acts-before-ingest remains supported without an intermediate refresh,
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
+  useLegacyRigPublication(root);
   const opening = await open(root);
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
 
@@ -804,4 +846,136 @@ test('both-acts-before-ingest remains supported without an intermediate refresh,
     target: { version: 1 },
     source: `review act ${String(signedBeforeIngest.jobId)}/${String(signedBeforeIngest.actId)}`,
   });
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+// These are fresh publications, including the same non-pre_interview rig used by the legacy control above.
+test('#574 fresh rig approval folds one signature, preserves words, replays bytes and advances at check0', async () => {
+  const { root, act } = await freshRigVerdict();
+  const before = read(root);
+  expect(nextProject(root, testClock.now()).moves.filter(move => move.role === 'human').map(move => move.review_act?.kind)).toEqual(['review-verdict']);
+  expectExit0(await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']));
+  const saved = read(root);
+  const signature = (saved.signoffs as JsonObject[]).at(-1)!;
+  expect(saved.stage).toBe('rig-review');
+  expect((saved.signoffs as JsonObject[]).slice(0, -1)).toEqual(before.signoffs as JsonObject[]);
+  expect(signature).toMatchObject({ stage: 'rig-review', checkpoint: null, by: 'user', at: act.at,
+    verbatim: `[general]\n${WORDS}`, source: `review act ${String(act.jobId)}/${String(act.actId)}`, target: { version: 1 } });
+  expect((saved.review_acts as JsonObject[]).at(-1)!.signoff).toBe((saved.signoffs as JsonObject[]).length - 1);
+  expect(reviewActFindings(saved)).toEqual([]);
+  expect(checkProject(root).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+  expect(nextProject(root, testClock.now()).moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rig-review')).toBe(false);
+  const bytes = readFileSync(join(root, 'project.json'));
+  expectExit0(await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+  expectExit0(await cli(root, ['advance', 'post-interview', root, '--json']));
+  expect(read(root).stage).toBe('post-interview');
+  // Complete the newly entered interview through its writers, rather than hiding its three real holes.
+  writeFileSync(join(root, 'owner-post.txt'), 'Keep each displayed synthetic post choice.\r\n');
+  for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
+    const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post/evidence/interview', `${question}.json`), 'utf8')) as JsonObject;
+    set.id = `folded-${question}`;
+    set.drafted_at = testClock.iso();
+    set.context = optionContext(read(root), 'post-interview', testClock.now());
+    const path = `evidence/interview/folded-${question}.json`;
+    const bytes = `${JSON.stringify(set, null, 2)}\n`;
+    writeFileSync(join(root, path), bytes);
+    interviewOptionsCommand([question, root, '--file', path]);
+    interviewAnswerCommand([question, root, '--set', path, '--sha256', jobHash(bytes), '--by', 'user',
+      ...(set.asks as JsonObject[]).flatMap(ask => ['--pick', `${String(ask.id)}=keep`]),
+      '--owner-chat', join(root, 'owner-post.txt'), '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']);
+  }
+  expect(checkProject(root).refusals).toEqual([]);
+  expect(checkProject(root).warnings).toEqual([]);
+  expectExit0(await cli(root, ['interview', '--check', root, '--json']));
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+for (const verdict of ['changes-requested', 'pending'] as const) test(`#574 fresh rig ${verdict} stays unsigned`, async () => {
+  const { root, act } = await freshRigVerdict(verdict);
+  const before = read(root);
+  expectExit0(await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']));
+  const saved = read(root);
+  expect(saved.signoffs).toEqual(before.signoffs);
+  expect((saved.review_acts as JsonObject[]).at(-1)!.signoff).toBeUndefined();
+  expect(saved.stage).toBe('rig-review');
+  expect(reviewActFindings(saved)).toEqual([]);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+test('#574 folded rig ledger and replay reject changed authority, target, mapping and duplicate signatures', async () => {
+  const { root, act } = await freshRigVerdict();
+  expectExit0(await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']));
+  const original = read(root);
+  const changes: ((p: JsonObject) => void)[] = [
+    p => { (p.signoffs as JsonObject[]).at(-1)!.by = 'delegate'; },
+    p => { (p.signoffs as JsonObject[]).at(-1)!.verbatim = 'Replacement words'; },
+    p => { (p.signoffs as JsonObject[]).at(-1)!.at = '2020-01-01T00:00:00Z'; },
+    p => { ((p.signoffs as JsonObject[]).at(-1)!.target as JsonObject).version = 2; },
+    p => { ((p.signoffs as JsonObject[]).at(-1)!.target as JsonObject).verdict = 'versions[0].verdicts[99]'; },
+    p => { (((p.signoffs as JsonObject[]).at(-1)!.target as JsonObject).review_package as JsonObject).sha256 = '0'.repeat(64); },
+    p => { delete (p.review_acts as JsonObject[]).at(-1)!.signoff; },
+    p => { (p.review_acts as JsonObject[]).at(-1)!.signoff = 0; },
+    p => { (p.signoffs as JsonObject[]).push(structuredClone((p.signoffs as JsonObject[]).at(-1)!)); },
+  ];
+  for (const change of changes) {
+    const candidate = structuredClone(original);
+    change(candidate);
+    expect(reviewActFindings(candidate).map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+    write(root, candidate);
+    const bytes = readFileSync(join(root, 'project.json'));
+    const replay = await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']);
+    expect(replay.exit).toBe(1);
+    expect(replay.stderr).toContain('REVIEW_ACT_LEDGER_INVALID');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+  }
+  write(root, original);
+}, 30_000);
+
+test('#574 fresh rig approval refuses moved project bytes before creating signature or receipt', async () => {
+  const { root, act } = await freshRigVerdict();
+  const moved = read(root);
+  moved['x-synthetic-note'] = 'Record changed after owner display';
+  write(root, moved);
+  const bytes = readFileSync(join(root, 'project.json'));
+  const result = await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']);
+  expect(result.exit).toBe(1);
+  expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+test('#574 folded rig shares live-target and retained-package refusal gates before any write', async () => {
+  const { root, act } = await freshRigVerdict();
+  const before = read(root);
+  const bytes = readFileSync(join(root, 'project.json'));
+  const decoded = decodeReviewAct(JSON.stringify(act));
+  const baseline = checkProject(root, before);
+  const acceptedCandidate = () => {
+    const candidate = structuredClone(before);
+    ((candidate.versions as JsonObject[])[0]!.verdicts as JsonObject[]).push(reviewActVerdict(decoded));
+    return candidate;
+  };
+  const lost = acceptedCandidate();
+  (lost.versions as JsonObject[])[0]!.pre_interview = true;
+  (lost.versions as JsonObject[])[0]!.outputs_lost = { note: 'Synthetic lost outputs', source: 'synthetic inventory' };
+  expect(() => foldRigSignoff(root, lost, decoded, bytes, baseline, testClock.now())).toThrow(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE' }));
+  const stale = acceptedCandidate();
+  stale.reopens = [{ stage: 'rig-review', from_stage: 'rig-review', by: 'user', at: act.at,
+    verbatim: 'Rebuild this synthetic rig.', steps_before: [] }];
+  expect(() => foldRigSignoff(root, stale, decoded, bytes, baseline, testClock.now())).toThrow(expect.objectContaining({ code: 'RIG_VERSION_UNACCEPTED' }));
+  const missing = acceptedCandidate();
+  delete (missing.versions as JsonObject[])[0]!.review_package;
+  expect(() => foldRigSignoff(root, missing, decoded, bytes, baseline, testClock.now())).toThrow(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+test('#574 fresh approval refuses actual reopen rigging before ingest without downgrading to legacy', async () => {
+  const { root, act } = await freshRigVerdict();
+  testClock.set(testClock.now() + 1_000);
+  const words = join(root, 'reopen-words.txt');
+  writeFileSync(words, 'Rebuild this synthetic rig before accepting it.\r\n');
+  expectExit0(await cli(root, ['reopen', 'rigging', root, '--by', 'user', '--verbatim-file', words, '--json']));
+  expect(checkProject(root).effective_stage).toBe('rigging');
+  const before = readFileSync(join(root, 'project.json'));
+  const result = await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']);
+  expect(result.exit).toBe(1);
+  expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 }, REFRESH_FLOW_TIMEOUT_MS);

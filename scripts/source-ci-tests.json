@@ -184,5 +184,50 @@
     "file": "tests/job-refresh.test.ts",
     "name": "#475 source-linked clean interview record signoff ingests advances and offers plan-approved",
     "reason": "Exercises registry Review 4.4.0 record interview sign-off under sibling source resolution."
+  },
+  {
+    "file": "tests/job-acts.test.ts",
+    "name": "job acts discovers a finalized rig verdict; its exact quoted command also records the signature",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-acts.test.ts",
+    "name": "#507 rig-review approval folds signature through printed host, acts, ingest and close",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#574 fresh rig approval folds one signature, preserves words, replays bytes and advances at check0",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#574 fresh rig changes-requested stays unsigned",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#574 fresh rig pending stays unsigned",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#574 folded rig ledger and replay reject changed authority, target, mapping and duplicate signatures",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#574 fresh rig approval refuses moved project bytes before creating signature or receipt",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#574 folded rig shares live-target and retained-package refusal gates before any write",
+    "reason": "Exercises published Review rig-verdict approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-refresh.test.ts",
+    "name": "#574 fresh approval refuses actual reopen rigging before ingest without downgrading to legacy",
+    "reason": "Exercises published Review rig approval after an actual rigging reopen under sibling source resolution."
   }
 ]

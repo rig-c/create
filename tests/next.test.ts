@@ -323,10 +323,9 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         expect(report.moves[3]?.unanswered_by_record).toBe('interview.waypoints[turn].pending_options');
         expect(report.moves[4]?.unanswered_by_record).toBe('interview.waypoints[motion].pending_options');
       } else if (spec.name === '3-rig-review') {
-        // Awaits and roles match pending 100%.
-        expect(report.awaits).toEqual(spec.pending.awaits);
-        expect(report.moves.map(m => String(m.role))).toEqual(spec.pending.command_roles);
-        // Disagreement: pending.commands uses `--by user` writers for review 1 and signoff rig-review.
+        // The generated historical pending fixture lists two acts; a fresh job now folds approval.
+        expect(report.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
+        expect(report.moves.map(m => String(m.role))).toEqual(['human']);
         expect(report.moves[0]).toMatchObject({
           role: 'human',
           field: 'versions[v1].verdicts',
@@ -334,13 +333,8 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
           command: null,
           review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
         });
-        expect(report.moves[1]).toMatchObject({
-          role: 'human',
-          field: 'signoffs',
-          awaits: 'signoffs[stage=rig-review]',
-          command: null,
-          review_act: { kind: 'signoff', stage: 'rig-review', version_id: 'v1' },
-        });
+        expect(report.moves).toHaveLength(1);
+        expect(report.moves[0]!.act).toContain('approve once');
       } else if (spec.name === '4-direction-post') {
         // The runnable agent move matches pending.commands[7] verbatim (`rig-create advance direction-review`),
         // and its role is 'agent' (decided by stage="post", plan.steps all done, signoffs[6]),

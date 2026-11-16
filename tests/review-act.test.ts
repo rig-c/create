@@ -13,6 +13,7 @@ import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
+import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 
 const directories: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -34,7 +35,7 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
     && typeof entry.bytes === 'string' && JSON.parse(entry.bytes).kind === 'review-verdict');
 }
 
-async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1) {
+async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false) {
   testClock.reset();
   const root = temporary('create-act-project-');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
@@ -56,7 +57,13 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   // The actual host state path is never installed in the consumer binding.
   const stateDir = join(hidden, 'relocated-state');
   const identity = currentJobIdentity({ root, stateDir, fingerprint: 'rig-create/live-review/1', reviewer: { id: 'synthetic-reviewer', role } }, root);
-  const host = await startJobHost({ ...identity, partsEnumerator, readPublished,
+  let reader = readPublished;
+  if (legacySubjects) {
+    const runtime = temporary('create-act-legacy-');
+    legacyRigPublicationCli(runtime);
+    reader = (await import(join(runtime, 'src/job-publication.ts'))).readPublished;
+  }
+  const host = await startJobHost({ ...identity, partsEnumerator, readPublished: reader,
     installWriterBinding: grant => writePrivateJson(join(root, JOB_BINDING_FILE), {
       schema: 'rig-create/job-binding@1', identity: { ...identity, stateDir: 'not-given-to-writer' }, ...grant,
     }, true) });
@@ -616,7 +623,7 @@ test('removed file route refuses by name before opening a file and preserves pro
 
 
 test('g2 publication verdict and signoff ingest through the writers and check', async () => {
-  const { root, act, agent, uiRequest, publication, host } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2);
+  const { root, act, agent, uiRequest, publication, host } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2, true);
   expect(act.source.package).toEqual({ id: 'create-v1', revision: 'v1-g2' });
   const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'signoff', stage: 'rig-review' } });
   const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', { publicationId: publication.publicationId, pageId: 'sign-page', sourceHash: (publication.source as JsonObject).sourceHash }));

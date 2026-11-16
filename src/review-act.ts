@@ -15,6 +15,7 @@ import { INTAKE_QUESTION, intakeItem } from './intake.ts';
 import { collectItems, asArray, isObject } from './check.ts';
 import { stepHash } from './step-hash.ts';
 import { recordDirectionTarget } from './record-direction-target.ts';
+import { outputsHash, reviewPackageHash } from './signoff-target.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export type PartsIssue = {
@@ -486,6 +487,12 @@ export function partsVerdictSignoff(act: PartsVerdictAct): JsonObject {
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
+/** A folded rig signature retains the verdict's exact human authority, words and clock. */
+export function rigVerdictSignoff(act: ReviewVerdictAct): JsonObject {
+  return { stage: 'rig-review', checkpoint: null, by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate',
+    at: act.at, verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
+}
+
 /**
  * create's own check that the act answers a subject its publication declared. The
  * acknowledged receipt keeps the subjects create published; a receipt that predates
@@ -631,6 +638,24 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
       const version = Array.isArray(project.versions) ? project.versions.find(v => object(v) && v.n === entry.version) : null;
       const verdict = object(version) && Array.isArray(version.verdicts) ? version.verdicts[Number(entry.verdict)] : null;
       if (!isDeepStrictEqual(verdict, reviewActVerdict(act))) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded verdict differs from the immutable act');
+      const expectedSignoff = rigVerdictSignoff(act);
+      const namedSignoffs = asArray(project.signoffs).filter(object).filter(row => row.source === expectedSignoff.source);
+      if (entry.signoff !== undefined || namedSignoffs.length > 0) {
+        const signoff = Number.isSafeInteger(entry.signoff) && Number(entry.signoff) >= 0 ? asArray(project.signoffs)[Number(entry.signoff)] : null;
+        const versionIndex = asArray(project.versions).indexOf(version as JsonObject);
+        const binding = object(version) && version.pre_interview === true && Array.isArray(version.outputs)
+          ? { outputs: { path: `versions[${versionIndex}].outputs`, sha256: outputsHash(version.outputs) } }
+          : object(version) && object(version.review_package)
+            ? { review_package: { path: `versions[${versionIndex}].review_package`, sha256: reviewPackageHash(version.review_package) } } : null;
+        if (act.value.stage !== 'rig-review' || act.value.verdict !== 'approved' || act.source.selector?.kind !== 'rig'
+          || !object(signoff) || namedSignoffs.length !== 1 || namedSignoffs[0] !== signoff
+          || Object.entries(expectedSignoff).some(([key, value]) => signoff[key] !== value)
+          || !object(signoff.target) || signoff.target.version !== entry.version
+          || binding === null || !isDeepStrictEqual(signoff.target, { version: entry.version,
+            verdict: `versions[${versionIndex}].verdicts[${entry.verdict}]`, ...binding })) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'folded rig signature differs from its approved verdict');
+        }
+      }
       const still = reviewActStill(act);
       if (still !== null) {
         const expected = { kind: 'still', path: `evidence/v${entry.version}/${still.path}`, sha256: still.sha256,

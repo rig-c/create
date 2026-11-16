@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -1702,6 +1702,11 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   expect(readFileSync(file)).toEqual(before);
   mkdirSync(join(dir, 'derived/drafts/chain-retouch-1'));
   expect(nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
+  const unrelated = join(dir, 'derived/drafts/chain-retouch-1/config.json');
+  writeFileSync(unrelated, `${JSON.stringify({ key: 'unrelated', assemble: {} })}\n`);
+  const unrelatedBytes = readFileSync(unrelated);
+  expect(nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
+  expect(readFileSync(unrelated)).toEqual(unrelatedBytes);
 });
 
 test('#557 registered retouch discovers fresh evidence despite old files and reaches one verdict while retaining parts-review', () => {
@@ -1786,4 +1791,56 @@ test('#557 initial parts-review with many historical drafts reuses global eviden
   expect(existsSync(join(dir, `evidence/parts-${id}`))).toBe(false);
   expect(readFileSync(file)).toEqual(before);
   for (const [index, path] of paths.entries()) expect(readFileSync(join(dir, path))).toEqual(retained[index]);
+});
+
+test('#557 prepared unregistered retouch resumes the same target before and after build without replacing retained files', () => {
+  const dir = bouncedPartsFixture();
+  const file = join(dir, 'project.json');
+  const record = readFileSync(file);
+  const id = 'chain-retouch-1';
+  const root = join(dir, 'derived/drafts', id);
+  const initial = nextProject(dir, CHAIN_NOW);
+  const registration = initial.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command;
+  mkdirSync(root);
+  const config = readFileSync(join(dir, 'derived/drafts/chain/config.json'));
+  writeFileSync(join(root, 'config.json'), config);
+  const prepared = nextProject(dir, CHAIN_NOW);
+  expect(prepared.moves[0]!.act).toContain(`Resume derived/drafts/${id}/config.json`);
+  expect(prepared.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
+  expect(prepared.moves.find(move => move.command?.startsWith('rig-parts build'))!.command).toContain(`/derived/drafts/${id}/config.json`);
+  expect(readFileSync(join(root, 'config.json'))).toEqual(config);
+  // Preparing the allowed retouch declaration must not switch the generated target either.
+  const changed = JSON.parse(config.toString()) as JsonObject;
+  obj(changed.assemble).edited_parts = { dir: 'edits', receipts: [{ part: 'torso', file: 'torso.png',
+    from_sha256: 'a'.repeat(64), sha256: 'b'.repeat(64), editor: 'synthetic editor' }] };
+  const edited = `${JSON.stringify(changed, null, 2)}\n`;
+  writeFileSync(join(root, 'config.json'), edited);
+  const editedNext = nextProject(dir, CHAIN_NOW);
+  expect(editedNext.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
+  expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(edited);
+  expect(editedNext.moves.every(move => move.role !== 'human')).toBe(true);
+  // Existence is not proof of a valid build: leave it to the existing registration validator.
+  mkdirSync(join(root, 'build'));
+  const sentinel = Buffer.from('preserve unrelated or incomplete output\n');
+  writeFileSync(join(root, 'build/retained.txt'), sentinel);
+  const built = nextProject(dir, CHAIN_NOW);
+  expect(built.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
+  expect(built.moves.some(move => move.command?.startsWith('rig-parts build'))).toBe(false);
+  expect(built.moves.some(move => move.command === null && move.act.includes('do not rerun build over it'))).toBe(true);
+  expect(readFileSync(join(root, 'build/retained.txt'))).toEqual(sentinel);
+  expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(edited);
+  expect(readFileSync(file)).toEqual(record);
+});
+
+test.each(['linked-config', 'dangling-target'])('#557 retouch preserves %s collisions instead of treating them as prepared targets', kind => {
+  const dir = bouncedPartsFixture();
+  const root = join(dir, 'derived/drafts/chain-retouch-1');
+  if (kind === 'linked-config') {
+    mkdirSync(root);
+    symlinkSync(join(dir, 'derived/drafts/chain/config.json'), join(root, 'config.json'));
+  } else symlinkSync(join(dir, 'absent-target'), root);
+  const before = readFileSync(join(dir, 'project.json'));
+  const next = nextProject(dir, CHAIN_NOW);
+  expect(next.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

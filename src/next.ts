@@ -2,7 +2,9 @@ import { optionFile } from './choices.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from './check-reads.ts';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
+import { isDeepStrictEqual } from 'node:util';
+import { publicationFile } from './job-publication.ts';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import {
   asArray,
@@ -648,6 +650,29 @@ function hasCurrentPartsCheck(dir: string, report: string, partsRoot: string): b
   } catch { return false; }
 }
 
+/** An occupied path is never a fresh producer destination, including dangling links. */
+function retouchPathExists(dir: string, path: string): boolean {
+  try { lstatSync(resolve(dir, path)); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ENOENT'; }
+}
+
+/** Resume a related prepared config, without treating it as producer provenance or approval. */
+function preparedPartsRetouch(dir: string, draft: JsonObject, id: string): boolean {
+  try {
+    if (!isObject(draft.config) || typeof draft.config.path !== 'string') return false;
+    const root = realpathSync(dir);
+    const source = publicationFile(root, draft.config.path);
+    if (createHash('sha256').update(source).digest('hex') !== draft.config.sha256) return false;
+    const previous: Json = JSON.parse(source.toString('utf8'));
+    const pending: Json = JSON.parse(publicationFile(root, `derived/drafts/${id}/config.json`).toString('utf8'));
+    if (!isObject(previous) || !isObject(previous.assemble) || !isObject(pending) || !isObject(pending.assemble)) return false;
+    // Keep the source configuration fixed; the producer validates the edited_parts declaration.
+    delete previous.assemble.edited_parts;
+    delete pending.assemble.edited_parts;
+    return isDeepStrictEqual(previous, pending);
+  } catch { return false; }
+}
+
 function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject): NextMove[] {
   const ids = new Set(asArray(project.drafts).filter(isObject).map(row => String(row.id)));
   let id: string;
@@ -655,17 +680,21 @@ function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject):
   do {
     const tail = `-retouch-${suffix++}`;
     id = `${String(draft.id).slice(0, 64 - tail.length)}${tail}`;
-  } while (ids.has(id) || existsSync(join(dir, 'derived/drafts', id)));
+  } while (ids.has(id) || retouchPathExists(dir, `derived/drafts/${id}`) && !preparedPartsRetouch(dir, draft, id));
   const root = `derived/drafts/${id}`;
   const build = `${root}/build`;
+  const prepared = retouchPathExists(dir, root);
+  const existingBuild = retouchPathExists(dir, build);
   const evidence = partsEvidencePaths(id, true);
   const painting = asArray(project.inputs).filter(isObject)[0]?.path;
   const paintingPath = typeof painting === 'string' ? painting : '<painting.png>';
   const move = (role: NextRole, field: string, command: string | null, act: string): NextMove => ({ role, field, awaits: `drafts[${id}]`, command, act });
   const diff = resolveDiffComponentsMove(dir, id, build, paintingPath, evidence.diff);
   return [
-    move('agent', `drafts[${id}].config`, null, `Draft ${String(draft.id)} requests changes. Retain it and its verdict and evidence; keep parts-review throughout. Prepare ${root}/config.json from ${String(isObject(draft.config) ? draft.config.path : '<previous config>')}, preserving source input bindings and declaring assemble.edited_parts with dir and per-file receipts (part, file, from_sha256, sha256, editor) for the retouch against the painting. Do not replace the old draft's files.`),
-    move('producer', `drafts[${id}].parts`, `rig-parts build --config ${shellWord(resolve(dir, root, 'config.json'))} --source ${shellWord(resolve(dir, paintingPath))} --full '<source layers dir or PSD>' --out ${shellWord(resolve(dir, build))}`, 'build the edited_parts draft from its source layers; preserve any required head/source arguments and stop on producer refusals'),
+    move('agent', `drafts[${id}].config`, null, `Draft ${String(draft.id)} requests changes. Retain it and its verdict and evidence; keep parts-review throughout. ${prepared ? `Resume ${root}/config.json without replacing the prepared config or its inputs; it matches the previous config outside assemble.edited_parts. The producer and draft writer still validate its contents. Original config:` : `Prepare ${root}/config.json from`} ${String(isObject(draft.config) ? draft.config.path : '<previous config>')}, preserving source input bindings and declaring assemble.edited_parts with dir and per-file receipts (part, file, from_sha256, sha256, editor) for the retouch against the painting. Do not replace the old draft's files.`),
+    ...(existingBuild
+      ? [move('agent', `drafts[${id}].parts`, null, `Preserve the existing ${build} entry; do not rerun build over it. Try the draft-rig registration below to validate retained output. If incomplete or unrelated, inspect it and choose a separate output target rather than overwriting it.`)]
+      : [move('producer', `drafts[${id}].parts`, `rig-parts build --config ${shellWord(resolve(dir, root, 'config.json'))} --source ${shellWord(resolve(dir, paintingPath))} --full '<source layers dir or PSD>' --out ${shellWord(resolve(dir, build))}`, 'build the edited_parts draft from its source layers; preserve any required head/source arguments and stop on producer refusals')]),
     move('agent', 'drafts', `rig-create draft-rig ${shellWord(id)} ${shellWord(dir)} --config ${shellWord(`${root}/config.json`)} --from ${shellWord(build)}`, `register NEW draft ${id}; inventory only, without asking for a verdict yet`),
     move('producer', `drafts[${id}].parts`, `rig-parts check-parts --parts ${shellWord(resolve(dir, build))} --out ${shellWord(resolve(dir, evidence.directory))}`, `retain the new draft's parts-check at ${evidence.check}; preserve the original stage-entry advance evidence`),
     move('agent', `drafts[${id}]`, `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(id)} --out ${shellWord(`evidence/structure-${id}.json`)}`, 'retain a NEW structure snapshot of the retouched draft'),

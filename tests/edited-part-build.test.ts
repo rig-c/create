@@ -1,4 +1,4 @@
-/** Real producer integration using only helpers shipped in @rig-c/parts 2.40.0. */
+/** Real producer integration using only helpers shipped in @rig-c/parts 2.41.0. */
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';

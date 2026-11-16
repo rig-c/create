@@ -3,7 +3,7 @@
   "scene": {
     "n": 1,
     "path": "evidence/scene/s1.json",
-    "sha256": "499090c8db03b08dca65378fb5e80fd83043748d69fd2cd9f9cfd6b7adcee5a5"
+    "sha256": "d5a653a9a96ec1c3ea40dfdb7f32d2ee7ff87076f246c5f69f85496fef7ccbb1"
   },
   "rig": {
     "version": 1,

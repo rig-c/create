@@ -166,8 +166,8 @@
   },
   {
     "file": "tests/next.test.ts",
-    "name": "plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
-    "displayName": "Frozen Bar 5 \u2014 Plants (lapsed approval, changed bound input DRAFT_RIG_FILE, accepted project) > plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
+    "name": "plant 5 (parts-verdict receipts): legacy CLI approval retains snapshot repair; API approval follows prepared evidence",
+    "displayName": "Frozen Bar 5 \u2014 Plants (lapsed approval, changed bound input DRAFT_RIG_FILE, accepted project) > plant 5 (parts-verdict receipts): legacy CLI approval retains snapshot repair; API approval follows prepared evidence",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {

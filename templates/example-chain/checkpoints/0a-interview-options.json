@@ -77,7 +77,7 @@
     ],
     "warnings": []
   },
-  "project_sha256": "ab6c628dc8b3effa62c5188e4738e82283cf50b0baf89a5330ff126ad8de7e26",
+  "project_sha256": "36e1fc7b27bb65bf3b956e073c19fc40b2ba1835a91b883c145e335917a03fc9",
   "files": [
     {
       "path": ".gitignore",
@@ -85,7 +85,7 @@
     },
     {
       "path": "AGENT-REFERENCE.md",
-      "sha256": "00a991581393d9208810104810305cb512fc6afa9181c1b02b37421d97cfff79"
+      "sha256": "47f304fefe2ac6b873bdfc212f7ce0cf3f7475b413e3d447dd36f5edac1e2f63"
     },
     {
       "path": "AGENTS.md",
@@ -121,11 +121,11 @@
     },
     {
       "path": "package.json",
-      "sha256": "0a22e147646e4b1774a05c89bb5f4153aeacacb79ec046af8416524888a518c1"
+      "sha256": "b8c674c9888a58852d802f7763c651510c029edfc0a6c71c4bf76e1bac20f1fe"
     },
     {
       "path": "project.json",
-      "sha256": "ab6c628dc8b3effa62c5188e4738e82283cf50b0baf89a5330ff126ad8de7e26"
+      "sha256": "36e1fc7b27bb65bf3b956e073c19fc40b2ba1835a91b883c145e335917a03fc9"
     }
   ]
 }

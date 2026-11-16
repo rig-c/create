@@ -96,7 +96,7 @@ async function page(url: URL, expectedAsks = 2) {
     };
   };
   const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline && pending().asks.length < expectedAsks) {
+  while (Date.now() < deadline && (pending().head === undefined || pending().asks.length < expectedAsks)) {
     const next = await reader.read();
     if (next.done) break;
     buffered += decoder.decode(next.value, { stream: true });
@@ -278,7 +278,7 @@ test('advances into other stages on a bound job and advances without a bound job
 
   const ackDir = join(jobPrivateRoot(boundRoot), 'acknowledged-publications');
   const receiptsBefore = readdirSync(ackDir).sort();
-  const beforePage = await page(opening.url, 1);
+  const beforePage = await page(opening.url, 0);
   const headBefore = beforePage.head.publicationId;
   const generationBefore = Number(beforePage.events.at(-1)!.generation);
 
@@ -297,7 +297,7 @@ test('advances into other stages on a bound job and advances without a bound job
   expect(pendingPublications(boundRoot)).toEqual([]);
   expect(readdirSync(ackDir).sort()).toEqual(receiptsBefore);
 
-  const afterPage = await page(opening.url, 1);
+  const afterPage = await page(opening.url, 0);
   expect(afterPage.head.publicationId).toBe(headBefore);
   expect(Number(afterPage.events.at(-1)!.generation)).toBe(generationBefore);
 

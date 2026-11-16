@@ -1,5 +1,6 @@
 import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
+import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
@@ -175,6 +176,10 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     }
     if (shown !== null) opts['--draft'] = shown;
   }
+  if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) {
+    const finding = latestPartsVerdictFinding(project, opts['--draft'], `signoffs[${asArray(project.signoffs).length}].draft_id`);
+    if (finding) refuse(finding.code, finding.message);
+  }
   // The record as read: its refusals are the baseline the candidate is judged against below.
   const asRead = checkProject(dir, project, { now });
   if (review !== undefined && isRecordInterviewSignoff(review.act)) assertInterviewRecordSignable(project, asRead);
@@ -194,6 +199,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     }
   }
   if (stage === PARTS_REVIEW && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
+  // Preserve refusal-before-words on the separate signing route.
+  if (stage === PARTS_REVIEW) recordedPartsVerdict(dir, project, opts['--draft']);
   if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
   const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
   if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved, rigging-interview or post-interview', USAGE_EXIT);

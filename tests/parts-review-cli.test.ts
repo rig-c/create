@@ -226,8 +226,8 @@ test('receipt consumers select the latest response and retain a historical appro
   expect(approved.evidence.spec).toBe(PARTS_CLI_RECEIPT);
   expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-api.json']).exit).toBe(0);
   record(root, response(root, 'pending'));
-  refuses(root, 'PARTS_VERDICT_NOT_APPROVED', () => structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/missing.json']));
-  expect(existsSync(join(root, 'evidence/missing.json'))).toBe(false);
+  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/missing.json']).exit).toBe(0);
+  expect(existsSync(join(root, 'evidence/missing.json'))).toBe(true);
   expect(recordedPartsFinding(root, read(root), { draft_id: 'chain', at: new Date(EXAMPLE_NOW).toISOString(), evidence: approved.evidence }, 'signoffs[0]')).toBeUndefined();
   refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => recordedPartsVerdict(root, read(root), 'chain', { ...approved.evidence, spec: 'unknown/1' }));
   refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => recordedPartsVerdict(root, read(root), 'chain', { ...approved.evidence, sha256: '0'.repeat(64) }));
@@ -264,11 +264,11 @@ test('historical receipt checking warns when ignored draft bytes are unavailable
   expect(report.refusals.map(f => f.code)).not.toContain('PARTS_VERDICT_RECEIPT_INVALID');
 });
 
-test('new snapshot and signoff writers require the ignored draft source bytes', () => {
+test('snapshot copies retained config while signoff still requires ignored draft source bytes', () => {
   const root = fixture();
   record(root, response(root));
   rmSync(join(root, 'derived/drafts/chain/input'), { recursive: true });
-  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/unwritten.json']));
-  expect(existsSync(join(root, 'evidence/unwritten.json'))).toBe(false);
+  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/unwritten.json']).exit).toBe(0);
+  expect(existsSync(join(root, 'evidence/unwritten.json'))).toBe(true);
   refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain', '--structure-file', 'evidence/unwritten.json'], EXAMPLE_NOW));
 });

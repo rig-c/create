@@ -177,7 +177,7 @@
         "verdict": "versions[1].verdicts[0]",
         "review_package": {
           "path": "versions[1].review_package",
-          "sha256": "2b6ed7cc0cd7ada7b94e4fcaa483d71c5fece6c837c1e1bedc22554d57c6d001"
+          "sha256": "52bddcf4ec95637240cdc9b1df4cdfb8a5d69f1619981125e7b8b170fbf86723"
         }
       }
     },
@@ -215,13 +215,13 @@
         "verdict": "versions[3].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "c7692310f6f9726748e67224982e12c09389a5d74226c6ebe8661dfd01ae7c25"
+          "sha256": "f47ee91473f8b48eec7187838e409cc819782e77f03482c297375cfd1985ff72"
         }
       }
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.38.1)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.40.0)",
     "held": true,
     "date": "2026-11-10",
     "interviewer": "agent",
@@ -2419,7 +2419,7 @@
       "at": "2026-11-15T00:00:46.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.38.1",
+        "@rig-c/parts": "2.40.0",
         "@rig-c/core": "3.7.0"
       },
       "answers_feedback": [],
@@ -2525,7 +2525,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "16aa128d0cba2d89e9244ee3a24b17ba138f73e5f039dae101b983f1d70a7125"
+            "sha256": "45d756ac26601c5be55f51628844b978f9bc3b4c0c3dd1f8bb5c8a9acfe1f7ad"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2749,7 +2749,7 @@
       "at": "2026-11-15T00:00:50.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.38.1",
+        "@rig-c/parts": "2.40.0",
         "@rig-c/core": "3.7.0"
       },
       "answers_feedback": [
@@ -2860,7 +2860,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "16aa128d0cba2d89e9244ee3a24b17ba138f73e5f039dae101b983f1d70a7125"
+            "sha256": "45d756ac26601c5be55f51628844b978f9bc3b4c0c3dd1f8bb5c8a9acfe1f7ad"
           }
         ],
         "open": "rig-review open 'derived/review/v2/out'"
@@ -3101,7 +3101,7 @@
       "at": "2026-11-15T00:01:01.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.38.1",
+        "@rig-c/parts": "2.40.0",
         "@rig-c/core": "3.7.0"
       },
       "answers_feedback": [],
@@ -3204,7 +3204,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v4.json",
-          "sha256": "c7692310f6f9726748e67224982e12c09389a5d74226c6ebe8661dfd01ae7c25"
+          "sha256": "f47ee91473f8b48eec7187838e409cc819782e77f03482c297375cfd1985ff72"
         }
       ],
       "evidence": [
@@ -3235,11 +3235,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v4.json",
-          "sha256": "c7692310f6f9726748e67224982e12c09389a5d74226c6ebe8661dfd01ae7c25"
+          "sha256": "f47ee91473f8b48eec7187838e409cc819782e77f03482c297375cfd1985ff72"
         },
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "c7692310f6f9726748e67224982e12c09389a5d74226c6ebe8661dfd01ae7c25"
+          "sha256": "f47ee91473f8b48eec7187838e409cc819782e77f03482c297375cfd1985ff72"
         },
         "sections": {
           "camera": [
@@ -3297,7 +3297,7 @@
       "at": "2026-11-15T00:00:35.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.38.1"
+        "version": "2.40.0"
       },
       "config": {
         "path": "derived/drafts/example/config.json",
@@ -3399,7 +3399,7 @@
         },
         {
           "path": "derived/drafts/example/out/run.json",
-          "sha256": "16aa128d0cba2d89e9244ee3a24b17ba138f73e5f039dae101b983f1d70a7125"
+          "sha256": "45d756ac26601c5be55f51628844b978f9bc3b4c0c3dd1f8bb5c8a9acfe1f7ad"
         }
       ],
       "config_inputs": [
@@ -3415,7 +3415,7 @@
       "at": "2026-11-15T00:01:06.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.38.1"
+        "version": "2.40.0"
       },
       "config": {
         "path": "derived/drafts/lantern/config.json",
@@ -3517,7 +3517,7 @@
         },
         {
           "path": "derived/drafts/lantern/out/run.json",
-          "sha256": "16aa128d0cba2d89e9244ee3a24b17ba138f73e5f039dae101b983f1d70a7125"
+          "sha256": "45d756ac26601c5be55f51628844b978f9bc3b4c0c3dd1f8bb5c8a9acfe1f7ad"
         }
       ],
       "config_inputs": [
@@ -4553,7 +4553,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "dfeec589a2586ebca4d93cd21c216062e49d72c96aaa47c33e134c85d0d08566",
+      "sha256": "7aa5b249a1ef3a7bad62641334edcc94aee182b340a64caf429df30f61098b30",
       "at": "2026-11-15T00:01:00.000Z",
       "by": "agent"
     }

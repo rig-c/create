@@ -522,10 +522,13 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
   const reviewStage = selector.kind === 'post' ? 'direction-review' as const : 'rig-review' as const;
+  const needsVerdict = reviewVerdictSignable(project, selector.version, reviewStage);
+  const stage = effectiveStage(root, project);
   const subjects: JobPublishedContext['subjects'] = [
-    ...(reviewVerdictSignable(project, selector.version, reviewStage) ? [{ kind: 'review-verdict' as const, stage: reviewStage }] : []),
+    ...(needsVerdict ? [{ kind: 'review-verdict' as const, stage: reviewStage }] : []),
     // The legacy direction panel accepts only the verdict on a post publication.
-    ...(selector.kind === 'post' ? [] : packageSignSubjects(project, effectiveStage(root, project), selector, steps.length)),
+    ...(selector.kind === 'post' ? [] : packageSignSubjects(project, stage, selector, steps.length)
+      .filter(subject => !(needsVerdict && stage === 'rig-review' && subject.kind === 'signoff' && subject.stage === 'rig-review'))),
   ];
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },

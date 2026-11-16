@@ -1,4 +1,5 @@
 import { optionFile } from './choices.ts';
+import { reviewVerdictSignable } from './signable.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
@@ -1419,11 +1420,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           unanswered_by_record: 'versions[kind=rig]',
         });
       } else {
-        const acceptedIdx = latestRig !== undefined ? acceptedReviewVerdict(latestRig, 'rig-review') : -1;
-        const acceptedEntry = acceptedIdx >= 0 ? asArray(latestRig?.verdicts)[acceptedIdx] : undefined;
-        const hasLiveAcceptedRigVerdict =
-          isObject(acceptedEntry) &&
-          liveSignoff(reopens, 'rigging', Date.parse(String(acceptedEntry.at)));
+        const hasLiveAcceptedRigVerdict = !reviewVerdictSignable(project, rigN, 'rig-review');
         const verdictAwait = `versions[n=${rigN}].verdicts[review=rig-review]`;
         if (!hasLiveAcceptedRigVerdict && !recordedLapseTargets.has(verdictAwait)) {
           addAwait(verdictAwait);
@@ -1432,7 +1429,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             field: `versions[v${rigN}].verdicts`,
             awaits: verdictAwait,
             command: null,
-            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)${structureWarnings.some(w => w.path === `versions[v${rigN}].provenance.structure_delta`) ? '; verdict covers changed structure' : ''}`,
+            act: `review-tool act review-verdict for versions[v${rigN}] (rig-review)${effectiveStage === 'rig-review' ? '; approve once to record the verdict and rig-review signature' : ''}${structureWarnings.some(w => w.path === `versions[v${rigN}].provenance.structure_delta`) ? '; verdict covers changed structure' : ''}`,
             review_act: {
               kind: 'review-verdict',
               stage: 'rig-review',
@@ -1445,7 +1442,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
 
       const signoffAwait = 'signoffs[stage=rig-review]';
-      if (!hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)) {
+      if (!hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
+        && !(effectiveStage === 'rig-review' && (rigN === null || reviewVerdictSignable(project, rigN, 'rig-review')))) {
         addAwait(signoffAwait);
         moves.push({
           role: 'human',

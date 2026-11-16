@@ -129,6 +129,11 @@ human act. Keep the Review host up across bound writes. If it stops, `job open`
 again with reviewer/role, then `job reconcile` before more writes. `--rig <n>`
 selects either a rig or a post version.
 
+At `rig-review`, a fresh job asks for one rig verdict. Ingesting its approval
+also records the rig-review signature atomically; pending or changes-requested
+stays unsigned. Existing verdict-only receipts and old two-subject publications
+retain their separate-signoff recovery. See [live review](docs/LIVE-REVIEW.md#rig-approval-in-one-sitting).
+
 `signoff` records without moving the stage; `advance` uses its authority. Direct
 `--by` sign-off/review and `interview-answer --pick` are low-level interfaces for
 people operating the CLI themselves and synthetic fixtures, not an agent route

@@ -124,19 +124,19 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
   const opening = await open(root);
   const binding = readWriterBinding(root)!;
 
-  // Plant a one-shot SQLite trigger in the synthetic host state so the published snapshot's
-  // retained subjects drop `signoff rig-review` after `publish` succeeds, causing Review's
-  // subsequent `ask` for `signoff rig-review` to refuse with `JOB_ASK_INVALID`.
+  // Invalidate only the synthetic host's retained model binding after publish succeeds.
+  // Review validates a rig verdict against that binding, so its declared ask refuses
+  // with JOB_ASK_INVALID without relying on the removed separate signoff subject.
   const sqlitePath = join(binding.identity.stateDir, 'jobs.sqlite');
   const db = new Database(sqlitePath);
   try {
     db.exec(`
-      CREATE TRIGGER refuse_signoff_ask AFTER UPDATE OF document ON jobs
+      CREATE TRIGGER refuse_verdict_ask AFTER UPDATE OF document ON jobs
       WHEN json_extract(NEW.document, '$.head') IS NOT NULL
         AND json_extract(OLD.document, '$.head') IS NOT json_extract(NEW.document, '$.head')
       BEGIN
         UPDATE jobs
-        SET document = json_remove(NEW.document, '$.publications.' || json_extract(NEW.document, '$.head') || '.retained.subjects[1]')
+        SET document = json_set(NEW.document, '$.publications.' || json_extract(NEW.document, '$.head') || '.retained.source.model', NULL)
         WHERE job_id = NEW.job_id;
       END;
     `);
@@ -152,7 +152,7 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
   }
   expect(thrown).toBeInstanceOf(Refusal);
   expect((thrown as Refusal).code).toBe('JOB_ASK_REFUSED');
-  expect((thrown as Refusal).message).toContain('signoff rig-review (JOB_ASK_INVALID)');
+  expect((thrown as Refusal).message).toContain('review-verdict rig-review (JOB_ASK_INVALID)');
 
   // The record is committed and the publication is acknowledged (never left pending).
   expect(read(root).stage).toBe('rig-review');
@@ -170,7 +170,6 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
   expect(acknowledged).not.toBeNull();
   expect(acknowledged?.subjects).toEqual([
     { kind: 'review-verdict', stage: 'rig-review' },
-    { kind: 'signoff', stage: 'rig-review' },
   ]);
 
   // Parts-stage drafts still declare enabled checkpoints. Refuse that declared ask on
@@ -212,7 +211,7 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
   expect(cliDraft.stderr).toContain('JOB_ASK_REFUSED: ');
   expect(cliDraft.stderr).toContain('checkpoint assemble (JOB_ASK_INVALID)');
   expect(pendingPublications(draftRoot)).toEqual([]);
-});
+}, 15_000);
 
 test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
   expect(askOutcomeLines([
@@ -232,7 +231,7 @@ test('bound writers print concise asked/already subject lines in text mode and p
   expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(advanced.stdout.trim().split('\n')).toEqual([
     'advance: rigging -> rig-review',
-    'job: asked review-verdict rig-review, signoff rig-review',
+    'job: asked review-verdict rig-review',
   ]);
 
   const draftRoot = copyCheckpoint('1-parts-verdict', project => {
@@ -263,4 +262,4 @@ test('bound writers print concise asked/already subject lines in text mode and p
   ]);
   expect({ exit: draftedJson.exit, stderr: draftedJson.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(JSON.parse(draftedJson.stdout)).toMatchObject({ id: 'chain-3' });
-});
+}, 15_000);

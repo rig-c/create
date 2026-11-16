@@ -1,6 +1,7 @@
 import { assertDirectionApproval } from './direction.ts';
 import { assertFigureMaskApproval } from './figure-mask.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
+import { foldsRigVerdict, foldRigSignoff } from './rig-signoff.ts';
 /**
  * Polish feedback (rig-c/create#9, docs/INTERVIEW.md § Polish feedback):
  * what the user says after seeing a version is kept word for word in that
@@ -12,7 +13,8 @@ import { assertCorrectionApproval } from './correction-writers.ts';
  *   `answer_was` from the record where the record decides it, refuses a value
  *   the record contradicts, and writes a `not-asked` item as a new sentence in
  *   that answer's `additions[]` (never a silent fix). It never moves `stage`
- *   and never signs anything: a verdict is not a sign-off.
+ *   stage. A fresh job's approved rig verdict also records its stage signature;
+ *   legacy two-subject publications and non-job verdicts keep separate signing.
  * - `checkFeedback` runs inside `interview --check`: bounced feedback with a
  *   later version that does not answer it, an answering ref that points at no
  *   verdict, and a `not-asked` item whose sentence was never added are refused
@@ -386,6 +388,7 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   const { file, project } = readProject(dir);
   const originalBytes = readFileSync(file);
   const original = structuredClone(project);
+  const foldBaseline = fetched ? foldsRigVerdict(dir, original, fetched.act, now) : null;
   const version = asArray(project.versions).find((v): v is JsonObject => isObject(v) && v.n === input.version);
   if (version === undefined) refuse('REVIEW_VERSION_UNKNOWN', `versions[] has no version ${input.version}; a verdict is on a version that was shown`);
   const draftProblem = draftVersionFindings(dir, { ...project, versions: [version] })[0];
@@ -541,7 +544,8 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
         bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
         version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence };
       project.review_acts = [...asArray(project.review_acts), receipt];
-      const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? newRefusals(dir, original, project, { now })[0];
+      if (foldBaseline) foldRigSignoff(dir, project, fetched.act, originalBytes, foldBaseline, now);
+      const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? (foldBaseline ? undefined : newRefusals(dir, original, project, { now })[0]);
       if (invalid) refuse(invalid.code, invalid.message);
       assertReviewActSource(dir, original, fetched.act);
       if (!readFileSync(file).equals(originalBytes)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during verdict validation; retry against the current live job');
@@ -621,7 +625,7 @@ export const REVIEW_HELP = `review:
                    for a not-asked item: the sentence's normalised value (default: null)
   --json           print what was recorded as JSON
   Appends the verdict to versions[v<n>].verdicts[] dated now; a not-asked item is written to that answer's additions[]
-  with source "polish feedback, v<n>". Never moves the stage: a verdict is not a sign-off.`;
+  with source "polish feedback, v<n>". Never moves the stage. A fresh job's approved rig verdict also signs rig-review.`;
 
 function parseVersion(s: string | undefined): number {
   const n = s === undefined ? Number.NaN : Number(s.replace(/^v/, ''));

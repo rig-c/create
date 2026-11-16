@@ -254,7 +254,7 @@ async function executePrinted(root: string, command: string) {
   } finally { rmSync(bin, { recursive: true, force: true }); }
 }
 
-test('job acts discovers a finalized rig verdict and signoff; its exact quoted commands ingest them', async () => {
+test('job acts discovers a finalized rig verdict; its exact quoted command also records the signature', async () => {
   const root = copy('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
@@ -262,7 +262,7 @@ test('job acts discovers a finalized rig verdict and signoff; its exact quoted c
   const opening = await open(root);
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
-  const view = await page(root, opening.url);
+  const view = await page(root, opening.url, 1);
   const ask = view.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
   const verdict = await view.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS }, rigCapture(root, view, String(ask.askId)));
   const before = snapshot(root);
@@ -278,16 +278,8 @@ test('job acts discovers a finalized rig verdict and signoff; its exact quoted c
   expect(snapshot(root)).toEqual(before);
   await executePrinted(root, result.acts[0].command);
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
-  const checked = await cli(root, ['interview', '--check', root]); expectExit0(checked);
-  expectExit0(await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']));
-  const refreshed = await page(root, opening.url, 1);
-  const signoff = await refreshed.act('signoff', 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
-  const signing = await cli(root, ['job', 'acts', root, '--json']); expectExit0(signing);
-  const row = JSON.parse(signing.stdout).acts[0];
-  expect(row).toMatchObject({ actId: signoff.actId, kind: 'signoff', subject: 'stage rig-review', args: ['signoff', 'rig-review', root, '--from-review', signoff.actId] });
-  await executePrinted(root, row.command);
-  expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   expect(read(root).stage).toBe('rig-review');
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', source: `review act ${String(verdict.jobId)}/${String(verdict.actId)}` });
 }, 30_000);
 
 test('missing and stopped hosts refuse without bootstrapping or changing producer files', async () => {
@@ -573,11 +565,10 @@ test('#507 reachable rigging-interview signoff executes printed host, acts, inge
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'rigging-interview')).toBe(true);
 }, 30_000);
 
-test('#507 rig-review verdict then signoff execute printed host, acts, ingest and close', async () => {
+test('#507 rig-review approval folds signature through printed host, acts, ingest and close', async () => {
   receipt({ test: '#507 rig-review verdict then signoff', source: 'checkpoint 3-rig-review' });
   const root = copy('3-rig-review');
   await nextReview(root, 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS });
-  await nextReview(root, 'signoff', { stage: 'rig-review', decision: 'approved', words: WORDS });
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'rig-review')).toBe(true);
 }, 30_000);
 

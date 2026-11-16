@@ -92,7 +92,7 @@ HOLE visible.
 | `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector; `parts-verdict` is deferred until parts-review and prepared evidence for that draft; eligible sign subjects |
 | `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
 | `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
-| `advance rig-review` | The current live rig at the entered review stage | `rig` selector, `review-verdict`, and the stage's `signoff` subject |
+| `advance rig-review` | The current live rig at the entered review stage | `rig` selector and one `review-verdict`; approval also signs rig-review |
 | `advance direction-review` | The current live post at the entered review stage | `post` selector and only `review-verdict direction-review` |
 
 The sign subjects are the `signoff` and `checkpoint` subjects of
@@ -135,7 +135,8 @@ same commit-then-durable-outbox order for the current live `rig` or `post`
 version: holding the shared job write lock, the writer validates the post-advance
 candidate and live version before writing, records the outbox intent for the
 post-advance record bytes, atomically replaces `project.json`, and publishes the
-version with its `review-verdict` and, for a rig, stage `signoff` subjects. If publication
+version with its `review-verdict` subject. A fresh rig approval at effective
+rig-review also signs that stage, so no separate stage `signoff` is asked. If publication
 fails after `project.json` is committed, the stage advance stays committed in
 `project.json`, `JOB_PUBLISH_PENDING` remains in the durable outbox and is
 reported in `interview --check` `holes[]`, and `rig-create job reconcile`
@@ -351,7 +352,7 @@ again.
 | `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
 | `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
 | `parts-review` | draft | advance when the first draft has agent evidence; stay here across retouches, preparing fresh evidence and opening each new draft for one `parts-verdict`; approved UI ingestion also signs. Separate signoff is only for a midflight approved verdict already ingested unsigned |
-| `rig-review` | rig version | `advance rig-review` commits the move into `rig-review`, `rig-version` commits in `rig-review`, or the agent runs `job open` to refresh the live `rig` head after `review <n> --from-review` |
+| `rig-review` | rig version | a fresh publication asks only `review-verdict`; approved ingestion records its rig-review signature atomically. Already-ingested unsigned verdicts and retained old two-subject publications keep separate-signoff recovery through `job open` |
 | `direction-review` | record plan, using release-pinned Review 4.4.0 | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
 | `interview` | record plan, using release-pinned Review 4.4.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
@@ -373,6 +374,25 @@ First ingest also checks the act's record hash, displayed plan identities
 and current interview stage. Refusals leave `project.json` byte-identical.
 Immutable replay returns the recorded signature before current-stage checks.
 The CLI `--by` route and earlier package-mode acts retain their behavior.
+
+## Rig approval in one sitting
+
+At effective `rig-review`, a fresh publication declares one `review-verdict`.
+Ingest its approved act with `review <n> --from-review <actId>`: the exact Review
+words, human authority and date supply both the verdict and signature in one
+atomic record replacement. The signature targets the displayed live rig and its
+accepted verdict using the separate writer's candidate and source gates. Advance
+normally after ingestion; ingestion never moves the stage. Pending and
+changes-requested verdicts do not sign.
+
+The optional `review_acts[].signoff` index binds the signature to its approved
+immutable act; check and replay validate its authority, words, target and unique
+mapping. Replay returns the original record without adding a signature. Old
+verdict-only receipts remain verdict-only. An acknowledged publication declaring
+both `review-verdict rig-review` and `signoff rig-review` retains those two acts;
+missing retained subject metadata also preserves the separate-signoff contract.
+After an old verdict ingest, reopen the same job to refresh the record binding
+before its separate signoff. Stale project and package guards remain strict.
 
 ## Parts drafts and independent verdicts
 

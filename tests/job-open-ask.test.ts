@@ -287,8 +287,16 @@ async function page(root: string, url: URL, expectedAsks = 2) {
     head: head!, asks,
     act: async (subject: string, kind: string, value: object): Promise<JsonObject> => {
       const ask = asks.find(item => (item.subject as JsonObject).kind === subject)!;
+      const png = subject === 'review-verdict' && (value as JsonObject).stage === 'rig-review'
+        ? readFileSync(join(root, 'evidence/setup.png')) : null;
+      const capture = png === null ? {} : { capture: {
+        png: `data:image/png;base64,${png.toString('base64')}`, width: png.readUInt32BE(16), height: png.readUInt32BE(20),
+        camera: 'fixed', framing: 'default', view: 'whole-rig', frame: 'setup', playing: false,
+        binding: { publicationId: head.publicationId, instanceKey: head.instanceKey, sourceHash: (head.source as JsonObject).sourceHash,
+          pageId, askId: ask.askId, drawGeneration: 1, playerGeneration: 0 },
+      } };
       const result = await post('ui/acts', { publicationId: head!.publicationId, askId: ask.askId, pageId,
-        displayedNonce: (displayed.value as JsonObject).displayedNonce, expectedGeneration, submissionId: randomUUID(), kind, value });
+        displayedNonce: (displayed.value as JsonObject).displayedNonce, expectedGeneration, submissionId: randomUUID(), kind, value, ...capture });
       expect(result.error).toBeUndefined();
       expectedGeneration++;
       return result.value as JsonObject;
@@ -541,7 +549,7 @@ test('job open retries a refused ask on an acknowledged rig head without overwri
     const handleJobApi = attached.ports.handleJobApi.bind(attached.ports);
     attached.ports.handleJobApi = async request => {
       const body = JSON.parse(await request.clone().text()) as { verb?: string; subject?: { kind?: string } };
-      if (body.verb === 'ask' && body.subject?.kind === 'signoff') {
+      if (body.verb === 'ask' && body.subject?.kind === 'review-verdict') {
         writeFileSync(join(root, 'project.json'), `${JSON.stringify({ ...read(root), stage: 'paused' }, null, 2)}\n`);
       }
       return await handleJobApi(request);
@@ -555,17 +563,29 @@ test('job open retries a refused ask on an acknowledged rig head without overwri
 
   const retried = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: retried.exit, stderr: retried.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(retried.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: asked signoff ${stage}`, `job: already asked review-verdict ${stage}`]);
-  const person = await page(root, opening.url);
+  expect(retried.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: asked review-verdict ${stage}`]);
+  const person = await page(root, opening.url, 1);
   expect((person.head.source as { selector: unknown }).selector).toEqual(selector);
-  expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage }, { kind: 'signoff', stage }]);
-  await person.act('signoff', 'signoff', { stage, decision: 'approved', words: WORDS });
+  expect(person.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage }]);
+  const pendingAgain = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  expect({ exit: pendingAgain.exit, stderr: pendingAgain.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(pendingAgain.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: already asked review-verdict ${stage}`]);
+  const pendingView = await publication(root, opening.url, 1);
+  expect(pendingView.head.publicationId).toBe(person.head.publicationId);
+  expect(pendingView.asks.map(ask => ask.askId)).toEqual(person.asks.map(ask => ask.askId));
+  const answered = await person.act('review-verdict', 'review-verdict', { stage, verdict: 'approved', words: WORDS });
+  expect(answered.askId).toBe(person.asks[0]!.askId);
 
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: already asked review-verdict ${stage}, signoff ${stage}`]);
-  expect((await page(root, opening.url)).asks).toHaveLength(2);
-});
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, `job: ${kind} v${version} already published`, `job: already asked review-verdict ${stage}`]);
+  const answeredView = await publication(root, opening.url, 1);
+  expect(answeredView.head.publicationId).toBe(person.head.publicationId);
+  expect(answeredView.asks.map(ask => ask.askId)).toEqual(person.asks.map(ask => ask.askId));
+  expect(answeredView.asks).toHaveLength(1);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
+  expect(pendingPublications(root)).toEqual([]);
+}, 15_000);
 
 function registeredPost(): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-post-')));

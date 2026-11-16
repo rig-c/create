@@ -2,13 +2,13 @@ import { reviewStdout } from './review-read-fixture.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/review/src/job-contract.ts';
 import { loadPartsView, saveVerdict, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, PARTS_COMMENTS_VERDICT_SCHEMA, projectComments, type JobComment, type JobOwnerHost } from '@rig-c/review/job-host';
-import { openCreateJob, reconcileCreateJob } from '../src/job-host.ts';
+import { openCreateJob, openDraftPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { draftPublishedContext, partsEnumerator, prepareDraftManifest } from '../src/job-publication.ts';
 import { JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -24,7 +24,7 @@ import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
 import { partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
-import { decodeReviewAct, type PartsVerdictActV5 } from '../src/review-act.ts';
+import { decodeReviewAct, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -106,7 +106,7 @@ function expectCliRefused(result: CliResult, code: string, exit = 1): CliResult 
 }
 
 const draftArgs = (id = 'chain') => ['draft-rig', id, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`, '--json'];
-async function bound() {
+async function bound(ready = true) {
   const root = fixture();
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
   hosts.push(host);
@@ -115,7 +115,14 @@ async function bound() {
   expect(host.session.status().publication?.source.selector).toEqual({ kind: 'draft', id: 'chain' });
   expect(host.session.status().publication!.source.parts!.images.map(({ path, role }) => ({ path, role })))
     .toEqual(partsEnumerator.enumerate(join(root, 'derived/drafts/chain/input')));
+  if (ready) await readyForVerdict(root, host);
   return { root, host };
+}
+async function readyForVerdict(root: string, host: JobOwnerHost): Promise<void> {
+  structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], Date.now());
+  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
+  await openDraftPublication(root, host, Date.now(), 'chain');
 }
 async function submit(
   root: string,
@@ -229,6 +236,7 @@ for (const verdict of ['approved', 'changes-requested'] as const) {
     binding.origin = `http://127.0.0.1:${server.port}`;
     writePrivateJson(join(root, JOB_BINDING_FILE), binding, true);
     const initial = read(root); (initial.review_job as JsonObject).origin = binding.origin; write(root, initial);
+    (fresh.source as JsonObject).projectHash = jobHash(readFileSync(join(root, 'project.json')));
     try {
       const args = ['parts-review', '--from-review', String(fresh.actId), '--json'];
       const first = expectCliOk(await cli(root, args));
@@ -271,7 +279,7 @@ for (const verdict of ['approved', 'changes-requested'] as const) {
   }, DUAL_REPLAY_TIMEOUT_MS);
 }
 
-test('bound draft publishes its rows, ingests independent evidence and then signs explicitly', async () => {
+test('bound draft publishes ready evidence and atomically signs from one approval', async () => {
   const { root, host } = await bound();
   const act = await submit(root, host);
   const before = read(root);
@@ -279,7 +287,8 @@ test('bound draft publishes its rows, ingests independent evidence and then sign
   expect(first.stderr).toBe(''); expect(first.exit).toBe(0);
   const result = JSON.parse(first.stdout);
   const project = read(root);
-  expect(project.signoffs).toEqual(before.signoffs); expect(project.stage).toBe(before.stage);
+  expect((project.signoffs as JsonObject[]).slice(0, -1)).toEqual(before.signoffs as JsonObject[]); expect(project.stage).toBe(before.stage);
+  expect((project.signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'parts-review', draft_id: 'chain', checkpoint: null, by: 'user', at: act.at, source: `review act ${act.jobId}/${act.actId}` });
   expect(result.verbatim).toBe('[general]\n  Synthetic parts review.\r\n'); expect(result.by).toBe('user');
   expect(JSON.parse(readFileSync(join(root, result.evidence.path), 'utf8'))).toEqual(act);
   expect(partsActFindings(root, project)).toEqual([]);
@@ -287,8 +296,6 @@ test('bound draft publishes its rows, ingests independent evidence and then sign
   const replay = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
   expect(replay.stdout).toBe(first.stdout);
   expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
-  prepareSignoff(root, result.evidence.path);
-  sign(root, result.evidence.path);
   expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(finding => finding.code)).toEqual(['STAGE_LAGGING']);
 }, MULTI_SPAWN_TIMEOUT_MS);
 
@@ -311,7 +318,7 @@ test('legacy owner-shaped producer verdict retains the structure and signoff gat
 for (const [verdict, part, mesh] of [
   ['approved', 'clean', 'clean'], ['changes-requested', 'flagged', 'clean'],
   ['changes-requested', 'clean', 'flagged'],
-] as const) test(`semantic ${verdict}/${part}/${mesh} retains every outcome without a signoff`, async () => {
+] as const) test(`semantic ${verdict}/${part}/${mesh} retains every outcome and folds only approval`, async () => {
   const { root, host } = await bound();
   const act = await submit(root, host, verdict, part, mesh);
   const before = read(root);
@@ -330,9 +337,11 @@ for (const [verdict, part, mesh] of [
     expect(pointed[0]?.anchor).toMatchObject({ view: { mesh: mesh === 'flagged' } });
   }
   expect(evidence.value.comments.filter(comment => !comment.anchor)).toEqual([{ text: '  Synthetic parts review.\r\n' }]);
-  expect(read(root).signoffs).toEqual(before.signoffs); expect(read(root).stage).toBe(before.stage);
+  const signatures = read(root).signoffs as JsonObject[];
+  expect(signatures.length).toBe((before.signoffs as JsonObject[]).length + (verdict === 'approved' ? 1 : 0));
+  expect(read(root).stage).toBe(before.stage);
   if (verdict !== 'approved') {
-    expect(() => prepareSignoff(root, recorded.evidence.path)).toThrow(expect.objectContaining({ code: 'PARTS_VERDICT_NOT_APPROVED' }));
+    expect(() => sign(root, recorded.evidence.path)).toThrow(expect.objectContaining({ code: 'PARTS_VERDICT_LATEST_NOT_APPROVED' }));
   }
 }, SINGLE_ACT_TIMEOUT_MS);
 
@@ -427,6 +436,7 @@ test('standalone draft without a compiled model publishes through image referenc
   hosts.push(host);
   expect(expectCliOk(await cli(root, draftArgs())).exit).toBe(0);
   expect(host.session.status().publication!.source.model).toBeNull();
+  await readyForVerdict(root, host);
   const act = await submit(root, host);
   expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
 }, SINGLE_ACT_TIMEOUT_MS);
@@ -444,6 +454,7 @@ test('build-root draft binds its own parts inventory and compiled output', async
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
   expect(host.session.status().publication!.source.parts!.manifest.path).toBe('derived/drafts/chain/build/parts.json');
   expect(host.session.status().publication!.source.model!.path).toBe('derived/drafts/chain/build/check/build/skeleton.model.json');
+  await readyForVerdict(root, host);
   const act = await submit(root, host);
   expect(expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId])).exit).toBe(0);
 }, SINGLE_ACT_TIMEOUT_MS);
@@ -489,9 +500,6 @@ test('retained parts approval survives real rigging signoff checkpoint changes a
   const act = await submit(root, host);
   const result = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
   expect(result.exit).toBe(0);
-  const evidence = JSON.parse(result.stdout).evidence.path;
-  prepareSignoff(root, evidence);
-  sign(root, evidence);
   answerRiggingInterview(root);
   const steps = (read(root).plan as JsonObject).steps as JsonObject[];
   const before = steps.find(step => step.id === 'bones')!;
@@ -841,3 +849,130 @@ test('draft publication binds inputs[0] in producer.source, seals it in files, a
     source: 'inputs/painting.png',
   });
 });
+
+
+function expectAtomicRefusal(root: string, code: string, action: () => unknown): void {
+  const before = readFileSync(join(root, 'project.json'));
+  expect(action).toThrow(expect.objectContaining({ code }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(readdirSync(root).filter(name => name.startsWith('.parts-review-'))).toEqual([]);
+}
+
+function ingestSyntheticFetch(root: string, act: JobAct, afterEvidence?: (path: string) => void) {
+  return partsReviewCommand([root, '--from-review', act.actId, '--json'], Date.now(), {
+    fetch: transport => {
+      expect(transport.kind).toBe('parts-verdict');
+      expect(transport.jobId).toBe(act.jobId);
+      expect(transport.actId).toBe(act.actId);
+      return { bytes: JSON.stringify(act) };
+    }, afterEvidence,
+  });
+}
+
+test('fold refuses stale projectHash after a non-draft record change and rolls back receipt and evidence', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  const project = read(root); project.title = 'Changed synthetic title'; write(root, project);
+  let staged = '';
+  expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () => ingestSyntheticFetch(root, act, path => { staged = path; }));
+  expect(staged).not.toBe(''); expect(existsSync(staged)).toBe(false);
+  expect(read(root).review_acts ?? []).toEqual([]);
+}, SINGLE_ACT_TIMEOUT_MS);
+
+for (const broken of ['structure', 'diff'] as const) test(`fold shares the separate signoff ${broken} validation and rolls back atomically`, async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  const target = join(root, broken === 'structure' ? 'evidence/structure-chain.json' : 'evidence/diff-components.json');
+  const original = readFileSync(target);
+  let staged = '';
+  try {
+    expectAtomicRefusal(root, broken === 'structure' ? 'STRUCTURE_DECISIONS_MISSING' : 'DIFF_MAP_REPORT', () => ingestSyntheticFetch(root, act, path => {
+      staged = path; writeFileSync(target, '{}\n');
+    }));
+    expect(existsSync(staged)).toBe(false);
+  } finally { writeFileSync(target, original); }
+}, SINGLE_ACT_TIMEOUT_MS);
+
+test('fold staging exception leaves project bytes and old evidence untouched', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  const before = readFileSync(join(root, 'project.json'));
+  let staged = '';
+  expect(() => ingestSyntheticFetch(root, act, path => { staged = path; throw Error('synthetic staging interruption'); })).toThrow('synthetic staging interruption');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(existsSync(staged)).toBe(false);
+  expect(readdirSync(root).filter(name => name.startsWith('.parts-review-'))).toEqual([]);
+}, SINGLE_ACT_TIMEOUT_MS);
+
+test('fold ledger binds approval authority, draft, evidence and unique signature', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
+  const project = read(root);
+  expect(reviewActFindings(project)).toEqual([]);
+  const receipt = (project.review_acts as JsonObject[]).at(-1)!;
+  const index = Number(receipt.signoff);
+  const signoff = (project.signoffs as JsonObject[])[index]!;
+  expect(signoff.structure).toMatchObject({ path: 'evidence/structure-chain.json' });
+  expect(signoff.evidence).toMatchObject({ path: (receipt.evidence as JsonObject).path, sha256: receipt.sha256, spec: act.schema });
+  for (const [key, value] of Object.entries({ by: 'agent', at: '2020-01-01T00:00:00Z', stage: 'rig-review', draft_id: 'other', verbatim: 'changed', source: 'copied' })) {
+    const changed = structuredClone(project);
+    (changed.signoffs as JsonObject[])[index]![key] = value;
+    expect(reviewActFindings(changed).map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+  }
+  for (const change of [
+    (p: JsonObject) => { (p.signoffs as JsonObject[]).splice(index, 1); },
+    (p: JsonObject) => { (p.signoffs as JsonObject[]).push(structuredClone(signoff)); },
+    (p: JsonObject) => { ((p.signoffs as JsonObject[])[index]!.evidence as JsonObject).sha256 = 'a'.repeat(64); },
+    (p: JsonObject) => { (p.review_acts as JsonObject[])[0]!.signoff = -1; },
+    (p: JsonObject) => { delete (p.review_acts as JsonObject[])[0]!.signoff; },
+  ]) {
+    const changed = structuredClone(project); change(changed);
+    expect(reviewActFindings(changed).map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+  }
+}, SINGLE_ACT_TIMEOUT_MS);
+
+for (const missing of ['arrival', 'effective-stage'] as const) test(`fold refuses ${missing} readiness even with a matching project hash`, async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  const project = read(root);
+  if (missing === 'arrival') project.advances = (project.advances as JsonObject[]).filter(move => move.stage !== 'parts-review');
+  else project.stage = 'parts';
+  write(root, project);
+  const synthetic = { ...act, source: { ...act.source, projectHash: jobHash(readFileSync(join(root, 'project.json'))) } } as JobAct;
+  expectAtomicRefusal(root, 'PARTS_REVIEW_FOLD_NOT_READY', () => ingestSyntheticFetch(root, synthetic));
+}, SINGLE_ACT_TIMEOUT_MS);
+
+test('fold refuses an approval predating the evidence and physical advance', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  const earlier = new Date(Date.parse(String((read(root).diff_map as JsonObject).at)) - 1000).toISOString();
+  expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () => ingestSyntheticFetch(root, { ...act, at: earlier } as JobAct));
+}, SINGLE_ACT_TIMEOUT_MS);
+
+test('historical approved UI receipt stays unsigned on replay and accepts the old separate signoff act', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host);
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
+  // Reconstruct the pre-fold history explicitly, without changing shared receipt fixtures.
+  const historical = read(root);
+  const receipt = (historical.review_acts as JsonObject[]).at(-1)!;
+  (historical.signoffs as JsonObject[]).splice(Number(receipt.signoff), 1);
+  delete receipt.signoff;
+  write(root, historical);
+  const before = readFileSync(join(root, 'project.json'));
+  expect(ingestSyntheticFetch(root, act).exit).toBe(0);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(reviewActFindings(read(root))).toEqual([]);
+  const separate = {
+    ...act, kind: 'signoff', actId: 'historical-separate-signoff', publicationId: 'historical-unretained-publication', at: new Date().toISOString(),
+    source: { ...act.source, projectHash: jobHash(before) },
+    value: { stage: 'parts-review', decision: 'approved', comments: [{ text: 'Separate synthetic approval.' }] },
+  };
+  expect(signoffCommand(['parts-review', root, '--draft', 'chain', '--structure-file', 'evidence/structure-chain.json',
+    '--from-review', separate.actId], Date.now(), { fetch: () => ({ bytes: JSON.stringify(separate) }) }).exit).toBe(0);
+  const project = read(root);
+  expect((project.signoffs as JsonObject[]).at(-1)).toMatchObject({ source: `review act ${act.jobId}/${separate.actId}`, stage: 'parts-review' });
+  expect(reviewActFindings(project)).toEqual([]);
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+}, SINGLE_ACT_TIMEOUT_MS);

@@ -422,6 +422,9 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       "import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';",
       "import { join } from 'node:path';",
       `import { partsReviewCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/parts-review.ts'))};`,
+      `import { structureSnapshotCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/structure-snapshot.ts'))};`,
+      `import { diffClassesCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/diff-classes.ts'))};`,
+      `import { advanceCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/progress-writers.ts'))};`,
       `import { signoffCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/signoff.ts'))};`,
       `import { recordReviewAct } from ${JSON.stringify(join(linkedWs.createRoot, 'src/feedback.ts'))};`,
       `import { interviewAnswerCommand } from ${JSON.stringify(join(linkedWs.createRoot, 'src/choice-writers.ts'))};`,
@@ -469,6 +472,10 @@ test('all six review-act-runtime and parts-review-cli child launchers propagate 
       '{',
       '  const root = join(runRoot, "1-parts-act");',
       '  cpSync(join(repoRoot, "templates/example-chain/checkpoints/1-parts-verdict"), root, { recursive: true });',
+      '  cpSync(join(repoRoot, "templates/example-chain/evidence/diff-components.json"), join(root, "evidence/diff-components.json"));',
+      '  structureSnapshotCommand([root, "--draft", "chain", "--out", "evidence/structure-chain.json"]);',
+      '  diffClassesCommand([root, "--diff-report", "evidence/diff-components.json", "--by", "agent"], Date.parse(at) - 1000);',
+      '  advanceCommand(["parts-review", root, "--parts-check", "evidence/parts-check.json", "--parts", "derived/drafts/chain/input"], Date.parse(at) - 1000);',
       '  bindJob(root);',
       '  const project = readProject(root);',
       '  const manifestFile = prepareDraftManifest(root, project, "chain");',
@@ -841,7 +848,7 @@ for (const [label, execFlags] of [
     reader.releaseLock();
     const lines = text.trim().split('\n');
     expect(lines[0]).toStartWith('http://127.0.0.1:');
-    expect(lines.slice(1)).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+    expect(lines.slice(1)).toEqual(['job: draft chain published']);
 
     const drafted = Bun.spawnSync(
       [
@@ -863,7 +870,6 @@ for (const [label, execFlags] of [
     expect({ exit: drafted.exitCode, stderr: drafted.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
     expect(drafted.stdout.toString('utf8').trim().split('\n')).toEqual([
       'draft-rig: recorded chain-2; no production version created',
-      'job: asked parts-verdict chain-2',
     ]);
 
     const reconciled = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'reconcile', projectRoot], {

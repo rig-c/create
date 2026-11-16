@@ -479,6 +479,13 @@ export function reviewActSignoff(act: SignoffAct): JsonObject {
     at: act.at, verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
+/** An approved parts verdict carries the same person's authority for its stage signature. */
+export function partsVerdictSignoff(act: PartsVerdictAct): JsonObject {
+  return { stage: 'parts-review', checkpoint: null, draft_id: act.source.selector.id,
+    by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
+    verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
+}
+
 /**
  * create's own check that the act answers a subject its publication declared. The
  * acknowledged receipt keeps the subjects create published; a receipt that predates
@@ -544,6 +551,19 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
       seen.add(key);
       if (act.kind === 'parts-verdict') {
         if (entry.draft_id !== act.source.selector.id || !file(entry.evidence) || entry.evidence.sha256 !== entry.sha256) failure('REVIEW_ACT_LEDGER_INVALID', 'parts receipt target differs from its act');
+        // Older separate approvals have no folded mapping and keep their original route.
+        const expected = partsVerdictSignoff(act);
+        const named = asArray(project.signoffs).filter(object).filter(row => row.source === expected.source);
+        if (entry.signoff !== undefined || named.length > 0) {
+          const signoff = Number.isSafeInteger(entry.signoff) && Number(entry.signoff) >= 0 ? asArray(project.signoffs)[Number(entry.signoff)] : null;
+          if (act.value.verdict !== 'approved' || !object(signoff) || named.length !== 1 || named[0] !== signoff
+            || Object.entries(expected).some(([key, value]) => signoff[key] !== value)
+            || !object(signoff.evidence) || signoff.evidence.kind !== 'parts-verdict'
+            || signoff.evidence.path !== entry.evidence.path || signoff.evidence.sha256 !== entry.sha256
+            || signoff.evidence.spec !== act.schema) {
+            failure('REVIEW_ACT_LEDGER_INVALID', 'folded parts signature differs from its approved verdict');
+          }
+        }
         return;
       }
       if (act.kind === 'interview-picks') {

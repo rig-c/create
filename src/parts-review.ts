@@ -1,5 +1,6 @@
 import { assertPartsCliArgs, assertPartsReadDraft, decodePartsRead, partsReadFindings, partsVerdictNames, PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
-/** A parts verdict is recorded independently of signoff and stage progression. */
+/** Approved live parts verdicts atomically record their parts-review signature. */
+import { foldPartsSignoff } from './parts-signoff.ts';
 import { randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -7,7 +8,7 @@ import { readProject } from './feedback.ts';
 import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, reviewActVerbatim } from './review-act.ts';
+import { decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, reviewActVerbatim, type ReviewActTransport } from './review-act.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -16,6 +17,8 @@ import type { JsonObject } from './templates.ts';
 export const PARTS_REVIEW_HELP = 'parts-review [<project>] --from-review <actId> [--json] | parts-review [<project>] --draft <id> --from-review-cli --by <name> [--json] -- <rig-review parts arguments>';
 export interface PartsReviewHooks {
   afterEvidence?: (path: string) => void;
+  /** Test adapter for finalized act fetches; decoding and request identity still apply. */
+  fetch?: (transport: ReviewActTransport) => { bytes: string };
   /** Replaces Review's resolution and spawn; the exit code and tool identity are still checked. */
   runCli?: ReviewReadRunner;
 }
@@ -58,8 +61,9 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
   const temporary = join(root, `.parts-review-${randomUUID()}.tmp`);
   try {
     const transport = { ...reviewActTransport(root, actId!), kind: 'parts-verdict' as const };
-    const response = { bytes: fetchReviewActBytes(transport) };
+    const response = hooks.fetch ? hooks.fetch(transport) : { bytes: fetchReviewActBytes(transport) };
     const act = decodeReviewAct(response.bytes, 'parts-verdict');
+    if (act.jobId !== transport.jobId || act.actId !== transport.actId) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: fetched parts verdict differs from the requested identity; fetch the correct act');
     if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
     const { file } = readProject(root);
     const original = readFileSync(file);
@@ -114,7 +118,9 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
       next.review_acts = [...(project.review_acts as JsonObject[] ?? []), { schema: 'rig-create/review-act@1', kind: 'parts-verdict',
         jobId: act.jobId, actId: act.actId, draft_id: act.source.selector.id, version_hash: hash,
         bytes: response.bytes, sha256: evidence.sha256, evidence }];
-      const failure = [...reviewActFindings(next), ...partsActFindings(root, next), ...newRefusals(root, project, next, { now })][0];
+      const folded = act.value.verdict === 'approved';
+      if (folded) foldPartsSignoff(root, project, next, act, original, now);
+      const failure = [...reviewActFindings(next), ...partsActFindings(root, next), ...(folded ? [] : newRefusals(root, project, next, { now }))][0];
       if (failure) refuse(failure.code, failure.message);
       assertPartsActSource(root, project, act);
       if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during parts verdict validation; retry against the current job');

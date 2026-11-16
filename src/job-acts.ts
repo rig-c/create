@@ -68,6 +68,16 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         if (selector?.kind === 'draft') {
           subject = `draft ${selector.id}`;
           args = ['parts-review', root];
+          if (act.value.verdict === 'approved') {
+            const structure = partsStructureSnapshot(root, project, selector.id);
+            const missing: string[] = [];
+            if (!structure.valid) missing.push(`retained structure snapshot ${structure.path}`);
+            if (!isObject(project.diff_map)) missing.push('diff-components evidence and diff-classes');
+            if (!asArray(project.advances).some(row => isObject(row) && row.stage === 'parts-review' && isObject(row.parts_check))) missing.push('recorded check-parts evidence');
+            if (project.stage !== 'parts-review') missing.push('advance parts-review');
+            if (missing.length) preconditions.push({ command: null,
+              act: `missing ${missing.join(', ')}; prepare all evidence and advance before publishing the draft and asking for a new parts-verdict; changing project.json after this act makes its projectHash stale` });
+          }
         }
         break;
       }
@@ -90,10 +100,10 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
           const structure = partsStructureSnapshot(root, project, draft);
           let approved = false;
           try { recordedPartsVerdict(root, project, draft); approved = true; } catch { /* Ordered prerequisite below. */ }
-          if (!approved) preconditions.push({ command: null, act: `ingest the approved parts-verdict for draft ${draft} before structure-snapshot; use its job acts writer command` });
+          if (!approved) preconditions.push({ command: null, act: `this separate signoff route is only for a midflight approved parts-verdict already ingested unsigned for draft ${draft}; otherwise prepare evidence and advance, republish the draft and ask for one parts-verdict` });
           if (!structure.valid) preconditions.push({
             command: ['rig-create', 'structure-snapshot', root, '--draft', draft, '--out', structure.path].map(shellWord).join(' '),
-            act: 'after ingesting the approved parts-verdict, retain the structure snapshot before signoff',
+            act: 'retain the structure snapshot from the draft; no verdict is required to create it',
           });
           args.push('--draft', draft, '--structure-file', structure.path);
         }

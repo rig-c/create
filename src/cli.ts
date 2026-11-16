@@ -97,9 +97,9 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
                                                     record labelled draft artifacts without building or promoting
   rig-create parts-review [<dir>] --from-review <actId> [--json]
-                                                    retain the semantic parts verdict as an independent write
+                                                    retain the parts verdict; approval also signs parts-review
   rig-create structure-snapshot [<dir>] --draft <id> --out <path>
-                                                    write the parts-review structure snapshot from the approved draft
+                                                    prepare the parts-review structure snapshot before the verdict
   rig-create review-package <n> [<dir>] --config <path> --from <build out dir>
                                                     copy producer inputs and record the review open command
   rig-create rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <dir> …

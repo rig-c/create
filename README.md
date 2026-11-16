@@ -103,12 +103,28 @@ rig-create job open <project dir> --reviewer <id> --role owner --plan
 rig-create job acts <project dir>
 rig-create signoff plan-approved --from-review <actId> <project dir>
 rig-create parts-review <project dir> --from-review <actId>
-rig-create structure-snapshot <project dir> --draft <id> --out evidence/structure-decisions.json
-rig-create signoff parts-review --from-review <actId> --draft <id> --structure-file evidence/structure-decisions.json <project dir>
 rig-create review <version> --from-review <actId> <project dir>
 ```
 
-The commands illustrate separate acts; publish the matching subject before each
+The owner is asked for a parts verdict only at `parts-review`. As soon as the
+first draft has the agent's `check-parts` report, structure snapshot,
+`diff-components` report and `diff-classes` classifications, advance to
+`parts-review`. Draft registration publishes inventory before the verdict ask;
+publish the prepared draft with `job open --draft <id>` and ask for one
+`parts-verdict`.
+
+Stay at `parts-review` throughout retouch rounds. Changes-requested leaves the
+stage unsigned: the agent makes an `edited_parts` correction, registers a new
+draft and prepares fresh reports, snapshot and classifications for that draft.
+Open the new draft and ask for one new verdict. This correction loop requires
+no owner reopen, separate signoff or move back to `parts`. Ingesting an approved
+UI verdict atomically records its receipt and the parts-review signature.
+Finish each draft's record changes before publishing: a stale `projectHash`
+refuses ingestion. See [the live Review flow](docs/LIVE-REVIEW.md) for the order.
+
+Only a midflight approved verdict already ingested unsigned uses the separate
+`signoff parts-review --from-review <actId> --draft <id> --structure-file <path>`
+route. Other stages keep their existing acts. Publish the matching subject before each
 human act. Keep the Review host up across bound writes. If it stops, `job open`
 again with reviewer/role, then `job reconcile` before more writes. `--rig <n>`
 selects either a rig or a post version.

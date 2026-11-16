@@ -1,30 +1,26 @@
 import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
+import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
 import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
 import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
-import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { assertInterviewRecordSignable, checkpointProblem } from './signable.ts';
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { resolve } from 'node:path';
 import { jobHash } from './job-outbox.ts';
 import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordDirectionSignoff, isRecordInterviewSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
-import { asArray, checkProject, classify, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
-import { checkDiffMap } from './diff-map.ts';
+import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
-import { checkStructure, riggingContext, structurePathIsIgnored } from './structure.ts';
+import { riggingContext } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, RIG_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
 import { assertRigReviewSignable } from './review.ts';
-import { furthestStageSignoff } from './stage-progress.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -203,9 +199,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     }
   }
   if (stage === PARTS_REVIEW && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
-  let evidence: JsonObject | undefined;
-  const recorded = stage === PARTS_REVIEW ? recordedPartsVerdict(dir, project, opts['--draft']) : undefined;
-  evidence = recorded?.evidence;
+  // Preserve refusal-before-words on the separate signing route.
+  if (stage === PARTS_REVIEW) recordedPartsVerdict(dir, project, opts['--draft']);
   if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
   const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
   if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved, rigging-interview or post-interview', USAGE_EXIT);
@@ -242,7 +237,6 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const signoff: JsonObject = { stage, checkpoint: checkpointId ?? null, by, at, verbatim };
   if (chat) { signoff.source = chat.source!; signoff.said_at = chat.said_at!; signoff.relayed_by = chat.relayed_by!; }
   if (review !== undefined) signoff.source = review.human.source!;
-  if (evidence !== undefined) signoff.evidence = evidence;
   if (phase !== undefined) {
     signoff.steps = ids;
     signoff.step_hashes = hashes;
@@ -250,26 +244,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const answerHashes = selectAnswerHashes(dir, project, signoff);
   if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
   if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) signoff.draft_id = opts['--draft'];
-  if (stage === PARTS_REVIEW && checkpointId === undefined) {
-    const errors: Finding[] = [];
-    checkDiffMap(dir, signoff, `signoffs[${project.signoffs.length}]`, recorded?.partsFile, errors, [], project);
-    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
-  }
-  if (stage === PARTS_REVIEW && (hasStageOrder(project) || opts['--structure-file'] !== undefined)) {
-    const path = opts['--structure-file'];
-    if (path !== undefined) {
-      try {
-        if (structurePathIsIgnored(dir, path)) throw new Error('structure snapshots must survive a clone; retain the file outside ignored roots, for example evidence/');
-        const canonical = realpathSync(resolve(dir, path));
-        const rel = relative(realpathSync(dir), canonical).split(sep).join('/');
-        if (isAbsolute(path) || rel === '' || rel === '..' || rel.startsWith('../')) throw new Error('structure file must stay under the project');
-        signoff.structure = { path: rel, sha256: createHash('sha256').update(readFileSync(canonical)).digest('hex') };
-      } catch (error) { refuse('STRUCTURE_DECISIONS_INVALID', `signoffs.structure: ${error instanceof Error ? error.message : String(error)}; retain the structure snapshot under the project`); }
-    }
-    const errors: Finding[] = [];
-    checkStructure(dir, project, signoff, `signoffs[${project.signoffs.length}]`, errors);
-    if (errors[0] !== undefined) refuse(errors[0].code, errors[0].message);
-  }
+  if (stage === PARTS_REVIEW) bindPartsSignoff(dir, project, signoff, opts['--structure-file']);
   if (stage === 'rigging-interview') {
     const errors: Finding[] = [];
     const context = riggingContext(dir, project, at, errors);
@@ -302,26 +277,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   const pair = signoffPairFinding(project, signoff, `signoffs[${project.signoffs.length - 1}]`, true);
   if (pair) refuse(pair.code, pair.message);
-  const reopens = collectReopens(project, []);
-  const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
-  const ownLag = signoff.checkpoint === null && frontier?.index === project.signoffs.length - 1;
-  const candidateRefusals = checkProject(dir, project, { now }).refusals;
-  // Refusals the record already carried do not block the signature (docs/PROJECT.md); a new one does.
-  const fresh = new Set(newFindings(baselineOf(asRead), candidateRefusals));
-  const pendingOwnAdvance = (finding: Finding): boolean => ownLag && finding.code === 'STAGE_LAGGING';
-  const progress = candidateRefusals.find(f => ['STAGE_LAGGING', 'STAGE_SKIPPED', 'STAGE_SIGNOFF_DATE_INVALID', 'ADVANCE_MALFORMED', 'STEP_STATUS_TRANSITION', 'STEP_STATUS_SIGNOFF'].includes(f.code) && !pendingOwnAdvance(f) && fresh.has(f));
-  if (progress !== undefined) refuse(progress.code, progress.message);
-  if (hasStageOrder(project) || signoff.structure !== undefined || project.amendments !== undefined) {
-    const path = `signoffs[${project.signoffs.length - 1}]`;
-    const first = candidateRefusals.find(f => {
-      if (pendingOwnAdvance(f)) return false;
-      if (f.code.startsWith('SIGNOFF_ANSWERS_')) return f.path.startsWith(`${path}.`);
-      // A covered step this signature leaves unapproved is its own failure, even when the record carried it.
-      if (f.code === 'GUIDE_CHANGED_UNSIGNED') return covered.some(step => f.path === `plan.steps[${String(step.id)}]`);
-      return fresh.has(f);
-    });
-    if (first !== undefined) refuse(first.code, first.message);
-  }
+  assertSignoffCandidate(dir, asRead, project, signoff, covered, now);
   if (ingest) commitIngestedSignoff(file, original!, project);
   else {
     if (review !== undefined && !readFileSync(file).equals(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during signoff validation; retry against the current live job');

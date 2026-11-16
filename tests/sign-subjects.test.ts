@@ -10,6 +10,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostOptions, type JobOwnerHost, type JobSubject } from '@rig-c/review/job-host';
 import { checkProject } from '../src/check.ts';
+import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
+import { diffClassesCommand } from '../src/diff-classes.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
 import { openCreateJob, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { draftPublicationResult, jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, type PublicationSubject } from '../src/job-outbox.ts';
@@ -92,6 +95,14 @@ function partsAtCheckpoint(): string {
     (assemble.status_history as JsonObject[]).pop();
   });
 }
+function preparedParts(): string {
+  const root = copy('1-parts-verdict');
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], Date.now());
+  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
+  return root;
+}
 const draftArgs = ['draft-rig', 'chain', '--config', 'derived/drafts/chain/config.json', '--from', 'derived/drafts/chain/out', '--parts', 'derived/drafts/chain/input', '--json'];
 
 test('a rig version published in rig-review carries its stage sign-off, and the act signs the displayed version', async () => {
@@ -132,7 +143,7 @@ test('a draft published at an enabled parts checkpoint carries it, and the passe
   const drafted = await cli(root, draftArgs);
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
   // seethrough's checkpoint is off and parts is a bar stage, so neither is declared.
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }, { kind: 'checkpoint', checkpointId: 'assemble' }]);
+  expect(declared(root, host)).toEqual([{ kind: 'checkpoint', checkpointId: 'assemble' }]);
   expect((await ask(host, { kind: 'checkpoint', checkpointId: 'seethrough' })).error?.code).toBe('JOB_ASK_INVALID');
   const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
   expect(asked.ok).toBe(true);
@@ -162,7 +173,7 @@ test('an act for a subject create did not declare refuses by name and leaves the
   const host = await open(root, wider);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root, entry => publishPending(entry, undefined, undefined, wider))).toBe(1);
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }, { kind: 'checkpoint', checkpointId: 'assemble' }]);
+  expect(declared(root, host)).toEqual([{ kind: 'checkpoint', checkpointId: 'assemble' }]);
   const asked = await ask(host, { kind: 'signoff', stage: 'interview' });
   expect(asked.error).toBeUndefined();
   const planted = await (await page(host)).act(String(asked.value.askId), 'signoff', { stage: 'interview', decision: 'approved', words: WORDS });
@@ -207,7 +218,7 @@ test('a target stage needs its own version kind and a plan-bound stage needs pla
 });
 
 test('bar: parts-verdict is not declared once the verdict for the draft is ingested', async () => {
-  const root = copy('1-parts-verdict');
+  const root = preparedParts();
   const host = await open(root);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
@@ -227,19 +238,12 @@ test('bar: parts-verdict is not declared once the verdict for the draft is inges
 });
 
 test('bar: parts-verdict is declared when the draft has no receipt or a new draft is recorded', async () => {
-  const root = copy('1-parts-verdict');
+  const root = preparedParts();
   const host = await open(root);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
   // Initial draft with no receipt declares parts-verdict.
   expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
-  const verdictAsk = await ask(host, { kind: 'parts-verdict', draftId: 'chain' });
-  const verdict = await (await page(host)).act(String(verdictAsk.value.askId), 'parts-verdict', {
-    verdict: 'approved',
-    issues: [],
-    words: WORDS,
-  });
-  expect((await cli(root, ['parts-review', root, '--from-review', String(verdict.actId), '--json'])).exit).toBe(0);
   // Recording a new draft through draft-rig publishes it and declares parts-verdict for the new draft id.
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/chain-2'), { recursive: true });
   const drafted = await cli(root, [
@@ -250,6 +254,11 @@ test('bar: parts-verdict is declared when the draft has no receipt or a new draf
     '--json',
   ]);
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
+  // The new inventory waits until its own retained structure evidence exists.
+  expect(declared(root, host)).toEqual([]);
+  structureSnapshotCommand([root, '--draft', 'chain-2', '--out', 'evidence/structure-chain-2.json']);
+  enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain-2'));
+  expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
 });
 
@@ -329,7 +338,6 @@ test('bar: checkpoint is not declared once the step is signed and its signature 
   const host = await open(root);
   expect((await cli(root, draftArgs)).exit).toBe(0);
   expect(declared(root, host)).toEqual([
-    { kind: 'parts-verdict', draftId: 'chain' },
     { kind: 'checkpoint', checkpointId: 'assemble' },
   ]);
   const asked = await ask(host, { kind: 'checkpoint', checkpointId: 'assemble' });
@@ -338,7 +346,7 @@ test('bar: checkpoint is not declared once the step is signed and its signature 
   expect({ exit: signed.exit, stderr: signed.stderr }).toEqual({ exit: 0, stderr: '' });
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect(declared(root, host)).toEqual([]);
 });
 
 test('bar: checkpoint is declared when its signature lapsed or the stage was reopened', async () => {
@@ -350,13 +358,12 @@ test('bar: checkpoint is declared when its signature lapsed or the stage was reo
   expect((await cli(root, ['signoff', 'parts', root, '--checkpoint', 'assemble', '--from-review', String(passed.actId), '--json'])).exit).toBe(0);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
-  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+  expect(declared(root, host)).toEqual([]);
   const reopened = await cli(root, ['reopen', 'parts', root, '--by', 'user', '--verbatim-file', 'evidence/approval.txt', '--json']);
   expect({ exit: reopened.exit, stderr: reopened.stderr }).toEqual({ exit: 0, stderr: '' });
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([
-    { kind: 'parts-verdict', draftId: 'chain' },
     { kind: 'checkpoint', checkpointId: 'assemble' },
   ]);
 });

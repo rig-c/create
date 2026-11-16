@@ -1,8 +1,8 @@
 /**
  * The parts-review structure-decisions snapshot, written from the bound draft
  * (rig-c/create#229). The parts verdict names no per-declaration approval: an
- * approved verdict approves the reviewed draft, so the snapshot carries every
- * `meshes.<part>` declaration of that draft's config, copied exactly. The
+ * approved verdict approves the reviewed draft. Prepared before that verdict,
+ * the snapshot carries every `meshes.<part>` declaration of its config exactly. The
  * writer measures and derives no mesh.
  */
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,6 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
-import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { retainedJson, STRUCTURE_SCHEMA, structurePathIsIgnored, validateStructureSnapshot } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -20,10 +19,10 @@ export const STRUCTURE_SNAPSHOT_HELP = `structure-snapshot:
   [<project dir>] --draft <id> --out <path>
   Write ${STRUCTURE_SCHEMA} from the recorded draft <id>: one entry per
   meshes.<part> of its config, copied exactly, or entries:[] without meshes.
-  The latest recorded parts-review API receipt for --draft must approve it.
+  Prepare this evidence before publishing the draft for its parts verdict.
   --out is project-relative and outside ignored roots, for example evidence/.
   Writes only --out; an existing --out with the same bytes is left as it is.
-  Pass the same --draft and --out to signoff parts-review --structure-file.`;
+  Parts verdict ingestion retains this snapshot with the folded stage signature.`;
 
 const pointer = (part: string): string => `/meshes/${part.replaceAll('~', '~0').replaceAll('/', '~1')}`;
 
@@ -85,8 +84,6 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
   try { config = retainedJson(dir, draft.config); } catch (error) {
     refuse('STRUCTURE_SNAPSHOT_CONFIG_CHANGED', `drafts[${index}].config: ${error instanceof Error ? error.message : String(error)}; the snapshot copies the config the draft recorded, so restore those bytes, or record the changed config as a new draft with draft-rig and review it`);
   }
-
-  recordedPartsVerdict(dir, project, draftId);
 
   const meshes = config.meshes;
   if (meshes !== undefined && !isObject(meshes)) refuse('STRUCTURE_DECISIONS_INVALID', `drafts[${index}].config meshes: expected an object of part declarations; review the labelled draft, retain its exact structure decisions, and sign again`);

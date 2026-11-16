@@ -16,7 +16,7 @@
   },
   {
     "file": "tests/parts-act.test.ts",
-    "name": "bound draft publishes its rows, ingests independent evidence and then signs explicitly",
+    "name": "bound draft publishes ready evidence and atomically signs from one approval",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
@@ -26,17 +26,17 @@
   },
   {
     "file": "tests/parts-act.test.ts",
-    "name": "semantic approved/clean/clean retains every outcome without a signoff",
+    "name": "semantic approved/clean/clean retains every outcome and folds only approval",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
     "file": "tests/parts-act.test.ts",
-    "name": "semantic changes-requested/flagged/clean retains every outcome without a signoff",
+    "name": "semantic changes-requested/flagged/clean retains every outcome and folds only approval",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
     "file": "tests/parts-act.test.ts",
-    "name": "semantic changes-requested/clean/flagged retains every outcome without a signoff",
+    "name": "semantic changes-requested/clean/flagged retains every outcome and folds only approval",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
@@ -146,7 +146,7 @@
   },
   {
     "file": "tests/job-refresh.test.ts",
-    "name": "parts-review verdict -> ingest -> triage -> job open refresh -> UI signoff -> ingest succeeds after JOB_RECORD_MOVED on the pre-triage publication",
+    "name": "legacy approved unsigned parts refresh preserves JOB_RECORD_MOVED and the separate signoff route",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {
@@ -166,8 +166,8 @@
   },
   {
     "file": "tests/next.test.ts",
-    "name": "plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
-    "displayName": "Frozen Bar 5 \u2014 Plants (lapsed approval, changed bound input DRAFT_RIG_FILE, accepted project) > plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move",
+    "name": "plant 5 (parts-verdict receipts): legacy CLI approval retains snapshot repair; API approval follows prepared evidence",
+    "displayName": "Frozen Bar 5 \u2014 Plants (lapsed approval, changed bound input DRAFT_RIG_FILE, accepted project) > plant 5 (parts-verdict receipts): legacy CLI approval retains snapshot repair; API approval follows prepared evidence",
     "reason": "Exercises published Review behavior under sibling source resolution"
   },
   {

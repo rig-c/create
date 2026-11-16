@@ -2,7 +2,9 @@ import { optionFile } from './choices.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from './check-reads.ts';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
+import { isDeepStrictEqual } from 'node:util';
+import { publicationFile } from './job-publication.ts';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import {
   asArray,
@@ -28,8 +30,8 @@ import {
 } from './diff-map.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
 import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
-import { isPartsCheckMove, partsCheckRecord } from './parts-check.ts';
-import { recordedPartsVerdict } from './parts-verdict-record.ts';
+import { isPartsCheckMove, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
+import { latestPartsVerdictStatus, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { pausedFrom } from './pause.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -260,7 +262,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
     ...chatMoves,
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'host this Review page; keep the host running in a separate terminal until job close'),
     move,
-    agent(`rig-create job acts ${root} --json`, `after the person submits in Review, list exported acts and use the matching actId below${act.stage === 'parts-review' ? '; run its reported preconditions before ingestion (parts-review signoff includes structure-snapshot)' : ''}`),
+    agent(`rig-create job acts ${root} --json`, `after the person submits in Review, list exported acts and use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : act.stage === 'parts-review' ? '; run its reported legacy signoff preconditions before ingestion' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
     agent(`rig-create job close ${root}`, 'after successful ingestion, close this job before opening the next Review page'),
   ];
@@ -539,6 +541,7 @@ function resolveDiffComponentsMove(
   draftId: string,
   partsRoot: string,
   paintingPath: string,
+  reportPath = 'evidence/diff-components.json',
 ): { command: string; act: string } {
   const draftReportPath = `derived/drafts/${draftId}/diff-components.json`;
   let draftReport: JsonObject | null = null;
@@ -576,8 +579,8 @@ function resolveDiffComponentsMove(
         const recordedPaintingSha = (draftReport.painting as { sha256: string }).sha256;
         if (stackSha === recordedStackSha && paintingSha === recordedPaintingSha) {
           return {
-            command: `cp ${shellWord(resolve(dir, draftReportPath))} ${shellWord(resolve(dir, 'evidence/diff-components.json'))}`,
-            act: `copy ${draftReportPath} for drafts[${draftId}] to evidence/diff-components.json`,
+            command: `cp ${shellWord(resolve(dir, draftReportPath))} ${shellWord(resolve(dir, reportPath))}`,
+            act: `copy ${draftReportPath} for drafts[${draftId}] to ${reportPath}`,
           };
         }
       }
@@ -588,13 +591,12 @@ function resolveDiffComponentsMove(
 
   const figureFlag = figureMaskPath !== undefined ? ` --figure ${shellWord(resolve(dir, figureMaskPath))}` : '';
   return {
-    command: `rig-parts diff-components --stack ${shellWord(resolve(dir, stackPath))} --painting ${shellWord(resolve(dir, paintingPath))} --parts ${shellWord(resolve(dir, partsRoot, 'parts.json'))}${figureFlag} --floor 2 --threshold 40 --out ${shellWord(resolve(dir, 'evidence/diff-components.json'))}`,
+    command: `rig-parts diff-components --stack ${shellWord(resolve(dir, stackPath))} --painting ${shellWord(resolve(dir, paintingPath))} --parts ${shellWord(resolve(dir, partsRoot, 'parts.json'))}${figureFlag} --floor 2 --threshold 40 --out ${shellWord(resolve(dir, reportPath))}`,
     act: `run rig-parts diff-components for drafts[${draftId}]`,
   };
 }
 
-function hasValidDiffMap(dir: string, project: JsonObject): boolean {
-  const partsFile = resolveDiffMapPartsFile(dir, project);
+function hasValidDiffMap(dir: string, project: JsonObject, partsFile = resolveDiffMapPartsFile(dir, project)): boolean {
   if (isObject(project.diff_map)) {
     const errors: Finding[] = [];
     validateDiffMapRecord(dir, project.diff_map, 'diff_map', partsFile, errors, {
@@ -621,19 +623,85 @@ function hasValidDiffMap(dir: string, project: JsonObject): boolean {
   return false;
 }
 
-function resolveDiffClassesCommand(dir: string): string {
-  if (!existsSync(join(dir, 'evidence/diff-triage.json'))) {
+function resolveDiffClassesCommand(dir: string, reportPath = 'evidence/diff-components.json', triagePath = 'evidence/diff-triage.json'): string {
+  if (!existsSync(join(dir, triagePath))) {
     try {
-      const bytes = diffReportBytes(dir, 'evidence/diff-components.json');
+      const bytes = diffReportBytes(dir, reportPath);
       const parsed = JSON.parse(bytes.toString('utf8')) as Json;
       if (isObject(parsed) && reportShape(parsed) && (parsed.components as unknown[]).length === 0) {
-        return `rig-create diff-classes ${shellWord(dir)} --diff-report evidence/diff-components.json --by agent`;
+        return `rig-create diff-classes ${shellWord(dir)} --diff-report ${shellWord(reportPath)} --by agent`;
       }
     } catch {
       // Fall through to default command with --triage-file.
     }
   }
-  return `rig-create diff-classes ${shellWord(dir)} --diff-report evidence/diff-components.json --triage-file evidence/diff-triage.json --by agent`;
+  return `rig-create diff-classes ${shellWord(dir)} --diff-report ${shellWord(reportPath)} --triage-file ${shellWord(triagePath)} --by agent`;
+}
+
+function partsEvidencePaths(draftId: string, retouch: boolean): { directory: string; check: string; diff: string; triage: string } {
+  const directory = retouch ? `evidence/parts-${encodeURIComponent(draftId)}` : 'evidence';
+  return { directory, check: `${directory}/parts-check.json`, diff: `${directory}/diff-components.json`, triage: `${directory}/diff-triage.json` };
+}
+
+function hasCurrentPartsCheck(dir: string, report: string, partsRoot: string): boolean {
+  try {
+    const read = partsCheckRecord(dir, report, partsRoot, report);
+    return !('refusal' in read) && partsCheckFindings(dir, read.record, report, true).length === 0;
+  } catch { return false; }
+}
+
+/** An occupied path is never a fresh producer destination, including dangling links. */
+function retouchPathExists(dir: string, path: string): boolean {
+  try { lstatSync(resolve(dir, path)); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ENOENT'; }
+}
+
+/** Resume a related prepared config, without treating it as producer provenance or approval. */
+function preparedPartsRetouch(dir: string, draft: JsonObject, id: string): boolean {
+  try {
+    if (!isObject(draft.config) || typeof draft.config.path !== 'string') return false;
+    const root = realpathSync(dir);
+    const source = publicationFile(root, draft.config.path);
+    if (createHash('sha256').update(source).digest('hex') !== draft.config.sha256) return false;
+    const previous: Json = JSON.parse(source.toString('utf8'));
+    const pending: Json = JSON.parse(publicationFile(root, `derived/drafts/${id}/config.json`).toString('utf8'));
+    if (!isObject(previous) || !isObject(previous.assemble) || !isObject(pending) || !isObject(pending.assemble)) return false;
+    // Keep the source configuration fixed; the producer validates the edited_parts declaration.
+    delete previous.assemble.edited_parts;
+    delete pending.assemble.edited_parts;
+    return isDeepStrictEqual(previous, pending);
+  } catch { return false; }
+}
+
+function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject): NextMove[] {
+  const ids = new Set(asArray(project.drafts).filter(isObject).map(row => String(row.id)));
+  let id: string;
+  let suffix = 1;
+  do {
+    const tail = `-retouch-${suffix++}`;
+    id = `${String(draft.id).slice(0, 64 - tail.length)}${tail}`;
+  } while (ids.has(id) || retouchPathExists(dir, `derived/drafts/${id}`) && !preparedPartsRetouch(dir, draft, id));
+  const root = `derived/drafts/${id}`;
+  const build = `${root}/build`;
+  const prepared = retouchPathExists(dir, root);
+  const existingBuild = retouchPathExists(dir, build);
+  const evidence = partsEvidencePaths(id, true);
+  const painting = asArray(project.inputs).filter(isObject)[0]?.path;
+  const paintingPath = typeof painting === 'string' ? painting : '<painting.png>';
+  const move = (role: NextRole, field: string, command: string | null, act: string): NextMove => ({ role, field, awaits: `drafts[${id}]`, command, act });
+  const diff = resolveDiffComponentsMove(dir, id, build, paintingPath, evidence.diff);
+  return [
+    move('agent', `drafts[${id}].config`, null, `Draft ${String(draft.id)} requests changes. Retain it and its verdict and evidence; keep parts-review throughout. ${prepared ? `Resume ${root}/config.json without replacing the prepared config or its inputs; it matches the previous config outside assemble.edited_parts. The producer and draft writer still validate its contents. Original config:` : `Prepare ${root}/config.json from`} ${String(isObject(draft.config) ? draft.config.path : '<previous config>')}, preserving source input bindings and declaring assemble.edited_parts with dir and per-file receipts (part, file, from_sha256, sha256, editor) for the retouch against the painting. Do not replace the old draft's files.`),
+    ...(existingBuild
+      ? [move('agent', `drafts[${id}].parts`, null, `Preserve the existing ${build} entry; do not rerun build over it. Try the draft-rig registration below to validate retained output. If incomplete or unrelated, inspect it and choose a separate output target rather than overwriting it.`)]
+      : [move('producer', `drafts[${id}].parts`, `rig-parts build --config ${shellWord(resolve(dir, root, 'config.json'))} --source ${shellWord(resolve(dir, paintingPath))} --full '<source layers dir or PSD>' --out ${shellWord(resolve(dir, build))}`, 'build the edited_parts draft from its source layers; preserve any required head/source arguments and stop on producer refusals')]),
+    move('agent', 'drafts', `rig-create draft-rig ${shellWord(id)} ${shellWord(dir)} --config ${shellWord(`${root}/config.json`)} --from ${shellWord(build)}`, `register NEW draft ${id}; inventory only, without asking for a verdict yet`),
+    move('producer', `drafts[${id}].parts`, `rig-parts check-parts --parts ${shellWord(resolve(dir, build))} --out ${shellWord(resolve(dir, evidence.directory))}`, `retain the new draft's parts-check at ${evidence.check}; preserve the original stage-entry advance evidence`),
+    move('agent', `drafts[${id}]`, `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(id)} --out ${shellWord(`evidence/structure-${id}.json`)}`, 'retain a NEW structure snapshot of the retouched draft'),
+    move('producer', `drafts[${id}].parts`, diff.command, diff.act),
+    move('agent', 'diff_map', resolveDiffClassesCommand(dir, evidence.diff, evidence.triage), `classify the NEW diff report ${evidence.diff}; rerun next after producing it to omit triage when no components exist`),
+    move('agent', 'review_acts', `rig-create job open ${shellWord(dir)} --draft ${shellWord(id)} --reviewer '<reviewer>' --role owner`, `only after the new evidence is ready, publish NEW draft ${id} and ask for one parts-verdict; approval also records its parts-review signature`),
+  ];
 }
 
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
@@ -1122,51 +1190,29 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           ? latestDraft.parts.path
           : undefined;
       const hasApprovedPartsVerdict = hasApprovedPartsVerdictReceipt(dir, project, draftId);
-
-      if (effectiveStage === 'parts' && partsRoot !== undefined
-        && candidateAdvance(dir, project, 'parts-review', now, { report: 'evidence/parts-check.json', root: partsRoot }) === null) {
-        addAwait('evidence/parts-check.json');
-        moves.push({ role: 'producer', field: 'drafts', awaits: 'evidence/parts-check.json',
-          command: `rig-parts check-parts --parts ${shellWord(resolve(dir, partsRoot))} --out ${shellWord(resolve(dir, 'evidence'))}`,
-          act: 'produce and retain evidence/parts-check.json before advance parts-review' });
+      if (effectiveStage === 'parts-review' && draftId !== undefined && latestPartsVerdictStatus(project, draftId) === 'changes-requested') {
+        const retouch = partsRetouchMoves(dir, project, latestDraft!);
+        return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
+          accepted: false, refusals, ...warningFields, awaits: [...new Set(retouch.map(move => move.awaits))], moves: retouch };
       }
+      const arrival = asArray(project.advances).filter(isObject).filter(isPartsCheckMove).at(-1);
+      const retouch = effectiveStage === 'parts-review' && isObject(arrival?.parts_check)
+        && arrival.parts_check.parts !== partsRoot;
+      const evidence = partsEvidencePaths(draftId ?? '', retouch);
+      const currentCheck = partsRoot !== undefined && hasCurrentPartsCheck(dir, evidence.check, partsRoot);
+      const currentDiff = (!retouch || isObject(project.diff_map) && isObject(project.diff_map.report) && project.diff_map.report.path === evidence.diff)
+        && hasValidDiffMap(dir, project, partsRoot === undefined ? undefined : resolve(dir, partsRoot, 'parts.json'));
 
-      if (effectiveStage === 'parts' && partsRoot !== undefined && existsSync(join(dir, 'evidence/parts-check.json'))) {
-        const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
-          report: 'evidence/parts-check.json',
-          root: partsRoot,
-        });
-        if (advCmd !== null) {
-          moves.push({
-            role: 'agent',
-            field: 'stage',
-            awaits: 'project.stage',
-            command: advCmd,
-            act: 'advance stage from parts to parts-review',
-          });
-        }
-      }
 
-      if (draftId !== undefined && !hasApprovedPartsVerdict) {
-        const verdictAwait = `review_acts[kind=parts-verdict,draft_id=${draftId}]`;
-        addAwait(verdictAwait);
-        moves.push({
-          role: 'human',
-          field: 'review_acts',
-          awaits: verdictAwait,
-          command: null,
-          act: `review-tool act parts-verdict for drafts[${draftId}]`,
-          review_act: {
-            kind: 'parts-verdict',
-            stage: 'parts-review',
-            draft_id: draftId,
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-        });
+      if (partsRoot !== undefined && !currentCheck) {
+        addAwait(evidence.check);
+        moves.push({ role: 'producer', field: 'drafts', awaits: evidence.check,
+          command: `rig-parts check-parts --parts ${shellWord(resolve(dir, partsRoot))} --out ${shellWord(resolve(dir, evidence.directory))}`,
+          act: `produce and retain ${evidence.check} for the current draft before asking for its verdict` });
       }
 
       const structure = draftId === undefined ? undefined : partsStructureSnapshot(dir, project, draftId);
-      if (draftId !== undefined && hasApprovedPartsVerdict && structure !== undefined && !structure.valid) {
+      if (draftId !== undefined && structure !== undefined && !structure.valid) {
         addAwait(structure.path);
         moves.push({
           role: 'agent',
@@ -1188,53 +1234,81 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         draftId !== undefined &&
         partsRoot !== undefined &&
         paintingPath !== undefined &&
-        !existsSync(join(dir, 'evidence/diff-components.json'))
+        !existsSync(join(dir, evidence.diff))
       ) {
-        const diffMove = resolveDiffComponentsMove(dir, draftId, partsRoot, paintingPath);
-        addAwait('evidence/diff-components.json');
+        const diffMove = resolveDiffComponentsMove(dir, draftId, partsRoot, paintingPath, evidence.diff);
+        addAwait(evidence.diff);
         moves.push({
           role: 'producer',
           field: `drafts[${draftId}].parts`,
-          awaits: 'evidence/diff-components.json',
+          awaits: evidence.diff,
           command: diffMove.command,
           act: diffMove.act,
         });
       } else if (
-        existsSync(join(dir, 'evidence/diff-components.json')) &&
-        !hasValidDiffMap(dir, project)
+        existsSync(join(dir, evidence.diff)) &&
+        !currentDiff
       ) {
         addAwait('diff_map');
         moves.push({
           role: 'agent',
           field: 'diff_map',
           awaits: 'diff_map',
-          command: resolveDiffClassesCommand(dir),
-          act: 'record agent component classification for evidence/diff-components.json in diff_map',
+          command: resolveDiffClassesCommand(dir, evidence.diff, evidence.triage),
+          act: `record agent component classification for ${evidence.diff} in diff_map`,
+        });
+      }
+
+      if (effectiveStage === 'parts' && partsRoot !== undefined && structure?.valid && currentDiff && currentCheck) {
+        const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
+          report: evidence.check,
+          root: partsRoot,
+        });
+        if (advCmd !== null) {
+          moves.push({
+            role: 'agent',
+            field: 'stage',
+            awaits: 'project.stage',
+            command: advCmd,
+            act: 'advance stage from parts to parts-review',
+          });
+        }
+      }
+
+      if (draftId !== undefined && !hasApprovedPartsVerdict && effectiveStage === 'parts-review' && currentCheck && structure?.valid && currentDiff) {
+        const verdictAwait = `review_acts[kind=parts-verdict,draft_id=${draftId}]`;
+        addAwait(verdictAwait);
+        moves.push({
+          role: 'human',
+          field: 'review_acts',
+          awaits: verdictAwait,
+          command: null,
+          act: `review-tool act parts-verdict for drafts[${draftId}]; approve once to record the verdict and parts-review signature`,
+          review_act: {
+            kind: 'parts-verdict',
+            stage: 'parts-review',
+            draft_id: draftId,
+            ...(jobId ? { job_id: jobId } : {}),
+          },
         });
       }
 
       const signoffAwait = 'signoffs[stage=parts-review]';
-      if (!hasLiveStageSignoff('parts-review') && !recordedLapseTargets.has(signoffAwait)) {
+      // Already-ingested approvals from before the fold retain their separate signing route.
+      if (hasApprovedPartsVerdict && !hasLiveStageSignoff('parts-review') && !recordedLapseTargets.has(signoffAwait)) {
         addAwait(signoffAwait);
         moves.push({
           role: 'human',
           field: 'signoffs',
           awaits: signoffAwait,
           command: null,
-          act: hasApprovedPartsVerdict
-            ? `review-tool act signoff for stage parts-review; after structure-snapshot, ingest rig-create signoff parts-review ${shellWord(dir)} --draft ${shellWord(draftId!)} --structure-file ${shellWord(structure!.path)} --from-review '<actId>'`
-            : `review-tool act signoff for stage parts-review (unanswered by record: review_acts[kind=parts-verdict,draft_id=${draftId ?? 'unknown'}] is absent)`,
+          act: `legacy approval already recorded: review-tool act signoff for stage parts-review; after structure-snapshot, ingest rig-create signoff parts-review ${shellWord(dir)} --draft ${shellWord(draftId!)} --structure-file ${shellWord(structure!.path)} --from-review '<actId>'`,
           review_act: {
             kind: 'signoff',
             stage: 'parts-review',
             ...(draftId ? { draft_id: draftId } : {}),
             ...(jobId ? { job_id: jobId } : {}),
           },
-          ...(!hasApprovedPartsVerdict
-            ? {
-                unanswered_by_record: `review_acts[kind=parts-verdict,draft_id=${draftId ?? 'unknown'}], ${structure?.path ?? 'structure snapshot'}`,
-              }
-            : {}),
         });
       }
 
@@ -1591,7 +1665,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     }
   }
 
-  if (laggingAdvance !== null && !moves.some(m => m.role === 'agent' && m.command === laggingAdvance.command)) {
+  const partsAdvancePrepared = laggingAdvance?.targetStage !== 'parts-review' || (() => {
+    const drafts = asArray(project.drafts).filter(isObject);
+    const id = drafts[drafts.length - 1]?.id;
+    return typeof id === 'string' && partsStructureSnapshot(dir, project, id).valid && hasValidDiffMap(dir, project);
+  })();
+  if (laggingAdvance !== null && partsAdvancePrepared && !moves.some(m => m.role === 'agent' && m.command === laggingAdvance.command)) {
     addAwait('project.stage');
     moves.unshift({
       role: 'agent',

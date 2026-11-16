@@ -1,6 +1,7 @@
 import { checkInputs } from './inputs.ts';
 import { pngDimensions } from './scene.ts';
 import { hasPartsReceipt } from './fix-ledger.ts';
+import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -29,6 +30,7 @@ import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts'
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, riggingContext } from './structure.ts';
+import { partsStructureSnapshot } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -642,18 +644,30 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   return path;
 }
 
-/** Register drafts independently of approval readiness. Only a prepared map declares approval. */
+/** Register inventory early; ask for approval only after agent evidence and the advance. */
 export function draftPublicationContext(root: string, project: JsonObject, id: string, warnings: Finding[] = []): JobPublishedContext {
   const context = draftPublishedContext(root, project, id);
-  let subjects = [...context.subjects, ...packageSignSubjects(project, effectiveStage(root, project), context.selector!, context.plan?.steps.length ?? 0)];
-  if (subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'parts-review')) {
+  // Fresh approvals sign the stage during verdict ingestion. Preserve a separate
+  // signoff ask only for an approval already ingested by an earlier writer.
+  let legacyApproval = false;
+  try { recordedPartsVerdict(root, project, id); legacyApproval = true; } catch { /* No accepted legacy receipt. */ }
+  const stage = effectiveStage(root, project);
+  const signatures = packageSignSubjects(project, stage, context.selector!, context.plan?.steps.length ?? 0)
+    .filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review' || legacyApproval);
+  let subjects = [...context.subjects, ...signatures];
+  if (stage === 'parts-review') {
     const errors: Finding[] = [];
     checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
       resolve(root, context.parts!.manifest.path), errors, [], project);
     if (errors.length) {
       warnings.push(...errors);
-      subjects = subjects.filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review');
+      subjects = subjects.filter(subject => subject.kind !== 'parts-verdict' && (subject.kind !== 'signoff' || subject.stage !== 'parts-review'));
     }
+  }
+  // Draft registration can precede the evidence moves. Publish the inventory,
+  // but do not ask for a verdict over a record that still needs agent writes.
+  if (stage !== 'parts-review' || !partsStructureSnapshot(root, project, id).valid) {
+    subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
   }
   return { ...context, subjects, ...checkpointEvidenceContext(root, project, subjects, context.files as { path: string; sha256: string }[]) };
 }

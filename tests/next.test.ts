@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -20,13 +20,13 @@ import { freshProjectRecord } from '../src/init.ts';
 import { renderAgentGuide } from '../src/agent-guide.ts';
 import { optionContext } from '../src/choices.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/next.ts';
-import { partsReviewCommand } from '../src/parts-review.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 import { arr, fixture, obj, retimeFixture, retainSignoffs } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
+import { latestPartsVerdictStatus } from '../src/parts-verdict-record.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -282,27 +282,19 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
           review_act: { kind: 'signoff', stage: 'plan-approved' },
         });
       } else if (spec.name === '1-parts-verdict') {
-        // The runnable agent move matches pending.commands[4] verbatim, but its role is 'agent'
-        // (decided by stage="parts", plan.steps all done, drafts[0].parts.path, and evidence/parts-check.json),
-        // whereas pending.command_roles[4] mislabelled advance as 'human'.
-        const agentMove = report.moves.find(m => m.role === 'agent');
-        expect(agentMove?.command).toBe(`rig-create advance parts-review ${cpDir} --parts-check evidence/parts-check.json --parts derived/drafts/chain/input`);
-        expect(agentMove?.field).toBe('stage');
-        expect(agentMove?.awaits).toBe('project.stage');
-        // Producer diff-components uses project-relative paths from drafts[0].parts.path and inputs[0].path.
-        const producerMove = report.moves.find(m => m.role === 'producer');
-        expect(producerMove?.command).toBe(
+        // The frozen checkpoint predates #557: evidence now comes before the
+        // advance, and the owner is asked only after that advance is recorded.
+        expect(project.review_acts ?? []).toEqual([]);
+        expect(report.moves.find(m => m.role === 'agent')).toMatchObject({
+          field: 'drafts[chain]', awaits: 'evidence/structure-chain.json',
+          command: `rig-create structure-snapshot ${cpDir} --draft chain --out evidence/structure-chain.json`,
+        });
+        expect(report.moves.find(m => m.role === 'producer')?.command).toBe(
           `rig-parts diff-components --stack ${cpDir}/derived/drafts/chain/input/recomposite_rig.png --painting ${cpDir}/inputs/painting.png --parts ${cpDir}/derived/drafts/chain/input/parts.json --floor 2 --threshold 40 --out ${cpDir}/evidence/diff-components.json`,
         );
-        // Disagreement: pending.command_roles[1] labelled `parts-review --from-review-cli --by user` as 'agent',
-        // whereas review_acts is absent and a parts verdict is a human review-tool act.
-        expect(project.review_acts ?? []).toEqual([]);
-        expect(report.moves.find(m => m.review_act?.kind === 'parts-verdict')).toMatchObject({
-          role: 'human',
-          field: 'review_acts',
-          awaits: 'review_acts[kind=parts-verdict,draft_id=chain]',
-          command: null,
-        });
+        expect(report.moves.some(m => m.command?.startsWith('rig-create advance parts-review'))).toBe(false);
+        expect(report.moves.some(m => m.review_act?.kind === 'parts-verdict')).toBe(false);
+        expect(report.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
       } else if (spec.name === '2-rigging-answers') {
         // Awaits match the checkpoint's pending.awaits 100%.
         expect(report.awaits).toEqual(spec.pending.awaits);
@@ -631,7 +623,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(afterCheck.refusals).toEqual([]);
   });
 
-  test('plant 5 (parts-verdict receipts): both CLI and API parts-verdict routes unlock structure-snapshot as an agent move', async () => {
+  test('plant 5 (parts-verdict receipts): legacy CLI approval retains snapshot repair; API approval follows prepared evidence', async () => {
     // Route 1: CLI parts-verdict receipt (`rig-create/parts-verdict-cli@1`, uses `status: "approved"`).
     const cliDir = join(tempDir(), 'parts-cli-route');
     cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), cliDir, { recursive: true });
@@ -693,6 +685,17 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(draftStderr).toBe('');
       expect(draftExit).toBe(0);
 
+      for (const args of [
+        ['structure-snapshot', apiDir, '--draft', 'chain', '--out', 'evidence/structure-chain.json'],
+        ['diff-classes', apiDir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'],
+        ['advance', 'parts-review', apiDir, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'],
+        ['job', 'open', apiDir, '--reviewer', 'synthetic-owner', '--role', 'owner'],
+      ]) {
+        const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(REPO, 'src/cli.ts'), ...args],
+          { cwd: apiDir, stdout: 'pipe', stderr: 'pipe' });
+        const [stderr, exit] = await Promise.all([new Response(child.stderr).text(), child.exited, new Response(child.stdout).text()]);
+        expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
+      }
       const publication = host.session.status().publication!;
       const askReq = {
         schema: 'rig-review/job-api@2',
@@ -781,25 +784,11 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
 
       const apiNow = Date.now();
       const apiReport = nextProject(apiDir, apiNow);
-      const apiSnapshotMove = apiReport.moves.find(
-        m => m.role === 'agent' && m.command?.startsWith('rig-create structure-snapshot'),
-      );
-      expect(apiSnapshotMove).toMatchObject({
-        role: 'agent',
-        field: 'drafts[chain]',
-        awaits: 'evidence/structure-chain.json',
-        command: `rig-create structure-snapshot ${apiDir} --draft chain --out evidence/structure-chain.json`,
-      });
-
-      // API receipts bind their host root; this owned temporary project is already the execution fixture.
-      const apiScratch = apiDir;
-      const apiRun = runMainCapture(
-        printedArgs(apiSnapshotMove!.command!).slice(1).map(arg => arg === apiDir ? apiScratch : arg),
-        apiNow,
-      );
-      expect(apiRun.stderr).toBe('');
-      expect(apiRun.code).toBe(0);
-      expect(checkProject(apiScratch, undefined, { now: apiNow, readOnly: true }).refusals).toEqual([]);
+      expect(apiReport.moves.some(move => move.command?.startsWith('rig-create structure-snapshot'))).toBe(false);
+      expect(apiReport.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
+      const recorded = JSON.parse(readFileSync(join(apiDir, 'project.json'), 'utf8')) as JsonObject;
+      expect(arr(recorded.signoffs).map(obj)).toContainEqual(expect.objectContaining({ stage: 'parts-review', draft_id: 'chain' }));
+      expect(checkProject(apiDir, undefined, { now: apiNow, readOnly: true }).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
     } finally {
       host?.stop();
       rmSync(jobHostStateRoot(apiDir), { recursive: true, force: true });
@@ -1135,14 +1124,15 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const beforeCheck = checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
     expect(beforeCheck.refusals).toEqual([]);
 
+    mkdirSync(join(dir, `evidence/parts-${draftId}`), { recursive: true });
     // Route 1: Draft's own report exists over the same stack and painting sha256 -> move points at it.
     const reportWithOwnDiff = nextProject(dir, CHAIN_NOW + 1000);
-    const copyMove = reportWithOwnDiff.moves.find(m => m.role === 'producer');
+    const copyMove = reportWithOwnDiff.moves.find(m => m.field === `drafts[${draftId}].parts`);
     expect(copyMove).toMatchObject({
       role: 'producer',
       field: `drafts[${draftId}].parts`,
-      awaits: 'evidence/diff-components.json',
-      command: `cp ${dir}/derived/drafts/${draftId}/diff-components.json ${dir}/evidence/diff-components.json`,
+      awaits: `evidence/parts-${draftId}/diff-components.json`,
+      command: `cp ${dir}/derived/drafts/${draftId}/diff-components.json ${dir}/evidence/parts-${draftId}/diff-components.json`,
     });
 
     const copyExec = Bun.spawnSync(copyMove!.command!.split(/\s+/), {
@@ -1152,24 +1142,24 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     });
     expect(copyExec.exitCode).toBe(0);
     const copiedReport = JSON.parse(
-      readFileSync(join(dir, 'evidence/diff-components.json'), 'utf8'),
+      readFileSync(join(dir, `evidence/parts-${draftId}/diff-components.json`), 'utf8'),
     ) as { definition: { inside_sha256: string | null } };
     expect(copiedReport.definition.inside_sha256).toBe(expectedInsideSha);
-    expect(nextProject(dir, CHAIN_NOW + 1000).awaits).not.toContain('evidence/diff-components.json');
+    expect(nextProject(dir, CHAIN_NOW + 1000).awaits).not.toContain(`evidence/parts-${draftId}/diff-components.json`);
     const afterCopyCheck = checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
     expect(afterCopyCheck.refusals).toEqual(beforeCheck.refusals);
 
     // Route 2: Without the draft's own report, next emits rig-parts diff-components with the real stack path and --figure.
-    rmSync(join(dir, 'evidence/diff-components.json'));
+    rmSync(join(dir, `evidence/parts-${draftId}/diff-components.json`));
     rmSync(join(draftRoot, 'diff-components.json'));
 
     const reportWithoutOwnDiff = nextProject(dir, CHAIN_NOW + 1000);
-    const rerunMove = reportWithoutOwnDiff.moves.find(m => m.role === 'producer');
+    const rerunMove = reportWithoutOwnDiff.moves.find(m => m.field === `drafts[${draftId}].parts`);
     expect(rerunMove).toMatchObject({
       role: 'producer',
       field: `drafts[${draftId}].parts`,
-      awaits: 'evidence/diff-components.json',
-      command: `rig-parts diff-components --stack ${dir}/derived/drafts/${draftId}/build/render/recomposite_rig.png --painting ${dir}/inputs/painting.png --parts ${dir}/derived/drafts/${draftId}/build/rig/parts.json --figure ${dir}/derived/drafts/${draftId}/build/render/figure_rig.png --floor 2 --threshold 40 --out ${dir}/evidence/diff-components.json`,
+      awaits: `evidence/parts-${draftId}/diff-components.json`,
+      command: `rig-parts diff-components --stack ${dir}/derived/drafts/${draftId}/build/render/recomposite_rig.png --painting ${dir}/inputs/painting.png --parts ${dir}/derived/drafts/${draftId}/build/rig/parts.json --figure ${dir}/derived/drafts/${draftId}/build/render/figure_rig.png --floor 2 --threshold 40 --out ${dir}/evidence/parts-${draftId}/diff-components.json`,
     });
 
     const rerunArgs = rerunMove!.command!.slice('rig-parts '.length).split(/\s+/);
@@ -1180,15 +1170,15 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     });
     expect(rerunExec.exitCode).toBe(0);
     const rerunReport = JSON.parse(
-      readFileSync(join(dir, 'evidence/diff-components.json'), 'utf8'),
+      readFileSync(join(dir, `evidence/parts-${draftId}/diff-components.json`), 'utf8'),
     ) as { definition: { inside_sha256: string | null } };
     expect(rerunReport.definition.inside_sha256).toBe(expectedInsideSha);
-    expect(nextProject(dir, CHAIN_NOW + 1000).awaits).not.toContain('evidence/diff-components.json');
+    expect(nextProject(dir, CHAIN_NOW + 1000).awaits).not.toContain(`evidence/parts-${draftId}/diff-components.json`);
     const afterRerunCheck = checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true });
     expect(afterRerunCheck.refusals).toEqual(beforeCheck.refusals);
   });
 
-  test('plant 8 (parts-review agent diff-classes move): when evidence/diff-components.json is present without project.diff_map, next emits the agent diff-classes move and keeps signoff human-only', () => {
+  test('plant 8 (parts-review agent diff-classes move): missing map withholds the fresh human verdict until evidence is ready', () => {
     const dir = join(tempDir(), 'diff-classes-move');
     cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
     cpSync(join(CHAIN_DIR, 'evidence/diff-components.json'), join(dir, 'evidence/diff-components.json'));
@@ -1219,14 +1209,10 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       command:
         `rig-create diff-classes ${dir} --diff-report evidence/diff-components.json --by agent`,
     });
-    const signoffMove = report.moves.find(m => m.review_act?.kind === 'signoff');
-    expect(signoffMove).toMatchObject({
-      role: 'human',
-      field: 'signoffs',
-      awaits: 'signoffs[stage=parts-review]',
-      command: null,
-      review_act: { kind: 'signoff', stage: 'parts-review', draft_id: 'chain' },
-    });
+    expect(report.moves.some(m => m.review_act?.kind === 'parts-verdict')).toBe(false);
+    expect(report.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
+    const snapshot = report.moves.find(m => m.command?.startsWith('rig-create structure-snapshot'))!;
+    expect(runMainCapture(printedArgs(snapshot.command!).slice(1), CHAIN_NOW + 1000)).toMatchObject({ code: 0, stderr: '' });
 
     const execArgs = printedArgs(diffMove!.command!).slice(1);
     const execRes = runMainCapture(execArgs, CHAIN_NOW + 1000);
@@ -1236,6 +1222,8 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     const afterReport = nextProject(dir, CHAIN_NOW + 1000);
     expect(afterReport.awaits).not.toContain('diff_map');
     expect(afterReport.moves.find(m => m.field === 'diff_map')).toBeUndefined();
+    expect(afterReport.moves.find(m => m.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
+    expect(afterReport.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
   });
 
   test('usage errors refuse with NEXT_USAGE and exit 2', () => {
@@ -1434,24 +1422,38 @@ test('#490 agent guide remains below 10000 rendered bytes', () => {
   expect(Buffer.byteLength(renderAgentGuide())).toBeLessThan(10_000);
 });
 
-test('#490 parts emits producer check-parts before its executable advance', () => {
+test('#557 fresh parts prepares check, structure and diff before advance and the single human verdict', () => {
   const dir = join(tempDir(), 'parts-report');
   cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
   rmSync(join(dir, 'evidence/parts-check.json'));
-  const before = nextProject(dir, CHAIN_NOW);
-  const move = before.moves.find(move => move.command?.startsWith('rig-parts check-parts'))!;
-  expect(move.role).toBe('producer');
-  expect(before.moves.some(move => move.command?.startsWith('rig-create advance parts-review'))).toBe(false);
+  const expected = ['rig-parts check-parts', 'rig-create structure-snapshot', 'rig-parts diff-components',
+    'rig-create diff-classes', 'rig-create advance parts-review'];
   const require = createRequire(import.meta.url);
   const bin = join(require.resolve('@rig-c/parts/package.json'), '..', 'cli.ts');
-  const run = Bun.spawnSync([process.execPath, bin, ...printedArgs(move.command!).slice(1)], { cwd: REPO, stdout: 'pipe', stderr: 'pipe' });
-  expect(run.stderr.toString()).toBe(''); expect(run.exitCode).toBe(0);
-  const advance = nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create advance parts-review'))!;
-  expect(runMainCapture(printedArgs(advance.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  for (const prefix of expected) {
+    const report = nextProject(dir, CHAIN_NOW);
+    expect(report.refusals).toEqual([]);
+    expect(report.moves.some(move => move.review_act?.kind === 'parts-verdict')).toBe(false);
+    expect(report.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
+    const move = report.moves.find(move => move.command !== null)!;
+    expect(move.command).toStartWith(prefix);
+    if (prefix.startsWith('rig-parts ')) {
+      expect(move.role).toBe('producer');
+      const run = Bun.spawnSync([process.execPath, bin, ...printedArgs(move.command!).slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      expect({ exit: run.exitCode, stderr: run.stderr.toString() }).toEqual({ exit: 0, stderr: '' });
+    } else {
+      expect(move.role).toBe('agent');
+      expect(runMainCapture(printedArgs(move.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+    }
+  }
+  const ready = nextProject(dir, CHAIN_NOW);
+  expect(ready.moves.find(move => move.review_act?.kind === 'parts-verdict')).toMatchObject({ role: 'human', command: null });
+  expect(ready.moves.some(move => move.review_act?.kind === 'signoff')).toBe(false);
+  expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).stage).toBe('parts-review');
 });
 
 
-test.each(['generic', 'per-draft'])('#490 %s snapshot for another draft is retained and both command views select the same fresh path', slot => {
+test.each(['generic', 'per-draft'])('#490 legacy approved %s snapshot for another draft is retained and both command views select the same fresh path', slot => {
   const dir = join(tempDir(), 'snapshot-selection');
   cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
   recordPartsReceipt(dir, 'chain', CHAIN_NOW);
@@ -1659,4 +1661,186 @@ test('owner chat signoff is absent before the direction verdict and present afte
   expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.command?.includes('signoff direction-review')&&m.command.includes('--owner-chat'))).toBe(false);
   version.verdicts=verdicts;writeFileSync(file,JSON.stringify(p,null,2)+'\n');
   expect(nextProject(dir,CHAIN_NOW).moves.some(m=>m.command?.includes('signoff direction-review')&&m.command.includes('--owner-chat'))).toBe(true);
+});
+
+function bouncedPartsFixture(): string {
+  const dir = join(tempDir(), 'parts-retouch-loop');
+  cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
+  cpSync(join(CHAIN_DIR, 'evidence/diff-components.json'), join(dir, 'evidence/diff-components.json'));
+  expect(runMainCapture(['structure-snapshot', dir, '--draft', 'chain', '--out', 'evidence/structure-chain.json'], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['diff-classes', dir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['advance', 'parts-review', dir, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  recordPartsReceipt(dir, 'chain', CHAIN_NOW, 'changes-requested');
+  return dir;
+}
+
+test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold without reasking the rejected draft', () => {
+  const dir = bouncedPartsFixture();
+  const file = join(dir, 'project.json');
+  const before = readFileSync(file);
+  const project = JSON.parse(before.toString()) as JsonObject;
+  expect(latestPartsVerdictStatus(project, 'chain')).toBe('changes-requested');
+  const next = nextProject(dir, CHAIN_NOW);
+  expect(next.refusals).toEqual([]);
+  expect(next.stage).toBe('parts-review');
+  expect(next.effective_stage).toBe('parts-review');
+  expect(next.moves.every(move => move.role !== 'human')).toBe(true);
+  expect(next.moves[0]!.act).toContain('assemble.edited_parts');
+  expect(next.moves[0]!.act).toContain('from_sha256');
+  const commands = next.moves.flatMap(move => move.command === null ? [] : [move.command]);
+  expect(commands.map(command => printedArgs(command).slice(0, 2).join(' '))).toEqual([
+    'rig-parts build', 'rig-create draft-rig', 'rig-parts check-parts', 'rig-create structure-snapshot',
+    'rig-parts diff-components', 'rig-create diff-classes', 'rig-create job',
+  ]);
+  expect(commands[1]).toContain('chain-retouch-1');
+  expect(commands[2]).toContain('evidence/parts-chain-retouch-1');
+  expect(commands[3]).toContain('evidence/structure-chain-retouch-1.json');
+  expect(commands[4]).toContain('evidence/parts-chain-retouch-1/diff-components.json');
+  expect(commands[6]).toContain('--draft chain-retouch-1');
+  expect(next.moves.at(-1)!.act).toContain('only after the new evidence is ready');
+  expect(commands.some(command => command.includes('advance ') || command.includes('reopen '))).toBe(false);
+  expect(readFileSync(file)).toEqual(before);
+  mkdirSync(join(dir, 'derived/drafts/chain-retouch-1'));
+  expect(nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
+  const unrelated = join(dir, 'derived/drafts/chain-retouch-1/config.json');
+  writeFileSync(unrelated, `${JSON.stringify({ key: 'unrelated', assemble: {} })}\n`);
+  const unrelatedBytes = readFileSync(unrelated);
+  expect(nextProject(dir, CHAIN_NOW).moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
+  expect(readFileSync(unrelated)).toEqual(unrelatedBytes);
+});
+
+test('#557 registered retouch discovers fresh evidence despite old files and reaches one verdict while retaining parts-review', () => {
+  const dir = bouncedPartsFixture();
+  const retained = ['evidence/parts-check.json', 'evidence/diff-components.json', 'evidence/structure-chain.json'];
+  const bytes = retained.map(path => readFileSync(join(dir, path)));
+  const id = 'chain-retouch-1';
+  cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${id}`), { recursive: true });
+  const registration = ['draft-rig', id, dir, '--config', `derived/drafts/${id}/config.json`, '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`];
+  const result = runMainCapture(registration, CHAIN_NOW + 1000);
+  expect({ command: registration.join(' '), ...result }).toMatchObject({ code: 0, stderr: '' });
+  const current = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+  expect(current.stage).toBe('parts-review');
+  expect(latestPartsVerdictStatus(current, id)).toBeUndefined();
+  const initial = nextProject(dir, CHAIN_NOW + 1000);
+  expect(initial.refusals).toEqual([]);
+  expect(initial.moves[0]!.command).toStartWith('rig-parts check-parts');
+  expect(initial.moves[0]!.command).toContain(`evidence/parts-${id}`);
+  expect(initial.moves.some(move => move.role === 'human')).toBe(false);
+  const load = createRequire(import.meta.url);
+  const bin = join(load.resolve('@rig-c/parts/package.json'), '..', 'cli.ts');
+  for (const prefix of ['rig-parts check-parts', 'rig-create structure-snapshot', 'rig-parts diff-components', 'rig-create diff-classes']) {
+    const next = nextProject(dir, CHAIN_NOW + 1000);
+    expect(next.refusals).toEqual([]);
+    expect(next.moves.some(move => move.role === 'human')).toBe(false);
+    const move = next.moves.find(move => move.command !== null)!;
+    expect(move.command).toStartWith(prefix);
+    const args = printedArgs(move.command!);
+    if (args[0] === 'rig-parts') {
+      const run = Bun.spawnSync([process.execPath, bin, ...args.slice(1)], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      expect({ command: move.command, exit: run.exitCode, stderr: run.stderr.toString() }).toMatchObject({ exit: 0, stderr: '' });
+    } else expect(runMainCapture(args.slice(1), CHAIN_NOW + 1000)).toMatchObject({ code: 0, stderr: '' });
+  }
+  const ready = nextProject(dir, CHAIN_NOW + 1000);
+  expect(ready.refusals).toEqual([]);
+  expect(ready.stage).toBe('parts-review');
+  expect(ready.moves.filter(move => move.role === 'human')).toMatchObject([{ review_act: { kind: 'parts-verdict', draft_id: id } }]);
+  expect(ready.moves.find(move => move.command?.startsWith('rig-create job open'))!.command).toContain(`--draft ${id}`);
+  expect(ready.moves.some(move => move.command?.includes('advance ') || move.command?.includes('reopen '))).toBe(false);
+  for (const [index, path] of retained.entries()) expect(readFileSync(join(dir, path))).toEqual(bytes[index]);
+  expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).stage).toBe('parts-review');
+});
+
+test('#557 initial parts-review with many historical drafts reuses global evidence when the current parts root matches stage entry', () => {
+  const dir = join(tempDir(), 'initial-parts-many-drafts');
+  cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });
+  cpSync(join(CHAIN_DIR, 'evidence/diff-components.json'), join(dir, 'evidence/diff-components.json'));
+  const file = join(dir, 'project.json');
+  const ids = ['historical-one', 'historical-two', 'initial-current'];
+  for (const [index, id] of ids.entries()) {
+    cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${id}`), { recursive: true });
+    expect(runMainCapture(['draft-rig', id, dir, '--config', `derived/drafts/${id}/config.json`,
+      '--from', `derived/drafts/${id}/out`, '--parts', `derived/drafts/${id}/input`], CHAIN_NOW + index * 1000)).toMatchObject({ code: 0, stderr: '' });
+  }
+  const id = ids.at(-1)!;
+  const beforeAdvance = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  expect(beforeAdvance.stage).toBe('parts');
+  expect(arr(beforeAdvance.drafts)).toHaveLength(4);
+  expect(arr(beforeAdvance.review_acts ?? [])).toEqual([]);
+  expect(arr(beforeAdvance.advances).map(obj).filter(move => move.from_stage === 'parts' && move.stage === 'parts-review')).toEqual([]);
+  expect(runMainCapture(['structure-snapshot', dir, '--draft', id, '--out', `evidence/structure-${id}.json`], CHAIN_NOW + 4000)).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['diff-classes', dir, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], CHAIN_NOW + 4000)).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['advance', 'parts-review', dir, '--parts-check', 'evidence/parts-check.json',
+    '--parts', `derived/drafts/${id}/input`], CHAIN_NOW + 4000)).toMatchObject({ code: 0, stderr: '' });
+  const before = readFileSync(file);
+  const project = JSON.parse(before.toString()) as JsonObject;
+  const arrival = arr(project.advances).map(obj).filter(move => move.from_stage === 'parts' && move.stage === 'parts-review').at(-1)!;
+  expect(obj(arr(project.drafts).at(-1)).parts).toMatchObject({ path: obj(arrival.parts_check).parts });
+  expect(obj(arrival.parts_check).path).toBe('evidence/parts-check.json');
+  expect(obj(obj(project.diff_map).report).path).toBe('evidence/diff-components.json');
+  const paths = ['evidence/parts-check.json', 'evidence/diff-components.json', `evidence/structure-${id}.json`];
+  const retained = paths.map(path => readFileSync(join(dir, path)));
+  const next = nextProject(dir, CHAIN_NOW + 5000);
+  expect(next.refusals).toEqual([]);
+  expect(next.stage).toBe('parts-review');
+  expect(next.effective_stage).toBe('parts-review');
+  expect(next.moves.filter(move => move.role === 'human')).toMatchObject([{ review_act: { kind: 'parts-verdict', draft_id: id } }]);
+  expect(next.moves.some(move => move.role === 'producer')).toBe(false);
+  expect(next.moves.some(move => move.command?.startsWith('rig-create structure-snapshot') || move.command?.startsWith('rig-create diff-classes'))).toBe(false);
+  expect(next.awaits.some(path => path.includes(`evidence/parts-${id}`))).toBe(false);
+  expect(next.moves.some(move => move.command?.includes(`evidence/parts-${id}`))).toBe(false);
+  expect(existsSync(join(dir, `evidence/parts-${id}`))).toBe(false);
+  expect(readFileSync(file)).toEqual(before);
+  for (const [index, path] of paths.entries()) expect(readFileSync(join(dir, path))).toEqual(retained[index]);
+});
+
+test('#557 prepared unregistered retouch resumes the same target before and after build without replacing retained files', () => {
+  const dir = bouncedPartsFixture();
+  const file = join(dir, 'project.json');
+  const record = readFileSync(file);
+  const id = 'chain-retouch-1';
+  const root = join(dir, 'derived/drafts', id);
+  const initial = nextProject(dir, CHAIN_NOW);
+  const registration = initial.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command;
+  mkdirSync(root);
+  const config = readFileSync(join(dir, 'derived/drafts/chain/config.json'));
+  writeFileSync(join(root, 'config.json'), config);
+  const prepared = nextProject(dir, CHAIN_NOW);
+  expect(prepared.moves[0]!.act).toContain(`Resume derived/drafts/${id}/config.json`);
+  expect(prepared.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
+  expect(prepared.moves.find(move => move.command?.startsWith('rig-parts build'))!.command).toContain(`/derived/drafts/${id}/config.json`);
+  expect(readFileSync(join(root, 'config.json'))).toEqual(config);
+  // Preparing the allowed retouch declaration must not switch the generated target either.
+  const changed = JSON.parse(config.toString()) as JsonObject;
+  obj(changed.assemble).edited_parts = { dir: 'edits', receipts: [{ part: 'torso', file: 'torso.png',
+    from_sha256: 'a'.repeat(64), sha256: 'b'.repeat(64), editor: 'synthetic editor' }] };
+  const edited = `${JSON.stringify(changed, null, 2)}\n`;
+  writeFileSync(join(root, 'config.json'), edited);
+  const editedNext = nextProject(dir, CHAIN_NOW);
+  expect(editedNext.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
+  expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(edited);
+  expect(editedNext.moves.every(move => move.role !== 'human')).toBe(true);
+  // Existence is not proof of a valid build: leave it to the existing registration validator.
+  mkdirSync(join(root, 'build'));
+  const sentinel = Buffer.from('preserve unrelated or incomplete output\n');
+  writeFileSync(join(root, 'build/retained.txt'), sentinel);
+  const built = nextProject(dir, CHAIN_NOW);
+  expect(built.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toBe(registration);
+  expect(built.moves.some(move => move.command?.startsWith('rig-parts build'))).toBe(false);
+  expect(built.moves.some(move => move.command === null && move.act.includes('do not rerun build over it'))).toBe(true);
+  expect(readFileSync(join(root, 'build/retained.txt'))).toEqual(sentinel);
+  expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(edited);
+  expect(readFileSync(file)).toEqual(record);
+});
+
+test.each(['linked-config', 'dangling-target'])('#557 retouch preserves %s collisions instead of treating them as prepared targets', kind => {
+  const dir = bouncedPartsFixture();
+  const root = join(dir, 'derived/drafts/chain-retouch-1');
+  if (kind === 'linked-config') {
+    mkdirSync(root);
+    symlinkSync(join(dir, 'derived/drafts/chain/config.json'), join(root, 'config.json'));
+  } else symlinkSync(join(dir, 'absent-target'), root);
+  const before = readFileSync(join(dir, 'project.json'));
+  const next = nextProject(dir, CHAIN_NOW);
+  expect(next.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });

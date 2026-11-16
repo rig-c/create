@@ -124,18 +124,18 @@ test('#543 receipts without an owner verdict do not authorize the edited set or 
   project.review_acts = arr(project.review_acts).filter(raw => obj(raw).draft_id !== 'shape');
   write(dir, 'project.json', JSON.stringify(project));
   const before = readFileSync(join(dir, 'project.json'));
-  refused(() => snapshot(dir), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  expect(snapshot(dir).exit).toBe(0);
   refused(() => partsSign(dir), 'PARTS_VERDICT_RECEIPT_REQUIRED');
   refused(() => advanceCommand(['rigging-interview', dir]), 'ADVANCE_UNAUTHORIZED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-  expect(existsSync(join(dir, OUT))).toBe(false);
+  expect(existsSync(join(dir, OUT))).toBe(true);
 });
 
 test('#543 a newer changes-requested verdict keeps the edited set from signing or advancing', () => {
   const dir = setup('synthetic retouch A');
   recordPartsReceipt(dir, 'shape', testClock.now() + 1, 'changes-requested');
   const before = readFileSync(join(dir, 'project.json'));
-  refused(() => snapshot(dir), 'PARTS_VERDICT_NOT_APPROVED');
+  expect(snapshot(dir).exit).toBe(0);
   refused(() => partsSign(dir), 'PARTS_VERDICT_LATEST_NOT_APPROVED');
   refused(() => advanceCommand(['rigging-interview', dir]), 'ADVANCE_UNAUTHORIZED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -161,7 +161,7 @@ test('#543 an accepted verdict for one edited set cannot be recorded for a draft
   const before = readFileSync(join(other, 'project.json'));
   refused(() => partsReviewCommand([other, '--draft', 'shape', '--from-review-cli', '--by', 'owner', '--', 'synthetic-review'],
     testClock.now(), { runCli: reviewStdout(response) }), 'PARTS_VERDICT_DRAFT_MISMATCH');
-  refused(() => snapshot(other), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  expect(snapshot(other).exit).toBe(0);
   refused(() => partsSign(other), 'PARTS_VERDICT_RECEIPT_REQUIRED');
   refused(() => advanceCommand(['rigging-interview', other]), 'ADVANCE_UNAUTHORIZED');
   expect(readFileSync(join(other, 'project.json'))).toEqual(before);
@@ -216,10 +216,6 @@ test('a hand-edited entry of a written snapshot is refused at signoff and the re
 });
 
 test.each([
-  ['a not-approved verdict', 'PARTS_VERDICT_NOT_APPROVED', (dir: string): string[] => {
-    recordPartsReceipt(dir, 'shape', testClock.now(), 'changes-requested');
-    return ['--draft', 'shape', '--out', OUT];
-  }],
   ['an unknown draft id', 'STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN', (): string[] => ['--draft', 'missing', '--out', OUT]],
   ['a draft config changed since it was recorded', 'STRUCTURE_SNAPSHOT_CONFIG_CHANGED', (dir: string): string[] => {
     write(dir, 'derived/drafts/shape/config.json', JSON.stringify({ meshes: { torso: { density: 9 } } }));
@@ -263,12 +259,12 @@ test('missing and repeated flags are usage refusals with exit 2', () => {
   expect(existsSync(join(dir, OUT))).toBe(false);
 });
 
-test('a draft with no API receipt refuses both writers without writing', () => {
+test('a draft with no API receipt allows a snapshot but still refuses signoff without changing the record', () => {
   const dir = setup();
   draft(dir, 'other', { meshes: MESHES });
   const before = readFileSync(join(dir, 'project.json'));
-  refused(() => structureSnapshotCommand([dir, '--draft', 'other', '--out', OUT]), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  expect(structureSnapshotCommand([dir, '--draft', 'other', '--out', OUT]).exit).toBe(0);
   refused(() => signoffCommand(['parts-review', dir, '--by', 'user', '--draft', 'other', '--structure-file', OUT]), 'PARTS_VERDICT_RECEIPT_REQUIRED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-  expect(existsSync(join(dir, OUT))).toBe(false);
+  expect(existsSync(join(dir, OUT))).toBe(true);
 });

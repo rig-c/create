@@ -1836,7 +1836,7 @@ rig-create correction record <dir> --id repaint-topwear --path made --stage part
 ```
 
 The record carries `by: "agent"`, `verbatim: null`, and
-`artifact: { kind: "part-image", draft, part, before, after, mask, tool }`, where
+`artifact: { kind: "part-image", draft, part, before, after, mask, tool, added_alpha_texels }`, where
 `before`, `after` and `mask` are `{ path, sha256 }` bindings and `tool` is free
 text naming the lever used. Its `on` (and an explicit `outcome`) is the draft
 identity `{ kind: "draft", id, config, parts, model: null }`: a part-image edit
@@ -1850,13 +1850,23 @@ refuse when `before` is not the parent draft's bound `<parts.path>/parts/<part>.
 or `after` makes no change (`CORRECTION_PART_IMAGE_BEFORE`), when `mask` or
 `after` dimensions differ from `before` (`CORRECTION_PART_IMAGE_MASK_SIZE`), when
 `after` differs from `before` outside `mask` (`CORRECTION_PART_IMAGE_OUTSIDE_MASK`),
-or when `after` increases alpha at any pixel (`CORRECTION_PART_IMAGE_ADDED_ALPHA`).
+or when `after` increases alpha outside the mask (`CORRECTION_PART_IMAGE_ADDED_ALPHA`,
+including the outside texel count). Alpha increases inside the mask are allowed.
+`added_alpha_texels` counts texels where `afterA > beforeA`, including restoration
+from transparent to opaque; text and JSON command output report the count.
+A present count must match the retained PNGs (`CORRECTION_PART_IMAGE_ALPHA_COUNT`);
+historical records without a count remain readable.
 A later `draft-rig` (new id) whose bound `<parts.path>/parts/<part>.png` matches
 `after.sha256` resolves the correction automatically (or explicitly via
 `correction resolve --draft <new-id> --by agent --reasoning-file <file>`). A draft
 whose bound `parts/<part>.png` matches a `part-image` correction's `after.sha256`
 whose correction is withdrawn, superseded, dated after the draft, or on another
-part/draft refuses as `DRAFT_PART_REPAINT_UNRECORDED`.
+part/draft refuses as `DRAFT_PART_REPAINT_UNRECORDED`. Independently of whether
+any correction exists, `check` compares each bound part against the same part in
+the immediately preceding draft. Changed bytes without a live correction for that
+exact parent/before/after pair WARN with `DRAFT_PART_REPAINT_UNRECORDED`. This new
+warning preserves historical records and introduces no dated refusal; record the
+next masked edit before registering its rebuilt draft.
 
 ### Authored camera direction (create#92)
 

@@ -240,7 +240,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     if (unavailable.size > 0) warnings.push({ code: 'DRAFT_RIG_UNAVAILABLE', path, message: `${path}: regenerable draft artifacts are unavailable (${[...unavailable].join(', ')}); restore the recorded bytes before inspecting or rebuilding this draft` });
   }
-  checkUnrecordedPartRepaints(dir, project, refusals);
+  checkUnrecordedPartRepaints(dir, project, refusals, warnings);
 }
 
 /** Check declared identity/paths, including real paths; identical model bytes alone prove nothing. */

@@ -5,7 +5,7 @@ import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPostIdentity, valid
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
-import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, validateCorrectionIdentity, versionRecord } from './corrections.ts';
+import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, validatePartImageArtifact, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -150,6 +150,7 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
       }
     }
     record={schema:direction || describedDirection?DIRECTION_CORRECTION_SPEC:CORRECTION_SPEC,id:opts['--id'],path:path as string,by,at,verbatim,stage,on,artifact,outcome:null,resolves:opts['--resolves']??null};
+    if(partImage)artifact.added_alpha_texels=validatePartImageArtifact(dir,next,record,artifact,on);
     if(opts['--source']!==undefined)record.source=opts['--source'];
     next.corrections=[...asArray(next.corrections),record];
   } else {
@@ -198,7 +199,8 @@ function command(args:string[],now:number,runner?:ReviewReadRunner): {stdout:str
     }record.closure={by:'agent',at,reasoning:readVerbatim(opts['--reasoning-file']) + (coverage ? `\n${coverage}` : '')};
   }
   save(dir,file,originalBytes,project,next,now);
-  return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged${coverage ? `\n${coverage}` : ''}`,exit:0};
+  const alphaReport = isObject(record.artifact) && record.artifact.kind === 'part-image' ? `; added-alpha texels: ${String(record.artifact.added_alpha_texels ?? 0)}` : '';
+  return{stdout:json?JSON.stringify(record,null,2):`correction: ${action==='record'?'recorded':'resolved'} ${String(record.id)}; stage unchanged${alphaReport}${coverage ? `\n${coverage}` : ''}`,exit:0};
 }
 
 /** Public approval paths that do not run checkProject still share the correction validator. */

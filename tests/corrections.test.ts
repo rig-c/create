@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, sym
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CorrectionError, correctionApprovalFindings, correctionHash, validateCorrectionPatch } from '../src/corrections.ts';
+import { CorrectionError, checkUnrecordedPartRepaints, correctionApprovalFindings, correctionHash, validateCorrectionPatch } from '../src/corrections.ts';
 import { fixture as projectFixture } from './fixtures.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
@@ -145,6 +145,7 @@ function syntheticPartPngs() {
       else if (y < 2) { beforeData[i] = 120; beforeData[i + 1] = 60; beforeData[i + 2] = 40; beforeData[i + 3] = 128; }
     }
   }
+  beforeData[12 + 3] = 0;
   const maskData = new Uint8Array(w * h * 4);
   for (let i = 0; i < w * h; i++) maskData[i * 4 + 3] = 255;
   for (const x of [0, 1, 2]) {
@@ -160,6 +161,15 @@ function syntheticPartPngs() {
   outsideData[outIdx] = 50;
   const addedAlphaData = new Uint8Array(afterData);
   addedAlphaData[8 + 3] = 200; // (2,0) inside mask had alpha 128 -> 200 (added alpha)
+  // Restore both an antialiased fringe and entirely transparent coverage.
+  const restoredData = new Uint8Array(addedAlphaData);
+  restoredData[12 + 3] = 255; // (3,0), alpha 0 -> 255
+  const restoredMask = new Uint8Array(maskData);
+  restoredMask[12] = 255;
+  const outsideAlphaData = new Uint8Array(addedAlphaData);
+  outsideAlphaData[outIdx + 3] = 255; // 255 initially; use two transparent texels instead
+  outsideAlphaData[(2 * w) * 4 + 3] = 255;
+  outsideAlphaData[(2 * w + 1) * 4 + 3] = 1;
   const wrongBeforeData = new Uint8Array(beforeData);
   wrongBeforeData[0] = 10;
   return {
@@ -168,6 +178,9 @@ function syntheticPartPngs() {
     after: encodePng(w, h, afterData),
     outside: encodePng(w, h, outsideData),
     addedAlpha: encodePng(w, h, addedAlphaData),
+    restored: encodePng(w, h, restoredData),
+    restoredMask: encodePng(w, h, restoredMask),
+    outsideAlpha: encodePng(w, h, outsideAlphaData),
     wrongBefore: encodePng(w, h, wrongBeforeData),
     wrongSizeMask: encodePng(3, 4, new Uint8Array(3 * 4 * 4)),
   };
@@ -212,6 +225,9 @@ function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean } =
   writeFileSync(join(dir, 'evidence/repaint/mask.png'), pngs.mask);
   writeFileSync(join(dir, 'evidence/repaint/outside.png'), pngs.outside);
   writeFileSync(join(dir, 'evidence/repaint/added-alpha.png'), pngs.addedAlpha);
+  writeFileSync(join(dir, 'evidence/repaint/restored.png'), pngs.restored);
+  writeFileSync(join(dir, 'evidence/repaint/restored-mask.png'), pngs.restoredMask);
+  writeFileSync(join(dir, 'evidence/repaint/outside-alpha.png'), pngs.outsideAlpha);
   writeFileSync(join(dir, 'evidence/repaint/wrong-before.png'), pngs.wrongBefore);
   writeFileSync(join(dir, 'evidence/repaint/wrong-size-mask.png'), pngs.wrongSizeMask);
   // A modelless draft is shaped like `parts rig` output: rig, motion, mesh_report, images and run.json, and no check/build compiled model.
@@ -257,11 +273,13 @@ test('part-image positive control and round trip: masked repaint records, resolv
       after: { path: 'evidence/repaint/after.png', sha256: correctionHash(pngs.after) },
       mask: { path: 'evidence/repaint/mask.png', sha256: correctionHash(pngs.mask) },
       tool: 'gemini-image-probe r5 + mask composite with tone match',
+      added_alpha_texels: 0,
     },
   });
   // The writer binds no model; a record captured before that, binding the parent draft's own model, is still read.
   expect((recorded.on as JsonObject).model).toBeNull();
   const withModel = load(dir);
+  delete ((withModel.corrections as JsonObject[])[0]!.artifact as JsonObject).added_alpha_texels;
   const parentModel = ((withModel.drafts as JsonObject[])[0]!.files as JsonObject[]).find(f => String(f.path).endsWith('/skeleton.model.json'))!;
   ((withModel.corrections as JsonObject[])[0]!.on as JsonObject).model = structuredClone(parentModel);
   expect(check(dir, withModel).refusals).toEqual([]);
@@ -342,14 +360,56 @@ test('part-image on a draft with no compiled model (parts rig output): records t
   expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
 });
 
-test('part-image plants: edit outside mask, added alpha, wrong before, wrong mask size, and human --by refuse and preserve project.json', () => {
+for (const [file, mask, count] of [
+  ['added-alpha.png', 'mask.png', 1],
+  ['restored.png', 'restored-mask.png', 2],
+] as const) test(`part-image accepts masked alpha restoration ${file}, retains and reports ${count} texels`, () => {
+  const { dir, pngs, writeDraft } = partImageFixture({ modelless: true });
+  testClock.set(new Date('2026-11-06T02:30:00Z'));
+  const result = cli(dir, ['correction', 'record', dir, '--id', 'restore', '--path', 'made', '--stage', 'parts-review',
+    '--draft', 'parent', '--part', 'torso', '--part-image-file', `evidence/repaint/${file}`,
+    '--before-file', 'derived/drafts/parent/input/parts/torso.png', '--mask-file', `evidence/repaint/${mask}`, '--tool', 'masked restoration', '--json']);
+  expect(result.exit).toBe(0);
+  const record = JSON.parse(result.stdout) as JsonObject;
+  expect((record.artifact as JsonObject).added_alpha_texels).toBe(count);
+  expect((load(dir).corrections as JsonObject[])[0]).toEqual(record);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [{ code: 'CORRECTION_OPEN' }] });
+  writeDraft('restored', '03', file === 'restored.png' ? pngs.restored : pngs.addedAlpha);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+  writeFileSync(join(dir, 'reasoning.txt'), 'Restored masked alpha.');
+  testClock.set(new Date('2026-11-06T03:10:00Z'));
+  const resolved = cli(dir, ['correction', 'resolve', 'restore', dir, '--draft', 'restored', '--by', 'agent', '--reasoning-file', join(dir, 'reasoning.txt')]);
+  expect(resolved.exit).toBe(0);
+  expect(resolved.stdout).toContain(`added-alpha texels: ${count}`);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+  for (const invalid of [0, -1, 1.5, '2']) {
+    const project = load(dir);
+    (((project.corrections as JsonObject[])[0]!.artifact) as JsonObject).added_alpha_texels = invalid;
+    expect(check(dir, project).refusals.map(f => f.code)).toEqual(['CORRECTION_PART_IMAGE_ALPHA_COUNT']);
+  }
+});
+
+test('outside-mask alpha reports the complete outside count and preserves project bytes through the CLI', () => {
+  const { dir } = partImageFixture();
+  testClock.set(new Date('2026-11-06T02:30:00Z'));
+  const before = readFileSync(join(dir, 'project.json'));
+  const result = cli(dir, ['correction', 'record', dir, '--id', 'outside-alpha', '--path', 'made', '--stage', 'parts-review',
+    '--draft', 'parent', '--part', 'torso', '--part-image-file', 'evidence/repaint/outside-alpha.png',
+    '--mask-file', 'evidence/repaint/mask.png', '--tool', 'synthetic outside alpha']);
+  expect(result.exit).toBe(1);
+  expect(result.stderr).toContain('CORRECTION_PART_IMAGE_ADDED_ALPHA');
+  expect(result.stderr).toContain('2 texel(s) outside mask');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('part-image plants: edit outside mask, outside alpha, wrong before, wrong mask size, and human --by refuse and preserve project.json', () => {
   const { dir } = partImageFixture();
   const baseArgs = ['record', dir, '--id', 'bad-repaint', '--path', 'made', '--stage', 'parts-review', '--draft', 'parent', '--part', 'torso', '--mask-file', 'evidence/repaint/mask.png', '--tool', 'hand pass'];
   testClock.set(new Date('2026-11-06T02:30:00Z'));
   // Plant 1: edit outside the mask refuses
   rejected(dir, 'CORRECTION_PART_IMAGE_OUTSIDE_MASK', () => correctionCommand([...baseArgs, '--part-image-file', 'evidence/repaint/outside.png']));
-  // Plant 2: added alpha refuses
-  rejected(dir, 'CORRECTION_PART_IMAGE_ADDED_ALPHA', () => correctionCommand([...baseArgs, '--part-image-file', 'evidence/repaint/added-alpha.png']));
+  // Plant 2: outside-mask alpha refuses, even with a valid masked increase.
+  rejected(dir, 'CORRECTION_PART_IMAGE_ADDED_ALPHA', () => correctionCommand([...baseArgs, '--part-image-file', 'evidence/repaint/outside-alpha.png']));
   // Plant 3: wrong before refuses (via --before-file, unknown part, or identical after)
   rejected(dir, 'CORRECTION_PART_IMAGE_BEFORE', () => correctionCommand([...baseArgs, '--part-image-file', 'evidence/repaint/after.png', '--before-file', 'evidence/repaint/wrong-before.png']));
   rejected(dir, 'CORRECTION_PART_IMAGE_BEFORE', () => correctionCommand(['record', dir, '--id', 'bad-part', '--path', 'made', '--stage', 'parts-review', '--draft', 'parent', '--part', 'no_such_part', '--part-image-file', 'evidence/repaint/after.png', '--mask-file', 'evidence/repaint/mask.png', '--tool', 'hand pass']));
@@ -360,11 +420,16 @@ test('part-image plants: edit outside mask, added alpha, wrong before, wrong mas
   rejected(dir, 'CORRECTION_MALFORMED', () => correctionCommand([...baseArgs, '--part-image-file', 'evidence/repaint/after.png', '--by', 'user']));
 });
 
-test('part-image negative control and plant: ordinary producer rebuilds with no part-image correction pass, while a draft binding withdrawn/superseded/post-dated part-image after bytes refuses as DRAFT_PART_REPAINT_UNRECORDED', () => {
-  // Negative control: two drafts with different part PNG bytes and no part-image correction at all (ordinary producer rebuild) -> 0 refusals.
+test('part-image unrecorded changes WARN; known withdrawn/superseded/post-dated repaint bytes still refuse', () => {
+  // No correction records: registering changed bytes succeeds but check names the missing pair.
   const { dir, pngs, writeDraft } = partImageFixture();
   expect(writeDraft('rebuilt-by-parts', '03', pngs.after).exit).toBe(0);
-  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+  const unrecorded = checkProject(dir);
+  expect(unrecorded.refusals).toEqual([]);
+  expect(unrecorded.warnings.map(f => [f.code, f.path])).toEqual([['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[1].parts.files']]);
+  expect(unrecorded.warnings[0]!.message).toContain(correctionHash(pngs.before));
+  expect(unrecorded.warnings[0]!.message).toContain(correctionHash(pngs.after));
+  expect(unrecorded.warnings[0]!.message).toContain('parent');
 
   // Plant: a draft binding the after bytes of a withdrawn, superseded, or post-dated part-image correction -> refuses DRAFT_PART_REPAINT_UNRECORDED.
   const { dir: dir2, pngs: pngs2, writeDraft: writeDraft2 } = partImageFixture();
@@ -393,7 +458,6 @@ test('part-image negative control and plant: ordinary producer rebuilds with no 
   writeFileSync(join(dir2, 'reopen-words.txt'), 'Revisit parts-review after repaint.\n');
   testClock.set(new Date('2026-11-06T04:00:00Z'));
   expect(reopenCommand(['parts-review', dir2, '--by', 'reviewer', '--verbatim-file', join(dir2, 'reopen-words.txt')]).exit).toBe(0);
-  expect(checkProject(dir2).refusals.filter(f => f.code === 'DRAFT_PART_REPAINT_UNRECORDED')).toEqual([]);
   expect(checkProject(dir2).refusals).toEqual([]);
 
   // And if a correction was withdrawn, checkProject still refuses by name.
@@ -401,6 +465,72 @@ test('part-image negative control and plant: ordinary producer rebuilds with no 
   ((postWithdrawn.corrections as JsonObject[])[0] as JsonObject).verdict = 'withdrawn';
   writeFileSync(join(dir2, 'project.json'), `${JSON.stringify(postWithdrawn, null, 2)}\n`);
   expect(checkProject(dir2).refusals.map(f => [f.code, f.path])).toEqual([['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[1].parts.files']]);
+});
+
+test('unrecorded comparison uses exact immediate-parent A/B coverage, not a matching after hash from another pair', () => {
+  const hash = (letter: string) => letter.repeat(64);
+  const draft = (id: string, hour: string, letter: string): JsonObject => ({
+    id, at: `2026-11-06T${hour}:00:00Z`,
+    parts: { path: `derived/drafts/${id}/input`, files: [{ path: `derived/drafts/${id}/input/parts/torso.png`, sha256: hash(letter) }] },
+  });
+  const parent = draft('parent', '02', 'a');
+  const child = draft('child', '03', 'b');
+  const correction: JsonObject = {
+    id: 'pair', path: 'made', stage: 'parts-review', at: '2026-11-06T02:30:00Z',
+    artifact: { kind: 'part-image', draft: 'parent', part: 'torso', before: structuredClone(((parent.parts as JsonObject).files as JsonObject[])[0]!), after: { path: 'evidence/after.png', sha256: hash('b') } },
+  };
+  const findings = (drafts: JsonObject[], corrections?: JsonObject[]) => {
+    const project: JsonObject = { drafts };
+    if (corrections !== undefined) project.corrections = corrections;
+    const refusals: { code: string; path: string; message: string }[] = [];
+    const warnings: typeof refusals = [];
+    checkUnrecordedPartRepaints('', project, refusals, warnings);
+    return { refusals, warnings };
+  };
+  expect(findings([parent])).toEqual({ refusals: [], warnings: [] });
+  expect(findings([parent, draft('unchanged', '03', 'a')])).toEqual({ refusals: [], warnings: [] });
+  expect(findings([parent, child], [correction])).toEqual({ refusals: [], warnings: [] });
+  for (const records of [undefined, []]) {
+    const result = findings([parent, child], records);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings.map(f => f.code)).toEqual(['DRAFT_PART_REPAINT_UNRECORDED']);
+  }
+  const middle = draft('middle', '02', 'c');
+  middle.at = '2026-11-06T02:45:00Z';
+  const wrongPair = findings([parent, middle, child], [correction]);
+  expect(wrongPair.refusals).toEqual([]);
+  expect(wrongPair.warnings.map(f => [f.code, f.path])).toEqual([
+    ['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[1].parts.files'],
+    ['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[2].parts.files'],
+  ]);
+  expect(wrongPair.warnings[1]!.message).toContain(hash('c'));
+  expect(wrongPair.warnings[1]!.message).toContain(hash('b'));
+  // Matching after alone cannot cover another part, source draft, before hash or time.
+  for (const mutate of [
+    (c: JsonObject) => { (c.artifact as JsonObject).part = 'other'; },
+    (c: JsonObject) => { (c.artifact as JsonObject).draft = 'absent'; },
+    (c: JsonObject) => { ((c.artifact as JsonObject).before as JsonObject).sha256 = hash('c'); },
+    (c: JsonObject) => { c.at = '2026-11-06T04:00:00Z'; },
+    (c: JsonObject) => { c.verdict = 'withdrawn'; },
+  ]) {
+    const record = structuredClone(correction);
+    mutate(record);
+    const result = findings([parent, child], [record]);
+    expect(result.refusals.map(f => f.code)).toEqual(['DRAFT_PART_REPAINT_UNRECORDED']);
+    expect(result.warnings).toEqual([]);
+  }
+  const replacement = structuredClone(correction);
+  replacement.id = 'replacement';
+  replacement.resolves = 'pair';
+  replacement.at = '2026-11-06T02:40:00Z';
+  (replacement.artifact as JsonObject).after = { path: 'evidence/other.png', sha256: hash('c') };
+  expect(findings([parent, child], [correction, replacement]).refusals.map(f => f.code)).toEqual(['DRAFT_PART_REPAINT_UNRECORDED']);
+  // An unrelated withdrawn correction must not hide a no-record transition.
+  const unrelated = structuredClone(replacement);
+  unrelated.verdict = 'withdrawn';
+  const result = findings([parent, child], [unrelated]);
+  expect(result.refusals).toEqual([]);
+  expect(result.warnings.map(f => f.code)).toEqual(['DRAFT_PART_REPAINT_UNRECORDED']);
 });
 
 test('legacy-order project with a resolved part-image correction on a model-less draft signs parts-review with --draft alone and passes check', () => {

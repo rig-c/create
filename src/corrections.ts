@@ -358,9 +358,9 @@ export function draftPartBinding(draft: JsonObject, part: string): JsonObject | 
   return match ?? null;
 }
 
-export function validatePartImageArtifact(dir: string, project: JsonObject, record: JsonObject, art: JsonObject, on: JsonObject): void {
+export function validatePartImageArtifact(dir: string, project: JsonObject, record: JsonObject, art: JsonObject, on: JsonObject): number {
   if (record.stage !== 'parts-review' || on.kind !== 'draft') fail('CORRECTION_MALFORMED', 'part-image requires parts-review and a parent draft');
-  if (!closed(art, ['kind', 'draft', 'part', 'before', 'after', 'mask', 'tool']) || !id(art.draft) || typeof art.part !== 'string' || !partNamePattern.test(art.part) || !text(art.tool)) {
+  if (!closed(art, ['kind', 'draft', 'part', 'before', 'after', 'mask', 'tool'], ['added_alpha_texels']) || !id(art.draft) || typeof art.part !== 'string' || !partNamePattern.test(art.part) || !text(art.tool)) {
     fail('CORRECTION_MALFORMED', 'part-image requires {kind,draft,part,before,after,mask,tool}');
   }
   if (art.draft !== on.id) fail('CORRECTION_PART_IMAGE_BEFORE', `artifact.draft ${String(art.draft)} differs from parent draft ${String(on.id)}`);
@@ -403,7 +403,8 @@ export function validatePartImageArtifact(dir: string, project: JsonObject, reco
   const afterData = afterPng.data;
   let changedPixels = 0;
   let outsideAt: { x: number; y: number } | null = null;
-  let addedAlphaAt: { x: number; y: number; beforeA: number; afterA: number } | null = null;
+  let addedAlphaTexels = 0;
+  let outsideAlphaTexels = 0;
   for (let y = 0; y < beforePng.height; y++) {
     for (let x = 0; x < beforePng.width; x++) {
       const offset = (y * beforePng.width + x) * 4;
@@ -411,19 +412,27 @@ export function validatePartImageArtifact(dir: string, project: JsonObject, reco
       const aR = afterData[offset]!, aG = afterData[offset + 1]!, aB = afterData[offset + 2]!, aA = afterData[offset + 3]!;
       if (bR === aR && bG === aG && bB === aB && bA === aA) continue;
       changedPixels++;
-      if (!insideMask(offset) && outsideAt === null) outsideAt = { x, y };
-      if (aA > bA && addedAlphaAt === null) addedAlphaAt = { x, y, beforeA: bA, afterA: aA };
+      const inside = insideMask(offset);
+      if (!inside && outsideAt === null) outsideAt = { x, y };
+      if (aA > bA) {
+        addedAlphaTexels++;
+        if (!inside) outsideAlphaTexels++;
+      }
     }
+  }
+  if (outsideAlphaTexels > 0) {
+    fail('CORRECTION_PART_IMAGE_ADDED_ALPHA', `after ${String((art.after as JsonObject).path)} increases alpha at ${outsideAlphaTexels} texel(s) outside mask ${String((art.mask as JsonObject).path)}; keep alpha increases inside the mask`);
   }
   if (outsideAt !== null) {
     fail('CORRECTION_PART_IMAGE_OUTSIDE_MASK', `after ${String((art.after as JsonObject).path)} differs from before ${String(art.before.path)} outside mask ${String((art.mask as JsonObject).path)} at (${outsideAt.x},${outsideAt.y})`);
   }
-  if (addedAlphaAt !== null) {
-    fail('CORRECTION_PART_IMAGE_ADDED_ALPHA', `after ${String((art.after as JsonObject).path)} adds alpha at (${addedAlphaAt.x},${addedAlphaAt.y}) (${addedAlphaAt.beforeA} -> ${addedAlphaAt.afterA})`);
-  }
   if (changedPixels === 0) {
     fail('CORRECTION_PART_IMAGE_BEFORE', `after ${String((art.after as JsonObject).path)} has no pixel changes from before ${String(art.before.path)}`);
   }
+  if (art.added_alpha_texels !== undefined && art.added_alpha_texels !== addedAlphaTexels) {
+    fail('CORRECTION_PART_IMAGE_ALPHA_COUNT', `artifact.added_alpha_texels for ${String((art.after as JsonObject).path)} must equal ${addedAlphaTexels}; retain the original bytes and record the masked edit again`);
+  }
+  return addedAlphaTexels;
 }
 
 export function partImageResolvingDraft(project: JsonObject, record: JsonObject): JsonObject | null {
@@ -450,7 +459,7 @@ export function partImageResolvingDraft(project: JsonObject, record: JsonObject)
   return null;
 }
 
-export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, refusals: Finding[]): void {
+export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, refusals: Finding[], warnings: Finding[] = []): void {
   if (!Array.isArray(project.drafts)) return;
   const drafts = bindings(project.drafts);
   const corrections = bindings(project.corrections);
@@ -459,7 +468,6 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
     && isObject(c.artifact.before) && isObject(c.artifact.after)
     && hex(c.artifact.after.sha256) && c.artifact.before.sha256 !== c.artifact.after.sha256
   );
-  if (allPartImage.length === 0) return;
   const reopens = collectReopens(project, []);
   const firstResolutionTime = (c: JsonObject): number => {
     const art = c.artifact as JsonObject;
@@ -487,7 +495,6 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
     for (const pf of partFiles) {
       const partName = String(pf.path).slice(prefix.length, -4);
       const matchingRepaints = allPartImage.filter(c => ((c.artifact as JsonObject).after as JsonObject).sha256 === pf.sha256);
-      if (matchingRepaints.length === 0) continue;
       const draftAt = date(draft.at);
       const covered = matchingRepaints.some(c => {
         if (c.stage !== 'parts-review' || c.path !== 'made' || isWithdrawnAt(c, draftAt) || isSupersededAt(c, draftAt)) return false;
@@ -499,7 +506,7 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
         const parentPf = draftPartBinding(parent, partName);
         return parentPf !== null && isObject(art.before) && art.before.sha256 === parentPf.sha256;
       });
-      if (!covered) {
+      if (!covered && matchingRepaints.length > 0) {
         const ref = matchingRepaints[0]!;
         const refArt = ref.artifact as JsonObject;
         const parentId = typeof refArt.draft === 'string' ? refArt.draft : '<draft-id>';
@@ -511,6 +518,28 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
             message: `${path}: part ${partName} (${String(pf.path)}) binds part-image after bytes (${String(pf.sha256)}) from correction ${String(ref.id)} without a live covering part-image correction record; record a live masked repaint with correction record --path made --stage parts-review --draft ${parentId} --part ${partName} --part-image-file <after.png> --mask-file <mask.png> --tool <text> before recording the draft`,
           });
         }
+      }
+      // Drafts are append-only; the immediately preceding draft is the parent
+      // for an unrecorded transition. Compare bound bytes, never producer pixels.
+      const parent = drafts[index - 1];
+      const before = parent ? draftPartBinding(parent, partName) : null;
+      if (!before || before.sha256 === pf.sha256) continue;
+      const exactCoverage = matchingRepaints.some(c => {
+        const art = c.artifact as JsonObject;
+        return c.stage === 'parts-review' && c.path === 'made'
+          && !isWithdrawnAt(c, draftAt) && !isSupersededAt(c, draftAt)
+          && date(c.at) <= draftAt && date(c.at) >= date(parent!.at)
+          && art.draft === parent!.id && art.part === partName
+          && isObject(art.before) && art.before.path === before.path && art.before.sha256 === before.sha256;
+      });
+      const path = `drafts[${index}].parts.files`;
+      // Keep existing known-repaint refusals; the newly detected omission only WARNs.
+      if (!exactCoverage && !refusals.some(f => f.code === 'DRAFT_PART_REPAINT_UNRECORDED' && f.path === path)) {
+        const finding = {
+          code: 'DRAFT_PART_REPAINT_UNRECORDED', path,
+          message: `${path}: part ${partName} changed from parent draft ${String(parent!.id)} (${String(before.path)}, ${String(before.sha256)}) to draft ${String(draft.id)} (${String(pf.path)}, ${String(pf.sha256)}) without a live correction covering this exact before/after pair; preserve historical records and capture the next edit with correction record --path made --stage parts-review --draft ${String(parent!.id)} --part ${partName} --part-image-file <after.png> --mask-file <mask.png> --tool <text> before draft-rig`,
+        };
+        if (!warnings.some(f => f.code === finding.code && f.path === path && f.message === finding.message)) warnings.push(finding);
       }
     }
   }
@@ -663,7 +692,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       refusals.push(correctionFinding(e.code, path, e.message));
     }
   }
-  checkUnrecordedPartRepaints(dir, project, refusals);
+  checkUnrecordedPartRepaints(dir, project, refusals, warnings);
   const reopens = collectReopens(project, []);
   for (const signoff of collectSignoffs(project, []).filter(s => s.checkpoint === null && liveSignoff(reopens, s.stage, s.at))) {
     if (!CORRECTION_STAGES.includes(signoff.stage) || !isObject(contract) || signoff.at <= date(contract.adopted_at)) continue;

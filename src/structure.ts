@@ -95,8 +95,12 @@ export function acceptsStructureDelta(project: JsonObject, review: JsonObject, a
   const partsAt = Date.parse(String(review.at));
   const interview = isObject(project.interview) ? project.interview : {};
   const meshes = asArray(interview.waypoints).find(w => isObject(w) && w.id === 'meshes');
-  const guide = isObject(meshes) && isObject(meshes.guide) ? meshes.guide : {};
-  const guideAt = Date.parse(String(guide.at));
+  // Renewed guides must not move the approval gate for retained builds.
+  const guideAt = isObject(meshes)
+    ? [meshes.guide, ...asArray(meshes.history)].filter(isObject)
+      .map(guide => Date.parse(String(guide.at))).filter(when => when <= at)
+      .sort((a, b) => b - a)[0] ?? NaN
+    : NaN;
   const reopens = collectReopens(project, []).filter(r => r.at <= at);
   return guideAt > partsAt && collectSignoffs(project, []).some(s =>
     s.stage === 'rigging-interview' && s.record.checkpoint === null && s.at > partsAt

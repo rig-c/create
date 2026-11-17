@@ -1044,8 +1044,9 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_PART_IMAGE_BEFORE` | `part-image` artifact does not name a `parts-review` parent draft's bound `<parts.path>/parts/<part>.png`, `artifact.draft` disagrees with `on.id`, or `after` has no pixel changes from `before` |
 | `CORRECTION_PART_IMAGE_MASK_SIZE` | `part-image` `before`, `after` or `mask` is not a readable PNG or `mask`/`after` dimensions differ from `before` |
 | `CORRECTION_PART_IMAGE_OUTSIDE_MASK` | `part-image` `after` differs from `before` outside `mask` |
-| `CORRECTION_PART_IMAGE_ADDED_ALPHA` | `part-image` `after` increases alpha (`afterA > beforeA`) at any pixel |
-| `DRAFT_PART_REPAINT_UNRECORDED` | a draft's bound `parts/<part>.png` matches a `part-image` correction's `after.sha256` whose correction is withdrawn, superseded, dated after the draft, or on another part/draft |
+| `CORRECTION_PART_IMAGE_ADDED_ALPHA` | `part-image` `after` increases alpha (`afterA > beforeA`) outside `mask`; reports the number of outside texels and refuses before writing. Keep alpha restoration inside the declared mask |
+| `CORRECTION_PART_IMAGE_ALPHA_COUNT` | present `artifact.added_alpha_texels` differs from the count of texels with `afterA > beforeA`; retain the original bytes and record the masked edit again |
+| `DRAFT_PART_REPAINT_UNRECORDED` | Compare only named colour parts in the draft's hash-bound producer `parts.json`, never auxiliary depth maps. WARN only when that part has producer-declared `parts[i].provenance.edited_part`, its bound bytes differ from the immediately preceding draft's same part, and no live correction covers the exact parent/before/after pair, even with no correction records. Byte changes alone do not declare an edit; fresh splits without the declaration do not WARN. The warning itself records the historical gap: postdated correction records refuse, so preserve history and record a correction before draft-rig for the next edit only. Existing refusal remains when a named part binds known repaint bytes with no live covering record (withdrawn, superseded, post-dated or wrong part/draft) |
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |
 | `CORRECTION_PATH_LEGACY` | WARN once when explicit corrections adoption is absent |
@@ -1053,6 +1054,12 @@ patch, computes a producer check/diff, or launches an Apply.
 | `DESCRIBED_DIRECTION_LEGACY` | WARN for the same @1 authored-direction description before DESCRIBED_DIRECTION_SINCE, dated by correction.at. Preserve history and use correction@2 for the next request |
 | `CORRECTION_OPEN` | WARN per active described-open or made preview/pending record |
 | `CORRECTION_UNSUPPORTED` | WARN per active unsupported made operation; not duplicated as OPEN |
+
+`part-image` writers store `artifact.added_alpha_texels` and report it in text
+or JSON output. Alpha increases inside the existing mask are allowed, including
+transparent-to-opaque texels. Historical records without the count remain readable;
+a present count is checked against the retained PNGs. The newly detected unrecorded
+draft transition only WARNs at every date, so it introduces no SINCE constant.
 
 The remedy is to retain the original evidence, select its exact source/outcome,
 resolve the correction, or reopen its review before changing approved work.

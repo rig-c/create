@@ -213,6 +213,22 @@ test('delta preserves snapshot pointer order and absent declarations', () => {
   ]);
 });
 
+test('historical meshes approval uses the latest answer live at the build, not a later renewal', () => {
+  const project: JsonObject = {
+    interview: { waypoints: [{ id: 'meshes', guide: { at: '2026-11-09T00:00:00Z' }, history: [
+      { at: '2026-11-05T00:00:00Z' }, { at: '2026-11-03T00:00:00Z' },
+    ] }] },
+    signoffs: [{ stage: 'rigging-interview', checkpoint: null, at: '2026-11-04T00:00:00Z', by: 'owner', verbatim: 'Approved.' }],
+    reopens: [{ stage: 'parts-review', from_stage: 'rigging', at: '2026-11-08T00:00:00Z', by: 'owner', verbatim: 'Renew parts.', steps_before: [] }],
+  };
+  const review = { at: '2026-11-02T00:00:00Z' };
+  expect(acceptsStructureDelta(project, review, Date.parse('2026-11-04T00:00:00Z'))).toBe(true);
+  // The next retained answer invalidates the old signature, even before a reopen.
+  expect(acceptsStructureDelta(project, review, Date.parse('2026-11-05T00:00:00Z'))).toBe(false);
+  expect(acceptsStructureDelta(project, review, Date.parse('2026-11-02T00:00:00Z'))).toBe(false);
+  expect(acceptsStructureDelta(project, review)).toBe(false);
+});
+
 test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structure delta: %s', mode => {
   const dir = setup(10, true, true); partsSign(dir); freshRigInterview(dir);
   signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);

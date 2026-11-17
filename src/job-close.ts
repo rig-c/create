@@ -214,6 +214,9 @@ export async function closeCreateJob(
       }
       const original = readFileSync(file);
       const project = JSON.parse(original.toString('utf8')) as JsonObject;
+      // Close at the generation the act scan saw: a finalized act bumps it, so an act
+      // submitted after the scan makes Review refuse the close instead of dropping it.
+      const inspectedGeneration = host.session.status().generation;
       const acts = pendingJobActs(project, await readHostActs(host), root);
       let next: JsonObject | undefined;
       if (acts.length > 0) {
@@ -262,7 +265,7 @@ export async function closeCreateJob(
           jobId: binding.jobId,
           requestId: 'create-close',
           idempotencyKey: 'create-close',
-          expectedGeneration: host.session.status().generation,
+          expectedGeneration: inspectedGeneration,
           reason: 'producer-close',
         }),
       }));

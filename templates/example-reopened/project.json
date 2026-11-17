@@ -177,7 +177,7 @@
         "verdict": "versions[1].verdicts[0]",
         "review_package": {
           "path": "versions[1].review_package",
-          "sha256": "2c5bb38c15448f748868e2896a0d8cc59ba5911bd97295fcb2129d3e1988417e"
+          "sha256": "97ba3ec0b555a3163b6f39c8d3b8eb23a32a80ef2b735592cf4a69e0457d2f0b"
         }
       }
     },
@@ -215,13 +215,13 @@
         "verdict": "versions[3].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "0bb5e74667ca408dde108fa89ad38072ce95ad0288b7aaa1e8c4c65b11130c65"
+          "sha256": "df8a8093a3ea41be475574f177eb9a751dae2b7afdf7ab96afa38a181f4e9d28"
         }
       }
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.41.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.42.0)",
     "held": true,
     "date": "2026-11-10",
     "interviewer": "agent",
@@ -2419,8 +2419,8 @@
       "at": "2026-11-15T00:00:46.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.41.0",
-        "@rig-c/core": "3.7.0"
+        "@rig-c/parts": "2.42.0",
+        "@rig-c/core": "3.8.0"
       },
       "answers_feedback": [],
       "changed": "first rig version",
@@ -2441,7 +2441,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "7c56b6255b3c593684a6c972c30a1c4676b2e352f1365b4609fe241ba8c486d9"
+            "sha256": "23bb40d01385af59cfb0fe2ae94ea31dffe80c5e24e9c9336e3aecdede087b47"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -2525,7 +2525,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "0ee2eccf5f47f120b091abf6ed62ed711c1cb8f2506b19553219bdbd7b32c316"
+            "sha256": "1c8b2719c533cdf3cbe10d2cd673eb28323bd949aefae90dad258e8dfed6ffd4"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2749,8 +2749,8 @@
       "at": "2026-11-15T00:00:50.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.41.0",
-        "@rig-c/core": "3.7.0"
+        "@rig-c/parts": "2.42.0",
+        "@rig-c/core": "3.8.0"
       },
       "answers_feedback": [
         {
@@ -2776,7 +2776,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "7c56b6255b3c593684a6c972c30a1c4676b2e352f1365b4609fe241ba8c486d9"
+            "sha256": "23bb40d01385af59cfb0fe2ae94ea31dffe80c5e24e9c9336e3aecdede087b47"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -2860,7 +2860,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "0ee2eccf5f47f120b091abf6ed62ed711c1cb8f2506b19553219bdbd7b32c316"
+            "sha256": "1c8b2719c533cdf3cbe10d2cd673eb28323bd949aefae90dad258e8dfed6ffd4"
           }
         ],
         "open": "rig-review open 'derived/review/v2/out'"
@@ -3101,8 +3101,8 @@
       "at": "2026-11-15T00:01:01.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.41.0",
-        "@rig-c/core": "3.7.0"
+        "@rig-c/parts": "2.42.0",
+        "@rig-c/core": "3.8.0"
       },
       "answers_feedback": [],
       "changed": "first post version on rig v2",
@@ -3204,7 +3204,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v4.json",
-          "sha256": "0bb5e74667ca408dde108fa89ad38072ce95ad0288b7aaa1e8c4c65b11130c65"
+          "sha256": "df8a8093a3ea41be475574f177eb9a751dae2b7afdf7ab96afa38a181f4e9d28"
         }
       ],
       "evidence": [
@@ -3235,11 +3235,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v4.json",
-          "sha256": "0bb5e74667ca408dde108fa89ad38072ce95ad0288b7aaa1e8c4c65b11130c65"
+          "sha256": "df8a8093a3ea41be475574f177eb9a751dae2b7afdf7ab96afa38a181f4e9d28"
         },
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "0bb5e74667ca408dde108fa89ad38072ce95ad0288b7aaa1e8c4c65b11130c65"
+          "sha256": "df8a8093a3ea41be475574f177eb9a751dae2b7afdf7ab96afa38a181f4e9d28"
         },
         "sections": {
           "camera": [
@@ -3297,7 +3297,7 @@
       "at": "2026-11-15T00:00:35.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.41.0"
+        "version": "2.42.0"
       },
       "config": {
         "path": "derived/drafts/example/config.json",
@@ -3343,7 +3343,7 @@
       "files": [
         {
           "path": "derived/drafts/example/out/check/build/run.json",
-          "sha256": "7c56b6255b3c593684a6c972c30a1c4676b2e352f1365b4609fe241ba8c486d9"
+          "sha256": "23bb40d01385af59cfb0fe2ae94ea31dffe80c5e24e9c9336e3aecdede087b47"
         },
         {
           "path": "derived/drafts/example/out/check/build/skeleton.atlas",
@@ -3399,7 +3399,7 @@
         },
         {
           "path": "derived/drafts/example/out/run.json",
-          "sha256": "0ee2eccf5f47f120b091abf6ed62ed711c1cb8f2506b19553219bdbd7b32c316"
+          "sha256": "1c8b2719c533cdf3cbe10d2cd673eb28323bd949aefae90dad258e8dfed6ffd4"
         }
       ],
       "config_inputs": [
@@ -3415,7 +3415,7 @@
       "at": "2026-11-15T00:01:06.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.41.0"
+        "version": "2.42.0"
       },
       "config": {
         "path": "derived/drafts/lantern/config.json",
@@ -3461,7 +3461,7 @@
       "files": [
         {
           "path": "derived/drafts/lantern/out/check/build/run.json",
-          "sha256": "7c56b6255b3c593684a6c972c30a1c4676b2e352f1365b4609fe241ba8c486d9"
+          "sha256": "23bb40d01385af59cfb0fe2ae94ea31dffe80c5e24e9c9336e3aecdede087b47"
         },
         {
           "path": "derived/drafts/lantern/out/check/build/skeleton.atlas",
@@ -3517,7 +3517,7 @@
         },
         {
           "path": "derived/drafts/lantern/out/run.json",
-          "sha256": "0ee2eccf5f47f120b091abf6ed62ed711c1cb8f2506b19553219bdbd7b32c316"
+          "sha256": "1c8b2719c533cdf3cbe10d2cd673eb28323bd949aefae90dad258e8dfed6ffd4"
         }
       ],
       "config_inputs": [
@@ -4553,7 +4553,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "c492a874b098454a9f41918d0cd5923d92aaec65070f05b1ccad8e4a5fe1f484",
+      "sha256": "0de25a4f0f82d7574d5160631ee47e329b80cf8010f0464e66d9425ae1c71d6d",
       "at": "2026-11-15T00:01:00.000Z",
       "by": "agent"
     }

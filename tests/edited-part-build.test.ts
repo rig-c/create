@@ -1,4 +1,4 @@
-/** Real producer integration using only helpers shipped in @rig-c/parts 2.41.0. */
+/** Real producer integration using only helpers shipped in @rig-c/parts 2.42.0. */
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -264,8 +264,8 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     const depthConfigBytes = readFileSync(depthConfigPath);
     const depthManifestBytes = readFileSync(depthManifestPath);
     expect(obj(obj(json(depthConfigPath).assemble).edited_parts)).toEqual({
-      dir: 'edits',
-      receipts: [{ ...receipt, file: `../../edits/${part}.png` }],
+      dir: '../edits',
+      receipts: [receipt],
     });
     expect(obj(obj(arr(json(depthManifestPath).parts).map(obj).find(entry => entry.name === part)!).provenance).edited_part).toEqual(metadata);
 

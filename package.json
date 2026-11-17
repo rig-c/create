@@ -30,8 +30,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@rig-c/core": "3.7.0",
-    "@rig-c/parts": "2.41.0",
+    "@rig-c/core": "3.8.0",
+    "@rig-c/parts": "2.42.0",
     "@rig-c/review": "4.4.0"
   },
   "devDependencies": {

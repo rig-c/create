@@ -117,13 +117,17 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
   try { target = targetFor(dir, project, stage, version, versions.indexOf(version), verdictIndex); }
   catch (error) { return fail(error instanceof Error ? error.message : String(error)); }
   if (stage === 'rig-review' && version.pre_interview !== true) {
-    const ctx = { dir, project: { ...project, versions: [{ ...version, pre_interview: false }] }, refusals: [] as Finding[], warnings: [] as Finding[] };
+    // Ledger reads need every version, including verdicts retained as history.
+    const ctx = { dir, project: { ...project, versions: versions.map(v => v === version ? { ...version, pre_interview: false } : v) }, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkReviewPackages(ctx);
     checkFigureMask(ctx);
-    const mask = ctx.refusals.find(f => f.code.startsWith('FIGURE_MASK_')
+    const targetPath = `versions[v${String(version.n)}]`;
+    const onTarget = (f: Finding): boolean => f.path === targetPath || f.path.startsWith(`${targetPath}.`);
+    const refusals = ctx.refusals.filter(onTarget);
+    const mask = refusals.find(f => f.code.startsWith('FIGURE_MASK_')
       || ['REVIEW_PACKAGE_PART_FILE_MISMATCH', 'RIG_VERSION_AT_INVALID'].includes(f.code));
     if (mask) refuse(mask.code, mask.message);
-    if (ctx.refusals.length || ctx.warnings.some(w => w.code === 'REVIEW_PACKAGE_MISSING')) fail('review package is missing or differs from its recorded binding');
+    if (refusals.length || ctx.warnings.some(w => onTarget(w) && w.code === 'REVIEW_PACKAGE_MISSING')) fail('review package is missing or differs from its recorded binding');
   }
   // The writer validates the actual dated signature after attaching its immutable receipt.
   return target;

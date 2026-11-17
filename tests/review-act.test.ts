@@ -5,13 +5,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { collectItems } from '../src/check.ts';
-import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { republishCommand } from '../src/republish.ts';
+import { nextProject } from '../src/next.ts';
+import { reviewPackageCommand } from '../src/review-package.ts';
+import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, directionCommand, inputCommand, reopenCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
 import { clockedCli } from './helpers.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 
@@ -35,10 +38,11 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
     && typeof entry.bytes === 'string' && JSON.parse(entry.bytes).kind === 'review-verdict');
 }
 
-async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false) {
-  testClock.reset();
-  const root = temporary('create-act-project-');
-  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
+async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false, existing?: { root: string; rigVersion: number }) {
+  if (!existing) testClock.reset();
+  const root = existing?.root ?? temporary('create-act-project-');
+  const versionNumber = n === 1 ? existing?.rigVersion ?? 1 : n;
+  if (!existing) cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
   if (n === 2) {
     mkdirSync(join(root, 'inputs'), { recursive: true });
     for (const path of ['inputs/background.png', 'evidence/scene-citations.json', 'evidence/direction-input.json']) {
@@ -71,7 +75,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   const project = projectAt(root);
   project.review_job = { jobId: host.session.jobId, origin: host.origin };
   putProject(root, project);
-  const path = prepareLiveManifest(root, project, n);
+  const path = prepareLiveManifest(root, project, versionNumber);
   async function agent(verb: string, fields: object) {
     const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
       method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
@@ -83,10 +87,12 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     expect(result.ok).toBe(true);
     return result.value;
   }
-  const selector = n === 1 ? { kind: 'rig', version: n } : { kind: 'post', version: n, rigVersion: 1 };
+  const selector = n === 1 ? { kind: 'rig', version: versionNumber } : { kind: 'post', version: n, rigVersion: 1 };
   const entry = enqueuePublication(root, readWriterBinding(root)!, { path, selector: selector as NonNullable<Parameters<typeof enqueuePublication>[2]['selector']> });
   const publication = await agent('publish', { result: { path, selector }, freeze: { kind: 'producer-held', holdId: 'synthetic-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) } } });
-  acknowledgePublication(entry, String(publication.publicationId), Number(publication.generation), 'synthetic-request');
+  const subjects = existing ? (await reader({ root, record: { path: 'project.json', sha256: entry.recordHash },
+    result: entry.result as Parameters<typeof readPublished>[0]['result'] })).subjects : undefined;
+  acknowledgePublication(entry, String(publication.publicationId), Number(publication.generation), 'synthetic-request', subjects);
   rmSync(join(root, '.rig-create-review/outbox'), { recursive: true });
   const stage = n === 1 ? 'rig-review' : 'direction-review';
   const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'review-verdict', stage } });
@@ -141,6 +147,130 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
+
+async function preparePublishedRigSignoff(view: Awaited<ReturnType<typeof published>>) {
+  const { root, host, agent, uiRequest, publication } = view;
+  const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'signoff', stage: 'rig-review' } });
+  const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', {
+    publicationId: publication.publicationId, pageId: 'reopened-sign-page', sourceHash: (publication.source as JsonObject).sourceHash,
+  }));
+  expect(displayed.ok).toBe(true);
+  if (!displayed.ok) throw Error(displayed.error.code);
+  const signed = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
+    publicationId: publication.publicationId, askId: ask.askId, pageId: 'reopened-sign-page', displayedNonce: displayed.value.displayedNonce,
+    expectedGeneration: host.session.status().generation, submissionId: randomUUID(), kind: 'signoff',
+    value: { stage: 'rig-review', decision: 'approved', words: 'Sign the displayed synthetic rig.' },
+  }));
+  expect(signed.ok).toBe(true);
+  if (!signed.ok) throw Error(signed.error.code);
+  testClock.set(Math.max(testClock.now(), Date.parse(signed.value.at)));
+  // Finalize against the displayed record now; ingest only after its verdict is recorded.
+  return async () => {
+    const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root,
+      '--from-review', signed.value.actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exit };
+  };
+}
+
+/** Keep a real v1 Review receipt and signature through reopen; seed only the new synthetic build declaration. */
+async function reopenedRig(legacySubjects = false) {
+  const first = await published('3-rig-review', 1, 'owner', 'Approve the first synthetic rig.', 'approved', 1, true);
+  const seed = structuredClone((projectAt(first.root).versions as JsonObject[])[0]!);
+  const signFirst = await preparePublishedRigSignoff(first);
+  expect(await command(first.root, first.act.actId)).toMatchObject({ exit: 0, stderr: '' });
+  expect(await signFirst()).toMatchObject({ exit: 0, stderr: '' });
+  const history = projectAt(first.root);
+  expect(reviewActFindings(history)).toEqual([]);
+  testClock.set(testClock.now() + 1);
+  expect(reopenCommand(['rig-review', first.root, '--by', 'user', '--verbatim-file', join(first.root, 'evidence/approval.txt')]).exit).toBe(0);
+  const reopened = projectAt(first.root);
+  const lapseCodes = checkProject(first.root).warnings.map(f => f.code);
+  expect(lapseCodes).toContain('REOPEN_SIGNOFF_LAPSED');
+  expect(lapseCodes).toContain('REOPEN_VERDICT_LAPSED');
+  expect(reopened.signoffs).toEqual(history.signoffs);
+  expect(reopened.review_acts).toEqual(history.review_acts);
+  // Like the chain fixture's declared build seed, reuse frozen synthetic producer bytes.
+  // This tests review/signoff, not the separate frozen-rig registration contract.
+  testClock.set(testClock.now() + 1);
+  const second: JsonObject = { ...seed, n: 2, at: testClock.iso(), changed: 'Synthetic build after reopening rig-review.', verdicts: [] };
+  delete second.review_package;
+  reopened.versions = [...reopened.versions as JsonObject[], second];
+  putProject(first.root, reopened);
+  const config = (second.provenance as JsonObject).config as JsonObject;
+  const from = (seed.review_package as JsonObject).from as string;
+  expect(reviewPackageCommand(['2', first.root, '--config', String(config.path), '--from', from]).exit).toBe(0);
+  const current = await published('3-rig-review', 1, 'owner', 'Approve the replacement synthetic rig.', 'approved', 1, legacySubjects,
+    { root: first.root, rigVersion: 2 });
+  expect(current.act.source.selector).toEqual({ kind: 'rig', version: 2 });
+  expect(Date.parse(String((projectAt(first.root).versions as JsonObject[])[1]!.at)))
+    .toBeGreaterThan(Date.parse(String((reopened.reopens as JsonObject[]).at(-1)!.at)));
+  return { ...current, history };
+}
+
+for (const separate of [false, true]) test(`#578 reopened v2 ${separate ? 'separate signoff' : 'one-subject folded approval'} preserves v1 ledger and signs the current rig`, async () => {
+  const view = await reopenedRig(separate);
+  const { root, act, history } = view;
+  const before = projectAt(root);
+  const subjects = readAcknowledgedPublication(root, act.jobId, act.publicationId)!.subjects;
+  expect(subjects).toEqual(separate
+    ? [{ kind: 'review-verdict', stage: 'rig-review' }, { kind: 'signoff', stage: 'rig-review' }]
+    : [{ kind: 'review-verdict', stage: 'rig-review' }]);
+  const signSecond = separate ? await preparePublishedRigSignoff(view) : null;
+  expect(await command(root, act.actId, 2)).toMatchObject({ exit: 0, stderr: '' });
+  if (signSecond) {
+    expect(projectAt(root).signoffs).toEqual(before.signoffs);
+    expect(await signSecond()).toMatchObject({ exit: 0, stderr: '' });
+  }
+  const saved = projectAt(root);
+  expect((saved.versions as JsonObject[])[0]).toEqual((history.versions as JsonObject[])[0]);
+  expect((saved.signoffs as JsonObject[]).slice(0, -1)).toEqual(history.signoffs as JsonObject[]);
+  expect((saved.review_acts as JsonObject[]).slice(0, (history.review_acts as JsonObject[]).length)).toEqual(history.review_acts as JsonObject[]);
+  expect((saved.signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', target: {
+    version: 2, verdict: 'versions[1].verdicts[0]', review_package: { path: 'versions[1].review_package' },
+  } });
+  expect((saved.versions as JsonObject[])[1]!.verdicts).toEqual([expect.objectContaining({ review: 'rig-review', verdict: 'accepted' })]);
+  expect(reviewActFindings(saved)).toEqual([]);
+  expect(checkProject(root).refusals.map(f => f.code)).toEqual(['STAGE_LAGGING']);
+  const next = nextProject(root, testClock.now());
+  expect(next.moves.some(move => move.command?.startsWith('rig-create advance post-interview'))).toBe(true);
+  expect(next.moves.some(move => move.review_act?.stage === 'rig-review' && move.review_act.kind === 'signoff')).toBe(false);
+  const bytes = readFileSync(join(root, 'project.json'));
+  expect(await command(root, act.actId, 2)).toMatchObject({ exit: 0, stderr: '' });
+  expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+}, 15_000);
+
+test('#578 tampered reopened v2 package refuses folded approval before writing verdict or signature', async () => {
+  const { root, act } = await reopenedRig();
+  const before = readFileSync(join(root, 'project.json'));
+  writeFileSync(join(root, 'derived/review/v2/out/rig/rig.json'), '{}\n');
+  expect(checkProject(root).refusals.map(f => [f.code, f.path])).toContainEqual(['REVIEW_PACKAGE_CHANGED', 'versions[v2].review_package']);
+  const result = await command(root, act.actId, 2);
+  expect(result.exit).toBe(1);
+  expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+}, 15_000);
+
+test('#578 signoff target isolates an older package finding and still refuses a target package finding', async () => {
+  const { root } = await reopenedRig(true);
+  const candidate = projectAt(root);
+  const versions = candidate.versions as JsonObject[];
+  versions[1]!.verdicts = [{ review: 'rig-review', verdict: 'accepted', by: 'user', at: testClock.iso(), verbatim: 'Synthetic target approval.' }];
+  // Call target selection directly: full writers also validate unrelated history as their own gate.
+  // Alter a retained package file, not the version record hashed by the v1 act ledger.
+  writeFileSync(join(root, 'derived/review/v1/out/rig/rig.json'), '{}\n');
+  const before = readFileSync(join(root, 'project.json'));
+  expect(checkProject(root, candidate).refusals.map(f => [f.code, f.path]))
+    .toContainEqual(['REVIEW_PACKAGE_CHANGED', 'versions[v1].review_package']);
+  expect(selectSignoffTarget(root, candidate, 'rig-review', '2')).toMatchObject({ version: 2, verdict: 'versions[1].verdicts[0]' });
+  expect(selectSignoffTarget(root, candidate, 'rig-review')).toMatchObject({ version: 2 });
+  writeFileSync(join(root, 'derived/review/v2/out/rig/rig.json'), '{}\n');
+  expect(checkProject(root, candidate).refusals.map(f => [f.code, f.path]))
+    .toContainEqual(['REVIEW_PACKAGE_CHANGED', 'versions[v2].review_package']);
+  expect(() => selectSignoffTarget(root, candidate, 'rig-review', '2'))
+    .toThrow(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE' }));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+}, 15_000);
 
 test('producer-bound rig verdict fetch commits once, preserves words, and unchanged replay reports its existing record', async () => {
   const { root, act } = await published();

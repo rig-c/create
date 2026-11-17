@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync, rmSync } from 'node:fs';
+import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -9,6 +9,8 @@ import {
   type JobOwnerHost,
   type JobPublicationReader,
 } from '@rig-c/review/job-host';
+import { asArray, checkProject } from './check.ts';
+import { pendingJobActs, readHostActs } from './job-acts.ts';
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
@@ -18,7 +20,10 @@ import {
   type JobIdentity,
   type WriterBinding,
 } from './job-outbox.ts';
-import { refuse } from './refusal.ts';
+import { baselineOf, newFindings } from './refusal-baseline.ts';
+import { refuse, USAGE_EXIT } from './refusal.ts';
+import { reviewActFindings } from './review-act.ts';
+import type { JsonObject } from './templates.ts';
 
 function isAttachRefused(error: unknown): error is Extract<JobHostAttachFailure, { code: 'JOB_HOST_ATTACH_REFUSED' }> {
   return typeof error === 'object' && error !== null
@@ -183,7 +188,12 @@ export async function closeCreateJob(
   root: string,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
   retireRefused = false,
+  discardActs?: string,
+  now = Date.now(),
 ): Promise<void> {
+  if (discardActs !== undefined && !discardActs.trim()) {
+    refuse('JOB_BINDING_INVALID', 'project.json: job close --discard-acts requires a non-empty reason', USAGE_EXIT);
+  }
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
   try {
@@ -194,11 +204,54 @@ export async function closeCreateJob(
     const binding = readWriterBinding(root);
     if (!binding) refuse('JOB_BINDING_INVALID', 'project.json: no writer-owned job binding; open the live job first');
     const host = await attachCreateJobForClose(root, binding, startHost);
+    const file = join(root, 'project.json');
+    const temporary = join(root, '.rig-create-job-record.tmp');
     try {
       try {
         host.session.authorize('consumer', `Bearer ${binding.fetchCapability}`);
       } catch {
         refuse('JOB_BINDING_INVALID', 'project.json: writer binding fetchCapability is not authorized for the bound live job; restore the writer-owned binding before rig-create job close');
+      }
+      const original = readFileSync(file);
+      const project = JSON.parse(original.toString('utf8')) as JsonObject;
+      const acts = pendingJobActs(project, await readHostActs(host), root);
+      let next: JsonObject | undefined;
+      if (acts.length > 0) {
+        if (discardActs === undefined) {
+          const listed = acts.map(act => `${act.actId} (${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`})`).join('; ');
+          refuse('JOB_ACTS_PENDING', `project.json.review_acts: un-ingested finalized review act(s) ${listed}; ingest each act before closing, or run rig-create job close --discard-acts <reason> to record and discard them`);
+        }
+        const reason = discardActs.trim();
+        const at = new Date(now).toISOString();
+        next = {
+          ...project,
+          review_acts: [
+            ...asArray(project.review_acts),
+            ...acts.map(act => ({
+              schema: 'rig-create/review-act@1',
+              kind: 'discarded',
+              jobId: binding.jobId,
+              actId: act.actId,
+              at,
+              reason,
+            })),
+          ],
+        };
+        const failure = [
+          ...reviewActFindings(next),
+          ...newFindings(
+            baselineOf(checkProject(root, project, { now, readOnly: true })),
+            checkProject(root, next, { now, readOnly: true }).refusals,
+          ),
+        ];
+        if (failure[0]) refuse(failure[0].code, failure[0].message);
+      }
+      const currentBeforeClose = readWriterBinding(root);
+      if (!currentBeforeClose || !isDeepStrictEqual(currentBeforeClose, binding)) {
+        refuse('JOB_BINDING_INVALID', 'project.json: private live-job binding changed during close; restore the writer-owned binding');
+      }
+      if (!readFileSync(file).equals(original)) {
+        refuse('JOB_BINDING_INVALID', 'project.json: record changed during close; retry against the current record');
       }
       const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${binding.jobId}/api`, {
         method: 'POST',
@@ -219,9 +272,17 @@ export async function closeCreateJob(
       if (!current || !isDeepStrictEqual(current, binding)) {
         refuse('JOB_BINDING_INVALID', 'project.json: private live-job binding changed during close; restore the writer-owned binding');
       }
+      if (next !== undefined) {
+        if (!readFileSync(file).equals(original)) {
+          refuse('JOB_BINDING_INVALID', 'project.json: record changed during close; retry against the current record');
+        }
+        writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' });
+        renameSync(temporary, file);
+      }
       if (retireRefused) retireRefusedPublications(root, pending);
       rmSync(join(root, JOB_BINDING_FILE));
     } finally {
+      rmSync(temporary, { force: true });
       host.stop();
     }
   } finally {

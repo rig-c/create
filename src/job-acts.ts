@@ -1,13 +1,52 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
-import type { ActV3 } from '@rig-c/review/job-host';
+import type { ActV3, JobEventV3, JobOwnerHost } from '@rig-c/review/job-host';
 import { asArray, isObject, type Finding } from './check.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
+import { refuse } from './refusal.ts';
 import { stageOfStep } from './stages.ts';
 import { checkStructure } from './structure.ts';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { JsonObject } from './templates.ts';
+
+export type AgentReply = { ok?: boolean; error?: { code?: string }; value?: { events?: unknown; status?: unknown; cursor?: unknown } };
+
+export async function agentCall(host: JobOwnerHost, body: object): Promise<AgentReply> {
+  const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+    method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ schema: host.session.publicationMode === 'record-and-package' ? 'rig-review/job-api@3' : 'rig-review/job-api@2', jobId: host.session.jobId, requestId: randomUUID(), ...body }),
+  }));
+  return await response.json() as AgentReply;
+}
+
+/** The shared agent-next traversal; listing is strict while existing ask retries retain their contract. */
+export async function* jobEvents(host: JobOwnerHost, strict = false): AsyncGenerator<JobEventV3> {
+  let after: unknown = null;
+  for (let page = 0; page < 10_000; page++) {
+    let reply: AgentReply;
+    try { reply = await agentCall(host, { verb: 'next', after, waitMs: 0 }); }
+    catch (error) {
+      if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job event read failed; restore the bound host and retry job acts');
+      throw error;
+    }
+    const events = reply.ok ? reply.value?.events : undefined;
+    if (!Array.isArray(events)) {
+      if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job refused its event stream; restore the bound host and retry job acts');
+      return;
+    }
+    for (const event of events as JobEventV3[]) yield event;
+    if (reply.value?.status !== 'events' || reply.value.cursor === after) return;
+    after = reply.value.cursor;
+  }
+  if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live event stream exceeded the paging bound; retry job acts on a quiescent job');
+}
+
+export async function readHostActs(host: JobOwnerHost): Promise<ActV3[]> {
+  const acts: ActV3[] = [];
+  for await (const event of jobEvents(host, true)) if (event.type === 'act') acts.push(event.act);
+  return acts;
+}
 
 export interface PendingJobAct {
   actId: string;

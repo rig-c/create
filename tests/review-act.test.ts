@@ -148,7 +148,7 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
   return { stdout, stderr, exit };
 }
 
-async function signPublishedRig(view: Awaited<ReturnType<typeof published>>) {
+async function preparePublishedRigSignoff(view: Awaited<ReturnType<typeof published>>) {
   const { root, host, agent, uiRequest, publication } = view;
   const ask = await agent('ask', { publicationId: publication.publicationId, subject: { kind: 'signoff', stage: 'rig-review' } });
   const displayed = await host.ports.ackDisplayed(host.session.jobId, uiRequest('displayed', {
@@ -164,18 +164,22 @@ async function signPublishedRig(view: Awaited<ReturnType<typeof published>>) {
   expect(signed.ok).toBe(true);
   if (!signed.ok) throw Error(signed.error.code);
   testClock.set(Math.max(testClock.now(), Date.parse(signed.value.at)));
-  const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root,
-    '--from-review', signed.value.actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
-  const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  return { stdout, stderr, exit };
+  // Finalize against the displayed record now; ingest only after its verdict is recorded.
+  return async () => {
+    const child = Bun.spawn([process.execPath, ...clockedCli(), 'signoff', 'rig-review', root,
+      '--from-review', signed.value.actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exit };
+  };
 }
 
 /** Keep a real v1 Review receipt and signature through reopen; seed only the new synthetic build declaration. */
 async function reopenedRig(legacySubjects = false) {
   const first = await published('3-rig-review', 1, 'owner', 'Approve the first synthetic rig.', 'approved', 1, true);
   const seed = structuredClone((projectAt(first.root).versions as JsonObject[])[0]!);
+  const signFirst = await preparePublishedRigSignoff(first);
   expect(await command(first.root, first.act.actId)).toMatchObject({ exit: 0, stderr: '' });
-  expect(await signPublishedRig(first)).toMatchObject({ exit: 0, stderr: '' });
+  expect(await signFirst()).toMatchObject({ exit: 0, stderr: '' });
   const history = projectAt(first.root);
   expect(reviewActFindings(history)).toEqual([]);
   testClock.set(testClock.now() + 1);
@@ -212,10 +216,11 @@ for (const separate of [false, true]) test(`#578 reopened v2 ${separate ? 'separ
   expect(subjects).toEqual(separate
     ? [{ kind: 'review-verdict', stage: 'rig-review' }, { kind: 'signoff', stage: 'rig-review' }]
     : [{ kind: 'review-verdict', stage: 'rig-review' }]);
+  const signSecond = separate ? await preparePublishedRigSignoff(view) : null;
   expect(await command(root, act.actId, 2)).toMatchObject({ exit: 0, stderr: '' });
-  if (separate) {
+  if (signSecond) {
     expect(projectAt(root).signoffs).toEqual(before.signoffs);
-    expect(await signPublishedRig(view)).toMatchObject({ exit: 0, stderr: '' });
+    expect(await signSecond()).toMatchObject({ exit: 0, stderr: '' });
   }
   const saved = projectAt(root);
   expect((saved.versions as JsonObject[])[0]).toEqual((history.versions as JsonObject[])[0]);

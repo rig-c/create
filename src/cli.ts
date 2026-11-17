@@ -51,7 +51,7 @@ Usage:
   rig-create republish <rig> [<dir>] --reason <words>
   rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --question <question> | --plan]
   rig-create job acts [<dir>] [--json]          list finalized acts and their ingest commands
-  rig-create job reconcile|close [<dir>] [--retire-refused (close only)]
+  rig-create job reconcile|close [<dir>] [--retire-refused | --discard-acts <reason> (close only)]
 ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
   rig-create init <dir> --painting <file> --origin <words> [--projects-root <dir>] [--same-artwork-reason <file>]
                                                     also register the painting; refuse a second project for one artwork
@@ -311,9 +311,30 @@ export function main(argv: string[], now: number): number {
           options[arg] = value;
         } else if (action === 'open' && arg === '--plan' && !options[arg]) options[arg] = 'true';
         else if (action === 'close' && arg === '--retire-refused' && !options[arg]) options[arg] = 'true';
+        else if (action === 'close' && arg === '--discard-acts' && options[arg] === undefined) {
+          const next = args[index + 1];
+          if (next !== undefined && !next.startsWith('-')) {
+            if (!next.trim()) refuse('JOB_BINDING_INVALID', 'project.json: job close --discard-acts requires a non-empty reason', USAGE_EXIT);
+            options[arg] = next;
+            index++;
+          } else {
+            options[arg] = '';
+          }
+        } else if (action === 'close' && arg === '--reason' && options[arg] === undefined) {
+          const value = args[++index];
+          if (!value || value.startsWith('-') || !value.trim()) refuse('JOB_BINDING_INVALID', 'project.json: job close --discard-acts requires a non-empty reason', USAGE_EXIT);
+          options[arg] = value;
+        }
         else if (action === 'acts' && arg === '--json' && !options[arg]) options[arg] = 'true';
         else if (arg.startsWith('-')) refuse('JOB_BINDING_INVALID', 'project.json: unsupported job option; see help', USAGE_EXIT);
         else positional.push(arg);
+      }
+      if (options['--reason'] !== undefined) {
+        if (options['--discard-acts'] !== '') refuse('JOB_BINDING_INVALID', 'project.json: --reason goes with job close --discard-acts', USAGE_EXIT);
+        options['--discard-acts'] = options['--reason'];
+      }
+      if (options['--discard-acts'] === '') {
+        refuse('JOB_BINDING_INVALID', 'project.json: job close --discard-acts requires a non-empty reason', USAGE_EXIT);
       }
       if (positional.length > 1 || action === 'open' && (!options['--reviewer'] || !['owner', 'delegate'].includes(options['--role'] ?? ''))) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer <id> --role owner|delegate and one optional directory', USAGE_EXIT);
@@ -321,7 +342,7 @@ export function main(argv: string[], now: number): number {
       if (['--draft', '--rig', '--question', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --question or --plan; choose one recorded result', USAGE_EXIT);
       }
-      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', retireRefused: options['--retire-refused'] === 'true', now }));
+      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', retireRefused: options['--retire-refused'] === 'true', discardActs: options['--discard-acts'], now }));
       const runtime = join(import.meta.dir, 'job-runtime.ts');
       if (action === 'open') {
         const child = Bun.spawn(jobRuntimeCommand(action, runtime), {

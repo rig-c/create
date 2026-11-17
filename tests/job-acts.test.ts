@@ -622,3 +622,91 @@ test('#502 direction verdict then record signoff execute next host, exported-act
   await executePrinted(root, advance.command!);
   expect(nextProject(root, testClock.now()).accepted).toBe(true);
 }, 30_000);
+
+test('#556 job close refuses un-ingested acts byte-identically, closes after ingest, and records discarded acts with a reason', async () => {
+  testClock.set(Date.now());
+  const root = copy('0b-plan-pending');
+
+  // 1. A job with no acts closes as before and leaves project.json byte-identical.
+  const emptyOpen = await open(root, ['--plan']);
+  const emptyBefore = readFileSync(join(root, 'project.json'));
+  const emptyClose = await cli(root, ['job', 'close', root]);
+  expectExit0(emptyClose);
+  expect(emptyClose.stdout.trim()).toBe('job: closed');
+  await emptyOpen.proc.exited;
+  expect(readWriterBinding(root)).toBeNull();
+  expect(readFileSync(join(root, 'project.json'))).toEqual(emptyBefore);
+
+  // 2. An un-ingested finalized act refuses with JOB_ACTS_PENDING, names the act id and ingest command,
+  // and leaves both the binding and project.json byte-identical; after ingest, close succeeds.
+  const firstOpen = await open(root, ['--plan']);
+  const firstView = await page(root, firstOpen.url, 1, 'signoff');
+  const firstAct = await firstView.act('signoff', 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
+  const bindingPath = join(root, JOB_BINDING_FILE);
+  const beforeBindingBytes = readFileSync(bindingPath);
+  const beforeProjectBytes = readFileSync(join(root, 'project.json'));
+
+  const refusedClose = await cli(root, ['job', 'close', root]);
+  expect(refusedClose.exit).toBe(1);
+  expect(refusedClose.stderr).toStartWith('JOB_ACTS_PENDING: ');
+  expect(refusedClose.stderr).toContain(String(firstAct.actId));
+  const [pending] = pendingJobActs(read(root), [firstAct as unknown as ActV3], root);
+  expect(refusedClose.stderr).toContain(pending!.command!);
+  expect(readFileSync(bindingPath)).toEqual(beforeBindingBytes);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeProjectBytes);
+
+  await executePrinted(root, pending!.command!);
+  const afterIngestClose = await cli(root, ['job', 'close', root]);
+  expectExit0(afterIngestClose);
+  expect(afterIngestClose.stdout.trim()).toBe('job: closed');
+  await firstOpen.proc.exited;
+  expect(readWriterBinding(root)).toBeNull();
+
+  // 3. --discard-acts validates the reason and record through the check validator, records the dropped act ids, and closes.
+  const discardRoot = copy('0b-plan-pending');
+  const secondOpen = await open(discardRoot, ['--plan']);
+  const secondView = await page(discardRoot, secondOpen.url, 1, 'signoff');
+  const droppedAct = await secondView.act('signoff', 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
+  const discardBindingPath = join(discardRoot, JOB_BINDING_FILE);
+  const discardBeforeBinding = readFileSync(discardBindingPath);
+  const discardBeforeProject = readFileSync(join(discardRoot, 'project.json'));
+
+  const missingReason = await cli(discardRoot, ['job', 'close', discardRoot, '--discard-acts']);
+  expect(missingReason.exit).toBe(2);
+  expect(missingReason.stderr).toContain('JOB_BINDING_INVALID:');
+  expect(readFileSync(discardBindingPath)).toEqual(discardBeforeBinding);
+  expect(readFileSync(join(discardRoot, 'project.json'))).toEqual(discardBeforeProject);
+
+  // If the validator refuses review_acts, close refuses before writing project.json or tearing down the binding.
+  const duplicateSeed = read(discardRoot);
+  duplicateSeed.review_acts = [
+    { schema: 'rig-create/review-act@1', kind: 'discarded', jobId: droppedAct.jobId, actId: 'dup-act', at: testClock.iso(), reason: 'first' },
+    { schema: 'rig-create/review-act@1', kind: 'discarded', jobId: droppedAct.jobId, actId: 'dup-act', at: testClock.iso(), reason: 'second' },
+  ];
+  write(discardRoot, duplicateSeed);
+  const invalidBeforeProject = readFileSync(join(discardRoot, 'project.json'));
+  const refusedValidatorClose = await cli(discardRoot, ['job', 'close', discardRoot, '--discard-acts', 'Superseded by updated plan']);
+  expect(refusedValidatorClose.exit).toBe(1);
+  expect(refusedValidatorClose.stderr).toStartWith('REVIEW_ACT_REPLAY_CONFLICT: ');
+  expect(readFileSync(discardBindingPath)).toEqual(discardBeforeBinding);
+  expect(readFileSync(join(discardRoot, 'project.json'))).toEqual(invalidBeforeProject);
+  writeFileSync(join(discardRoot, 'project.json'), discardBeforeProject);
+
+  const discardedClose = await cli(discardRoot, ['job', 'close', discardRoot, '--discard-acts', 'Superseded by updated plan']);
+  expectExit0(discardedClose);
+  expect(discardedClose.stdout.trim()).toBe('job: closed');
+  await secondOpen.proc.exited;
+  expect(readWriterBinding(discardRoot)).toBeNull();
+
+  const recorded = read(discardRoot);
+  expect(arr(recorded.review_acts)).toContainEqual({
+    schema: 'rig-create/review-act@1',
+    kind: 'discarded',
+    jobId: droppedAct.jobId,
+    actId: droppedAct.actId,
+    at: expect.any(String),
+    reason: 'Superseded by updated plan',
+  });
+  expect(pendingJobActs(recorded, [droppedAct as unknown as ActV3], discardRoot)).toEqual([]);
+  expect(nextProject(discardRoot, testClock.now()).refusals.filter(r => r.code === 'REVIEW_ACT_LEDGER_INVALID')).toEqual([]);
+}, 30_000);

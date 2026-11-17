@@ -403,7 +403,7 @@ export function reviewActVersionHash(project: JsonObject, act: ReviewVerdictAct,
 function previousPublicationVerdict(project: JsonObject, act: ReviewVerdictAct): number | undefined {
   if (!Array.isArray(project.review_acts)) return undefined;
   const receipts = project.review_acts.filter(object).filter(entry => {
-    if (entry.kind === 'parts-verdict' || entry.kind === 'interview-picks' || entry.kind === 'checkpoint' || entry.kind === 'signoff' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
+    if (entry.kind === 'parts-verdict' || entry.kind === 'interview-picks' || entry.kind === 'checkpoint' || entry.kind === 'signoff' || entry.kind === 'discarded' || entry.jobId !== act.jobId || typeof entry.bytes !== 'string') return false;
     return decodeReviewAct(entry.bytes).publicationId === act.publicationId;
   });
   return receipts.length ? Math.min(...receipts.map(entry => Number(entry.verdict))) : undefined;
@@ -549,6 +549,21 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
     const path = `review_acts[${index}]`;
     if (object(entry) && entry.schema === PARTS_CLI_RECEIPT) return;
     try {
+      if (object(entry) && entry.schema === 'rig-create/review-act@1' && entry.kind === 'discarded') {
+        if (Object.keys(entry).sort().join(',') !== 'actId,at,jobId,kind,reason,schema'
+          || !id(entry.jobId) || !id(entry.actId)
+          || typeof entry.at !== 'string' || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(entry.at) || !Number.isFinite(Date.parse(entry.at))
+          || typeof entry.reason !== 'string' || !entry.reason.trim()) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'discarded act receipt requires schema, kind, jobId, actId, ISO at and non-empty reason');
+        }
+        const key = JSON.stringify([entry.jobId, entry.actId]);
+        if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
+        seen.add(key);
+        if (asArray(project.signoffs).filter(object).some(row => row.source === `review act ${entry.jobId}/${entry.actId}`)) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'discarded act receipt cannot also sign a stage or checkpoint');
+        }
+        return;
+      }
       if (!object(entry) || entry.schema !== 'rig-create/review-act@1' || typeof entry.bytes !== 'string'
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
       const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : entry.kind === 'reopen' ? 'reopen' : 'review-verdict');

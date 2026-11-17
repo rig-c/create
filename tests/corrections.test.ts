@@ -12,6 +12,7 @@ import { Refusal } from '../src/refusal.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { hasStageOrder, LEGACY_STAGE_VALUES } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
+import { locateParts } from '../src/parts-sections.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture, correctionCommentsFixture, commentsReviewRunner, COMMENTS_APPLY_ID } from './correction-fixture.ts';
 import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, diffClassesCommand, draftRigCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
@@ -186,7 +187,7 @@ function syntheticPartPngs() {
   };
 }
 
-function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean } = {}) {
+function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean; edited?: boolean; depth?: boolean } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'part-image-')));
   roots.push(root);
   const dir = join(root, 'project');
@@ -220,6 +221,21 @@ function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean } =
   initial.drafts = [];
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(initial, null, 2)}\n`);
   const pngs = syntheticPartPngs();
+  if (opts.edited) {
+    // Synthetic report/loader contract, as in edited-part-inputs.test.ts;
+    // no producer is run and no create-owned pixel measurements are claimed.
+    const parts = locateParts(dir)!;
+    const source = join(parts, 'src/config.ts');
+    const version = (JSON.parse(readFileSync(join(parts, 'package.json'), 'utf8')) as { version: string }).version;
+    mkdirSync(join(dir, 'node_modules/@rig-c/parts/src'), { recursive: true });
+    writeFileSync(join(dir, 'node_modules/@rig-c/parts/package.json'), JSON.stringify({ name: '@rig-c/parts', version, type: 'module' }));
+    writeFileSync(join(dir, 'node_modules/@rig-c/parts/src/config.ts'), `export * from ${JSON.stringify(source)};
+import { configFileReferences as original } from ${JSON.stringify(source)};
+export function configFileReferences(config) {
+  const refs = original(config).filter(ref => !ref.at.startsWith('assemble.edited_parts.'));
+  return config?.assemble?.edited_parts ? [...refs, { at: 'assemble.edited_parts.receipts[0].file', value: 'input/parts/torso.png' }] : refs;
+}`);
+  }
   mkdirSync(join(dir, 'evidence/repaint'), { recursive: true });
   writeFileSync(join(dir, 'evidence/repaint/after.png'), pngs.after);
   writeFileSync(join(dir, 'evidence/repaint/mask.png'), pngs.mask);
@@ -236,6 +252,19 @@ function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean } =
     cpSync(join(dir, 'derived/drafts/chain'), join(dir, draftRoot), { recursive: true });
     if (opts.modelless) rmSync(join(dir, draftRoot, 'out/check'), { recursive: true, force: true });
     writeFileSync(join(dir, draftRoot, 'input/parts/torso.png'), topwearBytes);
+    if (opts.depth) writeFileSync(join(dir, draftRoot, 'input/parts/torso_depth.png'), topwearBytes);
+    if (opts.edited && id !== 'parent') {
+      const receipt = { part: 'torso', file: 'torso.png', from_sha256: correctionHash(pngs.before), sha256: correctionHash(topwearBytes), editor: 'synthetic masked edit' };
+      const configFile = join(dir, draftRoot, 'config.json');
+      const config = JSON.parse(readFileSync(configFile, 'utf8')) as JsonObject;
+      (config.assemble as JsonObject).edited_parts = { dir: 'input/parts', receipts: [receipt] };
+      writeFileSync(configFile, JSON.stringify(config));
+      const manifestFile = join(dir, draftRoot, 'input/parts.json');
+      const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as JsonObject;
+      const torso = (manifest.parts as JsonObject[]).find(part => part.name === 'torso')!;
+      torso.provenance = { ...(torso.provenance as JsonObject), edited_part: { edit: 'edited_parts[0]', dir: 'input/parts', receipt, changed_px: 1 } };
+      writeFileSync(manifestFile, JSON.stringify(manifest));
+    }
     testClock.set(new Date(`2026-11-06T${hour}:00:00Z`));
     return [id, dir, '--config', `${draftRoot}/config.json`, '--from', `${draftRoot}/out`, '--parts', `${draftRoot}/input`];
   };
@@ -421,8 +450,8 @@ test('part-image plants: edit outside mask, outside alpha, wrong before, wrong m
 });
 
 test('part-image unrecorded changes WARN; known withdrawn/superseded/post-dated repaint bytes still refuse', () => {
-  // No correction records: registering changed bytes succeeds but check names the missing pair.
-  const { dir, pngs, writeDraft } = partImageFixture();
+  // The producer explicitly declares the edit, even though no correction was recorded.
+  const { dir, pngs, writeDraft } = partImageFixture({ edited: true });
   expect(writeDraft('rebuilt-by-parts', '03', pngs.after).exit).toBe(0);
   const unrecorded = checkProject(dir);
   expect(unrecorded.refusals).toEqual([]);
@@ -430,6 +459,9 @@ test('part-image unrecorded changes WARN; known withdrawn/superseded/post-dated 
   expect(unrecorded.warnings[0]!.message).toContain(correctionHash(pngs.before));
   expect(unrecorded.warnings[0]!.message).toContain(correctionHash(pngs.after));
   expect(unrecorded.warnings[0]!.message).toContain('parent');
+  expect(unrecorded.warnings[0]!.message).toContain('warning remains the record of the historical gap');
+  expect(unrecorded.warnings[0]!.message).toContain('postdated correction records refuse');
+  expect(unrecorded.warnings[0]!.message).toContain('for the next edit only');
 
   // Plant: a draft binding the after bytes of a withdrawn, superseded, or post-dated part-image correction -> refuses DRAFT_PART_REPAINT_UNRECORDED.
   const { dir: dir2, pngs: pngs2, writeDraft: writeDraft2 } = partImageFixture();
@@ -467,12 +499,40 @@ test('part-image unrecorded changes WARN; known withdrawn/superseded/post-dated 
   expect(checkProject(dir2).refusals.map(f => [f.code, f.path])).toEqual([['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[1].parts.files']]);
 });
 
+test('fresh producer split with changed named colour parts and no edited_part declaration does not WARN', () => {
+  const { dir, pngs, writeDraft } = partImageFixture();
+  expect(writeDraft('fresh-split', '03', pngs.after).exit).toBe(0);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+});
+
+test('changed auxiliary depth maps never become parts, including on a producer-declared edited draft', () => {
+  const { dir, pngs, writeDraft, stageDraft } = partImageFixture({ edited: true, depth: true });
+  const args = stageDraft('depth-only', '03', pngs.before);
+  writeFileSync(join(dir, 'derived/drafts/depth-only/input/parts/torso_depth.png'), pngs.after);
+  expect(draftRigCommand(args).exit).toBe(0);
+  expect(checkProject(dir)).toMatchObject({ refusals: [], warnings: [] });
+  expect(writeDraft('edited-colour-and-depth', '04', pngs.after).exit).toBe(0);
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.map(f => [f.code, f.path])).toEqual([['DRAFT_PART_REPAINT_UNRECORDED', 'drafts[2].parts.files']]);
+  expect(report.warnings[0]!.message).toContain('part torso ');
+  expect(report.warnings[0]!.message).not.toContain('torso_depth');
+});
+
 test('unrecorded comparison uses exact immediate-parent A/B coverage, not a matching after hash from another pair', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'declared-repaint-')));
+  roots.push(dir);
   const hash = (letter: string) => letter.repeat(64);
-  const draft = (id: string, hour: string, letter: string): JsonObject => ({
-    id, at: `2026-11-06T${hour}:00:00Z`,
-    parts: { path: `derived/drafts/${id}/input`, files: [{ path: `derived/drafts/${id}/input/parts/torso.png`, sha256: hash(letter) }] },
-  });
+  const draft = (id: string, hour: string, letter: string): JsonObject => {
+    const root = `derived/drafts/${id}/input`;
+    const manifest = JSON.stringify({ parts: [{ name: 'torso', provenance: { edited_part: { receipt: { file: 'torso.png', sha256: hash(letter) } } } }] });
+    mkdirSync(join(dir, root), { recursive: true });
+    writeFileSync(join(dir, root, 'parts.json'), manifest);
+    return {
+      id, at: `2026-11-06T${hour}:00:00Z`,
+      parts: { path: root, files: [{ path: `${root}/parts/torso.png`, sha256: hash(letter) }, { path: `${root}/parts.json`, sha256: correctionHash(Buffer.from(manifest)) }] },
+    };
+  };
   const parent = draft('parent', '02', 'a');
   const child = draft('child', '03', 'b');
   const correction: JsonObject = {
@@ -484,7 +544,7 @@ test('unrecorded comparison uses exact immediate-parent A/B coverage, not a matc
     if (corrections !== undefined) project.corrections = corrections;
     const refusals: { code: string; path: string; message: string }[] = [];
     const warnings: typeof refusals = [];
-    checkUnrecordedPartRepaints('', project, refusals, warnings);
+    checkUnrecordedPartRepaints(dir, project, refusals, warnings);
     return { refusals, warnings };
   };
   expect(findings([parent])).toEqual({ refusals: [], warnings: [] });
@@ -531,6 +591,8 @@ test('unrecorded comparison uses exact immediate-parent A/B coverage, not a matc
   const result = findings([parent, child], [unrelated]);
   expect(result.refusals).toEqual([]);
   expect(result.warnings.map(f => f.code)).toEqual(['DRAFT_PART_REPAINT_UNRECORDED']);
+  writeFileSync(join(dir, 'derived/drafts/child/input/parts.json'), JSON.stringify({ parts: [{ name: 'torso', provenance: { edited_part: {} } }] }));
+  expect(findings([parent, child])).toEqual({ refusals: [], warnings: [] });
 });
 
 test('legacy-order project with a resolved part-image correction on a model-less draft signs parts-review with --draft alone and passes check', () => {

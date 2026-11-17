@@ -1,3 +1,4 @@
+import { declaredPartImages } from './edited-part-inputs.ts';
 import { retainedReviewRead, reviewReadLegacy, reviewSessionSource, selectedReviewFeedback, ReviewReadError } from './review-read.ts';
 import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
 import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
@@ -459,7 +460,7 @@ export function partImageResolvingDraft(project: JsonObject, record: JsonObject)
   return null;
 }
 
-export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, refusals: Finding[], warnings: Finding[] = []): void {
+export function checkUnrecordedPartRepaints(dir: string, project: JsonObject, refusals: Finding[], warnings: Finding[] = []): void {
   if (!Array.isArray(project.drafts)) return;
   const drafts = bindings(project.drafts);
   const corrections = bindings(project.corrections);
@@ -489,11 +490,21 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
   };
   for (const [index, draft] of drafts.entries()) {
     if (!isObject(draft.parts) || typeof draft.parts.path !== 'string' || !Array.isArray(draft.parts.files)) continue;
-    const partsRoot = draft.parts.path;
-    const prefix = `${partsRoot}/parts/`;
-    const partFiles = bindings(draft.parts.files).filter(f => typeof f.path === 'string' && f.path.startsWith(prefix) && f.path.endsWith('.png') && hex(f.sha256));
-    for (const pf of partFiles) {
-      const partName = String(pf.path).slice(prefix.length, -4);
+    const manifestPath = `${draft.parts.path}/parts.json`;
+    const manifestBinding = bindings(draft.parts.files).find(f => f.path === manifestPath);
+    let declarations: ReturnType<typeof declaredPartImages>;
+    try {
+      // Never interpret changed, missing or escaping producer bytes. Draft checks
+      // already own the corresponding file findings.
+      declarations = declaredPartImages(correctionJson(correctionFile(dir, manifestBinding)));
+    } catch (error) {
+      if (!(error instanceof CorrectionError)) throw error;
+      continue;
+    }
+    for (const { name: partName, edited } of declarations) {
+      if (!partNamePattern.test(partName)) continue;
+      const pf = draftPartBinding(draft, partName);
+      if (!pf) continue;
       const matchingRepaints = allPartImage.filter(c => ((c.artifact as JsonObject).after as JsonObject).sha256 === pf.sha256);
       const draftAt = date(draft.at);
       const covered = matchingRepaints.some(c => {
@@ -523,7 +534,7 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
       // for an unrecorded transition. Compare bound bytes, never producer pixels.
       const parent = drafts[index - 1];
       const before = parent ? draftPartBinding(parent, partName) : null;
-      if (!before || before.sha256 === pf.sha256) continue;
+      if (!edited || !before || before.sha256 === pf.sha256) continue;
       const exactCoverage = matchingRepaints.some(c => {
         const art = c.artifact as JsonObject;
         return c.stage === 'parts-review' && c.path === 'made'
@@ -537,7 +548,7 @@ export function checkUnrecordedPartRepaints(_dir: string, project: JsonObject, r
       if (!exactCoverage && !refusals.some(f => f.code === 'DRAFT_PART_REPAINT_UNRECORDED' && f.path === path)) {
         const finding = {
           code: 'DRAFT_PART_REPAINT_UNRECORDED', path,
-          message: `${path}: part ${partName} changed from parent draft ${String(parent!.id)} (${String(before.path)}, ${String(before.sha256)}) to draft ${String(draft.id)} (${String(pf.path)}, ${String(pf.sha256)}) without a live correction covering this exact before/after pair; preserve historical records and capture the next edit with correction record --path made --stage parts-review --draft ${String(parent!.id)} --part ${partName} --part-image-file <after.png> --mask-file <mask.png> --tool <text> before draft-rig`,
+          message: `${path}: part ${partName} changed from parent draft ${String(parent!.id)} (${String(before.path)}, ${String(before.sha256)}) to draft ${String(draft.id)} (${String(pf.path)}, ${String(pf.sha256)}) with producer-declared provenance.edited_part but without a live correction covering this exact before/after pair; this warning remains the record of the historical gap, which cannot be corrected retroactively because postdated correction records refuse; preserve history; for the next edit only, capture correction record --path made --stage parts-review --draft <next-parent-id> --part ${partName} --part-image-file <after.png> --mask-file <mask.png> --tool <text> before draft-rig`,
         };
         if (!warnings.some(f => f.code === finding.code && f.path === path && f.message === finding.message)) warnings.push(finding);
       }

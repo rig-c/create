@@ -4,6 +4,18 @@ import type { JsonObject } from './templates.ts';
 
 export const EDITED_PART_INPUTS_SINCE = '2026-11-15T00:00:00Z';
 
+/** Read the producer's edit declaration; byte changes alone never establish an edit. */
+export function hasEditedPartDeclaration(part: JsonObject): boolean {
+  return isObject(part.provenance) && part.provenance.edited_part !== undefined;
+}
+
+/** Named colour parts only; auxiliary files in parts.files are not part declarations. */
+export function declaredPartImages(manifest: JsonObject): { name: string; edited: boolean }[] {
+  return asArray(manifest.parts).filter(isObject)
+    .filter((part): part is JsonObject & { name: string } => typeof part.name === 'string' && part.name !== '')
+    .map(part => ({ name: part.name, edited: hasEditedPartDeclaration(part) }));
+}
+
 /** The caller reads only the draft's hash-bound parts.json, never a changed manifest. */
 export function editedPartInputFindings(_dir: string, draft: JsonObject, manifest: JsonObject, path: string): { findings: Finding[]; paths: Set<string> } {
   const findings: Finding[] = [];
@@ -11,8 +23,8 @@ export function editedPartInputFindings(_dir: string, draft: JsonObject, manifes
   const regular = asArray(draft.config_inputs).filter((input): input is JsonObject =>
     isObject(input) && input.directory === undefined && typeof input.path === 'string' && input.path !== '');
   for (const [index, part] of asArray(manifest.parts).entries()) {
-    if (!isObject(part) || !isObject(part.provenance) || part.provenance.edited_part === undefined) continue;
-    const edit = part.provenance.edited_part;
+    if (!isObject(part) || !hasEditedPartDeclaration(part)) continue;
+    const edit = (part.provenance as JsonObject).edited_part;
     const receipt = isObject(edit) && isObject(edit.receipt) ? edit.receipt : undefined;
     const file = receipt && typeof receipt.file === 'string' && receipt.file !== '' ? receipt.file : undefined;
     if (file !== undefined) paths.add(file);

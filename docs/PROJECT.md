@@ -1862,11 +1862,18 @@ A later `draft-rig` (new id) whose bound `<parts.path>/parts/<part>.png` matches
 whose bound `parts/<part>.png` matches a `part-image` correction's `after.sha256`
 whose correction is withdrawn, superseded, dated after the draft, or on another
 part/draft refuses as `DRAFT_PART_REPAINT_UNRECORDED`. Independently of whether
-any correction exists, `check` compares each bound part against the same part in
-the immediately preceding draft. Changed bytes without a live correction for that
-exact parent/before/after pair WARN with `DRAFT_PART_REPAINT_UNRECORDED`. This new
-warning preserves historical records and introduces no dated refusal; record the
-next masked edit before registering its rebuilt draft.
+any correction exists, `check` reads only named colour parts from the draft's
+hash-bound producer `parts.json`; auxiliary depth maps are not part images.
+Only a part with producer-declared `parts[i].provenance.edited_part` is checked
+for a missing correction against the immediately preceding draft's same part.
+If its bound bytes changed without a live correction for that exact
+parent/before/after pair, `check` WARNs `DRAFT_PART_REPAINT_UNRECORDED`.
+Create never infers a hand edit from byte changes: a fresh split with no edit
+declaration does not WARN. The warning itself remains the record of the
+historical gap. A correction written after the draft cannot repair that gap,
+because postdated correction records refuse. Preserve history; for the next edit
+only, record the masked correction before registering its rebuilt draft. This
+warning introduces no dated refusal or SINCE constant.
 
 ### Authored camera direction (create#92)
 

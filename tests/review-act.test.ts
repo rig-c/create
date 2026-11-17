@@ -220,7 +220,7 @@ for (const separate of [false, true]) test(`#578 reopened v2 ${separate ? 'separ
   const saved = projectAt(root);
   expect((saved.versions as JsonObject[])[0]).toEqual((history.versions as JsonObject[])[0]);
   expect((saved.signoffs as JsonObject[]).slice(0, -1)).toEqual(history.signoffs as JsonObject[]);
-  expect((saved.review_acts as JsonObject[]).slice(0, (history.review_acts as JsonObject[]).length)).toEqual(history.review_acts);
+  expect((saved.review_acts as JsonObject[]).slice(0, (history.review_acts as JsonObject[]).length)).toEqual(history.review_acts as JsonObject[]);
   expect((saved.signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review', target: {
     version: 2, verdict: 'versions[1].verdicts[0]', review_package: { path: 'versions[1].review_package' },
   } });

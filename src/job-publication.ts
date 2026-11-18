@@ -377,7 +377,7 @@ export function publicationFile(root: string, path: string): Buffer {
   return readFileSync(absolute);
 }
 
-function composedPublishedBuildFiles(root: string, project: JsonObject, n: number): { doc: JsonObject; files: { path: string; sha256: string }[] } {
+export function composedPublishedBuildFiles(root: string, project: JsonObject, n: number): { doc: JsonObject; files: { path: string; sha256: string }[] } {
   const buildPrefix = `outputs/v${n}/compose/check/build/`;
   const version = asArray(project.versions).filter(isObject).find(v => v.n === n && v.kind === 'post');
   for (const row of asArray(version?.outputs).filter(isObject)) {

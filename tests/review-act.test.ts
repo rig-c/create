@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { collectItems } from '../src/check.ts';
+import { optionContext } from '../src/choices.ts';
+import { directionHash, objects } from '../src/direction.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
@@ -14,7 +16,9 @@ import { reviewPackageCommand } from '../src/review-package.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, directionCommand, inputCommand, reopenCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, directionCommand, inputCommand, reopenCommand, reviewCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
+import { fixture } from './fixtures.ts';
 import { clockedCli } from './helpers.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 
@@ -43,7 +47,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   const root = existing?.root ?? temporary('create-act-project-');
   const versionNumber = n === 1 ? existing?.rigVersion ?? 1 : n;
   if (!existing) cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });
-  if (n === 2) {
+  if (n === 2 && !existing) {
     mkdirSync(join(root, 'inputs'), { recursive: true });
     for (const path of ['inputs/background.png', 'evidence/scene-citations.json', 'evidence/direction-input.json']) {
       cpSync(join(import.meta.dir, '../templates/example-chain', path), join(root, path));
@@ -87,7 +91,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     expect(result.ok).toBe(true);
     return result.value;
   }
-  const selector = n === 1 ? { kind: 'rig', version: versionNumber } : { kind: 'post', version: n, rigVersion: 1 };
+  const selector = n === 1 ? { kind: 'rig', version: versionNumber } : { kind: 'post', version: n, rigVersion: existing?.rigVersion ?? 1 };
   const entry = enqueuePublication(root, readWriterBinding(root)!, { path, selector: selector as NonNullable<Parameters<typeof enqueuePublication>[2]['selector']> });
   const publication = await agent('publish', { result: { path, selector }, freeze: { kind: 'producer-held', holdId: 'synthetic-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) } } });
   const subjects = existing ? (await reader({ root, record: { path: 'project.json', sha256: entry.recordHash },
@@ -797,4 +801,155 @@ test('a retained g1 identity selects its exact manifest after republishing', asy
   const { root, act } = await published('3-rig-review', 1, 'owner', 'Approved.', 'approved', 2);
   const previous = { ...act, source: { ...act.source, package: { id: 'create-v1', revision: 'v1' } } };
   expect(() => assertReviewActSource(root, projectAt(root), decodeReviewAct(JSON.stringify(previous)))).not.toThrow();
+});
+
+async function publishedComposed() {
+  const f = composeFixture();
+  directories.push(f.dir);
+  const root = fixture(() => {}, 'example-project.json');
+  directories.push(root);
+  testClock.set('2026-11-21T08:00:00Z');
+  writeFileSync(join(root, 'words.txt'), 'Revise the synthetic composed take.');
+  reopenCommand(['post-interview', root, '--by', 'user', '--verbatim-file', join(root, 'words.txt')]);
+  for (const name of ['background.png', 'foreground.png']) {
+    cpSync(join(f.dir, name), join(root, name));
+    inputCommand(['add', name, root, '--origin', 'synthetic plate']);
+  }
+  const project = projectAt(root);
+  const accepted = objects(project.versions).find(v => v.n === 2)!;
+  const pkg = accepted.review_package as JsonObject;
+  accepted.outputs = [...objects(accepted.outputs), ...objects(pkg.files).filter(row => typeof row.path === 'string' && row.path.startsWith('out/')
+    && (['parts.json', 'rig/rig.json', 'rig/motion.json'].includes(row.path.slice(4)) || row.path.startsWith('out/rig/images/')))
+    .map(row => ({ path: `${String(pkg.from)}/${String(row.path).slice(4)}`, sha256: row.sha256! }))];
+  const context = optionContext(project, 'post-interview', testClock.now(), root);
+  const items = collectItems(project, { collection: null });
+  for (const [id, value] of [['post_composition', { compose: f.value }], ['post_timing', { seconds: 4, loop: true, beats: [] }]] as const) {
+    const item = items.find(i => i.id === id)!;
+    const old = structuredClone(item.raw as JsonObject);
+    const answer = item.raw as JsonObject;
+    const oldChoice = answer.choice as JsonObject;
+    const set = JSON.parse(readFileSync(join(root, String((oldChoice.set as JsonObject).path)), 'utf8')) as JsonObject;
+    set.id = `composed-${id}`; set.context = context; set.drafted_at = testClock.iso();
+    const shown = { label: `Use the synthetic composed ${id}`, effect: 'Keep the declared composed take.' };
+    const selected = objects(objects(set.asks)[0]!.options).find(o => o.id === 'keep')!;
+    selected.label = shown.label; selected.effect = shown.effect;
+    selected.fragment = value as unknown as JsonObject;
+    const path = `evidence/interview/composed-${id}.json`;
+    const bytes = Buffer.from(JSON.stringify(set));
+    writeFileSync(join(root, path), bytes);
+    item.record.history = [...objects(item.record.history), old];
+    answer.at = testClock.iso(); answer.value = value as unknown as JsonObject;
+    answer.verbatim = `${shown.label}\n${shown.effect}`;
+    answer.choice = { ...oldChoice, set: { path, sha256: directionHash(bytes) }, picks: [{ ask: id, option_id: 'keep', shown }] };
+  }
+  putProject(root, project);
+  testClock.set('2026-11-21T08:01:00Z');
+  signoffCommand(['post-interview', root, '--by', 'user', '--verbatim-file', join(root, 'words.txt')]);
+  advanceCommand(['post', root]);
+  for (const step of ['camera', 'timing', 'composition']) {
+    for (const status of ['in-progress', 'at-checkpoint', 'done']) {
+      stepStatusCommand([step, status, root, '--by', 'agent']);
+    }
+  }
+  cpSync(join(f.dir, 'compose-out'), join(root, 'compose-out'), { recursive: true });
+  cpSync(join(f.dir, 'compose.scene.json'), join(root, 'compose.scene.json'));
+  writeFileSync(join(root, 'compose-out/compose-run.json'), JSON.stringify(composeRunFixture(root, projectAt(root), 2, f.scene)));
+  const doc = structuredClone(f.doc);
+  doc.rig = { version: 2 };
+  const citations = doc.citations as JsonObject;
+  for (const [key, id] of [['camera', 'camera_depth'], ['timing', 'post_timing'], ['composition', 'post_composition']]) {
+    citations[key!] = { guide: id!, asks: [id!], quote: (items.find(i => i.id === id)!.raw as JsonObject).verbatim! };
+  }
+  writeFileSync(join(root, 'evidence/composed-direction.json'), JSON.stringify(doc));
+  directionCommand(['write', '5', root, '--file', 'evidence/composed-direction.json', '--rig', '2', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json']);
+  advanceCommand(['direction-review', root]);
+  return published('4-direction-post', 5, 'owner', '  Synthetic composed approval.\r\n', 'approved', 1, false, { root, rigVersion: 2 });
+}
+
+test('#618 composed post act@6 with parts: null decodes, ingests, signs direction-review and advances to accepted', async () => {
+  const { root, act, n } = await publishedComposed();
+  expect(act.schema).toBe(JOB_COMMENTS_ACT_SCHEMA);
+  expect(act.source.parts).toBeNull();
+  expect(act.source.model?.path).toBe('outputs/v5/compose/check/build/skeleton.model.json');
+  expect(decodeReviewAct(JSON.stringify(act)) as unknown).toEqual(act);
+  const first = await command(root, act.actId, n);
+  expect(first.stderr).toBe(''); expect(first.exit).toBe(0);
+  const bytes = readFileSync(join(root, 'project.json'));
+  const project = projectAt(root);
+  const post = (project.versions as JsonObject[]).find(v => v.n === n)!;
+  expect((post.verdicts as JsonObject[]).at(-1)).toMatchObject({ review: 'direction-review', verdict: 'accepted', by: 'user' });
+  expect(reviewActFindings(project)).toEqual([]);
+  expect(checkProject(root, project).refusals).toEqual([]);
+  const replay = await command(root, act.actId, n);
+  expect(replay.stderr).toBe(''); expect(replay.exit).toBe(0);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+  expect(signoffCommand(['direction-review', root, '--version', '5', '--by', 'user', '--verbatim-file', join(root, 'words.txt')]).exit).toBe(0);
+  expect(advanceCommand(['accepted', root]).exit).toBe(0);
+  expect(checkProject(root, projectAt(root)).refusals).toEqual([]);
+});
+
+test('#618 parts: null refuses rig and parts-verdict acts and non-composed post ingestion', async () => {
+  const { act } = await publishedComposed();
+  expect(() => decodeReviewAct(JSON.stringify({
+    ...act,
+    source: { ...act.source, selector: { kind: 'rig', version: 2 }, direction: null },
+    value: { ...act.value, stage: 'rig-review' },
+    still: { path: `${'a'.repeat(64)}.png`, sha256: 'a'.repeat(64), camera: 'fixed', frame: 'setup' },
+  }))).toThrow(expect.objectContaining({ code: 'REVIEW_PARTS_ENUMERATOR_UNSUPPORTED' }));
+  expect(() => decodeReviewAct(JSON.stringify({
+    ...act,
+    schema: 'rig-review/act@2',
+    source: { ...act.source, selector: { kind: 'rig', version: 2 }, direction: null },
+    value: { stage: 'rig-review', verdict: 'approved', words: 'Synthetic' },
+  }))).toThrow(expect.objectContaining({ code: 'REVIEW_PARTS_ENUMERATOR_UNSUPPORTED' }));
+  expect(() => decodeReviewAct(JSON.stringify(act), 'parts-verdict'))
+    .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_KIND_MISMATCH' }));
+  expect(() => decodeReviewAct(JSON.stringify({
+    ...act,
+    kind: 'parts-verdict',
+    source: { ...act.source, selector: { kind: 'draft', id: 'd1' } },
+    value: { verdict: 'approved', comments: [] },
+  }), 'parts-verdict')).toThrow(expect.objectContaining({ code: 'REVIEW_ACT_INVALID' }));
+  expect(() => decodeReviewAct(JSON.stringify({
+    ...act,
+    schema: 'rig-review/act@5',
+    kind: 'parts-verdict',
+    source: { ...act.source, selector: { kind: 'draft', id: 'd1' } },
+    value: { verdict: 'approved', issues: [], words: 'Synthetic' },
+  }), 'parts-verdict')).toThrow(expect.objectContaining({ code: 'REVIEW_PARTS_ENUMERATOR_UNSUPPORTED' }));
+  const nonComposed = await published('4-direction-post', 2);
+  const withoutParts = { ...nonComposed.act, source: { ...nonComposed.act.source, parts: null } };
+  expect(decodeReviewAct(JSON.stringify(withoutParts)).source.parts).toBeNull();
+  const server = fetchAdapter(nonComposed.root, nonComposed.act, JSON.stringify(withoutParts));
+  try {
+    const before = readFileSync(join(nonComposed.root, 'project.json'));
+    const result = await command(nonComposed.root, nonComposed.act.actId, 2);
+    expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+    expect(readFileSync(join(nonComposed.root, 'project.json'))).toEqual(before);
+  } finally { server.stop(true); }
+});
+
+test('#618 composed post act refuses differing model path, model hash or on-disk build bytes with REVIEW_ACT_SOURCE_STALE', async () => {
+  const { root, act, n } = await publishedComposed();
+  const rigModelPath = 'derived/review/v2/out/check/build/skeleton.model.json';
+  const rigModelSha = jobHash(readFileSync(join(root, rigModelPath)));
+  for (const model of [
+    { path: rigModelPath, sha256: rigModelSha },
+    { path: act.source.model!.path, sha256: '0'.repeat(64) },
+  ]) {
+    const mutated = { ...act, source: { ...act.source, model } };
+    const server = fetchAdapter(root, act, JSON.stringify(mutated));
+    try {
+      const before = readFileSync(join(root, 'project.json'));
+      const result = await command(root, act.actId, n);
+      expect(result.exit).toBe(1); expect(result.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+      expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    } finally { server.stop(true); }
+  }
+  const { root: diskRoot, act: diskAct, n: diskN } = await publishedComposed();
+  const beforeDisk = readFileSync(join(diskRoot, 'project.json'));
+  writeFileSync(join(diskRoot, diskAct.source.model!.path), '{}\n');
+  const staleDisk = await command(diskRoot, diskAct.actId, diskN);
+  expect(staleDisk.exit).toBe(1); expect(staleDisk.stderr).toContain('REVIEW_ACT_SOURCE_STALE:');
+  expect(readFileSync(join(diskRoot, 'project.json'))).toEqual(beforeDisk);
 });

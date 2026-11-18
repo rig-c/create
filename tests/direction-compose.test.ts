@@ -44,6 +44,40 @@ test('direction@3 publishes the compose model, atlas and pages without the chara
   expect(pub.parts).toBeNull(); expect(pub.partIds).toEqual([]);
 });
 
+test('direction@3 publishes through the pinned Review inspection and live job host', async () => {
+  const { loadReview } = await import('../node_modules/@rig-c/review/src/manifest.ts');
+  const { openCreateJob } = await import('../src/job-host.ts');
+  const { jobHash, jobHostStateRoot, jobPrivateRoot } = await import('../src/job-outbox.ts');
+  const { clockedCli } = await import('./helpers.ts');
+  const f = fixture();
+  let host: Awaited<ReturnType<typeof openCreateJob>> | undefined;
+  try {
+    host = await openCreateJob(f.dir, { id: 'reviewer', role: 'owner' }, testClock.now());
+    f.put('evidence/compose-direction.json', f.doc);
+    const child = Bun.spawn([process.execPath, ...clockedCli(), 'direction', 'write', '2', f.dir, '--file', 'evidence/compose-direction.json', '--rig', '1', '--compose-out', 'compose-out', '--compose-scene', 'compose.scene.json'], {
+      cwd: f.dir, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [exit, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(stderr).toBe(''); expect(exit).toBe(0);
+    const pkg = await loadReview(join(f.dir, 'review-live-v2.json'));
+    expect(pkg.scene).toBeUndefined();
+    expect(pkg.direction).toEqual({
+      file: { path: 'evidence/direction/v2.json', sha256: jobHash(readFileSync(join(f.dir, 'evidence/direction/v2.json'))) },
+      model: { path: 'outputs/v2/compose/check/build/skeleton.model.json', sha256: jobHash(readFileSync(join(f.dir, 'outputs/v2/compose/check/build/skeleton.model.json'))) },
+      rigVersion: 1, composed: true, camera: { space: 'rig-world-y-up', keys: [] }, take: { duration: 4, loop: true }, timing: [],
+    });
+    const publication = host.session.status().publication!;
+    expect(publication.source.selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
+    expect(publication.source.model).toEqual(pkg.direction?.model);
+    expect(publication.source.direction).toEqual(pkg.direction?.file);
+    expect(publication.visual).toEqual({ status: 'available' });
+  } finally {
+    host?.stop();
+    rmSync(jobPrivateRoot(f.dir), { recursive: true, force: true });
+    rmSync(jobHostStateRoot(f.dir), { recursive: true, force: true });
+  }
+});
+
 for (const [field, value] of [['extra', true], ['camera', {}], ['scene', {}]]) test(`DIRECTION_COMPOSE_SCHEMA rejects closed-document extra ${field}`, () => {
   const f = fixture(); f.doc[String(field)] = value; rejected(f, 'DIRECTION_COMPOSE_SCHEMA');
 });

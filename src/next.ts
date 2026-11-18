@@ -63,6 +63,7 @@ import type { Json, JsonObject } from './templates.ts';
 import { sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
 import { depthPlanMoves } from './rig-version.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
+import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
@@ -318,6 +319,21 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   ];
 }
 
+/** Read only the document kind here; checkProject already validates its seal. */
+function composedPost(dir: string, project: JsonObject): boolean {
+  const post = asArray(project.versions).filter(isObject).filter(v => v.kind === 'post' && liveSignoff(collectReopens(project, []), 'post', Date.parse(String(v.at)))).at(-1);
+  if (!post || !isObject(post.provenance) || !isObject(post.provenance.direction) || typeof post.provenance.direction.path !== 'string') return false;
+  try { return (JSON.parse(readFileSync(join(dir, post.provenance.direction.path), 'utf8')) as JsonObject).schema === DIRECTION_COMPOSE_SPEC; }
+  catch { return false; }
+}
+function composeChoice(project: JsonObject, dir: string): boolean {
+  const item = collectItems(project, { collection: loadCollection(dir) }).find(i => i.id === 'post_composition');
+  if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated')) return false;
+  const answer = item.state.answer;
+  const value = isObject(answer.agent_decision) ? answer.agent_decision.value : answer.value;
+  return isObject(value) && value.compose !== undefined;
+}
+
 function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): string {
   let flags = ` --background '<background.png>'`;
   const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.id === 'post_composition');
@@ -516,7 +532,7 @@ function resolveLaggingAdvance(
     }
     return null;
   }
-  if (stage === 'post' && (!asArray(project.scenes).length || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post'))) return null;
+  if (stage === 'post' && ((!asArray(project.scenes).length && !composedPost(dir, project)) || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post'))) return null;
   const cmd = candidateAdvance(dir, project, nextStage, now);
   return cmd !== null ? { targetStage: nextStage, command: cmd } : null;
 }
@@ -799,7 +815,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     ? resolveLaggingAdvance(dir, project, stage, now)
     : null;
   const isResolvableLagging = (finding: Finding): boolean =>
-    finding.code === 'STAGE_LAGGING' && (laggingAdvance !== null || stage === 'post' && (!asArray(project.scenes).length || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post')));
+    finding.code === 'STAGE_LAGGING' && (laggingAdvance !== null || stage === 'post' && ((!asArray(project.scenes).length && !composedPost(dir, project)) || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post')));
 
   const hasBlockingRefusal =
     holes.length > 0 ||
@@ -1576,6 +1592,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     );
     const latestPost = postVersions[postVersions.length - 1];
     const postN = typeof latestPost?.n === 'number' ? latestPost.n : null;
+    const composed = postN === null ? composeChoice(project, dir) : composedPost(dir, project);
+    const missingScene = scenes.length === 0 && !composed;
     const maxVersionN = Math.max(
       0,
       ...versions.map(v => (typeof v.n === 'number' ? v.n : 0)),
@@ -1590,6 +1608,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         addAwait('direction_contract');
         moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
           command: `rig-create direction --adopt ${shellWord(dir)}`, act: 'adopt direction before authoring the post' });
+      } else if (composed) {
+        addAwait(`versions[n=${nextPostN}]`);
+        moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
+          command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction@3.json>' --rig ${shellWord(rigN)} --compose-out '<compose-out>' --compose-scene '<compose-scene.json>'`,
+          act: 'compose the cited owner values with Parts, then freeze the green idle as direction@3' });
       } else if (currentScene === undefined) {
         addAwait('scenes[n=1]');
         moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
@@ -1646,7 +1669,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
     } else {
-      if (effectiveStage === 'post' && postN !== null && scenes.length > 0) {
+      if (effectiveStage === 'post' && postN !== null && !missingScene) {
         const advCmd = candidateAdvance(dir, project, 'direction-review', now);
         if (advCmd !== null) {
           moves.push({
@@ -1660,7 +1683,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
 
       addPostAuthoringMove();
-      if (scenes.length === 0) addAwait('scenes[n=1]');
+      if (missingScene) addAwait('scenes[n=1]');
       if (postN === null) {
         addAwait(`versions[n=${nextPostN}]`);
         const verdictAwait = `versions[n=${nextPostN}].verdicts[review=direction-review]`;
@@ -1670,7 +1693,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           field: 'versions',
           awaits: verdictAwait,
           command: null,
-          act: `review-tool act review-verdict for direction-review (unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`,
+          act: `review-tool act review-verdict for direction-review (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`,
           review_act: {
             kind: 'review-verdict',
             stage: 'direction-review',
@@ -1678,7 +1701,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             review: 'direction-review',
             ...(jobId ? { job_id: jobId } : {}),
           },
-          unanswered_by_record: scenes.length === 0 ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
+          unanswered_by_record: missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
         });
       } else {
         const acceptedIdx = latestPost !== undefined ? acceptedReviewVerdict(latestPost, 'direction-review') : -1;
@@ -1716,7 +1739,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           command: null,
           act:
             postN === null
-              ? `after recording the current post and accepted direction verdict, request review-tool act signoff for direction-review on the record page with job open --plan (unanswered by record: ${scenes.length === 0 ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
+              ? `after recording the current post and accepted direction verdict, request review-tool act signoff for direction-review on the record page with job open --plan (unanswered by record: ${missingScene ? 'scenes[n=1] and ' : ''}versions[n=${nextPostN}] are not recorded in project.json)`
               : `after ingesting the accepted direction-review verdict for v${postN}, request review-tool act signoff on the record page with job open --plan, ingest signoff direction-review --from-review <actId>, then advance accepted`,
           review_act: {
             kind: 'signoff',
@@ -1727,7 +1750,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           ...(postN === null
             ? {
                 unanswered_by_record:
-                  scenes.length === 0 ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
+                  missingScene ? `scenes[n=1], versions[n=${nextPostN}]` : `versions[n=${nextPostN}]`,
               }
             : {}),
         });

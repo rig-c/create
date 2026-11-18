@@ -1332,9 +1332,18 @@ test('direction@2 publication seals the committed scene and every plate with its
   const path = prepareLiveManifest(f.root, f.project, 2);
   const manifest = JSON.parse(readFileSync(join(f.root, path), 'utf8'));
   expect(manifest).toMatchObject({ scene: f.scenePath, direction: f.directionPath });
+  const expected = { schema: 'rig-review/1', id: 'create-v2', revision: 'v2', title: 'post v2 (rig v1)',
+    model: 'derived/review/v1/out/check/build/skeleton.model.json', direction: f.directionPath,
+    references: [{ id: 'original-painting', label: 'Original painting', type: 'image', path: 'derived/review/v1/out/painting_in_rig.png', width: 8, height: 16 }],
+    animations: [], checkpoints: [], authoring: [], scene: f.scenePath };
+  expect(readFileSync(join(f.root, path))).toEqual(Buffer.from(`${JSON.stringify(expected, null, 2)}\n`));
   const context = await f.read();
   for (const file of [f.entry, ...f.plates]) expect(context.files).toContainEqual({ path: file.path, sha256: file.sha256 });
   expect(context.files).toContainEqual({ path, sha256: jobHash(readFileSync(join(f.root, path))) });
+  const packageFiles = (((f.project.versions as JsonObject[])[0]!.review_package as JsonObject).files as JsonObject[])
+    .map(file => ({ path: `derived/review/v1/${String(file.path)}`, sha256: String(file.sha256) }));
+  expect(context.files).toEqual([...packageFiles, { path, sha256: jobHash(readFileSync(join(f.root, path))) },
+    { path: f.directionPath, sha256: jobHash(readFileSync(join(f.root, f.directionPath))) }, ...f.plates.map(({ path, sha256 }) => ({ path, sha256 })), { path: f.entry.path, sha256: f.entry.sha256 }]);
   expect(readFileSync(join(f.root, 'project.json'))).toEqual(before);
 });
 

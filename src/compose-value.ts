@@ -10,7 +10,7 @@
  * positive `end` across all `idle_tracks`). It deliberately does NOT range-check
  * slider dials (`SCENE_DIAL_KEY_RANGE`) or check posed loop closure
  * (`SCENE_ANIMATION_LOOP_CLOSES`) — `rig-parts compose` refuses both and Create
- * reads compose's report. Equality between `canvas` and the accepted rig stage, and
+ * reads compose's report. Equality between the composed model stage and the cited `canvas`, and
  * between `end`, `post_timing.value.seconds` and the composed model's idle duration,
  * is checked by the `direction@3` writer (#600), not here, so `post_timing` and
  * `post_composition` can be revised sequentially.
@@ -130,7 +130,7 @@ const trackPropertySet = new Set<string>(COMPOSE_TRACK_PROPERTIES);
  *
  * By AGENTS.md invariant 1, Create never range-checks dial keys (`SCENE_DIAL_KEY_RANGE`)
  * and never checks posed loop closure (`SCENE_ANIMATION_LOOP_CLOSES`); `rig-parts compose`
- * owns and refuses both, and Create reads compose's report. Equality with the rig's
+ * owns and refuses both, and Create reads compose's report. Equality with the composed model's
  * stage canvas and `post_timing.value.seconds` is checked by the `direction@3` writer (#600),
  * not here.
  */

@@ -38,7 +38,10 @@ one input, survives restart and checks sibling artwork; optional on older record
    against approved parts/structure; use interview-options/answer/decision.
 3. **Rig and animation**. Keep rig feedback.
    Ingest: `review <version> --from-review <actId>`.
-4. **Direction**. `job open --rig <post>` asks the verdict only.
+4. **Direction**. Copy owner `value.compose` into Parts' scene and compose to green.
+   Record `direction@3`: `direction write <N> --file <json> --rig <R> --compose-out <dir>`
+   (optional `--compose-scene <file>`). This route has no `scene write`.
+   `job open --rig <post>` asks the verdict only.
    Ingest `review <post> --from-review <actId>`, then `job open --plan` for
    record-page sign-off (source-linked Review).
 

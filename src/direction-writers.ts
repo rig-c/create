@@ -3,6 +3,9 @@ import { closeSync, existsSync, lstatSync, mkdirSync, openSync, renameSync, rmSy
 import { basename, dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectItems, collectSignoffs, loadCollection, isObject, type Finding } from './check.ts';
 import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBinding, directionBytes, directionContract, directionFail, directionHash, directionIdleBytes, directionIdlePath, directionJson, directionPath, directionVersion, objects, patchDirection, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
+import { DIRECTION_COMPOSE_SPEC, validateComposeDirection } from './direction-compose.ts';
+import { freezeCompose, rollbackComposeDirectories } from './direction-compose-writer.ts';
+import { sceneBytes, SceneError } from './scene.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { REVIEW_ACCEPTS } from './stages.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -14,7 +17,7 @@ import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.t
 import type { JsonObject } from './templates.ts';
 
 export const DIRECTION_HELP = `direction --adopt [<dir>]
-direction write <N> [<dir>] --file <retained JSON> --rig <R> [--answers <version>:<verdict>]
+direction write <N> [<dir>] --file <retained JSON> --rig <R> [--compose-out <dir>] [--compose-scene <file>] [--answers <version>:<verdict>]
 direction patch <N> [<dir>] --patch-file <retained direction-patch/1> [--answers <version>:<verdict>]
 direction check <N> [<dir>] [--json]
   Documents are immutable evidence/direction/v<N>.json. No rendering or producer builds.
@@ -34,18 +37,19 @@ function prospective(dir:string,before:JsonObject,next:JsonObject,now:number):vo
 /** A narrow seam for fault-injected transaction tests; CLI never supplies a hook. */
 export interface DirectionWriteHooks { beforeCommit?:()=>void; }
 export function directionCommand(args:string[],now:number,hooks:DirectionWriteHooks={}):{stdout:string;exit:number} {
-  try{return command(args,now,hooks);}catch(e){if(e instanceof DirectionError)refuse(e.code,e.code==='FEEDBACK_UNANSWERED'?`${e.message}; retry direction write/patch with --answers <version>:<verdict> naming the bounced verdict`:e.message,e.code==='DIRECTION_USAGE'?USAGE_EXIT:1);throw e;}
+  try{return command(args,now,hooks);}catch(e){if(e instanceof SceneError && e.code === 'DIRECTION_SOURCE_CHANGED') refuse(e.code,e.message);if(e instanceof DirectionError)refuse(e.code,e.code==='FEEDBACK_UNANSWERED'?`${e.message}; retry direction write/patch with --answers <version>:<verdict> naming the bounced verdict`:e.message,e.code==='DIRECTION_USAGE'?USAGE_EXIT:1);throw e;}
 }
 function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:string;exit:number} {
   const action=args[0];const positional:string[]=[];const opts:Record<string,string>={};const answerValues:string[]=[];let json=false;
-  for(let i=1;i<args.length;i++){const arg=args[i] as string;if(arg==='--answers'){const value=args[++i];if(!value||value.startsWith('--'))usage('--answers needs version:verdict');answerValues.push(value);}else if(arg==='--json'){if(json)usage('duplicate json');json=true;}else if(['--file','--rig','--patch-file'].includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`invalid ${arg}`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
+  for(let i=1;i<args.length;i++){const arg=args[i] as string;if(arg==='--answers'){const value=args[++i];if(!value||value.startsWith('--'))usage('--answers needs version:verdict');answerValues.push(value);}else if(arg==='--json'){if(json)usage('duplicate json');json=true;}else if(['--file','--rig','--patch-file','--compose-out','--compose-scene'].includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`invalid ${arg}`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
   if(!['--adopt','write','patch','check'].includes(action??'')||positional.length>(action==='--adopt'?1:2))usage('unknown action/directory count');
   const n=Number(positional[0]);if(action!=='--adopt'&&(!Number.isSafeInteger(n)||n<1))usage('N must be positive integer');
-  if(action==='write' ? !opts['--file']||!opts['--rig']||Boolean(opts['--patch-file']) : action==='patch' ? !opts['--patch-file']||Boolean(opts['--file']||opts['--rig']) : Object.keys(opts).length>0)usage('flags do not match action');
+  if(action==='write' ? !opts['--file']||!opts['--rig']||Boolean(opts['--patch-file']) : action==='patch' ? !opts['--patch-file']||Boolean(opts['--file']||opts['--rig']||opts['--compose-out']||opts['--compose-scene']) : Object.keys(opts).length>0)usage('flags do not match action');
   if(answerValues.length && action!=='write' && action!=='patch')usage('--answers is write/patch-only');
   if(json&&action!=='check')usage('json is check-only');
   const dir=resolve(positional[action==='--adopt'?0:1]??process.cwd());
   // Root selected by the caller; record itself is still a literal regular file.
+  const rollbackCompose: string[] = []; let verifyCompose: (() => void) | undefined; let composeInventory: JsonObject[] = [];
   const file=join(dir,'project.json');const original=directionBytes(dir,'project.json');const project=directionJson(original,'project.json');
   if(project.schema!=='rig-create/project@0')directionFail('DIRECTION_SCHEMA','project.json.schema','expected rig-create/project@0');
   const collectionRoot=basename(dirname(dir))==='members'?dirname(dirname(dir)):null;
@@ -75,7 +79,14 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
       if(objects(project.versions).some(v=>Number(v.n)>=n))directionFail('DIRECTION_VERSION','versions','new post number must be unique and later than all versions');
       const answersFeedback=parseFeedbackAnswers(project,n,answerValues);
       if(action==='write'){
-        bytes=snapshot(opts['--file'] as string);doc=directionJson(bytes,opts['--file'] as string);validateDirectionShape(doc);
+        bytes=snapshot(opts['--file'] as string);doc=directionJson(bytes,opts['--file'] as string);
+        if (doc.schema === DIRECTION_COMPOSE_SPEC) {
+          if (!isObject(doc.rig) || doc.rig.version !== Number(opts['--rig'])) directionFail('DIRECTION_RIG_UNKNOWN', 'direction.rig', '--rig must name the document rig');
+          const frozen = freezeCompose(dir, project, doc, n, Number(opts['--rig']), opts, rollbackCompose);
+          doc = frozen.doc; composeInventory = frozen.inventory; verifyCompose = frozen.verify;
+          bytes = Buffer.from(`${JSON.stringify(doc, null, 2)}\n`);
+        } else if (opts['--compose-out'] || opts['--compose-scene']) usage('compose flags require direction@3');
+        validateDirectionShape(doc);
         if(!Number.isSafeInteger(Number(opts['--rig']))||Number(opts['--rig'])!==(doc.rig as JsonObject).version)directionFail('DIRECTION_RIG_UNKNOWN','direction.rig','--rig must name the document rig');
       }else{
         const patchBytes=snapshot(opts['--patch-file'] as string);const patch=directionJson(patchBytes,opts['--patch-file'] as string);
@@ -85,37 +96,42 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
         doc=patchDirection(project,source,patch);bytes=Buffer.from(`${JSON.stringify(doc,null,2)}\n`);
       }
       // Retain the option evidence read by the citation validator, not only the project bytes.
-      for(const item of collectItems(project,{collection:loadCollection(dir)}).filter(i=>['camera_depth','post_timing'].includes(i.id))){
+      const citationGuides = ['camera_depth','post_timing', ...(doc.schema === DIRECTION_COMPOSE_SPEC ? ['post_composition'] : [])];
+      for(const item of collectItems(project,{collection:loadCollection(dir)}).filter(i=>citationGuides.includes(i.id))){
         const answers=[item.raw,...asArray(item.record.history)];
         if(item.state.state==='user'||item.state.state==='delegated')answers.push(item.state.answer);
         for(const answer of answers)if(isObject(answer)&&isObject(answer.choice)&&isObject(answer.choice.set)&&typeof answer.choice.set.path==='string')snapshot(answer.choice.set.path);
       }
       requireDirectionScene(doc, now, 'direction.schema');
       validateDirectionScene(dir, project, doc, true, snapshots);
-      validateDirectionRig(dir,project,doc,true);validateDirectionCitations(dir,project,doc,true);
+      if (doc.schema === DIRECTION_COMPOSE_SPEC) validateComposeDirection(dir, project, doc, true, snapshots, composeInventory);
+      else validateDirectionRig(dir,project,doc,true);
+      validateDirectionCitations(dir,project,doc,true);
       handoff(dir,Number((doc.rig as JsonObject).version),now);
-      snapshot(String(((doc.rig as JsonObject).model as JsonObject).path));
+      if (doc.schema !== DIRECTION_COMPOSE_SPEC) snapshot(String(((doc.rig as JsonObject).model as JsonObject).path));
 
       const binding={path:directionPath(n),sha256:directionHash(bytes)};
       const version:JsonObject={n,kind:'post',rig_version:(doc.rig as JsonObject).version as number,at:new Date(now).toISOString(),built_by:'agent',built_with:{create:String(doc.schema).slice('rig-create/'.length)},changed:'Authored camera and timing direction',outputs:[binding],evidence:[],verdicts:[],answers_feedback:answersFeedback,review_origin:null,provenance:{config:binding,direction:binding,sections:{camera:[{entry:'camera',...((doc.citations as JsonObject).camera as JsonObject)}],timing:[{entry:'timing',...((doc.citations as JsonObject).timing as JsonObject)}]}}};
+      if (doc.schema === DIRECTION_COMPOSE_SPEC) { version.changed = 'Composed idle direction'; version.outputs = [binding, ...composeInventory, (doc.compose as JsonObject).scene!]; }
       if(action==='patch'){const patch=directionJson(snapshots.get(opts['--patch-file'] as string) as Buffer,'direction.patch');version.direction_origin={source_post:patch.source_post as number,patch:directionBinding(dir,opts['--patch-file'] as string),result:binding};}
       next.versions=[...asArray(next.versions),version];
       // Validate using the exact staged bytes at their final immutable path, before committing the record.
       const parent=dirname(join(dir,binding.path));let current=dir;
-      for(const part of ['evidence','direction']){current=join(current,part);if(existsSync(current)){if(!lstatSync(current).isDirectory()||lstatSync(current).isSymbolicLink())directionFail('DIRECTION_FILE',binding.path,'document parent must be a real directory');}else mkdirSync(current);}
+      for(const part of ['evidence','direction']){current=join(current,part);if(existsSync(current)){if(!lstatSync(current).isDirectory()||lstatSync(current).isSymbolicLink())directionFail('DIRECTION_FILE',binding.path,'document parent must be a real directory');}else{mkdirSync(current);if(doc.schema===DIRECTION_COMPOSE_SPEC)rollbackCompose.push(current);}}
       if(existsSync(join(dir,binding.path)))directionFail('DIRECTION_SOURCE_CHANGED',binding.path,'immutable document already exists');
       const temp=join(parent,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,bytes,{flag:'wx'});renameSync(temp,join(dir,binding.path));published=join(dir,binding.path);
     }
     ownValidation(dir,next,now);prospective(dir,project,next,now);
     hooks.beforeCommit?.();
+    verifyCompose?.();
     if(collectionRoot && collectionBytes && !directionBytes(collectionRoot,'collection.json').equals(collectionBytes))directionFail('DIRECTION_SOURCE_CHANGED','collection.json','inherited answer context changed during publication');
     // The scene's idle frames are re-read through the record binding that admitted them, not as a retained path.
-    for(const[path,expected]of snapshots)if(!(doc&&directionIdlePath(path)?directionIdleBytes(dir,project,Number((doc.rig as JsonObject).version),{path,sha256:directionHash(expected)}):directionBytes(dir,path)).equals(expected))directionFail('DIRECTION_SOURCE_CHANGED',path,'source bytes changed during publication');
+    for(const[path,expected]of snapshots)if(!(doc?.schema === DIRECTION_COMPOSE_SPEC ? sceneBytes(dir,path,'DIRECTION_SOURCE_CHANGED') : doc&&directionIdlePath(path)?directionIdleBytes(dir,project,Number((doc.rig as JsonObject).version),{path,sha256:directionHash(expected)}):directionBytes(dir,path)).equals(expected))directionFail('DIRECTION_SOURCE_CHANGED',path,'source bytes changed during publication');
     if(bytes&&doc){const target=directionPath(n);if(!directionBytes(dir,target).equals(bytes))directionFail('DIRECTION_SOURCE_CHANGED',target,'published document changed before commit');}
     const recordBytes = Buffer.from(`${JSON.stringify(next,null,2)}\n`);
     if (action !== '--adopt') publicationIntent = prepareVersionIntent(dir, recordBytes, n);
-    const temp=join(dir,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,recordBytes,{flag:'wx'});renameSync(temp,file);published=null;
+    const temp=join(dir,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,recordBytes,{flag:'wx'});renameSync(temp,file);published=null;rollbackCompose.length=0;
     if (action !== '--adopt') publishCommittedVersion(dir, n);
     return{stdout:action==='--adopt'?'direction: adopted; historical posts preserved':`direction: v${n} recorded; stage unchanged`,exit:0};
-  }finally{cancelUncommittedIntent(dir,publicationIntent);if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});closeSync(fd);rmSync(lock);releasePublication();}
+  }finally{cancelUncommittedIntent(dir,publicationIntent);if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});rollbackComposeDirectories(dir,n,rollbackCompose);closeSync(fd);rmSync(lock);releasePublication();}
 }

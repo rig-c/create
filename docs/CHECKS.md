@@ -1392,10 +1392,10 @@ acceptance is narrowed, so this change introduces no SINCE date or pilot migrati
 | `SCENE_AUTHOR_TYPED` | scene write supplies a typed `--by` | omit `--by`; authority comes from the current ingested post_composition Review choice |
 | `SCENE_CHOICE_MISSING` | agent scene lacks a retained resolved Review choice or decided delegation with an exact scene map | record `value.scene` roles, paths and rects through the post_composition Review choice |
 | `SCENE_CHOICE_MISMATCH` | agent scene roles, paths or exact rects differ from the cited choice, or authoring cites a superseded answer | use the current post_composition Review choice and its exact scene map |
-| `COMPOSE_VALUE_INVALID` | a `post_composition` choice or decision `value.compose` has an invalid closed shape, invalid `canvas` `{width,height}`, duplicate/unlisted plate name, non-relative plate image path, non-integer `at`, invalid `order`, invalid `character` offset/scale, or an `idle_tracks` entry with an unknown bone property, non-finite value, or key times not starting at 0, strictly increasing, positive at the end, and sharing one common end across all tracks (equality with the rig stage canvas and `post_timing.value.seconds` is checked by the `direction@3` writer, not `check`) | record a post_composition choice in the Review tool (or complete its delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with a common positive track end |
+| `COMPOSE_VALUE_INVALID` | a `post_composition` choice or decision `value.compose` has an invalid closed shape, invalid `canvas` `{width,height}`, duplicate/unlisted plate name, non-relative plate image path, non-integer `at`, invalid `order`, invalid `character` offset/scale, or an `idle_tracks` entry with an unknown bone property, non-finite value, or key times not starting at 0, strictly increasing, positive at the end, and sharing one common end across all tracks (equality with the composed model stage and `post_timing.value.seconds` is checked only when writing or checking direction@3) | record a post_composition choice in the Review tool (or complete its delegated agent_decision) whose value.compose binds closed {canvas,plates,order,character,idle_tracks} with a common positive track end |
 | `SCENE_INPUT_RECEIPT_MISSING` | agent scene input candidate lacks matching input-writer metadata | register a new source name with `input add <path> --origin …` and select it through Review |
 | `SCENE_LAYER_ORDER` | layer order differs from background, rig, optional foreground | retain the fixed scene layer order |
-| `DIRECTION_SCENE_REQUIRED` | post from SINCE lacks direction@2, or earlier @1 post warns | run scene write and author the next post with direction@2 |
+| `DIRECTION_SCENE_REQUIRED` | post from SINCE lacks direction@2 or @3, or earlier @1 post warns | run scene write and author the next post with direction@2 |
 | `DIRECTION_SCENE_MISMATCH` | direction rig or model differs from the referenced scene | bind the scene's exact rig version and model |
 | `DIRECTION_SCENE_STALE` | current authoring or the latest live post cites a superseded scene | bind the current scenes[] entry in the current direction |
 
@@ -1739,3 +1739,28 @@ interview is the existing `WAYPOINT_MISSING` refusal.
 | --- | --- |
 | `OWNER_CHAT_INVALID` | The named project.json answer/signoff lacks exact nonblank owner words, a valid explicit ISO said_at, relay identity, or the relayed source, or mixes chat and Review flags. Supply `--owner-chat`, `--said-at`, `--relayed-by` and owner `--by` together; keep at as the write time and omit act ids. |
 | `OWNER_CHAT_GATE_VISUAL` | The named project.json stage signoff has no accepted live verdict for the current draft, rig or post. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
+
+## Composed idle direction (direction@3)
+
+These findings apply only to @3; @1/@2 retain their existing rules. Existing
+`SCENE_RIG_STALE`, `SCENE_ACCEPTANCE_STALE`, `SCENE_INPUT_RECEIPT_MISSING`,
+`SCENE_PLATE_UNREGISTERED`, `SCENE_CHOICE_MISSING` and `SCENE_CITATION_MISSING`
+also apply when the moved acceptance, registration or authority checks fail.
+Use `direction write --compose-out` to record a corrected composed post.
+No date switch is needed. Accepted-rig input comparison of `rig-compose-run/1`
+remains not yet applicable until Parts supplies its field contract.
+
+| Code | Refuses when | Remedy |
+| --- | --- | --- |
+| `DIRECTION_COMPOSE_SCHEMA` | the @3 document is not closed, bindings name the wrong frozen paths, or scene/report fields have the wrong shape | author the documented @3 shape and run direction write with the selected compose output |
+| `DIRECTION_COMPOSE_FILE` | a compose or plate source is missing, unreadable, symlinked, nonregular, or an immutable destination exists | retain regular producer files and select a new post number |
+| `DIRECTION_COMPOSE_HASH` | a bound compose/model/scene file differs from its recorded raw-byte SHA256 | restore the frozen bytes or write a new composed post |
+| `DIRECTION_COMPOSE_INVENTORY` | a post does not bind its own compose tree and retained scene, or files differ from its inventory | restore the exact outputs inventory and bytes; use direction write for new output |
+| `DIRECTION_COMPOSE_RUN` | compose-run.json does not declare rig-compose-run/1 | retain Parts' compose run record, not core run.json |
+| `DIRECTION_COMPOSE_GREEN` | the composed check does not report PASS:true and gate_spine_html_green:true | correct the scene and produce a green Parts compose |
+| `DIRECTION_COMPOSE_PLATE_UNREGISTERED` | a scene plate has no matching registered input or complete prepared-input chain | register its bytes through input add or the prepared-input writers |
+| `DIRECTION_COMPOSE_CITATION` | timing or composition lacks a matching resolved cited answer, or new authoring cites a superseded answer | record and cite the current owner choice or decided delegation |
+| `DIRECTION_COMPOSE_CHOICE_MISMATCH` | canvas, plate declarations, order, character placement or idle tracks differ from cited value.compose | copy the exact cited values and compose again |
+| `DIRECTION_COMPOSE_PLACEMENT` | report placement/plate hashes disagree, reported character shift is not [0,0], or compiled stage differs from the cited canvas | retain the matching report and compiled model from a new compose |
+| `DIRECTION_COMPOSE_LOOP` | take.loop or cited post_timing.value.loop is not true | record a repeating timing choice and take.loop:true; producer green proves closure |
+| `DIRECTION_COMPOSE_DURATION` | take.duration differs from compiled idle duration, cited timing seconds or compose track end | align those declarations, compose and write a new post |

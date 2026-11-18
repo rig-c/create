@@ -1,4 +1,4 @@
-import { optionFile } from './choices.ts';
+import { optionFile, selection } from './choices.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
@@ -12,11 +12,13 @@ import {
   checkProject,
   collectItems,
   collectSignoffs,
+  isDecision,
   isObject,
   loadCollection,
   postNotPassed,
   type CheckReport,
   type Finding,
+  type Item,
 } from './check.ts';
 import { collectAmendments } from './amend.ts';
 import {
@@ -198,7 +200,54 @@ function isOpenInterviewStage(stage: string): boolean {
 }
 
 function isOpenInterviewTodo(finding: Finding, effectiveStage: string): boolean {
-  return isOpenInterviewStage(effectiveStage) && finding.code === 'INTERVIEW_INCOMPLETE';
+  return isOpenInterviewStage(effectiveStage)
+    && (finding.code === 'INTERVIEW_INCOMPLETE' || finding.code === 'INTERVIEW_CHOICE_REQUIRED');
+}
+
+function hasPendingOther(item: Item): boolean {
+  const answer = item.state.state === 'user' || item.state.state === 'delegated'
+    ? item.state.answer
+    : isObject(item.raw) ? item.raw : null;
+  return answer !== null && asArray(answer.asks).some(ask => isObject(ask) && ask.state === 'other-pending');
+}
+
+function isUndecidedDelegation(item: Item): boolean {
+  if (item.state.state === 'delegated') return !item.state.decided;
+  if (item.state.state === 'user') {
+    return ('agent_decision' in item.state.answer
+      || asArray(item.state.answer.asks).some(a => isObject(a) && a.state === 'delegated'))
+      && !isDecision(item.state.answer.agent_decision);
+  }
+  return false;
+}
+
+function delegatedAsks(dir: string, item: Item): string[] {
+  const answer = item.state.state === 'user' || item.state.state === 'delegated' ? item.state.answer : null;
+  if (answer) {
+    const fromAsks = asArray(answer.asks)
+      .filter((a): a is JsonObject => isObject(a) && a.state === 'delegated' && typeof a.id === 'string')
+      .map(a => String(a.id));
+    if (fromAsks.length > 0) return fromAsks;
+    if (isObject(answer.agent_decision) && typeof answer.agent_decision.covers === 'string') {
+      const covers = answer.agent_decision.covers.split(',').map(s => s.trim()).filter(Boolean);
+      if (covers.length > 0) return covers;
+    }
+    if (isObject(answer.choice) && isObject(answer.choice.set)) {
+      try {
+        const { set } = optionFile(dir, answer.choice.set);
+        const selected = selection(set, answer.choice);
+        if (selected.autos.length > 0) return selected.autos;
+      } catch { /* Fall back to question id. */ }
+    }
+  }
+  return [item.id];
+}
+
+function decisionCommand(dir: string, item: Item): string {
+  const fragments = delegatedAsks(dir, item)
+    .map(ask => ` --fragment ${shellWord(`${ask}=<json>`)}`)
+    .join('');
+  return `rig-create interview-decision ${shellWord(item.id)} ${shellWord(dir)} --by agent --reasoning-file '<file>'${fragments}`;
 }
 
 function shellWord(value: string): string {
@@ -715,7 +764,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
   const structureWarnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW');
-  const answers = collectItems(project, { collection: loadCollection(dir) }).flatMap(item => {
+  const allItems = collectItems(project, { collection: loadCollection(dir) });
+  const answers = allItems.flatMap(item => {
     const answer = item.state.state === 'user' || item.state.state === 'delegated' || item.state.state === 'not_applicable'
       ? item.state.answer : isObject(item.raw) ? item.raw : null;
     if (!answer) return [];
@@ -730,7 +780,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
 
-  const allRefusalFindings: Finding[] = [...report.refusals, ...holes];
+  const pendingOtherFindings: Finding[] = allItems
+    .filter(item => hasPendingOther(item) && !report.refusals.some(r => r.code === 'INTERVIEW_CHOICE_REQUIRED' && r.path === item.path))
+    .map(item => ({
+      code: 'INTERVIEW_CHOICE_REQUIRED',
+      path: item.path,
+      message: `${item.path}: Other is pending; redraft with a tailored value option and have the person explicitly pick it before approval`,
+    }));
+  const allRefusalFindings: Finding[] = [...report.refusals, ...pendingOtherFindings, ...holes];
   const refusals: NextRefusal[] = allRefusalFindings.map(r => ({
     code: r.code,
     field: r.path,
@@ -988,7 +1045,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     for (const item of stageItems) {
       const answerField = item.path;
       const questionPath = item.path.replace(/\.(answer|guide)$/, '');
-      if (item.state.state === 'silent') {
+      if (item.state.state === 'silent' || hasPendingOther(item)) {
         addAwait(answerField);
         const pendingOpts = isObject(item.record.pending_options) ? item.record.pending_options : null;
         if (pendingOpts !== null) {
@@ -1015,6 +1072,15 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
               ...(jobId ? { job_id: jobId } : {}),
             },
           });
+        } else if (hasPendingOther(item)) {
+          moves.push({
+            role: 'agent',
+            field: answerField,
+            awaits: answerField,
+            command: optionCommand(item.id, dir),
+            act: `${answerField} has a pending Other (INTERVIEW_CHOICE_REQUIRED): redraft the option-set file for ${item.id} with a tailored value option and register it for a Review pick, or re-answer with --other-fragment`,
+            unanswered_by_record: answerField,
+          });
         } else {
           moves.push({
             role: 'agent',
@@ -1025,10 +1091,20 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             unanswered_by_record: `${questionPath}.pending_options`,
           });
         }
-      } else if (item.state.state === 'delegated' && !item.state.decided) {
+      } else if (isUndecidedDelegation(item)) {
         const decisionField = `${answerField}.agent_decision`;
         addAwait(decisionField);
-        moves.push({
+        // interview-decision refuses answers without an adopted choice (choice-writers.ts), so a
+        // preserved sentence-format delegation keeps the authored-record move it had before.
+        const adopted = isObject(item.raw) && isObject(item.raw.choice);
+        moves.push(adopted ? {
+          role: 'agent',
+          field: answerField,
+          awaits: decisionField,
+          command: decisionCommand(dir, item),
+          act: `record agent decision and rationale for ${decisionField}`,
+          unanswered_by_record: decisionField,
+        } : {
           role: 'human',
           field: answerField,
           awaits: decisionField,
@@ -1053,7 +1129,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       for (const [index, id] of missingPlanIds.entries()) {
         const guideId = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
         const item = stageItems.find(item => item.id === guideId);
-        if (!item || item.state.state === 'silent' || (item.state.state === 'delegated' && !item.state.decided)) continue;
+        if (!item || item.state.state === 'silent' || hasPendingOther(item) || isUndecidedDelegation(item)) continue;
         const order = Math.max(0, ...steps.map(step => Number(step.order) || 0)) + index + 1;
         moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps',
           command: `rig-create plan add ${id} ${shellWord(dir)} --by agent --phase ${effectiveStage === 'post-interview' ? 'post' : 'rig'} --order ${order} --does '<work>' --produces '<result>' --rests-on ${guideId} --bar '<acceptance bar>' --checkpoint-proposed false`,
@@ -1065,10 +1141,19 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const missingStepNames = missingPlanIds.length === planIds.length ? '' : `${missingPlanIds.join(', ')} `;
     const missingStepKind = effectiveStage === 'post-interview' ? 'post' : 'rig';
     const missingPlanReason = `plan.steps has no ${missingStepNames}${missingStepKind} step${missingPlanIds.length === 1 ? '' : 's'}`;
+    const pendingOtherFields = stageItems.filter(hasPendingOther).map(item => item.path);
+    const undecidedFields = stageItems.filter(isUndecidedDelegation).map(item => `${item.path}.agent_decision`);
 
     const signoffAwait = `signoffs[stage=${effectiveStage}]`;
     if (!hasLiveStageSignoff(effectiveStage) && !recordedLapseTargets.has(signoffAwait)) {
       addAwait(signoffAwait);
+      const unansweredSignoff = needsPlanSteps
+        ? 'plan.steps'
+        : pendingOtherFields.length > 0
+          ? pendingOtherFields.join(', ')
+          : undecidedFields.length > 0
+            ? undecidedFields.join(', ')
+            : undefined;
       moves.push({
         role: 'human',
         field: 'signoffs',
@@ -1078,15 +1163,19 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           ? effectiveStage === 'rigging-interview'
             ? `review-tool act signoff for stage rigging-interview (unanswered by record: ${missingPlanReason} approved at rigging-interview)`
             : `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${effectiveStage === 'post-interview' ? missingPlanReason : steps.length === 0 ? 'plan.steps is empty' : 'plan.steps has uncovered parts guides'} in project.json)`
-          : effectiveStage === 'interview'
-            ? 'review-tool act signoff for stage interview on the record page with job open --plan; ingest signoff interview --from-review <actId>, then advance plan-approved'
-            : `review-tool act signoff for stage ${effectiveStage}`,
+          : pendingOtherFields.length > 0
+            ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${pendingOtherFields.join(', ')} has pending Other; resolve INTERVIEW_CHOICE_REQUIRED before approval)`
+            : undecidedFields.length > 0
+              ? `review-tool act signoff for stage ${effectiveStage} (unanswered by record: ${undecidedFields.join(', ')} requires agent decision before approval)`
+              : effectiveStage === 'interview'
+                ? 'review-tool act signoff for stage interview on the record page with job open --plan; ingest signoff interview --from-review <actId>, then advance plan-approved'
+                : `review-tool act signoff for stage ${effectiveStage}`,
         review_act: {
           kind: 'signoff',
           stage: effectiveStage,
           ...(jobId ? { job_id: jobId } : {}),
         },
-        ...(needsPlanSteps ? { unanswered_by_record: 'plan.steps' } : {}),
+        ...(unansweredSignoff !== undefined ? { unanswered_by_record: unansweredSignoff } : {}),
       });
     } else if (hasLiveStageSignoff(effectiveStage)) {
       const nextStage = nextStageInOrder(project, stage);
@@ -1481,8 +1570,41 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       s => (s.phase === 'rig' || s.phase === 'post') && stageOfStep(s.phase, String(s.id)) === 'post',
     );
     const openPostSteps = postSteps.filter(s => s.status !== 'done');
+    const scenes = asArray(project.scenes).filter(isObject);
+    const postVersions = versions.filter(
+      v => v.kind === 'post' && typeof v.n === 'number' && liveSignoff(reopens, 'post', Date.parse(String(v.at))),
+    );
+    const latestPost = postVersions[postVersions.length - 1];
+    const postN = typeof latestPost?.n === 'number' ? latestPost.n : null;
+    const maxVersionN = Math.max(
+      0,
+      ...versions.map(v => (typeof v.n === 'number' ? v.n : 0)),
+    );
+    const nextPostN = postN ?? maxVersionN + 1;
+    const addPostAuthoringMove = (): void => {
+      if (postN !== null) return;
+      const rig = versions.filter(v => v.kind === 'rig').at(-1);
+      const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
+      const currentScene = sceneCurrentAt(dir, project, now);
+      if (!isObject(project.direction_contract)) {
+        addAwait('direction_contract');
+        moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
+          command: `rig-create direction --adopt ${shellWord(dir)}`, act: 'adopt direction before authoring the post' });
+      } else if (currentScene === undefined) {
+        addAwait('scenes[n=1]');
+        moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
+          command: sceneWriteCommand(dir, project, rigN),
+          act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
+      } else {
+        addAwait(`versions[n=${nextPostN}]`);
+        moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
+          command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction.json>' --rig ${shellWord(rigN)}`,
+          act: 'author a direction document binding the current scene, then record the post version' });
+      }
+    };
 
     if (effectiveStage === 'post' && openPostSteps.length > 0) {
+      addPostAuthoringMove();
       for (const step of openPostSteps) {
         const stepId = String(step.id);
         const currentStatus = String(step.status ?? 'pending');
@@ -1524,18 +1646,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
     } else {
-      const scenes = asArray(project.scenes).filter(isObject);
-      const postVersions = versions.filter(
-        v => v.kind === 'post' && typeof v.n === 'number' && liveSignoff(reopens, 'post', Date.parse(String(v.at))),
-      );
-      const latestPost = postVersions[postVersions.length - 1];
-      const postN = typeof latestPost?.n === 'number' ? latestPost.n : null;
-      const maxVersionN = Math.max(
-        0,
-        ...versions.map(v => (typeof v.n === 'number' ? v.n : 0)),
-      );
-      const nextPostN = postN ?? maxVersionN + 1;
-
       if (effectiveStage === 'post' && postN !== null && scenes.length > 0) {
         const advCmd = candidateAdvance(dir, project, 'direction-review', now);
         if (advCmd !== null) {
@@ -1549,26 +1659,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
 
-      if (postN === null) {
-        const rig = versions.filter(v => v.kind === 'rig').at(-1);
-        const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
-        const currentScene = sceneCurrentAt(dir, project, now);
-        if (!isObject(project.direction_contract)) {
-          addAwait('direction_contract');
-          moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
-            command: `rig-create direction --adopt ${shellWord(dir)}`, act: 'adopt direction before authoring the post' });
-        } else if (currentScene === undefined) {
-          addAwait('scenes[n=1]');
-          moves.push({ role: 'agent', field: 'scenes', awaits: 'scenes[n=1]',
-            command: sceneWriteCommand(dir, project, rigN),
-            act: 'author scene inputs matching the current post_composition Review choice, then write the scene' });
-        } else {
-          addAwait(`versions[n=${nextPostN}]`);
-          moves.push({ role: 'agent', field: 'versions', awaits: `versions[n=${nextPostN}]`,
-            command: `rig-create direction write ${nextPostN} ${shellWord(dir)} --file '<direction.json>' --rig ${shellWord(rigN)}`,
-            act: 'author a direction document binding the current scene, then record the post version' });
-        }
-      }
+      addPostAuthoringMove();
       if (scenes.length === 0) addAwait('scenes[n=1]');
       if (postN === null) {
         addAwait(`versions[n=${nextPostN}]`);

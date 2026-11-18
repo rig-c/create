@@ -36,7 +36,10 @@ export function composeFixture() {
     { name: 'front', image: 'foreground.png', at: [2, 3] },
   ];
   const value = { canvas: { width: 64, height: 48 }, plates, order: ['back', 'actor', 'front'], character: { offset: [0, 0], scale: 1 },
-  idle_tracks: [{ bone: 'back', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 2, v: [3, 0] }, { t: 4, v: [0, 0] }] }] };
+  idle_tracks: [
+    { bone: 'back', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 2, v: [3, 0] }, { t: 4, v: [0, 0] }] },
+    { bone: 'actor:yaw_dial', property: 'rotate', keys: [{ t: 0, v: [-6] }, { t: 2, v: [6] }, { t: 4, v: [-6] }] },
+  ] };
   const project = f.load();
   const rig = objects(project.versions)[0]!;
   const pkg = rig.review_package as JsonObject;

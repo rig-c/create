@@ -60,6 +60,23 @@ test('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses order differing from the owner c
   const f = fixture(); f.scene.order = ['front', 'actor', 'back']; f.put('compose.scene.json', f.scene); rejected(f, 'DIRECTION_COMPOSE_CHOICE_MISMATCH');
 });
 
+test('COMPOSE_VALUE_INVALID refuses a plain-number scalar track key in the cited compose value', () => {
+  const f = fixture();
+  const p = f.load();
+  const items = ((p.interview as JsonObject).post as JsonObject).items as JsonObject[];
+  const composition = items.find(i => i.id === 'post_composition')!.guide as JsonObject;
+  const choice = composition.choice as JsonObject;
+  const setBinding = choice.set as JsonObject;
+  const set = JSON.parse(readFileSync(join(f.dir, String(setBinding.path)), 'utf8')) as JsonObject;
+  const badValue = structuredClone(f.value) as JsonObject;
+  objects(objects(badValue.idle_tracks)[1]!.keys)[1]!.v = 6;
+  objects(objects(set.asks)[0]!.options).find(o => o.id === 'keep')!.fragment = { compose: badValue };
+  choice.set = f.put(String(setBinding.path), set);
+  composition.value = { compose: badValue };
+  f.save(p);
+  rejected(f, 'COMPOSE_VALUE_INVALID');
+});
+
 test('DIRECTION_COMPOSE_PLACEMENT refuses a nonzero producer shift', () => {
   const f = fixture(); objects(f.report.characters)[0]!.shift = [1, 0]; f.put('compose-out/scene.json', f.report); rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
 });

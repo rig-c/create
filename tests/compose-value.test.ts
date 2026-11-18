@@ -45,16 +45,16 @@ function validCompose(end = 8): JsonObject {
         bone: 'hero:yaw_dial',
         property: 'rotate',
         keys: [
-          { t: 0, v: -8 },
-          { t: end / 2, v: 8 },
-          { t: end, v: -8 },
+          { t: 0, v: [-8] },
+          { t: end / 2, v: [8] },
+          { t: end, v: [-8] },
         ],
       },
     ],
   };
 }
 
-function expectRefusal(value: Json | undefined, expectedPath: string, path = BASE_PATH): void {
+function expectRefusal(value: Json | undefined, expectedPath: string, path = BASE_PATH, expectedMessageSubstring?: string): void {
   let caught: unknown;
   try {
     readComposeValue(value, path);
@@ -67,6 +67,9 @@ function expectRefusal(value: Json | undefined, expectedPath: string, path = BAS
   expect(err.path).toBe(expectedPath);
   expect(err.message).toContain(expectedPath);
   expect(err.message).toContain('value.compose');
+  if (expectedMessageSubstring !== undefined) {
+    expect(err.message).toContain(expectedMessageSubstring);
+  }
 }
 
 test('accepts a valid composed take value with canvas, two plates, one character, translate and rotate tracks', () => {
@@ -87,7 +90,7 @@ test('accepts a valid composed take value with canvas, two plates, one character
   }
   for (const prop of COMPOSE_SCALAR_TRACK_PROPERTIES) {
     const c = validCompose();
-    c.idle_tracks = [{ bone: 'hero:yaw_dial', property: prop, keys: [{ t: 0, v: 1.5 }, { t: 8, v: 1.5 }] }];
+    c.idle_tracks = [{ bone: 'hero:yaw_dial', property: prop, keys: [{ t: 0, v: [1.5] }, { t: 8, v: [1.5] }] }];
     expect(readComposeValue(c, BASE_PATH).idle_tracks[0]!.property).toBe(prop);
   }
   expect(COMPOSE_TRACK_PROPERTIES).toEqual([
@@ -110,14 +113,14 @@ test('accepts a valid composed take value with canvas, two plates, one character
       bone: 'hero:yaw_dial',
       property: 'rotate',
       keys: [
-        { t: 0, v: -720 },
-        { t: 8, v: 720 },
+        { t: 0, v: [-720] },
+        { t: 8, v: [720] },
       ],
     },
   ];
   expect(readComposeValue(unclosedAndWideDial, BASE_PATH).idle_tracks[0]!.keys).toEqual([
-    { t: 0, v: -720 },
-    { t: 8, v: 720 },
+    { t: 0, v: [-720] },
+    { t: 8, v: [720] },
   ]);
 });
 
@@ -341,16 +344,16 @@ test('refuses each malformed compose rule with COMPOSE_VALUE_INVALID and the exa
     ((((c.idle_tracks as JsonObject[])[1] as JsonObject).keys as JsonObject[])[2] as JsonObject).t = 10;
     expectRefusal(c, `${BASE_PATH}.idle_tracks[1].keys[2].t`);
   }
-  // Key value rules: vector requires [x, y] finite numbers; scalar requires finite number
+  // Key value rules: vector requires [x, y] finite numbers; scalar requires one-number array [n] of a finite number
   for (const badVectorV of [0, [0], [0, 0, 0], [0, Number.NaN], '0,0'] as unknown as Json[]) {
     const c = validCompose();
     ((((c.idle_tracks as JsonObject[])[0] as JsonObject).keys as JsonObject[])[1] as JsonObject).v = badVectorV;
-    expectRefusal(c, `${BASE_PATH}.idle_tracks[0].keys[1].v`);
+    expectRefusal(c, `${BASE_PATH}.idle_tracks[0].keys[1].v`, BASE_PATH, '[x, y]');
   }
-  for (const badScalarV of [[0], [0, 0], Number.POSITIVE_INFINITY, '8', null] as unknown as Json[]) {
+  for (const badScalarV of [8, -8, 0, [], [0, 0], [Number.NaN], [Number.POSITIVE_INFINITY], ['8'], Number.POSITIVE_INFINITY, '8', null] as unknown as Json[]) {
     const c = validCompose();
     ((((c.idle_tracks as JsonObject[])[1] as JsonObject).keys as JsonObject[])[1] as JsonObject).v = badScalarV;
-    expectRefusal(c, `${BASE_PATH}.idle_tracks[1].keys[1].v`);
+    expectRefusal(c, `${BASE_PATH}.idle_tracks[1].keys[1].v`, BASE_PATH, '[n]');
   }
 });
 

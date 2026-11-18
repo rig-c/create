@@ -27,9 +27,11 @@ const COMPOSE_VALUE_REMEDY =
 /**
  * Vector and scalar bone track properties from `@rig-c/core`:
  * cited from `node_modules/@rig-c/core/docs/AUTHORING.md` §4.4 (the `bone` target
- * rows in the track property table, lines 4923–4926, and `BONE_TRACKS` in
- * `node_modules/@rig-c/core/src/compile.ts`). `inherit` keys a stepped mode name
- * rather than scalar/vector numbers and is excluded.
+ * rows in the track property table, lines 4923–4926, where vector properties key
+ * `[x, y]` and scalar properties key `[value]`, and `BONE_TRACKS` in
+ * `node_modules/@rig-c/core/src/compile.ts`, where vector properties have
+ * `fields: ['x', 'y']` and scalar properties have `fields: ['value']`). `inherit`
+ * keys a stepped mode name rather than a number-channel array and is excluded.
  */
 export const COMPOSE_VECTOR_TRACK_PROPERTIES = ['translate', 'scale', 'shear'] as const;
 export const COMPOSE_SCALAR_TRACK_PROPERTIES = [
@@ -69,7 +71,7 @@ export interface ComposeCharacterSpec {
 
 export interface ComposeTrackKeySpec {
   t: number;
-  v: number | [number, number];
+  v: [number] | [number, number];
   curve?: Json;
 }
 
@@ -117,6 +119,8 @@ const pathShape = (value: unknown): value is string =>
   !value.includes('\\') &&
   !/^[A-Za-z]:/.test(value) &&
   value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
+const finiteSingle = (value: unknown): value is [number] =>
+  Array.isArray(value) && value.length === 1 && finite(value[0]);
 const finitePair = (value: unknown): value is [number, number] =>
   Array.isArray(value) && value.length === 2 && finite(value[0]) && finite(value[1]);
 const intPair = (value: unknown): value is [number, number] =>
@@ -358,12 +362,12 @@ export function readComposeValue(value: Json | undefined, path: string): Compose
         if (!finitePair(keyEntry.v)) {
           composeFail(`${keyPath}.v`, `track key v for vector property "${property}" must be a two-number array [x, y] of finite numbers`);
         }
-      } else if (!finite(keyEntry.v)) {
-        composeFail(`${keyPath}.v`, `track key v for scalar property "${property}" must be a finite number`);
+      } else if (!finiteSingle(keyEntry.v)) {
+        composeFail(`${keyPath}.v`, `track key v for scalar property "${property}" must be a one-number array [n] of a finite number`);
       }
-      const v: number | [number, number] = isVector
+      const v: [number] | [number, number] = isVector
         ? [(keyEntry.v as [number, number])[0], (keyEntry.v as [number, number])[1]]
-        : (keyEntry.v as number);
+        : [(keyEntry.v as [number])[0]];
       keys.push({
         t: keyEntry.t,
         v,

@@ -8,9 +8,10 @@ import { Refusal } from '../src/refusal.ts';
 import { STAGE_ORDER_SPEC } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { checkProject, planCommand, reopenCommand, testClock } from './clock.ts';
+import { checkProject, directionCommand, planCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { directionFixture } from './direction-fixture.ts';
 import { arr, fixture, obj, step, waypoint } from './fixtures.ts';
-import { cli, gitEnv } from './helpers.ts';
+import { cli, gitEnv, tempDir } from './helpers.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
@@ -285,7 +286,7 @@ test('a removed done rig step accepts its waypoint id after a later plan-approve
   expect(codes(dir)).toEqual([]);
 });
 
-test.each(['absent', 'earlier', 'equal', 'later-stage', 'malformed', 'future'])('done rig replacement refuses %s reopen byte-identically', mode => {
+test.each(['absent', 'earlier', 'equal', 'later-stage', 'rig-review', 'post-interview', 'malformed', 'future'])('done rig replacement refuses %s reopen byte-identically', mode => {
   const { dir, original, flags } = rigReplacement();
   const project = read(dir);
   const completion = obj(arr(original.status_history).find(event => obj(event).status === 'done')!).at as string;
@@ -294,10 +295,107 @@ test.each(['absent', 'earlier', 'equal', 'later-stage', 'malformed', 'future'])(
   if (mode === 'earlier') entry.at = new Date(Date.parse(completion) - 1).toISOString();
   if (mode === 'equal') entry.at = completion;
   if (mode === 'later-stage') entry.stage = 'parts';
+  if (mode === 'rig-review' || mode === 'post-interview') entry.stage = mode;
   if (mode === 'malformed') entry.by = 'agent';
   if (mode === 'future') entry.at = '2026-11-21T00:00:00Z';
   save(dir, project);
   unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'seethrough', flags));
+});
+
+function postReplacement(stage = 'rig-review'): { dir: string; original: JsonObject; flags: string[] } {
+  testClock.set('2026-11-20T00:00:00Z');
+  const dir = fixture(() => {}, 'example-project.json');
+  const original = structuredClone(step(read(dir), 'camera'));
+  reopen(dir, stage);
+  write(dir, 'remove', 'camera');
+  const flags = ['--phase', 'post', '--order', String(original.order), '--does', 'Frame the second take.',
+    '--produces', 'The second take camera track.', '--rests-on', 'camera_depth', '--bar', 'The second take push-in closes cleanly.', '--checkpoint-proposed', 'false'];
+  return { dir, original, flags };
+}
+
+test.each(['rig-review', 'post-interview'])('a removed done post step accepts its id after a later %s reopen and retains the first take record in plan.replaced', stage => {
+  const { dir, original, flags } = postReplacement(stage);
+  const before = read(dir);
+  const history = structuredClone(obj(before.plan).replaced);
+  write(dir, 'add', 'camera', flags);
+  const after = read(dir);
+  expect(arr(obj(after.plan).steps).filter(value => obj(value).id === 'camera')).toHaveLength(1);
+  expect(step(after, 'camera')).toMatchObject({ does: 'Frame the second take.', bar: 'The second take push-in closes cleanly.', status: 'pending', checkpoint: null });
+  expect(step(after, 'camera').status_history).toBeUndefined();
+  expect(obj(after.plan).replaced).toEqual(history);
+  const archived = obj(obj(arr(obj(after.plan).replaced)[0]).step);
+  expect(archived.does).toBe(original.does);
+  expect(archived.bar).toBe(original.bar);
+  expect(obj(arr(archived.status_history).at(-1)).status).toBe('done');
+  expect(codes(dir)).toEqual([]);
+});
+
+test('after a cycle and rig-review reopen, replacing camera lets post-interview signoff and direction write cite the new step while retaining take 1 in plan.replaced', () => {
+  const dir = join(tempDir(), 'second-take');
+  const f = directionFixture(dir);
+  testClock.set('2026-11-04T09:01:00Z');
+  expect(directionCommand(['write', '2', dir, '--file', 'evidence/input.json', '--rig', '1']).exit).toBe(0);
+  const take1 = f.load();
+  for (const id of ['camera', 'timing']) {
+    step(take1, id).status = 'done';
+    step(take1, id).status_history = [{ from_status: 'in-progress', status: 'done', by: 'agent', at: '2026-11-04T09:01:00Z', checkpoint_required: false, signoff: null }];
+  }
+  take1.signoffs = [{ stage: 'parts-review', checkpoint: null, by: 'user', at: '2026-11-04T08:00:00Z', verbatim: 'Accept parts.' }, ...arr(take1.signoffs)];
+  obj(arr(take1.versions)[1]).verdicts = [{ review: 'direction-review', verdict: 'accepted', by: 'user', at: '2026-11-04T09:02:00Z', verbatim: 'Accept take 1.' }];
+  f.save(take1);
+  testClock.set('2026-11-04T09:02:00Z');
+  expect(signoffCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'approval.txt')]).exit).toBe(0);
+  const take1Camera = structuredClone(step(f.load(), 'camera'));
+  expect(take1Camera.does).toBe('Author direction');
+  expect(take1Camera.status).toBe('done');
+
+  testClock.set('2026-11-04T09:10:00Z');
+  reopen(dir, 'rig-review');
+  write(dir, 'remove', 'camera');
+  const take2Flags = ['--phase', 'post', '--order', '1', '--does', 'Author second-take camera framing',
+    '--produces', 'second-take direction document', '--rests-on', 'camera_depth', '--bar', 'second-take camera keys validate', '--checkpoint-proposed', 'false'];
+  write(dir, 'add', 'camera', take2Flags);
+
+  const afterAdd = f.load();
+  expect(step(afterAdd, 'camera').does).toBe('Author second-take camera framing');
+  expect(step(afterAdd, 'camera').status).toBe('pending');
+  expect(arr(obj(afterAdd.plan).replaced)).toHaveLength(1);
+  const archived = obj(obj(arr(obj(afterAdd.plan).replaced)[0]).step);
+  expect(archived.does).toBe('Author direction');
+  expect(obj(arr(archived.status_history).at(-1)).status).toBe('done');
+  expect(arr(obj(arr(afterAdd.reopens)[0]).steps_before)).toContainEqual({ id: 'camera', status: 'done' });
+
+  obj(arr(afterAdd.versions)[0]).at = '2026-11-04T09:11:00Z';
+  afterAdd.signoffs = [...arr(afterAdd.signoffs), { stage: 'rig-review', checkpoint: null, by: 'user', at: '2026-11-04T09:11:00Z', verbatim: 'Accept the synthetic rig' }];
+  f.save(afterAdd);
+
+  testClock.set('2026-11-04T09:12:00Z');
+  unchanged(dir, 'DIRECTION_CITATION', () => directionCommand(['write', '3', dir, '--file', 'evidence/input.json', '--rig', '1']));
+  const signed = JSON.parse(signoffCommand(['post-interview', dir, '--by', 'user', '--steps', 'camera,timing', '--verbatim-file', join(dir, 'approval.txt'), '--json']).stdout) as JsonObject;
+  expect(obj(signed.step_hashes).camera).toBe(stepHash(step(f.load(), 'camera')));
+  expect(obj(signed.step_hashes).camera).not.toBe(stepHash(take1Camera));
+  expect(directionCommand(['write', '3', dir, '--file', 'evidence/input.json', '--rig', '1']).exit).toBe(0);
+  expect(obj(obj(arr(obj(f.load().plan).replaced)[0]).step).does).toBe('Author direction');
+});
+
+test.each(['absent', 'earlier', 'equal', 'post', 'direction-review', 'amendment', 'malformed', 'future', 'wrong-phase'])('done post replacement refuses %s reopen byte-identically', mode => {
+  const { dir, original, flags } = postReplacement();
+  const project = read(dir);
+  const completion = obj(arr(original.status_history).find(event => obj(event).status === 'done')!).at as string;
+  const entry = obj(arr(project.reopens)[0]);
+  if (mode === 'absent') project.reopens = [];
+  if (mode === 'earlier') entry.at = new Date(Date.parse(completion) - 1).toISOString();
+  if (mode === 'equal') entry.at = completion;
+  if (mode === 'post' || mode === 'direction-review') entry.stage = mode;
+  if (mode === 'amendment') {
+    project.reopens = [];
+    project.amendments = [{ by: 'user', at: '2026-11-20T00:00:00.000Z', reason: 'Amend.', target: { stage: 'rig-review' } }];
+  }
+  if (mode === 'malformed') entry.by = 'agent';
+  if (mode === 'future') entry.at = '2026-11-21T00:00:00Z';
+  save(dir, project);
+  const addFlags = mode === 'wrong-phase' ? flags.map(value => value === 'post' ? 'rig' : value) : flags;
+  unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'camera', addFlags));
 });
 
 test('a live plan hash cannot resolve only to removed history', () => {

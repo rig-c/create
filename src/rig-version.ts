@@ -835,7 +835,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   let releasePublication = () => {};
   let publicationIntent: PendingPublication | null = null;
   try {
-    releasePublication = acquireBoundJobWrite(dir);
+    releasePublication = acquireBoundJobWrite(dir, { kind: 'rig', version: n });
     ({ file, project } = readProject(dir));
     original = readFileSync(file);
     if (project.schema !== 'rig-create/project@0') fail('SCHEMA_UNKNOWN', 'schema', 'rig-version reads rig-create/project@0');

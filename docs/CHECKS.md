@@ -37,6 +37,7 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed/unavailable, or a job command has invalid arguments. Restore effective private ignores and the writer-owned binding through `job open`. |
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
+| `JOB_ASK_PENDING` | A bound writer would publish into an open job that holds a pending owner ask with no ingested act for a different target. The message names the job, the pending ask and the remedy: give the verdict, run `job acts`, ingest with `review <n> --from-review <actId>`, run `job close`, then re-run. Refusal preserves `project.json` and the job state byte-identically. |
 | `JOB_ASK_REFUSED` | A publication is acknowledged, but Review refused the ask for one of its declared subjects. The message names each subject and Review's code. The publication is not pending. Restore the published record bytes and run `job open` to ask again. |
 | `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Record the draft with `draft-rig` or name a recorded draft. |
 | `JOB_WRITE_BUSY` | A bound writer holds the shared publication freeze. Wait for that operation before retrying. |

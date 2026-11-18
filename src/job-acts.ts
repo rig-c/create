@@ -1,5 +1,6 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
-import type { ActV3, JobEventV3, JobOwnerHost } from '@rig-c/review/job-host';
+import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, SourceV3 } from '@rig-c/review/job-host';
+import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, type Finding } from './check.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
@@ -42,10 +43,20 @@ export async function* jobEvents(host: JobOwnerHost, strict = false): AsyncGener
   if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live event stream exceeded the paging bound; retry job acts on a quiescent job');
 }
 
-export async function readHostActs(host: JobOwnerHost): Promise<ActV3[]> {
+export async function readHostActsAndAsks(host: JobOwnerHost): Promise<{ asks: PendingAskV3[]; acts: ActV3[] }> {
+  let head: string | null = null;
+  const asks: PendingAskV3[] = [];
   const acts: ActV3[] = [];
-  for await (const event of jobEvents(host, true)) if (event.type === 'act') acts.push(event.act);
-  return acts;
+  for await (const event of jobEvents(host, true)) {
+    if (event.type === 'published') head = event.publication.publicationId;
+    else if (event.type === 'pending') asks.push(event.ask);
+    else if (event.type === 'act') acts.push(event.act);
+  }
+  return { asks: asks.filter(ask => ask.publicationId === head), acts };
+}
+
+export async function readHostActs(host: JobOwnerHost): Promise<ActV3[]> {
+  return (await readHostActsAndAsks(host)).acts;
 }
 
 export interface PendingJobAct {
@@ -171,4 +182,73 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
 export function jobActsText(result: { acts: readonly PendingJobAct[] }): string {
   if (!result.acts.length) return 'job: no finalized acts awaiting ingestion';
   return result.acts.map(act => `${act.actId} ${act.kind} ${act.subject} at ${act.at}\n${(act.preconditions ?? []).map(step => `  first: ${step.command ?? step.act}\n`).join('')}  ${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`}`).join('\n');
+}
+
+export interface PendingTargetAsk {
+  label: string;
+  version: number | null;
+}
+
+function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
+  if (act.askId === ask.askId) return true;
+  if (act.publicationId !== ask.publicationId || act.kind !== ask.subject.kind) return false;
+  switch (ask.subject.kind) {
+    case 'review-verdict': return act.kind === 'review-verdict' && act.value.stage === ask.subject.stage;
+    case 'parts-verdict': return act.kind === 'parts-verdict' && 'selector' in act.source && act.source.selector?.kind === 'draft' && act.source.selector.id === ask.subject.draftId;
+    case 'interview-picks': return act.kind === 'interview-picks' && act.value.questionId === ask.subject.questionId;
+    case 'checkpoint': return act.kind === 'checkpoint' && act.value.checkpointId === ask.subject.checkpointId;
+    case 'signoff': return act.kind === 'signoff' && act.value.stage === ask.subject.stage;
+    case 'reopen': return act.kind === 'reopen' && act.value.stage === ask.subject.stage;
+  }
+}
+
+function sourceTargetInfo(source: SourceV3): { label: string; selector: JobSelector | null; version: number | null } {
+  if ('selector' in source && source.selector) {
+    const selector = source.selector;
+    if (selector.kind === 'draft') return { label: `draft ${selector.id}`, selector, version: null };
+    return { label: `${selector.kind} v${selector.version}`, selector, version: selector.version };
+  }
+  if ('selection' in source && source.selection) {
+    return source.selection.kind === 'option-set'
+      ? { label: `option-set ${source.selection.questionId}/${source.selection.setId}`, selector: null, version: null }
+      : { label: 'plan', selector: null, version: null };
+  }
+  return { label: 'record', selector: null, version: null };
+}
+
+function askSubjectText(subject: PendingAskV3['subject']): string {
+  switch (subject.kind) {
+    case 'parts-verdict': return `parts-verdict ${subject.draftId}`;
+    case 'checkpoint': return `checkpoint ${subject.checkpointId}`;
+    case 'interview-picks': return `interview-picks ${subject.questionId}/${subject.setId}`;
+    default: return `${subject.kind} ${subject.stage}`;
+  }
+}
+
+export function pendingJobAsksForTarget(
+  project: JsonObject,
+  asks: readonly PendingAskV3[],
+  acts: readonly ActV3[],
+  root: string,
+  target: JobSelector,
+): PendingTargetAsk[] {
+  const unIngested = pendingJobActs(project, acts, root);
+  const unIngestedIds = new Set(unIngested.map(act => act.actId));
+  const ingestedActs = acts.filter(act => !unIngestedIds.has(act.actId));
+  const pending: PendingTargetAsk[] = [];
+  for (const ask of asks) {
+    if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
+    const info = sourceTargetInfo(ask.source);
+    if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
+    const hasUnIngestedAct = acts.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
+    if (!hasUnIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
+    pending.push({ label: `${askSubjectText(ask.subject)} on ${info.label}`, version: info.version });
+  }
+  for (const act of acts) {
+    if (!unIngestedIds.has(act.actId) || asks.some(ask => actMatchesAsk(act, ask))) continue;
+    const info = sourceTargetInfo(act.source);
+    if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
+    pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version });
+  }
+  return pending;
 }

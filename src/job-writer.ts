@@ -1,26 +1,65 @@
-import { existsSync, readFileSync } from './check-reads.ts';
+import { existsSync, readFileSync, realpathSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication } from './job-outbox.ts';
+import { isDeepStrictEqual } from 'node:util';
+import type { JobSelector } from '@rig-c/review/job-host';
+import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { liveManifestPath, draftPublicationContext, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
 import type { Finding } from './check.ts';
 import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
-export function acquireBoundJobWrite(root: string): () => void {
-  if (!readWriterBinding(root)) return () => {};
+let checkedBoundTarget: { root: string; jobId: string; selector: JobSelector } | null = null;
+
+function isSameProcessHost(binding: WriterBinding): boolean {
+  try {
+    const descriptor = JSON.parse(readFileSync(join(binding.identity.stateDir, 'job-ui', `${binding.jobId}.json`), 'utf8')) as { pid?: unknown };
+    return descriptor.pid === process.pid;
+  } catch {
+    return false;
+  }
+}
+
+function assertBoundJobAskReady(root: string, binding: WriterBinding, selector: JobSelector): void {
+  const canonicalRoot = realpathSync(root);
+  if (checkedBoundTarget && isDeepStrictEqual(checkedBoundTarget, { root: canonicalRoot, jobId: binding.jobId, selector })) return;
+  if (isSameProcessHost(binding) || !existsSync(join(jobPrivateRoot(canonicalRoot), 'acknowledged-publications'))) return;
+  let child: ReturnType<typeof Bun.spawnSync<'pipe', 'pipe'>>;
+  try {
+    child = Bun.spawnSync(jobRuntimeCommand('check-ask'), {
+      stdin: Buffer.from(JSON.stringify({ root: canonicalRoot, selector })), stdout: 'pipe', stderr: 'pipe',
+    });
+  } catch {
+    return;
+  }
+  if (child.exitCode !== 0) {
+    const match = /^([A-Z][A-Z0-9_]*): ([\s\S]+)$/.exec(child.stderr.toString('utf8').trim());
+    if (match) refuse(match[1]!, match[2]!);
+  }
+  checkedBoundTarget = { root: canonicalRoot, jobId: binding.jobId, selector };
+}
+
+export function acquireBoundJobWrite(root: string, target?: JobSelector): () => void {
+  const binding = readWriterBinding(root);
+  if (!binding) return () => {};
   const release = acquireJobLock(root)!;
   try {
     if (pendingPublications(root, true).length) refuse('JOB_PUBLISH_PENDING', 'project.json: an earlier committed publication is pending; run rig-create job reconcile before another bound write');
-  } catch (error) { release(); throw error; }
-  return release;
+    if (target) assertBoundJobAskReady(root, binding, target);
+  } catch (error) { checkedBoundTarget = null; release(); throw error; }
+  return () => {
+    checkedBoundTarget = null;
+    release();
+  };
 }
 
 export function prepareVersionIntent(root: string, bytes: Buffer, n: number): PendingPublication | null {
   const binding = readWriterBinding(root);
   if (!binding) return null;
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
-  return enqueuePublication(root, binding, { path: liveManifestPath(root, project, n), selector: publicationSelector(project, n) }, bytes);
+  const selector = publicationSelector(project, n);
+  assertBoundJobAskReady(root, binding, selector);
+  return enqueuePublication(root, binding, { path: liveManifestPath(root, project, n), selector }, bytes);
 }
 
 export const SOURCE_CONDITION = '@rig-c/source';
@@ -119,5 +158,7 @@ export function prepareDraftIntent(root: string, bytes: Buffer, id: string): Pen
   const binding = readWriterBinding(root);
   if (!binding) return null;
   draftPublicationContext(root, JSON.parse(bytes.toString('utf8')) as JsonObject, id);
-  return enqueuePublication(root, binding, draftPublicationResult(id), bytes);
+  const result = draftPublicationResult(id);
+  assertBoundJobAskReady(root, binding, result.selector);
+  return enqueuePublication(root, binding, result, bytes);
 }

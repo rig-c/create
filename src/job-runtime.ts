@@ -1,6 +1,8 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { JobSelector } from '@rig-c/review/job-host';
+import { assertNoPendingJobAsk } from './job-close.ts';
 import { askOutcomeLines, assertRequestedDraft, assertRequestedRig, closeCreateJob, listCreateJobActs, openCreateJob, openDraftPublication, openRecordPublication, requestedRecordResult, publishPending, reconcileCreateJob, refuseAskOutcomes, type AskOutcome } from './job-host.ts';
 import { failPublication, pendingPublications, reconcilePublication } from './job-outbox.ts';
 import { jobActsText } from './job-acts.ts';
@@ -17,9 +19,14 @@ export function publicationFailure(error: unknown, root: string): Refusal | unde
 }
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: string; json?: boolean };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; selector?: JobSelector; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: string; json?: boolean };
   const root = resolve(input.root);
   switch (process.argv[2]) {
+    case 'check-ask': {
+      if (!input.selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication requires a result selector; restore the writer result');
+      await assertNoPendingJobAsk(root, input.selector);
+      break;
+    }
     case 'publish': {
       const entry = pendingPublications(root).find(entry => entry.id === input.id);
       if (!entry) refuse('JOB_OUTBOX_INVALID', 'project.json: pending writer receipt is absent; restore the private outbox');

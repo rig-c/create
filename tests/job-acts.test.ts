@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { fixture, retainSignoffs, arr, obj } from './fixtures.ts';
@@ -11,7 +11,7 @@ import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
 import { pendingJobActs, jobActsText, type PendingJobAct } from '../src/job-acts.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import type { ActV3, JobOwnerHost, JobHostOptions } from '@rig-c/review/job-host';
@@ -709,4 +709,118 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   });
   expect(pendingJobActs(recorded, [droppedAct as unknown as ActV3], discardRoot)).toEqual([]);
   expect(nextProject(discardRoot, testClock.now()).refusals.filter(r => r.code === 'REVIEW_ACT_LEDGER_INVALID')).toEqual([]);
+}, 30_000);
+
+test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds an un-ingested ask for a different target, allows same-target republish, and passes once answered and ingested', async () => {
+  testClock.set(Date.parse('2026-11-08T00:00:00Z'));
+  const root = copy('example-chain', project => {
+    project.stage = 'direction-review';
+    retainSignoffs(project, row => row.stage !== 'direction-review');
+    project.advances = arr(project.advances).filter(row => obj(row).stage !== 'accepted');
+    arr(project.versions).map(obj).find(version => version.n === 2)!.verdicts = [];
+  });
+  const put = (path: string, value: unknown): void => {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), typeof value === 'string' ? value : `${JSON.stringify(value)}\n`);
+  };
+  cpSync(join(import.meta.dir, 'fixtures/rig-registration'), join(root, 'source'), { recursive: true });
+  put('source/adapter.json', []);
+  put('source/citations.json', obj(obj(arr(read(root).versions)[0]).provenance).sections);
+  put('source/run.json', {
+    spec: 'rigc-run/1', package: { name: 'rig-c', version: '3.4.1' }, command: 'build',
+    started_at: '2026-11-08T00:00:01.000Z', finished_at: '2026-11-08T00:00:02.000Z',
+    inputs: [{ role: 'rig', path: '../rig/rig.json', sha256: '1'.repeat(64) }, { role: 'motion', path: '../rig/motion.json', sha256: '2'.repeat(64) }],
+    outputs: [{ path: '../compile-report.json', sha256: '3'.repeat(64) }, { path: 'skeleton.model.json', sha256: '4'.repeat(64) }],
+  });
+  put('source/at-source.json', { finished_at: '2026-11-08T00:00:02.000Z' });
+  put('evidence/reopen.txt', 'Reopen rig-review for synthetic rebuild.\n');
+
+  const opening = await open(root, ['--rig', '2']);
+  expect(opening.lines).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
+  const binding = readWriterBinding(root)!;
+  const firstView = await page(root, opening.url, 1, 'review-verdict');
+  expect(obj(firstView.head.source).selector).toEqual({ kind: 'post', version: 2, rigVersion: 1 });
+  const preReopenProject = readFileSync(join(root, 'project.json'));
+
+  testClock.set(Date.parse('2026-11-08T00:00:01Z'));
+  expectExit0(await cli(root, ['reopen', 'rig-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/reopen.txt')]));
+
+  // Same target re-publishing its own ask is not refused.
+  const sameTargetBytes = readFileSync(join(root, 'project.json'));
+  const sameIntent = prepareVersionIntent(root, sameTargetBytes, 2);
+  expect(sameIntent).not.toBeNull();
+  rmSync(join(jobPrivateRoot(root), 'outbox', `${sameIntent!.id}.json`));
+
+  const rigVersionArgs = [
+    'rig-version', '3', root,
+    '--parts', 'derived/drafts/chain/input',
+    '--rig', 'outputs/v1/out/rig',
+    '--build', 'derived/review/v1/out/check/build',
+    '--idle', 'source/idle',
+    '--config', 'derived/drafts/chain/config.json',
+    '--path-adapter', 'source/adapter.json',
+    '--compile-report', 'source/compile-report.json',
+    '--toolchain-lock', 'source/package-lock.json',
+    '--run-record', 'source/run.json',
+    '--citations', 'source/citations.json',
+    '--at-source', 'source/at-source.json',
+    '--at-pointer', '/finished_at',
+    '--by', 'agent',
+  ];
+
+  // 1. Unanswered post verdict ask refuses rig-version for a new rig and leaves record and job byte-identical.
+  testClock.set(Date.parse('2026-11-08T00:00:03Z'));
+  const beforeProject = readFileSync(join(root, 'project.json'));
+  const beforeRoot = snapshot(root);
+  const beforePrivate = snapshot(jobPrivateRoot(root));
+  const beforeJobState = snapshot(jobHostStateRoot(root));
+
+  const refusedUnanswered = await cli(root, rigVersionArgs);
+  expect(refusedUnanswered.exit).toBe(1);
+  expect(refusedUnanswered.stderr).toContain('JOB_ASK_PENDING:');
+  expect(refusedUnanswered.stderr).toContain(binding.jobId);
+  expect(refusedUnanswered.stderr).toContain('review-verdict direction-review on post v2');
+  expect(refusedUnanswered.stderr).toContain('give the verdict');
+  expect(refusedUnanswered.stderr).toContain('job acts');
+  expect(refusedUnanswered.stderr).toContain('review 2 --from-review');
+  expect(refusedUnanswered.stderr).toContain('review <n> --from-review');
+  expect(refusedUnanswered.stderr).toContain('job close');
+  expect(refusedUnanswered.stderr).toContain('then re-run');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeProject);
+  expect(snapshot(root)).toEqual(beforeRoot);
+  expect(snapshot(jobPrivateRoot(root))).toEqual(beforePrivate);
+  expect(snapshot(jobHostStateRoot(root))).toEqual(beforeJobState);
+  expect(pendingPublications(root)).toEqual([]);
+
+  // 2. Answered but un-ingested act also refuses JOB_ASK_PENDING and preserves both record and job.
+  writeFileSync(join(root, 'project.json'), preReopenProject);
+  const verdict = await firstView.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
+  const beforeUnIngestedProject = readFileSync(join(root, 'project.json'));
+  const beforeUnIngestedJobState = snapshot(jobHostStateRoot(root));
+
+  const refusedUnIngested = await cli(root, rigVersionArgs);
+  expect(refusedUnIngested.exit).toBe(1);
+  expect(refusedUnIngested.stderr).toContain('JOB_ASK_PENDING:');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeUnIngestedProject);
+  expect(snapshot(jobHostStateRoot(root))).toEqual(beforeUnIngestedJobState);
+
+  // 3. Once the ask is answered and ingested, rig-version passes as today and publishes the new rig.
+  expectExit0(await cli(root, ['review', '2', root, '--from-review', String(verdict.actId)]));
+  testClock.set(Date.now() + 1000);
+  expectExit0(await cli(root, ['reopen', 'rig-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/reopen.txt')]));
+  const builtAt = new Date(testClock.now() + 1000).toISOString();
+  put('source/run.json', {
+    spec: 'rigc-run/1', package: { name: 'rig-c', version: '3.4.1' }, command: 'build',
+    started_at: new Date(testClock.now() + 500).toISOString(), finished_at: builtAt,
+    inputs: [{ role: 'rig', path: '../rig/rig.json', sha256: '1'.repeat(64) }, { role: 'motion', path: '../rig/motion.json', sha256: '2'.repeat(64) }],
+    outputs: [{ path: '../compile-report.json', sha256: '3'.repeat(64) }, { path: 'skeleton.model.json', sha256: '4'.repeat(64) }],
+  });
+  put('source/at-source.json', { finished_at: builtAt });
+  testClock.set(testClock.now() + 2000);
+  const registered = await cli(root, rigVersionArgs);
+  expectExit0(registered);
+  expect(registered.stdout).toContain('rig-version: v3 registered');
+  expect(registered.stdout).toContain('job: asked review-verdict rig-review');
+  const thirdView = await page(root, opening.url, 1, 'review-verdict');
+  expect(obj(thirdView.head.source).selector).toEqual({ kind: 'rig', version: 3 });
 }, 30_000);

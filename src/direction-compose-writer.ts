@@ -1,5 +1,5 @@
 /** Freeze compose bytes before committing project.json; caller owns rollback. */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
 import { isObject } from './check.ts';
@@ -21,7 +21,7 @@ function tree(root: string): Map<string, Buffer> {
   catch (e) { if (e instanceof Error && 'code' in e && String(e.code).startsWith('DIRECTION_')) throw e; directionFail('DIRECTION_COMPOSE_FILE', root, 'retain a readable compose output tree'); }
   return files;
 }
-function createRoot(dir: string, path: string, rollback: string[]): void {
+function createRoot(dir: string, path: string, rollback: string[], mustBeAbsent = true): void {
   let at = dir;
   for (const part of path.split('/')) {
     at = join(at, part);
@@ -29,8 +29,21 @@ function createRoot(dir: string, path: string, rollback: string[]): void {
     try { lstatSync(at); present = true; } catch (e) { if (!(e instanceof Error) || !('code' in e) || e.code !== 'ENOENT') throw e; }
     if (present) {
       const stat = lstatSync(at);
-      if (!stat.isDirectory() || stat.isSymbolicLink() || at === join(dir, path)) directionFail('DIRECTION_COMPOSE_FILE', path, 'immutable destination must be absent with real directory parents');
-    } else { mkdirSync(at); if (at === join(dir, path)) rollback.push(at); }
+      if (!stat.isDirectory() || stat.isSymbolicLink() || mustBeAbsent && at === join(dir, path)) directionFail('DIRECTION_COMPOSE_FILE', path, 'immutable destination must be absent with real directory parents');
+    } else { mkdirSync(at); rollback.push(at); }
+  }
+}
+/** Delete only this write's directories; shared ancestors may acquire another version meanwhile. */
+export function rollbackComposeDirectories(dir: string, n: number, created: string[]): void {
+  const roots = new Set([join(dir, composeRoot(n)), join(dir, dirname(composeScenePath(n)))]);
+  for (const path of [...created].sort((a, b) => b.split(/[\\/]/).length - a.split(/[\\/]/).length)) {
+    if (roots.has(path)) rmSync(path, { recursive: true, force: true });
+    else {
+      try { rmdirSync(path); }
+      catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || !['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(String(error.code))) throw error;
+      }
+    }
   }
 }
 export function freezeCompose(dir: string, project: JsonObject, doc: JsonObject, n: number, rigN: number, options: Record<string, string>, rollback: string[]): { doc: JsonObject; inventory: JsonObject[]; verify: () => void } {
@@ -54,7 +67,7 @@ export function freezeCompose(dir: string, project: JsonObject, doc: JsonObject,
   const inventory: JsonObject[] = [];
   for (const [name, bytes] of files) {
     const path = `${root}/${name}`;
-    mkdirSync(dirname(join(dir, path)), { recursive: true });
+    createRoot(dir, dirname(path), rollback, false);
     writeFileSync(join(dir, path), bytes, { flag: 'wx' });
     inventory.push({ path, sha256: directionHash(bytes) });
   }

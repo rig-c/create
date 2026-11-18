@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
 import { composeRunMatchesAcceptedRig } from '../src/direction-compose.ts';
@@ -13,11 +13,11 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 function fixture() { const f = composeFixture(); roots.push(f.dir); return f; }
 function rejected(f: ReturnType<typeof fixture>, code: string, run = () => f.publish()) {
   const before = readFileSync(join(f.dir, 'project.json'));
+  const paths = ['outputs', 'outputs/v2', 'outputs/v2/compose', 'evidence', 'evidence/compose-src', 'evidence/compose-src/v2', 'evidence/direction', 'evidence/direction/v2.json'];
+  const existed = paths.map(path => existsSync(join(f.dir, path)));
   expect(run).toThrow(expect.objectContaining({ code }));
   expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
-  expect(existsSync(join(f.dir, 'outputs/v2/compose'))).toBe(false);
-  expect(existsSync(join(f.dir, 'evidence/compose-src/v2'))).toBe(false);
-  expect(existsSync(join(f.dir, 'evidence/direction/v2.json'))).toBe(false);
+  for (const [index, path] of paths.entries()) expect(existsSync(join(f.dir, path))).toBe(existed[index]!);
 }
 
 test('direction@3 freezes a two-plate idle, fills the rig seal and checks without scene write', () => {
@@ -62,6 +62,36 @@ test('DIRECTION_COMPOSE_CHOICE_MISMATCH refuses order differing from the owner c
 
 test('DIRECTION_COMPOSE_PLACEMENT refuses a nonzero producer shift', () => {
   const f = fixture(); objects(f.report.characters)[0]!.shift = [1, 0]; f.put('compose-out/scene.json', f.report); rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
+});
+
+for (const path of ['outputs', 'outputs/v2', 'evidence/compose-src', 'outputs/v2/compose', 'evidence/compose-src/v2', 'evidence/direction']) test(`refused compose write preserves pre-existing ${path} and its contents`, () => {
+  const f = fixture();
+  mkdirSync(join(f.dir, path), { recursive: true });
+  f.put(`${path}/keep.txt`, 'Existing directory contents');
+  objects(f.report.characters)[0]!.shift = [1, 0]; f.put('compose-out/scene.json', f.report);
+  const immutableRoot = path === 'outputs/v2/compose' || path === 'evidence/compose-src/v2';
+  rejected(f, immutableRoot ? 'DIRECTION_COMPOSE_FILE' : 'DIRECTION_COMPOSE_PLACEMENT');
+  expect(readFileSync(join(f.dir, path, 'keep.txt'), 'utf8')).toBe('Existing directory contents');
+});
+
+test('refused compose write releases its version directories for a corrected retry', () => {
+  const f = fixture();
+  objects(f.report.characters)[0]!.shift = [1, 0]; f.put('compose-out/scene.json', f.report);
+  rejected(f, 'DIRECTION_COMPOSE_PLACEMENT');
+  objects(f.report.characters)[0]!.shift = [0, 0]; f.put('compose-out/scene.json', f.report);
+  expect(f.publish().exit).toBe(0);
+});
+
+test('refused compose write preserves another version added under its new shared parent', () => {
+  const f = fixture(); const before = readFileSync(join(f.dir, 'project.json'));
+  expect(() => f.publish({ beforeCommit: () => {
+    f.put('outputs/v3/keep.txt', 'Another writer owns this version');
+    f.put('compose-out/check/build/page.png', 'changed');
+  } })).toThrow(expect.objectContaining({ code: 'DIRECTION_SOURCE_CHANGED' }));
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  expect(existsSync(join(f.dir, 'outputs/v2'))).toBe(false);
+  expect(existsSync(join(f.dir, 'evidence/compose-src'))).toBe(false);
+  expect(readFileSync(join(f.dir, 'outputs/v3/keep.txt'), 'utf8')).toBe('Another writer owns this version');
 });
 
 test('DIRECTION_COMPOSE_PLACEMENT refuses model stage differing from the cited canvas', () => {

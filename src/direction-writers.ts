@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectItems, collectSignoffs, loadCollection, isObject, type Finding } from './check.ts';
 import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBinding, directionBytes, directionContract, directionFail, directionHash, directionIdleBytes, directionIdlePath, directionJson, directionPath, directionVersion, objects, patchDirection, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC, validateComposeDirection } from './direction-compose.ts';
-import { freezeCompose } from './direction-compose-writer.ts';
+import { freezeCompose, rollbackComposeDirectories } from './direction-compose-writer.ts';
 import { sceneBytes, SceneError } from './scene.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { REVIEW_ACCEPTS } from './stages.ts';
@@ -117,7 +117,7 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
       next.versions=[...asArray(next.versions),version];
       // Validate using the exact staged bytes at their final immutable path, before committing the record.
       const parent=dirname(join(dir,binding.path));let current=dir;
-      for(const part of ['evidence','direction']){current=join(current,part);if(existsSync(current)){if(!lstatSync(current).isDirectory()||lstatSync(current).isSymbolicLink())directionFail('DIRECTION_FILE',binding.path,'document parent must be a real directory');}else mkdirSync(current);}
+      for(const part of ['evidence','direction']){current=join(current,part);if(existsSync(current)){if(!lstatSync(current).isDirectory()||lstatSync(current).isSymbolicLink())directionFail('DIRECTION_FILE',binding.path,'document parent must be a real directory');}else{mkdirSync(current);if(doc.schema===DIRECTION_COMPOSE_SPEC)rollbackCompose.push(current);}}
       if(existsSync(join(dir,binding.path)))directionFail('DIRECTION_SOURCE_CHANGED',binding.path,'immutable document already exists');
       const temp=join(parent,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,bytes,{flag:'wx'});renameSync(temp,join(dir,binding.path));published=join(dir,binding.path);
     }
@@ -133,5 +133,5 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
     const temp=join(dir,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,recordBytes,{flag:'wx'});renameSync(temp,file);published=null;rollbackCompose.length=0;
     if (action !== '--adopt') publishCommittedVersion(dir, n);
     return{stdout:action==='--adopt'?'direction: adopted; historical posts preserved':`direction: v${n} recorded; stage unchanged`,exit:0};
-  }finally{cancelUncommittedIntent(dir,publicationIntent);if(published)rmSync(published,{force:true});for(const path of rollbackCompose.reverse())rmSync(path,{recursive:true,force:true});for(const path of staged)rmSync(path,{force:true});closeSync(fd);rmSync(lock);releasePublication();}
+  }finally{cancelUncommittedIntent(dir,publicationIntent);if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});rollbackComposeDirectories(dir,n,rollbackCompose);closeSync(fd);rmSync(lock);releasePublication();}
 }

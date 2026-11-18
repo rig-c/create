@@ -45,7 +45,8 @@ interface ComposeRun {
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const relativePath = (v: unknown): v is string => text(v) && !v.startsWith('/') && !v.includes('\\') && !/^[A-Za-z]:/.test(v) && v.split('/').every(p => p !== '' && p !== '.' && p !== '..');
 const runFile = (v: unknown): boolean => closed(v, ['path', 'sha256']) && text(v.path) && hex(v.sha256);
-const rigFile = (path: string): boolean => ['parts.json', 'rig/rig.json', 'rig/motion.json'].includes(path) || path.startsWith('rig/images/');
+const mandatoryRigFiles = ['parts.json', 'rig/rig.json', 'rig/motion.json'];
+const rigFile = (path: string): boolean => mandatoryRigFiles.includes(path) || path.startsWith('rig/images/');
 export function readComposeRun(bytes: Buffer, path: string): ComposeRun {
   const bad = (): never => directionFail('DIRECTION_COMPOSE_RUN', path, 'retain the closed Parts rig-compose-run/1 record with scene, characters, plate and plates; compose again');
   let run: JsonObject;
@@ -68,7 +69,7 @@ export function readComposeRun(bytes: Buffer, path: string): ComposeRun {
 
 /** Compare a list of character bindings; the @3 authoring contract currently supplies one. */
 export function composeRunMatchesAcceptedRig(dir: string, run: ComposeRun, characters: readonly { id: string; build: string; rig: JsonObject }[], path: string, snapshots?: Map<string, Buffer>): void {
-  const bad = (where: string): never => directionFail('DIRECTION_COMPOSE_RUN_RIG', where, 'compose character files must exactly match the accepted rig frozen outputs and sealed package hashes; restore that build and compose again');
+  const bad = (where: string): never => directionFail('DIRECTION_COMPOSE_RUN_RIG', where, 'compose must bind the mandatory rig files and every consumed image to matching accepted frozen outputs and sealed package hashes; restore that build and compose again');
   if (run.characters.length !== characters.length || new Set(characters.map(c => c.id)).size !== characters.length) bad(`${path}.characters`);
   for (const c of characters) {
     const consumed = run.characters.find(row => row.id === c.id);
@@ -83,9 +84,12 @@ export function composeRunMatchesAcceptedRig(dir: string, run: ComposeRun, chara
       .map(row => ({ path: String(row.path).slice(4), sha256: row.sha256 }));
     const actual = consumed.files.filter(row => rigFile(row.path));
     const sorted = <T extends { path: string }>(rows: T[]): T[] => [...rows].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-    if (!['parts.json', 'rig/rig.json', 'rig/motion.json'].every(name => expected.some(row => row.path === name))
+    // Parts records only distinct default-skin images it consumed, not directory extras.
+    if (!mandatoryRigFiles.every(name => expected.some(row => row.path === name))
       || new Set(expected.map(row => row.path)).size !== expected.length || expected.some(row => !relativePath(row.path) || !hex(row.sha256))
-      || !equal(sorted(expected), sorted(sealed)) || !equal(sorted(expected), sorted(actual))) return bad(where);
+      || !equal(sorted(expected), sorted(sealed))
+      || !equal(sorted(expected.filter(row => mandatoryRigFiles.includes(row.path))), sorted(actual.filter(row => mandatoryRigFiles.includes(row.path))))
+      || actual.some(row => !expected.some(file => file.path === row.path && file.sha256 === row.sha256))) return bad(where);
     for (const row of recorded) {
       const bytes = sceneBytes(dir, String(row.path), 'DIRECTION_COMPOSE_RUN_RIG', snapshots);
       if (directionHash(bytes) !== row.sha256) bad(String(row.path));

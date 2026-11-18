@@ -172,7 +172,11 @@ for (const path of rigFiles) {
   test(`DIRECTION_COMPOSE_RUN_RIG refuses changed consumed ${path}`, () => {
     const f = fixture(); consumedFiles(f).find(row => row.path === path)!.sha256 = '0'.repeat(64); saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
   });
-  test(`DIRECTION_COMPOSE_RUN_RIG refuses missing consumed ${path}`, () => {
+  if (path.startsWith('rig/images/')) test(`direction@3 permits accepted image ${path} absent from the consumed set`, () => {
+    const f = fixture(); objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== path); saveRun(f);
+    expect(f.publish().exit).toBe(0); expect(() => readDirection(f.dir, f.load(), 2)).not.toThrow();
+  });
+  else test(`DIRECTION_COMPOSE_RUN_RIG refuses missing consumed ${path}`, () => {
     const f = fixture(); objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== path); saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
   });
   test(`DIRECTION_COMPOSE_RUN_RIG refuses missing frozen inventory ${path}`, () => {
@@ -184,9 +188,29 @@ test('DIRECTION_COMPOSE_RUN_RIG refuses an additional consumed image', () => {
   const f = fixture(); (objects(f.run.characters)[0]!.files as JsonObject[]).push({ path: 'rig/images/extra.png', sha256: '0'.repeat(64) });
   saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
 });
-test('DIRECTION_COMPOSE_RUN_RIG refuses missing images even when removed from the frozen inventory too', () => {
+test('direction@3 permits an extra unused image in matching frozen and sealed inventories', () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!; const pkg = rig.review_package as JsonObject;
+  const image = f.put('outputs/v1/out/rig/images/unused.png', 'synthetic unused encoded image');
+  rig.outputs = [...objects(rig.outputs), image];
+  pkg.files = [...objects(pkg.files), { path: 'out/rig/images/unused.png', sha256: image.sha256! }]; reseal(f, p);
+  expect(consumedFiles(f).some(row => row.path === 'rig/images/unused.png')).toBe(false);
+  expect(f.publish().exit).toBe(0); expect(() => readDirection(f.dir, f.load(), 2)).not.toThrow();
+});
+for (const inventory of ['sealed', 'both']) test(`DIRECTION_COMPOSE_RUN_RIG refuses a consumed image absent from ${inventory} inventories`, () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!; const pkg = rig.review_package as JsonObject;
+  pkg.files = objects(pkg.files).filter(row => row.path !== 'out/rig/images/depth.png');
+  if (inventory === 'both') rig.outputs = objects(rig.outputs).filter(row => row.path !== 'outputs/v1/out/rig/images/depth.png');
+  reseal(f, p); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('DIRECTION_COMPOSE_RUN_RIG refuses differing frozen and sealed image sets even when the image is unused', () => {
   const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!;
   rig.outputs = objects(rig.outputs).filter(row => row.path !== 'outputs/v1/out/rig/images/depth.png'); f.save(p);
+  objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== 'rig/images/depth.png'); saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('DIRECTION_COMPOSE_RUN_RIG refuses differing frozen and sealed hashes for an unused image', () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!;
+  objects(rig.outputs).find(row => row.path === 'outputs/v1/out/rig/images/depth.png')!.sha256 = '0'.repeat(64); f.save(p);
   objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== 'rig/images/depth.png'); saveRun(f);
   rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
 });

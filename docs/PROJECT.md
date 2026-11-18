@@ -2787,12 +2787,16 @@ rig's stage is never used for that equality. The producer check must report
 files:[{path,sha256}]}],plate:{path,sha256}|null,plates:[{name,path,sha256}]}`.
 Its scene hash must equal the retained scene's raw-byte hash, including
 whitespace. Character ids and build strings must match the scene. Create
-compares the consumed `parts.json`, `rig/rig.json`, `rig/motion.json` and every
-`rig/images/*` file (including depth images) against the accepted rig's
-`versions[].outputs`, relative to `versions[].review_package.from`. The file
-sets and hashes must agree in both directions and with the acceptance-sealed
-package's corresponding `out/` files. Frozen bytes must still match those
-hashes. A missing root, file, extra image or changed byte refuses. The consumed
+compares the consumed `parts.json`, `rig/rig.json`, `rig/motion.json` and
+`rig/images/*` files against the accepted rig's `versions[].outputs`, relative
+to `versions[].review_package.from`. The three mandatory files must agree in
+both directions. Parts consumes only distinct images named by the default
+skin, including generator depth images: every consumed image must exist with
+the same hash in the frozen outputs and acceptance-sealed package's `out/`
+files, while unused accepted images may be absent from the run. The frozen
+and sealed file sets and hashes must still agree with each other, including
+unused images, and frozen bytes must match those hashes. A missing root,
+mandatory file or consumed image, or a changed hash refuses. The consumed
 `check/check.json` binding is required in the run record but is not compared to
 the rig record, which need not retain that report. The original scene and
 character build paths are provenance strings; they are not reopened or

@@ -53,6 +53,7 @@ import { checkAgentBounces } from './agent-bounce.ts';
 import { checkInputs } from './inputs.ts';
 import { checkPreparedInputs } from './prepared-inputs.ts';
 import { checkMeshesBust } from './meshes-bust.ts';
+import { checkComposeValues } from './compose-value.ts';
 import { checkProvenance, formatProvenance, type ProvenanceSummary } from './provenance.ts';
 import { checkFeedback, formatFeedback, type FeedbackSummary } from './feedback.ts';
 import { checkDiffMap } from './diff-map.ts';
@@ -1002,6 +1003,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!hasStageOrder(project)) warnings.push(STAGE_ORDER_LEGACY_FINDING);
   checkInputs(ctx);
   checkChoices(ctx);
+  checkComposeValues(ctx);
   const checkChat = (value: Json | undefined, path: string): void => {
     if (Array.isArray(value)) value.forEach((entry, index) => checkChat(entry, `${path}[${index}]`));
     else if (isObject(value)) {

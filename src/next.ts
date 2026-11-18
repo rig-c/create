@@ -40,7 +40,7 @@ import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts'
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
-import { acceptedReviewVerdict } from './review.ts';
+import { acceptedReviewVerdict, latestAccepted, readVersions } from './review.ts';
 import {
   advanceOrder,
   directionReviewPostState,
@@ -871,6 +871,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   // 1. Derive lapsed approvals from reopens[] and amendments[].
   const rawSignoffs = asArray(project.signoffs).filter(isObject);
   const rawReopens = asArray(project.reopens).filter(isObject);
+  const parsedVersions = readVersions(project);
   for (const warning of reopenLapseWarnings(project)) {
     const reopenMatch = /\(reopens\[(\d+)\]\)/.exec(warning.message);
     const reopenIdx = reopenMatch ? Number(reopenMatch[1]) : Math.max(0, rawReopens.length - 1);
@@ -884,6 +885,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const lapsedStage = typeof signoffEntry?.stage === 'string' ? signoffEntry.stage : effectiveStage;
       const checkpoint = typeof signoffEntry?.checkpoint === 'string' ? signoffEntry.checkpoint : null;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
+      if (lapsedStage === 'rig-review' && checkpoint === null) continue;
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`
         : `signoffs[stage=${lapsedStage}]`;
@@ -914,6 +916,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     } else if (warning.code === 'REOPEN_VERDICT_LAPSED') {
       const vMatch = /^versions\[v(\d+)\]\.verdicts\[(\d+)\]$/.exec(warning.path);
       const n = vMatch ? Number(vMatch[1]) : 1;
+      const parsedVersion = parsedVersions.rigs.find(r => r.n === n) ?? parsedVersions.posts.find(p => p.n === n);
+      if (parsedVersion !== undefined && !parsedVersion.live) continue;
       const versionEntry = asArray(project.versions)
         .filter(isObject)
         .find(v => v.n === n);
@@ -961,6 +965,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
+      if (targetStage === 'rig-review' && checkpoint === null) continue;
+      const vMatch = /^versions\[(\d+)\]\.verdicts\[\d+\]$/.exec(lapsedApproval.path);
+      if (vMatch) {
+        const versionEntry = asArray(project.versions).filter(isObject)[Number(vMatch[1])];
+        const n = typeof versionEntry?.n === 'number' ? versionEntry.n : null;
+        const parsedVersion = n === null ? undefined : parsedVersions.rigs.find(r => r.n === n) ?? parsedVersions.posts.find(p => p.n === n);
+        if (parsedVersion !== undefined && !parsedVersion.live) continue;
+      }
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`
         : `signoffs[stage=${targetStage}]`;
@@ -1475,9 +1487,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
     } else {
-      const rigVersions = versions.filter(v => v.kind === 'rig' && typeof v.n === 'number');
-      const latestRig = rigVersions[rigVersions.length - 1];
-      const rigN = typeof latestRig?.n === 'number' ? latestRig.n : null;
+      const liveRigs = parsedVersions.rigs.filter(r => r.live);
+      const latestLiveRig = liveRigs[liveRigs.length - 1];
+      const rigN = latestLiveRig?.n ?? null;
+      const hasHistoryRig = parsedVersions.rigs.some(r => !r.live) || !liveSignoff(reopens, 'rig-review', -Infinity);
 
       if (effectiveStage === 'rigging' && rigN !== null) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);
@@ -1493,7 +1506,19 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
 
-      if (rigN === null) {
+      if (rigN === null && hasHistoryRig) {
+        const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
+        const nextRigField = `versions[n=${nextRigN}]`;
+        const rigInputs = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
+        addAwait(nextRigField);
+        moves.push({
+          role: 'agent',
+          field: 'versions',
+          awaits: nextRigField,
+          command: `rig-create rig-version ${nextRigN} ${shellWord(dir)} ${rigInputs.replace(/<[^>]+>/g, shellWord)}`,
+          act: `register a new rig version built after the reopen with rig-version ${nextRigN}, then publish it for one verdict`,
+        });
+      } else if (rigN === null) {
         const verdictAwait = 'versions[kind=rig].verdicts[review=rig-review]';
         addAwait(verdictAwait);
         moves.push({
@@ -1534,7 +1559,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 
       const signoffAwait = 'signoffs[stage=rig-review]';
       if (!hasLiveStageSignoff('rig-review') && !recordedLapseTargets.has(signoffAwait)
-        && !(effectiveStage === 'rig-review' && (rigN === null || reviewVerdictSignable(project, rigN, 'rig-review')))) {
+        && !((effectiveStage === 'rig-review' || hasHistoryRig) && (rigN === null || reviewVerdictSignable(project, rigN, 'rig-review')))) {
         addAwait(signoffAwait);
         moves.push({
           role: 'human',
@@ -1583,7 +1608,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     } = directionReviewPostState(dir, project, now);
     const addPostAuthoringMove = (): void => {
       if (postReady) return;
-      const rig = versions.filter(v => v.kind === 'rig').at(-1);
+      const rig = latestAccepted(parsedVersions) ?? parsedVersions.rigs.filter(r => r.live).at(-1);
       const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
       if (!isObject(project.direction_contract)) {
         addAwait('direction_contract');

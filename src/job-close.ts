@@ -8,9 +8,10 @@ import {
   type JobHostReuseBinding,
   type JobOwnerHost,
   type JobPublicationReader,
+  type JobSelector,
 } from '@rig-c/review/job-host';
 import { asArray, checkProject } from './check.ts';
-import { pendingJobActs, readHostActs } from './job-acts.ts';
+import { pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndAsks } from './job-acts.ts';
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
@@ -182,6 +183,43 @@ export async function attachCreateJobForClose(
     refuse('JOB_HOST_REUSE_MISMATCH', `project.json: host incarnation expected=${binding.jobId}@${binding.origin} found=${host.session.jobId}@${host.origin} reused=${host.reused}; restore the original live host before rig-create job close`);
   }
   return host;
+}
+
+export async function assertNoPendingJobAsk(
+  root: string,
+  target: JobSelector,
+  startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+): Promise<void> {
+  root = realpathSync(root);
+  const binding = readWriterBinding(root);
+  if (!binding || binding.identity.root !== root) return;
+  let host: JobOwnerHost;
+  try {
+    host = await attachCreateJobForClose(root, binding, startHost);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && (error.code === 'JOB_HOST_ATTACH_REFUSED' || error.code === 'JOB_HOST_REUSE_MISMATCH')) {
+      return;
+    }
+    throw error;
+  }
+  try {
+    const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+    const { asks, acts } = await readHostActsAndAsks(host);
+    const pending = pendingJobAsksForTarget(project, asks, acts, root, target);
+    if (pending.length > 0) {
+      const listed = pending.map(item => item.label).join('; ');
+      const version = pending.find(item => item.version !== null)?.version ?? null;
+      const reviewRemedy = version !== null
+        ? `review ${version} --from-review <actId> (review <n> --from-review <actId>)`
+        : 'review <n> --from-review <actId>';
+      refuse(
+        'JOB_ASK_PENDING',
+        `project.json: bound job ${binding.jobId} holds pending owner ask(s) ${listed} with no ingested act; give the verdict, run rig-create job acts, ingest with rig-create ${reviewRemedy}, run rig-create job close, then re-run`,
+      );
+    }
+  } finally {
+    host.stop();
+  }
 }
 
 export async function closeCreateJob(

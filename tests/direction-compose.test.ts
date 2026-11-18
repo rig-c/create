@@ -2,8 +2,8 @@ import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
-import { composeRunMatchesAcceptedRig, readComposeRun } from '../src/direction-compose.ts';
-import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
+import { composeInventory, composeRunMatchesAcceptedRig, readComposeRun } from '../src/direction-compose.ts';
+import { prepareLiveManifest, readPublished, REVIEW_REFUSED_JOB_PATH } from '../src/job-publication.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import { checkDirections, directionCommand, testClock } from './clock.ts';
@@ -34,14 +34,81 @@ test('direction@3 freezes a two-plate idle, fills the rig seal and checks withou
 });
 
 test('direction@3 publishes the compose model, atlas and pages without the character package', async () => {
-  const f = fixture(); f.publish(); const p = f.load();
-  const path = prepareLiveManifest(f.dir, p, 2); const manifest = JSON.parse(readFileSync(join(f.dir, path), 'utf8'));
-  expect(manifest.model).toBe('outputs/v2/compose/check/build/skeleton.model.json'); expect(manifest.scene).toBeUndefined();
-  const pub = await readPublished({ root: f.dir, record: { path: 'project.json', sha256: directionHash(readFileSync(join(f.dir, 'project.json'))) }, result: { path, selector: { kind: 'post', version: 2, rigVersion: 1 } } });
-  expect(pub.files.map(f => f.path)).toContain('outputs/v2/compose/check/build/skeleton.atlas');
-  expect(pub.files.map(f => f.path)).toContain('outputs/v2/compose/check/build/page.png');
-  expect(pub.files.some(f => f.path.startsWith('derived/review/'))).toBe(false);
-  expect(pub.parts).toBeNull(); expect(pub.partIds).toEqual([]);
+  const { jobPath } = await import('../node_modules/@rig-c/review/src/job-api.ts');
+  const f = fixture();
+  f.put('compose-out/check/extremes/a:idle/extremes.json', { extremes: [] });
+  expect(f.publish().exit).toBe(0);
+  const recordBefore = readFileSync(join(f.dir, 'project.json'));
+  const p = f.load();
+  const docBefore = readDirection(f.dir, p, 2);
+  const inventoryBefore = structuredClone(composeInventory(p, docBefore));
+  expect(inventoryBefore.map(row => row.path)).toEqual([
+    'outputs/v2/compose/check/build/page.png',
+    'outputs/v2/compose/check/build/skeleton.atlas',
+    'outputs/v2/compose/check/build/skeleton.model.json',
+    'outputs/v2/compose/check/check.json',
+    'outputs/v2/compose/check/extremes/a:idle/extremes.json',
+    'outputs/v2/compose/compose-run.json',
+    'outputs/v2/compose/scene.json',
+  ]);
+  expect(() => jobPath('outputs/v2/compose/check/extremes/a:idle/extremes.json')).toThrow();
+  const path = prepareLiveManifest(f.dir, p, 2);
+  const manifest = JSON.parse(readFileSync(join(f.dir, path), 'utf8'));
+  expect(manifest.model).toBe('outputs/v2/compose/check/build/skeleton.model.json');
+  expect(manifest.scene).toBeUndefined();
+  const pub = await readPublished({
+    root: f.dir,
+    record: { path: 'project.json', sha256: directionHash(readFileSync(join(f.dir, 'project.json'))) },
+    result: { path, selector: { kind: 'post', version: 2, rigVersion: 1 } },
+  });
+  expect(pub.files).toEqual([
+    { path: 'outputs/v2/compose/check/build/page.png', sha256: directionHash(readFileSync(join(f.dir, 'outputs/v2/compose/check/build/page.png'))) },
+    { path: 'outputs/v2/compose/check/build/skeleton.atlas', sha256: directionHash(readFileSync(join(f.dir, 'outputs/v2/compose/check/build/skeleton.atlas'))) },
+    { path: 'outputs/v2/compose/check/build/skeleton.model.json', sha256: directionHash(readFileSync(join(f.dir, 'outputs/v2/compose/check/build/skeleton.model.json'))) },
+    { path: 'evidence/direction/v2.json', sha256: directionHash(readFileSync(join(f.dir, 'evidence/direction/v2.json'))) },
+    { path: 'review-live-v2.json', sha256: directionHash(readFileSync(join(f.dir, 'review-live-v2.json'))) },
+  ]);
+  for (const file of pub.files) {
+    expect(REVIEW_REFUSED_JOB_PATH.test(file.path)).toBe(false);
+    expect(jobPath(file.path)).toBe(file.path);
+  }
+  expect(pub.files.some(file => file.path.startsWith('derived/review/'))).toBe(false);
+  expect(pub.parts).toBeNull();
+  expect(pub.partIds).toEqual([]);
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(recordBefore);
+  const pAfter = f.load();
+  expect(composeInventory(pAfter, readDirection(f.dir, pAfter, 2))).toEqual(inventoryBefore);
+});
+
+test('JOB_PUBLICATION_INVALID refuses a declared build file whose name contains : before anything is written', async () => {
+  const f = fixture();
+  f.put('compose-out/check/build/a:idle.png', 'synthetic bad build file');
+  expect(f.publish().exit).toBe(0);
+  const before = readFileSync(join(f.dir, 'project.json'));
+  const p = f.load();
+  let failure: unknown;
+  try {
+    prepareLiveManifest(f.dir, p, 2);
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toMatchObject({ code: 'JOB_PUBLICATION_INVALID' });
+  expect((failure as Error).message).toContain('outputs/v2/compose/check/build/a:idle.png');
+  expect((failure as Error).message).toContain('[\\:%?#]');
+  expect(existsSync(join(f.dir, 'review-live-v2.json'))).toBe(false);
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
+  await expect(
+    readPublished({
+      root: f.dir,
+      record: { path: 'project.json', sha256: directionHash(before) },
+      result: { path: 'review-live-v2.json', selector: { kind: 'post', version: 2, rigVersion: 1 } },
+    }),
+  ).rejects.toMatchObject({
+    code: 'JOB_PUBLICATION_INVALID',
+    message: expect.stringContaining('outputs/v2/compose/check/build/a:idle.png'),
+  });
+  expect(existsSync(join(f.dir, 'review-live-v2.json'))).toBe(false);
+  expect(readFileSync(join(f.dir, 'project.json'))).toEqual(before);
 });
 
 test('direction@3 publishes through the pinned Review inspection and live job host', async () => {
@@ -50,6 +117,7 @@ test('direction@3 publishes through the pinned Review inspection and live job ho
   const { jobHash, jobHostStateRoot, jobPrivateRoot } = await import('../src/job-outbox.ts');
   const { clockedCli } = await import('./helpers.ts');
   const f = fixture();
+  f.put('compose-out/check/extremes/a:idle/extremes.json', { extremes: [] });
   let host: Awaited<ReturnType<typeof openCreateJob>> | undefined;
   try {
     host = await openCreateJob(f.dir, { id: 'reviewer', role: 'owner' }, testClock.now());

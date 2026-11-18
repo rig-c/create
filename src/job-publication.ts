@@ -348,10 +348,26 @@ export function currentJobIdentity(saved: Pick<JobIdentity, 'root' | 'stateDir' 
     enumeratorVersion: partsEnumerator.version };
 }
 
-export function publicationFile(root: string, path: string): Buffer {
-  if (!path || path.split('/').some(piece => !piece || piece === '.' || piece === '..') || /[\\:%?#\x00-\x1f]/.test(path)) {
-    refuse('JOB_PUBLICATION_INVALID', 'project.json: publication references an unsafe path; restore its literal project-relative source');
+/** Mirrors Review's `jobPath` refused-character rule (`src/job-api.ts` in `@rig-c/review`). */
+export const REVIEW_REFUSED_JOB_PATH = /[\\:%?#]/;
+
+export function assertPublicationPath(path: string): void {
+  if (
+    !path ||
+    path.length > 4096 ||
+    path.split('/').some(piece => !piece || piece === '.' || piece === '..') ||
+    REVIEW_REFUSED_JOB_PATH.test(path) ||
+    /[\x00-\x1f\x7f]/.test(path)
+  ) {
+    refuse(
+      'JOB_PUBLICATION_INVALID',
+      `project.json: declared publication path ${path} is refused by Review's jobPath rule (empty, ".", ".." or matching [\\:%?#]); restore a literal project-relative source`,
+    );
   }
+}
+
+export function publicationFile(root: string, path: string): Buffer {
+  assertPublicationPath(path);
   const absolute = join(root, path);
   let regular = false;
   try { regular = realpathSync(absolute) === absolute && lstatSync(absolute).isFile(); } catch { /* Named below. */ }
@@ -359,6 +375,27 @@ export function publicationFile(root: string, path: string): Buffer {
     refuse('JOB_PUBLICATION_INVALID', `project.json: ${path} must be a regular source without symlinks; restore its retained bytes`);
   }
   return readFileSync(absolute);
+}
+
+function composedPublishedBuildFiles(root: string, project: JsonObject, n: number): { doc: JsonObject; files: { path: string; sha256: string }[] } {
+  const buildPrefix = `outputs/v${n}/compose/check/build/`;
+  const version = asArray(project.versions).filter(isObject).find(v => v.n === n && v.kind === 'post');
+  for (const row of asArray(version?.outputs).filter(isObject)) {
+    if (typeof row.path === 'string' && row.path.startsWith(buildPrefix)) assertPublicationPath(row.path);
+  }
+  const doc = readDirection(root, project, n);
+  const prefix = `${String((doc.compose as JsonObject).out)}/check/build/`;
+  const files = composeInventory(project, doc)
+    .filter(row => String(row.path).startsWith(prefix))
+    .map(row => {
+      const path = String(row.path);
+      const sha256 = String(row.sha256);
+      if (jobHash(publicationFile(root, path)) !== sha256) {
+        refuse('JOB_PUBLICATION_INVALID', `versions[v${n}].outputs: ${path} differs from its recorded hash; restore the retained bytes before publishing`);
+      }
+      return { path, sha256 };
+    });
+  return { doc, files };
 }
 
 export function publicationSelector(project: JsonObject, n: number): Exclude<JobSelector, { kind: 'draft' }> {
@@ -423,7 +460,11 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
     const directionPath = `evidence/direction/v${n}.json`;
     let direction: JsonObject | undefined;
     try { direction = JSON.parse(publicationFile(root, directionPath).toString('utf8')) as JsonObject; } catch { /* Legacy manifests did not require a direction document. */ }
-    if (direction?.schema === DIRECTION_COMPOSE_SPEC) { composed = true; model = String((readDirection(root, project, n).model as JsonObject).path); }
+    if (direction?.schema === DIRECTION_COMPOSE_SPEC) {
+      composed = true;
+      const { doc } = composedPublishedBuildFiles(root, project, n);
+      model = String((doc.model as JsonObject).path);
+    }
     scene = sealedScene(root, project, directionPath, direction)?.path;
   }
   publicationFile(root, model);
@@ -489,8 +530,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     let raw: JsonObject | undefined;
     try { raw = JSON.parse(publicationFile(root, directionPath).toString('utf8')); } catch { /* Legacy post path below. */ }
     if (raw?.schema === DIRECTION_COMPOSE_SPEC) {
-      const doc = readDirection(root, project, selector.version);
-      const files = composeInventory(project, doc).map(row => ({ path: String(row.path), sha256: String(row.sha256) }));
+      const { files } = composedPublishedBuildFiles(root, project, selector.version);
       files.push({ path: directionPath, sha256: jobHash(publicationFile(root, directionPath)) }, { path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
       const steps = isObject(project.plan) ? asArray(project.plan.steps).filter(isObject) : [];
       return { selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, parts: null,

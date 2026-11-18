@@ -6,7 +6,7 @@ import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINC
 import { partsActFindings } from './parts-act.ts';
 import { reviewActFindings } from './review-act.ts';
 import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
-import { checkAdvances, checkAdvanceBars, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
+import { checkAdvances, checkAdvanceBars, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
 import { pendingPublicationHoles } from './job-outbox.ts';
 import { checkSignoffAnswers } from './signoff-answers.ts';
@@ -982,6 +982,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   checkProgressLinkage(ctx);
   checkPauses(ctx);
   if (!options.recordPublication) checkPartsChecks(ctx, options.forwardWrite);
+  if (!options.recordPublication) checkDirectionReviewAdvances(ctx, options.forwardWrite);
   if (!options.recordPublication) checkPreInterview(ctx);
   if (!options.recordPublication) checkReviews(ctx);
   if (!options.recordPublication) checkPublicationGenerations(dir, project, refusals);

@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { asArray, asString, collectSignoffs, isObject, postNotPassed, type Ctx, type Finding } from './check.ts';
+import { join } from 'node:path';
+import { readFileSync } from './check-reads.ts';
+import { asArray, asString, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Ctx, type Finding } from './check.ts';
+import { DIRECTION_SCENE_SINCE } from './direction.ts';
+import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
+import { currentScene as currentSceneEntry, SceneError, sceneCurrentAt } from './scene.ts';
 import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, SKIPPED_WHEN_NO_POST, STAGES, hasStageOrder, stageIndex, stageOfStep, type StageSpec } from './stages.ts';
 import { collectAmendments } from './amend.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -10,6 +15,9 @@ export const STAGE_PROGRESS_SINCE = '2026-11-08T00:00:00Z';
 
 /** Dates a history link break by the earliest recorded event the unrecorded move must follow. */
 export const PROGRESS_HISTORY_SINCE = '2026-11-08T00:00:00Z';
+
+/** Dates the post authoring requirement on a post → direction-review move by the advance's own `at`. */
+export const DIRECTION_REVIEW_ADVANCE_SINCE = '2026-11-18T00:00:00Z';
 
 /** Select the latest signature at the furthest still-live closing stage. */
 export function furthestStageSignoff(signoffs: Ctx['signoffs']): Ctx['signoffs'][number] | undefined {
@@ -197,6 +205,124 @@ export function checkAdvanceBars(ctx: Ctx): void {
       && raw.status !== 'done');
     if (unfinished) ctx.refusals.push({ code: 'ADVANCE_MALFORMED', path: `advances[${index}].steps_before`,
       message: `advances[${index}].steps_before: the execution stage had unfinished steps at the move; restore its original completed bar and use advance` });
+  }
+}
+
+/** Read only the document kind here; checkProject already validates its seal. */
+export function composedPost(dir: string, project: JsonObject, at = Infinity): boolean {
+  const reopens = collectReopens(project, []).filter(r => !(r.at > at));
+  const post = asArray(project.versions).filter(isObject).filter(v => v.kind === 'post' && liveSignoff(reopens, 'post', Date.parse(String(v.at)))).at(-1);
+  if (!post || !isObject(post.provenance) || !isObject(post.provenance.direction) || typeof post.provenance.direction.path !== 'string') return false;
+  try { return (JSON.parse(readFileSync(join(dir, post.provenance.direction.path), 'utf8')) as JsonObject).schema === DIRECTION_COMPOSE_SPEC; }
+  catch { return false; }
+}
+
+export function composeChoice(project: JsonObject, dir: string): boolean {
+  const item = collectItems(project, { collection: loadCollection(dir) }).find(i => i.id === 'post_composition');
+  if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated')) return false;
+  const answer = item.state.answer;
+  const value = isObject(answer.agent_decision) ? answer.agent_decision.value : answer.value;
+  return isObject(value) && value.compose !== undefined;
+}
+
+export interface DirectionReviewPostState {
+  readonly ready: boolean;
+  readonly latestPost: JsonObject | undefined;
+  readonly postN: number | null;
+  readonly nextPostN: number;
+  readonly composed: boolean;
+  readonly currentScene: JsonObject | undefined;
+  readonly missingScene: boolean;
+  readonly missing: string[];
+}
+
+/** Shared predicate for the post artifacts `direction-review` awaits (direction contract, current scene or composed post, live post version). */
+export function directionReviewPostState(dir: string, project: JsonObject, at = Infinity): DirectionReviewPostState {
+  const reopens = collectReopens(project, []).filter(r => !(r.at > at));
+  const versions = asArray(project.versions).filter(isObject);
+  const postVersions = versions.filter(
+    v => v.kind === 'post' && typeof v.n === 'number' && liveSignoff(reopens, 'post', Date.parse(String(v.at))),
+  );
+  const latestPost = postVersions[postVersions.length - 1];
+  const postN = typeof latestPost?.n === 'number' ? latestPost.n : null;
+  const maxVersionN = Math.max(0, ...versions.map(v => (typeof v.n === 'number' ? v.n : 0)));
+  const nextPostN = postN ?? maxVersionN + 1;
+  const composed = postN === null ? composeChoice(project, dir) : composedPost(dir, project, at);
+  const contract = isObject(project.direction_contract) ? project.direction_contract : null;
+  const explicit = latestPost !== undefined && isObject(latestPost.provenance) && latestPost.provenance.direction !== undefined;
+  const grandfathered = latestPost !== undefined && (
+    Boolean(contract && asArray(contract.grandfathered_posts).includes(latestPost.n as number))
+    || (!explicit && !contract && Date.parse(String(latestPost.at)) < Date.parse(DIRECTION_SCENE_SINCE))
+  );
+  let currentScene: JsonObject | undefined;
+  if (postN !== null) {
+    currentScene = asArray(project.scenes).filter(isObject).at(-1);
+  } else {
+    try {
+      currentScene = sceneCurrentAt(dir, project, at);
+    } catch (error) {
+      if (error instanceof SceneError) {
+        try { currentScene = currentSceneEntry(project, at); }
+        catch { currentScene = asArray(project.scenes).filter(isObject).at(-1); }
+      } else throw error;
+    }
+  }
+  const missingScene = !composed && !grandfathered && currentScene === undefined;
+  const missing: string[] = [];
+  if (!grandfathered && !isObject(project.direction_contract)) missing.push('direction_contract');
+  if (missingScene) missing.push('scenes[n=1]');
+  if (postN === null) missing.push(`versions[n=${nextPostN}]`);
+  return {
+    ready: missing.length === 0,
+    latestPost,
+    postN,
+    nextPostN,
+    composed,
+    currentScene,
+    missingScene,
+    missing,
+  };
+}
+
+/**
+ * A `post` → `direction-review` advance needs the direction contract, current scene (or composed
+ * `direction@3` post) and live `kind: "post"` version that `direction-review` can accept.
+ * Missing on the move being written or from `DIRECTION_REVIEW_ADVANCE_SINCE` is refused;
+ * on an earlier move it WARNs with the same code.
+ */
+export function checkDirectionReviewAdvances(ctx: Ctx, forwardWrite = false): void {
+  if (stageIndex(ctx.effectiveStage) < stageIndex('direction-review') || postNotPassed(ctx)) return;
+  const advances = asArray(ctx.project.advances);
+  let moveIndex = -1;
+  for (let i = advances.length - 1; i >= 0; i--) {
+    const entry = advances[i];
+    if (isObject(entry) && entry.from_stage === 'post' && entry.stage === 'direction-review') {
+      moveIndex = i;
+      break;
+    }
+  }
+  if (moveIndex < 0 && !forwardWrite) return;
+  const path = moveIndex >= 0 ? `advances[${moveIndex}]` : 'stage';
+  const entry = moveIndex >= 0 ? (advances[moveIndex] as JsonObject) : undefined;
+  const atMove = forwardWrite && moveIndex === advances.length - 1;
+  const since = Date.parse(DIRECTION_REVIEW_ADVANCE_SINCE);
+  const movedAt = entry === undefined ? NaN : Date.parse(String(entry.at));
+  const state = directionReviewPostState(ctx.dir, ctx.project, Number.isFinite(movedAt) ? movedAt : Infinity);
+  if (state.ready) return;
+  const missing = state.missing.join(', ');
+  const remedy = 'adopt direction with rig-create direction --adopt, write the current scene with rig-create scene write (or compose direction@3) and record the post version with rig-create direction write before advancing to direction-review';
+  if (atMove || !(movedAt < since)) {
+    ctx.refusals.push({
+      code: 'DIRECTION_REVIEW_POST_MISSING',
+      path,
+      message: `${path}: post → direction-review needs ${missing}; ${remedy}`,
+    });
+  } else {
+    ctx.warnings.push({
+      code: 'DIRECTION_REVIEW_POST_MISSING',
+      path,
+      message: `${path}: the post → direction-review move predates ${DIRECTION_REVIEW_ADVANCE_SINCE} and lacks ${missing}; preserve the historical move or reopen post and ${remedy}`,
+    });
   }
 }
 

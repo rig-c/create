@@ -43,6 +43,7 @@ import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts'
 import { acceptedReviewVerdict } from './review.ts';
 import {
   advanceOrder,
+  directionReviewPostState,
   furthestStageSignoff,
   isSignoffIdentity,
   moveOwner,
@@ -319,21 +320,6 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   ];
 }
 
-/** Read only the document kind here; checkProject already validates its seal. */
-function composedPost(dir: string, project: JsonObject): boolean {
-  const post = asArray(project.versions).filter(isObject).filter(v => v.kind === 'post' && liveSignoff(collectReopens(project, []), 'post', Date.parse(String(v.at)))).at(-1);
-  if (!post || !isObject(post.provenance) || !isObject(post.provenance.direction) || typeof post.provenance.direction.path !== 'string') return false;
-  try { return (JSON.parse(readFileSync(join(dir, post.provenance.direction.path), 'utf8')) as JsonObject).schema === DIRECTION_COMPOSE_SPEC; }
-  catch { return false; }
-}
-function composeChoice(project: JsonObject, dir: string): boolean {
-  const item = collectItems(project, { collection: loadCollection(dir) }).find(i => i.id === 'post_composition');
-  if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated')) return false;
-  const answer = item.state.answer;
-  const value = isObject(answer.agent_decision) ? answer.agent_decision.value : answer.value;
-  return isObject(value) && value.compose !== undefined;
-}
-
 function sceneWriteCommand(dir: string, project: JsonObject, rigN: string): string {
   let flags = ` --background '<background.png>'`;
   const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.id === 'post_composition');
@@ -532,7 +518,7 @@ function resolveLaggingAdvance(
     }
     return null;
   }
-  if (stage === 'post' && ((!asArray(project.scenes).length && !composedPost(dir, project)) || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post'))) return null;
+  if (stage === 'post' && !directionReviewPostState(dir, project, now).ready) return null;
   const cmd = candidateAdvance(dir, project, nextStage, now);
   return cmd !== null ? { targetStage: nextStage, command: cmd } : null;
 }
@@ -815,7 +801,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     ? resolveLaggingAdvance(dir, project, stage, now)
     : null;
   const isResolvableLagging = (finding: Finding): boolean =>
-    finding.code === 'STAGE_LAGGING' && (laggingAdvance !== null || stage === 'post' && ((!asArray(project.scenes).length && !composedPost(dir, project)) || !asArray(project.versions).some(v => isObject(v) && v.kind === 'post')));
+    finding.code === 'STAGE_LAGGING' && (laggingAdvance !== null || (stage === 'post' && !directionReviewPostState(dir, project, now).ready));
 
   const hasBlockingRefusal =
     holes.length > 0 ||
@@ -1586,24 +1572,19 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       s => (s.phase === 'rig' || s.phase === 'post') && stageOfStep(s.phase, String(s.id)) === 'post',
     );
     const openPostSteps = postSteps.filter(s => s.status !== 'done');
-    const scenes = asArray(project.scenes).filter(isObject);
-    const postVersions = versions.filter(
-      v => v.kind === 'post' && typeof v.n === 'number' && liveSignoff(reopens, 'post', Date.parse(String(v.at))),
-    );
-    const latestPost = postVersions[postVersions.length - 1];
-    const postN = typeof latestPost?.n === 'number' ? latestPost.n : null;
-    const composed = postN === null ? composeChoice(project, dir) : composedPost(dir, project);
-    const missingScene = scenes.length === 0 && !composed;
-    const maxVersionN = Math.max(
-      0,
-      ...versions.map(v => (typeof v.n === 'number' ? v.n : 0)),
-    );
-    const nextPostN = postN ?? maxVersionN + 1;
+    const {
+      ready: postReady,
+      latestPost,
+      postN,
+      nextPostN,
+      composed,
+      currentScene,
+      missingScene,
+    } = directionReviewPostState(dir, project, now);
     const addPostAuthoringMove = (): void => {
-      if (postN !== null) return;
+      if (postReady) return;
       const rig = versions.filter(v => v.kind === 'rig').at(-1);
       const rigN = typeof rig?.n === 'number' ? String(rig.n) : '<rig-version>';
-      const currentScene = sceneCurrentAt(dir, project, now);
       if (!isObject(project.direction_contract)) {
         addAwait('direction_contract');
         moves.push({ role: 'agent', field: 'direction_contract', awaits: 'direction_contract',
@@ -1669,7 +1650,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
     } else {
-      if (effectiveStage === 'post' && postN !== null && !missingScene) {
+      if (effectiveStage === 'post' && postReady) {
         const advCmd = candidateAdvance(dir, project, 'direction-review', now);
         if (advCmd !== null) {
           moves.push({

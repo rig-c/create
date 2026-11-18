@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "595b172f5c011a029407725337ee075e78e867affc994e6ee9c650f68bbc086e"
+          "sha256": "1a8264aacfd7bc5beb0f0a541b83749647097915e13fb93fb9ff478e04f2a69e"
         }
       }
     },
@@ -166,7 +166,7 @@
         "verdict": "versions[1].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "8a4942043bd08b7c85fb8333a5250b9c1669480270bf1890814ab6f2d414d664"
+          "sha256": "26cf39f2eed14a86a5bbeb98dd3a2ca1fb25fd854ddf1eb7b570c129a903a11a"
         }
       }
     }
@@ -1508,7 +1508,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "dc9c74bb59582325bbd6dfe05b56a9e1c834de50438cb666577ba01e2aa4be98"
+            "sha256": "59545f29a18f896928232b30ea534a3795fe089986aa01d30d1dde749ae5eefe"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1592,7 +1592,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "4f894fb9cce676db265c8aa4df525930111da382183088c193e6ea154da7745e"
+            "sha256": "63beafbefd134b8e24e9497ebf0326ffabaa4ab515984a060c5ac46120f67632"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -1611,7 +1611,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v2.json",
-          "sha256": "8a4942043bd08b7c85fb8333a5250b9c1669480270bf1890814ab6f2d414d664"
+          "sha256": "26cf39f2eed14a86a5bbeb98dd3a2ca1fb25fd854ddf1eb7b570c129a903a11a"
         }
       ],
       "evidence": [],
@@ -1631,11 +1631,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v2.json",
-          "sha256": "8a4942043bd08b7c85fb8333a5250b9c1669480270bf1890814ab6f2d414d664"
+          "sha256": "26cf39f2eed14a86a5bbeb98dd3a2ca1fb25fd854ddf1eb7b570c129a903a11a"
         },
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "8a4942043bd08b7c85fb8333a5250b9c1669480270bf1890814ab6f2d414d664"
+          "sha256": "26cf39f2eed14a86a5bbeb98dd3a2ca1fb25fd854ddf1eb7b570c129a903a11a"
         },
         "sections": {
           "camera": [
@@ -2522,7 +2522,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "dc9c74bb59582325bbd6dfe05b56a9e1c834de50438cb666577ba01e2aa4be98"
+          "sha256": "59545f29a18f896928232b30ea534a3795fe089986aa01d30d1dde749ae5eefe"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -2578,7 +2578,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "4f894fb9cce676db265c8aa4df525930111da382183088c193e6ea154da7745e"
+          "sha256": "63beafbefd134b8e24e9497ebf0326ffabaa4ab515984a060c5ac46120f67632"
         }
       ],
       "config_inputs": [
@@ -2634,7 +2634,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "dbc0f10f0a7479789714cfb31fadce07ed5bf5005d1359ca4c922b57e2f6eaa5",
+      "sha256": "219048ef695058deae1dfe2d6d16a459dd8aecb3d1870a6f7ee713955fe85ac9",
       "at": "2026-11-06T01:01:15.000Z",
       "by": "agent"
     }

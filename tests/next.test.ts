@@ -1838,3 +1838,137 @@ test.each(['linked-config', 'dangling-target'])('#557 retouch preserves %s colli
   expect(next.moves.find(move => move.command?.startsWith('rig-create draft-rig'))!.command).toContain('chain-retouch-2');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
+
+test('#596 undecided delegation emits an agent interview-decision move and clears DELEGATION_UNDECIDED', () => {
+  const dir = postInterviewPlan();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  arr(obj(obj(project.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!.guide = null;
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+
+  const optionMove = nextProject(dir, CHAIN_NOW).moves.find(move => move.field === 'interview.post.items[camera_depth].guide')!;
+  const optionArgv = preparePrintedOptions(dir, optionMove.command!, CHAIN_NOW);
+  expect(runMainCapture(optionArgv, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  const setBytes = readFileSync(join(dir, 'evidence/printed-options.json'));
+  const set = JSON.parse(setBytes.toString('utf8')) as JsonObject;
+  const fragment = obj(arr(obj(arr(set.asks)[0]).options).find(opt => obj(opt).kind === 'value')).fragment;
+  expect(runMainCapture([
+    'interview-answer', 'camera_depth', dir,
+    '--set', 'evidence/printed-options.json',
+    '--sha256', sha256(setBytes),
+    '--by', 'user',
+    '--pick', 'camera_depth=auto',
+  ], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+
+  const signRes = runMainCapture(['signoff', 'post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')], CHAIN_NOW + 1000);
+  expect(signRes.code).toBe(1);
+  expect(signRes.stderr).toContain('DELEGATION_UNDECIDED');
+
+  const report = nextProject(dir, CHAIN_NOW + 1000);
+  const decisionMove = report.moves.find(move => move.field === 'interview.post.items[camera_depth].guide');
+  expect(decisionMove).toMatchObject({
+    role: 'agent',
+    field: 'interview.post.items[camera_depth].guide',
+    awaits: 'interview.post.items[camera_depth].guide.agent_decision',
+  });
+  expect(decisionMove!.command).toContain('rig-create interview-decision camera_depth ');
+  expect(decisionMove!.command).toContain("--by agent --reasoning-file '<file>' --fragment 'camera_depth=<json>'");
+  expect(report.moves.some(move => move.command?.startsWith('rig-create signoff '))).toBe(false);
+
+  const reasonFile = join(dir, 'evidence/camera-reason.txt');
+  const fragmentFile = join(dir, 'evidence/camera-fragment.json');
+  writeFileSync(reasonFile, 'Choose the synthetic fixed camera frame.\n');
+  writeFileSync(fragmentFile, JSON.stringify(fragment));
+  const execArgv = printedArgs(decisionMove!.command!).slice(1).map(arg =>
+    arg === '<file>' ? reasonFile : arg === 'camera_depth=<json>' ? `camera_depth=${fragmentFile}` : arg);
+  expect(runMainCapture(execArgv, CHAIN_NOW + 1000)).toMatchObject({ code: 0, stderr: '' });
+  expect(checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true }).refusals).toEqual([]);
+});
+
+test('#596 pending Other flags INTERVIEW_CHOICE_REQUIRED and offers the agent option-set redraft before stage signoff', () => {
+  const dir = postInterviewPlan();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  arr(obj(obj(project.interview).post).items).map(obj).find(item => item.id === 'post_timing')!.guide = null;
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+
+  const optionMove = nextProject(dir, CHAIN_NOW).moves.find(move => move.field === 'interview.post.items[post_timing].guide')!;
+  const optionArgv = preparePrintedOptions(dir, optionMove.command!, CHAIN_NOW);
+  expect(runMainCapture(optionArgv, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  const setBytes = readFileSync(join(dir, 'evidence/printed-options.json'));
+  const otherWordsFile = join(dir, 'evidence/other-timing.txt');
+  writeFileSync(otherWordsFile, 'Use a custom synthetic timing beat.\n');
+  expect(runMainCapture([
+    'interview-answer', 'post_timing', dir,
+    '--set', 'evidence/printed-options.json',
+    '--sha256', sha256(setBytes),
+    '--by', 'user',
+    '--pick', 'post_timing=other',
+    '--other', `post_timing=${otherWordsFile}`,
+  ], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+
+  const signRes = runMainCapture(['signoff', 'post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')], CHAIN_NOW + 1000);
+  expect(signRes.code).toBe(1);
+  expect(signRes.stderr).toContain('INTERVIEW_CHOICE_REQUIRED');
+
+  const report = nextProject(dir, CHAIN_NOW + 1000);
+  expect(report.refusals.map(r => [r.code, r.field])).toEqual([
+    ['INTERVIEW_CHOICE_REQUIRED', 'interview.post.items[post_timing].guide'],
+  ]);
+  expect(report.moves[0]).toMatchObject({
+    role: 'agent',
+    field: 'interview.post.items[post_timing].guide',
+    awaits: 'interview.post.items[post_timing].guide',
+    unanswered_by_record: 'interview.post.items[post_timing].guide',
+  });
+  expect(report.moves[0]!.command).toContain('rig-create interview-options post_timing ');
+  expect(report.moves.some(move => move.command?.startsWith('rig-create signoff '))).toBe(false);
+  expect(report.moves.find(move => move.field === 'signoffs')).toMatchObject({
+    role: 'human',
+    command: null,
+    unanswered_by_record: 'interview.post.items[post_timing].guide',
+  });
+});
+
+test('#596 post stage with in-progress step offers direction --adopt then direction write with the first legal version N', () => {
+  const dir = realpathSync(fixture(project => {
+    project.stage = 'post';
+    project.versions = arr(project.versions).filter(v => obj(v).kind === 'rig');
+    delete project.direction_contract;
+    retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('direction-review'));
+    project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('post'));
+    for (const step of arr(obj(project.plan).steps).map(obj).filter(s => s.phase === 'post')) {
+      step.status = step.id === 'camera' ? 'in-progress' : 'pending';
+      delete step.status_history;
+    }
+  }, 'example-project.json'));
+
+  const unAdoptedWrite = runMainCapture(['direction', 'write', '1', dir, '--file', 'evidence/direction/v4.json', '--rig', '2'], CHAIN_NOW);
+  expect(unAdoptedWrite.code).toBe(1);
+  expect(unAdoptedWrite.stderr).toContain('DIRECTION_CONTRACT_INVALID');
+
+  const beforeAdopt = nextProject(dir, CHAIN_NOW);
+  expect(beforeAdopt.refusals).toEqual([]);
+  const adoptMove = beforeAdopt.moves.find(move => move.field === 'direction_contract');
+  expect(adoptMove).toMatchObject({
+    role: 'agent',
+    field: 'direction_contract',
+    awaits: 'direction_contract',
+    command: `rig-create direction --adopt ${dir}`,
+  });
+  expect(runMainCapture(printedArgs(adoptMove!.command!).slice(1), CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+
+  const wrongVersionWrite = runMainCapture(['direction', 'write', '1', dir, '--file', 'evidence/direction/v4.json', '--rig', '2'], CHAIN_NOW);
+  expect(wrongVersionWrite.code).toBe(1);
+  expect(wrongVersionWrite.stderr).toContain('DIRECTION_VERSION');
+
+  const afterAdopt = nextProject(dir, CHAIN_NOW);
+  expect(afterAdopt.refusals).toEqual([]);
+  const writeMove = afterAdopt.moves.find(move => move.field === 'versions');
+  expect(writeMove).toMatchObject({
+    role: 'agent',
+    field: 'versions',
+    awaits: 'versions[n=3]',
+    command: `rig-create direction write 3 ${dir} --file '<direction.json>' --rig 2`,
+  });
+});

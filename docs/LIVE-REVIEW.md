@@ -30,7 +30,7 @@ the record request refuses `JOB_DIRECTION_VERDICT_REQUIRED` without writing.
 After verdict ingest, `job open --plan` asks `signoff direction-review` on the
 record page. Ingest `signoff direction-review --from-review <actId>`, then
 `advance accepted`. This route is supported by release-pinned
-[Review 4.5.0](https://github.com/rig-c/review/tree/v4.5.0), including the
+[Review 4.6.0](https://github.com/rig-c/review/tree/v4.6.0), including the
 record direction-review sign-off from
 [Review #795](https://github.com/rig-c/review/pull/795).
 
@@ -353,14 +353,14 @@ again.
 | `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
 | `parts-review` | draft | advance when the first draft has agent evidence; stay here across retouches, preparing fresh evidence and opening each new draft for one `parts-verdict`; approved UI ingestion also signs. Separate signoff is only for a midflight approved verdict already ingested unsigned |
 | `rig-review` | rig version | a fresh publication asks only `review-verdict`; approved ingestion records its rig-review signature atomically. Already-ingested unsigned verdicts and retained old two-subject publications keep separate-signoff recovery through `job open` |
-| `direction-review` | record plan, using release-pinned Review 4.5.0 | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
+| `direction-review` | record plan, using release-pinned Review 4.6.0 | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
-| `interview` | record plan, using release-pinned Review 4.5.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
+| `interview` | record plan, using release-pinned Review 4.6.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
 
 Interview picks use `job open --question <id>`. After ingesting every pick,
 run `interview --check`, then `job open --plan` for the interview signature.
 This record route is supported by release-pinned
-[Review 4.5.0](https://github.com/rig-c/review/tree/v4.5.0), including the
+[Review 4.6.0](https://github.com/rig-c/review/tree/v4.6.0), including the
 [Review #803](https://github.com/rig-c/review/pull/803) carrier (issue #800).
 The record subject is `plan`, with non-empty
 displayed steps, even though the signature approves the interview answers

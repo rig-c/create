@@ -15,10 +15,11 @@ export function composeFixture() {
     mkdirSync(dirname(join(f.dir, path)), { recursive: true }); writeFileSync(join(f.dir, path), bytes);
     return { path, sha256: directionHash(Buffer.from(bytes)) };
   };
-  const value = { canvas: { width: 64, height: 48 }, plates: [
+  const plates: JsonObject[] = [
     { name: 'back', image: 'background.png', at: [0, 0], opaque_backdrop: true },
     { name: 'front', image: 'foreground.png', at: [2, 3] },
-  ], order: ['back', 'actor', 'front'], character: { offset: [0, 0], scale: 1 },
+  ];
+  const value = { canvas: { width: 64, height: 48 }, plates, order: ['back', 'actor', 'front'], character: { offset: [0, 0], scale: 1 },
   idle_tracks: [{ bone: 'back', property: 'translate', keys: [{ t: 0, v: [0, 0] }, { t: 2, v: [3, 0] }, { t: 4, v: [0, 0] }] }] };
   const project = f.load();
   const items = ((project.interview as JsonObject).post as JsonObject).items as JsonObject[];

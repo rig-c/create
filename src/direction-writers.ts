@@ -96,7 +96,8 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
         doc=patchDirection(project,source,patch);bytes=Buffer.from(`${JSON.stringify(doc,null,2)}\n`);
       }
       // Retain the option evidence read by the citation validator, not only the project bytes.
-      for(const item of collectItems(project,{collection:loadCollection(dir)}).filter(i=>['camera_depth','post_timing', ...(doc.schema === DIRECTION_COMPOSE_SPEC ? ['post_composition'] : [])].includes(i.id))){
+      const citationGuides = ['camera_depth','post_timing', ...(doc.schema === DIRECTION_COMPOSE_SPEC ? ['post_composition'] : [])];
+      for(const item of collectItems(project,{collection:loadCollection(dir)}).filter(i=>citationGuides.includes(i.id))){
         const answers=[item.raw,...asArray(item.record.history)];
         if(item.state.state==='user'||item.state.state==='delegated')answers.push(item.state.answer);
         for(const answer of answers)if(isObject(answer)&&isObject(answer.choice)&&isObject(answer.choice.set)&&typeof answer.choice.set.path==='string')snapshot(answer.choice.set.path);

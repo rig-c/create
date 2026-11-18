@@ -8,8 +8,9 @@ import { jobRuntimeExecArgv } from './job-writer.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, parseRecordAct, projectComments,
   type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
+import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { liveManifestPath, publicationFile } from './job-publication.ts';
+import { composedPublishedBuildFiles, liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { INTAKE_QUESTION, intakeItem } from './intake.ts';
 import { collectItems, asArray, isObject } from './check.ts';
@@ -109,10 +110,14 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     failure('REVIEW_ACT_KIND_MISMATCH', 'image-review has no rig/post writer mapping');
   }
   const parts = source.parts;
-  const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
-  if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3)) {
-    failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
+  const selector = source.selector;
+  const composedPost = act.kind === 'review-verdict' && object(selector) && selector.kind === 'post' && parts === null;
+  if (!composedPost) {
+    const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
+    const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
+    if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3)) {
+      failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
+    }
   }
   if (!sha(source.projectHash) || !object(source.package) || !id(source.package.id)
     || typeof source.package.revision !== 'string' || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(act.at)) {
@@ -127,15 +132,14 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     return act as CheckpointAct;
   }
   if (act.kind === 'signoff') return act as SignoffAct;
-  const selector = source.selector;
-  if (!object(parts) || !file(parts.manifest) || !Array.isArray(parts.images)
-    || parts.images.some(image => !file(image) || typeof image.role !== 'string')) {
+  if (!composedPost && (!object(parts) || !file(parts.manifest) || !Array.isArray(parts.images)
+    || parts.images.some(image => !file(image) || typeof image.role !== 'string'))) {
     failure('REVIEW_ACT_INVALID', 'comments act has no admitted parts binding');
   }
   if (act.kind === 'parts-verdict') {
     if (!object(selector) || selector.kind !== 'draft' || !id(selector.id)) failure('REVIEW_ACT_KIND_MISMATCH', 'parts comments require the existing draft source');
     const issues = partsActIssues(act as CommentsPartsVerdictAct)!;
-    if (issues.some(issue => issue.parts.some(part => !(parts.images as Json[]).some(image => object(image)
+    if (issues.some(issue => issue.parts.some(part => !((parts as JsonObject).images as Json[]).some(image => object(image)
       && image.role === 'part' && image.path === `parts/${part.name}.png` && image.sha256 === part.imageHash)))) {
       failure('REVIEW_ACT_INVALID', 'comments issue part is outside the bound parts manifest');
     }
@@ -179,10 +183,12 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
     && !(kind === 'parts-verdict' && act.schema === 'rig-review/act@5')) failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', `act schema ${String(act.schema)} is unsupported, including legacy rig-review/act@1`);
   const source = act.source;
   const parts = object(source) ? source.parts : null;
+  const composedPost = kind === 'review-verdict' && act.kind === 'review-verdict'
+    && object(source) && object(source.selector) && source.selector.kind === 'post' && source.parts === null;
   const version = object(parts) && typeof parts.enumeratorVersion === 'string' ? parts.enumeratorVersion : '';
   // Only stable releases in the frozen range are accepted. Prereleases are outside it.
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
-  if (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3)) failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
+  if (!composedPost && (!match || !match.slice(1).every(piece => Number.isSafeInteger(Number(piece))) || (Number(match[1]) === 2 ? Number(match[2]) < 25 : Number(match[1]) !== 3))) failure('REVIEW_PARTS_ENUMERATOR_UNSUPPORTED', `parts enumerator ${version || 'absent'} is outside >=2.25.0 <4.0.0`);
   if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${String(act.kind)} does not match ${kind}`);
   const authority = act.authority;
   const reviewer = object(authority) ? authority.reviewer : null;
@@ -284,8 +290,8 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
     || selector.kind === 'post' && (!Number.isSafeInteger(selector.rigVersion) || Number(selector.rigVersion) < 1)
     || value.stage !== (selector.kind === 'rig' ? 'rig-review' : 'direction-review') || !file(source.model)
     || selector.kind === 'post' && !file(source.direction) || selector.kind === 'rig' && source.direction !== null
-    || !object(parts) || !file(parts.manifest) || !Array.isArray(parts.images)
-    || parts.images.some(row => !file(row) || typeof row.role !== 'string')
+    || !composedPost && (!object(parts) || !file(parts.manifest) || !Array.isArray(parts.images)
+      || parts.images.some(row => !file(row) || typeof row.role !== 'string'))
     || source.plan !== null && (!object(source.plan) || !Array.isArray(source.plan.steps)
       || source.plan.steps.some(step => !object(step) || !id(step.id) || !sha(step.hash)))) {
     failure('REVIEW_ACT_INVALID', 'rig/post source binding is malformed or contradicts the review stage');
@@ -432,23 +438,44 @@ export function assertReviewActSource(root: string, project: JsonObject, act: Re
     catch { stale(`${identity.path} is missing or changed`); }
   };
   boundFile(source.model!);
-  if (source.model!.path !== `derived/review/v${rig}/out/check/build/skeleton.model.json`) stale('displayed model is not the retained rig model');
+  let composed = false;
   if (selector.kind === 'post') {
     if (source.direction!.path !== `evidence/direction/v${selector.version}.json`) stale('displayed direction is not the retained post direction');
     boundFile(source.direction!);
     const provenance = object(version!.provenance) ? version!.provenance : null;
     if (!object(provenance?.direction) || !isDeepStrictEqual(provenance.direction, source.direction)) stale('post direction binding changed');
+    let rawDirection: JsonObject | undefined;
+    try {
+      const parsed: unknown = JSON.parse(publicationFile(root, source.direction!.path).toString('utf8'));
+      if (object(parsed)) rawDirection = parsed;
+    } catch { /* Legacy post path below. */ }
+    if (rawDirection?.schema === DIRECTION_COMPOSE_SPEC) {
+      composed = true;
+      if (source.parts !== null) stale('composed post does not bind parts');
+      let published: ReturnType<typeof composedPublishedBuildFiles>;
+      try { published = composedPublishedBuildFiles(root, project, selector.version); }
+      catch { return stale('composed post build or direction changed'); }
+      const prefix = `${String((published.doc.compose as JsonObject).out)}/check/build/`;
+      if (!source.model!.path.startsWith(prefix) || !isDeepStrictEqual(source.model, published.doc.model)
+        || !published.files.some(row => isDeepStrictEqual(row, source.model))) {
+        stale('displayed model is not the retained composed model');
+      }
+    }
   }
-  if (!retained || !Array.isArray(retained.files)) stale('retained review package is absent');
-  for (const raw of retained!.files as Json[]) {
-    if (!file(raw)) return stale('retained review package identity is malformed');
-    boundFile({ path: `derived/review/v${rig}/${raw.path}`, sha256: String(raw.sha256) });
+  if (!composed) {
+    if (source.model!.path !== `derived/review/v${rig}/out/check/build/skeleton.model.json`) stale('displayed model is not the retained rig model');
+    if (!retained || !Array.isArray(retained.files)) stale('retained review package is absent');
+    for (const raw of retained!.files as Json[]) {
+      if (!file(raw)) return stale('retained review package identity is malformed');
+      boundFile({ path: `derived/review/v${rig}/${raw.path}`, sha256: String(raw.sha256) });
+    }
+    const parts = source.parts;
+    if (!parts) return stale('parts binding is absent');
+    const partsRoot = typeof retained!.from === 'string' ? retained!.from : `derived/review/v${rig}/out`;
+    if (parts.manifest.path !== `${partsRoot}/parts.json`) stale('parts producer root changed');
+    boundFile(parts.manifest);
+    for (const row of parts.images) boundFile({ path: join(dirname(parts.manifest.path), row.path), sha256: row.sha256 });
   }
-  const parts = source.parts!;
-  const partsRoot = typeof retained!.from === 'string' ? retained!.from : `derived/review/v${rig}/out`;
-  if (parts.manifest.path !== `${partsRoot}/parts.json`) stale('parts producer root changed');
-  boundFile(parts.manifest);
-  for (const row of parts.images) boundFile({ path: join(dirname(parts.manifest.path), row.path), sha256: row.sha256 });
   const manifestPath = liveManifestPath(root, project, 'version' in selector ? selector.version : -1, source.package);
   let manifest: JsonObject;
   try { manifest = JSON.parse(publicationFile(root, manifestPath).toString('utf8')); }

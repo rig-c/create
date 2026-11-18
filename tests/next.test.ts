@@ -506,9 +506,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       ['human', 'reopens[0]', 'REOPEN_SIGNOFF_LAPSED', 'signoffs[2]'],
       ['human', 'reopens[0]', 'REOPEN_SIGNOFF_LAPSED', 'signoffs[3]'],
       ['human', 'reopens[0]', 'REOPEN_SIGNOFF_LAPSED', 'signoffs[4]'],
-      ['human', 'reopens[0]', 'REOPEN_SIGNOFF_LAPSED', 'signoffs[5]'],
       ['human', 'reopens[0]', 'REOPEN_SIGNOFF_LAPSED', 'signoffs[6]'],
-      ['human', 'reopens[0]', 'REOPEN_VERDICT_LAPSED', 'versions[v1].verdicts[0]'],
     ]);
     for (const move of lapseMoves) {
       expect(move.command).toBeNull();
@@ -1997,4 +1995,400 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
     awaits: 'versions[n=3]',
     command: `rig-create direction write 3 ${dir} --file '<direction.json>' --rig 2`,
   });
+});
+
+test('#579 after a rig-review reopen, next omits history rig versions and lapsed rig-review signoff, routes through registering and publishing a post-reopen rig version, and keeps post stages free of history rigs', () => {
+  const dir = join(tempDir(), 'reopen-rig-review');
+  cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+  const file = join(dir, 'project.json');
+
+  // Control: a project without a reopen keeps today's next output.
+  const unreopened = nextProject(dir, CHAIN_NOW);
+  expect(unreopened.refusals).toEqual([]);
+  expect(unreopened.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
+  expect(unreopened.moves.filter(m => m.role === 'human')).toEqual([
+    expect.objectContaining({
+      role: 'human',
+      field: 'versions[v1].verdicts',
+      awaits: 'versions[n=1].verdicts[review=rig-review]',
+      command: null,
+      review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v1', review: 'rig-review' },
+    }),
+  ]);
+
+  // Step 1: Rig v1 is accepted and rig-review is signed on it.
+  testClock.set(new Date(CHAIN_NOW));
+  reviewCommand([
+    '1',
+    dir,
+    '--verdict',
+    'accepted',
+    '--by',
+    'user',
+    '--review',
+    'rig-review',
+    '--verbatim-file',
+    join(dir, 'evidence/approval.txt'),
+    '--source',
+    'synthetic example',
+  ]);
+  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+
+  // Prepare the synthetic registration source cohort for v2 (pre-reopen) and v3 (post-reopen).
+  cpSync(join(REPO, 'tests/fixtures/rig-registration'), join(dir, 'rebuild-source'), { recursive: true });
+  const putSource = (path: string, value: unknown): void =>
+    writeFileSync(
+      join(dir, 'rebuild-source', path),
+      typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value),
+    );
+  putSource('config.json', { key: 'synthetic', requirements: 'requirements.json' });
+  putSource('requirements.json', {
+    spec: 'spine-parts-requirements/1',
+    fps: 4,
+    requirements: [],
+    setup_painting: { required: true },
+  });
+  putSource('adapter.json', []);
+  cpSync(join(dir, 'derived/drafts/chain/input'), join(dir, 'rebuild-source/parts'), { recursive: true });
+  cpSync(join(dir, 'outputs/v1/out/check/build/skeleton.model.json'), join(dir, 'rebuild-source/build/skeleton.model.json'));
+  const setBuildTime = (iso: string): void => {
+    putSource('at-source.json', { finished_at: iso });
+    putSource('run.json', {
+      spec: 'rigc-run/1',
+      package: { name: 'rig-c', version: '3.4.1' },
+      command: 'build',
+      started_at: iso,
+      finished_at: iso,
+      inputs: [
+        { role: 'rig', path: '../rig/rig.json', sha256: '1'.repeat(64) },
+        { role: 'motion', path: '../rig/motion.json', sha256: '2'.repeat(64) },
+      ],
+      outputs: [
+        { path: '../compile-report.json', sha256: '3'.repeat(64) },
+        { path: 'skeleton.model.json', sha256: '4'.repeat(64) },
+      ],
+    });
+  };
+  const bindings: Record<string, string> = {
+    '--parts': 'parts',
+    '--rig': 'rig',
+    '--build': 'build',
+    '--idle': 'idle',
+    '--config': 'config.json',
+    '--path-adapter': 'adapter.json',
+    '--compile-report': 'compile-report.json',
+    '--toolchain-lock': 'package-lock.json',
+    '--run-record': 'run.json',
+    '--at-source': 'at-source.json',
+  };
+  const registerRig = (n: number, builtIso: string, regNow: number): void => {
+    setBuildTime(builtIso);
+    const res = runMainCapture(
+      [
+        'rig-version',
+        String(n),
+        dir,
+        ...Object.entries(bindings).flatMap(([flag, rel]) => [flag, `rebuild-source/${rel}`]),
+        '--at-pointer',
+        '/finished_at',
+        '--by',
+        'registrant',
+      ],
+      regNow,
+    );
+    expect(res).toMatchObject({ code: 0, stderr: '' });
+  };
+
+  // Register Rig v2 (built before any reopen).
+  const v2At = CHAIN_NOW + 1000;
+  registerRig(2, new Date(v2At).toISOString(), v2At);
+
+  // Step 2: Reopen rig-review.
+  const reopenAt = CHAIN_NOW + 2000;
+  const reopenWords = join(dir, 'reopen-words.txt');
+  writeFileSync(reopenWords, 'Reopen rig-review to rebuild the synthetic rig.\n');
+  testClock.set(new Date(reopenAt));
+  reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', reopenWords]);
+
+  // Attempting to sign rig-review on the history acceptance refuses with RIG_VERSION_UNACCEPTED and leaves project.json byte-identical.
+  const beforeRefusedSign = readFileSync(file);
+  const refusedSign = runMainCapture(
+    ['signoff', 'rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')],
+    reopenAt,
+  );
+  expect(refusedSign.code).toBe(1);
+  expect(refusedSign.stderr).toContain('RIG_VERSION_UNACCEPTED');
+  expect(readFileSync(file)).toEqual(beforeRefusedSign);
+
+  // Before registering a post-reopen rig version: next names only the new rig-version registration route.
+  const beforePostReopenRig = nextProject(dir, reopenAt);
+  expect(beforePostReopenRig.refusals).toEqual([]);
+  expect(beforePostReopenRig.awaits).toEqual(['versions[n=3]']);
+  expect(beforePostReopenRig.moves).toHaveLength(1);
+  expect(beforePostReopenRig.moves[0]).toMatchObject({
+    role: 'agent',
+    field: 'versions',
+    awaits: 'versions[n=3]',
+  });
+  expect(beforePostReopenRig.moves[0]!.command).toContain(`rig-create rig-version 3 ${dir}`);
+  expect(beforePostReopenRig.moves.some(m => m.lapse !== undefined)).toBe(false);
+  expect(beforePostReopenRig.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
+  expect(beforePostReopenRig.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
+
+  // Execute the printed rig-version 3 command with a build timestamp after the reopen.
+  const v3At = reopenAt + 1000;
+  setBuildTime(new Date(v3At).toISOString());
+  const printedRigArgs = printedArgs(beforePostReopenRig.moves[0]!.command!).slice(1);
+  for (const [index, arg] of printedRigArgs.entries()) {
+    if (arg.startsWith('<')) {
+      printedRigArgs[index] = bindings[printedRigArgs[index - 1]!]
+        ? `rebuild-source/${bindings[printedRigArgs[index - 1]!]}`
+        : arg === '<pointer>'
+          ? '/finished_at'
+          : 'registrant';
+    }
+  }
+  expect(runMainCapture(printedRigArgs, v3At)).toMatchObject({ code: 0, stderr: '' });
+
+  // After registering the post-reopen rig version (v3): next lists only the one-verdict publication route for v3.
+  const afterPostReopenRig = nextProject(dir, v3At);
+  expect(afterPostReopenRig.refusals).toEqual([]);
+  expect(afterPostReopenRig.awaits).toEqual(['versions[n=3].verdicts[review=rig-review]']);
+  expect(afterPostReopenRig.moves.some(m => m.lapse !== undefined)).toBe(false);
+  expect(afterPostReopenRig.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
+  expect(afterPostReopenRig.moves.some(m => m.command?.includes('--rig 1') || m.command?.includes('--rig 2'))).toBe(false);
+  expect(afterPostReopenRig.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
+  const humanMoves = afterPostReopenRig.moves.filter(m => m.role === 'human');
+  expect(humanMoves).toHaveLength(1);
+  expect(humanMoves[0]).toMatchObject({
+    role: 'human',
+    field: 'versions[v3].verdicts',
+    awaits: 'versions[n=3].verdicts[review=rig-review]',
+    command: null,
+    review_act: { kind: 'review-verdict', stage: 'rig-review', version_id: 'v3', review: 'rig-review' },
+  });
+  expect(humanMoves[0]!.act).toContain('approve once to record the verdict and rig-review signature');
+  expect(afterPostReopenRig.moves.map(m => m.command)).toEqual([
+    `rig-create job open ${dir} --rig 3 --reviewer '<reviewer>' --role owner`,
+    null,
+    `rig-create job acts ${dir} --json`,
+    `rig-create review 3 ${dir} --from-review '<actId>'`,
+    `rig-create job close ${dir}`,
+  ]);
+
+  // Post stages after such a reopen (post and direction-review) must not list history rig versions (v1 or v2).
+  // Record a still frame on v3, accept v3 at rig-review, sign rig-review on v3, and advance through post-interview to post via writers.
+  const v3StillPath = 'outputs/v3/idle/idle@4fps/f0000.png';
+  const v3StillSha = sha256(readFileSync(join(dir, v3StillPath)));
+  const withStill = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const v3Entry = arr(withStill.versions).map(obj).find(v => v.n === 3)!;
+  v3Entry.evidence = [{ kind: 'still', path: v3StillPath, sha256: v3StillSha, camera: 'fixed', frame: 0 }];
+  writeFileSync(file, `${JSON.stringify(withStill, null, 2)}\n`);
+
+  const acceptAt = v3At + 1000;
+  testClock.set(new Date(acceptAt));
+  reviewCommand([
+    '3',
+    dir,
+    '--verdict',
+    'accepted',
+    '--by',
+    'user',
+    '--review',
+    'rig-review',
+    '--verbatim-file',
+    join(dir, 'evidence/approval.txt'),
+    '--source',
+    'synthetic example',
+  ]);
+  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  expect(runMainCapture(['advance', 'post-interview', dir], acceptAt + 1000)).toMatchObject({ code: 0, stderr: '' });
+  for (const q of ['camera_depth', 'post_timing', 'post_composition']) {
+    const optProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    const set = JSON.parse(readFileSync(join(CHAIN_DIR, `evidence/interview/${q}.json`), 'utf8')) as JsonObject;
+    set.id = `printed-${q}`;
+    set.drafted_at = new Date(acceptAt + 1000).toISOString();
+    set.context = optionContext(optProject, String(set.stage), acceptAt + 1000, dir);
+    const setRel = `evidence/printed-${q}.json`;
+    const setBytes = JSON.stringify(set);
+    writeFileSync(join(dir, setRel), setBytes);
+    expect(runMainCapture(['interview-options', q, dir, '--file', setRel], acceptAt + 1000)).toMatchObject({ code: 0, stderr: '' });
+    expect(
+      runMainCapture(
+        ['interview-answer', q, dir, '--set', setRel, '--sha256', sha256(setBytes), '--by', 'user', '--pick', `${q}=keep`],
+        acceptAt + 1000,
+      ),
+    ).toMatchObject({ code: 0, stderr: '' });
+  }
+  for (const id of ['camera', 'timing', 'composition']) {
+    const planMove = nextProject(dir, acceptAt + 1000).moves.find(m => m.command?.startsWith(`rig-create plan add ${id} `))!;
+    expect(runMainCapture(printedArgs(planMove.command!).slice(1), acceptAt + 1000)).toMatchObject({ code: 0, stderr: '' });
+  }
+  testClock.set(new Date(acceptAt + 2000));
+  signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  expect(runMainCapture(['advance', 'post', dir], acceptAt + 3000)).toMatchObject({ code: 0, stderr: '' });
+  testClock.set(new Date(acceptAt + 3000));
+  for (const id of ['camera', 'timing', 'composition']) {
+    stepStatusCommand([id, 'in-progress', dir, '--by', 'agent']);
+    stepStatusCommand([id, 'at-checkpoint', dir, '--by', 'agent']);
+    stepStatusCommand([id, 'done', dir, '--by', 'agent']);
+  }
+  const adoptMove = nextProject(dir, acceptAt + 3000).moves.find(m => m.field === 'direction_contract')!;
+  expect(runMainCapture(printedArgs(adoptMove.command!).slice(1), acceptAt + 3000)).toMatchObject({ code: 0, stderr: '' });
+
+  // At post stage after the rig-review reopen: next binds the live accepted rig v3, never history v1 or v2.
+  const atPost = nextProject(dir, acceptAt + 3000);
+  expect(atPost.refusals).toEqual([]);
+  expect(atPost.moves.some(m => m.lapse !== undefined)).toBe(false);
+  expect(atPost.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
+  const sceneMove = atPost.moves.find(m => m.role === 'agent')!;
+  expect(sceneMove.command).toContain('--rig 3');
+
+  // Author scene and post v4 on rig v3, advance to direction-review, and verify no history rig versions appear.
+  expect(runMainCapture(preparePrintedOptions(dir, sceneMove.command!, acceptAt + 3000), acceptAt + 3000)).toMatchObject({ code: 0, stderr: '' });
+  const afterSceneNext = nextProject(dir, acceptAt + 3000);
+  const dirWriteMove = afterSceneNext.moves.find(m => m.role === 'agent')!;
+  expect(dirWriteMove.command).toContain('direction write 4');
+  expect(dirWriteMove.command).toContain('--rig 3');
+  const afterSceneProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const latestScene = obj(arr(afterSceneProject.scenes).at(-1));
+  const v3ModelPath = 'derived/review/v3/out/check/build/skeleton.model.json';
+  const dirDoc = JSON.parse(readFileSync(join(CHAIN_DIR, 'evidence/direction-input.json'), 'utf8')) as JsonObject;
+  dirDoc.scene = { n: latestScene.n!, path: latestScene.path!, sha256: latestScene.sha256! };
+  dirDoc.rig = { version: 3, model: { path: v3ModelPath, sha256: sha256(readFileSync(join(dir, v3ModelPath))) } };
+  for (const section of ['camera', 'timing'] as const) {
+    const guideId = section === 'camera' ? 'camera_depth' : 'post_timing';
+    const guide = obj(arr(obj(obj(afterSceneProject.interview).post).items).map(obj).find(i => i.id === guideId)!.guide);
+    obj(obj(dirDoc.citations)[section]).quote = guide.verbatim!;
+  }
+  writeFileSync(join(dir, 'evidence/direction-input.json'), JSON.stringify(dirDoc));
+  expect(
+    runMainCapture(
+      ['direction', 'write', '4', dir, '--file', 'evidence/direction-input.json', '--rig', '3'],
+      acceptAt + 4000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['advance', 'direction-review', dir], acceptAt + 5000)).toMatchObject({ code: 0, stderr: '' });
+
+  const atDirectionReview = nextProject(dir, acceptAt + 5000);
+  expect(atDirectionReview.refusals).toEqual([]);
+  expect(atDirectionReview.moves.some(m => m.lapse !== undefined)).toBe(false);
+  expect(atDirectionReview.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2' || m.review_act?.version_id === 'v3')).toBe(false);
+  expect(atDirectionReview.moves.some(m => m.command?.includes('--rig 1') || m.command?.includes('--rig 2') || m.command?.includes('--rig 3'))).toBe(false);
+  expect(atDirectionReview.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({
+    role: 'human',
+    field: 'versions[v4].verdicts',
+    awaits: 'versions[n=4].verdicts[review=direction-review]',
+    review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v4', review: 'direction-review' },
+  });
+
+  // Consumer-clone shape: post v4 is reviewed and signed at direction-review, then rig-review is reopened,
+  // a new rig v5 is registered, accepted and signed, and a new unreviewed post v6 reaches direction-review.
+  testClock.set(new Date(acceptAt + 5500));
+  reviewCommand([
+    '4',
+    dir,
+    '--verdict',
+    'accepted',
+    '--by',
+    'user',
+    '--review',
+    'direction-review',
+    '--verbatim-file',
+    join(dir, 'evidence/approval.txt'),
+    '--source',
+    'synthetic example',
+  ]);
+  signoffCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+
+  const reopen2At = acceptAt + 6000;
+  testClock.set(new Date(reopen2At));
+  reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', reopenWords]);
+
+  const v5At = reopen2At + 1000;
+  registerRig(5, new Date(v5At).toISOString(), v5At);
+  const v5StillPath = 'outputs/v5/idle/idle@4fps/f0000.png';
+  const v5StillSha = sha256(readFileSync(join(dir, v5StillPath)));
+  const withV5Still = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const v5Entry = arr(withV5Still.versions).map(obj).find(v => v.n === 5)!;
+  v5Entry.evidence = [{ kind: 'still', path: v5StillPath, sha256: v5StillSha, camera: 'fixed', frame: 0 }];
+  writeFileSync(file, `${JSON.stringify(withV5Still, null, 2)}\n`);
+
+  const acceptV5At = v5At + 1000;
+  testClock.set(new Date(acceptV5At));
+  reviewCommand([
+    '5',
+    dir,
+    '--verdict',
+    'accepted',
+    '--by',
+    'user',
+    '--review',
+    'rig-review',
+    '--verbatim-file',
+    join(dir, 'evidence/approval.txt'),
+    '--source',
+    'synthetic example',
+  ]);
+  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  expect(runMainCapture(['advance', 'post-interview', dir], acceptV5At + 1000)).toMatchObject({ code: 0, stderr: '' });
+  testClock.set(new Date(acceptV5At + 2000));
+  signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  expect(runMainCapture(['advance', 'post', dir], acceptV5At + 3000)).toMatchObject({ code: 0, stderr: '' });
+  testClock.set(new Date(acceptV5At + 3000));
+  for (const id of ['camera', 'timing', 'composition']) {
+    stepStatusCommand([id, 'in-progress', dir, '--by', 'agent']);
+    stepStatusCommand([id, 'at-checkpoint', dir, '--by', 'agent']);
+    stepStatusCommand([id, 'done', dir, '--by', 'agent']);
+  }
+  expect(
+    runMainCapture(
+      ['scene', 'write', dir, '--rig', '5', '--background', 'inputs/background.png', '--citations-file', 'evidence/printed-scene-citations.json'],
+      acceptV5At + 3000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+  const afterV5SceneProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const latestV5Scene = obj(arr(afterV5SceneProject.scenes).at(-1));
+  const v5ModelPath = 'derived/review/v5/out/check/build/skeleton.model.json';
+  dirDoc.scene = { n: latestV5Scene.n!, path: latestV5Scene.path!, sha256: latestV5Scene.sha256! };
+  dirDoc.rig = { version: 5, model: { path: v5ModelPath, sha256: sha256(readFileSync(join(dir, v5ModelPath))) } };
+  writeFileSync(join(dir, 'evidence/direction-input.json'), JSON.stringify(dirDoc));
+  expect(
+    runMainCapture(
+      ['direction', 'write', '6', dir, '--file', 'evidence/direction-input.json', '--rig', '5'],
+      acceptV5At + 4000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['advance', 'direction-review', dir], acceptV5At + 5000)).toMatchObject({ code: 0, stderr: '' });
+
+  const afterSignedPostReopen = nextProject(dir, acceptV5At + 5000);
+  expect(afterSignedPostReopen.refusals).toEqual([]);
+  expect(afterSignedPostReopen.awaits).toEqual([
+    'versions[n=6].verdicts[review=direction-review]',
+    'signoffs[stage=direction-review]',
+  ]);
+  expect(afterSignedPostReopen.moves.some(m => m.lapse !== undefined)).toBe(false);
+  expect(afterSignedPostReopen.moves.some(m => m.act.includes('re-approve lapsed'))).toBe(false);
+  expect(afterSignedPostReopen.moves.some(m => m.review_act?.version_id !== 'v6' && m.review_act?.version_id !== undefined)).toBe(false);
+  expect(afterSignedPostReopen.moves.map(m => m.command)).toEqual([
+    `rig-create job open ${dir} --rig 6 --reviewer '<reviewer>' --role owner`,
+    null,
+    `rig-create job acts ${dir} --json`,
+    `rig-create review 6 ${dir} --from-review '<actId>'`,
+    `rig-create job close ${dir}`,
+    null,
+  ]);
+  expect(afterSignedPostReopen.moves[1]).toMatchObject({
+    role: 'human',
+    field: 'versions[v6].verdicts',
+    awaits: 'versions[n=6].verdicts[review=direction-review]',
+    review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v6', review: 'direction-review' },
+  });
+  expect(afterSignedPostReopen.moves[5]).toMatchObject({
+    role: 'human',
+    field: 'signoffs',
+    awaits: 'signoffs[stage=direction-review]',
+    review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v6' },
+  });
+  expect(afterSignedPostReopen.moves[5]!.act).toContain('after ingesting the accepted direction-review verdict for v6');
 });

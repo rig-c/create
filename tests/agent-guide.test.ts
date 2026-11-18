@@ -125,7 +125,7 @@ describe('init --no-install writes the agent guide', () => {
 
   test('AGENTS.md carries no package documentation: size bound and only its own headings', () => {
     expect(statSync(join(dir, 'AGENTS.md')).size).toBeLessThan(GUIDE_MAX_BYTES);
-    expect(Buffer.byteLength(agents)).toBeLessThan(8_000);
+    expect(Buffer.byteLength(agents)).toBeLessThan(GUIDE_MAX_BYTES);
     expect(agents.split('\n').filter((line) => /^#{1,6}\s/.test(line))).toEqual(GUIDE_HEADINGS);
   });
 

@@ -201,8 +201,20 @@ export function sceneRig(dir: string, project: JsonObject, n: number, snapshots?
   if (model.stage === null || model.stage === undefined) sceneFail('SCENE_STAGE_MISSING', String(binding.path), 'compile a model with a stage box');
   return { rig, stage: model.stage as JsonObject };
 }
+/** The acceptance seal alone; composed posts do not consume the character model's stage or frames. */
+export function sceneRigAcceptance(project: JsonObject, n: number): JsonObject {
+  const reopens = collectReopens(project, []);
+  const signature = collectSignoffs(project, []).filter(value => value.stage === 'rig-review' && value.checkpoint === null && liveSignoff(reopens, value.stage, value.at)
+    && isObject(value.record.target) && value.record.target.version === n).sort((a, b) => b.at - a.at)[0];
+  if (!signature || !isObject(signature.record.target)) sceneFail('SCENE_ACCEPTANCE_STALE', 'direction.rig.acceptance', 'sign the accepted rig before direction write --compose-out');
+  const target = signature.record.target;
+  const acceptance = { signoff: { stage: 'rig-review', checkpoint: null, at: signature.record.at! }, verdict: target.verdict!, review_package: target.review_package! };
+  const rig: JsonObject = { version: n, acceptance };
+  validateSceneAcceptance(project, rig); validateSceneCurrent(project, rig, true);
+  return acceptance;
+}
 /** Historical acceptance and its package seal are checked even after a reopen or later verdict. */
-function validateSceneAcceptance(project: JsonObject, rig: JsonObject): JsonObject {
+export function validateSceneAcceptance(project: JsonObject, rig: JsonObject): JsonObject {
   const { version, index } = rigVersion(project, Number(rig.version));
   const acceptance = rig.acceptance as JsonObject;
   const identity = acceptance.signoff as JsonObject;

@@ -1,4 +1,5 @@
 import { SceneError, committedScene, readScene, validateSceneCurrent } from './scene.ts';
+import { DIRECTION_COMPOSE_SPEC, validateComposeDirection, validateComposeDirectionShape } from './direction-compose.ts';
 import { fixedNotApplicableCamera } from './direction-citation.ts';
 /** Create owns these authored camera/timing bytes. No renderer or external producer runs here. */
 import { createHash } from 'node:crypto';
@@ -92,6 +93,7 @@ export function directionContract(project: JsonObject, now: number): JsonObject 
   return value;
 }
 export function validateDirectionShape(doc: JsonObject, path = 'direction'): void {
+  if (doc.schema === DIRECTION_COMPOSE_SPEC) return validateComposeDirectionShape(doc, path);
   const bad = (why: string): never => directionFail('DIRECTION_SCHEMA', path, why);
   const scene = doc.schema === DIRECTION_SCENE_SPEC;
   if (!closed(doc, ['schema','rig','take','camera','timing','citations', ...(scene ? ['scene'] : [])]) || ![DIRECTION_SPEC, DIRECTION_SCENE_SPEC].includes(String(doc.schema))) bad('expected closed direction@1 or direction@2');
@@ -133,7 +135,7 @@ export function validateDirectionCitations(dir: string, project: JsonObject, doc
   for (const section of ['camera','timing']) {
     const citation = (doc.citations as JsonObject)[section] as JsonObject;
     const item = items.find(i => i.id === citation.guide);
-    const fixedNotApplicable = fixedNotApplicableCamera(section, item, citation, doc);
+    const fixedNotApplicable = doc.schema !== DIRECTION_COMPOSE_SPEC && fixedNotApplicableCamera(section, item, citation, doc);
     if (!fixedNotApplicable) checkEntry(ctx,'post',`direction.citations.${section}`,citation);
     const currentAnswer=item && (item.state.state==='user'||item.state.state==='delegated')?item.state.answer:null;
     if(current && currentAnswer && objects(currentAnswer.asks).some(a=>a.state==='other-pending' || a.state==='delegated' && !isDecision(currentAnswer.agent_decision))) directionFail('DIRECTION_CITATION',`direction.citations.${section}`,'current per-ask selection is pending');
@@ -190,7 +192,7 @@ export function validateDirectionScene(dir: string, project: JsonObject, doc: Js
   }
 }
 export function requireDirectionScene(doc: JsonObject, at: number, path: string): void {
-  if (at >= Date.parse(DIRECTION_SCENE_SINCE) && doc.schema !== DIRECTION_SCENE_SPEC) directionFail('DIRECTION_SCENE_REQUIRED', path, 'run scene write and bind that scene in a direction@2 document');
+  if (at >= Date.parse(DIRECTION_SCENE_SINCE) && doc.schema !== DIRECTION_SCENE_SPEC && doc.schema !== DIRECTION_COMPOSE_SPEC) directionFail('DIRECTION_SCENE_REQUIRED', path, 'run scene write and bind that scene in a direction@2 document');
 }
 export function readDirection(dir: string, project: JsonObject, n: Json | undefined, current = false): JsonObject {
   const v = directionVersion(project,n); const prov = v.provenance;
@@ -201,10 +203,13 @@ export function readDirection(dir: string, project: JsonObject, n: Json | undefi
   const doc = directionJson(boundDirectionBytes(dir,binding),String(binding.path)); validateDirectionShape(doc,String(binding.path));
   if (!equal(prov.config,binding) || !objects(v.outputs).some(o=>equal(o,binding))) directionFail('DIRECTION_VERSION',`versions[v${String(n)}].provenance`,'config and declared output must bind the direction document');
   if ((doc.rig as JsonObject).version !== v.rig_version) directionFail('DIRECTION_RIG_STALE',`versions[v${String(n)}].rig_version`,'document and post bind different rigs');
+  if (doc.schema === DIRECTION_COMPOSE_SPEC && ((doc.compose as JsonObject).out !== `outputs/v${String(n)}/compose` || !objects(v.outputs).some(row => equal(row, (doc.compose as JsonObject).scene)))) directionFail('DIRECTION_COMPOSE_INVENTORY', `versions[v${String(n)}].outputs`, 'bind this post compose tree and retained scene in its own inventory');
   if (!isObject(prov.sections) || !['camera','timing'].every(section => {const entries=objects((prov.sections as JsonObject)[section]);return entries.length === 1 && equal(entries[0],{entry:section,...((doc.citations as JsonObject)[section] as JsonObject)});})) directionFail('DIRECTION_CITATION',`versions[v${String(n)}].provenance.sections`,'version citations must match authored document citations');
   requireDirectionScene(doc, Date.parse(String(v.at)), `versions[v${String(n)}].provenance.direction`);
   validateDirectionScene(dir, project, doc, current);
-  validateDirectionRig(dir,project,doc,current); validateDirectionCitations(dir,project,doc,current);
+  if (doc.schema === DIRECTION_COMPOSE_SPEC) validateComposeDirection(dir, project, doc, current);
+  else validateDirectionRig(dir,project,doc,current);
+  validateDirectionCitations(dir,project,doc,current);
   return doc;
 }
 export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Finding[];warnings?:Finding[]}, now: number, selected?: number, currentOverride?: boolean): void {
@@ -237,12 +242,13 @@ export function assertDirectionApproval(dir:string,project:JsonObject,stage:stri
 export function directionPostIdentity(dir:string,project:JsonObject,n:Json|undefined):JsonObject {
   const doc=readDirection(dir,project,n);const v=directionVersion(project,n);const prov=v.provenance as JsonObject;
   const scene = doc.scene as JsonObject | undefined;
-  return {kind:'post',n:n as number,config:prov.config as JsonObject,model:(doc.rig as JsonObject).model as JsonObject,direction:prov.direction as JsonObject,...(scene ? {scene:{path:scene.path!,sha256:scene.sha256!}} : {})};
+  return {kind:'post',n:n as number,config:prov.config as JsonObject,model:(doc.schema === DIRECTION_COMPOSE_SPEC ? doc.model : (doc.rig as JsonObject).model) as JsonObject,direction:prov.direction as JsonObject,...(scene ? {scene:{path:scene.path!,sha256:scene.sha256!}} : {})};
 }
 export function validateDirectionIdentity(dir:string,project:JsonObject,identity:JsonObject):void {
   if(!closed(identity,['kind','n','config','model','direction'],['scene']) || identity.kind!=='post' || !equal(identity,directionPostIdentity(dir,project,identity.n)))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.identity','expected exact bound direction post identity');
 }
 export function patchDirection(project:JsonObject,source:JsonObject,patch:JsonObject):JsonObject {
+  if (source.schema === DIRECTION_COMPOSE_SPEC) directionFail('DIRECTION_PATCH', 'direction.patch', 'a composed idle needs a new direction write --compose-out; camera/timing patches apply to direction@1/@2');
   if(!closed(patch,['schema','source_post','rig_model_sha256','direction_sha256','replace']) || patch.schema!==DIRECTION_PATCH_SPEC || !positiveInt(patch.source_post) || !hex(patch.rig_model_sha256) || !hex(patch.direction_sha256) || !closed(patch.replace,[],['camera','timing','take']) || Object.keys(patch.replace).length===0)directionFail('DIRECTION_PATCH','direction.patch','expected closed direction-patch/1 and typed whole replacements');
   const v=directionVersion(project,patch.source_post);const prov=v.provenance;
   if(v.kind!=='post' || !isObject(prov) || !isObject(prov.direction) || prov.direction.sha256!==patch.direction_sha256 || ((source.rig as JsonObject).model as JsonObject).sha256!==patch.rig_model_sha256)directionFail('DIRECTION_PATCH','direction.patch','patch base post/document/model do not match');

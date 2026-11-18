@@ -10,6 +10,8 @@ import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
+import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts';
+import { readDirection } from './direction.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
@@ -414,15 +416,17 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   if (selected !== `review-live-v${n}.json`) return selected;
   const selector = publicationSelector(project, n);
   const rig = selector.kind === 'post' ? selector.rigVersion : n;
-  const model = `derived/review/v${rig}/out/check/build/skeleton.model.json`;
-  publicationFile(root, model);
+  let model = `derived/review/v${rig}/out/check/build/skeleton.model.json`;
   let scene: string | undefined;
+  let composed = false;
   if (selector.kind === 'post') {
     const directionPath = `evidence/direction/v${n}.json`;
     let direction: JsonObject | undefined;
     try { direction = JSON.parse(publicationFile(root, directionPath).toString('utf8')) as JsonObject; } catch { /* Legacy manifests did not require a direction document. */ }
+    if (direction?.schema === DIRECTION_COMPOSE_SPEC) { composed = true; model = String((readDirection(root, project, n).model as JsonObject).path); }
     scene = sealedScene(root, project, directionPath, direction)?.path;
   }
+  publicationFile(root, model);
   const legacyManifest = {
     schema: 'rig-review/1', id: `create-v${n}`, revision: `v${n}`,
     title: selector.kind === 'post' ? `post v${n} (rig v${rig})` : `rig v${n}`,
@@ -436,6 +440,11 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   const sceneManifest = { ...legacyManifest, ...(scene ? { scene } : {}) };
   const sceneBytes = scene ? Buffer.from(`${JSON.stringify(sceneManifest, null, 2)}\n`) : legacyBytes;
   if (existing?.equals(legacyBytes) || existing?.equals(sceneBytes)) return path;
+  if (composed) {
+    if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; restore the composed manifest`);
+    writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
+    return path;
+  }
   // init permits projects without an original; publication did not require one.
   if (project.inputs === undefined || (Array.isArray(project.inputs) && project.inputs.length === 0)) {
     if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
@@ -474,6 +483,19 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   const selector = publicationSelector(project, result.selector.version);
   if (!isDeepStrictEqual(selector, result.selector) || result.path !== liveManifestPath(root, project, selector.version)) {
     refuse('JOB_PUBLICATION_INVALID', 'project.json: publication result differs from its recorded version; restore the writer result');
+  }
+  if (selector.kind === 'post') {
+    const directionPath = `evidence/direction/v${selector.version}.json`;
+    let raw: JsonObject | undefined;
+    try { raw = JSON.parse(publicationFile(root, directionPath).toString('utf8')); } catch { /* Legacy post path below. */ }
+    if (raw?.schema === DIRECTION_COMPOSE_SPEC) {
+      const doc = readDirection(root, project, selector.version);
+      const files = composeInventory(project, doc).map(row => ({ path: String(row.path), sha256: String(row.sha256) }));
+      files.push({ path: directionPath, sha256: jobHash(publicationFile(root, directionPath)) }, { path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
+      const steps = isObject(project.plan) ? asArray(project.plan.steps).filter(isObject) : [];
+      return { selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, parts: null,
+        subjects: reviewVerdictSignable(project, selector.version, 'direction-review') ? [{ kind: 'review-verdict', stage: 'direction-review' }] : [], partIds: [], files };
+    }
   }
   const rig = selector.kind === 'post' ? selector.rigVersion : selector.version;
   const rigVersion = (project.versions as JsonObject[]).find(version => version.n === rig);

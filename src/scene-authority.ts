@@ -84,7 +84,7 @@ export function parseAgentSceneValue(value: Json | undefined, valuePath: string)
   return { background, ...(foreground ? { foreground } : {}) };
 }
 
-function matchesCitationSurface(answer: JsonObject, citation: JsonObject): boolean {
+export function matchesCitationSurface(answer: JsonObject, citation: JsonObject): boolean {
   if (citation.delegated === true) {
     return (
       answer.delegated === true ||
@@ -101,7 +101,7 @@ function matchesCitationSurface(answer: JsonObject, citation: JsonObject): boole
   return false;
 }
 
-function resolveAnswerValue(
+export function resolveAnswerValue(
   dir: string,
   itemPath: string,
   answer: JsonObject,
@@ -313,6 +313,31 @@ export function resolveAgentCitationSpec(
   return parseAgentSceneValue(value, valuePath);
 }
 
+export function validateAgentPlateRegistration(dir: string, project: JsonObject, plates: JsonObject[], snapshots?: Map<string, Buffer>): void {
+  for (const [index, plate] of plates.entries()) {
+    const registration = plate.registered as JsonObject;
+    if (registration.kind === 'input') {
+      const match = /^inputs\[(\d+)\]$/.exec(String(registration.ref));
+      const entry = match ? asArray(project.inputs)[Number(match[1])] : undefined;
+      const bytes = sceneBytes(dir, String(plate.path), 'SCENE_PLATE_CHANGED', snapshots);
+      if (!isObject(entry) || entry.bytes !== bytes.length || !Number.isSafeInteger(entry.bytes)
+        || !text(entry.origin) || !text(entry.at) || !Number.isFinite(Date.parse(entry.at))) {
+        sceneFail('SCENE_INPUT_RECEIPT_MISSING', `scene.plates[${index}].registered`, 'candidate lacks input-writer metadata {path,sha256,bytes,origin,at}',
+          'register a new source name with input add <path> --origin … and select it through the Review choice');
+      }
+    }
+    if (registration.kind === 'derived') {
+      const match = /^derived\[(\d+)\]$/.exec(String(registration.ref));
+      const entry = match ? asArray(project.derived)[Number(match[1])] : undefined;
+      if (!isObject(entry) || !isObject(entry.receipt) || typeof entry.receipt.path !== 'string') sceneFail('SCENE_PLATE_UNREGISTERED', `scene.plates[${index}].registered`, 'agent scene derived plate requires a bound rig-parts-plate-receipt/1 receipt');
+      if (snapshots) sceneBytes(dir, entry.receipt.path, 'SCENE_FILE_CHANGED', snapshots);
+      const findings: Finding[] = [];
+      checkPlateReceipt({ dir, refusals: findings }, entry, `derived[${match![1]}]`);
+      if (findings.length) sceneFail('SCENE_PLATE_UNREGISTERED', `scene.plates[${index}].registered`, 'agent scene derived plate has an invalid rig-parts-plate-receipt/1 receipt');
+    }
+  }
+}
+
 export function validateAgentSceneAuthority(
   dir: string,
   project: JsonObject,
@@ -322,33 +347,7 @@ export function validateAgentSceneAuthority(
   current = false,
 ): void {
   const plates = doc.plates as JsonObject[];
-  for (const [index, plate] of plates.entries()) {
-    const registration = plate.registered as JsonObject;
-    if (registration.kind === 'input') {
-      const match = /^inputs\[(\d+)\]$/.exec(String(registration.ref));
-      const entry = match ? asArray(project.inputs)[Number(match[1])] : undefined;
-      const bytes = sceneBytes(dir, String(plate.path), 'SCENE_PLATE_CHANGED', snapshots);
-      if (!isObject(entry) || entry.bytes !== bytes.length || !Number.isSafeInteger(entry.bytes)
-        || !text(entry.origin) || !text(entry.at) || !Number.isFinite(Date.parse(entry.at))) {
-        sceneFail('SCENE_INPUT_RECEIPT_MISSING', `scene.plates[${index}].registered`,
-          'candidate lacks input-writer metadata {path,sha256,bytes,origin,at}',
-          'register a new source name with input add <path> --origin … and select it through the Review choice');
-      }
-    }
-    if (registration.kind === 'derived') {
-      const match = /^derived\[(\d+)\]$/.exec(String(registration.ref));
-      const entry = match ? asArray(project.derived)[Number(match[1])] : undefined;
-      if (!isObject(entry) || !isObject(entry.receipt) || typeof entry.receipt.path !== 'string') {
-        sceneFail('SCENE_PLATE_UNREGISTERED', `scene.plates[${index}].registered`, 'agent scene derived plate requires a bound rig-parts-plate-receipt/1 receipt');
-      }
-      if (snapshots) sceneBytes(dir, entry.receipt.path, 'SCENE_FILE_CHANGED', snapshots);
-      const receiptFindings: Finding[] = [];
-      checkPlateReceipt({ dir, refusals: receiptFindings }, entry, `derived[${match![1]}]`);
-      if (receiptFindings.length > 0) {
-        sceneFail('SCENE_PLATE_UNREGISTERED', `scene.plates[${index}].registered`, 'agent scene derived plate has an invalid rig-parts-plate-receipt/1 receipt');
-      }
-    }
-  }
+  validateAgentPlateRegistration(dir, project, plates, snapshots);
   const item = ctx.items.find(value => value.id === 'post_composition');
   if (!item) sceneFail('SCENE_CITATION_MISSING', 'scene.plates[0].citation', 'cite a recorded post_composition answer or decided delegation');
   if (plates.length === 2) {

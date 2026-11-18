@@ -2722,3 +2722,79 @@ swap, avoiding cached parts modules. Added or changed refusals abort the move;
 the record, manifest, lockfile and original install are restored. Complete
 this command before another process reads or writes the project. This is an
 operator pin migration, not a review verdict or stage transition.
+
+## Composed idle direction (direction@3, create#600 and #601)
+
+The composed route carries the layers and character motion inside one model.
+The view is fixed at that model's stage. It has no camera keys, timing keys,
+clip selector or Create scene record. `scene write` is not part of this route.
+Existing direction@1 and @2 documents and publications retain their contracts.
+No new SINCE applies: these rules apply only to direction@3.
+
+Record `post_composition.value.compose` through its Review choice (or resolved
+delegation), and `post_timing.value` with `seconds` and `loop: true`. The compose
+value supplies canvas, named plates, order, character offset/scale and idle
+tracks in Parts' own vocabulary. Copy these into `spine-parts-scene/1` and run
+Parts compose. Create reads its producer reports and never repeats dial-range,
+loop-closure or canvas-containment measurements. A smaller canvas than the
+accepted character's stage is allowed.
+
+```sh
+rig-create direction write 5 <dir> --file evidence/composed-direction.json --rig 2 --compose-out derived/compose --compose-scene composed.scene.json
+rig-create direction check 5 <dir> --json
+rig-create job open <dir> --rig 5 --reviewer owner --role owner
+```
+
+The closed `rig-create/direction@3` document contains exactly these fields:
+
+| Field | Contents |
+| --- | --- |
+| `schema` | `rig-create/direction@3` |
+| `rig` | `{version,acceptance}`; the writer fills the same rig-review signoff, verdict reference and review-package seal used by scene@1. Authored input may omit `acceptance`; supplied acceptance is replaced from the record. |
+| `compose` | `{scene:{path,sha256},out,report:{path,sha256},check:{path,sha256},run:{path,sha256}}` |
+| `model` | `{path,sha256}` of `outputs/v<N>/compose/check/build/skeleton.model.json` |
+| `take` | `{duration,loop}`; duration equals compiled idle duration, cited timing seconds and compose track end; loop and cited timing loop must both be true |
+| `citations` | `{camera,timing,composition}`; exact guide/ask citations for camera_depth, post_timing and post_composition, each with quote or delegated:true |
+
+The camera quote carries the recorded answer as it is. No camera value is
+parsed and no "fixed" answer is required. The compiled idle has no loop field;
+Create does not read one, nor `scene.animations.idle.loop`. Compose's green
+check proves closure. The take always repeats.
+
+As with other direction documents, input paths and hashes declare closed file
+bindings. On write, Create fills their final paths and actual raw-byte hashes:
+`compose.out` is `outputs/v<N>/compose`; `report`, `check` and `run` are that
+root's `scene.json`, `check/check.json` and `compose-run.json` respectively.
+The writer copies every compose file byte-for-byte, inventories it in the
+post's `outputs[]`, and retains the scene's exact bytes at
+`evidence/compose-src/v<N>/scene.json`, also inventoried. `--compose-scene`
+selects the original scene input; when omitted, its path comes from the input
+binding if present on disk, otherwise the producer report's `scene` path
+(resolved from the project root). Scene plate image strings remain the exact
+registered project-relative paths from the cited owner value.
+
+The source scene, report and model must agree with the cited canvas and
+placement. Each plate's bytes must pass `plateRegistration`, including input
+writer metadata or a complete prepared-input/plate receipt chain. Composition
+must come from the recorded Review choice or decided delegation. The producer
+report must give the character shift as `[0,0]`; the composed model stage is
+`{x:-canvas.width/2,y:0,width:canvas.width,height:canvas.height}`. The character
+rig's stage is never used for that equality. The producer check must report
+`PASS: true` and `gate_spine_html_green: true`.
+
+`compose-run.json` is bound by bytes and must identify `rig-compose-run/1`.
+Until the Parts #1348 field contract is served, accepted-rig input comparison
+is explicitly **not yet applicable** (`composeRunMatchesAcceptedRig`); no
+character-input or plate hash layout is guessed. This is a remaining producer
+integration gate, not proof that the composed character used the accepted rig.
+
+A refused write leaves `project.json` byte-identical and removes its newly
+staged compose and scene copies. Existing immutable destinations refuse.
+The camera/timing patch command remains for @1/@2; a changed composed take uses
+a new `direction write` with newly produced compose output.
+
+For @3, `job open --rig <N>` publishes `model.path` and the post's frozen compose
+inventory at its original paths, including atlas and pages, plus the direction
+document and manifest. It does not substitute the accepted character package.
+Review's direction@3 consumer is a separate contract; Create-side publication
+alone does not prove that an older installed Review can inspect it.

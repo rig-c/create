@@ -1747,8 +1747,8 @@ These findings apply only to @3; @1/@2 retain their existing rules. Existing
 `SCENE_PLATE_UNREGISTERED`, `SCENE_CHOICE_MISSING` and `SCENE_CITATION_MISSING`
 also apply when the moved acceptance, registration or authority checks fail.
 Use `direction write --compose-out` to record a corrected composed post.
-No date switch is needed. Accepted-rig input comparison of `rig-compose-run/1`
-remains not yet applicable until Parts supplies its field contract.
+No date switch is needed. The closed Parts `rig-compose-run/1` record binds
+the retained scene and every consumed character and plate to registered bytes.
 
 | Code | Refuses when | Remedy |
 | --- | --- | --- |
@@ -1756,7 +1756,10 @@ remains not yet applicable until Parts supplies its field contract.
 | `DIRECTION_COMPOSE_FILE` | a compose or plate source is missing, unreadable, symlinked, nonregular, or an immutable destination exists | retain regular producer files and select a new post number |
 | `DIRECTION_COMPOSE_HASH` | a bound compose/model/scene file differs from its recorded raw-byte SHA256 | restore the frozen bytes or write a new composed post |
 | `DIRECTION_COMPOSE_INVENTORY` | a post does not bind its own compose tree and retained scene, or files differ from its inventory | restore the exact outputs inventory and bytes; use direction write for new output |
-| `DIRECTION_COMPOSE_RUN` | compose-run.json does not declare rig-compose-run/1 | retain Parts' compose run record, not core run.json |
+| `DIRECTION_COMPOSE_RUN` | compose-run.json is not the closed rig-compose-run/1 shape, has invalid SHA256 bindings, duplicate character ids/file paths/plate names, unknown consumed file roles, or lacks the consumed check/check.json binding | retain the complete Parts compose run record with scene, characters, plate and plates; compose again |
+| `DIRECTION_COMPOSE_RUN_SCENE` | the producer scene SHA256 differs from the exact retained scene bytes | compose from that scene again and write a new post |
+| `DIRECTION_COMPOSE_RUN_RIG` | a consumed character id/build differs from the scene; the accepted review_package.from or frozen inventory is absent; mandatory parts.json, rig/rig.json or rig/motion.json entries are missing or hash-mismatched in either direction; a consumed rig/images/* entry is absent or hash-mismatched in the frozen or sealed inventory; frozen outputs differ from the sealed package or their retained bytes | restore the accepted rig's frozen build and compose again; unused accepted images may be absent from the run because Parts records only distinct default-skin images it consumed; check/check.json is recorded by Parts but is not compared to the rig record |
+| `DIRECTION_COMPOSE_RUN_PLATE` | consumed named plate names, paths or hashes differ from the registered scene plates, a plate is missing or extra, or a nonnull legacy plate does not bind registered plate bytes | compose again using the registered plate bytes and write a new post |
 | `DIRECTION_COMPOSE_GREEN` | the composed check does not report PASS:true and gate_spine_html_green:true | correct the scene and produce a green Parts compose |
 | `DIRECTION_COMPOSE_PLATE_UNREGISTERED` | a scene plate has no matching registered input or complete prepared-input chain | register its bytes through input add or the prepared-input writers |
 | `DIRECTION_COMPOSE_CITATION` | timing or composition lacks a matching resolved cited answer, or new authoring cites a superseded answer | record and cite the current owner choice or decided delegation |

@@ -2782,11 +2782,32 @@ report must give the character shift as `[0,0]`; the composed model stage is
 rig's stage is never used for that equality. The producer check must report
 `PASS: true` and `gate_spine_html_green: true`.
 
-`compose-run.json` is bound by bytes and must identify `rig-compose-run/1`.
-Until the Parts #1348 field contract is served, accepted-rig input comparison
-is explicitly **not yet applicable** (`composeRunMatchesAcceptedRig`); no
-character-input or plate hash layout is guessed. This is a remaining producer
-integration gate, not proof that the composed character used the accepted rig.
+`compose-run.json` is bound by bytes and must have Parts' closed
+`rig-compose-run/1` shape: `{spec,scene:{path,sha256},characters:[{id,build,
+files:[{path,sha256}]}],plate:{path,sha256}|null,plates:[{name,path,sha256}]}`.
+Its scene hash must equal the retained scene's raw-byte hash, including
+whitespace. Character ids and build strings must match the scene. Create
+compares the consumed `parts.json`, `rig/rig.json`, `rig/motion.json` and
+`rig/images/*` files against the accepted rig's `versions[].outputs`, relative
+to `versions[].review_package.from`. The three mandatory files must agree in
+both directions. Parts consumes only distinct images named by the default
+skin, including generator depth images: every consumed image must exist with
+the same hash in the frozen outputs and acceptance-sealed package's `out/`
+files, while unused accepted images may be absent from the run. The frozen
+and sealed file sets and hashes must still agree with each other, including
+unused images, and frozen bytes must match those hashes. A missing root,
+mandatory file or consumed image, or a changed hash refuses. The consumed
+`check/check.json` binding is required in the run record but is not compared to
+the rig record, which need not retain that report. The original scene and
+character build paths are provenance strings; they are not reopened or
+required to equal the frozen paths when the hashes agree.
+
+All consumed named plate bindings must exactly match the registered scene
+plates by name, path and raw-byte hash, without missing or extra entries. A
+nonnull legacy `plate` binding must also match registered plate bytes; it is
+never ignored. New @3 scenes still use the cited named-plate vocabulary.
+The character comparison takes a list of bindings; @3 currently authorizes
+exactly one accepted rig, not a second registered character.
 
 A refused write leaves `project.json` byte-identical and removes its newly
 staged compose and scene copies. Existing immutable destinations refuse.

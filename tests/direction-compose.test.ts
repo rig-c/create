@@ -2,9 +2,10 @@ import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { directionHash, directionPostIdentity, objects, readDirection, validateDirectionShape } from '../src/direction.ts';
-import { composeRunMatchesAcceptedRig } from '../src/direction-compose.ts';
+import { composeRunMatchesAcceptedRig, readComposeRun } from '../src/direction-compose.ts';
 import { prepareLiveManifest, readPublished } from '../src/job-publication.ts';
-import { composeFixture } from './direction-compose-fixture.ts';
+import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
+import { reviewPackageHash } from '../src/signoff-target.ts';
 import { checkDirections, directionCommand, testClock } from './clock.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -30,7 +31,6 @@ test('direction@3 freezes a two-plate idle, fills the rig seal and checks withou
   const ctx = { dir: f.dir, project: p, refusals: [], warnings: [] }; checkDirections(ctx);
   expect(ctx.refusals).toEqual([]); expect(ctx.warnings).toEqual([]);
   expect(readFileSync(join(f.dir, 'outputs/v2/compose/check/build/skeleton.atlas'), 'utf8')).toBe('synthetic atlas');
-  expect(composeRunMatchesAcceptedRig()).toBe('not yet applicable');
 });
 
 test('direction@3 publishes the compose model, atlas and pages without the character package', async () => {
@@ -121,6 +121,165 @@ test('DIRECTION_COMPOSE_RUN refuses a different producer run spec', () => {
   const f = fixture(); f.put('compose-out/compose-run.json', { spec: 'other/1' }); rejected(f, 'DIRECTION_COMPOSE_RUN');
 });
 
+const consumedFiles = (f: ReturnType<typeof fixture>) => objects(objects(f.run.characters)[0]!.files);
+function saveRun(f: ReturnType<typeof fixture>) { f.put('compose-out/compose-run.json', f.run); }
+function reseal(f: ReturnType<typeof fixture>, p: JsonObject) {
+  const pkg = objects(p.versions)[0]!.review_package as JsonObject;
+  const signoff = objects(p.signoffs).find(s => s.stage === 'rig-review')!;
+  ((signoff.target as JsonObject).review_package as JsonObject).sha256 = reviewPackageHash(pkg);
+  f.save(p);
+}
+
+const malformedRuns: [string, (run: JsonObject) => void][] = [
+  ['missing scene', run => { delete run.scene; }],
+  ['missing characters', run => { delete run.characters; }],
+  ['missing plate', run => { delete run.plate; }],
+  ['missing plates', run => { delete run.plates; }],
+  ['unknown top-level field', run => { run.clock = 'not in the contract'; }],
+  ['unknown scene field', run => { (run.scene as JsonObject).extra = true; }],
+  ['invalid scene hash', run => { (run.scene as JsonObject).sha256 = 'bad'; }],
+  ['empty scene path', run => { (run.scene as JsonObject).path = ''; }],
+  ['nonobject character', run => { run.characters = [null]; }],
+  ['empty characters', run => { run.characters = []; }],
+  ['duplicate character', run => { (run.characters as JsonObject[]).push(structuredClone(objects(run.characters)[0]!)); }],
+  ['unknown character field', run => { objects(run.characters)[0]!.extra = true; }],
+  ['missing build', run => { delete objects(run.characters)[0]!.build; }],
+  ['nonarray files', run => { objects(run.characters)[0]!.files = {}; }],
+  ['unknown file field', run => { objects(objects(run.characters)[0]!.files)[0]!.extra = true; }],
+  ['invalid file hash', run => { objects(objects(run.characters)[0]!.files)[0]!.sha256 = 'bad'; }],
+  ['duplicate file', run => { const c = objects(run.characters)[0]!; (c.files as JsonObject[]).push(structuredClone(objects(c.files)[0]!)); }],
+  ['unsafe file path', run => { objects(objects(run.characters)[0]!.files)[1]!.path = '../parts.json'; }],
+  ['unknown consumed file', run => { objects(objects(run.characters)[0]!.files)[1]!.path = 'unrelated.json'; }],
+  ['missing consumed check', run => { const c = objects(run.characters)[0]!; c.files = objects(c.files).filter(f => f.path !== 'check/check.json'); }],
+  ['unknown legacy plate field', run => { run.plate = { path: 'background.png', sha256: 'a'.repeat(64), extra: true }; }],
+  ['invalid legacy plate hash', run => { run.plate = { path: 'background.png', sha256: 'bad' }; }],
+  ['nonarray plates', run => { run.plates = {}; }],
+  ['nonobject plate', run => { run.plates = [null]; }],
+  ['unknown named plate field', run => { objects(run.plates)[0]!.extra = true; }],
+  ['invalid named plate hash', run => { objects(run.plates)[0]!.sha256 = 'bad'; }],
+  ['missing plate name', run => { delete objects(run.plates)[0]!.name; }],
+  ['duplicate plate name', run => { objects(run.plates)[1]!.name = objects(run.plates)[0]!.name!; }],
+];
+for (const [name, mutate] of malformedRuns) test(`DIRECTION_COMPOSE_RUN refuses ${name} without writing`, () => {
+  const f = fixture(); mutate(f.run); saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN');
+});
+for (const bytes of ['not JSON', '[]', '{"spec":"rig-compose-run/1"}']) test(`DIRECTION_COMPOSE_RUN refuses incomplete producer bytes ${bytes}`, () => {
+  const f = fixture(); f.put('compose-out/compose-run.json', bytes); rejected(f, 'DIRECTION_COMPOSE_RUN');
+});
+
+const rigFiles = ['parts.json', 'rig/rig.json', 'rig/motion.json', 'rig/images/body.png', 'rig/images/depth.png'];
+for (const path of rigFiles) {
+  test(`DIRECTION_COMPOSE_RUN_RIG refuses changed consumed ${path}`, () => {
+    const f = fixture(); consumedFiles(f).find(row => row.path === path)!.sha256 = '0'.repeat(64); saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+  });
+  if (path.startsWith('rig/images/')) test(`direction@3 permits accepted image ${path} absent from the consumed set`, () => {
+    const f = fixture(); objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== path); saveRun(f);
+    expect(f.publish().exit).toBe(0); expect(() => readDirection(f.dir, f.load(), 2)).not.toThrow();
+  });
+  else test(`DIRECTION_COMPOSE_RUN_RIG refuses missing consumed ${path}`, () => {
+    const f = fixture(); objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== path); saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+  });
+  test(`DIRECTION_COMPOSE_RUN_RIG refuses missing frozen inventory ${path}`, () => {
+    const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!;
+    rig.outputs = objects(rig.outputs).filter(row => row.path !== `outputs/v1/out/${path}`); f.save(p); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+  });
+}
+test('DIRECTION_COMPOSE_RUN_RIG refuses an additional consumed image', () => {
+  const f = fixture(); (objects(f.run.characters)[0]!.files as JsonObject[]).push({ path: 'rig/images/extra.png', sha256: '0'.repeat(64) });
+  saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('direction@3 permits an extra unused image in matching frozen and sealed inventories', () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!; const pkg = rig.review_package as JsonObject;
+  const image = f.put('outputs/v1/out/rig/images/unused.png', 'synthetic unused encoded image');
+  rig.outputs = [...objects(rig.outputs), image];
+  pkg.files = [...objects(pkg.files), { path: 'out/rig/images/unused.png', sha256: image.sha256! }]; reseal(f, p);
+  expect(consumedFiles(f).some(row => row.path === 'rig/images/unused.png')).toBe(false);
+  expect(f.publish().exit).toBe(0); expect(() => readDirection(f.dir, f.load(), 2)).not.toThrow();
+});
+for (const inventory of ['sealed', 'both']) test(`DIRECTION_COMPOSE_RUN_RIG refuses a consumed image absent from ${inventory} inventories`, () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!; const pkg = rig.review_package as JsonObject;
+  pkg.files = objects(pkg.files).filter(row => row.path !== 'out/rig/images/depth.png');
+  if (inventory === 'both') rig.outputs = objects(rig.outputs).filter(row => row.path !== 'outputs/v1/out/rig/images/depth.png');
+  reseal(f, p); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('DIRECTION_COMPOSE_RUN_RIG refuses differing frozen and sealed image sets even when the image is unused', () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!;
+  rig.outputs = objects(rig.outputs).filter(row => row.path !== 'outputs/v1/out/rig/images/depth.png'); f.save(p);
+  objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== 'rig/images/depth.png'); saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('DIRECTION_COMPOSE_RUN_RIG refuses differing frozen and sealed hashes for an unused image', () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!;
+  objects(rig.outputs).find(row => row.path === 'outputs/v1/out/rig/images/depth.png')!.sha256 = '0'.repeat(64); f.save(p);
+  objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== 'rig/images/depth.png'); saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('DIRECTION_COMPOSE_RUN_RIG refuses an inventory hash outside the accepted package seal', () => {
+  const f = fixture(); const p = f.load(); objects(objects(p.versions)[0]!.outputs)[0]!.sha256 = '0'.repeat(64);
+  consumedFiles(f).find(row => row.path === 'parts.json')!.sha256 = '0'.repeat(64); f.save(p); saveRun(f);
+  rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('DIRECTION_COMPOSE_RUN_RIG refuses mandatory rig files absent from both lists', () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!; const pkg = rig.review_package as JsonObject;
+  rig.outputs = objects(rig.outputs).filter(row => row.path !== 'outputs/v1/out/parts.json');
+  pkg.files = objects(pkg.files).filter(row => row.path !== 'out/parts.json'); reseal(f, p);
+  objects(f.run.characters)[0]!.files = consumedFiles(f).filter(row => row.path !== 'parts.json'); saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+for (const field of ['from', 'outputs']) test(`DIRECTION_COMPOSE_RUN_RIG refuses absent accepted ${field}`, () => {
+  const f = fixture(); const p = f.load(); const rig = objects(p.versions)[0]!;
+  if (field === 'from') delete (rig.review_package as JsonObject).from; else delete rig.outputs;
+  reseal(f, p); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+for (const field of ['id', 'build']) test(`DIRECTION_COMPOSE_RUN_RIG refuses a character ${field} differing from the retained scene`, () => {
+  const f = fixture(); objects(f.run.characters)[0]![field] = 'different'; saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_RIG');
+});
+test('direction@3 compares build bytes across paths and does not compare the consumed check hash', () => {
+  const f = fixture(); consumedFiles(f).find(row => row.path === 'check/check.json')!.sha256 = 'f'.repeat(64);
+  // producer-build differs from the accepted outputs/v1/out; check/check.json is not frozen there.
+  expect(existsSync(join(f.dir, 'outputs/v1/out/check/check.json'))).toBe(false);
+  saveRun(f); expect(f.publish().exit).toBe(0);
+});
+test('composeRunMatchesAcceptedRig compares every character in its binding list', () => {
+  const f = fixture(); const rig = objects(f.load().versions)[0]!;
+  const second = structuredClone(objects(f.run.characters)[0]!); second.id = 'other'; second.build = 'another-build';
+  (f.run.characters as JsonObject[]).push(second);
+  const compare = () => composeRunMatchesAcceptedRig(f.dir, readComposeRun(Buffer.from(JSON.stringify(f.run)), 'compose-run.json'),
+    [{ id: 'actor', build: 'producer-build', rig }, { id: 'other', build: 'another-build', rig }], 'compose-run.json');
+  expect(compare).not.toThrow();
+  objects(second.files).find(row => row.path === 'rig/rig.json')!.sha256 = '0'.repeat(64);
+  expect(compare).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_RUN_RIG' }));
+});
+for (const target of ['missing', 'changed']) test(`DIRECTION_COMPOSE_RUN_RIG reads ${target} frozen bytes at check`, () => {
+  const f = fixture(); f.publish();
+  if (target === 'missing') rmSync(join(f.dir, 'outputs/v1/out/rig/images/depth.png'));
+  else f.put('outputs/v1/out/rig/images/depth.png', 'changed');
+  expect(() => readDirection(f.dir, f.load(), 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_RUN_RIG' }));
+});
+test('DIRECTION_SOURCE_CHANGED snapshots accepted rig bytes before committing', () => {
+  const f = fixture(); rejected(f, 'DIRECTION_SOURCE_CHANGED', () => f.publish({ beforeCommit: () => f.put('outputs/v1/out/rig/images/depth.png', 'changed') }));
+});
+test('DIRECTION_COMPOSE_RUN_SCENE compares retained raw scene bytes, including whitespace', () => {
+  const f = fixture(); f.put('compose.scene.json', `${JSON.stringify(f.scene, null, 2)}\n`); rejected(f, 'DIRECTION_COMPOSE_RUN_SCENE');
+});
+test('direction@3 does not reopen the producer scene or build paths', () => {
+  const f = fixture(); (f.run.scene as JsonObject).path = 'unavailable-source/scene.json'; saveRun(f);
+  expect(f.publish().exit).toBe(0);
+});
+for (const target of ['name', 'path', 'hash', 'missing', 'extra', 'legacy']) test(`DIRECTION_COMPOSE_RUN_PLATE refuses ${target} plate binding`, () => {
+  const f = fixture();
+  if (target === 'name') objects(f.run.plates)[0]!.name = 'different';
+  if (target === 'path') objects(f.run.plates)[0]!.path = 'unregistered.png';
+  if (target === 'hash') objects(f.run.plates)[0]!.sha256 = '0'.repeat(64);
+  if (target === 'missing') f.run.plates = objects(f.run.plates).slice(1);
+  if (target === 'extra') (f.run.plates as JsonObject[]).push({ name: 'extra', path: 'background.png', sha256: f.background.sha256! });
+  if (target === 'legacy') f.run.plate = { path: 'background.png', sha256: '0'.repeat(64) };
+  saveRun(f); rejected(f, 'DIRECTION_COMPOSE_RUN_PLATE');
+});
+test('direction@3 checks a nonnull legacy run plate against registered bytes too', () => {
+  const f = fixture(); f.run.plate = { path: f.background.path!, sha256: f.background.sha256! }; saveRun(f);
+  expect(f.publish().exit).toBe(0);
+});
+
 test('DIRECTION_SOURCE_CHANGED rolls back compose and scene if source bytes move before commit', () => {
   const f = fixture(); rejected(f, 'DIRECTION_SOURCE_CHANGED', () => f.publish({ beforeCommit: () => f.put('compose-out/check/build/page.png', 'changed') }));
 });
@@ -154,6 +313,12 @@ test('direction@3 integrates into the filled project with zero check refusals', 
     inputCommand(['add', name, dir, '--origin', 'synthetic plate']);
   }
   const p = load();
+  // This legacy synthetic example retains the files but inventories only its old export pair.
+  const accepted = objects(p.versions).find(v => v.n === 2)!;
+  const pkg = accepted.review_package as JsonObject;
+  accepted.outputs = [...objects(accepted.outputs), ...objects(pkg.files).filter(row => typeof row.path === 'string' && row.path.startsWith('out/')
+    && (['parts.json', 'rig/rig.json', 'rig/motion.json'].includes(row.path.slice(4)) || row.path.startsWith('out/rig/images/')))
+    .map(row => ({ path: `${String(pkg.from)}/${String(row.path).slice(4)}`, sha256: row.sha256! }))];
   const context = optionContext(p, 'post-interview', testClock.now(), dir);
   const items = collectItems(p, { collection: null });
   for (const [id, value] of [['post_composition', { compose: f.value }], ['post_timing', { seconds: 4, loop: true, beats: [] }]] as const) {
@@ -171,6 +336,7 @@ test('direction@3 integrates into the filled project with zero check refusals', 
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
   advanceCommand(['post', dir]);
   cpSync(join(f.dir, 'compose-out'), join(dir, 'compose-out'), { recursive: true }); cpSync(join(f.dir, 'compose.scene.json'), join(dir, 'compose.scene.json'));
+  writeFileSync(join(dir, 'compose-out/compose-run.json'), JSON.stringify(composeRunFixture(dir, load(), 2, f.scene)));
   const doc = structuredClone(f.doc); doc.rig = { version: 2 };
   const citations = doc.citations as JsonObject;
   for (const [key, id] of [['camera', 'camera_depth'], ['timing', 'post_timing'], ['composition', 'post_composition']]) citations[key!] = { guide: id!, asks: [id!], quote: (items.find(i => i.id === id)!.raw as JsonObject).verbatim! };
@@ -182,6 +348,7 @@ test('direction@3 integrates into the filled project with zero check refusals', 
   expect(recorded.refusals).toEqual([]);
   expect(recorded.reads!.map(row => row.path)).toContain('outputs/v5/compose/check/build/page.png');
   expect(recorded.reads!.map(row => row.path)).toContain('evidence/compose-src/v5/scene.json');
+  expect(recorded.reads!.map(row => row.path)).toContain('outputs/v2/out/rig/images/face.png');
   const { nextProject } = await import('../src/next.ts');
   const moves = nextProject(dir, testClock.now());
   expect(JSON.stringify(moves)).not.toContain('scenes[n=1]');

@@ -4,7 +4,7 @@ import { lstatSync, readdirSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { collectItems, isObject, loadCollection } from './check.ts';
 import { ComposeValueError, readComposeValue } from './compose-value.ts';
-import { closed, directionFail, directionHash, directionJson, objects } from './direction.ts';
+import { closed, directionFail, directionHash, directionJson, hex, objects } from './direction.ts';
 import { answersOf } from './provenance.ts';
 import { plateRegistration, sceneBinding, sceneBytes, validateSceneAcceptance, validateSceneCurrent, SceneError } from './scene.ts';
 import { matchesCitationSurface, resolveAnswerValue, validateAgentPlateRegistration } from './scene-authority.ts';
@@ -34,12 +34,76 @@ export function validateComposeDirectionShape(doc: JsonObject, path = 'direction
   }
 }
 
-/** Parts #1348 has not supplied a field-level accepted-build comparison contract yet. */
-export function composeRunMatchesAcceptedRig(): 'not yet applicable' { return 'not yet applicable'; }
-export function readComposeRun(bytes: Buffer, path: string): JsonObject {
-  const run = directionJson(bytes, path);
-  if (run.spec !== 'rig-compose-run/1') directionFail('DIRECTION_COMPOSE_RUN', path, 'retain the producer rig-compose-run/1 record, not a core run.json');
-  return run;
+interface RunFile { path: string; sha256: string }
+interface ComposeRun {
+  spec: 'rig-compose-run/1';
+  scene: RunFile;
+  characters: { id: string; build: string; files: RunFile[] }[];
+  plate: RunFile | null;
+  plates: { name: string; path: string; sha256: string }[];
+}
+const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+const relativePath = (v: unknown): v is string => text(v) && !v.startsWith('/') && !v.includes('\\') && !/^[A-Za-z]:/.test(v) && v.split('/').every(p => p !== '' && p !== '.' && p !== '..');
+const runFile = (v: unknown): boolean => closed(v, ['path', 'sha256']) && text(v.path) && hex(v.sha256);
+const mandatoryRigFiles = ['parts.json', 'rig/rig.json', 'rig/motion.json'];
+const rigFile = (path: string): boolean => mandatoryRigFiles.includes(path) || path.startsWith('rig/images/');
+export function readComposeRun(bytes: Buffer, path: string): ComposeRun {
+  const bad = (): never => directionFail('DIRECTION_COMPOSE_RUN', path, 'retain the closed Parts rig-compose-run/1 record with scene, characters, plate and plates; compose again');
+  let run: JsonObject;
+  try { run = directionJson(bytes, path); } catch { return bad(); }
+  if (!closed(run, ['spec', 'scene', 'characters', 'plate', 'plates']) || run.spec !== 'rig-compose-run/1'
+    || !runFile(run.scene) || !(run.plate === null || runFile(run.plate)) || !Array.isArray(run.characters) || !Array.isArray(run.plates)) return bad();
+  const characters = objects(run.characters); const plates = objects(run.plates);
+  if (characters.length !== run.characters.length || characters.length === 0 || new Set(characters.map(c => c.id)).size !== characters.length
+    || plates.length !== run.plates.length || new Set(plates.map(p => p.name)).size !== plates.length) return bad();
+  for (const c of characters) {
+    if (!closed(c, ['id', 'build', 'files']) || !text(c.id) || !text(c.build) || !Array.isArray(c.files)) return bad();
+    const files = objects(c.files);
+    if (files.length !== c.files.length || new Set(files.map(f => f.path)).size !== files.length
+      || files.some(f => !runFile(f) || !relativePath(f.path) || !(f.path === 'check/check.json' || rigFile(f.path)))
+      || !files.some(f => f.path === 'check/check.json')) return bad();
+  }
+  if (plates.some(p => !closed(p, ['name', 'path', 'sha256']) || !text(p.name) || !text(p.path) || !hex(p.sha256))) return bad();
+  return run as unknown as ComposeRun;
+}
+
+/** Compare a list of character bindings; the @3 authoring contract currently supplies one. */
+export function composeRunMatchesAcceptedRig(dir: string, run: ComposeRun, characters: readonly { id: string; build: string; rig: JsonObject }[], path: string, snapshots?: Map<string, Buffer>): void {
+  const bad = (where: string): never => directionFail('DIRECTION_COMPOSE_RUN_RIG', where, 'compose must bind the mandatory rig files and every consumed image to matching accepted frozen outputs and sealed package hashes; restore that build and compose again');
+  if (run.characters.length !== characters.length || new Set(characters.map(c => c.id)).size !== characters.length) bad(`${path}.characters`);
+  for (const c of characters) {
+    const consumed = run.characters.find(row => row.id === c.id);
+    if (!consumed || consumed.build !== c.build) return bad(`${path}.characters[${c.id}]`);
+    const pkg = c.rig.review_package;
+    const where = `versions[v${String(c.rig.n)}].review_package`;
+    if (!isObject(pkg) || !relativePath(pkg.from) || !Array.isArray(pkg.files) || !Array.isArray(c.rig.outputs)) return bad(where);
+    const root = `${pkg.from}/`;
+    const recorded = objects(c.rig.outputs).filter(row => typeof row.path === 'string' && row.path.startsWith(root) && rigFile(row.path.slice(root.length)));
+    const expected = recorded.map(row => ({ path: String(row.path).slice(root.length), sha256: row.sha256 }));
+    const sealed = objects(pkg.files).filter(row => typeof row.path === 'string' && row.path.startsWith('out/') && rigFile(row.path.slice(4)))
+      .map(row => ({ path: String(row.path).slice(4), sha256: row.sha256 }));
+    const actual = consumed.files.filter(row => rigFile(row.path));
+    const sorted = <T extends { path: string }>(rows: T[]): T[] => [...rows].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    // Parts records only distinct default-skin images it consumed, not directory extras.
+    if (!mandatoryRigFiles.every(name => expected.some(row => row.path === name))
+      || new Set(expected.map(row => row.path)).size !== expected.length || expected.some(row => !relativePath(row.path) || !hex(row.sha256))
+      || !equal(sorted(expected), sorted(sealed))
+      || !equal(sorted(expected.filter(row => mandatoryRigFiles.includes(row.path))), sorted(actual.filter(row => mandatoryRigFiles.includes(row.path))))
+      || actual.some(row => !expected.some(file => file.path === row.path && file.sha256 === row.sha256))) return bad(where);
+    for (const row of recorded) {
+      const bytes = sceneBytes(dir, String(row.path), 'DIRECTION_COMPOSE_RUN_RIG', snapshots);
+      if (directionHash(bytes) !== row.sha256) bad(String(row.path));
+    }
+  }
+}
+
+function validateComposeRunInputs(run: ComposeRun, scene: JsonObject, sceneSha256: string, registered: JsonObject[], path: string): void {
+  if (run.scene.sha256 !== sceneSha256) directionFail('DIRECTION_COMPOSE_RUN_SCENE', `${path}.scene`, 'compose again from the exact retained scene bytes');
+  const expected = objects(scene.plates).map(p => ({ name: p.name, path: p.image, sha256: registered.find(row => row.path === p.image)?.sha256 }));
+  const sorted = <T extends { name: unknown }>(rows: T[]): T[] => [...rows].sort((a, b) => String(a.name) < String(b.name) ? -1 : String(a.name) > String(b.name) ? 1 : 0);
+  if (!equal(sorted(run.plates), sorted(expected)) || run.plate !== null && !registered.some(row => row.path === run.plate!.path && row.sha256 === run.plate!.sha256)) {
+    directionFail('DIRECTION_COMPOSE_RUN_PLATE', `${path}.plates`, 'every consumed named or legacy plate must bind the registered plate path and sha256; compose again');
+  }
 }
 
 function bound(dir: string, binding: JsonObject, snapshots?: Map<string, Buffer>): Buffer {
@@ -83,7 +147,7 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
   try {
     validateComposeDirectionShape(doc);
     const rig = doc.rig as JsonObject;
-    validateSceneAcceptance(project, rig);
+    const acceptedRig = validateSceneAcceptance(project, rig);
     validateSceneCurrent(project, rig, current);
     const compose = doc.compose as JsonObject;
     const match = /^outputs\/v([1-9][0-9]*)\/compose$/.exec(String(compose.out));
@@ -110,7 +174,7 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     const scene = directionJson(bound(dir, compose.scene as JsonObject, snapshots), String(paths.scene));
     const report = directionJson(bound(dir, compose.report as JsonObject, snapshots), paths.report);
     const check = directionJson(bound(dir, compose.check as JsonObject, snapshots), paths.check);
-    readComposeRun(bound(dir, compose.run as JsonObject, snapshots), paths.run);
+    const run = readComposeRun(bound(dir, compose.run as JsonObject, snapshots), paths.run);
     const model = directionJson(bound(dir, doc.model as JsonObject, snapshots), String((doc.model as JsonObject).path));
     if (scene.spec !== 'spine-parts-scene/1' || report.spec !== 'spine-parts-scene-report/1') directionFail('DIRECTION_COMPOSE_SCHEMA', 'direction.compose', 'retain Parts scene input and scene-report/1 output');
     if (check.PASS !== true || check.gate_spine_html_green !== true) directionFail('DIRECTION_COMPOSE_GREEN', paths.check, 'compose must report PASS and gate_spine_html_green; rebuild with Parts');
@@ -146,6 +210,8 @@ export function validateComposeDirection(dir: string, project: JsonObject, doc: 
     if (take.loop !== true || !timing.some(v => v.loop === true)) directionFail('DIRECTION_COMPOSE_LOOP', 'direction.take.loop', 'take.loop and the cited post_timing.value.loop must both be true; compose green proves closure');
     const animation = objects(model.animations).filter(a => a.name === 'idle');
     if (animation.length !== 1 || animation[0]!.duration !== take.duration || !isObject(idle) || idle.duration !== take.duration || value.end !== take.duration || !timing.some(v => v.seconds === take.duration && v.loop === true)) directionFail('DIRECTION_COMPOSE_DURATION', 'direction.take.duration', 'match the compiled idle duration, cited timing seconds and compose track end');
+    composeRunMatchesAcceptedRig(dir, run, [{ id: String(character.id), build: String(character.build), rig: acceptedRig }], paths.run, snapshots);
+    validateComposeRunInputs(run, scene, String((compose.scene as JsonObject).sha256), registered, paths.run);
   } catch (e) {
     if (e instanceof SceneError || e instanceof ComposeValueError) directionFail(e.code, e.path, e.message);
     throw e;

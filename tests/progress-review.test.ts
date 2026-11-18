@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
-import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
+import { DIRECTION_REVIEW_ADVANCE_SINCE, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { tempDir } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
@@ -241,12 +241,94 @@ test.each([
 });
 
 test('review the advance after a pre-contract hand move records it and clears the mismatch', () => {
-  const dir = checkpoint('4-direction-post', true);
+  const dir = join(tempDir(), 'project');
+  cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
+  const project = read(dir);
+  project.stage = 'post';
+  project.signoffs = arr(project.signoffs).filter(s => obj(s).stage !== 'direction-review');
+  obj(arr(project.versions).at(-1)).verdicts = [];
+  delete project.advances;
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   expect(progress(dir)).toEqual({ refusals: [], warnings: ['STAGE_SKIPPED'] });
   advance(dir, 'direction-review');
   expect(obj(arr(read(dir).advances).at(-1)).stage).toBe('direction-review');
   expect(progress(dir)).toEqual({ refusals: [], warnings: [] });
+});
+
+test('#503 advance direction-review from post refuses byte-identically when lacking direction_contract, scene or post version', () => {
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  const dir = checkpoint('4-direction-post');
+  // 1. Lacking direction_contract, scenes[n=1] and versions[n=2].
+  const withoutContract = read(dir);
+  delete withoutContract.direction_contract;
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(withoutContract, null, 2)}\n`);
+  unchangedRefusal(dir, 'DIRECTION_REVIEW_POST_MISSING', () => advance(dir, 'direction-review'));
+
+  // 2. With direction_contract adopted, still lacking scenes[n=1] and versions[n=2].
+  const adoptDir = checkpoint('4-direction-post');
+  unchangedRefusal(adoptDir, 'DIRECTION_REVIEW_POST_MISSING', () => advance(adoptDir, 'direction-review'));
+
+  // 3. With direction_contract and scenes[n=1], still lacking versions[n=2].
+  const sceneOnlyDir = join(tempDir(), 'scene-only');
+  cpSync(join(import.meta.dir, '../templates/example-chain'), sceneOnlyDir, { recursive: true });
+  const sceneOnly = read(sceneOnlyDir);
+  sceneOnly.stage = 'post';
+  sceneOnly.versions = arr(sceneOnly.versions).filter(v => obj(v).kind === 'rig');
+  sceneOnly.signoffs = arr(sceneOnly.signoffs).filter(s => obj(s).stage !== 'direction-review');
+  sceneOnly.advances = arr(sceneOnly.advances).filter(a => !['direction-review', 'accepted'].includes(String(obj(a).stage)));
+  writeFileSync(join(sceneOnlyDir, 'project.json'), `${JSON.stringify(sceneOnly, null, 2)}\n`);
+  unchangedRefusal(sceneOnlyDir, 'DIRECTION_REVIEW_POST_MISSING', () => advance(sceneOnlyDir, 'direction-review'));
+});
+
+test('#503 advance direction-review succeeds when current scene and live post version exist, and check warns before DIRECTION_REVIEW_ADVANCE_SINCE', () => {
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  const dir = join(tempDir(), 'post-ready');
+  cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
+  const ready = read(dir);
+  ready.stage = 'post';
+  obj(arr(ready.versions).at(-1)).verdicts = [];
+  ready.signoffs = arr(ready.signoffs).filter(s => obj(s).stage !== 'direction-review');
+  ready.advances = arr(ready.advances).filter(a => !['direction-review', 'accepted'].includes(String(obj(a).stage)));
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(ready, null, 2)}\n`);
+  advance(dir, 'direction-review');
+  expect(read(dir).stage).toBe('direction-review');
+  expect(checkProject(dir).refusals).toEqual([]);
+  expect(checkProject(dir).warnings).toEqual([]);
+
+  // A record that advanced before DIRECTION_REVIEW_ADVANCE_SINCE without scene/post version gets a WARN, not a refusal.
+  const preSinceDir = checkpoint('4-direction-post');
+  const preSince = read(preSinceDir);
+  const lastSignoff = obj(arr(preSince.signoffs).at(-1));
+  preSince.stage = 'direction-review';
+  preSince.advances = [
+    ...arr(preSince.advances),
+    {
+      stage: 'direction-review',
+      from_stage: 'post',
+      at: '2026-11-17T23:59:59Z',
+      post_not_passed: false,
+      order: 'split',
+      signoffs_before: arr(preSince.signoffs).map(s => ({ stage: obj(s).stage, checkpoint: obj(s).checkpoint ?? null, at: obj(s).at })),
+      signoff: { stage: lastSignoff.stage, checkpoint: null, at: lastSignoff.at },
+      steps_before: arr(obj(preSince.plan).steps).map(s => ({ id: obj(s).id, phase: obj(s).phase, status: obj(s).status })),
+    },
+  ];
+  writeFileSync(join(preSinceDir, 'project.json'), `${JSON.stringify(preSince, null, 2)}\n`);
+  const preReport = checkProject(preSinceDir);
+  expect(preReport.refusals).toEqual([]);
+  expect(preReport.warnings.map(w => [w.code, w.path])).toEqual([
+    ['DIRECTION_REVIEW_POST_MISSING', `advances[${arr(preSince.advances).length - 1}]`],
+  ]);
+
+  // On or after DIRECTION_REVIEW_ADVANCE_SINCE, the same unauthored move is refused in check.
+  obj(arr(preSince.advances).at(-1)).at = DIRECTION_REVIEW_ADVANCE_SINCE;
+  writeFileSync(join(preSinceDir, 'project.json'), `${JSON.stringify(preSince, null, 2)}\n`);
+  const postReport = checkProject(preSinceDir);
+  expect(postReport.refusals.map(r => [r.code, r.path])).toEqual([
+    ['DIRECTION_REVIEW_POST_MISSING', `advances[${arr(preSince.advances).length - 1}]`],
+  ]);
+  expect(postReport.warnings).toEqual([]);
 });
 
 test.each(['interview', 'plan-approved'])('review a post-contract sign-off of earlier %s keeps a pre-contract hand move a warning', stage => {

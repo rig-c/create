@@ -85,7 +85,11 @@ async function run(): Promise<void> {
         host.stop();
       } else {
         const timer = setInterval(() => {
-          if (host.session.status().status === 'closed') stopHost?.();
+          let closed: boolean;
+          // Review 4.5.0+ disposes its own host session shortly after a close (job-front subscribe),
+          // so a status read on a disposed session means the job closed.
+          try { closed = host.session.status().status === 'closed'; } catch { closed = true; }
+          if (closed) stopHost?.();
         }, 1000);
         stopHost = () => {
           clearInterval(timer);

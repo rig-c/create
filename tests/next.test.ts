@@ -1885,6 +1885,32 @@ test('#596 undecided delegation emits an agent interview-decision move and clear
   expect(checkProject(dir, undefined, { now: CHAIN_NOW + 1000, readOnly: true }).refusals).toEqual([]);
 });
 
+test('#596 a sentence-format delegation without an adopted choice keeps the authored-record move', () => {
+  const dir = postInterviewPlan();
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  arr(obj(obj(project.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!.guide = null;
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+  const optionMove = nextProject(dir, CHAIN_NOW).moves.find(move => move.field === 'interview.post.items[camera_depth].guide')!;
+  const optionArgv = preparePrintedOptions(dir, optionMove.command!, CHAIN_NOW);
+  expect(runMainCapture(optionArgv, CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  const setBytes = readFileSync(join(dir, 'evidence/printed-options.json'));
+  expect(runMainCapture([
+    'interview-answer', 'camera_depth', dir,
+    '--set', 'evidence/printed-options.json',
+    '--sha256', sha256(setBytes),
+    '--by', 'user',
+    '--pick', 'camera_depth=auto',
+  ], CHAIN_NOW)).toMatchObject({ code: 0, stderr: '' });
+  // Strip the adopted choice: the answer now has the preserved sentence-format shape.
+  const recorded = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  delete obj(arr(obj(obj(recorded.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!.guide).choice;
+  writeFileSync(file, `${JSON.stringify(recorded, null, 2)}\n`);
+
+  const move = nextProject(dir, CHAIN_NOW + 1000).moves.find(m => m.field === 'interview.post.items[camera_depth].guide');
+  expect(move).toMatchObject({ role: 'human', command: null, awaits: 'interview.post.items[camera_depth].guide.agent_decision' });
+});
+
 test('#596 pending Other flags INTERVIEW_CHOICE_REQUIRED and offers the agent option-set redraft before stage signoff', () => {
   const dir = postInterviewPlan();
   const file = join(dir, 'project.json');

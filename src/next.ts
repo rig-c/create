@@ -1094,12 +1094,22 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       } else if (isUndecidedDelegation(item)) {
         const decisionField = `${answerField}.agent_decision`;
         addAwait(decisionField);
-        moves.push({
+        // interview-decision refuses answers without an adopted choice (choice-writers.ts), so a
+        // preserved sentence-format delegation keeps the authored-record move it had before.
+        const adopted = isObject(item.raw) && isObject(item.raw.choice);
+        moves.push(adopted ? {
           role: 'agent',
           field: answerField,
           awaits: decisionField,
           command: decisionCommand(dir, item),
           act: `record agent decision and rationale for ${decisionField}`,
+          unanswered_by_record: decisionField,
+        } : {
+          role: 'human',
+          field: answerField,
+          awaits: decisionField,
+          command: null,
+          act: `unanswered by record: ${decisionField} requires authored decision and rationale`,
           unanswered_by_record: decisionField,
         });
       }

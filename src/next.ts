@@ -41,6 +41,7 @@ import { refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict, latestAccepted, readVersions } from './review.ts';
+import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import {
   advanceOrder,
   directionReviewPostState,
@@ -872,6 +873,28 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const rawSignoffs = asArray(project.signoffs).filter(isObject);
   const rawReopens = asArray(project.reopens).filter(isObject);
   const parsedVersions = readVersions(project);
+  const isHistoryVersion = (n: number, kind?: 'rig' | 'post'): boolean => {
+    const entry = kind === 'rig'
+      ? parsedVersions.rigs.find(r => r.n === n)
+      : kind === 'post'
+        ? parsedVersions.posts.find(p => p.n === n)
+        : parsedVersions.rigs.find(r => r.n === n) ?? parsedVersions.posts.find(p => p.n === n);
+    return entry !== undefined && !entry.live;
+  };
+  const hasHistorySignoffTarget = (targetStage: string, signoffEntry: JsonObject | undefined): boolean => {
+    const kind = SIGNOFF_TARGET_KINDS[targetStage];
+    if (kind === undefined) return false;
+    const targetVersion = isObject(signoffEntry?.target) && typeof signoffEntry.target.version === 'number'
+      ? signoffEntry.target.version
+      : undefined;
+    if (targetVersion !== undefined) return isHistoryVersion(targetVersion, kind);
+    const pool = kind === 'rig' ? parsedVersions.rigs : parsedVersions.posts;
+    const signedAt = Date.parse(String(signoffEntry?.at ?? ''));
+    const candidates = Number.isFinite(signedAt)
+      ? pool.filter(v => Date.parse(String(v.at ?? '')) <= signedAt)
+      : pool;
+    return candidates.length > 0 && candidates.every(v => !v.live);
+  };
   for (const warning of reopenLapseWarnings(project)) {
     const reopenMatch = /\(reopens\[(\d+)\]\)/.exec(warning.message);
     const reopenIdx = reopenMatch ? Number(reopenMatch[1]) : Math.max(0, rawReopens.length - 1);
@@ -885,7 +908,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const lapsedStage = typeof signoffEntry?.stage === 'string' ? signoffEntry.stage : effectiveStage;
       const checkpoint = typeof signoffEntry?.checkpoint === 'string' ? signoffEntry.checkpoint : null;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
-      if (lapsedStage === 'rig-review' && checkpoint === null) continue;
+      if (checkpoint === null && hasHistorySignoffTarget(lapsedStage, signoffEntry)) continue;
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`
         : `signoffs[stage=${lapsedStage}]`;
@@ -916,8 +939,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     } else if (warning.code === 'REOPEN_VERDICT_LAPSED') {
       const vMatch = /^versions\[v(\d+)\]\.verdicts\[(\d+)\]$/.exec(warning.path);
       const n = vMatch ? Number(vMatch[1]) : 1;
-      const parsedVersion = parsedVersions.rigs.find(r => r.n === n) ?? parsedVersions.posts.find(p => p.n === n);
-      if (parsedVersion !== undefined && !parsedVersion.live) continue;
+      if (isHistoryVersion(n)) continue;
       const versionEntry = asArray(project.versions)
         .filter(isObject)
         .find(v => v.n === n);
@@ -965,13 +987,14 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
-      if (targetStage === 'rig-review' && checkpoint === null) continue;
+      const signoffMatch = /^signoffs\[(\d+)\]$/.exec(lapsedApproval.path);
+      const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
+      if (checkpoint === null && hasHistorySignoffTarget(targetStage, signoffEntry)) continue;
       const vMatch = /^versions\[(\d+)\]\.verdicts\[\d+\]$/.exec(lapsedApproval.path);
       if (vMatch) {
         const versionEntry = asArray(project.versions).filter(isObject)[Number(vMatch[1])];
         const n = typeof versionEntry?.n === 'number' ? versionEntry.n : null;
-        const parsedVersion = n === null ? undefined : parsedVersions.rigs.find(r => r.n === n) ?? parsedVersions.posts.find(p => p.n === n);
-        if (parsedVersion !== undefined && !parsedVersion.live) continue;
+        if (n !== null && isHistoryVersion(n)) continue;
       }
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`

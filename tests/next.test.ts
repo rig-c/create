@@ -2281,4 +2281,114 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     awaits: 'versions[n=4].verdicts[review=direction-review]',
     review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v4', review: 'direction-review' },
   });
+
+  // Consumer-clone shape: post v4 is reviewed and signed at direction-review, then rig-review is reopened,
+  // a new rig v5 is registered, accepted and signed, and a new unreviewed post v6 reaches direction-review.
+  testClock.set(new Date(acceptAt + 5500));
+  reviewCommand([
+    '4',
+    dir,
+    '--verdict',
+    'accepted',
+    '--by',
+    'user',
+    '--review',
+    'direction-review',
+    '--verbatim-file',
+    join(dir, 'evidence/approval.txt'),
+    '--source',
+    'synthetic example',
+  ]);
+  signoffCommand(['direction-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+
+  const reopen2At = acceptAt + 6000;
+  testClock.set(new Date(reopen2At));
+  reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', reopenWords]);
+
+  const v5At = reopen2At + 1000;
+  registerRig(5, new Date(v5At).toISOString(), v5At);
+  const v5StillPath = 'outputs/v5/idle/idle@4fps/f0000.png';
+  const v5StillSha = sha256(readFileSync(join(dir, v5StillPath)));
+  const withV5Still = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const v5Entry = arr(withV5Still.versions).map(obj).find(v => v.n === 5)!;
+  v5Entry.evidence = [{ kind: 'still', path: v5StillPath, sha256: v5StillSha, camera: 'fixed', frame: 0 }];
+  writeFileSync(file, `${JSON.stringify(withV5Still, null, 2)}\n`);
+
+  const acceptV5At = v5At + 1000;
+  testClock.set(new Date(acceptV5At));
+  reviewCommand([
+    '5',
+    dir,
+    '--verdict',
+    'accepted',
+    '--by',
+    'user',
+    '--review',
+    'rig-review',
+    '--verbatim-file',
+    join(dir, 'evidence/approval.txt'),
+    '--source',
+    'synthetic example',
+  ]);
+  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  expect(runMainCapture(['advance', 'post-interview', dir], acceptV5At + 1000)).toMatchObject({ code: 0, stderr: '' });
+  testClock.set(new Date(acceptV5At + 2000));
+  signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'evidence/approval.txt')]);
+  expect(runMainCapture(['advance', 'post', dir], acceptV5At + 3000)).toMatchObject({ code: 0, stderr: '' });
+  testClock.set(new Date(acceptV5At + 3000));
+  for (const id of ['camera', 'timing', 'composition']) {
+    stepStatusCommand([id, 'in-progress', dir, '--by', 'agent']);
+    stepStatusCommand([id, 'at-checkpoint', dir, '--by', 'agent']);
+    stepStatusCommand([id, 'done', dir, '--by', 'agent']);
+  }
+  expect(
+    runMainCapture(
+      ['scene', 'write', dir, '--rig', '5', '--background', 'inputs/background.png', '--citations-file', 'evidence/printed-scene-citations.json'],
+      acceptV5At + 3000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+  const afterV5SceneProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const latestV5Scene = obj(arr(afterV5SceneProject.scenes).at(-1));
+  const v5ModelPath = 'derived/review/v5/out/check/build/skeleton.model.json';
+  dirDoc.scene = { n: latestV5Scene.n!, path: latestV5Scene.path!, sha256: latestV5Scene.sha256! };
+  dirDoc.rig = { version: 5, model: { path: v5ModelPath, sha256: sha256(readFileSync(join(dir, v5ModelPath))) } };
+  writeFileSync(join(dir, 'evidence/direction-input.json'), JSON.stringify(dirDoc));
+  expect(
+    runMainCapture(
+      ['direction', 'write', '6', dir, '--file', 'evidence/direction-input.json', '--rig', '5'],
+      acceptV5At + 4000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+  expect(runMainCapture(['advance', 'direction-review', dir], acceptV5At + 5000)).toMatchObject({ code: 0, stderr: '' });
+
+  const afterSignedPostReopen = nextProject(dir, acceptV5At + 5000);
+  expect(afterSignedPostReopen.refusals).toEqual([]);
+  expect(afterSignedPostReopen.awaits).toEqual([
+    'versions[n=6].verdicts[review=direction-review]',
+    'signoffs[stage=direction-review]',
+  ]);
+  expect(afterSignedPostReopen.moves.some(m => m.lapse !== undefined)).toBe(false);
+  expect(afterSignedPostReopen.moves.some(m => m.act.includes('re-approve lapsed'))).toBe(false);
+  expect(afterSignedPostReopen.moves.some(m => m.review_act?.version_id !== 'v6' && m.review_act?.version_id !== undefined)).toBe(false);
+  expect(afterSignedPostReopen.moves.map(m => m.command)).toEqual([
+    `rig-create job open ${dir} --rig 6 --reviewer '<reviewer>' --role owner`,
+    null,
+    `rig-create job acts ${dir} --json`,
+    `rig-create review 6 ${dir} --from-review '<actId>'`,
+    `rig-create job close ${dir}`,
+    null,
+  ]);
+  expect(afterSignedPostReopen.moves[1]).toMatchObject({
+    role: 'human',
+    field: 'versions[v6].verdicts',
+    awaits: 'versions[n=6].verdicts[review=direction-review]',
+    review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v6', review: 'direction-review' },
+  });
+  expect(afterSignedPostReopen.moves[5]).toMatchObject({
+    role: 'human',
+    field: 'signoffs',
+    awaits: 'signoffs[stage=direction-review]',
+    review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v6' },
+  });
+  expect(afterSignedPostReopen.moves[5]!.act).toContain('after ingesting the accepted direction-review verdict for v6');
 });

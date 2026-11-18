@@ -2732,12 +2732,18 @@ Existing direction@1 and @2 documents and publications retain their contracts.
 No new SINCE applies: these rules apply only to direction@3.
 
 Record `post_composition.value.compose` through its Review choice (or resolved
-delegation), and `post_timing.value` with `seconds` and `loop: true`. The compose
-value supplies canvas, named plates, order, character offset/scale and idle
-tracks in Parts' own vocabulary. Copy these into `spine-parts-scene/1` and run
-Parts compose. Create reads its producer reports and never repeats dial-range,
-loop-closure or canvas-containment measurements. A smaller canvas than the
-accepted character's stage is allowed.
+delegation), and `post_timing.value` with `seconds` and `loop: true`. The closed
+`value.compose` shape `{canvas,plates,order,character,idle_tracks}` supplies
+`canvas:{width,height}`, named `plates:{name,image,at,opaque_backdrop?}[]`,
+`order`, `character:{offset,scale?}` and `idle_tracks:{bone,property,keys}[]` in
+Parts' and `rigc`'s own vocabulary: vector bone properties (`translate`, `scale`,
+`shear`) take two-number key values `v: [x, y]`, and scalar bone properties
+(`translatex`, `translatey`, `scalex`, `scaley`, `shearx`, `sheary`, `rotate`)
+take one-number key values `v: [n]`, with key times starting at `0`, strictly
+increasing, and ending at one common positive `end` across all tracks. Copy these
+into `spine-parts-scene/1` and run Parts compose. Create reads its producer
+reports and never repeats dial-range, loop-closure or canvas-containment
+measurements. A smaller canvas than the accepted character's stage is allowed.
 
 ```sh
 rig-create direction write 5 <dir> --file evidence/composed-direction.json --rig 2 --compose-out derived/compose --compose-scene composed.scene.json

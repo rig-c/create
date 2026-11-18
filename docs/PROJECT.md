@@ -2820,8 +2820,13 @@ staged compose and scene copies. Existing immutable destinations refuse.
 The camera/timing patch command remains for @1/@2; a changed composed take uses
 a new `direction write` with newly produced compose output.
 
-For @3, `job open --rig <N>` publishes `model.path` and the post's frozen compose
-inventory at its original paths, including atlas and pages, plus the direction
-document and manifest. It does not substitute the accepted character package.
-Review's direction@3 consumer is a separate contract; Create-side publication
-alone does not prove that an older installed Review can inspect it.
+For @3, `job open --rig <N>` publishes the compiled build under
+`outputs/v<N>/compose/check/build/` at its original paths: the model at
+`model.path`, its atlas and its pages, plus the direction document and manifest.
+The rest of the frozen compose inventory (`scene.json`, `check/check.json`,
+`compose-run.json` and any other check reports) stays in the record and is not
+published. Each published build file must match its recorded hash, and a
+declared build path that Review's `jobPath` rule refuses is
+`JOB_PUBLICATION_INVALID` before anything is written. It does not substitute
+the accepted character package. The release-pinned Review 4.6.0 reads
+direction@3; an older installed Review refuses the document.

@@ -214,6 +214,8 @@ function hasPendingOther(item: Item): boolean {
   return answer !== null && asArray(answer.asks).some(ask => isObject(ask) && ask.state === 'other-pending');
 }
 
+const SCENE_OTHER_FOLLOW_UP = 'use the recorded Other words to draft concrete scene options with fragment.scene. Write each label and effect as one plain 해요체 sentence. Register the new set for a Review pick, then cite that pick in scene write';
+
 function isUndecidedDelegation(item: Item): boolean {
   if (item.state.state === 'delegated') return !item.state.decided;
   if (item.state.state === 'user') {
@@ -1012,7 +1014,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     .map(item => ({
       code: 'INTERVIEW_CHOICE_REQUIRED',
       path: item.path,
-      message: `${item.path}: Other is pending; redraft with a tailored value option and have the person explicitly pick it before approval`,
+      message: `${item.path}: Other is pending; ${item.id === 'post_composition'
+        ? SCENE_OTHER_FOLLOW_UP
+        : 'redraft with a tailored value option and have the person explicitly pick it before approval'}`,
     }));
   const allRefusalFindings: Finding[] = [...report.refusals, ...pendingOtherFindings, ...holes];
   const refusals: NextRefusal[] = allRefusalFindings.map(r => ({
@@ -1365,12 +1369,15 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             },
           });
         } else if (hasPendingOther(item)) {
+          const followUp = item.id === 'post_composition'
+            ? SCENE_OTHER_FOLLOW_UP
+            : `redraft the option-set file for ${item.id} with a tailored value option and register it for a Review pick, or re-answer with --other-fragment`;
           moves.push({
             role: 'agent',
             field: answerField,
             awaits: answerField,
             command: optionCommand(item.id, dir),
-            act: `${answerField} has a pending Other (INTERVIEW_CHOICE_REQUIRED): redraft the option-set file for ${item.id} with a tailored value option and register it for a Review pick, or re-answer with --other-fragment`,
+            act: `${answerField} has a pending Other (INTERVIEW_CHOICE_REQUIRED): ${followUp}`,
             unanswered_by_record: answerField,
           });
         } else {

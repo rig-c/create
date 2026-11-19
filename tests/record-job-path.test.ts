@@ -482,9 +482,24 @@ test('#493 normal plan job exports and ingests a bounced-post reopen before the 
   const listed = await cli(root, ['job', 'acts', root, '--json']); expect(listed.exit, listed.stderr).toBe(0);
   const pending = (JSON.parse(listed.stdout) as { acts: { actId: string; command: string | null }[] }).acts.find(act => act.actId === exported.actId)!;
   expect(pending.command).toContain(`reopen direction-review ${root} --from-review`);
-  const ingested = await cli(root, ['reopen', 'direction-review', root, '--from-review', String(exported.actId), '--json']);
+  const ingestArgs = ['reopen', 'direction-review', root, '--from-review', String(exported.actId), '--json'];
+  const ackDir = join(jobPrivateRoot(root), 'acknowledged-publications');
+  const ackPath = readdirSync(ackDir).map(name => join(ackDir, name)).find(path => JSON.parse(readFileSync(path, 'utf8')).publicationId === exported.publicationId)!;
+  const ackBytes = readFileSync(ackPath);
+  try {
+    writeFileSync(ackPath, JSON.stringify({ ...JSON.parse(ackBytes.toString()), subjects: [] }), { mode: 0o600 });
+    await unchanged(root, ingestArgs, 'REVIEW_ACT_SUBJECT_UNDECLARED');
+  } finally {
+    writeFileSync(ackPath, ackBytes, { mode: 0o600 });
+  }
+  const ingested = await cli(root, ingestArgs);
   expect(ingested.exit, ingested.stderr).toBe(0);
   expect(JSON.parse(ingested.stdout)).toMatchObject({ by: 'synthetic-owner', at: exported.at, verbatim: WORDS });
+  const recorded = bytes(root);
+  const replay = await cli(root, ingestArgs);
+  expect(replay.exit, replay.stderr).toBe(0);
+  expect(replay.stdout).toBe(ingested.stdout);
+  expect(bytes(root)).toEqual(recorded);
   const closed = await cli(root, ['job', 'close', root]); expect(closed.exit, closed.stderr).toBe(0);
   const next = await cli(root, ['next', root, '--json']); expect(next.exit, next.stderr).toBe(0);
   const move = (JSON.parse(next.stdout) as { moves: { command: string | null }[] }).moves.find(move => move.command?.startsWith('rig-create direction write'))!;

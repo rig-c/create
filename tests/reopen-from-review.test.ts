@@ -28,15 +28,17 @@ function refused(root: string, code: string, run: () => unknown): void {
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 }
 
-test('#493 exported act@4 supplies exact reviewer, timestamp and words; replay changes nothing', async () => {
+test.each(['  Revisit the review.\r\nKeep the framing — unchanged.  ', ''])('#356 exported act@4 preserves %j and replays byte-identically', async words => {
   const dir = pending();
-  const exported = await exportedReopen(dir, 'parts', NOW);
+  const exported = await exportedReopen(dir, 'parts', NOW, words);
   const args = ['parts', dir, '--from-review', exported.act.actId, '--json'];
   const hook = { fetch: () => ({ bytes: exported.bytes }) };
   const result = reopenCommand(args, NOW + 1000, hook);
   expect(result.exit).toBe(0);
   expect(JSON.parse(result.stdout)).toMatchObject({ stage: 'parts', by: 'synthetic-owner', at: exported.act.at,
-    verbatim: exported.act.kind === 'reopen' ? exported.act.value.words : '', source: `review act ${exported.act.jobId}/${exported.act.actId}` });
+    verbatim: words, source: `review act ${exported.act.jobId}/${exported.act.actId}` });
+  expect(arr(obj(read(dir).plan).steps).map(step => obj(step).status)).toEqual(
+    arr(obj(read(dir).plan).steps).map(() => 'pending'));
   expect(reviewActFindings(read(dir))).toEqual([]);
   const beforeReplay = readFileSync(join(dir, 'project.json'));
   expect(reopenCommand(args, NOW + 2000, hook)).toEqual(result);
@@ -46,6 +48,15 @@ test('#493 exported act@4 supplies exact reviewer, timestamp and words; replay c
   const project = read(dir); obj(arr(project.reopens).at(-1)).verbatim = 'different words';
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   expect(reviewActFindings(read(dir)).map(row => row.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+});
+
+test('#356 a bound act for another project refuses before writing', async () => {
+  const source = pending();
+  const target = fixture(project => { project.stage = 'post'; });
+  const exported = await exportedReopen(source, 'parts', NOW);
+  await exportedReopen(target, 'parts', NOW);
+  refused(target, 'REVIEW_ACT_SOURCE_STALE', () => reopenCommand(['parts', target, '--from-review', exported.act.actId], NOW,
+    { fetch: () => ({ bytes: exported.bytes }) }));
 });
 
 test.each(['stage', 'words', 'authority'])('#493 malformed exported %s refuses byte-identically', async field => {

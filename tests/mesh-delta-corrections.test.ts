@@ -7,6 +7,7 @@ import { checkCorrections, correctionApprovalFindings, correctionHash, pendingMe
 import { applyMeshEdits, type MeshEditEntry } from '../src/mesh-edit.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
+import { testClock } from './clock.ts';
 
 // Model just the published Parts receipt, file writes, and replay behavior. No geometry is measured here.
 const stub = String.raw`
@@ -65,7 +66,7 @@ export function applyMeshEditAct(input) {
 
 const roots: string[] = [];
 const now = Date.parse('2026-11-04T09:20:00Z');
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { testClock.reset(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 function entry(part: string): MeshEditEntry {
   // In sorted-key order, so this literal encodes the signed canonical payload in the fixture.

@@ -23,6 +23,9 @@ import { stageOfStep } from './stages.ts';
 import { HEAD_TURN_SINCE } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
 
+export const DEPTH_MAP_BINDING_SINCE = '2026-11-19T00:00:00Z';
+const DEPTH_MAP_BINDING_SPEC = 'rig-parts-depth-map-binding/1';
+
 const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const absolute = (path: string): boolean => isAbsolute(path) || win32.isAbsolute(path);
 const literal = (path: string): boolean => !!path && !absolute(path) && !path.includes('\\') && !path.includes(':') && path.split('/').every(p => p !== '' && p !== '.' && p !== '..');
@@ -43,6 +46,7 @@ const RESERVED_REGISTRATION_NAMES = new Set([
   'depth-manifest.json',
   'depth-report.json',
   'depth-source-parts.json',
+  'depth-map-bindings',
 ]);
 function isValidAdaptedTarget(target: string): boolean {
   return literal(target)
@@ -432,11 +436,11 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
   try {
     if (depth.route !== 'per-part' && depth.route !== 'per-layer') throw Error('expected per-part or per-layer route');
     if (depth.route === 'per-layer' && (depth.manifest !== undefined || depth.report !== undefined)) throw Error('per-part reports require the per-part route');
-    const read = (binding: Json | undefined, spec: string, output = false): JsonObject => {
+    const read = (binding: Json | undefined, spec: string, output = false, parts = true): JsonObject => {
       const inventory = asArray(output ? version.outputs : record?.files).filter(isObject);
       if (!isObject(binding) || !inventory.some(row => row.path === binding.path && row.sha256 === binding.sha256)) throw Error('depth file is absent from the retained inventory');
       const doc: Json = JSON.parse(bytesAt(dir, binding, output).toString('utf8'));
-      if (!isObject(doc) || doc.spec !== spec || !Array.isArray(doc.parts)) throw Error(`expected ${spec} with parts[]`);
+      if (!isObject(doc) || doc.spec !== spec || parts && !Array.isArray(doc.parts)) throw Error(`expected ${spec}${parts ? ' with parts[]' : ''}`);
       return doc;
     };
     const digest = (value: Json | undefined, field: string): string => {
@@ -502,8 +506,26 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
       const prepared = namedRows(manifest.parts, 'prepared parts');
       const applied = namedRows(report.parts, 'applied parts');
       if (!isDeepStrictEqual(prepared.map(row => row.part).sort(), applied.map(row => row.part).sort())) throw Error('prepare/apply part sets disagree');
+      const bindings = depth.map_bindings === undefined ? [] : depth.map_bindings;
+      if (!Array.isArray(bindings) || bindings.some(b => !isObject(b) || !applied.some(row => row.part === b.part))
+        || new Set(bindings.map(b => (b as JsonObject).part)).size !== bindings.length) throw Error('expected unique map bindings for applied parts');
       for (const row of applied) {
         const input = prepared.find(p => p.part === row.part)!;
+        const binding = bindings.find(b => isObject(b) && b.part === row.part);
+        if (binding === undefined) {
+          const bindingPath = `${path}.map_bindings[${String(row.part)}]`;
+          const finding = { code: 'RIG_DEPTH_MAP_BINDING_MISSING', path: bindingPath,
+            message: `${bindingPath}: no retained Parts map receipt (DEPTH_MAP_BINDING_ABSENT); re-infer changed prepared inputs, run rig-parts depth-bind immediately after inference, then register with --depth-manifest and --depth-map-binding <map.binding.json> for each map; reuse the existing map and receipt only when inputSha256 is unchanged, never bind an old map to new input` };
+          const registeredAt = typeof record?.at === 'string' ? record.at : version.at;
+          (typeof registeredAt === 'string' && Date.parse(registeredAt) < Date.parse(DEPTH_MAP_BINDING_SINCE) ? warnings : findings).push(finding);
+        } else {
+          if (!isObject(binding) || binding.spec !== DEPTH_MAP_BINDING_SPEC) throw Error('expected declared Parts map binding spec');
+          const receipt = read(binding, DEPTH_MAP_BINDING_SPEC, false, false);
+          if (!isDeepStrictEqual(Object.keys(receipt).sort(), ['inputSha256', 'mapSha256', 'part', 'spec'])
+            || receipt.part !== row.part
+            || digest(receipt.mapSha256, 'receipt.mapSha256') !== digest(row.mapSha256, 'report.mapSha256')
+            || digest(receipt.inputSha256, 'receipt.inputSha256') !== digest(input.inputSha256, 'manifest.inputSha256')) throw Error('Parts map receipt disagrees with the applied map or prepared input');
+        }
         const part = mappedParts.find(p => p.name === row.part);
         if (!part || !isObject(part.depth) || typeof part.name !== 'string' || !literal(part.name) || part.name.includes('/')
           || typeof part.depth.image !== 'string' || !literal(part.depth.image) || part.depth.image.includes('/')) throw Error('report part has no retained assembled depth declaration');
@@ -783,7 +805,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
 
 export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <render dir>
   --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <package-lock.json>
-  --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--json]
+  --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--depth-map-binding <map.binding.json>]... [--json]
   Copy and hash frozen producer outputs. Retain an explicitly declared npm lock, producer run records and UTC not-after date.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
   Repeat --answers <version>:<verdict> to answer earlier human bounced feedback.
@@ -795,6 +817,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const positional: string[] = [];
   const options: Record<string, string> = {};
   const runRecords: string[] = [];
+  const depthMapBindings: string[] = [];
   const answerValues: string[] = [];
   const flags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by', '--citations', '--depth-manifest'];
   let json = false;
@@ -805,6 +828,10 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       const value = args[++i];
       if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--answers needs version:verdict');
       answerValues.push(value);
+    } else if (arg === '--depth-map-binding') {
+      const value = args[++i];
+      if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--depth-map-binding needs one receipt file');
+      depthMapBindings.push(value);
     } else if (arg === '--run-record') {
       const value = args[++i];
       if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--run-record needs one value');
@@ -818,6 +845,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   }
   const n = Number(positional[0]?.replace(/^v/, ''));
   if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || flags.filter(f => f !== '--citations' && f !== '--depth-manifest').some(f => !options[f])) refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_HELP, USAGE_EXIT);
+  if (depthMapBindings.length && !options['--depth-manifest']) fail('RIG_REGISTRATION_USAGE', 'versions', '--depth-map-binding requires --depth-manifest');
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
   let { file, project } = readProject(dir);
   let original = readFileSync(file);
@@ -1152,6 +1180,17 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       if (existsSync(sourceSheets)) depthBinding.sheets = { path: relative(dir, sheets).split(sep).join('/'), sha256: sha(sourceBytes(sourceSheets)) };
       if (options['--depth-manifest']) depthBinding.manifest = input('--depth-manifest', 'depth-manifest.json');
       if (existsSync(depthReport)) depthBinding.report = retain(`${evidence}/depth-report.json`, sourceBytes(depthReport));
+      if (depthMapBindings.length) depthBinding.map_bindings = depthMapBindings.map((value, i) => {
+        const source = resolve(dir, value);
+        const path = `versions[v${n}].registration.depth.map_bindings[${i}]`;
+        if (!existsSync(source) || !lstatSync(source).isFile()) fail('RIG_DEPTH_BINDING_INVALID', path, 'supply a regular Parts map binding receipt, never a symlink');
+        const bytes = sourceBytes(source);
+        let receipt: Json;
+        try { receipt = JSON.parse(bytes.toString('utf8')) as Json; }
+        catch { return fail('RIG_DEPTH_BINDING_INVALID', path, 'restore the exact Parts map binding JSON'); }
+        if (!isObject(receipt) || receipt.spec !== DEPTH_MAP_BINDING_SPEC || typeof receipt.part !== 'string') fail('RIG_DEPTH_BINDING_INVALID', path, `retain a ${DEPTH_MAP_BINDING_SPEC} receipt`);
+        return { ...retain(`${evidence}/depth-map-bindings/${i}.json`, bytes), spec: DEPTH_MAP_BINDING_SPEC, part: receipt.part };
+      });
     }
     const partReferences = partsFileReferences(partsDir);
     for (const reference of partReferences) {
@@ -1240,8 +1279,8 @@ export function depthPlanMoves(project: JsonObject, collection: JsonObject | nul
   const rig = asArray(project.versions).filter(isObject).find(v => v.kind === 'rig' && typeof v.at === 'string' && Date.parse(v.at) >= answerAt && isObject(v.registration) && isObject(v.registration.depth));
   if (rig) return [];
   const steps = ["Record the chosen depth route and reason in the turn plan step text. Default per-part sequence: rig-parts depth-prepare --parts <accepted assembled parts> --config <depth recipe> --out <inference directory>",
-    "Run the supplied depth model on each prepared image; retain raw rig-parts-map/1 maps (face normals, scalar depth for other parts).",
-    "rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory>; then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json>."];
+    "Run the supplied depth model on each prepared image; retain raw rig-parts-map/1 maps (face normals, scalar depth for other parts). Immediately after each inference run rig-parts depth-bind --map <numeric-map.json> --input <prepared.png> --part <name>. Reuse a map and its existing receipt only when the prepared inputSha256 is unchanged. If input changes, re-infer and bind a new map filename; never bind an old map to a freshly prepared input or overwrite a receipt.",
+    "rig-parts depth-apply --parts <accepted assembled parts> --manifest <inference/manifest.json> --config <depth recipe> --rig-config <config.json> --out <mapped directory>; then rig-parts rig --parts <mapped directory> --config <mapped/config.json> --out <rig directory>. Register with rig-version --parts <mapped directory> --rig <rig directory> --config <mapped/config.json> --depth-manifest <inference/manifest.json> and repeat --depth-map-binding <map.binding.json> for each applied map."];
   return steps.map((act, i) => ({ role: 'agent', field: `plan.steps[turn].moves[${i}]`, awaits: 'versions[].registration.depth', command: null, act }));
 }
 

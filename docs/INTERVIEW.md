@@ -353,9 +353,16 @@ route and reason in the `turn` plan step text. Draft that step in phase `rig`,
 resting on `turn`, before the steps that run rig. Its bar reads the retained
 producer reports, and rigging-interview approval covers it. The default
 per-part sequence runs `depth-prepare`, a separately supplied model (face
-normals, scalar depth for the other parts), then `depth-apply`; the ordinary
+normals, scalar depth for the other parts), then
+`rig-parts depth-bind --map <numeric-map.json> --input <prepared.png> --part <name>`
+immediately after each inference, then `depth-apply`; the ordinary
 `rig` writes the consumed `depth_sheets.json`. Read parts' `docs/DEPTH.md` for
-the producer contract. `rig-version --depth-manifest <file>` retains the
+the producer contract. Reuse an existing map and its receipt only when prepared
+`inputSha256` is unchanged; changed input requires new inference and a new map
+filename. Never bind an old map to freshly prepared input or overwrite a receipt.
+`rig-version --depth-manifest <file> --depth-map-binding <map.binding.json>`
+(repeat the binding flag for each applied map) retains each Parts receipt's raw
+SHA-256 and `rig-parts-depth-map-binding/1` spec as well as the
 prepare manifest with the applied report and rig sheet manifest; all are bound
 by bytes and spec, without redoing producer measurements.
 

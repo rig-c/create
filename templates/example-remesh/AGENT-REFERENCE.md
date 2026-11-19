@@ -7,9 +7,15 @@
   or head turn with depth. Record the chosen route and reason in the `turn`
   plan step text. Default to per-part depth: parts 2.44.0's `docs/DEPTH.md`
   describes it as better by eye. Run `depth-prepare`, the supplied model,
-  `depth-apply`, then `rig`. Retain the prepare manifest with
-  `rig-version --depth-manifest`; registration binds it, `depth-report.json`
-  and rig's `depth_sheets.json` by SHA-256.
+  then `rig-parts depth-bind --map <numeric-map.json> --input <prepared.png>
+  --part <name>` immediately after each inference, then `depth-apply` and `rig`.
+  Reuse a map and its existing receipt only when the prepared `inputSha256`
+  is unchanged. Changed input needs new inference and a new map filename;
+  never bind an old map to freshly prepared input or overwrite its receipt.
+  Retain the prepare manifest with `rig-version --depth-manifest` and repeat
+  `--depth-map-binding <map.binding.json>` for every applied map; registration
+  binds their raw bytes and `rig-parts-depth-map-binding/1` spec alongside
+  `depth-report.json` and rig's `depth_sheets.json` by SHA-256.
   The layer alternative requires sheets already retained in the accepted
   assembled parts, bound alongside the existing `config.depth` images:
   `assemble` consumes `config.depth`, so declaring it after acceptance cannot

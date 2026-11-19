@@ -745,7 +745,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`CG_BEHIND_SEAMS_SINCE`, `HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE`, `DRAFT_CONFIG_INPUTS_SINCE`, `EDITED_PART_INPUTS_SINCE` and `DIRECTION_REVIEW_ADVANCE_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`CG_BEHIND_SEAMS_SINCE`, `DEPTH_MAP_BINDING_SINCE`, `HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE`, `DRAFT_CONFIG_INPUTS_SINCE`, `EDITED_PART_INPUTS_SINCE` and `DIRECTION_REVIEW_ADVANCE_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -1721,7 +1721,20 @@ New interviews put `turn` and `depth` on rigging waypoint `turn`.
 | --- | --- |
 | `RIG_DEPTH_PLAN_MISSING` | At `rigging-interview`, before signoff, `plan.steps[turn]` is absent or ordered after the rig steps for a depth turn. Use `plan revise turn --order <before the first rigging step>`, or `plan add turn --phase rig --rests-on turn --order <before the first rigging step>` if absent, then approve it at rigging-interview. Publication and ingest both refuse an invalid depth plan. Answers before `HEAD_TURN_SINCE` WARN. |
 | `RIG_DEPTH_BINDING_MISSING` | A depth-driven rig lacks its retained producer manifests. Register a new rig version with rig's `depth_sheets.json`; for per-part depth include `--depth-manifest` and parts' `depth-report.json`. Before `HEAD_TURN_SINCE` this is a WARN. |
+| `RIG_DEPTH_MAP_BINDING_MISSING` | A per-part registered depth map has no retained Parts receipt, the same absence that Parts names `DEPTH_MAP_BINDING_ABSENT`. Refuses from `DEPTH_MAP_BINDING_SINCE = 2026-11-19T00:00:00Z`, dated by `registration.at` (falling back to version `at` for an older record); earlier registrations WARN. Re-infer changed inputs, call `rig-parts depth-bind` immediately after inference, then register with `--depth-manifest` and repeat `--depth-map-binding <map.binding.json>` per applied map. Reuse the existing map and receipt only when prepared `inputSha256` is unchanged; never bind an old map to new input. |
 | `RIG_DEPTH_BINDING_INVALID` | `versions[].registration.depth` has changed bytes, the wrong producer spec, or disagrees with its retained inventory/report manifest hash. Pre-depth accepted source parts bind the prepare manifest's parts hash; already depth-applied accepted parts bind the identical registered parts and the producer report-to-manifest chain. Restore the exact retained producer files or register a new rig version. |
+
+`registration.depth.map_bindings[]` retains each Parts receipt as `part`,
+`path`, raw `sha256` and `spec: "rig-parts-depth-map-binding/1"`. Create reads
+these declarations against the applied report and prepared manifest; it never
+runs inference, binds a map or reconstructs Parts measurements. Missing receipts
+use `RIG_DEPTH_MAP_BINDING_MISSING`; malformed, duplicate, wrong-spec or
+mismatched present declarations use `RIG_DEPTH_BINDING_INVALID` in every era.
+Changed retained bytes use the existing `RIG_REGISTRATION_FILE_INVALID`. Parts
+prints absence only on stderr and does not persist it in the depth report;
+Create checks the corresponding retained-receipt absence rather than inventing
+producer report fields. A receipt attests the files available to `depth-bind`,
+not that unobserved inference actually consumed that input.
 
 For a per-part depth registration, `registration.depth.source_parts` retains
 the accepted parts manifest. When `--parts` is the accepted directory and

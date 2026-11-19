@@ -26,6 +26,8 @@ function registered() {
   put('source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: { required: true } });
   put('source/adapter.json', []);
   put('source/at-source.json', { finished_at: '2026-11-04T07:00:00.000Z' });
+  put('source/check.json', { spec: 'rig-parts-check/1', bar_outcomes: { gate: { status: 'PASS' } },
+    build: { model_sha256: directionHash(readFileSync(join(f.dir, 'source/build/skeleton.model.json'))) } });
   const painting = readFileSync(join(f.dir, 'source/rig/images/rectangle.png'));
   put('source/parts/parts.json', { rig_size: [8, 16], scale_rig_per_source: 1, ghost_px: {},
     painting_in_rig: { path: 'painting_in_rig.png', sha256: directionHash(painting), resample: 'lanczos3-rgb-opaque' },
@@ -41,6 +43,7 @@ function registered() {
   testClock.set('2026-11-04T07:30:00Z');
   rigVersionCommand(['1', f.dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle',
     '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json',
+    '--check-report', 'source/check.json',
     '--toolchain-lock', 'source/package-lock.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant']);
   // Acceptance is the human's: the fixture plants the verdict, still and signoff target the review tool would record.
   const q = f.load(); const rig = objects(q.versions)[0]!;
@@ -85,6 +88,7 @@ test('rig-version, scene write and direction write chain through the registered 
   const f = registered();
   const rig = objects(f.load().versions)[0]!;
   expect(((rig.registration as JsonObject).idle as JsonObject).path).toBe(FRAMES);
+  expect((rig.registration as JsonObject).check_report).toHaveProperty('spec', 'rig-parts-check/1');
   expect(f.writeScene().exit).toBe(0);
   const scene = JSON.parse(readFileSync(join(f.dir, String(currentScene(f.load())!.path)), 'utf8')) as JsonObject;
   expect(((scene.rig as JsonObject).animation as JsonObject).frames).toEqual((rig.registration as JsonObject).idle);

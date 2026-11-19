@@ -126,7 +126,10 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     };
     const boundary = checkAt(reviewAt, 0);
     expect(boundary.refusals).toEqual([]);
-    expect(boundary.warnings.map(({ code, path }) => ({ code, path }))).toEqual([]);
+    // The pinned producer flow registers the Core build without a Parts check report.
+    expect(boundary.warnings.map(({ code, path }) => ({ code, path }))).toEqual([
+      { code: 'RIG_CHECK_REPORT_MISSING', path: 'versions[v1].registration.check_report' },
+    ]);
     // src/stage-progress.ts:42-58: signing authorizes the next stage, so the
     // only transient refusal before advance is STAGE_LAGGING. src/check.ts:550:
     // arrival opens step 4's questions; it does not answer that next interview.

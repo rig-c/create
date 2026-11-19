@@ -70,6 +70,8 @@ import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
+const RIG_VERSION_INPUTS = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --check-report <check.json> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
+
 export const NEXT_HELP = `next [<project dir>] [--json]
   Derive the next moves and whose they are (agent | producer | human) from project.json.
   Refusals come first with their CHECKS.md remedy; writes nothing.`;
@@ -1109,7 +1111,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   if (openFeedback.length > 0 || pendingMesh !== null) {
     const versions = asArray(project.versions).filter(isObject);
     const n = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
-    const rigInputs = '--parts <dir> --rig <rig-dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
+    const rigInputs = RIG_VERSION_INPUTS.replace('--rig <dir>', '--rig <rig-dir>');
     const groups = new Map<string, { version: number; verdict: number }[]>();
     for (const finding of openFeedback) {
       const summary = report.feedback.find(f => f.verdict === finding.path);
@@ -1719,13 +1721,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       if (rigN === null && hasHistoryRig) {
         const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
         const nextRigField = `versions[n=${nextRigN}]`;
-        const rigInputs = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
         addAwait(nextRigField);
         moves.push({
           role: 'agent',
           field: 'versions',
           awaits: nextRigField,
-          command: `rig-create rig-version ${nextRigN} ${shellWord(dir)} ${rigInputs.replace(/<[^>]+>/g, shellWord)}`,
+          command: `rig-create rig-version ${nextRigN} ${shellWord(dir)} ${RIG_VERSION_INPUTS.replace(/<[^>]+>/g, shellWord)}`,
           act: `register a new rig version built after the reopen with rig-version ${nextRigN}, then publish it for one verdict`,
         });
       } else if (rigN === null) {

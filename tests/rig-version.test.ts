@@ -4,6 +4,7 @@ import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
 import { DEPTH_MAP_BINDING_SINCE, RIG_PARTS_APPROVAL_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
+import { RIG_CHECK_REPORT_SINCE } from '../src/rig-check-report.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -123,6 +124,151 @@ function approveFrozenParts(dir: string, project: JsonObject, args: string[]): J
   put(dir, 'project.json', project);
   return { signoff_at: at, evidence };
 }
+
+describe('#573 frozen Parts check report', () => {
+  const path = 'versions[v1].registration.check_report';
+  const source = 'source/check.json';
+  const retained = 'evidence/v1/registration/check.json';
+  const producer = 'rig-parts check --rig <rig dir> --parts <parts dir> --out <check dir>';
+  const beforeGate = '2026-11-18T23:59:59.999Z';
+  const reportFlag = ['--check-report', source];
+  const barFailure = { code: 'RIG_CHECK_BAR_FAILED', path: `${path}.bar_outcomes["shared"]` };
+  const lineFailure = { code: 'RIG_CHECK_LINE_UNMET', path: `${path}.requirements.lines["shared"]` };
+  const unmeasurable = { code: 'RIG_CHECK_LINE_UNMET', path: `${path}.requirements.lines["unmeasured"]` };
+
+  function withCheck(at: string) {
+    const f = setup();
+    if (at === RIG_CHECK_REPORT_SINCE) approveFrozenParts(f.dir, f.load(), f.args);
+    testClock.set(new Date(at));
+    const modelHash = jobHash(readFileSync(join(f.dir, 'source/build/skeleton.model.json')));
+    const report: JsonObject = { spec: 'rig-parts-check/1', build: { model_sha256: modelHash },
+      bar_outcomes: { gate: { status: 'PASS' }, loop: { status: 'SKIP', reason: 'no-idle' } },
+      requirements: { lines: { steady: { status: 'PASS' } } } };
+    const store = (): void => put(f.dir, source, report);
+    const projectWithRegistration = () => {
+      const project = f.load();
+      return { project, registration: obj(obj(arr(project.versions)[0]).registration) };
+    };
+    return { ...f, modelHash, report, store, projectWithRegistration };
+  }
+
+  function redReport(report: JsonObject): void {
+    obj(report.bar_outcomes).shared = { status: 'FAIL' };
+    const lines = obj(obj(report.requirements).lines);
+    lines.shared = { status: 'FAIL' };
+    lines.unmeasured = { status: 'NOT MEASURABLE', reason: 'undefined in these frames' };
+  }
+
+  test.each([beforeGate, RIG_CHECK_REPORT_SINCE])('omission warns and never discovers a report at %s', at => {
+    const f = withCheck(at);
+    delete f.report.build;
+    f.store();
+    expect(rigVersionCommand(f.args).exit).toBe(0);
+    expect(f.projectWithRegistration().registration.check_report).toBeUndefined();
+    expect(existsSync(join(f.dir, retained))).toBe(false);
+    const report = checkProject(f.dir);
+    expect(report.warnings).toContainEqual({ code: 'RIG_CHECK_REPORT_MISSING', path, message: expect.stringContaining(producer) });
+  });
+
+  test.each([beforeGate, RIG_CHECK_REPORT_SINCE])('a retained spec-less report warns at %s', at => {
+    const f = withCheck(at);
+    delete f.report.spec;
+    delete f.report.build;
+    redReport(f.report);
+    f.store();
+    expect(rigVersionCommand([...f.args, ...reportFlag]).exit).toBe(0);
+    expect(obj(f.projectWithRegistration().registration.check_report).spec).toBeNull();
+    const checked = checkProject(f.dir);
+    const finding = checked.warnings.find(w => w.code === 'RIG_CHECK_REPORT_SPEC_MISSING');
+    expect(finding?.path).toBe(path);
+    expect(finding?.message).toContain(producer);
+    expect(finding!.message.includes('Parts release carrying #1372')).toBe(at === RIG_CHECK_REPORT_SINCE);
+    expect(checked.warnings.filter(w => [barFailure.code, lineFailure.code].includes(w.code))).toEqual([]);
+  });
+
+  test('binds raw report bytes and matching model digest, preserving SKIP outside Review inputs', () => {
+    const f = withCheck(RIG_CHECK_REPORT_SINCE);
+    // Only the typed outcomes supply verdicts.
+    f.report.PASS = false;
+    f.report.loop_max_diff = 99;
+    f.store();
+    const bytes = readFileSync(join(f.dir, source));
+    expect(rigVersionCommand([...f.args, ...reportFlag]).exit).toBe(0);
+    const { project, registration } = f.projectWithRegistration();
+    expect(registration.check_report).toEqual({ path: retained, sha256: jobHash(bytes), bytes: bytes.length, spec: 'rig-parts-check/1' });
+    expect(readFileSync(join(f.dir, retained))).toEqual(bytes);
+    const version = obj(arr(project.versions)[0]);
+    expect(arr(registration.files).map(row => obj(row).path)).not.toContain(retained);
+    expect(arr(obj(version.review_package).files).some(row => String(obj(row).path).endsWith('/check.json'))).toBe(false);
+    expect(rigRegistrationFindings(f.dir, project)).toEqual([]);
+    obj(registration.check_report).spec = 'other/1';
+    expect(checkProject(f.dir, project).refusals).toContainEqual({ code: 'RIG_CHECK_REPORT_INVALID', path, message: expect.stringContaining('recorded spec differs') });
+    put(f.dir, retained, `${bytes.toString()}\n`);
+    expect(checkProject(f.dir).refusals).toContainEqual({ code: 'RIG_CHECK_REPORT_INVALID', path, message: expect.stringContaining('bytes changed') });
+  });
+
+  test.each([[beforeGate, undefined], [RIG_CHECK_REPORT_SINCE, undefined], [beforeGate, 'malformed']] as const)(
+    'spec’d report at %s with %s model digest refuses byte-identically', (at, digest) => {
+      const f = withCheck(at);
+      f.report.build = digest === undefined ? {} : { model_sha256: digest };
+      f.store();
+      const failure = refused([...f.args, ...reportFlag], 'RIG_CHECK_REPORT_MODEL_HASH_INVALID');
+      expect(failure.message).toContain(`${path}.build.model_sha256`);
+      expect(failure.message).toContain('Parts #1378');
+      expect(existsSync(join(f.dir, retained))).toBe(false);
+    },
+  );
+
+  test('another frozen model refuses byte-identically and names both digests', () => {
+    const f = withCheck(RIG_CHECK_REPORT_SINCE);
+    const wrongHash = jobHash('a different synthetic compiled model');
+    f.report.build = { model_sha256: wrongHash };
+    f.store();
+    const failure = refused([...f.args, ...reportFlag], 'RIG_CHECK_REPORT_MODEL_MISMATCH');
+    expect(failure.message).toContain(wrongHash);
+    expect(failure.message).toContain(f.modelHash);
+    expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(false);
+  });
+
+  test('pre-contract reds warn individually, including array-free requirement names', () => {
+    const f = withCheck(beforeGate);
+    redReport(f.report);
+    f.store();
+    expect(rigVersionCommand([...f.args, ...reportFlag]).exit).toBe(0);
+    const warnings: Parameters<typeof rigRegistrationFindings>[2] = [];
+    expect(rigRegistrationFindings(f.dir, f.load(), warnings)).toEqual([]);
+    expect(warnings.map(({ code, path }) => ({ code, path }))).toEqual([barFailure, lineFailure, unmeasurable]);
+  });
+
+  test('at the boundary only the owner-accepted typed keys clear findings', () => {
+    const f = withCheck(RIG_CHECK_REPORT_SINCE);
+    redReport(f.report);
+    f.store();
+    const args = [...f.args, ...reportFlag];
+    const words = 'I accept the shared bar, the shared requirement, and the unmeasured requirement.\n';
+    put(f.dir, 'source/words.txt', words);
+    const chat = ['--check-accepted-by', 'user', '--owner-chat', 'source/words.txt', '--said-at', beforeGate, '--relayed-by', 'operator'];
+    refused(args, barFailure.code);
+    refused([...args, '--accept-check-bar', 'shared'], 'OWNER_CHAT_REQUIRED');
+    refused([...args, '--accept-check-bar', 'shared', ...chat], lineFailure.code);
+    refused([...args, '--accept-check-bar', 'loop', ...chat], 'RIG_CHECK_ACCEPTANCE_INVALID');
+    const all = [...args, '--accept-check-bar', 'shared', '--accept-check-line', 'shared', '--accept-check-line', 'unmeasured', ...chat];
+    expect(rigVersionCommand(all).exit).toBe(0);
+    const { project, registration } = f.projectWithRegistration();
+    const binding = obj(registration.check_report);
+    const authority = { by: 'user', owner_words: words, at: registration.at, said_at: beforeGate, relayed_by: 'operator', source: 'owner chat, relayed' };
+    expect(binding.acceptances).toEqual([
+      { kind: 'bar', id: 'shared', ...authority }, { kind: 'line', id: 'shared', ...authority }, { kind: 'line', id: 'unmeasured', ...authority },
+    ]);
+    expect(rigRegistrationFindings(f.dir, project)).toEqual([]);
+    delete obj(arr(binding.acceptances)[0]).owner_words;
+    expect(rigRegistrationFindings(f.dir, project).map(finding => finding.code)).toEqual(['OWNER_CHAT_INVALID', barFailure.code]);
+    delete binding.acceptances;
+    const checkFindings = checkProject(f.dir, project).refusals;
+    expect(checkFindings.filter(w => [barFailure.code, lineFailure.code].includes(w.code)).map(({ code, path }) => ({ code, path })))
+      .toEqual([barFailure, lineFailure, unmeasurable]);
+  });
+});
 
 test('frozen registration refuses parts bytes that differ from the newer bound approval', () => {
   const f = setup();

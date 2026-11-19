@@ -12,10 +12,12 @@ import { asArray, checkProject, collectItems, isObject, type Finding } from './c
 import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
 import { parseFeedbackAnswers, readProject } from './feedback.ts';
+import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
+import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, type RigCheckTarget } from './rig-check-report.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
 import { approvedStructureDelta, latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
@@ -25,6 +27,7 @@ import type { Json, JsonObject } from './templates.ts';
 
 export const DEPTH_MAP_BINDING_SINCE = '2026-11-19T00:00:00Z';
 const DEPTH_MAP_BINDING_SPEC = 'rig-parts-depth-map-binding/1';
+const CHECK_MODEL_PATH = 'check/build/skeleton.model.json';
 
 const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const absolute = (path: string): boolean => isAbsolute(path) || win32.isAbsolute(path);
@@ -790,10 +793,13 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const expected = [...asArray(version.outputs)].sort((a, b) => String(isObject(a) ? a.path : '').localeCompare(String(isObject(b) ? b.path : ''), 'en'));
       if (!isDeepStrictEqual(actual, expected)) throw Error('the frozen output tree differs from its complete inventory');
       if (!isObject(record.copied) || record.copied.files !== actual.length || record.copied.bytes !== actual.reduce((sum, f) => sum + Number(f.bytes), 0)) throw Error('copied totals disagree with the frozen output inventory');
-      for (const [path, spec] of [['rig/rig.json', 'rigc-rig/1'], ['rig/motion.json', 'rigc-motion/1'], ['check/build/skeleton.model.json', 'rigc-compiled/3']]) {
+      for (const [path, spec] of [['rig/rig.json', 'rigc-rig/1'], ['rig/motion.json', 'rigc-motion/1'], [CHECK_MODEL_PATH, 'rigc-compiled/3']]) {
         const document = JSON.parse(readFileSync(literalFile(dir, `outputs/v${String(version.n)}/out/${path}`), 'utf8')) as Json;
         if (!isObject(document) || document.spec !== spec) throw Error(`${path}: expected producer spec ${spec}`);
       }
+      const frozenModel = actual.find(f => f.path === `outputs/v${String(version.n)}/out/${CHECK_MODEL_PATH}`);
+      findings.push(...checkRigReport(record, `${path}.registration.check_report`, `${versionDestinations(versionN)[1]}/${RIG_CHECK_REPORT_FILE}`,
+        frozenModel?.sha256, binding => bytesAt(dir, binding), warnings));
       const idleRoot = isObject(record.idle) ? dirname(String(record.idle.path)) : '';
       for (const set of manifest.sets.filter(isObject)) {
         if (set.animation !== 'idle') continue;
@@ -813,7 +819,10 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
 export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <render dir>
   --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <package-lock.json>
   --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--depth-map-binding <map.binding.json>]... [--json]
+  [--check-report <check.json>]
   Copy and hash frozen producer outputs. Retain an explicitly declared npm lock, producer run records and UTC not-after date.
+  Accept specific failed bars or unmet requirement lines from --check-report with repeatable --accept-check-bar <id> or --accept-check-line <name>.
+  Acceptance requires --check-accepted-by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
   Repeat --answers <version>:<verdict> to answer earlier human bounced feedback.
   Source arguments resolve against the project directory; external frozen sources are permitted.`;
@@ -826,7 +835,10 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const runRecords: string[] = [];
   const depthMapBindings: string[] = [];
   const answerValues: string[] = [];
-  const flags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by', '--citations', '--depth-manifest'];
+  const checkTargets: RigCheckTarget[] = [];
+  const requiredFlags = ['--parts', '--rig', '--build', '--idle', '--config', '--path-adapter', '--compile-report', '--toolchain-lock', '--at-source', '--at-pointer', '--by'];
+  const checkAuthorityFlags = ['--check-accepted-by', ...OWNER_CHAT_FLAGS];
+  const flags = [...requiredFlags, '--citations', '--depth-manifest', '--check-report', ...checkAuthorityFlags];
   let json = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -843,6 +855,10 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       const value = args[++i];
       if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--run-record needs one value');
       runRecords.push(value);
+    } else if (arg === '--accept-check-bar' || arg === '--accept-check-line') {
+      const value = args[++i];
+      if (!value?.trim() || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', `${arg} needs one exact report key`);
+      checkTargets.push({ kind: arg === '--accept-check-bar' ? 'bar' : 'line', id: value });
     } else if (flags.includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith('--') || options[arg] !== undefined) fail('RIG_REGISTRATION_USAGE', 'versions', `${arg} needs one value`);
@@ -851,9 +867,20 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     else positional.push(arg);
   }
   const n = Number(positional[0]?.replace(/^v/, ''));
-  if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || flags.filter(f => f !== '--citations' && f !== '--depth-manifest').some(f => !options[f])) refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_HELP, USAGE_EXIT);
+  if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || requiredFlags.some(f => !options[f])) refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_HELP, USAGE_EXIT);
   if (depthMapBindings.length && !options['--depth-manifest']) fail('RIG_REGISTRATION_USAGE', 'versions', '--depth-map-binding requires --depth-manifest');
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
+  const checkPath = `versions[v${n}].registration.check_report`;
+  let checkAcceptance: JsonObject | undefined;
+  if (checkTargets.length) {
+    if (!options['--check-report']) fail('RIG_CHECK_ACCEPTANCE_INVALID', checkPath, 'acceptance requires an explicit --check-report');
+    const words = options['--owner-chat'];
+    const chatOptions = words && words !== '-' ? { ...options, '--owner-chat': resolve(dir, words) } : options;
+    checkAcceptance = readOwnerChat(chatOptions, options['--check-accepted-by'] ?? '', now, checkPath);
+    if (!checkAcceptance) refuse('OWNER_CHAT_REQUIRED', `${checkPath}: relay the owner's exact words with --check-accepted-by --owner-chat --said-at --relayed-by`);
+  } else if (checkAuthorityFlags.some(flag => options[flag] !== undefined)) {
+    fail('RIG_CHECK_ACCEPTANCE_INVALID', checkPath, 'owner chat requires --accept-check-bar or --accept-check-line with an exact report key');
+  }
   let { file, project } = readProject(dir);
   let original = readFileSync(file);
   const lock = `${file}.rig-version.lock`;
@@ -1225,6 +1252,18 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       }
     };
     inventory(evidence);
+    // A producer verdict is registration metadata, not a runtime package input.
+    let checkReport: JsonObject | undefined;
+    if (options['--check-report']) {
+      const target = `${evidence}/${RIG_CHECK_REPORT_FILE}`;
+      if (existsSync(join(dir, target))) fail('RIG_REGISTRATION_PATH_INVALID', target, 'check report collides with a retained runtime input');
+      const bytes = sourceBytes(options['--check-report']);
+      let report: JsonObject;
+      try { report = parseRigCheckReport(bytes); }
+      catch (error) { return fail('RIG_CHECK_REPORT_INVALID', checkPath, String(error)); }
+      checkReport = { ...retain(target, bytes), spec: report.spec ?? null,
+        ...(checkAcceptance ? { acceptances: checkTargets.map(target => ({ ...target, ...checkAcceptance })) } : {}) };
+    }
     let sections: Json = {};
     if (options['--citations']) {
       const binding = input('--citations', 'citations.json');
@@ -1239,6 +1278,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections, ...(structureChanges.length ? { structure_delta: structureChanges } : {}) },
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
         ...(runs.length ? { runs } : {}),
+        ...(checkReport ? { check_report: checkReport } : {}),
         ...(depthBinding ? { depth: depthBinding } : {}),
         ...(skipped.length ? { skipped } : {}),
         files: retained, config_source: configSource,

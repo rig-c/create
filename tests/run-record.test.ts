@@ -81,8 +81,12 @@ function setup(at = '2026-11-08T00:00:00Z') {
   cpSync(join(dir, 'source/rig/images/rectangle.png'), join(dir, 'source/parts/parts/rectangle.png'));
   put(dir, 'source/parts-run.json', partsRunRecord());
   put(dir, 'source/core-run.json', coreRunRecord());
+  const model = readFileSync(join(dir, 'source/build/skeleton.model.json'));
+  put(dir, 'source/check.json', { spec: 'rig-parts-check/1', bar_outcomes: { gate: { status: 'PASS' } },
+    build: { model_sha256: new Bun.CryptoHasher('sha256').update(model).digest('hex') } });
   const baseArgs = ['1', dir, '--parts', 'source/parts', '--rig', 'source/rig', '--build', 'source/build', '--idle', 'source/idle',
     '--config', 'source/config.json', '--path-adapter', 'source/adapter.json', '--compile-report', 'source/compile-report.json',
+    '--check-report', 'source/check.json',
     '--toolchain-lock', 'source/package-lock.json', '--at-source', 'source/at-source.json', '--at-pointer', '/finished_at', '--by', 'registrant', '--json'];
   const args = [...baseArgs, '--run-record', 'source/parts-run.json', '--run-record', 'source/core-run.json'];
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));

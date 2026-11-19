@@ -1,16 +1,21 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { isObject } from '../src/check.ts';
+import { closeCreateJob, openCreateJob, openRecordPublication } from '../src/job-host.ts';
+import { JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, writePrivateJson } from '../src/job-outbox.ts';
+import { currentJobIdentity, readRecordPublished } from '../src/job-publication.ts';
 import { checkpointRequired, collectCheckpointWithdrawals, checkReplacedSignoffs, collectPlanReplaced } from '../src/plan-history.ts';
 import { Refusal } from '../src/refusal.ts';
+import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { STAGE_ORDER_SPEC } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { checkProject, directionCommand, planCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { advanceCommand } from '../src/progress-writers.ts';
 import { directionFixture } from './direction-fixture.ts';
-import { arr, fixture, obj, step, waypoint } from './fixtures.ts';
+import { arr, fixture, obj, retainSignoffs, step, waypoint } from './fixtures.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
@@ -550,4 +555,295 @@ test.each([
   expect(collectCheckpointWithdrawals(project, findings, Date.parse('2026-11-20T00:00:00Z'))).toEqual([]);
   expect(findings.map(f => f.code)).toEqual(['CHECKPOINT_WITHDRAWAL_INVALID']);
   expect(checkpointRequired(project, obj(arr(obj(project.plan).steps)[0]), Date.parse('2026-11-20T00:00:00Z'))).toBe(true);
+});
+
+function postInterviewDraft(): string {
+  testClock.set('2026-11-20T00:00:00Z');
+  return realpathSync(fixture(project => {
+    project.stage = 'post-interview';
+    retainSignoffs(project, signature => !['post-interview', 'direction-review'].includes(String(obj(signature).stage)));
+    project.advances = arr(project.advances).filter(value => !['post', 'direction-review', 'accepted'].includes(String(obj(value).stage)));
+    project.versions = arr(project.versions).filter(value => obj(value).kind === 'rig');
+    project.scenes = [];
+    delete project.direction_contract;
+    obj(project.plan).steps = arr(obj(project.plan).steps).filter(value => obj(value).phase === 'rig');
+  }, 'example-project.json'));
+}
+
+test('plan add and revise --order stable-sort plan.steps[] by order, keeping ties in array order, while revise without --order and remove do not re-sort', () => {
+  const dir = draft();
+  const base = ['--phase', 'post', '--does', 'Frame the approved rig.', '--produces', 'A camera track.',
+    '--rests-on', 'bones', '--bar', 'The frame retains every approved part.', '--checkpoint-proposed', 'false'];
+  write(dir, 'add', 'step-a', ['--order', '2', ...base]);
+  write(dir, 'add', 'step-b', ['--order', '1', ...base]);
+  write(dir, 'add', 'step-c', ['--order', '2', ...base]);
+  write(dir, 'add', 'step-d', ['--order', '3', ...base]);
+  expect(arr(obj(read(dir).plan).steps).map(s => [obj(s).id, obj(s).order])).toEqual([
+    ['step-b', 1], ['step-a', 2], ['step-c', 2], ['step-d', 3],
+  ]);
+  testClock.set('2026-11-20T00:00:01Z');
+  write(dir, 'revise', 'step-d', ['--order', '0']);
+  expect(arr(obj(read(dir).plan).steps).map(s => [obj(s).id, obj(s).order])).toEqual([
+    ['step-d', 0], ['step-b', 1], ['step-a', 2], ['step-c', 2],
+  ]);
+  testClock.set('2026-11-20T00:00:02Z');
+  write(dir, 'revise', 'step-c', ['--order', '1']);
+  expect(arr(obj(read(dir).plan).steps).map(s => [obj(s).id, obj(s).order])).toEqual([
+    ['step-d', 0], ['step-b', 1], ['step-c', 1], ['step-a', 2],
+  ]);
+  // An out-of-order array is not re-sorted by revise without --order or remove.
+  const outOfOrder = read(dir);
+  arr(obj(outOfOrder.plan).steps).reverse();
+  save(dir, outOfOrder);
+  testClock.set('2026-11-20T00:00:03Z');
+  write(dir, 'revise', 'step-b', ['--bar', 'Updated bar without order flag.']);
+  expect(arr(obj(read(dir).plan).steps).map(s => obj(s).id)).toEqual(['step-a', 'step-c', 'step-b', 'step-d']);
+  testClock.set('2026-11-20T00:00:04Z');
+  write(dir, 'remove', 'step-c');
+  expect(arr(obj(read(dir).plan).steps).map(s => obj(s).id)).toEqual(['step-a', 'step-b', 'step-d']);
+});
+
+test('after revise --order, the published plan text lists steps in plan order', async () => {
+  const dir = postInterviewDraft();
+  const base = ['--phase', 'post', '--produces', 'A synthetic post artifact.',
+    '--rests-on', 'camera_depth', '--bar', 'The post artifact matches the guide.', '--checkpoint-proposed', 'false'];
+  write(dir, 'add', 'camera', ['--order', '10', '--does', 'First post step.', ...base]);
+  write(dir, 'add', 'timing', ['--order', '20', '--does', 'Second post step.', ...base]);
+  write(dir, 'add', 'composition', ['--order', '30', '--does', 'Third post step.', ...base]);
+  testClock.set('2026-11-20T00:00:01Z');
+  write(dir, 'revise', 'composition', ['--order', '5']);
+  const bytes = readFileSync(join(dir, 'project.json'));
+  const recordPublished = readRecordPublished({
+    root: dir,
+    record: { path: 'project.json', sha256: jobHash(bytes) },
+    result: { kind: 'plan' },
+    phase: 'inventory',
+  }, testClock.now());
+  expect(recordPublished.plan.steps.filter(s => ['camera', 'timing', 'composition'].includes(s.id)).map(s => s.id))
+    .toEqual(['composition', 'camera', 'timing']);
+  const host = await openCreateJob(dir, { id: 'synthetic-owner', role: 'owner' }, testClock.now(), undefined, true);
+  try {
+    await openRecordPublication(dir, host, undefined, true, testClock.now());
+    const pubId = host.session.status().publication!.publicationId;
+    const entryBase = host.session.displayPublication(pubId).routes.entry;
+    const response = await fetch(`${host.origin}${entryBase}api/review`);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { planText: { schema: string; status: string; steps: { id: string; does?: string }[] } };
+    expect(body.planText.schema).toBe('rig-review/job-plan-text@1');
+    expect(body.planText.status).toBe('projected');
+    expect(body.planText.steps.filter(s => ['camera', 'timing', 'composition'].includes(s.id)).map(s => s.id))
+      .toEqual(['composition', 'camera', 'timing']);
+  } finally {
+    await closeCreateJob(dir);
+    host.stop();
+    rmSync(jobPrivateRoot(dir), { recursive: true, force: true });
+    rmSync(jobHostStateRoot(dir), { recursive: true, force: true });
+  }
+}, 20_000);
+
+function bindSyntheticReview(dir: string, jobId = 'synthetic-plan-order-job'): string {
+  const project = read(dir);
+  project.review_job = { jobId, origin: 'http://127.0.0.1:43124' };
+  save(dir, project);
+  const identity = currentJobIdentity({ root: dir, stateDir: 'unused-private-state', fingerprint: 'synthetic', reviewer: { id: 'synthetic-owner', role: 'owner' } }, dir);
+  writePrivateJson(join(dir, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, jobId, origin: 'http://127.0.0.1:43124', fetchCapability: 'synthetic-read-grant' }, true);
+  return jobId;
+}
+
+function recordPlanSignoffAct(dir: string, stage: string, actId: string, jobId = 'synthetic-plan-order-job'): JsonObject {
+  const bytes = readFileSync(join(dir, 'project.json'));
+  const record = { path: 'project.json' as const, sha256: jobHash(bytes) };
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  const plan = { steps: arr(obj(project.plan).steps).map(raw => ({ id: String(obj(raw).id), hash: stepHash(obj(raw)) })) };
+  const subjects = [{ kind: 'signoff', stage }];
+  const files = [record];
+  const inputs: never[] = [];
+  const sourceHash = jobHash(JSON.stringify({
+    schema: 'rig-review-job-record-source/1',
+    record,
+    selection: { kind: 'plan' },
+    inputs,
+    optionSet: null,
+    optionSetFile: null,
+    plan,
+    subjects,
+    files,
+  }));
+  return {
+    schema: 'rig-review/act@4',
+    kind: 'signoff',
+    jobId,
+    actId,
+    askId: 'synthetic-ask',
+    publicationId: 'synthetic-publication',
+    at: testClock.iso(),
+    authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+    source: {
+      sourceHash,
+      projectHash: record.sha256,
+      record,
+      inputs,
+      files,
+      subject: 'plan',
+      selection: { kind: 'plan' },
+      optionSet: null,
+      optionSetFile: null,
+      plan,
+      subjects,
+    },
+    value: { stage, decision: 'approved', words: 'Approve the plan.\n' },
+  };
+}
+
+function recordCheckpointAct(dir: string, checkpointId: string, actId: string, jobId = 'synthetic-plan-order-job'): JsonObject {
+  const bytes = readFileSync(join(dir, 'project.json'));
+  const sha256 = jobHash(bytes);
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  const steps = arr(obj(project.plan).steps).map(raw => ({ id: String(obj(raw).id), hash: stepHash(obj(raw)) }));
+  return {
+    schema: 'rig-review/act@2',
+    kind: 'checkpoint',
+    jobId,
+    actId,
+    askId: 'synthetic-ask',
+    publicationId: 'synthetic-publication',
+    at: testClock.iso(),
+    authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+    source: {
+      sourceHash: '1'.repeat(64),
+      projectHash: sha256,
+      package: { id: 'synthetic-package', revision: 'one' },
+      selector: null,
+      model: null,
+      direction: null,
+      optionSet: null,
+      appliedResult: null,
+      plan: { steps },
+      parts: { enumeratorVersion: '2.34.0' },
+    },
+    value: { checkpointId, planStepId: checkpointId, outcome: 'pass', words: 'Pass the checkpoint.\n' },
+  };
+}
+
+test('a pending act made before the reorder is refused as stale with REVIEW_ACT_SOURCE_STALE', () => {
+  const dir = postInterviewDraft();
+  const base = ['--phase', 'post', '--produces', 'A synthetic post artifact.',
+    '--rests-on', 'camera_depth', '--bar', 'The post artifact matches the guide.', '--checkpoint-proposed', 'false'];
+  write(dir, 'add', 'camera', ['--order', '10', '--does', 'First post step.', ...base]);
+  write(dir, 'add', 'timing', ['--order', '20', '--does', 'Second post step.', ...base]);
+  write(dir, 'add', 'composition', ['--order', '30', '--does', 'Third post step.', ...base]);
+  bindSyntheticReview(dir);
+  const pendingAct = recordPlanSignoffAct(dir, 'post-interview', 'sign-before-reorder');
+  const legacyAct: JsonObject = {
+    ...pendingAct,
+    schema: 'rig-review/act@2',
+    source: {
+      sourceHash: '1'.repeat(64),
+      projectHash: '2'.repeat(64),
+      package: { id: 'synthetic-package', revision: 'one' },
+      selector: null,
+      model: null,
+      direction: null,
+      optionSet: null,
+      appliedResult: null,
+      plan: obj(pendingAct.source).plan!,
+      parts: { enumeratorVersion: '2.34.0' },
+    },
+  };
+  testClock.set('2026-11-20T00:00:01Z');
+  write(dir, 'revise', 'composition', ['--order', '5']);
+  unchanged(dir, 'REVIEW_ACT_SOURCE_STALE', () =>
+    rawSignoff(['post-interview', dir, '--from-review', 'sign-before-reorder'], testClock.now(), {
+      fetch: () => ({ bytes: JSON.stringify(pendingAct) }),
+    }));
+  unchanged(dir, 'REVIEW_ACT_SOURCE_STALE', () =>
+    rawSignoff(['post-interview', dir, '--from-review', 'sign-before-reorder'], testClock.now(), {
+      fetch: () => ({ bytes: JSON.stringify(legacyAct) }),
+    }));
+});
+
+test('signoff step_hashes still match after the array moves', () => {
+  const dir = postInterviewDraft();
+  const base = ['--phase', 'post', '--produces', 'A synthetic post artifact.',
+    '--rests-on', 'camera_depth', '--bar', 'The post artifact matches the guide.', '--checkpoint-proposed', 'false'];
+  write(dir, 'add', 'camera', ['--order', '10', '--does', 'First post step.', ...base]);
+  write(dir, 'add', 'timing', ['--order', '20', '--does', 'Second post step.', ...base]);
+  write(dir, 'add', 'composition', ['--order', '30', '--does', 'Third post step.', ...base]);
+  const before = read(dir);
+  const rigHashesBefore = Object.fromEntries(
+    arr(obj(before.plan).steps).map(obj).filter(s => s.phase === 'rig').map(s => [String(s.id), stepHash(s)]),
+  );
+  testClock.set('2026-11-20T00:00:01Z');
+  // Reordering an unsigned post step to order 0 moves all signed rig steps (orders 1..6) in plan.steps[].
+  write(dir, 'revise', 'composition', ['--order', '0']);
+  const afterMove = read(dir);
+  expect(obj(arr(obj(afterMove.plan).steps)[0]).id).toBe('composition');
+  for (const [id, hash] of Object.entries(rigHashesBefore)) {
+    expect(stepHash(step(afterMove, id))).toBe(hash);
+  }
+  expect(codes(dir)).toEqual([]);
+  const words = join(dir, 'approve-post.txt');
+  writeFileSync(words, 'Approve the reordered post plan.\n');
+  testClock.set('2026-11-20T00:00:02Z');
+  const signed = JSON.parse(signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words, '--json']).stdout) as JsonObject;
+  expect(advanceCommand(['post', dir], testClock.now()).exit).toBe(0);
+  const afterSign = read(dir);
+  for (const id of ['composition', 'camera', 'timing']) {
+    expect(obj(signed.step_hashes)[id]).toBe(stepHash(step(afterSign, id)));
+  }
+  expect(codes(dir)).toEqual([]);
+});
+
+test.each(['checkpoint-withdraw', 'bar-amend'] as const)('a %s journal write on a record with an out-of-order array leaves the array bytes and a pending act untouched', action => {
+  testClock.set('2026-11-20T00:00:00Z');
+  const dir = realpathSync(fixture(project => {
+    project.stage = 'parts';
+    project.versions = [];
+    project.signoffs = arr(project.signoffs).slice(0, 2);
+    for (const raw of arr(obj(project.plan).steps).map(obj)) {
+      raw.status = raw.id === 'assemble' || raw.id === 'seethrough' ? 'at-checkpoint' : 'pending';
+    }
+    step(project, 'seethrough').checkpoint = {
+      delegated: false, value: true, by: 'user', at: '2026-11-10T00:00:00Z', verbatim: 'Inspect seethrough.',
+    };
+    // Place plan.steps[] out of order before the journal write.
+    const steps = arr(obj(project.plan).steps);
+    obj(project.plan).steps = [steps[2]!, steps[0]!, steps[1]!, ...steps.slice(3)];
+  }, 'example-project.json'));
+  bindSyntheticReview(dir);
+  const extractStepsBytes = (text: string): string => {
+    const start = text.indexOf('"steps": [');
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === '[') depth++;
+      else if (text[i] === ']') {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    throw new Error('steps array not found');
+  };
+  const beforeText = readFileSync(join(dir, 'project.json'), 'utf8');
+  const beforeStepsBytes = extractStepsBytes(beforeText);
+  const beforeOrder = arr(obj(read(dir).plan).steps).map(s => [obj(s).id, obj(s).order]);
+  expect(beforeOrder.slice(0, 3)).toEqual([['bones', 3], ['seethrough', 1], ['assemble', 2]]);
+  // A pending checkpoint act on 'seethrough' captured before the journal write on 'assemble'.
+  const pendingCheckpoint = recordCheckpointAct(dir, 'seethrough', `cp-before-${action}`);
+  const reason = join(dir, 'reason.txt');
+  const quote = join(dir, 'quote.txt');
+  const bar = join(dir, 'bar.txt');
+  writeFileSync(reason, 'Direct owner instruction.\n');
+  writeFileSync(quote, 'Keep the array order untouched.\n');
+  writeFileSync(bar, 'Every synthetic part resolves to its registered source.\n');
+  const flags = action === 'bar-amend'
+    ? ['bar-amend', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote, '--bar-file', bar]
+    : ['checkpoint-withdraw', 'assemble', dir, '--by', 'operator', '--reason-file', reason, '--quote-file', quote];
+  expect(planCommand(flags).exit).toBe(0);
+  const afterText = readFileSync(join(dir, 'project.json'), 'utf8');
+  expect(extractStepsBytes(afterText)).toBe(beforeStepsBytes);
+  expect(arr(obj(read(dir).plan).steps).map(s => [obj(s).id, obj(s).order])).toEqual(beforeOrder);
+  // The pending checkpoint act on 'seethrough' (which checks act.source.plan.steps against current plan.steps) still ingests cleanly.
+  expect(rawSignoff(['parts', dir, '--checkpoint', 'seethrough', '--from-review', `cp-before-${action}`], testClock.now(), {
+    fetch: () => ({ bytes: JSON.stringify(pendingCheckpoint) }),
+  }).exit).toBe(0);
 });

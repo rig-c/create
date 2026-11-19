@@ -121,7 +121,7 @@ test('#562 reordered depth plan publishes and fully ingests while retaining arra
   const context = publication(root);
   expect(bytes(root)).toEqual(before);
   expect(context.plan.steps.map(step => step.id)).toEqual(arr(obj(project.plan).steps).map(step => String(obj(step).id)));
-  expect(context.plan.steps.at(-1)?.id).toBe('turn');
+  expect(context.plan.steps.map(step => step.id)).toEqual(['seethrough', 'assemble', 'turn', 'bones', 'meshes', 'constraints', 'motion']);
   const act = await actFor(root);
   expect(ingest(root, act).exit).toBe(0);
   expect(arr(read(root).signoffs).map(obj).at(-1)).toMatchObject({ stage: 'rigging-interview', by: 'user' });

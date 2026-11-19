@@ -207,6 +207,9 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
         if (action === 'remove') steps.splice(index, 1);
         else steps[index] = { ...previous, ...patch };
       } else steps.push({ id: id!, ...patch, checkpoint: null, status: 'pending' });
+      if (action === 'add' || (action === 'revise' && patch.order !== undefined)) {
+        steps.sort((a, b) => Number(a.order) - Number(b.order));
+      }
       const changedSteps = [previous, ...steps.filter(step => isObject(step) && step.id === id)].filter(isObject);
       const ownerships = new Set(changedSteps.map(step => approvalStageOfStep(step.phase as 'rig' | 'post', id!, hasStageOrder(project))));
       if (ownerships.has('plan-approved')) {

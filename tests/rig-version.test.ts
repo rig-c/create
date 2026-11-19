@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
-import { depthPlanFindings, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
+import { DEPTH_MAP_BINDING_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -1763,6 +1763,111 @@ describe('#514 producer depth bindings in frozen registration', () => {
     put(base.dir, 'project.json', project);
     return { ...base, acceptedPath };
   }
+
+  function boundDepthSetup() {
+    const base = depthSetup();
+    // Parts-owned receipt declarations: Create does not reconstruct inference.
+    put(base.dir, 'source/rectangle.json.binding.json', { spec: 'rig-parts-depth-map-binding/1', part: 'rectangle', mapSha256: 'd'.repeat(64), inputSha256: 'c'.repeat(64) });
+    return { ...base, args: [...base.args, '--depth-map-binding', 'source/rectangle.json.binding.json'] };
+  }
+
+  test('#559 registration retains raw Parts receipt bytes, sha256 and spec independently of source files', () => {
+    const { dir, args, load } = boundDepthSetup();
+    const bytes = readFileSync(join(dir, 'source/rectangle.json.binding.json'));
+    rigVersionCommand(args);
+    const version = obj(arr(load().versions)[0]), registration = obj(version.registration);
+    const binding = obj(arr(obj(registration.depth).map_bindings)[0]);
+    expect(binding).toMatchObject({ part: 'rectangle', spec: 'rig-parts-depth-map-binding/1', sha256: jobHash(bytes) });
+    expect(arr(registration.files)).toContainEqual({ path: binding.path, sha256: binding.sha256 });
+    expect(readFileSync(join(dir, String(binding.path)))).toEqual(bytes);
+    rmSync(join(dir, 'source'), { recursive: true });
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test('#559 repeated flags retain every applied map and a partial set names the missing part', () => {
+    const { dir, args, load } = boundDepthSetup();
+    const parts = JSON.parse(readFileSync(join(dir, 'source/parts/parts.json'), 'utf8'));
+    const second = structuredClone(parts.parts[0]);
+    second.name = 'second'; second.from = 'full:author:second';
+    second.depth.image = 'second_depth.png';
+    second.depth.sources[0] = { ...second.depth.sources[0], from: second.from, image: 'second.json', sha256: 'e'.repeat(64) };
+    parts.parts.push(second); put(dir, 'source/parts/parts.json', parts);
+    const art = readFileSync(join(dir, 'source/parts/parts/rectangle.png'));
+    for (const path of ['source/parts/parts/second.png', 'source/parts/parts/second_depth.png', 'source/rig/images/second_depth.png']) writeFileSync(join(dir, path), art);
+    const manifest = JSON.parse(readFileSync(join(dir, 'source/manifest.json'), 'utf8'));
+    manifest.parts.push({ ...manifest.parts[0], part: 'second' }); put(dir, 'source/manifest.json', manifest);
+    const report = JSON.parse(readFileSync(join(dir, 'source/parts/depth-report.json'), 'utf8'));
+    report.parts.push({ ...report.parts[0], part: 'second', mapSha256: 'e'.repeat(64) });
+    report.manifestSha256 = jobHash(readFileSync(join(dir, 'source/manifest.json'))); put(dir, 'source/parts/depth-report.json', report);
+    const sheets = JSON.parse(readFileSync(join(dir, 'source/rig/depth_sheets.json'), 'utf8'));
+    sheets.parts.push({ part: 'second', size: [8, 16], depth: second.depth }); put(dir, 'source/rig/depth_sheets.json', sheets);
+    testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
+    const error = refused(args, 'RIG_DEPTH_MAP_BINDING_MISSING');
+    expect(error.message).toContain('map_bindings[second]');
+    put(dir, 'source/second.json.binding.json', { spec: 'rig-parts-depth-map-binding/1', part: 'second', mapSha256: 'e'.repeat(64), inputSha256: 'c'.repeat(64) });
+    rigVersionCommand([...args, '--depth-map-binding', 'source/second.json.binding.json']);
+    expect(arr(obj(obj(obj(arr(load().versions)[0]).registration).depth).map_bindings)).toHaveLength(2);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  test('#559 binding flags require a manifest and a value without writing', () => {
+    const { args } = boundDepthSetup();
+    refused([...args, '--depth-map-binding'], 'RIG_REGISTRATION_USAGE');
+    args.splice(args.indexOf('--depth-manifest'), 2);
+    refused(args, 'RIG_REGISTRATION_USAGE');
+  });
+
+  test.each(['spec', 'part', 'mapSha256', 'inputSha256', 'extra', 'json', 'duplicate', 'symlink'] as const)('#559 refuses %s receipt before changing project bytes', kind => {
+    const { dir, args } = boundDepthSetup();
+    const path = join(dir, 'source/rectangle.json.binding.json');
+    const receipt = JSON.parse(readFileSync(path, 'utf8'));
+    if (kind === 'json') writeFileSync(path, '{');
+    else if (kind === 'duplicate') args.push('--depth-map-binding', 'source/rectangle.json.binding.json');
+    else if (kind === 'symlink') { renameSync(path, `${path}.original`); symlinkSync(`${path}.original`, path); }
+    else { receipt[kind] = kind.endsWith('Sha256') ? 'e'.repeat(64) : 'wrong'; put(dir, 'source/rectangle.json.binding.json', receipt); }
+    refused(args, 'RIG_DEPTH_BINDING_INVALID');
+    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
+    expect(existsSync(join(dir, 'outputs/v1'))).toBe(false);
+  });
+
+  test('#559 receipt absence warns for older registrations and refuses on the landing boundary, regardless of build date', () => {
+    const { dir, args, load } = depthSetup();
+    rigVersionCommand(args);
+    const project = load(), version = obj(arr(project.versions)[0]), registration = obj(version.registration);
+    expect(Date.parse(String(version.at))).toBeLessThan(Date.parse(DEPTH_MAP_BINDING_SINCE));
+    for (const [at, count] of [['2026-11-18T23:59:59Z', 0], [DEPTH_MAP_BINDING_SINCE, 1]] as const) {
+      registration.at = at;
+      const warnings: import('../src/check.ts').Finding[] = [];
+      const findings = rigRegistrationFindings(dir, project, warnings);
+      expect(findings.filter(f => f.code === 'RIG_DEPTH_MAP_BINDING_MISSING')).toHaveLength(count);
+      expect(warnings.filter(f => f.code === 'RIG_DEPTH_MAP_BINDING_MISSING')).toHaveLength(1 - count);
+    }
+    testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
+    const fresh = depthSetup();
+    testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
+    refused(fresh.args, 'RIG_DEPTH_MAP_BINDING_MISSING');
+  });
+
+  test('#559 current bound registration passes and retained tampering refuses in every era', () => {
+    const { dir, args, load } = boundDepthSetup();
+    testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
+    rigVersionCommand(args);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    const project = load(), registration = obj(obj(arr(project.versions)[0]).registration);
+    const binding = obj(arr(obj(registration.depth).map_bindings)[0]);
+    writeFileSync(join(dir, String(binding.path)), '{}\n');
+    registration.at = '2026-11-18T23:59:59Z';
+    expect(rigRegistrationFindings(dir, project).map(f => f.code)).toContain('RIG_REGISTRATION_FILE_INVALID');
+  });
+
+  test('#559 depth moves prescribe inference, bind, apply, registration and unchanged-input receipt reuse', () => {
+    const project: JsonObject = { interview: { waypoints: [{ id: 'turn', guide: { delegated: false, value: { mode: 'depth' }, by: 'user', at: DEPTH_MAP_BINDING_SINCE, verbatim: 'Head turn.' } }] } };
+    const moves = depthPlanMoves(project).map(move => move.act).join('\n');
+    expect(moves.indexOf('depth-bind')).toBeLessThan(moves.indexOf('depth-apply'));
+    expect(moves).toContain('inputSha256 is unchanged');
+    expect(moves).toContain('never bind an old map');
+    expect(moves).toContain('--depth-map-binding');
+  });
 
   test('#567 accepted depth output binds the applied source and matches registered depth parts', () => {
     const { dir, args, load, acceptedPath } = acceptedDepthSetup();

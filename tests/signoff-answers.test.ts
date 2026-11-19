@@ -1,3 +1,4 @@
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';

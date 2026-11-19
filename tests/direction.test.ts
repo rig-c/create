@@ -1,3 +1,4 @@
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { sceneFixture } from './scene-fixture.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';

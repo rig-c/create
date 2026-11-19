@@ -1,3 +1,4 @@
+import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';

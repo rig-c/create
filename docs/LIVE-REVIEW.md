@@ -334,7 +334,7 @@ the list, or no receipt at all (a clone), leaves only Review's ask binding.
 ### Asks
 
 Every publication create acknowledges is followed, in the same process, by an
-ask for each subject it declares. That covers `draft-rig`, `rig-version`,
+ask for each subject it declares (using one `ask-batch` call when Review's `next` response advertises `capabilities.askBatch: true`, in chunks of up to 64 subjects). That covers `draft-rig`, `rig-version`,
 `direction write|patch`, `advance rig-review|direction-review`, `job reconcile`
 and `job open`. The process already
 holds Review's agent authority in memory for the publish, so the ask needs no

@@ -821,6 +821,166 @@ function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject):
   ];
 }
 
+function partsDraftEvidenceMoves(
+  dir: string,
+  project: JsonObject,
+  effectiveStage: string,
+  jobId: string | undefined,
+  now: number,
+): {
+  draftId: string | undefined;
+  hasApprovedPartsVerdict: boolean;
+  structure: { path: string; valid: boolean } | undefined;
+  retouching: boolean;
+  moves: NextMove[];
+} {
+  const drafts = asArray(project.drafts).filter(isObject);
+  const latestDraft = drafts[drafts.length - 1];
+  const draftId = typeof latestDraft?.id === 'string' ? latestDraft.id : undefined;
+  const partsRoot =
+    isObject(latestDraft?.parts) && typeof latestDraft.parts.path === 'string'
+      ? latestDraft.parts.path
+      : undefined;
+  const hasApprovedPartsVerdict = hasApprovedPartsVerdictReceipt(dir, project, draftId);
+  const structure = draftId === undefined ? undefined : partsStructureSnapshot(dir, project, draftId);
+  if (effectiveStage === 'parts-review' && draftId !== undefined && latestPartsVerdictStatus(project, draftId) === 'changes-requested') {
+    return {
+      draftId,
+      hasApprovedPartsVerdict,
+      structure,
+      retouching: true,
+      moves: partsRetouchMoves(dir, project, latestDraft!),
+    };
+  }
+  const arrival = asArray(project.advances).filter(isObject).filter(isPartsCheckMove).at(-1);
+  const retouch = effectiveStage === 'parts-review' && isObject(arrival?.parts_check)
+    && arrival.parts_check.parts !== partsRoot;
+  const evidence = partsEvidencePaths(draftId ?? '', retouch);
+  const previousPartsActAt = Math.max(
+    -Infinity,
+    ...asArray(project.review_acts)
+      .filter((entry): entry is JsonObject => isObject(entry) && entry.kind === 'parts-verdict' && entry.draft_id !== draftId)
+      .map(entry => {
+        if (typeof entry.at === 'string') return Date.parse(entry.at);
+        if (typeof entry.bytes === 'string') {
+          try {
+            const parsed: Json = JSON.parse(entry.bytes);
+            if (isObject(parsed) && typeof parsed.at === 'string') return Date.parse(parsed.at);
+          } catch { /* Handled by reviewActFindings. */ }
+        }
+        return -Infinity;
+      })
+      .filter(Number.isFinite),
+  );
+  const diffAt = isObject(project.diff_map) ? Date.parse(String(project.diff_map.at)) : NaN;
+  const draftAt = Date.parse(String(latestDraft?.at));
+  const diffForCurrentDraft = !retouch
+    || (isObject(project.diff_map) && (
+      (isObject(project.diff_map.report) && project.diff_map.report.path === evidence.diff)
+      || (Number.isFinite(diffAt) && Number.isFinite(draftAt) && diffAt >= draftAt && diffAt > previousPartsActAt)
+    ));
+  const currentDiff = diffForCurrentDraft
+    && hasValidDiffMap(dir, project, partsRoot === undefined ? undefined : resolve(dir, partsRoot, 'parts.json'));
+  const arrivalCheckValid = isObject(arrival?.parts_check)
+    && partsCheckFindings(dir, arrival.parts_check, 'advances.parts_check', true).length === 0;
+  const currentCheck = partsRoot !== undefined && (
+    hasCurrentPartsCheck(dir, evidence.check, partsRoot)
+    || (effectiveStage === 'parts-review' && Boolean(structure?.valid) && currentDiff && arrivalCheckValid)
+  );
+
+  const moves: NextMove[] = [];
+  if (partsRoot !== undefined && !currentCheck) {
+    moves.push({
+      role: 'producer',
+      field: 'drafts',
+      awaits: evidence.check,
+      command: `rig-parts check-parts --parts ${shellWord(resolve(dir, partsRoot))} --out ${shellWord(resolve(dir, evidence.directory))}`,
+      act: `produce and retain ${evidence.check} for the current draft before asking for its verdict`,
+    });
+  }
+  if (draftId !== undefined && structure !== undefined && !structure.valid) {
+    moves.push({
+      role: 'agent',
+      field: `drafts[${draftId}]`,
+      awaits: structure.path,
+      command: `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(draftId)} --out ${shellWord(structure.path)}`,
+      act: `write structure-snapshot for drafts[${draftId}] to ${structure.path}`,
+    });
+  }
+  const inputsList = asArray(project.inputs).filter(isObject);
+  const paintingPath =
+    typeof inputsList[0]?.path === 'string'
+      ? inputsList[0].path
+      : existsSync(join(dir, 'inputs/painting.png'))
+        ? 'inputs/painting.png'
+        : undefined;
+  if (
+    draftId !== undefined &&
+    partsRoot !== undefined &&
+    paintingPath !== undefined &&
+    !currentDiff &&
+    !existsSync(join(dir, evidence.diff))
+  ) {
+    const diffMove = resolveDiffComponentsMove(dir, draftId, partsRoot, paintingPath, evidence.diff);
+    moves.push({
+      role: 'producer',
+      field: `drafts[${draftId}].parts`,
+      awaits: evidence.diff,
+      command: diffMove.command,
+      act: diffMove.act,
+    });
+  } else if (
+    existsSync(join(dir, evidence.diff)) &&
+    !currentDiff
+  ) {
+    moves.push({
+      role: 'agent',
+      field: 'diff_map',
+      awaits: 'diff_map',
+      command: resolveDiffClassesCommand(dir, evidence.diff, evidence.triage),
+      act: `record agent component classification for ${evidence.diff} in diff_map`,
+    });
+  }
+  if (effectiveStage === 'parts' && partsRoot !== undefined && structure?.valid && currentDiff && currentCheck) {
+    const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
+      report: evidence.check,
+      root: partsRoot,
+    });
+    if (advCmd !== null) {
+      moves.push({
+        role: 'agent',
+        field: 'stage',
+        awaits: 'project.stage',
+        command: advCmd,
+        act: 'advance stage from parts to parts-review',
+      });
+    }
+  }
+  if (draftId !== undefined && !hasApprovedPartsVerdict && effectiveStage === 'parts-review' && currentCheck && structure?.valid && currentDiff) {
+    const verdictAwait = `review_acts[kind=parts-verdict,draft_id=${draftId}]`;
+    moves.push({
+      role: 'human',
+      field: 'review_acts',
+      awaits: verdictAwait,
+      command: null,
+      act: `review-tool act parts-verdict for drafts[${draftId}]; approve once to record the verdict and parts-review signature`,
+      review_act: {
+        kind: 'parts-verdict',
+        stage: 'parts-review',
+        draft_id: draftId,
+        ...(jobId ? { job_id: jobId } : {}),
+      },
+    });
+  }
+  return {
+    draftId,
+    hasApprovedPartsVerdict,
+    structure,
+    retouching: false,
+    moves,
+  };
+}
+
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
   const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true });
@@ -896,6 +1056,37 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   };
   const moves: NextMove[] = [...depthMoves, ...registrations];
   moves.forEach(move => addAwait(move.awaits));
+  if (effectiveStage === 'parts-review') {
+    const draftState = partsDraftEvidenceMoves(dir, project, effectiveStage, jobId, now);
+    if (!draftState.hasApprovedPartsVerdict && draftState.moves.length > 0) {
+      if (draftState.retouching) {
+        return {
+          schema: NEXT_SCHEMA,
+          project_id: String(project.name ?? ''),
+          stage,
+          effective_stage: effectiveStage,
+          accepted: false,
+          refusals,
+          ...warningFields,
+          awaits: [...new Set(draftState.moves.map(move => move.awaits))],
+          moves: draftState.moves,
+        };
+      }
+      const runnableDraftMoves = draftState.moves.flatMap(move => reviewCommands(dir, project, move));
+      for (const move of runnableDraftMoves) addAwait(move.awaits);
+      return {
+        schema: NEXT_SCHEMA,
+        project_id: String(project.name ?? ''),
+        stage,
+        effective_stage: effectiveStage,
+        accepted: false,
+        refusals,
+        ...warningFields,
+        awaits: awaitsList,
+        moves: [...moves, ...runnableDraftMoves],
+      };
+    }
+  }
   // The check owns bounce/withdrawal/answer logic; consume its open findings.
   const openFeedback = report.warnings.filter(w => w.code === 'FEEDBACK_OPEN');
   if (openFeedback.length > 0) {
@@ -1374,114 +1565,15 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         }
       }
     } else {
-      const latestDraft = drafts[drafts.length - 1];
-      const draftId = typeof latestDraft?.id === 'string' ? latestDraft.id : undefined;
-      const partsRoot =
-        isObject(latestDraft?.parts) && typeof latestDraft.parts.path === 'string'
-          ? latestDraft.parts.path
-          : undefined;
-      const hasApprovedPartsVerdict = hasApprovedPartsVerdictReceipt(dir, project, draftId);
-      if (effectiveStage === 'parts-review' && draftId !== undefined && latestPartsVerdictStatus(project, draftId) === 'changes-requested') {
-        const retouch = partsRetouchMoves(dir, project, latestDraft!);
+      const { draftId, hasApprovedPartsVerdict, structure, retouching, moves: draftMoves } =
+        partsDraftEvidenceMoves(dir, project, effectiveStage, jobId, now);
+      if (retouching) {
         return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
-          accepted: false, refusals, ...warningFields, awaits: [...new Set(retouch.map(move => move.awaits))], moves: retouch };
+          accepted: false, refusals, ...warningFields, awaits: [...new Set(draftMoves.map(move => move.awaits))], moves: draftMoves };
       }
-      const arrival = asArray(project.advances).filter(isObject).filter(isPartsCheckMove).at(-1);
-      const retouch = effectiveStage === 'parts-review' && isObject(arrival?.parts_check)
-        && arrival.parts_check.parts !== partsRoot;
-      const evidence = partsEvidencePaths(draftId ?? '', retouch);
-      const currentCheck = partsRoot !== undefined && hasCurrentPartsCheck(dir, evidence.check, partsRoot);
-      const currentDiff = (!retouch || isObject(project.diff_map) && isObject(project.diff_map.report) && project.diff_map.report.path === evidence.diff)
-        && hasValidDiffMap(dir, project, partsRoot === undefined ? undefined : resolve(dir, partsRoot, 'parts.json'));
-
-
-      if (partsRoot !== undefined && !currentCheck) {
-        addAwait(evidence.check);
-        moves.push({ role: 'producer', field: 'drafts', awaits: evidence.check,
-          command: `rig-parts check-parts --parts ${shellWord(resolve(dir, partsRoot))} --out ${shellWord(resolve(dir, evidence.directory))}`,
-          act: `produce and retain ${evidence.check} for the current draft before asking for its verdict` });
-      }
-
-      const structure = draftId === undefined ? undefined : partsStructureSnapshot(dir, project, draftId);
-      if (draftId !== undefined && structure !== undefined && !structure.valid) {
-        addAwait(structure.path);
-        moves.push({
-          role: 'agent',
-          field: `drafts[${draftId}]`,
-          awaits: structure.path,
-          command: `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(draftId)} --out ${shellWord(structure.path)}`,
-          act: `write structure-snapshot for drafts[${draftId}] to ${structure.path}`,
-        });
-      }
-
-      const inputsList = asArray(project.inputs).filter(isObject);
-      const paintingPath =
-        typeof inputsList[0]?.path === 'string'
-          ? inputsList[0].path
-          : existsSync(join(dir, 'inputs/painting.png'))
-            ? 'inputs/painting.png'
-            : undefined;
-      if (
-        draftId !== undefined &&
-        partsRoot !== undefined &&
-        paintingPath !== undefined &&
-        !existsSync(join(dir, evidence.diff))
-      ) {
-        const diffMove = resolveDiffComponentsMove(dir, draftId, partsRoot, paintingPath, evidence.diff);
-        addAwait(evidence.diff);
-        moves.push({
-          role: 'producer',
-          field: `drafts[${draftId}].parts`,
-          awaits: evidence.diff,
-          command: diffMove.command,
-          act: diffMove.act,
-        });
-      } else if (
-        existsSync(join(dir, evidence.diff)) &&
-        !currentDiff
-      ) {
-        addAwait('diff_map');
-        moves.push({
-          role: 'agent',
-          field: 'diff_map',
-          awaits: 'diff_map',
-          command: resolveDiffClassesCommand(dir, evidence.diff, evidence.triage),
-          act: `record agent component classification for ${evidence.diff} in diff_map`,
-        });
-      }
-
-      if (effectiveStage === 'parts' && partsRoot !== undefined && structure?.valid && currentDiff && currentCheck) {
-        const advCmd = candidateAdvance(dir, project, 'parts-review', now, {
-          report: evidence.check,
-          root: partsRoot,
-        });
-        if (advCmd !== null) {
-          moves.push({
-            role: 'agent',
-            field: 'stage',
-            awaits: 'project.stage',
-            command: advCmd,
-            act: 'advance stage from parts to parts-review',
-          });
-        }
-      }
-
-      if (draftId !== undefined && !hasApprovedPartsVerdict && effectiveStage === 'parts-review' && currentCheck && structure?.valid && currentDiff) {
-        const verdictAwait = `review_acts[kind=parts-verdict,draft_id=${draftId}]`;
-        addAwait(verdictAwait);
-        moves.push({
-          role: 'human',
-          field: 'review_acts',
-          awaits: verdictAwait,
-          command: null,
-          act: `review-tool act parts-verdict for drafts[${draftId}]; approve once to record the verdict and parts-review signature`,
-          review_act: {
-            kind: 'parts-verdict',
-            stage: 'parts-review',
-            draft_id: draftId,
-            ...(jobId ? { job_id: jobId } : {}),
-          },
-        });
+      for (const move of draftMoves) {
+        if (move.awaits !== 'project.stage') addAwait(move.awaits);
+        moves.push(move);
       }
 
       const signoffAwait = 'signoffs[stage=parts-review]';

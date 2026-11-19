@@ -6,10 +6,11 @@ import { checkProject as rawCheckProject, type Finding } from '../src/check.ts';
 import { checkPartsReferences, partsReferenceCommand, readPartsReferences } from '../src/parts-reference-record.ts';
 import { draftPublishedContext, prepareDraftManifest, readPublished } from '../src/job-publication.ts';
 import { acquireJobLock, JOB_BINDING_FILE, jobHash, publicationVersionHash, writePrivateJson } from '../src/job-outbox.ts';
-import { checkProject, draftRigCommand, main, TEST_NOW } from './clock.ts';
-import { fixture } from './fixtures.ts';
+import { checkProject, draftRigCommand, main, testClock, TEST_NOW } from './clock.ts';
+import { fixture, retimeFixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { retainedPartsFiles } from './draft-fixture.ts';
+import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 
 const roots: string[] = [];
@@ -23,12 +24,12 @@ const save = (root: string, project: JsonObject): void => put(root, 'project.jso
 const args = (root: string): string[] => ['sample', root, '--file', sidecarPath, '--json'];
 
 /** Byte-only references test hash transport, not Review PNG/opacity or visual acceptance. */
-function workspace(full = false, realReference = false): string {
+function workspace(full = false, realReference = false, setup: (project: JsonObject) => void = () => {}): string {
   const producer = retainedPartsFiles(join(import.meta.dir, '../templates/example-draft/input'));
   const painting = Buffer.from(producer['painting_in_rig.png']!);
   const source = { path: 'inputs/painting.png', sha256: jobHash(painting), bytes: painting.length,
     origin: 'synthetic painting from the generated parts fixture', at: '2026-11-09T00:00:00Z' };
-  const root = realpathSync(full ? fixture(project => { project.inputs = [source]; }, 'legacy-example-project.json', { [source.path]: painting }) : tempDir());
+  const root = realpathSync(full ? fixture(project => { project.inputs = [source]; setup(project); }, 'legacy-example-project.json', { [source.path]: painting }) : tempDir());
   roots.push(root);
   // Start from a complete generated producer schema, retaining its real part PNGs.
   // This synthetic variant has no inline key so it can exercise sidecar selection.
@@ -181,6 +182,49 @@ test('P1 selected publication re-reads its exact closure without opening another
   expect(() => draftPublishedContext(retained, malformed, 'sample')).toThrow(expect.objectContaining({ code: 'PARTS_REFERENCE_INVALID' }));
   put(retained, imagePath, 'selected PNG seal drift');
   expect(() => draftPublishedContext(retained, read(retained), 'sample')).toThrow(expect.objectContaining({ code: 'PARTS_REFERENCE_HASH' }));
+});
+
+test('combined bar-amend and parts-reference normal entries preserve signed steps, draft identity and publication on exact retries', async () => {
+  const previousClock = testClock.now();
+  testClock.set('2026-11-20T00:00:00Z');
+  try {
+    const root = workspace(true, true, project => {
+      project.stage = 'parts'; project.versions = []; project.signoffs = (project.signoffs as Json[]).slice(0, 2);
+      retimeFixture(project, Date.parse('2026-11-16T00:00:00Z'));
+      for (const step of (project.plan as JsonObject).steps as JsonObject[]) step.status = 'pending';
+    });
+    const before = read(root);
+    expect(checkProject(root).refusals).toEqual([]);
+    const result = { path: prepareDraftManifest(root, before, 'sample'), selector: { kind: 'draft' as const, id: 'sample' } };
+    const canonical = readFileSync(join(root, result.path));
+    const versionHash = publicationVersionHash(readFileSync(join(root, 'project.json')), result);
+    put(root, 'evidence/bar-reason.txt', 'Retain the registered synthetic source and frozen outputs.\n');
+    put(root, 'evidence/bar-quote.txt', 'Use the source-bound policy without changing approvals.\n');
+    put(root, 'evidence/bar-policy.txt', 'Every synthetic part resolves to its registered source.\n');
+    const barArgs = ['plan', 'bar-amend', 'assemble', root, '--by', 'operator', '--reason-file', join(root, 'evidence/bar-reason.txt'),
+      '--quote-file', join(root, 'evidence/bar-quote.txt'), '--bar-file', join(root, 'evidence/bar-policy.txt'), '--json'];
+    expect(main(barArgs)).toBe(0);
+    expect(main(['parts-reference', ...args(root)])).toBe(0);
+    const after = read(root);
+    expect((after.plan as JsonObject).steps).toEqual((before.plan as JsonObject).steps);
+    expect(((after.plan as JsonObject).steps as JsonObject[]).map(stepHash)).toEqual(((before.plan as JsonObject).steps as JsonObject[]).map(stepHash));
+    expect(after.signoffs).toEqual(before.signoffs);
+    expect(after.drafts).toEqual(before.drafts);
+    expect((after.plan as JsonObject).bar_amendments).toHaveLength(1);
+    expect(after.parts_references).toHaveLength(1);
+    expect(checkProject(root).refusals).toEqual([]);
+    expect(prepareDraftManifest(root, after, 'sample')).toBe(result.path);
+    expect(readFileSync(join(root, result.path))).toEqual(canonical);
+    const bytes = readFileSync(join(root, 'project.json'));
+    expect(publicationVersionHash(bytes, result)).toBe(versionHash);
+    const published = await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result });
+    for (const seal of readPartsReferences(root, after)[0]!.files) expect(published.files).toContainEqual(seal);
+    const stat = statSync(join(root, 'project.json'));
+    expect(main(barArgs)).toBe(0);
+    expect(main(['parts-reference', ...args(root)])).toBe(0);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(bytes);
+    expect(statSync(join(root, 'project.json'))).toMatchObject({ ino: stat.ino, mtimeMs: stat.mtimeMs });
+  } finally { testClock.set(previousClock); }
 });
 
 test('absence keeps old behavior even with a malformed unregistered sidecar, and recorded check reads include both generic seals', () => {

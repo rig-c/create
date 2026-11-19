@@ -14,7 +14,7 @@ import { draftFileUnavailable, draftVersionFindings } from './drafts.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
 import { registeredDepthPartsMatch } from './rig-version.ts';
-import { latestPartsApproval, retainedJson } from './structure.ts';
+import { rigPartsApproval, retainedJson } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -24,7 +24,7 @@ export const PART_FILE_IDENTITY_SINCE = '2026-11-06T00:00:00Z';
 /** Compare declared identities even when regenerable package bytes are absent. */
 function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>, version: JsonObject, record: JsonObject): void {
   const at = Date.parse(String(version.at));
-  const findings = Number.isFinite(at) && at >= Date.parse(BUILD_IDENTITY_SINCE) ? ctx.refusals : ctx.warnings;
+  const findings = version.accepted_parts !== undefined || (Number.isFinite(at) && at >= Date.parse(BUILD_IDENTITY_SINCE)) ? ctx.refusals : ctx.warnings;
   const path = `versions[v${String(version.n)}].review_package`;
   const mismatch = (code: string, field: string, expected: string, actual: string): void => {
     findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: package sha256 ${actual} differs from recorded build sha256 ${expected}; preserve the historical package and record a new version from the same config and accepted parts` });
@@ -34,12 +34,12 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
   if (typeof config.sha256 === 'string' && isObject(record.config) && typeof record.config.sha256 === 'string' && config.sha256 !== record.config.sha256) {
     mismatch('REVIEW_PACKAGE_CONFIG_MISMATCH', 'config', config.sha256, record.config.sha256);
   }
-  const approval = latestPartsApproval(ctx.project, Number.isFinite(at) ? at : Infinity);
+  const approval = rigPartsApproval(ctx.project, version, Number.isFinite(at) ? at : Infinity);
   if (!approval) return;
   const approvalPath = `signoffs[${asArray(ctx.project.signoffs).indexOf(approval)}]`;
   const finding = recordedPartsFinding(ctx.dir, ctx.project, approval, approvalPath);
   if (finding) {
-    if (finding.code === 'PARTS_VERDICT_FILE_LEGACY') {
+    if (finding.code === 'PARTS_VERDICT_FILE_LEGACY' && version.accepted_parts === undefined) {
       if (!ctx.warnings.some(existing => existing.code === finding.code && existing.path === finding.path)) ctx.warnings.push(finding);
     } else findings.push({ code: 'REVIEW_PACKAGE_PARTS_UNREAD', path: `${path}.files[out/parts.json]`,
       message: `${path}.files[out/parts.json]: accepted parts receipt cannot be read (${finding.code}: ${finding.message}); compare the Review version that recorded the act (not carried by API act receipts) with the current @rig-c/review ${reviewPackage.version} reader. For an act parsing failure, register with a Review version that parses that act, or wait until support lands; preserve the retained bytes. For missing or changed evidence, restore its recorded API response and selected draft before packaging this version` });
@@ -56,7 +56,7 @@ function checkBuildIdentity(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
     mismatch('REVIEW_PACKAGE_PARTS_MISMATCH', 'files[out/parts.json]', manifest.sha256, packaged.sha256);
   }
   if (!isObject(manifest) || typeof manifest.path !== 'string') return;
-  const legacy = !Number.isFinite(at) || at < Date.parse(PART_FILE_IDENTITY_SINCE);
+  const legacy = version.accepted_parts === undefined && (!Number.isFinite(at) || at < Date.parse(PART_FILE_IDENTITY_SINCE));
   if (draftFileUnavailable(ctx.dir, manifest.path, `derived/drafts/${String(draft.id)}`)) return;
   const declaration = retainedJson(ctx.dir, manifest);
   const painting = isObject(declaration.painting_in_rig) && typeof declaration.painting_in_rig.path === 'string'

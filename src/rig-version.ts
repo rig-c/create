@@ -18,7 +18,7 @@ import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
-import { approvedStructureDelta, latestPartsApproval, structurePathIsIgnored } from './structure.ts';
+import { approvedStructureDelta, latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { stageOfStep } from './stages.ts';
 import { HEAD_TURN_SINCE } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -549,6 +549,8 @@ function depthBindingFindings(dir: string, version: JsonObject, config: JsonObje
   return findings;
 }
 
+export const RIG_PARTS_APPROVAL_SINCE = '2026-11-19T00:00:00Z';
+
 /** Only explicitly registered versions opt in. Older version contracts are unchanged. */
 export function rigRegistrationFindings(dir: string, project: JsonObject, warnings: Finding[] = [], collection: JsonObject | null = null): Finding[] {
   const findings: Finding[] = depthPlanFindings(project, warnings, collection);
@@ -594,6 +596,11 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
           }
         }
       }
+    }
+    if (version.accepted_parts !== undefined && !rigPartsApproval(project, version)) {
+      findings.push({ code: 'RIG_PARTS_APPROVAL_INVALID', path: `${path}.accepted_parts`, message: `${path}.accepted_parts: no unique bound parts approval was live at registration; restore its signoff and evidence` });
+    } else if (version.accepted_parts === undefined && Date.parse(String(record.at)) >= Date.parse(RIG_PARTS_APPROVAL_SINCE)) {
+      findings.push({ code: 'RIG_PARTS_APPROVAL_REQUIRED', path: `${path}.accepted_parts`, message: `${path}.accepted_parts: parts approval is missing; approve parts-review and register the rig again` });
     }
     const runPaths = checkRegisteredRuns(dir, path, record, findings, warnings);
     try {
@@ -919,6 +926,13 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     try { versions = lockVersions(JSON.parse(sourceBytes(options['--toolchain-lock']!).toString())); }
     catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_TOOLCHAIN_LOCK_INVALID', `versions[v${n}].built_with`, String(error)); }
     const registrationAt = new Date(now).toISOString();
+    const needsApproval = now >= Date.parse(RIG_PARTS_APPROVAL_SINCE);
+    const liveApproval = needsApproval ? latestPartsApproval(project, now) : undefined;
+    const acceptedParts = liveApproval && partsApprovalIdentity(liveApproval);
+    if (needsApproval && !acceptedParts) {
+      return fail('RIG_PARTS_APPROVAL_REQUIRED', `versions[v${n}].accepted_parts`, 'approve parts-review before registering frozen outputs');
+    }
+    const approvalBasis = { ...(acceptedParts ? { accepted_parts: acceptedParts } : {}), registration: { at: registrationAt } };
     const validatedRuns: { path: string; spec: RunSpec }[] = [];
     const seenSpecs = new Set<RunSpec>();
     for (const [i, recordPath] of runRecords.entries()) {
@@ -1169,7 +1183,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       // Rig files are copied below; bind the exact frozen source now.
       const sourceSheets = resolve(dir, options['--rig']!, 'depth_sheets.json');
       depthBinding = { route: perPart ? 'per-part' : 'per-layer' };
-      const approval = latestPartsApproval(project, Date.parse(String(at)));
+      const approval = rigPartsApproval(project, { ...approvalBasis, at });
       const draft = asArray(project.drafts).filter(isObject).find(d => d.id === approval?.draft_id);
       if (perPart && approval && isObject(draft?.parts) && typeof draft.parts.path === 'string') {
         const originalParts = resolve(dir, draft.parts.path, 'parts.json');
@@ -1218,8 +1232,9 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       sections = JSON.parse(bytesAt(dir, binding).toString()) as Json;
       if (!isObject(sections)) fail('RIG_REGISTRATION_FILE_INVALID', 'provenance.sections', 'citations must be a section map');
     }
-    const structureChanges = approvedStructureDelta(dir, project, Date.parse(String(at)), portable);
+    const structureChanges = approvedStructureDelta(dir, project, { ...approvalBasis, at }, portable);
     const version: JsonObject = { n, kind: 'rig', rig_version: null, at, at_basis: 'not-after', at_source: atSource,
+      ...(acceptedParts ? { accepted_parts: acceptedParts } : {}),
       built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: answersFeedback, review_origin: null,
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections, ...(structureChanges.length ? { structure_delta: structureChanges } : {}) },
       registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },

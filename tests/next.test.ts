@@ -2120,6 +2120,10 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(refusedSign.stderr).toContain('RIG_VERSION_UNACCEPTED');
   expect(readFileSync(file)).toEqual(beforeRefusedSign);
 
+  const staleProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  expect(() => optionContext(staleProject, 'post-interview', reopenAt, dir))
+    .toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
+
   // Before registering a post-reopen rig version: next names only the new rig-version registration route.
   const beforePostReopenRig = nextProject(dir, reopenAt);
   expect(beforePostReopenRig.refusals).toEqual([]);
@@ -2131,6 +2135,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     awaits: 'versions[n=3]',
   });
   expect(beforePostReopenRig.moves[0]!.command).toContain(`rig-create rig-version 3 ${dir}`);
+  expect(beforePostReopenRig.moves[0]!.act).toContain('built after the reopen');
   expect(beforePostReopenRig.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(beforePostReopenRig.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
   expect(beforePostReopenRig.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
@@ -2149,6 +2154,10 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     }
   }
   expect(runMainCapture(printedRigArgs, v3At)).toMatchObject({ code: 0, stderr: '' });
+  const reboundProject = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const approval = arr(reboundProject.signoffs).map(obj).find(s => s.stage === 'parts-review')!;
+  expect(arr(reboundProject.versions).map(obj).find(v => v.n === 3)?.accepted_parts)
+    .toEqual({ signoff_at: approval.at, evidence: approval.evidence });
 
   // After registering the post-reopen rig version (v3): next lists only the one-verdict publication route for v3.
   const afterPostReopenRig = nextProject(dir, v3At);

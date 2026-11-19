@@ -129,6 +129,32 @@ test('the three-argument call keeps its rig kind with no scene, and refuses by n
   expect(() => optionContext(load(dir), 'post-interview', at())).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE', message: expect.stringContaining('needs the project folder') }));
 });
 
+test('post options use the bound approval for a rig built before that approval', () => {
+  const project = load(chainProject());
+  project.scenes = [];
+  const approval = asArray(project.signoffs).filter(isObject).find(s => s.stage === 'parts-review')!;
+  const rig = asArray(project.versions).filter(isObject).find(v => v.kind === 'rig')!;
+  const control = optionContext(project, 'post-interview', at());
+  const approvalAt = Date.parse(String(approval.at));
+  const reopenAt = approvalAt - 2000;
+  project.reopens = [{ stage: 'parts-review', from_stage: 'rig-review', by: 'user',
+    verbatim: 'Reopen parts for the synthetic restart.', steps_before: [], at: new Date(reopenAt).toISOString() }];
+  rig.at = new Date(reopenAt - 1000).toISOString();
+  expect(() => optionContext(project, 'post-interview', at())).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE',
+    message: expect.stringContaining('accept a rig') }));
+
+  // A replacement built after the reopen can be reviewed, even if its build
+  // clock precedes the fresh parts approval. The legacy lookup still misses.
+  rig.at = new Date(reopenAt + 1000).toISOString();
+  expect(() => optionContext(project, 'post-interview', at())).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE',
+    message: expect.stringContaining('no retained approved draft parts') }));
+  rig.registration = { at: approval.at! };
+  rig.accepted_parts = { signoff_at: approval.at!, evidence: approval.evidence! };
+  expect(optionContext(project, 'post-interview', at())).toEqual(control);
+  rig.accepted_parts.signoff_at = rig.at;
+  expect(() => optionContext(project, 'post-interview', at())).toThrow(expect.objectContaining({ code: 'RIG_PARTS_APPROVAL_INVALID' }));
+});
+
 const sinceOffset = (seconds: number): number => Date.parse(SCENE_CONTEXT_SINCE) + seconds * 1000;
 for (const offset of [-1, 0, 1]) {
   test(`SCENE_CONTEXT_SINCE dates a scene-kind set on a stale scene drafted at ${new Date(sinceOffset(offset)).toISOString()}`, () => {

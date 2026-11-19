@@ -217,10 +217,10 @@ function regeneration(n: number, record: JsonObject | null): string {
   return `rig-create review-package ${n} --config ${word(isObject(record?.config) && typeof record.config.path === 'string' ? record.config.path : '<config>')} --from ${word(typeof record?.from === 'string' ? record.from : '<build out dir>')}`;
 }
 
-/** Hash the complete package, so added files cannot silently change discovery. */
-export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>): void {
+/** Hash each selected package, keeping the full project available for receipt validation. */
+export function checkReviewPackages(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>, versionNumber?: number): void {
   for (const version of asArray(ctx.project.versions)) {
-    if (!isObject(version) || version.kind !== 'rig') continue;
+    if (!isObject(version) || version.kind !== 'rig' || versionNumber !== undefined && version.n !== versionNumber) continue;
     const dateFinding = rigVersionDateFinding(version);
     if (dateFinding) ctx.refusals.push(dateFinding);
     if (version.pre_interview === true) continue;

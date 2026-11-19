@@ -256,8 +256,8 @@ export function stageReviewMeshDeltaCorrections(
     const invalid = localValidation(dir, original, now)[0];
     if (invalid) refuse(invalid.code, invalid.message);
     const version = versionRecord(original, act.source.selector.version);
-    const packageCheck: Parameters<typeof checkReviewPackages>[0] = { dir, project: { ...original, versions: [version] }, refusals: [], warnings: [] };
-    checkReviewPackages(packageCheck);
+    const packageCheck: Parameters<typeof checkReviewPackages>[0] = { dir, project: original, refusals: [], warnings: [] };
+    checkReviewPackages(packageCheck, act.source.selector.version);
     const packageProblem = packageCheck.refusals[0];
     if (packageProblem) refuse(packageProblem.code, packageProblem.message);
     openStage(original, 'rig-review');

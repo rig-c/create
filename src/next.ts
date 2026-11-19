@@ -2011,6 +2011,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   }
 
   const runnableMoves = moves.flatMap(move => {
+    if (move.review_act && move.review_act.stage !== effectiveStage) return [move];
     if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
       && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
     return reviewCommands(dir, project, move);

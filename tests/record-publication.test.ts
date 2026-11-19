@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 import { startJobHost } from '@rig-c/review/job-host';
-import { cpSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, chmodSync, mkdirSync, readFileSync, readdirSync, lstatSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { collectItems, checkProject } from '../src/check.ts';
+import { interviewCommand } from '../src/interview.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { interviewOptionsCommand } from '../src/choice-writers.ts';
 import { currentJobIdentity, loadedPartsIdentity, partsEnumerator, readPublished, readRecordPublished, type RecordPublicationRequest } from '../src/job-publication.ts';
@@ -192,6 +193,71 @@ test('default check still recovers an uncommitted intent while readOnly leaves i
   expect(readdirSync(outbox)).toEqual([]);
   expect(JSON.parse(readFileSync(join(jobPrivateRoot(root), 'discarded-intents.jsonl'), 'utf8')).event).toBe('intent-not-committed');
   expect(readFileSync(join(root, 'project.json'))).toEqual(record);
+});
+
+test('#656 read-only interview --check takes no writer lock on an existing outbox and still reports an invalid receipt', () => {
+  const { root } = pending('plan-approved');
+  const outbox = join(jobPrivateRoot(root), 'outbox');
+  mkdirSync(outbox, { recursive: true, mode: 0o700 });
+  const entry = { schema: 'rig-create/job-pending@1', root, id: 'a'.repeat(64), recordHash: request(root).record.sha256,
+    versionHash: 'b'.repeat(64), result: { path: 'missing.json', selector: { kind: 'rig', version: 999 } }, identity: {}, phase: 'intent' };
+  writeFileSync(join(outbox, `${entry.id}.json`), JSON.stringify(entry), { mode: 0o600 });
+  chmodSync(root, 0o555);
+  try {
+    const before = snapshot(root);
+    const checked = interviewCommand(['--check', root, '--json'], TEST_NOW);
+    const report = JSON.parse(checked.stdout);
+    expect(checked.exit).toBe(0);
+    expect(report.ok).toBe(true);
+    expect(report.holes).toBeUndefined();
+    expect(snapshot(root)).toEqual(before);
+  } finally {
+    chmodSync(root, 0o700);
+  }
+
+  writeFileSync(join(outbox, `${'c'.repeat(64)}.json`), '{"schema":"malformed"}\n', { mode: 0o600 });
+  chmodSync(root, 0o555);
+  try {
+    const beforeInvalid = snapshot(root);
+    const invalid = interviewCommand(['--check', root, '--json'], TEST_NOW);
+    const report = JSON.parse(invalid.stdout);
+    expect(invalid.exit).toBe(1);
+    expect(report.ok).toBe(false);
+    expect(report.holes).toEqual([
+      expect.objectContaining({ code: 'JOB_OUTBOX_INVALID', path: 'project.json' }),
+    ]);
+    expect(snapshot(root)).toEqual(beforeInvalid);
+  } finally {
+    chmodSync(root, 0o700);
+  }
+});
+
+test('#656 JOB_DIRECTION_VERDICT_REQUIRED names the current live post number and exact job open --rig move', () => {
+  const root = realpathSync(fixture(project => {
+    project.stage = 'direction-review';
+    retainSignoffs(project, signature => obj(signature).stage !== 'direction-review');
+    project.advances = arr(project.advances).filter(value => obj(value).stage !== 'accepted');
+    const currentPost = arr(project.versions).map(obj).find(v => v.n === 4)!;
+    currentPost.verdicts = [];
+  }, 'example-project.json'));
+
+  const before = snapshot(root);
+  let caught: unknown;
+  try {
+    readRecordPublished({ ...request(root), result: { kind: 'plan' } }, TEST_NOW);
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(Refusal);
+  const refusal = caught as Refusal;
+  expect(refusal.code).toBe('JOB_DIRECTION_VERDICT_REQUIRED');
+  expect(refusal.message).toContain('project.json.versions[v4]');
+  expect(refusal.message).toContain('current live post v4');
+  expect(refusal.message).toContain('job open --rig 4');
+  expect(refusal.message).toContain('review 4 --from-review <actId>');
+  expect(refusal.message).not.toContain('<n>');
+  expect(refusal.message).not.toContain('v3');
+  expect(snapshot(root)).toEqual(before);
 });
 
 

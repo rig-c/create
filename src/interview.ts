@@ -43,7 +43,7 @@ export function interviewCommand(args: string[], now: number): CommandResult {
     const report = checkCollection(collectionDir);
     return { stdout: json ? JSON.stringify(report, null, 2) : formatCollectionReport(report), exit: report.ok ? 0 : 1 };
   }
-  const report = checkProject(target, undefined, { now });
+  const report = checkProject(target, undefined, { now, readOnly: true });
   return {
     stdout: json ? JSON.stringify(report, null, 2) : [formatReport(report),
       ...(report.invariants === null ? [] : [`invariants: ${report.invariants.entries.length} entries, ${report.invariants.gaps.length} gaps (translated from the guide; not a rig check)`]),

@@ -2619,3 +2619,32 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
     });
   }
 });
+
+test('#656 after a reopen to rigging-interview with a lapsed post-interview signoff, next shows post-interview as future work without job open --plan', () => {
+  const dir = join(realpathSync(tempDir()), 'reopen-rigging-interview-lapsed-post');
+  cpSync(join(CHECKPOINTS_DIR, '4-direction-post'), dir, { recursive: true });
+  const words = join(dir, 'words.txt');
+  writeFileSync(words, 'Reopen to rigging-interview.\n');
+  const reopenAt = Date.parse('2026-11-06T02:00:00Z');
+  testClock.set(new Date(reopenAt));
+  reopenCommand(['rigging-interview', dir, '--by', 'owner', ...ownerChatArgs(words)]);
+
+  const report = nextProject(dir, reopenAt);
+  expect(report.stage).toBe('rigging-interview');
+  expect(report.effective_stage).toBe('rigging-interview');
+  expect(report.refusals).toEqual([]);
+
+  const postMoves = report.moves.filter(m => m.awaits === 'signoffs[stage=post-interview]');
+  expect(postMoves).toHaveLength(1);
+  expect(postMoves[0]).toMatchObject({
+    role: 'human',
+    field: 'reopens[0]',
+    awaits: 'signoffs[stage=post-interview]',
+    command: null,
+    review_act: { kind: 'signoff', stage: 'post-interview' },
+    lapse: expect.objectContaining({ code: 'REOPEN_SIGNOFF_LAPSED' }),
+  });
+
+  const rigMoves = report.moves.filter(m => m.awaits === 'signoffs[stage=rigging-interview]');
+  expect(rigMoves.some(m => m.role === 'agent' && m.command?.includes('job open') && m.command.includes('--plan'))).toBe(true);
+});

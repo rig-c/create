@@ -330,6 +330,40 @@ test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structur
   obj(arr(provenance.structure_delta)[0]).version = { density: 99 }; save(dir, p);
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DELTA_MISMATCH');
 });
+
+test('#656 reopen rigging at stage interview without a live parts approval names signoffs[stage=parts-review] and the parts-review route', () => {
+  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  const dir = fixture(p => {
+    p.stage = 'interview';
+    p.stage_values = [...STAGE_VALUES];
+    obj(p.interview).order = { spec: STAGE_ORDER_SPEC, adopted_at: '2026-11-08T00:00:00Z' };
+    p.signoffs = [];
+    p.reopens = [];
+    const rig = obj(arr(p.versions)[0]);
+    rig.at = '2026-11-03T00:00:00Z';
+    delete rig.accepted_parts;
+    p.versions = [rig];
+  });
+  const words = join(dir, 'words.txt');
+  writeFileSync(words, 'Reopen rigging without a live parts approval.\n');
+  const before = readFileSync(join(dir, 'project.json'));
+  let caught: unknown;
+  try {
+    reopenCommand(['rigging', dir, '--by', 'owner', ...ownerChatArgs(words)]);
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(Refusal);
+  const refusal = caught as Refusal;
+  expect(refusal.code).toBe('RIGGING_INTERVIEW_CONTEXT');
+  expect(refusal.message).toContain('interview.rigging_context');
+  expect(refusal.message).toContain('signoffs[stage=parts-review]');
+  expect(refusal.message).toContain('structure-snapshot');
+  expect(refusal.message).toContain('job open --draft <id>');
+  expect(refusal.message).toContain('parts-review --from-review <actId>');
+  expect(refusal.message).not.toContain('sign again');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
 import { rigVersionCommand } from './clock.ts';
 import { interviewCommand } from '../src/interview.ts';
 import { nextProject } from '../src/next.ts';

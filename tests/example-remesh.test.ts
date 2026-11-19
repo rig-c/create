@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REMESH_PARTS_REVIEW_LAPSES, generateExampleRemesh, remeshFiles } from '../scripts/generate-example-remesh.ts';
+import { REMESH_WARNINGS_AFTER_REOPEN, REMESH_WARNINGS_BEFORE_REOPEN, generateExampleRemesh, remeshFiles } from '../scripts/generate-example-remesh.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -13,7 +13,7 @@ const templateRoot = join(import.meta.dir, '../templates/example-remesh');
 const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 
 describe('five-version reopened example with a producer mesh', () => {
-  test('committed template checks with 0 refusals, exact reopen lapse warnings, 5 bound versions and producer meshes', () => {
+  test('committed template checks with 0 refusals, exact warnings before and after reopen, 5 bound versions and producer meshes', () => {
     const project = JSON.parse(readFileSync(join(templateRoot, 'project.json'), 'utf8')) as JsonObject;
     expect(project.stage).toBe('parts-review');
 
@@ -86,9 +86,24 @@ describe('five-version reopened example with a producer mesh', () => {
       }
     }
 
-    const report = checkProject(templateRoot, undefined, { now: EXAMPLE_NOW });
-    expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => [f.code, f.path])).toEqual([...REMESH_PARTS_REVIEW_LAPSES]);
+    // The reopen receipt records the stage and step statuses needed to check the prior state.
+    const before = structuredClone(project);
+    const reopen = reopens[0]!;
+    before.stage = reopen.from_stage!;
+    before.reopens = [];
+    const steps = asArray((before.plan as JsonObject).steps).filter(isObject);
+    for (const prior of asArray(reopen.steps_before).filter(isObject)) {
+      const step = steps.find(step => step.id === prior.id)!;
+      if (prior.status === undefined) delete step.status;
+      else step.status = prior.status;
+    }
+    const beforeReport = checkProject(templateRoot, before, { now: EXAMPLE_NOW, readOnly: true });
+    expect(beforeReport.refusals).toEqual([]);
+    expect(beforeReport.warnings.map(f => [f.code, f.path])).toEqual([...REMESH_WARNINGS_BEFORE_REOPEN]);
+
+    const afterReport = checkProject(templateRoot, undefined, { now: EXAMPLE_NOW, readOnly: true });
+    expect(afterReport.refusals).toEqual([]);
+    expect(afterReport.warnings.map(f => [f.code, f.path])).toEqual([...REMESH_WARNINGS_AFTER_REOPEN]);
   });
 
   consumerOnlyTest('tests/example-remesh.test.ts', 'two fresh generator runs match each other and templates/example-remesh byte for byte', () => {

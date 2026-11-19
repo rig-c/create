@@ -15,7 +15,14 @@ import { generatorArgs } from './generator-args.ts';
 import { EXAMPLE_BREATH_AMP, generateExampleMeshDraft } from './generate-example-draft.ts';
 import { checkExampleParts, generateExampleParts } from './generate-example-parts.ts';
 
-export const REMESH_PARTS_REVIEW_LAPSES: readonly [string, string][] = [
+export const REMESH_WARNINGS_BEFORE_REOPEN: readonly [string, string][] = [
+  ['RIG_CHECK_REPORT_MISSING', 'versions[v1].registration.check_report'],
+  ['RIG_CHECK_REPORT_MISSING', 'versions[v2].registration.check_report'],
+  ['RIG_CHECK_REPORT_MISSING', 'versions[v3].registration.check_report'],
+];
+
+export const REMESH_WARNINGS_AFTER_REOPEN: readonly [string, string][] = [
+  ...REMESH_WARNINGS_BEFORE_REOPEN,
   ['REOPEN_SIGNOFF_LAPSED', 'signoffs[3]'],
   ['REOPEN_SIGNOFF_LAPSED', 'signoffs[4]'],
   ['REOPEN_SIGNOFF_LAPSED', 'signoffs[5]'],
@@ -419,8 +426,12 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
     writer(['split-captions', '--config', 'evidence/split-config.json'], 'evidence/captions.json');
 
     const beforeReopen = checkProject(dir, undefined, { now });
-    if (beforeReopen.refusals.length > 0 || beforeReopen.warnings.length > 0) {
-      throw new Error(`expected 0 refusals and 0 warnings before reopen, got: ${JSON.stringify({ refusals: beforeReopen.refusals, warnings: beforeReopen.warnings })}`);
+    if (beforeReopen.refusals.length > 0) {
+      throw new Error(`expected 0 refusals before reopen, got: ${JSON.stringify(beforeReopen.refusals)}`);
+    }
+    const beforeWarnings = beforeReopen.warnings.map(f => [f.code, f.path]);
+    if (JSON.stringify(beforeWarnings) !== JSON.stringify(REMESH_WARNINGS_BEFORE_REOPEN)) {
+      throw new Error(`unexpected warnings before reopen: ${JSON.stringify(beforeWarnings)}`);
     }
 
     writer([
@@ -431,9 +442,9 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
     if (afterReopen.refusals.length > 0) {
       throw new Error(`expected 0 refusals after reopen, got: ${JSON.stringify(afterReopen.refusals)}`);
     }
-    const actualLapses = afterReopen.warnings.map(f => [f.code, f.path]);
-    if (JSON.stringify(actualLapses) !== JSON.stringify(REMESH_PARTS_REVIEW_LAPSES)) {
-      throw new Error(`unexpected warnings after reopen: ${JSON.stringify(actualLapses)}`);
+    const afterWarnings = afterReopen.warnings.map(f => [f.code, f.path]);
+    if (JSON.stringify(afterWarnings) !== JSON.stringify(REMESH_WARNINGS_AFTER_REOPEN)) {
+      throw new Error(`unexpected warnings after reopen: ${JSON.stringify(afterWarnings)}`);
     }
     return remeshFiles(dir);
   } finally {

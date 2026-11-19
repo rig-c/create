@@ -834,6 +834,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(rigReport.moves).toHaveLength(1);
     expect(rigReport.moves[0]).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=2]' });
     expect(rigReport.moves[0]!.command).toContain('rig-version 2');
+    expect(rigReport.moves[0]!.command).toContain("--check-report '<check.json>'");
     expect(rigReport.moves[0]!.command).toContain('--answers 1:1');
     expect(printedArgs(rigReport.moves[0]!.command!).slice(1, 4)).toEqual(['rig-version', '2', rigDir]);
     expect(rigReport.moves[0]!.act).toContain('answers_feedback');
@@ -844,13 +845,15 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     putRebuild('config.json', { key: 'synthetic', requirements: 'requirements.json' });
     putRebuild('requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: { required: true } });
     putRebuild('adapter.json', []);
+    putRebuild('check.json', { spec: 'rig-parts-check/1', bar_outcomes: { gate: { status: 'PASS' } },
+      build: { model_sha256: sha256(readFileSync(join(rigDir, 'rebuild-source/build/skeleton.model.json'))) } });
     cpSync(join(rigDir, 'derived/drafts/chain/input'), join(rigDir, 'rebuild-source/parts'), { recursive: true });
     putRebuild('run.json', { spec: 'rigc-run/1', package: { name: 'rig-c', version: '3.4.1' }, command: 'build',
       started_at: '2026-11-06T20:44:40.000Z', finished_at: '2026-11-06T20:44:41.000Z',
       inputs: [{ role: 'rig', path: '../rig/rig.json', sha256: '1'.repeat(64) }, { role: 'motion', path: '../rig/motion.json', sha256: '2'.repeat(64) }],
       outputs: [{ path: '../compile-report.json', sha256: '3'.repeat(64) }, { path: 'skeleton.model.json', sha256: '4'.repeat(64) }] });
     const bindings: Record<string, string> = { '--parts': 'parts', '--rig': 'rig', '--build': 'build', '--idle': 'idle',
-      '--config': 'config.json', '--path-adapter': 'adapter.json', '--compile-report': 'compile-report.json',
+      '--config': 'config.json', '--path-adapter': 'adapter.json', '--compile-report': 'compile-report.json', '--check-report': 'check.json',
       '--toolchain-lock': 'package-lock.json', '--run-record': 'run.json', '--at-source': 'at-source.json' };
     const rigArgs = printedArgs(rigReport.moves[0]!.command!).slice(1);
     for (const [index, arg] of rigArgs.entries()) {
@@ -2054,6 +2057,8 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   putSource('adapter.json', []);
   cpSync(join(dir, 'derived/drafts/chain/input'), join(dir, 'rebuild-source/parts'), { recursive: true });
   cpSync(join(dir, 'outputs/v1/out/check/build/skeleton.model.json'), join(dir, 'rebuild-source/build/skeleton.model.json'));
+  putSource('check.json', { spec: 'rig-parts-check/1', bar_outcomes: { gate: { status: 'PASS' } },
+    build: { model_sha256: sha256(readFileSync(join(dir, 'rebuild-source/build/skeleton.model.json'))) } });
   const setBuildTime = (iso: string): void => {
     putSource('at-source.json', { finished_at: iso });
     putSource('run.json', {
@@ -2138,6 +2143,11 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     awaits: 'versions[n=3]',
   });
   expect(beforePostReopenRig.moves[0]!.command).toContain(`rig-create rig-version 3 ${dir}`);
+  expect(beforePostReopenRig.moves[0]!.command).toContain("--check-report '<check.json>'");
+  expect(checkProject(dir, undefined, { now: reopenAt, readOnly: true }).warnings).toContainEqual({
+    code: 'RIG_CHECK_REPORT_MISSING', path: 'versions[v2].registration.check_report',
+    message: expect.stringContaining('rig-parts check --rig <rig dir> --parts <parts dir> --out <check dir>'),
+  });
   expect(beforePostReopenRig.moves[0]!.act).toContain('built after the reopen');
   expect(beforePostReopenRig.moves.some(m => m.lapse !== undefined)).toBe(false);
   expect(beforePostReopenRig.moves.some(m => m.review_act?.version_id === 'v1' || m.review_act?.version_id === 'v2')).toBe(false);
@@ -2146,11 +2156,12 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   // Execute the printed rig-version 3 command with a build timestamp after the reopen.
   const v3At = reopenAt + 1000;
   setBuildTime(new Date(v3At).toISOString());
+  const postReopenBindings: Record<string, string> = { ...bindings, '--check-report': 'check.json' };
   const printedRigArgs = printedArgs(beforePostReopenRig.moves[0]!.command!).slice(1);
   for (const [index, arg] of printedRigArgs.entries()) {
     if (arg.startsWith('<')) {
-      printedRigArgs[index] = bindings[printedRigArgs[index - 1]!]
-        ? `rebuild-source/${bindings[printedRigArgs[index - 1]!]}`
+      printedRigArgs[index] = postReopenBindings[printedRigArgs[index - 1]!]
+        ? `rebuild-source/${postReopenBindings[printedRigArgs[index - 1]!]}`
         : arg === '<pointer>'
           ? '/finished_at'
           : 'registrant';

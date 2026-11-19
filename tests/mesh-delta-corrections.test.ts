@@ -114,6 +114,29 @@ function check(dir: string, project: JsonObject) {
   return ctx.refusals.map(finding => finding.code);
 }
 
+test.each([
+  ['missing path', { path: undefined }, 'CORRECTION_MALFORMED'],
+  ['missing SHA', { sha256: undefined }, 'CORRECTION_MALFORMED'],
+  ['malformed SHA', { sha256: 'invalid' }, 'CORRECTION_SOURCE'],
+  ['mismatched SHA', { sha256: '0'.repeat(64) }, 'CORRECTION_HASH'],
+  ['foreign field', { bytes: 1, metadata: true }, 'CORRECTION_MALFORMED'],
+  ['text byte count', { bytes: '1' }, 'CORRECTION_MALFORMED'],
+  ['negative byte count', { bytes: -1 }, 'CORRECTION_MALFORMED'],
+  ['fractional byte count', { bytes: 1.5 }, 'CORRECTION_MALFORMED'],
+  ['unsafe byte count', { bytes: Number.MAX_SAFE_INTEGER + 1 }, 'CORRECTION_MALFORMED'],
+] as const)('mesh correction refuses a config binding with %s before applying', (_label, patch, code) => {
+  const f = fixture(entry('left'));
+  const project = load(f.record);
+  const provenance = (project.versions as JsonObject[])[0]!.provenance as JsonObject;
+  Object.assign(provenance.config as JsonObject, patch);
+  const before = JSON.stringify(project, null, 2) + '\n';
+  writeFileSync(f.record, before);
+  const dirs = readdirSync(f.derived);
+  expect(f.apply).toThrow(expect.objectContaining({ code }));
+  expect(readFileSync(f.record, 'utf8')).toBe(before);
+  expect(readdirSync(f.derived)).toEqual(dirs);
+});
+
 test('mesh-only act records both attachments once and adopts their final chained revision', () => {
   const left = entry('left');
   const right = entry('right');

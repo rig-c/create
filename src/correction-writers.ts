@@ -55,9 +55,13 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
     if (kind !== 'rig' && kind !== 'post') throw new CorrectionError('CORRECTION_SOURCE', 'unknown version kind');
     if (kind === 'post' && !opts['--model-file']) usage('post identity requires --model-file naming a declared retained output');
     if (kind === 'rig' && opts['--model-file']) usage('--model-file is post-only');
+    const { bytes, ...config } = version.provenance.config;
+    if (!Object.hasOwn(config, 'path') || !Object.hasOwn(config, 'sha256') || Object.keys(config).length !== 2
+      || (Object.hasOwn(version.provenance.config, 'bytes') && (typeof bytes !== 'number' || !Number.isSafeInteger(bytes) || bytes < 0))) {
+      throw new CorrectionError('CORRECTION_MALFORMED', `versions[v${n}].provenance.config: expected path and sha256 with an optional nonnegative integer byte count`);
+    }
     const model = kind === 'post' ? correctionBinding(dir, opts['--model-file'] as string) : correctionBinding(dir, `derived/review/v${n}/out/check/build/skeleton.model.json`);
-    const { path, sha256 } = version.provenance.config;
-    value = { kind, n, config: { path, sha256 }, model };
+    value = { kind, n, config, model };
   }
   validateCorrectionIdentity(dir,project,value,stage,false,partImage);
   return structuredClone(value);

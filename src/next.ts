@@ -1,4 +1,4 @@
-import { optionFile, selection } from './choices.ts';
+import { ChoiceError, optionFile, selection } from './choices.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
@@ -62,7 +62,7 @@ import {
   stageOfStep,
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
-import { sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
+import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
 import { depthPlanMoves } from './rig-version.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
@@ -259,6 +259,70 @@ function shellWord(value: string): string {
 
 function optionCommand(id: string, dir: string): string {
   return `rig-create interview-options ${shellWord(id)} ${shellWord(dir)} --file '<option-set.json>'`;
+}
+
+/** Registration precedes every consumer, including a scene blocked on its missing input row. */
+function plateInputMoves(dir: string, project: JsonObject, items: Item[], now: number): NextMove[] {
+  const paths = new Set<string>();
+  const addPath = (path: Json | undefined): void => { if (typeof path === 'string') paths.add(path); };
+  const scenePaths = (scene: JsonObject): void => {
+    for (const role of ['background', 'foreground']) if (isObject(scene[role])) addPath(scene[role].path);
+    for (const plate of asArray(scene.plates).filter(isObject)) addPath(plate.path ?? plate.image);
+  };
+  const valuePaths = (value: Json | undefined): void => {
+    if (Array.isArray(value)) { value.forEach(valuePaths); return; }
+    if (!isObject(value)) return;
+    if (isObject(value.scene)) scenePaths(value.scene);
+    if (isObject(value.compose)) scenePaths(value.compose);
+  };
+  for (const item of items) {
+    const answer = item.state.state === 'user' || item.state.state === 'delegated' ? item.state.answer : null;
+    const bindings = [item.record.pending_options, answer && isObject(answer.choice) ? answer.choice.set : undefined];
+    for (const binding of bindings) {
+      if (!isObject(binding)) continue;
+      try {
+        const { set } = optionFile(dir, binding);
+        for (const ask of asArray(set.asks).filter(isObject)) {
+          for (const option of asArray(ask.options).filter(isObject)) if (option.kind === 'value') valuePaths(option.fragment);
+        }
+      } catch (error) {
+        if (!(error instanceof ChoiceError)) throw error;
+        // Check already names the invalid option binding; do not use unbound bytes.
+      }
+    }
+    if (answer) {
+      valuePaths(answer.value);
+      if (isObject(answer.agent_decision)) valuePaths(answer.agent_decision.value);
+    }
+  }
+  try {
+    const entry = currentScene(project, now);
+    if (entry) {
+      const bytes = sceneBytes(dir, String(entry.path), 'SCENE_FILE_CHANGED');
+      if (createHash('sha256').update(bytes).digest('hex') === entry.sha256) {
+        const scene: Json = JSON.parse(bytes.toString('utf8'));
+        if (isObject(scene)) scenePaths(scene);
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof SceneError) && !(error instanceof SyntaxError)) throw error;
+    // The check owns malformed or changed scene refusals.
+  }
+  return [...paths].flatMap(path => {
+    // A changed registered input needs restoration, never a duplicate input add.
+    if (asArray(project.inputs).some(input => isObject(input) && input.path === path)) return [];
+    try {
+      const bytes = sceneBytes(dir, path, 'SCENE_PLATE_CHANGED');
+      if (plateRegistration(project, { path, sha256: createHash('sha256').update(bytes).digest('hex') })) return [];
+    } catch (error) {
+      if (!(error instanceof SceneError)) throw error;
+      return []; // Only existing, readable, project-contained plate files can be registered.
+    }
+    const field = `inputs[path=${path}]`;
+    return [{ role: 'agent' as const, field, awaits: field,
+      command: `rig-create input add ${shellWord(path.startsWith('-') ? `./${path}` : path)} ${shellWord(dir)} --origin '<origin>'`,
+      act: `register ${path} with its source origin before using it in the option set or scene` }];
+  });
 }
 
 /** The person acts in Review; the agent only hosts and ingests its exported act. */
@@ -807,6 +871,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const hasBlockingRefusal =
     holes.length > 0 ||
     report.refusals.some(r => !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
+  const registrations = plateInputMoves(dir, project, allItems, now);
   if (hasBlockingRefusal) {
     return {
       schema: NEXT_SCHEMA,
@@ -816,8 +881,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       accepted: false,
       refusals,
       ...warningFields,
-      awaits: [],
-      moves: [],
+      awaits: registrations.map(move => move.awaits),
+      moves: registrations,
     };
   }
 
@@ -825,7 +890,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const addAwait = (target: string): void => {
     if (!awaitsList.includes(target)) awaitsList.push(target);
   };
-  const moves: NextMove[] = [];
+  const moves: NextMove[] = [...registrations];
+  registrations.forEach(move => addAwait(move.awaits));
   // The check owns bounce/withdrawal/answer logic; consume its open findings.
   const openFeedback = report.warnings.filter(w => w.code === 'FEEDBACK_OPEN');
   if (openFeedback.length > 0) {

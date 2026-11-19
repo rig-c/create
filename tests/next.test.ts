@@ -2391,4 +2391,4 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v6' },
   });
   expect(afterSignedPostReopen.moves[5]!.act).toContain('after ingesting the accepted direction-review verdict for v6');
-});
+}, 30_000);

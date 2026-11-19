@@ -68,6 +68,10 @@ test('a declared edited receipt file is bound by the existing writer and check h
 });
 
 test('an edited receipt with a producer object and no editor binds like an editor receipt', () => {
+  const editor = editedDraft();
+  const editorResult = draftRigCommand(editor.args);
+  expect(editorResult.exit).toBe(0);
+  const editorBindings = (JSON.parse(editorResult.stdout) as JsonObject).config_inputs;
   const { dir, args } = editedDraft();
   const configPath = `${ROOT}/config.json`;
   const config = JSON.parse(readFileSync(join(dir, configPath), 'utf8')) as JsonObject;
@@ -84,6 +88,7 @@ test('an edited receipt with a producer object and no editor binds like an edito
   const result = draftRigCommand(args);
   expect(result.exit).toBe(0);
   const bindings = [{ path: INPUT, sha256: sha(PNG) }];
+  expect(editorBindings).toEqual(bindings);
   expect((JSON.parse(result.stdout) as JsonObject).config_inputs).toEqual(bindings);
   expect(obj(arr(read(dir).drafts)[0]).config_inputs).toEqual(bindings);
   expect(checkProject(dir).refusals).toEqual([]);

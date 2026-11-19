@@ -11,6 +11,7 @@ import { FIGURE_MASK_MATTE_RECEIPT_SINCE, FIGURE_MASK_SINCE } from '../src/figur
 import { derivedCommand } from '../src/prepared-inputs.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { externalMaskEvidence } from './external-receipt-fixture.ts';
 import { arr, fixture, obj, version, waypoint, type Mutate } from './fixtures.ts';
 import { checkProject, reviewCommand, handoff, signoffCommand } from './clock.ts';
 import { tempDir } from './helpers.ts';
@@ -74,6 +75,20 @@ function matteProject(): string {
   return dir;
 }
 
+function externalMaskProject(at: string): string {
+  const { paintingBytes, maskBytes, receipt } = externalMaskEvidence();
+  const dir = project({ figure_mask: { path: 'external/mask.png', sha256: receipt.file.sha256 } }, p => {
+    p.derived = [];
+    version(p, 1).at = at;
+  }, 'busy', {
+    'evidence/mask/painting.png': paintingBytes,
+    'evidence/mask/external/mask.png': maskBytes,
+    'evidence/mask/external/receipt.json': Buffer.from(json(receipt)),
+  });
+  derivedCommand(['add', dir, '--source', 'evidence/mask/painting.png', '--file', 'evidence/mask/external/mask.png', '--receipt', 'evidence/mask/external/receipt.json']);
+  return dir;
+}
+
 describe('figure mask declaration and provenance', () => {
   test('declared and recorded legacy busy mask passes with an operation provenance warning', () => {
     const report = checkProject(resignAfterChange(project()));
@@ -84,6 +99,25 @@ describe('figure mask declaration and provenance', () => {
     const report = checkProject(resignAfterChange(matteProject()));
     expect(report.refusals).toEqual([]);
     expect(findings(report)).toEqual([]);
+  });
+  test.each(['2026-11-18T23:59:59Z', FIGURE_MASK_MATTE_RECEIPT_SINCE])('bound external mask clears the busy-ground gate without operation text at %s', at => {
+    const report = checkProject(resignAfterChange(externalMaskProject(at)));
+    expect(report.refusals).toEqual([]);
+    expect(findings(report)).toEqual([]);
+  });
+  test.each(['painting.png', 'external/receipt.json'])('a changed external %s refuses figure-mask approval before writing', path => {
+    const dir = externalMaskProject(FIGURE_MASK_MATTE_RECEIPT_SINCE);
+    const evidence = join(dir, 'evidence/mask', path);
+    writeFileSync(evidence, Buffer.concat([readFileSync(evidence), Buffer.from('\n')]));
+    const report = checkProject(dir);
+    const code = 'FIGURE_MASK_EXTERNAL_RECEIPT_INVALID';
+    expect(findings(report).map(f => f.code)).toEqual([code]);
+    expect(report.refusals.some(f => f.code === 'EXTERNAL_RECEIPT_INVALID')).toBe(true);
+    writeFileSync(join(dir, 'words.txt'), 'Approve synthetic rig');
+    const before = readFileSync(join(dir, 'project.json'));
+    expect(() => reviewCommand(['1', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']))
+      .toThrow(expect.objectContaining({ code }));
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
   test('operation-only provenance warns one second before the cutoff and refuses at it', () => {
     const dir = project(undefined, p => { version(p, 1).at = '2026-11-18T23:59:59Z'; });

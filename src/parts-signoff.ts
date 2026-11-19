@@ -40,7 +40,8 @@ export function bindPartsSignoff(dir: string, project: JsonObject, signoff: Json
         if (structurePathIsIgnored(dir, structureFile)) throw new Error('structure snapshots must survive a clone; retain the file outside ignored roots, for example evidence/');
         const canonical = realpathSync(resolve(dir, structureFile));
         const rel = relative(realpathSync(dir), canonical).split(sep).join('/');
-        if (isAbsolute(structureFile) || rel === '' || rel === '..' || rel.startsWith('../')) throw new Error('structure file must stay under the project');
+        if (isAbsolute(structureFile)) throw new Error('pass the project-relative path, for example evidence/structure-<id>.json');
+        if (rel === '' || rel === '..' || rel.startsWith('../')) throw new Error('structure file must stay under the project');
         signoff.structure = { path: rel, sha256: createHash('sha256').update(readFileSync(canonical)).digest('hex') };
       } catch (error) { refuse('STRUCTURE_DECISIONS_INVALID', `signoffs.structure: ${error instanceof Error ? error.message : String(error)}; retain the structure snapshot under the project`); }
     }

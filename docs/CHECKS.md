@@ -1672,7 +1672,9 @@ project-boundary `check` still validates all producer artifacts. Package asks
 Record publications use the existing two-phase `readRecordPublished` closure,
 the writer outbox and API@3. Mixed hosts retain Review's API@2/act@2 reuse
 markers and accept the ordinary API@2 finalized-act fetch. Record picks,
-checkpoints and sign-offs are act@4; package comments remain act@6.
+checkpoints and sign-offs are act@4. Package comments are act@6, or act@7 when
+a comment carries per-comment `context`; a rig-review Request changes with mesh
+edits is act@8.
 The record reader discounts only pending transport holes for its own exact
 record hash and result while publishing; unrelated/stale outbox entries still
 block it, and ordinary `check` continues to report pending transport holes.

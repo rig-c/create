@@ -14,7 +14,7 @@ export function exampleDiffFiles(partsDir = 'derived/parts/rig'): Record<string,
 }
 
 /** Generate a report on fresh synthetic bytes. Paths in the report are stable, relative to dir. */
-export function generateDiffFixture(dir: string, floor = 2, threshold = 40, otherStack = false, identical = false): string {
+export function generateDiffFixture(dir: string, floor = 2, threshold = 40, otherStack = false, identical = false, owners = false): string {
   mkdirSync(join(dir, 'parts'), { recursive: true });
   const load = createRequire(import.meta.url);
   const { encodePng } = load('@rig-c/core/plate') as { encodePng: (w: number, h: number, rgba: Uint8Array) => Uint8Array };
@@ -33,7 +33,7 @@ export function generateDiffFixture(dir: string, floor = 2, threshold = 40, othe
   }));
   const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
     'diff-components', '--stack', 'recomposite_rig.png', '--painting', 'painting.png', '--parts', 'parts.json',
-    '--floor', String(floor), '--threshold', String(threshold), '--out', 'diff-components.json'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+    '--floor', String(floor), '--threshold', String(threshold), ...(owners ? ['--owners'] : []), '--out', 'diff-components.json'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
   if (result.exitCode !== 0) throw new Error(result.stderr.toString() + result.stdout.toString());
   return readFileSync(join(dir, 'diff-components.json'), 'utf8');
 }

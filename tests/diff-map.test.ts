@@ -21,10 +21,10 @@ import { checkProject, reopenCommand, advanceCommand, signoffCommand, testClock 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const reports: Record<string, string> = {};
 beforeAll(() => {
-  for (const [name, floor, threshold, other, identical] of [
-    ['normal', 2, 40, false, false], ['other', 2, 40, true, false],
-    ['floor', 3, 40, false, false], ['threshold', 2, 41, false, false], ['empty', 2, 40, false, true],
-  ] as const) reports[name] = generateDiffFixture(join(tempDir(), name), floor, threshold, other, identical);
+  for (const [name, floor, threshold, other, identical, owners] of [
+    ['normal', 2, 40, false, false, false], ['owners', 2, 40, false, false, true], ['other', 2, 40, true, false, false],
+    ['floor', 3, 40, false, false, false], ['threshold', 2, 41, false, false, false], ['empty', 2, 40, false, true, false],
+  ] as const) reports[name] = generateDiffFixture(join(tempDir(), name), floor, threshold, other, identical, owners);
 });
 afterEach(() => testClock.reset());
 
@@ -120,6 +120,22 @@ describe('B0 normal writer and both producer layouts', () => {
     expect(writer(dir, []).code).toBe(0);
     expect(checkProject(dir).refusals).toEqual([]);
   });
+  test('a rig-parts-diff-components/2 report generated with --owners ingests and checks cleanly', () => {
+    const parsed = JSON.parse(reports.owners) as JsonObject;
+    expect(parsed.spec).toBe('rig-parts-diff-components/2');
+    expect(arr(parsed.components).map(c => obj(c).owners)).toEqual([
+      [{ part: 'sample', px: 3 }],
+      [{ part: 'sample', px: 3 }],
+    ]);
+    const dir = project(() => {}, 'owners');
+    expect(checkProject(dir).refusals).toEqual([]);
+    const read = diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT]);
+    expect(read.exit).toBe(0);
+    expect(JSON.parse(read.stdout)).toHaveLength(1);
+    const result = writer(dir);
+    expect(result.code).toBe(0);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
 });
 
 test('B1 missing id is named and the writer leaves project.json unchanged', () => {
@@ -151,15 +167,38 @@ test('B3 absent diff_map', () => { only(project((_s, p) => { delete p.diff_map; 
 test('B3 wrong report hash', () => {
   only(project((_s, p) => { obj(obj(p.diff_map).report).sha256 = '0'.repeat(64); }), 'DIFF_MAP_REPORT');
 });
-test.each(['spec', 'shape', 'json', 'duplicate'])('B3 bad report %s', (kind) => {
-  const parsed = JSON.parse(reports.normal) as JsonObject;
-  if (kind === 'spec') parsed.spec = 'other';
+test.each(['spec', 'shape', 'json', 'duplicate', 'v2-missing-owners', 'v2-bad-owners', 'v1-extra-owners'])('B3 bad report %s', (kind) => {
+  const parsed = JSON.parse(kind.startsWith('v2-') ? reports.owners : reports.normal) as JsonObject;
+  if (kind === 'spec') parsed.spec = 'rig-parts-diff-components/3';
   if (kind === 'shape') delete parsed.definition;
   if (kind === 'duplicate') arr(parsed.components).push(arr(parsed.components)[0]);
+  if (kind === 'v2-missing-owners') delete obj(arr(parsed.components)[0]).owners;
+  if (kind === 'v2-bad-owners') obj(arr(parsed.components)[0]).owners = [{ part: 'sample', px: 0 }];
+  if (kind === 'v1-extra-owners') obj(arr(parsed.components)[0]).owners = [{ part: 'sample', px: 3 }];
   const text = kind === 'json' ? '{' : JSON.stringify(parsed);
   const dir = project((_s, p) => { obj(obj(p.diff_map).report).sha256 = sha(text); });
   writeFileSync(join(dir, EXAMPLE_DIFF_REPORT), text);
-  only(dir, 'DIFF_MAP_REPORT');
+  const message = only(dir, 'DIFF_MAP_REPORT');
+  if (kind === 'spec') {
+    expect(message).toContain('"rig-parts-diff-components/3"');
+    expect(message).toContain('rig-parts-diff-components/1 or rig-parts-diff-components/2');
+    const before = readFileSync(join(dir, 'project.json'));
+    try {
+      diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT]);
+      throw new Error('diff-classes accepted unknown spec');
+    } catch (error) {
+      const refusal = error as { code: string; message: string };
+      expect(refusal.code).toBe('DIFF_MAP_REPORT');
+      expect(refusal.message).toContain('"rig-parts-diff-components/3"');
+      expect(refusal.message).toContain('rig-parts-diff-components/1 or rig-parts-diff-components/2');
+    }
+    const writeAttempt = writer(dir);
+    expect(writeAttempt.code).toBe(1);
+    expect(writeAttempt.stderr).toContain('DIFF_MAP_REPORT');
+    expect(writeAttempt.stderr).toContain('"rig-parts-diff-components/3"');
+    expect(writeAttempt.stderr).toContain('rig-parts-diff-components/1 or rig-parts-diff-components/2');
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  }
 });
 test('B3 report absent', () => {
   const dir = project(); rmSync(join(dir, EXAMPLE_DIFF_REPORT)); only(dir, 'DIFF_MAP_REPORT');

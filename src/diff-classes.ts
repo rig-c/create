@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from './check-reads.ts';
 import { join, resolve } from 'node:path';
 
 import { checkProject, readJsonObject, type Finding } from './check.ts';
-import { diffReportBytes, reportShape, resolveDiffMapPartsFile, validateDiffMapRecord } from './diff-map.ts';
+import { diffReportBytes, diffReportShapeDetail, reportShape, resolveDiffMapPartsFile, validateDiffMapRecord } from './diff-map.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -19,7 +19,7 @@ const nonempty = (v: unknown): v is string => typeof v === 'string' && v.trim().
 
 /** Quarter-width mixed bands limit the within-class spread to less than 0.25. */
 export function deriveDiffClasses(report: unknown): DiffClass[] {
-  if (!object(report) || !reportShape(report)) refuse('DIFF_MAP_REPORT', 'diff_map.report: needs a well-shaped rig-parts-diff-components/1 report; regenerate the report');
+  if (!object(report) || !reportShape(report)) refuse('DIFF_MAP_REPORT', `diff_map.report: ${diffReportShapeDetail(report)}; regenerate the report`);
   const groups = new Map<string, { key: Key; components: Component[] }>();
   const ids = new Set<string>();
   for (const c of report.components as Component[]) {

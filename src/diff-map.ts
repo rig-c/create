@@ -16,7 +16,8 @@ export const DIFF_MAP_MAX_FLOOR_PX = 2;
 export const DIFF_MAP_MAX_THRESHOLD = 40;
 export const DIFF_MAP_REMEDY =
   'generate rig-parts diff-components on the reviewed assembly and record agent component classification with rig-create diff-classes --diff-report <path> --triage-file <file> --by agent (or --component <id>=<status>:<why> --by agent)';
-const SPEC = 'rig-parts-diff-components/1';
+export const DIFF_COMPONENTS_SPECS = ['rig-parts-diff-components/1', 'rig-parts-diff-components/2'] as const;
+const [SPEC_V1, SPEC_V2] = DIFF_COMPONENTS_SPECS;
 const SHA256 = /^[0-9a-f]{64}$/;
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const nonempty = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
@@ -27,7 +28,7 @@ const binding = (v: unknown): boolean => object(v) && nonempty(v.path) && hash(v
 export function reportShape(v: Record<string, unknown>): boolean {
   const d = v.definition;
   const b = v.below_floor;
-  return v.spec === SPEC && binding(v.stack) && binding(v.painting) && object(d)
+  return (v.spec === SPEC_V1 || v.spec === SPEC_V2) && binding(v.stack) && binding(v.painting) && object(d)
     && d.metric === 'max-absolute-rgb-channel' && d.comparison === '>' && d.connectivity === 8
     && d.coordinates === 'native' && d.y === 'down' && d.origin === 'top-left' && d.resampling === 'none'
     && d.covered_alpha_above === 128 && integer(d.width) && d.width > 0 && integer(d.height) && d.height > 0
@@ -38,7 +39,18 @@ export function reportShape(v: Record<string, unknown>): boolean {
     && Array.isArray(v.components) && v.components.every((c) => object(c) && nonempty(c.id) && integer(c.px) && c.px > 0
       && object(c.box) && integer(c.box.x) && integer(c.box.y) && integer(c.box.w) && c.box.w > 0 && integer(c.box.h) && c.box.h > 0
       && typeof c.coverage === 'string' && ['covered', 'uncovered', 'mixed'].includes(c.coverage) && integer(c.uncovered_px)
+      && (v.spec === SPEC_V2
+        ? Array.isArray(c.owners) && c.owners.every((p) => object(p) && nonempty(p.part) && integer(p.px) && p.px > 0)
+        : c.owners === undefined)
       && Array.isArray(c.borders) && c.borders.every((p) => object(p) && nonempty(p.part) && integer(p.px)));
+}
+
+export function diffReportShapeDetail(report: unknown): string {
+  const accepted = DIFF_COMPONENTS_SPECS.join(' or ');
+  if (object(report) && !DIFF_COMPONENTS_SPECS.includes(report.spec as (typeof DIFF_COMPONENTS_SPECS)[number])) {
+    return `spec is ${JSON.stringify(report.spec ?? null)}; needs a well-shaped ${accepted} report`;
+  }
+  return `needs a well-shaped ${accepted} report`;
 }
 
 /** A project-relative regular file, contained as written and with links followed. */
@@ -143,7 +155,7 @@ export function validateDiffMapRecord(
     return;
   }
   if (!object(report) || !reportShape(report)) {
-    push('DIFF_MAP_REPORT', `${map.report.path}: needs a well-shaped ${SPEC} report`);
+    push('DIFF_MAP_REPORT', `${map.report.path}: ${diffReportShapeDetail(report)}`);
     return;
   }
   const components = report.components as { id: string }[];

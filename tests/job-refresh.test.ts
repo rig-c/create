@@ -1,4 +1,3 @@
-import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -51,8 +50,6 @@ const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'p
 const write = (root: string, project: JsonObject): void => writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
 
 function copy(checkpoint: string, edit?: (project: JsonObject) => void): string {
-  // Live owner acts must follow the fixture, without dating Create evidence at future noon.
-  testClock.set(new Date(EXAMPLE_REOPEN_AT));
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-refresh-')));
   roots.push(root);
   const src = checkpoint === 'example-chain'

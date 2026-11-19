@@ -112,6 +112,36 @@ test('missing snapshot, changed bytes, early guide and contradictory declaration
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DECISIONS_INVALID');
 });
 
+test('parts-signoff refuses an absolute inside structure path before write and accepts its relative equivalent', () => {
+  const dir = setup();
+  const before = readFileSync(join(dir, 'project.json'));
+  try { partsSign(dir, 'shape', join(dir, 'evidence/structure.json')); throw Error('expected refusal'); } catch (error) {
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_INVALID');
+    expect((error as Refusal).message).toBe('signoffs.structure: pass the project-relative path, for example evidence/structure-<id>.json; retain the structure snapshot under the project');
+  }
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  partsSign(dir);
+  expect(obj(arr(read(dir).signoffs).at(-1)).structure).toEqual({
+    path: 'evidence/structure.json', sha256: sha(readFileSync(join(dir, 'evidence/structure.json'), 'utf8')),
+  });
+});
+
+test.each(['parent', 'symlink'])('parts-signoff preserves the outside structure path refusal before write: %s', mode => {
+  const dir = setup();
+  const outside = join(dirname(dir), 'outside-structure.json');
+  writeFileSync(outside, readFileSync(join(dir, 'evidence/structure.json')));
+  const path = mode === 'parent' ? '../outside-structure.json' : 'evidence/outside-structure.json';
+  if (mode === 'symlink') symlinkSync(outside, join(dir, path));
+  const before = readFileSync(join(dir, 'project.json'));
+  try { partsSign(dir, 'shape', path); throw Error('expected refusal'); } catch (error) {
+    expect(error).toBeInstanceOf(Refusal);
+    expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_INVALID');
+    expect((error as Refusal).message).toBe('signoffs.structure: structure file must stay under the project; retain the structure snapshot under the project');
+  }
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
 
 test('a snapshot contradicting its exact reviewed mesh declaration is refused before writing', () => {
   const dir = setup();

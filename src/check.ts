@@ -4,7 +4,7 @@ import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
 import { partsReadFindings, latestPartsVerdictFinding, PARTS_VERDICT_LATEST_SINCE, recordedPartsVerdict, recordedPartsFinding } from './parts-verdict-record.ts';
 import { partsActFindings } from './parts-act.ts';
-import { reviewActFindings } from './review-act.ts';
+import { isDiscardReceipt, reviewActFindings } from './review-act.ts';
 import { checkCheckpointEvidence } from './checkpoint-evidence.ts';
 import { checkAdvances, checkAdvanceBars, checkDirectionReviewAdvances, checkPauses, checkProgressLinkage, checkStageProgress, checkStepStatusHistory } from './stage-progress.ts';
 import { checkPartsChecks } from './parts-check.ts';
@@ -991,7 +991,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkAppliedReview(ctx);
   const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
   const feedback = options.recordPublication ? [] : checkFeedback(ctx);
-  refusals.push(...reviewActFindings(project), ...partsActFindings(dir, project), ...(options.recordPublication ? [] : partsReadFindings(dir, project)));
+  refusals.push(...reviewActFindings(project, warnings), ...partsActFindings(dir, project), ...(options.recordPublication ? [] : partsReadFindings(dir, project)));
   for (const [index, raw] of asArray(project.signoffs).entries()) {
     if (!isObject(raw) || raw.stage !== 'parts-review' || typeof raw.draft_id !== 'string') continue;
     const finding = latestPartsVerdictFinding(project, raw.draft_id, `signoffs[${index}].draft_id`);
@@ -1008,7 +1008,8 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const checkChat = (value: Json | undefined, path: string): void => {
     if (Array.isArray(value)) value.forEach((entry, index) => checkChat(entry, `${path}[${index}]`));
     else if (isObject(value)) {
-      const finding = ownerChatFinding(value, path);
+      // The ledger validator checks the relay on discard receipts separately from their referenced actId.
+      const finding = /^project\.json\.review_acts\[\d+\]$/.test(path) && isDiscardReceipt(value) ? undefined : ownerChatFinding(value, path);
       if (finding) ctx.refusals.push(finding);
       for (const [key, entry] of Object.entries(value)) checkChat(entry, `${path}.${key}`);
     }

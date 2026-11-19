@@ -655,6 +655,8 @@ test('#467 a post page asks only the direction verdict before and after ingest, 
   const premature = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
   expect(premature.exit).toBe(1);
   expect(premature.stderr).toStartWith('JOB_DIRECTION_VERDICT_REQUIRED: ');
+  expect(premature.stderr).toContain('project.json.versions[v2]');
+  expect(premature.stderr).toContain('job open --rig 2');
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   expect(readWriterBinding(root)).toBeNull();
   expect(existsSync(jobHostStateRoot(root))).toBe(false);

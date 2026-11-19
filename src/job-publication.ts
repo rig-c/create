@@ -313,7 +313,8 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         const verdictIndex = post ? acceptedReviewVerdict(post, stage) : -1;
         const verdict = verdictIndex >= 0 ? asArray(post?.verdicts)[verdictIndex] : undefined;
         if (!isObject(verdict) || !liveSignoff(reopens, 'direction-review', Date.parse(String(verdict.at)))) {
-          refuse('JOB_DIRECTION_VERDICT_REQUIRED', 'project.json.versions: the current live post has no accepted direction-review verdict; open it with job open --rig <n> and ingest review <n> --from-review <actId> before requesting the direction sign-off');
+          const n = post?.n !== undefined ? String(post.n) : null;
+          refuse('JOB_DIRECTION_VERDICT_REQUIRED', `${n === null ? 'project.json.versions' : `project.json.versions[v${n}]`}: the current live post${n === null ? '' : ` v${n}`} has no accepted direction-review verdict; open it with job open --rig ${n ?? '<n>'} and ingest review ${n ?? '<n>'} --from-review <actId> before requesting the direction sign-off`);
         }
         requireRecordDirectionTarget(project, now);
       }

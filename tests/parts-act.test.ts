@@ -24,7 +24,7 @@ import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
 import { partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
-import { decodeReviewAct, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
+import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
 
@@ -130,6 +130,7 @@ async function submit(
   verdict: Extract<JobVerdict, 'approved' | 'changes-requested'> = 'approved',
   outcome: JobPartOutcome = 'clean',
   mesh: JobPartOutcome = outcome,
+  showLayers = false,
 ): Promise<JobAct> {
   const publication = host.session.status().publication!;
   const request = { schema: 'rig-review/job-api@2', verb: 'ask', jobId: host.session.jobId, requestId: randomUUID(),
@@ -171,6 +172,11 @@ async function submit(
         alpha: false,
         footprints: true,
         mesh: mesh === 'flagged',
+        ...(showLayers ? { visibleLayers: [
+          { name: partName, imageHash: firstPart.sha256 },
+          ...publication.source.parts!.images.filter(img => img.role === 'part' && img !== firstPart).slice(0, 1)
+            .map(img => ({ name: img.path.slice('parts/'.length, -'.png'.length), imageHash: img.sha256 })),
+        ] } : {}),
       },
       crop: {
         path: `comment-crops/${cropSha}.png`,
@@ -343,6 +349,51 @@ for (const [verdict, part, mesh] of [
   if (verdict !== 'approved') {
     expect(() => sign(root, recorded.evidence.path)).toThrow(expect.objectContaining({ code: 'PARTS_VERDICT_LATEST_NOT_APPROVED' }));
   }
+}, SINGLE_ACT_TIMEOUT_MS);
+
+test('#664 retains the assembled visible layers exported with a Parts issue', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host, 'changes-requested', 'flagged', 'clean', true);
+  if (act.schema !== JOB_COMMENTS_ACT_SCHEMA || act.kind !== 'parts-verdict') throw Error('expected a Review comments verdict');
+  const firstLayers = host.session.status().publication!.source.parts!.images.filter(img => img.role === 'part').slice(0, 2)
+    .map(img => ({ name: img.path.slice('parts/'.length, -'.png'.length), imageHash: img.sha256 }));
+  expect(firstLayers).toHaveLength(2);
+  const result = expectCliOk(await cli(root, ['parts-review', '--from-review', act.actId, '--json']));
+  const bytes = readFileSync(join(root, JSON.parse(result.stdout).evidence.path), 'utf8');
+  expect(bytes).toBe(host.session.readActExport(act.actId, false).toString('utf8'));
+  const recorded = decodeReviewAct(bytes, 'parts-verdict');
+  if (recorded.schema !== JOB_COMMENTS_ACT_SCHEMA) throw Error('expected retained comments verdict');
+  expect(recorded.value.comments[0]?.anchor).toMatchObject({ view: { mode: 'assembled', visibleLayers: firstLayers } });
+  expect(partsActIssues(recorded)?.[0]?.view).toMatchObject({ visibleLayers: firstLayers });
+  expect(reviewActFindings(read(root))).toEqual([]);
+}, SINGLE_ACT_TIMEOUT_MS);
+
+test('#664 ingests a previous-draft comparison with its exact Review source declaration', async () => {
+  const { root, host } = await bound();
+  const act = await submit(root, host, 'changes-requested', 'flagged');
+  if (act.schema !== JOB_COMMENTS_ACT_SCHEMA || act.kind !== 'parts-verdict') throw Error('expected a Review comments verdict');
+  const current = 'derived/drafts/chain/input/recomposite_rig.png';
+  const previousDraft = { schema: 'rig-review-previous-draft/1' as const, draft: { id: 'synthetic-prior', revision: 'a'.repeat(64) },
+    composites: { current: { path: current, sha256: jobHash(readFileSync(join(root, current))) },
+      previous: { path: 'derived/drafts/synthetic-prior/input/recomposite_rig.png', sha256: 'b'.repeat(64) } } };
+  const comparison = { mode: 'difference' as const, opacity: 0.5, threshold: 0, operand: 'previous-draft' as const };
+  // Reuse a real finalized export as the base. The original producer publication
+  // and validation of the previous operand's PNG seals are covered on the publication path.
+  const comments = act.value.comments.map(comment => comment.anchor && 'schema' in comment.anchor
+    ? { ...comment, anchor: { ...comment.anchor, view: { ...comment.anchor.view, comparison } } } : comment);
+  const unbound = { ...act, value: { ...act.value, comments } };
+  expectAtomicRefusal(root, 'REVIEW_ACT_INVALID', () => ingestSyntheticFetch(root, unbound));
+  const exportWithPrevious = { ...unbound, source: { ...unbound.source, previousDraft } };
+  const result = ingestSyntheticFetch(root, exportWithPrevious);
+  expect(result.exit).toBe(0);
+  const bytes = readFileSync(join(root, JSON.parse(result.stdout).evidence.path), 'utf8');
+  expect(bytes).toBe(JSON.stringify(exportWithPrevious));
+  const recorded = decodeReviewAct(bytes, 'parts-verdict');
+  expect(recorded.source).toMatchObject({ previousDraft });
+  expect(partsActIssues(recorded)?.[0]?.view).toMatchObject({ comparison });
+  const warnings: Parameters<typeof reviewActFindings>[1] = [];
+  expect(reviewActFindings(read(root), warnings)).toEqual([]);
+  expect(warnings).toEqual([]);
 }, SINGLE_ACT_TIMEOUT_MS);
 
 for (const source of ['parts', 'config'] as const) test(`changed ${source} refuses stale replay without a record write`, async () => {
@@ -795,6 +846,10 @@ test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant 
   write(root, project);
   const recorded = recordedPartsVerdict(root, project, 'chain');
   expect(recorded.evidence.spec).toBe('rig-review/act@5');
+  const warnings: Parameters<typeof reviewActFindings>[1] = [];
+  expect(reviewActFindings(project, warnings)).toEqual([]);
+  expect(partsActFindings(root, project)).toEqual([]);
+  expect(warnings).toEqual([]);
 });
 
 test('draft publication binds inputs[0] in producer.source, seals it in files, and refuses missing or drifted painting bytes before manifest write', () => {

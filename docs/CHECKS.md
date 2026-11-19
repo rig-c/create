@@ -40,17 +40,23 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_ASK_PENDING` | A bound writer would publish into an open job that holds a pending owner ask with no ingested act for a different target. The message names the job, the pending ask and the remedy: give the verdict, run `job acts`, ingest with `review <n> --from-review <actId>`, run `job close`, then re-run. Refusal preserves `project.json` and the job state byte-identically. |
 | `JOB_ASK_REFUSED` | A publication is acknowledged, but Review refused the ask for one of its declared subjects. The message names each subject and Review's code. The publication is not pending. Restore the published record bytes and run `job open` to ask again. |
 | `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Record the draft with `draft-rig` or name a recorded draft. |
+| `PREVIOUS_DRAFT_UNAVAILABLE` (WARN) | A draft comparison operand lacks a retained SHA-256 and PNG binding or fails that binding. Restore the producer recomposite with its original seal or register a fresh draft. |
 | `JOB_WRITE_BUSY` | A bound writer holds the shared publication freeze. Wait for that operation before retrying. |
 | `JOB_RECORD_INCOMPLETE` | Review 2.8.0 carries answered scene-context choices and historical diagnostics in `publication.interview` (`rig-review/job-interview@1`), and refuses invalid or stale editable `pending_options` sets before publication. Restore a current editable option set before reconciling. |
 
 
 ## Finalized Review acts
 
+A rig-review Request changes carrying `act@8` mesh edits uses the displayed
+package and Parts applier. Each correction's `outcome.revision` names a retained
+mesh rig revision. Create commits the verdict, act receipt and corrections
+together. A replay uses the retained receipt.
+
 | Code | Finding and remedy |
 | --- | --- |
 | `REVIEW_API_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported API schema. Restore a live job using job-api@2 and fetch again. |
 | `REVIEW_ACT_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported act schema, explicitly including act@1. Request a supported act from Review without migrating the old act; record reopen uses act@4. |
-| `REVIEW_ACT_V8_UNSUPPORTED` | The Review job returned `rig-review/act@8` for `project.json.review_acts`. Use a Create release that pins an act@8 decoder before recording this act. |
+| `REVIEW_ACT_V8_UNSUPPORTED` | Retired in Create 1.13.0. Earlier Create releases returned this code when `project.json.review_acts` received `rig-review/act@8`. |
 | `PARTS_REMESH_API_UNAVAILABLE` | The selected Parts installation lacks `src/remesh-api.ts` or its `applyMeshEditAct` export. Install a project Parts release that provides this API before applying the mesh edit. |
 | `REMESH_DELTA_ACT_SUPERSEDED` | Parts found an earlier application of the same act and attachment in the current rig's revision history. Continue from the current revision named by Parts without recording another completion for the attachment. Other Parts refusals retain the producer's code, object and detail. |
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <4.0.0`. Publish through an accepted installed Parts enumerator and review again. A `review-verdict` act on a composed `direction@3` post carries `source.parts: null` and is exempt: it binds the composed build model, not parts. |

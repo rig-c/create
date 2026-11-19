@@ -570,7 +570,8 @@ function validateMeshDeltaOutcome(dir: string, record: JsonObject, art: JsonObje
   const invalid = (detail: string): never => fail('CORRECTION_MESH_DELTA_INVALID', detail);
   const outcome = record.outcome;
   const closure = record.closure;
-  if (record.schema !== CORRECTION_SPEC || record.path !== 'made' || record.stage !== 'rig-review' || record.by !== 'user'
+  if (record.schema !== CORRECTION_SPEC || record.path !== 'made' || record.stage !== 'rig-review'
+    || record.by !== 'user' && record.by !== 'delegate'
     || !closed(art, ['kind', 'actId', 'sourceHash', 'payloadSha256', 'skin', 'slot', 'attachment'])
     || !text(art.actId) || !hex(art.sourceHash) || !hex(art.payloadSha256)
     || art.skin !== 'default' || !text(art.slot) || art.slot !== art.attachment

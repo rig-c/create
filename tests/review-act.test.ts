@@ -1,15 +1,17 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
+import { readModel, readSetupMesh, underNoSkin } from '@rig-c/core/core';
 import { collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
 import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
+import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { republishCommand } from '../src/republish.ts';
 import { nextProject } from '../src/next.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -43,7 +45,8 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
     && typeof entry.bytes === 'string' && JSON.parse(entry.bytes).kind === 'review-verdict');
 }
 
-async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false, existing?: { root: string; rigVersion: number }) {
+async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false, existing?: { root: string; rigVersion: number },
+  extraValue?: (root: string, source: JsonObject) => JsonObject) {
   // Keep authored moves after the fixture and before the live host's receipts.
   if (!existing) testClock.set(EXAMPLE_REOPEN_AT);
   const root = existing?.root ?? temporary('create-act-project-');
@@ -111,7 +114,8 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   if (!displayed.ok) throw Error(displayed.error.code);
   const submitted = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
     publicationId: publication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
-    expectedGeneration: host.session.status().generation, submissionId: 'synthetic-submission', kind: 'review-verdict', value: { stage, verdict, words },
+    expectedGeneration: host.session.status().generation, submissionId: 'synthetic-submission', kind: 'review-verdict',
+    value: { stage, verdict, words, ...extraValue?.(root, publication.source as JsonObject) },
     ...(n !== 1 ? {} : (() => {
       const png = readFileSync(join(root, 'evidence/setup.png'));
       return { capture: { png: `data:image/png;base64,${png.toString('base64')}`,
@@ -556,6 +560,105 @@ test('changes-requested records a bounced verdict with exact words and the norma
   expect(report.warnings.map(finding => finding.code)).toEqual(['FEEDBACK_OPEN']);
 });
 
+test('#664 keeps the context Review emits in act@7 while recording the signed scalar words', async () => {
+  const text = '  Synthetic marked feedback.  ';
+  const camera = { space: 'world' as const, center: { x: 0, y: 0 }, zoom: 1, viewport: { width: 100, height: 100 },
+    visible: { x: -50, y: -50, width: 100, height: 100 } };
+  const frame = { index: 3, basis: 'producer' as const };
+  const region = { x: 0, y: 0, width: 0, height: 0 };
+  const { root, host, act } = await published('3-rig-review', 1, 'owner', '', 'changes-requested', 1, false, undefined, (root, source) => {
+    const png = readFileSync(join(root, 'evidence/setup.png'));
+    const sha256 = jobHash(png);
+    const sourceHash = source.sourceHash!;
+    const modelHash = (source.model as JsonObject).sha256!;
+    return { feedback: [{
+      id: 'synthetic-mark', frameStart: 3, frameEnd: 3, category: 'defect', summary: text,
+      target: { kind: 'rig', name: (source.package as JsonObject).id! },
+      context: { time: 0.25, frame: 3, animation: null, interval: { frameStart: 3, frameEnd: 3, inclusive: true }, comment: {
+        schema: 'rig-review-comment/1', mode: 'animate', viewport: 'rig', frame, time: 0.25, animation: null,
+        sourceHash, modelHash, referenceId: null, referenceHash: null, camera, screen: { ...region, x: 50, y: 50 }, world: region, slots: [],
+        crop: { path: `comment-crops/${sha256}.png`, sha256, png: `data:image/png;base64,${png.toString('base64')}`,
+          width: png.readUInt32BE(16), height: png.readUInt32BE(20) },
+        bookmark: { schema: 'rig-review-inspection/1', binding: { mode: 'single', sourceHash, rigs: [modelHash] },
+          time: 0.25, animation: null, theme: 'dark', layers: { images: true, meshes: false, bones: false },
+          view: { schema: 'rig-review-view/1', cameras: { rig: camera, a: null, b: null, reference: null } },
+          selection: { inspector: 'playback' } },
+      } },
+    }] };
+  });
+  expect(act.schema).toBe('rig-review/act@7');
+  const result = await command(root, act.actId);
+  expect(result.stderr).toBe('');
+  expect(result.exit).toBe(0);
+  expect(JSON.parse(result.stdout).verdict.verbatim).toContain(text);
+  const project = projectAt(root);
+  const receipt = reviewVerdictReceipts(project)[0]!;
+  expect(receipt.bytes).toBe(host.session.readActExport(act.actId, false).toString('utf8'));
+  const recorded = decodeReviewAct(String(receipt.bytes));
+  if (recorded.schema !== 'rig-review/act@7') throw Error(recorded.schema);
+  expect(recorded.value.comments[0]?.context).toEqual({
+    subject: { ask: { kind: 'review-verdict', stage: 'rig-review' }, sourceHash: act.source.sourceHash, selector: { kind: 'rig', version: 1 } },
+    mode: 'animate', tab: 'playback', region, camera, frame,
+  });
+  const diagnostics = checkProject(root, project);
+  expect(diagnostics.refusals).toEqual([]);
+  expect(diagnostics.warnings.map(finding => finding.code)).toEqual(['FEEDBACK_OPEN']);
+  const before = readFileSync(join(root, 'project.json'));
+  expect((await command(root, act.actId)).exit).toBe(0);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+});
+
+test('#664 ingests Review mesh-only Request changes through Parts and replays without a second revision', async () => {
+  let sent: JsonObject[] = [];
+  const { root, host, act } = await published('3-rig-review', 1, 'delegate', '', 'changes-requested', 1, false, undefined, (root, source) => {
+    const model = readFileSync(join(root, String((source.model as JsonObject).path)), 'utf8');
+    const { stage, skins } = JSON.parse(model);
+    const mesh = readSetupMesh(underNoSkin(readModel(model)), { slot: 'torso', skin: 'default', attachment: 'torso' });
+    const attachment = skins.find((skin: { name: string }) => skin.name === 'default').attachments.torso.torso;
+    const positions = Array.from({ length: mesh.vertices.length / 2 }, (_, i) =>
+      [mesh.vertices[2 * i]! - stage.x, stage.y + stage.height - mesh.vertices[2 * i + 1]!]);
+    const vertex = mesh.hull!;
+    const from = positions[vertex]!;
+    const edit = {
+      attachment: 'torso', basis: 'setup', ops: [{ from, op: 'move', to: [Math.round((from[0]! + 0.5) * 100) / 100, Math.round(from[1]! * 100) / 100], v: vertex }],
+      skin: 'default', slot: 'torso',
+      source: { frame: { height: stage.height, width: stage.width }, hash: jobHash(JSON.stringify(attachment)),
+        hullLength: mesh.hull, positions, triangleCount: mesh.triangles.length / 3, vertexCount: positions.length },
+    };
+    // Keys in this fixture are in the order used for Review's signed digest.
+    sent = [{ edit, sha256: jobHash(JSON.stringify(edit)) }];
+    return { meshEdits: sent };
+  });
+  expect(act.schema).toBe('rig-review/act@8');
+  const bytes = host.session.readActExport(act.actId, false).toString('utf8');
+  const decoded = decodeReviewAct(bytes);
+  expect(decoded.value).toMatchObject({ verdict: 'changes-requested', meshEdits: sent, comments: [] });
+  const result = await command(root, act.actId);
+  expect(result.stderr).toBe('');
+  expect(result.exit).toBe(0);
+  expect(JSON.parse(result.stdout).verdict).toMatchObject({ verdict: 'bounced', by: 'delegate', verbatim: '' });
+  const project = projectAt(root);
+  expect(reviewVerdictReceipts(project)[0]?.bytes).toBe(bytes);
+  const corrections = project.corrections as JsonObject[];
+  expect(corrections).toHaveLength(1);
+  const revision = pendingMeshDeltaRevision(project)!;
+  expect(revision.sourceVersion).toBe(1);
+  expect(revision.revision).toMatch(/^derived\/mesh-delta-.*\/1$/);
+  expect(corrections[0]).toMatchObject({
+    source: `review act ${act.jobId}/${act.actId}`, by: 'delegate', verbatim: null,
+    artifact: { kind: 'mesh-delta', payloadSha256: sent[0]!.sha256 },
+    outcome: { revision: revision.revision, provenance: { request: { edit: sent[0]!.edit } } },
+  });
+  expect(readFileSync(join(root, revision.revision, 'rig.json'))).not.toEqual(readFileSync(join(root, 'derived/review/v1/out/rig/rig.json')));
+  expect(checkProject(root, project).refusals).toEqual([]);
+  expect(reviewActFindings({ ...project, corrections: [] }).map(finding => finding.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  const before = readFileSync(join(root, 'project.json'));
+  const dirs = readdirSync(join(root, 'derived'));
+  expect((await command(root, act.actId)).exit).toBe(0);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(readdirSync(join(root, 'derived'))).toEqual(dirs);
+}, 30_000);
+
 /** Inject consumer API responses without materializing a saved Review export. */
 function fetchAdapter(root: string, act: { jobId: string }, raw: string | (() => string), png?: Buffer) {
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
@@ -713,10 +816,12 @@ test.each(['missing', 'mismatch'])('API act refuses a %s PNG without changing pr
   } finally { server.stop(true); }
 });
 
-test('API retains exact raw act bytes and PNG and binds both hashes', async () => {
+test.each(['rig-review/act@3', JOB_COMMENTS_ACT_SCHEMA] as const)('API retains exact %s bytes and PNG and binds both hashes', async schema => {
   const { root, act } = await published();
   if (act.schema !== JOB_COMMENTS_ACT_SCHEMA || !act.still) throw Error('expected comments rig still');
-  const raw = `${JSON.stringify(act, null, 3)}\n`;
+  const exported = schema === JOB_COMMENTS_ACT_SCHEMA ? act
+    : { ...act, schema, value: { stage: 'rig-review', verdict: 'approved', words: '  Synthetic historical approval.\r\n' } };
+  const raw = `${JSON.stringify(exported, null, 3)}\n`;
   const png = readFileSync(join(root, 'evidence/setup.png'));
   const server = fetchAdapter(root, act, raw, png);
   try {
@@ -728,7 +833,9 @@ test('API retains exact raw act bytes and PNG and binds both hashes', async () =
     expect(receipt.sha256).toBe(jobHash(raw));
     expect(readFileSync(join(root, `evidence/v1/${jobHash(raw)}.act.json`), 'utf8')).toBe(raw);
     expect(readFileSync(join(root, `evidence/v1/${act.still.path}`))).toEqual(png);
-    expect(checkProject(root, project).refusals).toEqual([]);
+    const diagnostics = checkProject(root, project);
+    expect(diagnostics.refusals).toEqual([]);
+    expect(diagnostics.warnings).toEqual([]);
   } finally { server.stop(true); }
 });
 

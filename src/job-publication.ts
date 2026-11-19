@@ -4,10 +4,11 @@ import { hasPartsReceipt } from './fix-ledger.ts';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
+import * as reviewJobHost from '@rig-c/review/job-host';
 import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts';
@@ -15,7 +16,8 @@ import { readDirection } from './direction.ts';
 import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint-evidence.ts';
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
-import { checkDiffMap } from './diff-map.ts';
+import { checkDiffMap, diffStackCandidates, reportShape } from './diff-map.ts';
+import { PARTS_CHECK_SPEC, partsCheckFindings } from './parts-check.ts';
 import {
   COLLECTION_BINDING_SPEC,
   isLiveMemberRoot,
@@ -31,7 +33,7 @@ import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects,
 import { collectReopens, directionReviewClosed, liveSignoff, reopenTargetEligible } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
-import { latestPartsApproval } from './structure.ts';
+import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -645,6 +647,99 @@ function publishedSourcePainting(root: string, project: JsonObject, label: strin
   return { path, sha256 };
 }
 
+type FileSeal = JobPublishedContext['files'][number];
+type PreviousDraft = NonNullable<JobPublishedContext['previousDraft']>;
+const PREVIOUS_DRAFT_SCHEMA = 'rig-review-previous-draft/1';
+
+function stackPaths(root: string, manifestPath: string): string[] {
+  return diffStackCandidates(resolve(root, manifestPath)).map(file => relative(root, file).split(sep).join('/'));
+}
+
+function retainedReport(root: string, binding: Json | undefined): JsonObject | undefined {
+  try { return retainedJson(root, binding); } catch { return undefined; }
+}
+
+function stackBindings(root: string, project: JsonObject, draft: JsonObject, partsPath: string, candidates: string[]): JsonObject[] {
+  const onCandidate = (row: JsonObject) => typeof row.path === 'string' && candidates.includes(row.path);
+  const bound = asArray(draft.files).filter(isObject).filter(onCandidate);
+  if (bound.length) return bound;
+
+  // The shared map belongs to the stack named by the producer, not the draft currently being published.
+  const maps = [project.diff_map, ...asArray(project.signoffs).filter(isObject)
+    .filter(row => row.stage === 'parts-review' && row.checkpoint === null && row.draft_id === draft.id)
+    .map(row => row.diff_map)];
+  const measured = maps.filter(isObject).flatMap(map => {
+    const report = retainedReport(root, map.report);
+    if (!report || !reportShape(report) || !isObject(report.stack) || typeof report.stack.path !== 'string') return [];
+    const row = { path: relative(root, resolve(root, report.stack.path)).split(sep).join('/'), sha256: report.stack.sha256 };
+    return onCandidate(row) ? [row] : [];
+  });
+  if (measured.length) return measured;
+
+  const partFiles = asArray((draft.parts as JsonObject).files).filter(isObject);
+  const manifest = partFiles.find(row => row.path === `${partsPath}/parts.json`);
+  const audited = manifest ? asArray(project.advances).flatMap((move, index) => {
+    if (!isObject(move) || move.from_stage !== 'parts' || move.stage !== 'parts-review') return [];
+    const binding = move.parts_check;
+    if (!isObject(binding) || binding.parts !== partsPath || binding.spec !== PARTS_CHECK_SPEC
+      || partsCheckFindings(root, binding, `advances[${index}].parts_check`, false).length) return [];
+    const report = retainedReport(root, binding);
+    const inputs = asArray(report?.inputs).filter(isObject).filter(row => row.status === 'read');
+    if (!inputs.some(row => row.path === 'parts.json' && row.sha256 === manifest.sha256)) return [];
+    return inputs.filter(row => row.path === 'recomposite_rig.png')
+      .map(row => ({ path: `${partsPath}/${String(row.path)}`, sha256: row.sha256 }));
+  }) : [];
+  return [...partFiles.filter(onCandidate), ...audited];
+}
+
+function sealedStack(root: string, project: JsonObject, draft: JsonObject, rigSize: Json | undefined): FileSeal {
+  const partsPath = String((draft.parts as JsonObject).path);
+  const candidates = stackPaths(root, `${partsPath}/parts.json`);
+  const bound = stackBindings(root, project, draft, partsPath, candidates);
+  const row = bound[0];
+  if (!row || typeof row.path !== 'string' || typeof row.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(row.sha256)) {
+    throw Error(`no bound SHA-256 for ${candidates.join(' or ')}`);
+  }
+  if (bound.some(other => other.path !== row.path || other.sha256 !== row.sha256)) throw Error('conflicting retained recomposite identities');
+  const { path, sha256 } = row;
+  const bytes = publicationFile(root, path);
+  if (jobHash(bytes) !== sha256) throw Error(`${path} differs from its bound SHA-256`);
+  const { width, height } = pngDimensions(bytes, path);
+  if (bytes[24] !== 8 || bytes[25] !== 6 || bytes[28] !== 0) throw Error(`${path} requires a noninterlaced RGBA8 producer PNG`);
+  if (!Array.isArray(rigSize) || width !== rigSize[0] || height !== rigSize[1]) throw Error(`${path} does not match the current rig_size`);
+  return { path, sha256 };
+}
+
+function previousDraftContext(root: string, project: JsonObject, id: string, manifest: FileSeal,
+  files: FileSeal[], warnings: Finding[]): { previousDraft?: PreviousDraft } {
+  if (Reflect.get(reviewJobHost, 'JOB_PREVIOUS_DRAFT_SCHEMA') !== PREVIOUS_DRAFT_SCHEMA) return {};
+  const precedingId = previousPartsApproval(root, project, id)?.draft_id;
+  if (typeof precedingId !== 'string') return {};
+  const manifestBytes = publicationFile(root, manifest.path);
+  if (jobHash(manifestBytes) !== manifest.sha256) {
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: ${manifest.path} differs from its publication seal; restore the retained parts manifest`);
+  }
+  const { rig_size: rigSize } = JSON.parse(manifestBytes.toString('utf8')) as { rig_size?: Json };
+  let path = `drafts[${id}].files`;
+  try {
+    const current = sealedStack(root, project, publishedDraft(project, id), rigSize);
+    path = `drafts[${precedingId}].files`;
+    const preceding = publishedDraft(project, precedingId);
+    const previous = sealedStack(root, project, preceding, rigSize);
+    const previousDraft: PreviousDraft = { schema: PREVIOUS_DRAFT_SCHEMA,
+      draft: { id: precedingId, revision: jobHash(`${JSON.stringify(preceding, null, 2)}\n`) }, composites: { current, previous } };
+    if (current.path === previous.path && current.sha256 !== previous.sha256) throw Error('operands have conflicting seals for the same path');
+    const operands = current.path === previous.path ? [current] : [current, previous];
+    if (operands.some(row => files.some(file => file.path === row.path && file.sha256 !== row.sha256))) throw Error('closure contains a conflicting recomposite seal');
+    files.push(...operands.filter(row => !files.some(file => file.path === row.path)));
+    return { previousDraft };
+  } catch (error) {
+    warnings.push({ code: 'PREVIOUS_DRAFT_UNAVAILABLE', path,
+      message: `${path}: previous-draft comparison omitted (${error instanceof Error ? error.message : String(error)}); restore the bound producer recomposite or register a new draft with its recomposite retained` });
+    return {};
+  }
+}
+
 /** Retain the official positional inventory, including duplicate paths/roles. */
 export function draftPublishedContext(root: string, project: JsonObject, id: string): JobPublishedContext {
   const draft = publishedDraft(project, id);
@@ -725,6 +820,7 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
 
 /** Register inventory early; ask for approval only after agent evidence and the advance. */
 export function draftPublicationContext(root: string, project: JsonObject, id: string, warnings: Finding[] = []): JobPublishedContext {
+  // Validate the mandatory closure before looking for optional comparison evidence.
   const context = draftPublishedContext(root, project, id);
   // Fresh approvals sign the stage during verdict ingestion. Preserve a separate
   // signoff ask only for an approval already ingested by an earlier writer.
@@ -748,7 +844,10 @@ export function draftPublicationContext(root: string, project: JsonObject, id: s
   if (stage !== 'parts-review' || !partsStructureSnapshot(root, project, id).valid) {
     subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
   }
-  return { ...context, subjects, ...checkpointEvidenceContext(root, project, subjects, context.files as { path: string; sha256: string }[]) };
+  const files = [...context.files];
+  const checkpoints = checkpointEvidenceContext(root, project, subjects, files);
+  const comparison = previousDraftContext(root, project, id, context.parts!.manifest, files, warnings);
+  return { ...context, subjects, files, ...checkpoints, ...comparison };
 }
 
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {

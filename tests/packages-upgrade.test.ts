@@ -12,7 +12,7 @@ import { EXAMPLE_ANCHOR, EXAMPLE_NOW } from '../scripts/example-time.ts';
 
 const roots: string[] = [];
 afterEach(() => { for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.7.0' };
+const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.8.0' };
 function fixture(dependencies: Record<string, string>) {
   const dir = tempDir(); roots.push(dir);
   const project = readTemplate('project.json');
@@ -57,7 +57,7 @@ test('malformed present history has the same named refusal in writer and project
 });
 
 test('an older synthetic project upgrades all release pins and preserves unrelated bytes', () => {
-  const { dir, bytes } = fixture({ ...pins, '@rig-c/parts': '2.23.4' });
+  const { dir, bytes } = fixture({ ...pins, '@rig-c/parts': '2.23.4', '@rig-c/review': '4.7.0' });
   const manifest = readFileSync(join(dir, 'package.json'), 'utf8');
   rmSync(join(dir, 'bun.lock'));
   const install = Bun.spawnSync([process.execPath, 'install', '--ignore-scripts'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
@@ -66,11 +66,11 @@ test('an older synthetic project upgrades all release pins and preserves unrelat
   const result = packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
   expect(result).toContain('package_upgrades[0]');
   const nextManifest = readFileSync(join(dir, 'package.json'), 'utf8');
-  expect(nextManifest).toBe(manifest.replace('2.23.4', pins['@rig-c/parts']));
+  expect(nextManifest).toBe(manifest.replace('2.23.4', pins['@rig-c/parts']).replace('4.7.0', pins['@rig-c/review']));
   const record = readFileSync(join(dir, 'project.json'), 'utf8');
   const project = JSON.parse(record);
   expect(record.slice(0, bytes.lastIndexOf('}'))).toBe(bytes.slice(0, bytes.lastIndexOf('}')));
-  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.7.0', to: '4.7.0' }] });
+  expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.7.0', to: pins['@rig-c/review'] }] });
   expect(packageUpgradeFindings(project)).toEqual([]);
   expect(existsSync(join(dir, 'node_modules/sentinel'))).toBe(false);
 }, 30000);

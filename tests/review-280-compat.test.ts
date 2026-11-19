@@ -6,8 +6,13 @@ import {
   JOB_ACT_SCHEMA,
   JOB_API_SCHEMA,
   JOB_API_V3_SCHEMA,
+  JOB_COMMENT_CONTEXT_ACT_SCHEMA,
+  JOB_MESH_EDITS_ACT_SCHEMA,
+  JOB_PREVIOUS_DRAFT_SCHEMA,
   JOB_RECORD_ACT_SCHEMA,
   JOB_RECORD_READER_ID,
+  parseContextCommentsAct,
+  parseMeshEditsAct,
   parseRecordAct,
   prepareJobRecordAct,
   prepareJobRecordSource,
@@ -60,13 +65,19 @@ function makeProject(): string {
   return root;
 }
 
-test('installed @rig-c/review is pinned at 4.7.0 while create keeps package-only job schemas', () => {
-  expect(reviewPackage.version).toBe('4.7.0');
+test('installed Review 4.8.0 exports the act and previous-draft contracts and retains package-only job schemas', () => {
+  expect(reviewPackage.version).toBe('4.8.0');
+  expect(reviewPackage.dependencies['@rig-c/play']).toBe('1.24.0');
   expect(JOB_API_SCHEMA).toBe('rig-review/job-api@2');
   expect(JOB_ACT_SCHEMA).toBe('rig-review/act@2');
   expect(JOB_API_V3_SCHEMA).toBe('rig-review/job-api@3');
   expect(JOB_RECORD_ACT_SCHEMA).toBe('rig-review/act@4');
   expect(JOB_RECORD_READER_ID).toBe(JOB_READER_ID);
+  expect(JOB_COMMENT_CONTEXT_ACT_SCHEMA).toBe('rig-review/act@7');
+  expect(JOB_MESH_EDITS_ACT_SCHEMA).toBe('rig-review/act@8');
+  expect(JOB_PREVIOUS_DRAFT_SCHEMA).toBe('rig-review-previous-draft/1');
+  expect(typeof parseContextCommentsAct).toBe('function');
+  expect(typeof parseMeshEditsAct).toBe('function');
   expect(typeof parseRecordAct).toBe('function');
   expect(typeof prepareJobRecordAct).toBe('function');
   expect(typeof prepareJobRecordSource).toBe('function');
@@ -85,7 +96,7 @@ test('installed @rig-c/review is pinned at 4.7.0 while create keeps package-only
   expect(identity.actSchema).toBe('rig-review/act@2');
 });
 
-test('openCreateJob starts Review 2.8.0 in package-only mode and refuses V3 record publish requests', async () => {
+test('openCreateJob defaults to package-only mode and refuses V3 record publish requests', async () => {
   const root = makeProject();
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
   hosts.push(host);

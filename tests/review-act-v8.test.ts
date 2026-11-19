@@ -6,9 +6,9 @@ const schema = 'rig-review/act@8';
 const jobId = 'synthetic-job';
 const actId = 'synthetic-verdict';
 const act = { schema, jobId, actId, kind: 'review-verdict' };
-const refusal = { code: 'REVIEW_ACT_V8_UNSUPPORTED' };
+const refusal = { code: 'REVIEW_ACT_INVALID' };
 
-test('act@8 has a dedicated refusal in raw and enveloped verdict decoding', () => {
+test('malformed act@8 refuses in raw and enveloped verdict decoding', () => {
   expect(() => decodeReviewAct(JSON.stringify(act))).toThrow(expect.objectContaining(refusal));
 
   const requestId = 'synthetic-request';
@@ -17,13 +17,13 @@ test('act@8 has a dedicated refusal in raw and enveloped verdict decoding', () =
 });
 
 test('other unsupported act schemas keep the generic refusal', () => {
-  for (const unsupported of ['rig-review/act@1', 'rig-review/act@7', 'rig-review/act@9']) {
+  for (const unsupported of ['rig-review/act@1', 'rig-review/act@9']) {
     expect(() => decodeReviewAct(JSON.stringify({ ...act, schema: unsupported })))
       .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SCHEMA_UNSUPPORTED' }));
   }
 });
 
-test('the synchronous verdict fetch surfaces the act@8 refusal through the runtime', async () => {
+test('the synchronous verdict fetch surfaces malformed act@8 through the runtime', async () => {
   const accepts: (string | null)[] = [];
   const mediaType = 'application/vnd.rig-review.act+json';
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {

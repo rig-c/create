@@ -42,6 +42,10 @@ export const JOB_BINDING_ID = 'rig-create/writer-binding/1';
 export const JOB_ENUMERATOR_ID = 'rig-create/parts-file-references/1';
 export const partsEnumerator = { version: partsPackage.version, enumerate: partsFileReferences };
 
+function reviewPackageIdentity(version: number, row: JsonObject) {
+  return { path: `derived/review/v${version}/${String(row.path)}`, sha256: row.sha256 };
+}
+
 /** The parts the check loads: its name and version, and that version's integrity from the lockfile beside its install. */
 export interface RecordPartsIdentity { readonly name: string; readonly version: string; readonly integrity: string }
 
@@ -179,6 +183,13 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       if (context.kind === 'inputs') list(context.files);
       if (isObject(context.parts)) list(context.parts.files);
       for (const binding of optionContextFiles(context)) seal(binding);
+      if (context.kind !== 'rig') return;
+      const rig = asArray(project.versions).filter(isObject).find(version => version.n === context.rig_version);
+      if (!rig || typeof rig.n !== 'number' || !isObject(rig.review_package)) return;
+      const version = rig.n;
+      const buildFiles = asArray(rig.review_package.files).filter(isObject)
+        .filter(row => typeof row.path === 'string' && row.path.startsWith('out/check/build/'));
+      list(buildFiles.map(row => reviewPackageIdentity(version, row)));
     };
     seal({ path: record.path, sha256: record.sha256 });
     if (project.collection_binding !== undefined) {
@@ -540,8 +551,8 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   if (!Array.isArray(packageRecord?.files)) refuse('JOB_PUBLICATION_INVALID', `versions[v${rig}].review_package: retained package identity is missing; restore the recorded package before reconciling`);
   const packageFiles = packageRecord.files;
   const files = packageFiles.map(raw => {
-    const identity = raw as JsonObject;
-    const path = `derived/review/v${rig}/${String(identity.path)}`;
+    const identity = reviewPackageIdentity(rig, raw as JsonObject);
+    const { path } = identity;
     if (jobHash(publicationFile(root, path)) !== identity.sha256) {
       refuse('JOB_PUBLICATION_INVALID', `versions[v${rig}].review_package: ${path} differs from its recorded hash; restore the retained bytes before reconciling`);
     }

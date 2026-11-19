@@ -9,6 +9,7 @@ import { currentJobIdentity, loadedPartsIdentity, partsEnumerator, readPublished
 import { OWN_NODE_MODULES, PARTS_PACKAGE } from '../src/parts-sections.ts';
 import { jobHash, jobPrivateRoot } from '../src/job-outbox.ts';
 import { signoffCommand } from '../src/signoff.ts';
+import { outputsHash } from '../src/signoff-target.ts';
 import { Refusal } from '../src/refusal.ts';
 import { stageIndex } from '../src/stages.ts';
 import { fixture, retainSignoffs, supersede, obj, arr } from './fixtures.ts';
@@ -202,7 +203,7 @@ test('external collection evidence refuses by code and preserves the entire synt
   expect(snapshot(container)).toEqual(before);
 });
 
-function approvalFixture(stage: string): string {
+function approvalFixture(stage: string, prepare?: (project: JsonObject) => void): string {
   return realpathSync(fixture(project => {
     project.stage = stage;
     retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex(stage));
@@ -219,6 +220,7 @@ function approvalFixture(stage: string): string {
     for (const step of arr(obj(project.plan).steps).map(obj)) {
       if (stage === 'post-interview' ? step.phase === 'post' : !['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
     }
+    prepare?.(project);
   }, 'example-project.json'));
 }
 
@@ -502,8 +504,8 @@ test.each([['no lockfile', {}], ['no parts entry', { 'bun.lock': { lockfileVersi
   });
 
 /** Build each pending set through the ordinary writer, on a synthetic current record. */
-function stageOptions(stage: string, questionId: string): RecordPublicationRequest {
-  const root = approvalFixture(stage);
+function stageOptions(stage: string, questionId: string, prepare?: (project: JsonObject) => void): RecordPublicationRequest {
+  const root = approvalFixture(stage, prepare);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
   const item = collectItems(project, { collection: null }).find(item => item.id === questionId)!;
   const binding = obj(obj(item.raw).choice).set as JsonObject;
@@ -516,6 +518,47 @@ function stageOptions(stage: string, questionId: string): RecordPublicationReque
   interviewOptionsCommand([questionId, root, '--file', path], TEST_NOW);
   return { ...request(root), result: { kind: 'option-set', questionId, setId: set.id } };
 }
+
+test.each([true, false])('legacy-shaped post option set with package=%s publishes in both phases', packaged => {
+  const input = stageOptions('post-interview', 'camera_depth', project => {
+    project.scenes = [];
+    if (packaged) return;
+    for (const signoff of arr(project.signoffs).map(obj).filter(row => row.stage === 'rig-review')) {
+      const target = obj(signoff.target);
+      const index = arr(project.versions).findIndex(row => obj(row).n === target.version);
+      const version = obj(arr(project.versions)[index]);
+      version.pre_interview = true;
+      delete version.review_package;
+      delete target.review_package;
+      target.outputs = { path: `versions[${index}].outputs`, sha256: outputsHash(arr(version.outputs)) };
+    }
+  });
+  const project = JSON.parse(readFileSync(join(input.root, 'project.json'), 'utf8'));
+  const set = JSON.parse(readFileSync(join(input.root, 'evidence/interview/pending-camera_depth.json'), 'utf8'));
+  expect(Object.keys(set.context).sort()).toEqual(['config', 'kind', 'parts', 'rig_version', 'signoff_at']);
+  const rig = project.versions.find((version: JsonObject) => version.n === set.context.rig_version);
+  const prefix = `derived/review/v${rig.n}/`;
+  const inventory = readRecordPublished(input, TEST_NOW);
+  const copy = retained(input);
+  const rows = inventory.files.filter(row => row.path.startsWith(prefix));
+  expect(readRecordPublished(copy, TEST_NOW)).toEqual(inventory);
+  if (!packaged) {
+    expect(rig.review_package).toBeUndefined();
+    expect(rows).toEqual([]);
+    return;
+  }
+  expect(rows.map(row => row.path.slice(prefix.length))).toEqual([
+    'out/check/build/run.json', 'out/check/build/skeleton.atlas', 'out/check/build/skeleton.json',
+    'out/check/build/skeleton.model.json', 'out/check/build/skeleton.png',
+  ]);
+  for (const row of rows) {
+    expect(row.sha256).toBe(rig.review_package.files.find((file: JsonObject) => prefix + file.path === row.path).sha256);
+  }
+  for (const phase of [input, copy]) {
+    writeFileSync(join(phase.root, rows[0]!.path), 'changed playback input');
+    rejectsUnchanged(phase, phase.phase === 'inventory' ? 'JOB_RECORD_INCOMPLETE' : 'JOB_PUBLICATION_INVALID');
+  }
+});
 
 // Preserve the reader's option/plan overloads while fixing its test clock.
 const clockedRecordReader = ((request: RecordPublicationRequest) => readRecordPublished(request, TEST_NOW)) as typeof readRecordPublished;

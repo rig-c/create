@@ -171,6 +171,9 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
+  if (act.schema === 'rig-review/act@8') {
+    refuse('REVIEW_ACT_V8_UNSUPPORTED', 'project.json.review_acts: rig-review/act@8 is disabled in this Create version; request an act in a supported schema from the live Review job');
+  }
   if (kind === 'reopen' && act.schema !== 'rig-review/act@4') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'reopen requires a record act@4');
   if (act.schema === 'rig-review/act@4' && act.kind === 'reopen' && kind !== 'reopen') {
     failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts require the reopen writer');

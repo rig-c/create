@@ -21,6 +21,7 @@ import {
   type Item,
 } from './check.ts';
 import { collectAmendments } from './amend.ts';
+import { pendingMeshDeltaRevision } from './corrections.ts';
 import {
   DIFF_MAP_AGENT_SINCE,
   DIFF_MAP_MAX_FLOOR_PX,
@@ -1103,9 +1104,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   }
   // The check owns bounce/withdrawal/answer logic; consume its open findings.
   const openFeedback = report.warnings.filter(w => w.code === 'FEEDBACK_OPEN');
-  if (openFeedback.length > 0) {
+  const pendingMesh = stage !== PAUSED_STAGE && (effectiveStage === 'rigging' || effectiveStage === 'rig-review')
+    ? pendingMeshDeltaRevision(project) : null;
+  if (openFeedback.length > 0 || pendingMesh !== null) {
     const versions = asArray(project.versions).filter(isObject);
     const n = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
+    const rigInputs = '--parts <dir> --rig <rig-dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
     const groups = new Map<string, { version: number; verdict: number }[]>();
     for (const finding of openFeedback) {
       const summary = report.feedback.find(f => f.verdict === finding.path);
@@ -1114,6 +1118,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       if (kind !== 'rig' && kind !== 'post') continue;
       groups.set(kind, [...(groups.get(kind) ?? []), { version: summary.version, verdict: summary.index }]);
     }
+
+    if (pendingMesh !== null) {
+      const field = `versions[n=${n}]`;
+      const args = rigInputs.replace(/<[^>]+>/g, arg => shellWord(arg === '<rig-dir>' ? pendingMesh.revision : arg));
+      const answers = (groups.get('rig') ?? []).map(ref => ` --answers ${ref.version}:${ref.verdict}`).join('');
+      addAwait(field);
+      moves.push({ role: 'agent', field: 'versions', awaits: field,
+        command: `rig-create rig-version ${n} ${shellWord(dir)} ${args}${answers}`,
+        act: `build and check from the recorded mesh revision ${pendingMesh.revision} of rig v${pendingMesh.sourceVersion}, then register it with rig-version ${n} and pass that build's run.json to --run-record` });
+      return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage, accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
+    }
+
     for (const [kind, refs] of groups) {
       if (kind === 'post') {
         // Match the direction writer's authoring gate, including earlier
@@ -1130,9 +1146,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const field = `versions[n=${n}]`;
       addAwait(field);
       const writer = kind === 'rig' ? `rig-version ${n}` : `direction write ${n}`;
-      const inputs = kind === 'rig'
-        ? '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>'
-        : '--file <direction.json> --rig <rig-version>';
+      const inputs = kind === 'rig' ? rigInputs.replace('<rig-dir>', '<dir>') : '--file <direction.json> --rig <rig-version>';
       moves.push({ role: 'agent', field: 'versions', awaits: field,
         command: `rig-create ${writer} ${shellWord(dir)} ${inputs.replace(/<[^>]+>/g, shellWord)} ${refs.map(r => `--answers ${r.version}:${r.verdict}`).join(' ')}`,
         act: `build the next ${kind} version with ${writer}, recording answers_feedback ${JSON.stringify(refs)}` });

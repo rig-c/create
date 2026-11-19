@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { cpSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -14,6 +15,7 @@ const load = createRequire(import.meta.url);
 const { publishPlate } = load('@rig-c/parts/src/plate.ts') as typeof import('../node_modules/@rig-c/parts/src/plate.ts');
 const { newRaster } = load('@rig-c/parts/src/raster/types.ts') as typeof import('../node_modules/@rig-c/parts/src/raster/types.ts');
 const { encodePngBytes } = load('@rig-c/parts/src/raster/png.ts') as typeof import('../node_modules/@rig-c/parts/src/raster/png.ts');
+const { MATTE_SPEC, MATTE_GRAPH_ID, MATTE_NODE, MATTE_MODEL, matteGraph, matteGraphHash, matteParams, publishMatte } = load('@rig-c/parts/src/matte.ts') as typeof import('../node_modules/@rig-c/parts/src/matte.ts');
 
 afterEach(() => testClock.reset());
 function producer() {
@@ -36,6 +38,125 @@ function producer() {
   };
   return { dir, args, project, findings };
 }
+
+const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+function matteProducer() {
+  const dir = tempDir();
+  const painting = newRaster(2, 2);
+  painting.data.fill(255);
+  const bytes = encodePngBytes(painting);
+  const modelMask = newRaster(2, 2);
+  modelMask.data.set([0, 0, 0, 255, 64, 64, 64, 255, 8, 8, 8, 255, 128, 128, 128, 255]);
+  const paintingPath = join(dir, 'painting.png');
+  const receiptPath = join(dir, 'matte/receipt.json');
+  const projectPath = join(dir, 'project.json');
+  const graph = matteGraph('synthetic.png', 'synthetic');
+  writeFileSync(paintingPath, bytes);
+  writeFileSync(projectPath, JSON.stringify({ schema: 'rig-create/project@0', derived: [] }));
+  const receipt = publishMatte(join(dir, 'matte'), paintingPath, bytes, encodePngBytes(modelMask), {
+    model: { node: MATTE_NODE, name: MATTE_MODEL, checkpoint_sha256: 'a'.repeat(64), checkpoint_sha256_from: 'declared' },
+    params: matteParams(64, 10),
+    graph: { id: MATTE_GRAPH_ID, api: graph, sha256: matteGraphHash(graph) },
+    gpu: 'synthetic', input_transform: null, input_sha256: sha256(bytes),
+  });
+  const args = ['add', dir, '--source', 'painting.png', '--file', 'matte/mask.png', '--receipt', 'matte/receipt.json', '--json'];
+  const project = () => JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
+  const findings = () => {
+    const ctx = { dir, project: project(), refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkPreparedInputs(ctx);
+    return ctx;
+  };
+  return { dir, args, receipt, receiptPath, projectPath, project, findings };
+}
+
+test('derived add binds the published matte receipt and its painting without operation', () => {
+  const f = matteProducer();
+  const result = cli(['derived', ...f.args], f.dir, gitEnv());
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    kind: 'prepared-input',
+    source: { path: 'painting.png', sha256: f.receipt.painting.sha256 },
+    path: 'matte/mask.png', sha256: f.receipt.output.sha256,
+    receipt: { path: 'matte/receipt.json', sha256: sha256(readFileSync(f.receiptPath)), spec: MATTE_SPEC },
+  });
+  expect(f.findings().refusals).toEqual([]);
+  expect(f.findings().warnings).toEqual([]);
+});
+
+test('plate receipt still requires operation', () => {
+  const f = producer();
+  f.args.splice(f.args.indexOf('--operation'), 2);
+  const path = join(f.dir, 'project.json');
+  const before = readFileSync(path);
+  expect(() => derivedCommand(f.args)).toThrow(expect.objectContaining({ code: 'DERIVED_USAGE' }));
+  expect(readFileSync(path)).toEqual(before);
+});
+
+test.each(['painting.png', 'matte/model-mask.png', 'matte/mask.png'])('matte writer and check refuse changed producer bytes at %s', path => {
+  const f = matteProducer();
+  derivedCommand(f.args);
+  const before = readFileSync(f.projectPath);
+  writeFileSync(join(f.dir, path), 'changed');
+  expect(f.findings().refusals.map(f => f.code)).toEqual(['MATTE_RECEIPT_INVALID']);
+  expect(() => derivedCommand(f.args)).toThrow(expect.objectContaining({ code: 'MATTE_RECEIPT_INVALID' }));
+  expect(readFileSync(f.projectPath)).toEqual(before);
+});
+
+test.each(['matte/model-mask.png', 'matte/mask.png'])('missing matte artifact %s is a refusal', path => {
+  const f = matteProducer();
+  derivedCommand(f.args);
+  rmSync(join(f.dir, path));
+  expect(f.findings().refusals.map(f => f.code)).toEqual(['MATTE_RECEIPT_INVALID']);
+  expect(f.findings().warnings).toEqual([]);
+});
+
+test.each(['receipt bytes', 'receipt spec'])('check refuses a mismatched matte binding by %s', mismatch => {
+  const f = matteProducer();
+  derivedCommand(f.args);
+  if (mismatch === 'receipt bytes') {
+    writeFileSync(f.receiptPath, readFileSync(f.receiptPath, 'utf8') + '\n');
+  } else {
+    const plate = producer();
+    const bytes = readFileSync(join(plate.dir, 'plate/receipt.json'));
+    writeFileSync(f.receiptPath, bytes);
+    const project = f.project();
+    ((project.derived as JsonObject[])[0]!.receipt as JsonObject).sha256 = sha256(bytes);
+    writeFileSync(f.projectPath, JSON.stringify(project));
+  }
+  expect(f.findings().refusals.map(f => f.code)).toEqual(['MATTE_RECEIPT_INVALID']);
+});
+
+test.each(['painting path', 'output path', 'extra source', 'raw path'])('matte writer refuses %s even with intact declared hashes', mismatch => {
+  const f = matteProducer();
+  const before = readFileSync(f.projectPath);
+  if (mismatch === 'painting path') {
+    cpSync(join(f.dir, 'painting.png'), join(f.dir, 'other.png'));
+    f.args[f.args.indexOf('--source') + 1] = 'other.png';
+  } else if (mismatch === 'output path') {
+    cpSync(join(f.dir, 'matte/mask.png'), join(f.dir, 'matte/other.png'));
+    f.args[f.args.indexOf('--file') + 1] = 'matte/other.png';
+  } else if (mismatch === 'extra source') {
+    f.args.push('--source', 'matte/model-mask.png');
+  } else {
+    cpSync(join(f.dir, 'matte/model-mask.png'), join(f.dir, 'matte/other.png'));
+    writeFileSync(f.receiptPath, JSON.stringify({ ...f.receipt, raw_output: { ...f.receipt.raw_output, path: 'other.png' } }));
+  }
+  expect(() => derivedCommand(f.args)).toThrow(expect.objectContaining({ code: 'MATTE_RECEIPT_INVALID' }));
+  expect(readFileSync(f.projectPath)).toEqual(before);
+});
+
+test('a matte receipt does not qualify a derived scene plate', () => {
+  const f = matteProducer();
+  derivedCommand(f.args);
+  const project = f.project();
+  const entry = (project.derived as JsonObject[])[0]!;
+  const bytes = Buffer.from(JSON.stringify({ plates: [{ path: entry.path, sha256: entry.sha256, registered: { kind: 'derived', ref: 'derived[0]' } }] }));
+  writeFileSync(join(f.dir, 'scene.json'), bytes);
+  project.scenes = [{ path: 'scene.json', sha256: sha256(bytes), at: PLATE_RECEIPT_SINCE }];
+  writeFileSync(f.projectPath, JSON.stringify(project));
+  expect(f.findings().refusals.map(f => f.code)).toEqual(['PLATE_RECEIPT_INVALID']);
+});
 
 test('installed producer receipt binds raw bytes and relative paths, and checks without a scene', () => {
   const f = producer();
@@ -79,7 +200,10 @@ test('check refuses an unknown recorded spec even without a scene', () => {
   const p = f.project();
   ((p.derived as JsonObject[])[0]!.receipt as JsonObject).spec = 'unknown/1';
   writeFileSync(join(f.dir, 'project.json'), JSON.stringify(p));
-  expect(f.findings().refusals.map(f => f.code)).toContain('PLATE_RECEIPT_INVALID');
+  expect(f.findings().refusals).toEqual([expect.objectContaining({
+    code: 'PLATE_RECEIPT_INVALID',
+    message: expect.stringContaining('rig-parts-plate-receipt/1 or rig-parts-matte-receipt/1'),
+  })]);
 });
 
 function derivedScene() {

@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { asArray, asString, isObject, type Ctx } from './check.ts';
 import { readObject } from './cg-gates.ts';
+import { hasMatteReceipt, MATTE_RECEIPT_SPEC, verifyMatteReceipt } from './plate-receipt.ts';
 import { checkReviewPackages, reviewConfigInputs } from './review-package.ts';
 import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -12,6 +13,8 @@ import type { JsonObject } from './templates.ts';
 export const FIGURE_MASK_SINCE = '2026-11-06T00:00:00Z';
 
 export const FIGURE_MASK_INPUTS_SINCE = '2026-11-06T00:00:00Z';
+
+export const FIGURE_MASK_MATTE_RECEIPT_SINCE = '2026-11-19T00:00:00Z';
 
 type MaskContext = Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>;
 
@@ -118,16 +121,37 @@ export function checkFigureMask(ctx: MaskContext): void {
       } catch { /* Handled by registration checks. */ }
     }
     const originalMask = resolve(dirname(original), maskRel);
-    const recorded = asArray(ctx.project.derived).some((entry) => {
-      if (!isObject(entry) || entry.kind !== 'prepared-input' || typeof entry.path !== 'string'
-        || resolve(ctx.dir, entry.path) !== originalMask || typeof entry.sha256 !== 'string' || entry.sha256.toLowerCase() !== mask.sha256
-        || typeof entry.operation !== 'string' || !entry.operation.trim()) return false;
+    const recorded = asArray(ctx.project.derived).filter(isObject).filter(entry =>
+      entry.kind === 'prepared-input' && typeof entry.path === 'string'
+      && resolve(ctx.dir, entry.path) === originalMask && typeof entry.sha256 === 'string' && entry.sha256.toLowerCase() === mask.sha256);
+    const remedy = `${relative(ctx.dir, originalMask)}: record this PNG and its painting with derived add --receipt using the producer's ${MATTE_RECEIPT_SPEC} receipt`;
+    let invalid: string | undefined;
+    for (const entry of recorded.filter(hasMatteReceipt)) {
+      try {
+        verifyMatteReceipt(ctx.dir, entry);
+        return;
+      } catch (error) { invalid ??= (error as Error).message; }
+    }
+    if (invalid !== undefined) {
+      ctx.refusals.push({ code: 'FIGURE_MASK_MATTE_RECEIPT_INVALID', path, message: `${path}: ${invalid}; ${remedy}` });
+      return;
+    }
+    if (at >= Date.parse(FIGURE_MASK_MATTE_RECEIPT_SINCE)) {
+      ctx.refusals.push({ code: 'FIGURE_MASK_MATTE_RECEIPT_MISSING', path, message: `${path}: ${remedy}` });
+      return;
+    }
+    const operation = recorded.some(entry => {
+      if (typeof entry.operation !== 'string' || !entry.operation.trim()) return false;
       const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
       return sources.length > 0 && sources.every((source) => isObject(source)
         && typeof source.path === 'string' && source.path.trim() !== ''
         && typeof source.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(source.sha256));
     });
-    if (!recorded) finding('FIGURE_MASK_UNRECORDED', `${relative(ctx.dir, originalMask)}: record this PNG and hash with derived add and at least one source; operation names the matte model, alpha >= 128 threshold and foreground plane subtracted (or none)`);
+    if (operation) {
+      ctx.warnings.push({ code: 'FIGURE_MASK_MATTE_RECEIPT_LEGACY', path, message: `${path}: retained figure mask has only operation provenance before ${FIGURE_MASK_MATTE_RECEIPT_SINCE} or has no readable date; ${remedy}` });
+    } else {
+      finding('FIGURE_MASK_UNRECORDED', `${relative(ctx.dir, originalMask)}: record this PNG and hash with derived add and at least one source; operation names the matte model, alpha >= 128 threshold and foreground plane subtracted (or none)`);
+    }
   });
 }
 

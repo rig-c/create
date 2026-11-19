@@ -914,7 +914,17 @@ function partsDraftEvidenceMoves(
       : existsSync(join(dir, 'inputs/painting.png'))
         ? 'inputs/painting.png'
         : undefined;
-  if (
+  const reusedDraftNeedsStack = isObject(latestDraft?.reuse) && partsRoot !== undefined &&
+    !diffStackCandidates(resolve(dir, partsRoot, 'parts.json')).some(file => existsSync(file));
+  if (reusedDraftNeedsStack && !currentDiff) {
+    moves.push({
+      role: 'agent',
+      field: `drafts[${draftId}].parts`,
+      awaits: `${partsRoot}/recomposite_rig.png`,
+      command: null,
+      act: 'restore the retained recomposite_rig.png for the reused parts before checking their diff map',
+    });
+  } else if (
     draftId !== undefined &&
     partsRoot !== undefined &&
     paintingPath !== undefined &&

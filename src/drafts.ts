@@ -10,6 +10,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { diffStackCandidates } from './diff-map.ts';
+import { checkDraftReuse, DRAFT_ID as idPattern, prepareDraftReuse, retainDraftReuseRecord } from './draft-reuse.ts';
 import { locateParts } from './parts-sections.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { RunRecordError, validateRunRecord } from './run-record.ts';
@@ -22,7 +23,6 @@ import type { Json, JsonObject } from './templates.ts';
 
 const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const hex = (v: Json | undefined): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
-const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const inside = (root: string, path: string): boolean => { const rel = relative(root, path); return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
 const pathOf = (dir: string, path: string): string => relative(realpathSync(dir), realpathSync(path)).split(sep).join('/');
 
@@ -170,28 +170,31 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     const stamp = stampBeside(String((rigs[0] as JsonObject).path));
     const stampBinding = asArray(raw.files).find(f => binding(f) && f.path === stamp) as JsonObject | undefined;
     const recorded = `${raw.producer.name}@${raw.producer.version}`;
+    let stampedProducer: JsonObject | undefined;
     if (stampBinding === undefined) {
-      warnings.push({ code: 'DRAFT_PRODUCER_ASSUMED', path: `${path}.producer`, message: `${path}.producer: no rig-run/1 run.json is bound at ${stamp}, so ${recorded} is the installed package assumed when the draft was recorded, not read from its run; rebuild the draft with parts rig, which writes run.json beside rig.json, and record it with draft-rig under a new id; the old record is kept` });
+      if (raw.reuse === undefined) warnings.push({ code: 'DRAFT_PRODUCER_ASSUMED', path: `${path}.producer`, message: `${path}.producer: no rig-run/1 run.json is bound at ${stamp}, so ${recorded} is the installed package assumed when the draft was recorded, not read from its run; record a new draft with draft-rig --reuse <reviewed-draft-id> [--reuse-record <previous-record-sha256>] for exact reviewed parts, or rebuild the draft with parts rig and record it under a new id; the old record is kept` });
     } else if (!unavailable.has(stamp)) {
       try {
         const bytes = readFileSync(fileAt(dir, stamp, root));
         if (sha(bytes) === stampBinding.sha256) {
-          const read = stampProducer(bytes, stamp);
-          if (read.name !== raw.producer.name || read.version !== raw.producer.version) {
-            warnings.push({ code: 'DRAFT_PRODUCER_MISMATCH', path: `${path}.producer`, message: `${path}.producer: records ${recorded} but its bound ${stamp} names ${String(read.name)}@${String(read.version)}; record the draft again with draft-rig under a new id; the old record is kept` });
+          stampedProducer = stampProducer(bytes, stamp);
+          if (raw.reuse === undefined && (stampedProducer.name !== raw.producer.name || stampedProducer.version !== raw.producer.version)) {
+            warnings.push({ code: 'DRAFT_PRODUCER_MISMATCH', path: `${path}.producer`, message: `${path}.producer: records ${recorded} but its bound ${stamp} names ${String(stampedProducer.name)}@${String(stampedProducer.version)}; record the draft again with draft-rig under a new id; the old record is kept` });
           }
         }
       } catch (error) {
-        if (error instanceof RunRecordError) warnings.push({ code: error.code, path: `${path}.producer`, message: `${path}.producer: ${error.path}: ${error.why}; the recorded producer was not read from it; rebuild the draft with parts rig and record it with draft-rig under a new id; the old record is kept` });
+        if (error instanceof RunRecordError) (raw.reuse === undefined ? warnings : refusals).push({ code: error.code, path: `${path}.producer`, message: `${path}.producer: ${error.path}: ${error.why}; restore its valid run.json or rebuild the draft with parts rig and record it under a new id` });
         // Unreadable, escaping or changed bytes are DRAFT_RIG_FILE above; the producer is not read from them.
       }
     }
     let editedInputs = new Set<string>();
     const manifestPath = `${String(parts.path)}/parts.json`;
     const manifestBinding = asArray(parts.files).find(f => binding(f) && f.path === manifestPath) as JsonObject;
+    let manifestBytes: Buffer | undefined;
     try {
       if (!draftFileUnavailable(dir, manifestPath, root)) {
         const bytes = readFileSync(fileAt(dir, manifestPath, root));
+        manifestBytes = bytes;
         // Changed producer bytes already refuse above; do not interpret their provenance.
         if (sha(bytes) === manifestBinding.sha256) {
           const manifest: Json = JSON.parse(bytes.toString('utf8'));
@@ -225,10 +228,12 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
       else if (error instanceof ConfigInputsUnavailable && unbound === 'unrecorded') unrecorded(error.message);
       else add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error));
     }
+    let actualParts: JsonObject[] | undefined;
     try {
       if (!draftFileUnavailable(dir, String(parts.path), root)) {
         const expected = new Map(asArray(parts.files).filter(binding).map(f => [String(f.path), f.sha256]));
         const { files, painting } = partsInventory(dir, String(parts.path), root);
+        actualParts = files;
         for (const actual of files) {
           if (painting !== null && actual.path === painting && !expected.has(painting)) {
             warnings.push({ code: 'DRAFT_DECLARED_FILE_UNBOUND', path: `${path}.parts.files`, message: `${path}.parts.files: parts.json declares ${painting} under painting_in_rig but the draft does not bind it; rebuild the draft and record it again with draft-rig` });
@@ -238,6 +243,10 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         }
       }
     } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
+    if (raw.reuse !== undefined) {
+      const finding = checkDraftReuse(dir, project, raw, index, actualParts, manifestBytes, stampedProducer);
+      if (finding !== undefined) refusals.push(finding);
+    }
     if (unavailable.size > 0) warnings.push({ code: 'DRAFT_RIG_UNAVAILABLE', path, message: `${path}: regenerable draft artifacts are unavailable (${[...unavailable].join(', ')}); restore the recorded bytes before inspecting or rebuilding this draft` });
   }
   checkUnrecordedPartRepaints(dir, project, refusals, warnings);
@@ -269,10 +278,12 @@ export function draftVersionFindings(dir: string, project: JsonObject): Finding[
 }
 
 export const DRAFT_RIG_HELP = `draft-rig:
-  <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--ledger-report <file>] [--known-regression <row id>=<reason file>]... [--json]
+  <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--reuse <draft id> [--reuse-record <sha256>]] [--ledger-report <file>] [--known-regression <row id>=<reason file>]... [--json]
   Record existing labelled draft artifacts under derived/drafts/<id>/; run no producer.
   Standalone rig output requires --parts; only an unambiguous build root supplies it implicitly.
   Config/output association is declared, not measured reproducibility or producer provenance.
+  --reuse binds a reviewed draft's exact parts inventory and inherits its recorded producer.
+  --reuse-record selects the prior project.json named by a restart sha256 and retains a snapshot under evidence/draft-reuse/.
   --ledger-report binds the project's own fix-ledger check report (rig-create/fix-ledger-report@1) by sha256;
   a row the previous draft passed that does not pass here is refused unless named by --known-regression.`;
 
@@ -290,7 +301,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       const row = split > 0 ? value!.slice(0, split) : '';
       if (!idPattern.test(row) || split === value!.length - 1 || known.some(([id]) => id === row)) refuse('DRAFT_RIG_USAGE', 'drafts: --known-regression needs <row id>=<reason file>, once per row; see draft-rig help', USAGE_EXIT);
       known.push([row, value!.slice(split + 1)]);
-    } else if (['--config', '--from', '--parts', '--ledger-report'].includes(arg)) {
+    } else if (['--config', '--from', '--parts', '--reuse', '--reuse-record', '--ledger-report'].includes(arg)) {
       const value = args[++i];
       if (!value || value.startsWith('--') || opts[arg] !== undefined) refuse('DRAFT_RIG_USAGE', `drafts: ${arg} requires one value; see draft-rig help`, USAGE_EXIT);
       opts[arg] = value;
@@ -299,6 +310,11 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
   }
   const id = positional[0];
   if (!id || !idPattern.test(id) || positional.length > 2 || !opts['--config'] || !opts['--from']) refuse('DRAFT_RIG_USAGE', DRAFT_RIG_HELP, USAGE_EXIT);
+  const reuseId = opts['--reuse'];
+  const reuseRecord = opts['--reuse-record'];
+  if ((reuseId !== undefined && !idPattern.test(reuseId)) || (reuseRecord !== undefined && reuseId === undefined)) {
+    refuse('DRAFT_RIG_USAGE', 'drafts: use --reuse <draft id> with optional --reuse-record <sha256>; see draft-rig help', USAGE_EXIT);
+  }
   if (known.length && !opts['--ledger-report']) refuse('DRAFT_RIG_USAGE', 'drafts: --known-regression names rows of a --ledger-report; supply the report', USAGE_EXIT);
   const reasons: [string, string][] = known.map(([row, file]) => {
     const reason = readVerbatim(file).trim();
@@ -316,6 +332,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     const before = structuredClone(project);
     const root = `derived/drafts/${id}`;
     let record: JsonObject;
+    let sourceSnapshot: Buffer | undefined;
     try {
       const from = opts['--from'];
       const output = inventory(dir, from, root);
@@ -328,8 +345,8 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       const partsFiles = partsInventory(dir, parts, root).files;
       const candidates = diffStackCandidates(resolve(dir, parts, 'parts.json'));
       const present = candidates.filter(file => existsSync(file));
-      if (present.length !== 1) refuse('DRAFT_RIG_STACK', `drafts[${id}].parts.path: ${parts}/parts.json has ${present.length === 0 ? 'no stack candidate' : 'ambiguous stack candidates'} (${candidates.map(file => relative(dir, file)).join(', ')}); re-run rig-parts build into the draft output, or keep assemble's render/ beside rig/`);
-      fileAt(dir, relative(dir, present[0]!).split(sep).join('/'), root);
+      if (present.length > 1 || (present.length === 0 && reuseId === undefined)) refuse('DRAFT_RIG_STACK', `drafts[${id}].parts.path: ${parts}/parts.json has ${present.length === 0 ? 'no stack candidate' : 'ambiguous stack candidates'} (${candidates.map(file => relative(dir, file)).join(', ')}); re-run rig-parts build into the draft output, or keep assemble's render/ beside rig/`);
+      if (present[0] !== undefined) fileAt(dir, relative(dir, present[0]).split(sep).join('/'), root);
       const rigPrefix = build ? `${from}/rig` : from;
       for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
       const configFile = fileAt(dir, opts['--config'], root);
@@ -340,21 +357,34 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       const pkgFile = join(installed, 'package.json');
       const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { name: string; version: string };
       const stamp = stampBeside(`${rigPrefix}/rig.json`);
-      let producer: JsonObject = { name: pkg.name, version: pkg.version };
-      if (output.some(f => f.path === stamp)) {
-        try { producer = stampProducer(readFileSync(fileAt(dir, stamp, root)), stamp); } catch (error) {
+      const partSet = { path: parts, files: partsFiles };
+      const reused = reuseId === undefined ? undefined : prepareDraftReuse(dir, project, { id, parts: partSet }, reuseId, reuseRecord,
+        partsFiles.some(file => file.path === `${parts}/parts.json`) ? readFileSync(fileAt(dir, `${parts}/parts.json`, root)) : undefined);
+      sourceSnapshot = reused?.snapshot;
+      let producer: JsonObject = reused?.producer ?? { name: pkg.name, version: pkg.version };
+      const hasStamp = output.some(f => f.path === stamp);
+      if (hasStamp) {
+        try {
+          const local = stampProducer(readFileSync(fileAt(dir, stamp, root)), stamp);
+          if (reused !== undefined && (local.name !== producer.name || local.version !== producer.version)) {
+            refuse('DRAFT_REUSE_PRODUCER', `drafts[${id}].reuse: ${stamp} names ${String(local.name)}@${String(local.version)}, which differs from the reviewed source producer ${String(producer.name)}@${String(producer.version)}; use matching artifacts or run rig-parts build and record a normal draft`);
+          }
+          producer = local;
+        } catch (error) {
           if (error instanceof RunRecordError) refuse(error.code, `drafts[${id}]: ${error.path}: ${error.why}; re-run parts rig into the draft output so it writes run.json with its outputs, then record the draft`);
           throw error;
         }
-        // A producer newer than the install may declare inputs the install cannot; recording without them would leave the key absent.
-        if (releaseAfter(String(producer.version), pkg.version)) {
-          const undeclared = inputsUndeclaredByInstall(dir, config);
-          if (undeclared.refs.length) refuse('DRAFT_PARTS_INSTALL_BEHIND', `drafts[${id}].config_inputs: the project's @rig-c/parts ${undeclared.version} cannot declare config-named inputs (${undeclared.refs.map(ref => `config.${ref.at}`).join(', ')}) that its producer @rig-c/parts ${String(producer.version)}, read from ${stamp}, declares; install @rig-c/parts ${String(producer.version)} in the project, then record the draft again`);
-        }
+      }
+      // A producer newer than the install may declare inputs the install cannot.
+      if (releaseAfter(String(producer.version), pkg.version)) {
+        const undeclared = inputsUndeclaredByInstall(dir, config);
+        const origin = hasStamp ? stamp : `reviewed draft ${reuseId}`;
+        if (undeclared.refs.length) refuse('DRAFT_PARTS_INSTALL_BEHIND', `drafts[${id}].config_inputs: the project's @rig-c/parts ${undeclared.version} cannot declare config-named inputs (${undeclared.refs.map(ref => `config.${ref.at}`).join(', ')}) that its producer @rig-c/parts ${String(producer.version)}, read from ${origin}, declares; install @rig-c/parts ${String(producer.version)} in the project, then record the draft again`);
       }
       // Named inputs bind wherever they sit inside the project; checkDrafts below reads them as check does.
       const configInputs = configInputBindings(dir, opts['--config']);
-      record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: { path: parts, files: partsFiles }, files: output, ...(configInputs.length ? { config_inputs: configInputs } : {}) };
+      record = { id, kind: 'draft-rig', at: new Date(now).toISOString(), producer, config: { path: pathOf(dir, configFile), sha256: sha(readFileSync(configFile)) }, parts: partSet, files: output,
+        ...(configInputs.length ? { config_inputs: configInputs } : {}), ...(reused === undefined ? {} : { reuse: reused.reuse }) };
     } catch (error) {
       if (error instanceof Refusal) throw error;
       refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`);
@@ -362,6 +392,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     if (project.drafts !== undefined && !Array.isArray(project.drafts)) refuse('DRAFT_RIG_MALFORMED', 'drafts: expected a list; restore the original record');
     project.drafts = [...asArray(project.drafts), record];
     if (opts['--ledger-report']) Object.assign(record, draftLedgerFields(dir, project, asArray(project.drafts).length - 1, opts['--ledger-report'], reasons, now));
+    if (sourceSnapshot !== undefined) retainDraftReuseRecord(dir, sourceSnapshot);
     const errors: Finding[] = [];
     checkDrafts(dir, project, errors);
     const ledger: Finding[] = [];

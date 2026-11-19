@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { checkDrafts, draftInputUnavailable, draftVersionFindings } from '../src/drafts.ts';
@@ -9,9 +9,11 @@ import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj } from './fixtures.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { checkProject, draftRigCommand, handoff } from './clock.ts';
+import { checkProject, draftRigCommand, handoff, testClock } from './clock.ts';
 import { retainedPartsFiles } from './draft-fixture.ts';
 import { locateParts } from '../src/parts-sections.ts';
+import { restartCommand } from '../src/restart.ts';
+import { gitEnv, run } from './helpers.ts';
 
 function write(dir: string, path: string, bytes = '{}'): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); }
 function draft(build = false): { dir: string; args: string[] } {
@@ -126,6 +128,82 @@ function runStamp(version: string, extra: Record<string, unknown> = {}): string 
 }
 function installedParts(dir: string): string { return (JSON.parse(readFileSync(join(locateParts(dir)!, 'package.json'), 'utf8')) as { version: string }).version; }
 const stampAt = (build: boolean): string => `derived/drafts/sample/out/${build ? 'rig/' : ''}run.json`;
+
+function reviewedOutputCopy(): { dir: string; root: string; source: JsonObject; args: string[] } {
+  const dir = fixture(project => { project.fix_ledger = []; }, 'example-project.json');
+  const source = obj(arr(read(dir).drafts).find(d => obj(d).id === 'example'));
+  const sourceRoot = 'derived/drafts/example';
+  const root = 'derived/drafts/reused';
+  cpSync(join(dir, sourceRoot), join(dir, root), { recursive: true });
+  for (const file of ['input/recomposite_rig.png', 'render', 'out/run.json']) {
+    rmSync(join(dir, root, file), { recursive: true, force: true });
+  }
+  const args = ['reused', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`, '--json'];
+  return { dir, root, source, args };
+}
+
+function restartForDraftReuse(dir: string): string {
+  const env = gitEnv({ name: 'Synthetic Owner', email: 'owner@example.invalid' });
+  for (const args of [['init', '-q'], ['add', '--', 'project.json'], ['commit', '-qm', 'Reviewed record']]) {
+    expect(run(['git', ...args], dir, env)).toMatchObject({ code: 0 });
+  }
+  const digest = createHash('sha256').update(readFileSync(join(dir, 'project.json'))).digest('hex');
+  write(dir, 'restart-reason.txt', 'Start a fresh synthetic record.');
+  expect(restartCommand([dir, '--by', 'owner', '--reason-file', join(dir, 'restart-reason.txt')], testClock.now()).exit).toBe(0);
+  expect(read(dir).drafts).toBeUndefined();
+  return digest;
+}
+
+test('draft-rig reuses the exact reviewed parts and their producer after restart without a stack or a target run stamp', () => {
+  const { dir, root, source, args } = reviewedOutputCopy();
+  const digest = restartForDraftReuse(dir);
+  const baseline = checkProject(dir);
+  const result = draftRigCommand([...args, '--reuse', 'example', '--reuse-record', digest]);
+  expect(result.exit).toBe(0);
+  const record = JSON.parse(result.stdout) as JsonObject;
+  expect(record.producer).toEqual(source.producer!);
+  expect(arr(obj(record.parts).files)).toEqual(arr(obj(source.parts).files).map(ref => ({
+    ...obj(ref), path: String(obj(ref).path).replace('derived/drafts/example', root),
+  })));
+  expect(obj(record.reuse)).toMatchObject({
+    draft_id: 'example',
+    previous_record: { sha256: digest },
+    seethrough: [
+      { part: 'torso', from: 'full:topwear' },
+      { part: 'face', from: 'full:face' },
+      { part: 'eye_r', from: 'full:eyewhite-r' },
+      { part: 'eye_l', from: 'full:eyewhite-l' },
+    ],
+  });
+  expect(arr(record.files).map(file => obj(file).path)).not.toContain(`${root}/out/run.json`);
+  expect(read(dir).review_acts).toBeUndefined();
+  expect(checkProject(dir).refusals).toEqual(baseline.refusals);
+  const warnings: Finding[] = [];
+  checkDrafts(dir, read(dir), [], warnings);
+  expect(warnings.map(f => f.code)).not.toContain('DRAFT_PRODUCER_ASSUMED');
+  const tampered = read(dir);
+  obj(obj(arr(tampered.drafts)[0]).reuse).seethrough = [];
+  expect(checkProject(dir, tampered).refusals.map(f => f.code)).toContain('DRAFT_REUSE_MISMATCH');
+});
+
+test.each(['parts.json', 'parts/eye_l.png', 'parts/extra.png'])('draft-rig refuses reuse when %s differs and preserves the record bytes', name => {
+  const { dir, root, args } = reviewedOutputCopy();
+  const digest = restartForDraftReuse(dir);
+  write(dir, `${root}/input/${name}`, name === 'parts.json' ? '{}' : 'changed synthetic bytes');
+  const file = join(dir, 'project.json');
+  const before = readFileSync(file);
+  rejected(() => draftRigCommand([...args, '--reuse', 'example', '--reuse-record', digest]), 'DRAFT_REUSE_MISMATCH');
+  expect(readFileSync(file)).toEqual(before);
+});
+
+test('draft-rig refuses reuse without a parts verdict on the source draft', () => {
+  const { dir, args } = reviewedOutputCopy();
+  const digest = restartForDraftReuse(dir);
+  const file = join(dir, 'project.json');
+  const before = readFileSync(file);
+  rejected(() => draftRigCommand([...args, '--reuse', 'lantern', '--reuse-record', digest]), 'DRAFT_REUSE_SOURCE');
+  expect(readFileSync(file)).toEqual(before);
+});
 
 test.each([false, true])('the producer is read from the rig output run.json, not the installed package, build=%s', build => {
   const { dir, args } = draft(build);

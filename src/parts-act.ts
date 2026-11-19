@@ -81,7 +81,7 @@ export function partsActFindings(root: string, project: JsonObject): { code: str
   });
 }
 
-export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash: string, candidate?: JsonObject): string {
+export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash: string, candidate?: JsonObject, options: { requireApproval?: boolean } = {}): string {
   const act = decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
   const project = candidate ?? JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const receipt = partsActReceipt(project, act);
@@ -91,6 +91,6 @@ export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash:
   // Later plan approvals can fill checkpoints without changing the reviewed draft.
   assertPartsActSource(root, project, act, { comparePlan: false });
   if (partsActDraftHash(project, act) !== receipt.version_hash) fail('recorded draft entry changed');
-  if (act.value.verdict !== 'approved') refuse('PARTS_VERDICT_NOT_APPROVED', 'signoffs.parts-review.evidence: semantic verdict is not approved; review the corrected draft and record a separate approval');
+  if (options.requireApproval !== false && act.value.verdict !== 'approved') refuse('PARTS_VERDICT_NOT_APPROVED', 'signoffs.parts-review.evidence: semantic verdict is not approved; review the corrected draft and record a separate approval');
   return join(root, act.source.parts.manifest.path);
 }

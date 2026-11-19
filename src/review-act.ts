@@ -31,8 +31,11 @@ export type PartsIssue = {
   readonly crop: JsonObject | JobCommentPartsAnchor['crop'];
   readonly nativeCrop: JsonObject | JobCommentPartsAnchor['nativeCrop'] | null;
 };
-/** Review's JobAct now includes comments; legacy adapters keep their original source guarantees. */
-type LegacyJobAct = Exclude<JobAct, { schema: typeof JOB_COMMENTS_ACT_SCHEMA }>;
+/**
+ * Review's JobAct now includes comments; legacy adapters keep their original source guarantees.
+ * act@8 (mesh edits) is refused at decode (`REVIEW_ACT_V8_UNSUPPORTED`) and read only by mesh-edit.ts.
+ */
+type LegacyJobAct = Exclude<JobAct, { schema: typeof JOB_COMMENTS_ACT_SCHEMA | 'rig-review/act@8' }>;
 export type ReopenAct = Extract<RecordAct, { kind: 'reopen' }>;
 export type ReviewActKind = 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' | 'reopen';
 export type DecodedReviewAct = ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct | ReopenAct;

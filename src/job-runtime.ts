@@ -19,7 +19,7 @@ export function publicationFailure(error: unknown, root: string): Refusal | unde
 }
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; selector?: JobSelector; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: string; json?: boolean };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; selector?: JobSelector; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: Record<string, string>; json?: boolean };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'check-ask': {

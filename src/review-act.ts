@@ -1,3 +1,4 @@
+import { OWNER_CHAT_SOURCE, ownerChatFinding } from './owner-chat.ts';
 import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 /** Finalized semantic acts. This reader never opens Review's private state. */
 import { randomUUID } from 'node:crypto';
@@ -13,7 +14,7 @@ import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWrite
 import { composedPublishedBuildFiles, liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { INTAKE_QUESTION, intakeItem } from './intake.ts';
-import { collectItems, asArray, isObject } from './check.ts';
+import { collectItems, asArray, isObject, type Finding } from './check.ts';
 import { stepHash } from './step-hash.ts';
 import { recordDirectionTarget } from './record-direction-target.ts';
 import { outputsHash, reviewPackageHash } from './signoff-target.ts';
@@ -87,6 +88,9 @@ export function partsActIssues(act: PartsVerdictAct): readonly PartsIssue[] | nu
   return act.schema === 'rig-review/act@5' ? act.value.issues : null;
 }
 const object = (value: unknown): value is JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value);
+export function isDiscardReceipt(value: unknown): value is JsonObject & { kind: 'discarded' } {
+  return object(value) && value.schema === 'rig-create/review-act@1' && value.kind === 'discarded';
+}
 const sha = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const id = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 const file = (value: unknown): value is JsonObject => object(value) && typeof value.path === 'string' && sha(value.sha256);
@@ -349,9 +353,11 @@ export function fetchReviewActBytes(transport: ReviewActTransport): string {
 
 /** Only the route and fetch grant leave the binding reader. Never attach a host. */
 export function reviewActTransport(root: string, actId: string): ReviewActTransport {
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const discarded = asArray(project.review_acts).findIndex(entry => isDiscardReceipt(entry) && entry.actId === actId);
+  if (discarded !== -1) refuse('REVIEW_ACT_DISCARDED', `project.json.review_acts[${discarded}]: Review act ${actId} was discarded; open a new job and obtain a fresh act`);
   const binding = readWriterBinding(root);
   if (!binding) failure('JOB_BINDING_INVALID', 'writer binding is absent, open the live job first');
-  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   if (binding.identity.root !== realpathSync(root) || !object(project.review_job)
     || project.review_job.jobId !== binding.jobId || project.review_job.origin !== binding.origin) failure('JOB_BINDING_INVALID', 'writer binding and project job locator disagree');
   let origin: URL;
@@ -564,10 +570,34 @@ export function signoffActIdentity(act: SignoffAct): JsonObject {
   return { stage: act.value.stage, checkpoint: null, at: act.at };
 }
 
+export const DISCARD_ACT_ACTOR_SINCE = '2026-11-19T00:00:00Z';
+
+function validateDiscardReceipt(entry: JsonObject, path: string, warnings?: Finding[]): void {
+  const { schema: _schema, kind: _kind, jobId, actId, at, reason, by, ...chat } = entry;
+  if (!id(jobId) || !id(actId) || typeof at !== 'string'
+    || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(at) || !Number.isFinite(Date.parse(at))
+    || (reason !== undefined && (typeof reason !== 'string' || !reason.trim()))
+    || Object.keys(chat).some(key => !['source', 'owner_words', 'said_at', 'relayed_by'].includes(key))) {
+    failure('REVIEW_ACT_LEDGER_INVALID', 'discarded act receipt has invalid identity, time, reason or fields');
+  }
+
+  // actId identifies the act being discarded. The relay itself has no Review act.
+  const invalidChat = ownerChatFinding({ by, at, ...chat }, `project.json.${path}`);
+  if (invalidChat) refuse(invalidChat.code, invalidChat.message);
+  if (chat.source === OWNER_CHAT_SOURCE) return;
+  if (Object.keys(chat).length || reason === undefined) failure('REVIEW_ACT_LEDGER_INVALID', 'discarded act receipt requires a reason or relayed owner words');
+  if (by === 'agent') return;
+  if (by === undefined && Date.parse(at) < Date.parse(DISCARD_ACT_ACTOR_SINCE)) {
+    warnings?.push({ code: 'REVIEW_ACT_DISCARD_ACTOR_LEGACY', path, message: `project.json.${path}: this discard predates actor attribution; preserve the receipt and use --by for future discards` });
+    return;
+  }
+  failure('REVIEW_ACT_LEDGER_INVALID', 'discarded act receipt requires by: agent with a reason, or the owner and their relayed words');
+}
+
 /** Ledger validation deliberately checks retained evidence, not current sources. */
-export function reviewActFindings(project: JsonObject): { code: string; path: string; message: string }[] {
+export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Finding[] {
   if (project.review_acts === undefined) return [];
-  const findings: { code: string; path: string; message: string }[] = [];
+  const findings: Finding[] = [];
   const seen = new Set<string>();
   const targets = new Set<string>();
   const add = (code: string, path: string, detail: string): void => { findings.push({ code, path, message: `${path}: ${detail}; restore the original act receipt and its recorded verdict` }); };
@@ -576,13 +606,8 @@ export function reviewActFindings(project: JsonObject): { code: string; path: st
     const path = `review_acts[${index}]`;
     if (object(entry) && entry.schema === PARTS_CLI_RECEIPT) return;
     try {
-      if (object(entry) && entry.schema === 'rig-create/review-act@1' && entry.kind === 'discarded') {
-        if (Object.keys(entry).sort().join(',') !== 'actId,at,jobId,kind,reason,schema'
-          || !id(entry.jobId) || !id(entry.actId)
-          || typeof entry.at !== 'string' || !/^\d{4}-\d\d-\d\dT.*(?:Z|[+-]\d\d:\d\d)$/.test(entry.at) || !Number.isFinite(Date.parse(entry.at))
-          || typeof entry.reason !== 'string' || !entry.reason.trim()) {
-          failure('REVIEW_ACT_LEDGER_INVALID', 'discarded act receipt requires schema, kind, jobId, actId, ISO at and non-empty reason');
-        }
+      if (isDiscardReceipt(entry)) {
+        validateDiscardReceipt(entry, path, warnings);
         const key = JSON.stringify([entry.jobId, entry.actId]);
         if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
         seen.add(key);

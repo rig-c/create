@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { collectItems } from '../src/check.ts';
+import { checkProject, collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { fixture, retainSignoffs, arr, obj } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
@@ -17,7 +17,7 @@ import { currentJobIdentity } from '../src/job-publication.ts';
 import type { ActV3, JobOwnerHost, JobHostOptions } from '@rig-c/review/job-host';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
-import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
+import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
@@ -626,7 +626,7 @@ test('#502 direction verdict then record signoff execute next host, exported-act
 }, 30_000);
 
 test('#556 job close refuses un-ingested acts byte-identically, closes after ingest, and records discarded acts with a reason', async () => {
-  testClock.set(Date.now());
+  testClock.set(EXAMPLE_NOW);
   const root = copy('0b-plan-pending');
 
   // 1. A job with no acts closes as before and leaves project.json byte-identical.
@@ -673,7 +673,8 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   const discardBeforeBinding = readFileSync(discardBindingPath);
   const discardBeforeProject = readFileSync(join(discardRoot, 'project.json'));
 
-  const missingReason = await cli(discardRoot, ['job', 'close', discardRoot, '--discard-acts']);
+  const discardCommand = ['job', 'close', discardRoot, '--discard-acts'];
+  const missingReason = await cli(discardRoot, [...discardCommand, '--by', 'agent']);
   expect(missingReason.exit).toBe(2);
   expect(missingReason.stderr).toContain('JOB_BINDING_INVALID:');
   expect(readFileSync(discardBindingPath)).toEqual(discardBeforeBinding);
@@ -682,19 +683,35 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
   // If the validator refuses review_acts, close refuses before writing project.json or tearing down the binding.
   const duplicateSeed = read(discardRoot);
   duplicateSeed.review_acts = [
-    { schema: 'rig-create/review-act@1', kind: 'discarded', jobId: droppedAct.jobId, actId: 'dup-act', at: testClock.iso(), reason: 'first' },
-    { schema: 'rig-create/review-act@1', kind: 'discarded', jobId: droppedAct.jobId, actId: 'dup-act', at: testClock.iso(), reason: 'second' },
+    { schema: 'rig-create/review-act@1', kind: 'discarded', jobId: droppedAct.jobId, actId: 'dup-act', at: '2026-11-18T23:59:59Z', reason: 'first' },
+    { schema: 'rig-create/review-act@1', kind: 'discarded', jobId: droppedAct.jobId, actId: 'dup-act', at: '2026-11-18T23:59:59Z', reason: 'second' },
   ];
+  const legacy = { ...duplicateSeed, review_acts: arr(duplicateSeed.review_acts).slice(0, 1) };
+  const legacyResult = checkProject(discardRoot, legacy, { now: testClock.now(), readOnly: true });
+  expect(legacyResult.warnings.map(f => f.code)).toContain('REVIEW_ACT_DISCARD_ACTOR_LEGACY');
+  expect(legacyResult.refusals.map(f => f.code)).not.toContain('REVIEW_ACT_LEDGER_INVALID');
+  obj(arr(legacy.review_acts)[0]).at = '2026-11-19T00:00:00Z';
+  expect(checkProject(discardRoot, legacy, { now: testClock.now(), readOnly: true }).refusals.map(f => f.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+  obj(arr(legacy.review_acts)[0]).at = '2026-11-18T23:59:59Z';
   write(discardRoot, duplicateSeed);
   const invalidBeforeProject = readFileSync(join(discardRoot, 'project.json'));
-  const refusedValidatorClose = await cli(discardRoot, ['job', 'close', discardRoot, '--discard-acts', 'Superseded by updated plan']);
+  const refusedValidatorClose = await cli(discardRoot, [...discardCommand, 'Superseded by updated plan', '--by', 'agent']);
   expect(refusedValidatorClose.exit).toBe(1);
   expect(refusedValidatorClose.stderr).toStartWith('REVIEW_ACT_REPLAY_CONFLICT: ');
   expect(readFileSync(discardBindingPath)).toEqual(discardBeforeBinding);
   expect(readFileSync(join(discardRoot, 'project.json'))).toEqual(invalidBeforeProject);
   writeFileSync(join(discardRoot, 'project.json'), discardBeforeProject);
 
-  const discardedClose = await cli(discardRoot, ['job', 'close', discardRoot, '--discard-acts', 'Superseded by updated plan']);
+  const wordsFile = join(discardRoot, 'discard-words.txt');
+  writeFileSync(wordsFile, WORDS);
+  const saidAt = new Date(testClock.now() - 1000).toISOString();
+  const relay = ['--owner-chat', wordsFile, '--said-at', saidAt, '--relayed-by', 'synthetic-operator'];
+  const invalidRelay = await cli(discardRoot, [...discardCommand, '--by', 'agent', ...relay]);
+  expect(invalidRelay.exit).toBe(1);
+  expect(invalidRelay.stderr).toStartWith('OWNER_CHAT_INVALID: ');
+  expect(readFileSync(discardBindingPath)).toEqual(discardBeforeBinding);
+  expect(readFileSync(join(discardRoot, 'project.json'))).toEqual(discardBeforeProject);
+  const discardedClose = await cli(discardRoot, [...discardCommand, '--by', 'synthetic-owner', ...relay]);
   expectExit0(discardedClose);
   expect(discardedClose.stdout.trim()).toBe('job: closed');
   await secondOpen.proc.exited;
@@ -707,10 +724,34 @@ test('#556 job close refuses un-ingested acts byte-identically, closes after ing
     jobId: droppedAct.jobId,
     actId: droppedAct.actId,
     at: expect.any(String),
-    reason: 'Superseded by updated plan',
+    by: 'synthetic-owner',
+    owner_words: WORDS,
+    said_at: saidAt,
+    relayed_by: 'synthetic-operator',
+    source: 'owner chat, relayed',
   });
   expect(pendingJobActs(recorded, [droppedAct as unknown as ActV3], discardRoot)).toEqual([]);
-  expect(nextProject(discardRoot, testClock.now()).refusals.filter(r => r.code === 'REVIEW_ACT_LEDGER_INVALID')).toEqual([]);
+  const reask = nextProject(discardRoot, testClock.now());
+  expect(reask.refusals.filter(r => r.code === 'REVIEW_ACT_LEDGER_INVALID')).toEqual([]);
+  expect(reask.moves).toContainEqual(expect.objectContaining({ role: 'agent', command: expect.stringContaining('job open') }));
+  expect(reask.moves).toContainEqual(expect.objectContaining({ role: 'human', review_act: expect.objectContaining({ kind: 'signoff', stage: 'plan-approved' }) }));
+
+  const thirdOpen = await open(discardRoot, ['--plan']);
+  const thirdView = await page(discardRoot, thirdOpen.url, 1, 'signoff');
+  const freshAct = await thirdView.act('signoff', 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
+  expect(freshAct.jobId).not.toBe(droppedAct.jobId);
+  const beforeReplay = readFileSync(join(discardRoot, 'project.json'));
+  const beforeReplayBinding = readFileSync(discardBindingPath);
+  const replay = await cli(discardRoot, ['signoff', 'plan-approved', discardRoot, '--from-review', String(droppedAct.actId)]);
+  expect(replay.exit).toBe(1);
+  expect(replay.stderr).toStartWith('rig-create: REVIEW_ACT_DISCARDED: ');
+  expect(readFileSync(join(discardRoot, 'project.json'))).toEqual(beforeReplay);
+  expect(readFileSync(discardBindingPath)).toEqual(beforeReplayBinding);
+  expectExit0(await cli(discardRoot, [...discardCommand, 'Synthetic agent reason', '--by', 'agent']));
+  expect(arr(read(discardRoot).review_acts)).toContainEqual(expect.objectContaining({
+    jobId: freshAct.jobId, actId: freshAct.actId, by: 'agent', reason: 'Synthetic agent reason',
+  }));
+  await thirdOpen.proc.exited;
 }, 30_000);
 
 test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds an un-ingested ask for a different target, allows same-target republish, and passes once answered and ingested', async () => {

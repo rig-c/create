@@ -1,3 +1,4 @@
+import { readOwnerChat } from './owner-chat.ts';
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -226,11 +227,18 @@ export async function closeCreateJob(
   root: string,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
   retireRefused = false,
-  discardActs?: string,
+  discardActs?: Record<string, string>,
   now = Date.now(),
 ): Promise<void> {
-  if (discardActs !== undefined && !discardActs.trim()) {
-    refuse('JOB_BINDING_INVALID', 'project.json: job close --discard-acts requires a non-empty reason', USAGE_EXIT);
+  let discardEvidence: JsonObject | undefined;
+  if (discardActs) {
+    const by = discardActs['--by']?.trim() ?? '';
+    const reason = discardActs['--discard-acts']?.trim();
+    const chat = readOwnerChat(discardActs, by, now, 'project.json.review_acts');
+    if (!chat && (by !== 'agent' || !reason)) {
+      refuse('JOB_BINDING_INVALID', 'project.json.review_acts: use --discard-acts <reason> --by agent or relay the owner’s words with --by <owner> --owner-chat --said-at --relayed-by', USAGE_EXIT);
+    }
+    discardEvidence = { by, at: new Date(now).toISOString(), ...chat, ...(reason ? { reason } : {}) };
   }
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
@@ -258,12 +266,10 @@ export async function closeCreateJob(
       const acts = pendingJobActs(project, await readHostActs(host), root);
       let next: JsonObject | undefined;
       if (acts.length > 0) {
-        if (discardActs === undefined) {
+        if (!discardEvidence) {
           const listed = acts.map(act => `${act.actId} (${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`})`).join('; ');
-          refuse('JOB_ACTS_PENDING', `project.json.review_acts: un-ingested finalized review act(s) ${listed}; ingest each act before closing, or run rig-create job close --discard-acts <reason> to record and discard them`);
+          refuse('JOB_ACTS_PENDING', `project.json.review_acts: un-ingested finalized review act(s) ${listed}; ingest each act before closing, or run rig-create job close --discard-acts <reason> --by agent to record and discard them`);
         }
-        const reason = discardActs.trim();
-        const at = new Date(now).toISOString();
         next = {
           ...project,
           review_acts: [
@@ -273,8 +279,7 @@ export async function closeCreateJob(
               kind: 'discarded',
               jobId: binding.jobId,
               actId: act.actId,
-              at,
-              reason,
+              ...discardEvidence,
             })),
           ],
         };

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, symlinkSync, cpSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
-import { STRUCTURE_SCHEMA, latestPartsApproval, acceptsStructureDelta, structureDelta } from '../src/structure.ts';
+import { STRUCTURE_SCHEMA, latestPartsApproval, previousPartsApproval, acceptsStructureDelta, structureDelta } from '../src/structure.ts';
 import { Refusal } from '../src/refusal.ts';
 import { arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './fixtures.ts';
 import { partsPackage, writeReviewedInput } from './parts-package.ts';
@@ -199,6 +199,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) write(dir, `${root}/out/${file}`, '{}');
   draftRigCommand(['revised', dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
   p = read(dir); const draft = obj(arr(p.drafts).at(-1));
+  expect(previousPartsApproval(dir, p, 'revised')?.draft_id).toBe('shape');
   write(dir, 'evidence/revised-structure.json', JSON.stringify({ schema: STRUCTURE_SCHEMA, draft_id: 'revised', config: draft.config, entries: [{ path: '/meshes/torso', value: { density: 20 } }] }));
   testClock.set(new Date('2026-11-25T00:00:00Z'));
   advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]);
@@ -215,6 +216,27 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   obj(arr(p.versions)[1]).provenance = production(2, 10, '2026-11-28T00:00:00Z').provenance as JsonObject; save(dir, p);
   const conflicts = checkProject(dir).refusals.filter(f => f.code === 'STRUCTURE_DELTA_MISMATCH');
   expect(conflicts.map(f => f.path)).toEqual(['versions[v2].provenance.structure_delta']);
+});
+
+test('previous parts approval selects the latest eligible signature and honors later changes requested', () => {
+  const dir = setup();
+  const project = read(dir);
+  const receipt = obj(arr(project.review_acts).find(entry => obj(entry).draft_id === 'shape'));
+  const first = { stage: 'parts-review', checkpoint: null, by: 'owner', at: '2026-11-20T00:00:00Z',
+    verbatim: 'Approve this synthetic draft.', draft_id: 'shape', evidence: obj(receipt.evidence) };
+  const repeated = { ...first, at: '2026-11-20T01:00:00Z', verbatim: 'Approve the same draft again.' };
+  const checkpoint = { ...first, at: '2026-11-20T02:00:00Z', checkpoint: 'assemble' };
+  const missingCheckpoint: JsonObject = { ...first, at: '2026-11-20T03:00:00Z' };
+  delete missingCheckpoint.checkpoint;
+  const missingEvidence: JsonObject = { ...first, at: '2026-11-20T04:00:00Z' };
+  delete missingEvidence.evidence;
+  const wrongEvidence = { ...first, at: '2026-11-20T05:00:00Z', evidence: { ...obj(first.evidence), sha256: '0'.repeat(64) } };
+  const history = [...arr(project.signoffs), first, repeated, checkpoint, missingCheckpoint, missingEvidence, wrongEvidence];
+  expect(previousPartsApproval(dir, { ...project, signoffs: history }, 'next')).toEqual(repeated);
+  expect(previousPartsApproval(dir, { ...project, signoffs: history }, 'shape')).toBeUndefined();
+
+  recordPartsReceipt(dir, 'shape', Date.parse('2026-11-20T06:00:00Z'), 'changes-requested');
+  expect(previousPartsApproval(dir, { ...read(dir), signoffs: history }, 'next')).toBeUndefined();
 });
 
 

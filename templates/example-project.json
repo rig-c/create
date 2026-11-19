@@ -3130,6 +3130,10 @@
         {
           "path": "derived/drafts/example/out/run.json",
           "sha256": "385f2505b5704b0001e5d15dcd3ffa237c12ecc8cd2b077c86d2dacb8025727e"
+        },
+        {
+          "path": "derived/drafts/example/input/recomposite_rig.png",
+          "sha256": "230d10b95ab2d21afd7fcdffda0491bbb011b8a0c096f4b1363f1b08ba996036"
         }
       ],
       "config_inputs": [
@@ -3248,6 +3252,10 @@
         {
           "path": "derived/drafts/lantern/out/run.json",
           "sha256": "385f2505b5704b0001e5d15dcd3ffa237c12ecc8cd2b077c86d2dacb8025727e"
+        },
+        {
+          "path": "derived/drafts/lantern/input/recomposite_rig.png",
+          "sha256": "230d10b95ab2d21afd7fcdffda0491bbb011b8a0c096f4b1363f1b08ba996036"
         }
       ],
       "config_inputs": [

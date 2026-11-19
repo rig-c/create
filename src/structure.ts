@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { IGNORED_DIRS } from './init.ts';
+import { latestPartsVerdictStatus, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { hasStageOrder, interviewStageOfGuide, stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -32,19 +33,25 @@ export function structurePathIsIgnored(dir: string, path: string): boolean {
     .some(rel => ignored.includes(rel.split(sep)[0] as string));
 }
 
-export function partsApprovalIdentity(review: JsonObject): JsonObject | undefined {
+export function partsApprovalIdentity(review: JsonObject): { signoff_at: string; evidence: JsonObject } | undefined {
   if (typeof review.at !== 'string' || !Number.isFinite(Date.parse(review.at)) || !isObject(review.evidence)) return undefined;
   return { signoff_at: review.at, evidence: review.evidence };
 }
 
+function partsApprovalCandidates(project: JsonObject) {
+  return collectSignoffs(project, [])
+    .filter(s => s.stage === 'parts-review' && s.checkpoint === null && Number.isFinite(s.at))
+    .sort((a, b) => b.at - a.at || b.index - a.index);
+}
+
 export function latestPartsApproval(project: JsonObject, at = Infinity, identity?: Json): JsonObject | undefined {
   const reopens = collectReopens(project, []).filter(r => r.at <= at);
-  const signoffs = collectSignoffs(project, []).filter(s => s.stage === 'parts-review' && s.checkpoint === null && s.at <= at && liveSignoff(reopens, s.stage, s.at));
+  const signoffs = partsApprovalCandidates(project).filter(s => s.at <= at && liveSignoff(reopens, s.stage, s.at));
   if (identity !== undefined) {
     const matches = signoffs.filter(s => isDeepStrictEqual(partsApprovalIdentity(s.record), identity));
     return matches.length === 1 ? matches[0]?.record : undefined;
   }
-  return signoffs.sort((a, b) => b.at - a.at || b.index - a.index)[0]?.record;
+  return signoffs[0]?.record;
 }
 
 /** An explicit identity must resolve at registration, even after a later reopen. */
@@ -52,6 +59,24 @@ export function rigPartsApproval(project: JsonObject, version: JsonObject, legac
   if (version.accepted_parts === undefined) return latestPartsApproval(project, legacyAt);
   const at = isObject(version.registration) ? Date.parse(String(version.registration.at)) : NaN;
   return latestPartsApproval(project, at, version.accepted_parts);
+}
+
+/** A reopen lapses the live approval but leaves its comparison subject in history. */
+export function previousPartsApproval(dir: string, project: JsonObject, currentDraftId: string): JsonObject | undefined {
+  for (const { record } of partsApprovalCandidates(project)) {
+    if (record.checkpoint !== null) continue;
+    const draftId = record.draft_id;
+    const identity = partsApprovalIdentity(record);
+    if (typeof draftId !== 'string' || draftId === currentDraftId || identity === undefined
+      || latestPartsVerdictStatus(project, draftId) !== 'approved') continue;
+    try {
+      recordedPartsVerdict(dir, project, draftId, identity.evidence, { requireAvailable: false });
+      return record;
+    } catch {
+      // This signature has no verifiable approved receipt.
+    }
+  }
+  return undefined;
 }
 
 export function checkStructure(dir: string, project: JsonObject, signoff: JsonObject, path: string, errors: Finding[]): JsonObject | null {

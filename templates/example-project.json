@@ -28,12 +28,12 @@
     {"stage":"rigging-interview","checkpoint":null,"by":"user","at":"2026-11-19T00:00:48.000Z","verbatim":"Approve the synthetic rigging-interview record.\n","steps":["bones","constraints"],"step_hashes":{"bones":"e4cd5236be66860438b5929ca21bf1eb5ef78b8c344408b61f5e3c0dfb957a83","constraints":"274d9330f3548fbb62b49755089488762a1c620f16b34e21c982dd7ef6dc1cc1"},"answer_hashes":{"bones":"5233e3f18ff019ca8535fdffab7f0efd73221e7cf72f7487a6adeb48d8ef2141","constraints":"75b93786f45edadd7cf5e7006c5efa6c241e641947c6f5e909a2e992551c8078"},"accepted_parts":{"signoff_at":"2026-11-19T00:00:37.000Z","evidence":{"kind":"parts-verdict","path":"evidence/review-reads/55ab08b6793b11cefafbc814c12909ad046d2d6b94fe0111abf6d1f47b95dd1d.json","sha256":"55ab08b6793b11cefafbc814c12909ad046d2d6b94fe0111abf6d1f47b95dd1d","spec":"rig-create/parts-verdict-cli@1"}},"structure":{"path":"evidence/structure-decisions.json","sha256":"48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"}},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-19T00:00:45.000Z","verbatim":"ok, the scarf looks right in the sketch"},
     {"stage":"rigging","checkpoint":"constraints","by":"user","at":"2026-11-19T00:00:49.000Z","verbatim":"better"},
-    {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-19T00:00:51.000Z","verbatim":"yes, that's her","target":{"version":2,"verdict":"versions[1].verdicts[0]","review_package":{"path":"versions[1].review_package","sha256":"2a2c7522ce0874c80a01e9cbf2517c3c677f8c96285d1974b9af0d354daf51ce"}}},
+    {"stage":"rig-review","checkpoint":null,"by":"user","at":"2026-11-19T00:00:51.000Z","verbatim":"yes, that's her","target":{"version":2,"verdict":"versions[1].verdicts[0]","review_package":{"path":"versions[1].review_package","sha256":"c54fa06e28c0342a4749e9a216a1d18a19f203657fd133cec96dcca37e2d4621"}}},
     {"stage":"post-interview","checkpoint":null,"by":"user","at":"2026-11-19T00:01:00.000Z","verbatim":"go","steps":["camera","timing","composition"],"step_hashes":{"camera":"fe8a4fdfe975d41d2cf5d968cbe3ac27f5bd6e77c0e6d0ed27a904f6441790f5","timing":"ee3e1183842ae10413287f11ab092904991f16a4966ae93ffb8d371ddbca2958","composition":"0f008ecd1fff8efaecb8e7ec6c8bb9f5572999a62e2e9b53900b593b67c34225"},"answer_hashes":{"camera_depth":"c648a15354e65a9c0f939fc2860234cbcc91918abd368f6e5582325765fe79fc","post_timing":"b5240858164bf84a39ff7c61a4e4a4f903df9a7eb050537ffd91d47a8bdd9318","motion":"02af751908bdc32bc91f27aaba307270c9f3187584812bff0b9c5dae194111ad","post_composition":"65cdd09affc19e3849c065070bd66fedac331dccd2dc081cbc004d32f7a425b0"}},
-    {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-19T00:01:04.000Z","verbatim":"done, I like it","target":{"version":4,"verdict":"versions[3].verdicts[0]","direction":{"path":"evidence/direction/v4.json","sha256":"b210f366bdca9555fb46a142857e5360f270b9a40c4aa71bccc948104ce742d4"}}}
+    {"stage":"direction-review","checkpoint":null,"by":"user","at":"2026-11-19T00:01:04.000Z","verbatim":"done, I like it","target":{"version":4,"verdict":"versions[3].verdicts[0]","direction":{"path":"evidence/direction/v4.json","sha256":"f95d201e676ddcd6b89c8c9052655ff40a2845da2be76d761797ae21320e24d2"}}}
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.44.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.45.0)",
     "held": true,
     "date": "2026-11-10",
     "interviewer": "agent",
@@ -2149,7 +2149,7 @@
       "at": "2026-11-19T00:00:46.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.44.0",
+        "@rig-c/parts": "2.45.0",
         "@rig-c/core": "3.8.0"
       },
       "answers_feedback": [],
@@ -2255,7 +2255,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "385f2505b5704b0001e5d15dcd3ffa237c12ecc8cd2b077c86d2dacb8025727e"
+            "sha256": "8c7234805a60789354663a50cceff2964353cbff04048e1f164b12a47ec67892"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -2479,7 +2479,7 @@
       "at": "2026-11-19T00:00:50.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.44.0",
+        "@rig-c/parts": "2.45.0",
         "@rig-c/core": "3.8.0"
       },
       "answers_feedback": [
@@ -2590,7 +2590,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "385f2505b5704b0001e5d15dcd3ffa237c12ecc8cd2b077c86d2dacb8025727e"
+            "sha256": "8c7234805a60789354663a50cceff2964353cbff04048e1f164b12a47ec67892"
           }
         ],
         "open": "rig-review open 'derived/review/v2/out'"
@@ -2831,7 +2831,7 @@
       "at": "2026-11-19T00:01:01.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.44.0",
+        "@rig-c/parts": "2.45.0",
         "@rig-c/core": "3.8.0"
       },
       "answers_feedback": [],
@@ -2934,7 +2934,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v4.json",
-          "sha256": "b210f366bdca9555fb46a142857e5360f270b9a40c4aa71bccc948104ce742d4"
+          "sha256": "f95d201e676ddcd6b89c8c9052655ff40a2845da2be76d761797ae21320e24d2"
         }
       ],
       "evidence": [
@@ -2965,11 +2965,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v4.json",
-          "sha256": "b210f366bdca9555fb46a142857e5360f270b9a40c4aa71bccc948104ce742d4"
+          "sha256": "f95d201e676ddcd6b89c8c9052655ff40a2845da2be76d761797ae21320e24d2"
         },
         "direction": {
           "path": "evidence/direction/v4.json",
-          "sha256": "b210f366bdca9555fb46a142857e5360f270b9a40c4aa71bccc948104ce742d4"
+          "sha256": "f95d201e676ddcd6b89c8c9052655ff40a2845da2be76d761797ae21320e24d2"
         },
         "sections": {
           "camera": [
@@ -3027,7 +3027,7 @@
       "at": "2026-11-19T00:00:35.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.44.0"
+        "version": "2.45.0"
       },
       "config": {
         "path": "derived/drafts/example/config.json",
@@ -3129,7 +3129,7 @@
         },
         {
           "path": "derived/drafts/example/out/run.json",
-          "sha256": "385f2505b5704b0001e5d15dcd3ffa237c12ecc8cd2b077c86d2dacb8025727e"
+          "sha256": "8c7234805a60789354663a50cceff2964353cbff04048e1f164b12a47ec67892"
         },
         {
           "path": "derived/drafts/example/input/recomposite_rig.png",
@@ -3149,7 +3149,7 @@
       "at": "2026-11-19T00:01:06.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.44.0"
+        "version": "2.45.0"
       },
       "config": {
         "path": "derived/drafts/lantern/config.json",
@@ -3251,7 +3251,7 @@
         },
         {
           "path": "derived/drafts/lantern/out/run.json",
-          "sha256": "385f2505b5704b0001e5d15dcd3ffa237c12ecc8cd2b077c86d2dacb8025727e"
+          "sha256": "8c7234805a60789354663a50cceff2964353cbff04048e1f164b12a47ec67892"
         },
         {
           "path": "derived/drafts/lantern/input/recomposite_rig.png",
@@ -4291,7 +4291,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "3c4bbe7f51392a8fcf5b4ea89aa066cddfa7aa3f7bc0820481c04c317a0990a2",
+      "sha256": "45afd7f7f1ad02503e8eb99821b0ab68d1a5d3586603cc922414c7f737454760",
       "at": "2026-11-19T00:01:00.000Z",
       "by": "agent"
     }

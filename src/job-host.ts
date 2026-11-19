@@ -225,7 +225,7 @@ export async function publishPending(
     // The person answers on the page, so every declared subject is asked here, with the
     // agent authority this process already holds in memory. An ask Review refuses never
     // makes the acknowledged publication pending again; the caller names it afterwards.
-    return await askDeclaredSubjects(host, result.value.publicationId, subjects);
+    return await askDeclaredSubjects(host, result.value.publicationId, subjects, isRecordResult(entry.result));
   } finally { host.stop(); }
 }
 
@@ -265,9 +265,10 @@ const ASK_BATCH_LIMIT = 64;
  * publication, pending or answered, is not asked again, so a re-open never shows a second
  * control. Asks stay limited to the declared list (`REVIEW_ACT_SUBJECT_UNDECLARED`).
  */
-export async function askDeclaredSubjects(host: JobOwnerHost, publicationId: string, subjects: readonly PublicationSubject[]): Promise<AskOutcome[]> {
+export async function askDeclaredSubjects(host: JobOwnerHost, publicationId: string, subjects: readonly PublicationSubject[], record: boolean): Promise<AskOutcome[]> {
   const { asked: before, askBatch } = await askedSubjects(host, publicationId);
-  if (!askBatch) {
+  // Review's ask-batch is record mode only; a package-retained head refuses it (review#963).
+  if (!askBatch || !record) {
     const outcomes: AskOutcome[] = [];
     for (const subject of subjects) {
       if (before.some(asked => isDeepStrictEqual(asked, subject))) { outcomes.push({ subject, status: 'already' }); continue; }
@@ -475,7 +476,7 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
     if (head && ack && isDeepStrictEqual(ack.result, result) && ack.versionHash === publication.recordHash
       && isDeepStrictEqual(ack.subjects, publication.subjects)) {
       reused = true;
-      outcomes = await askDeclaredSubjects(host, head.publicationId, publication.subjects);
+      outcomes = await askDeclaredSubjects(host, head.publicationId, publication.subjects, true);
     } else {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: open the writer-owned job before publishing');
@@ -532,7 +533,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     const result = acknowledged?.result ?? selectorResult(root, headSelector);
     const subjects = acknowledged?.subjects
       ?? (await readPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result: result as Parameters<typeof readPublished>[0]['result'] })).subjects;
-    outcomes = await askDeclaredSubjects(host, head.publicationId, subjects);
+    outcomes = await askDeclaredSubjects(host, head.publicationId, subjects, false);
     selector = headSelector;
     published = false;
   } else {

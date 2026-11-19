@@ -632,7 +632,7 @@ test.each(['signoff', 'checkpoint', 'both'] as const)('#467 replaces an unchange
     expect(reply.ok).toBe(true);
     previousId = reply.value.publicationId;
     acknowledgePublication(entry, previousId, reply.value.generation, requestId, subjects);
-    expect((await askDeclaredSubjects(legacy, previousId, subjects)).map(outcome => outcome.status)).toEqual(subjects.map(() => 'asked'));
+    expect((await askDeclaredSubjects(legacy, previousId, subjects, false)).map(outcome => outcome.status)).toEqual(subjects.map(() => 'asked'));
     expect(legacy.session.status().pending.map(ask => ask.subject)).toEqual(subjects);
     expect(readAcknowledgedPublication(root, binding.jobId, previousId)!.subjects).toEqual(subjects);
     expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
@@ -714,7 +714,7 @@ test('an ask Review refuses is named JOB_ASK_REFUSED, and a declared subject is 
     const publicationId = host.session.status().publication!.publicationId;
     const generation = host.session.status().generation;
     // Review asks only a declared subject; a stage this draft cannot sign is refused.
-    const outcomes = await askDeclaredSubjects(host, publicationId, [{ kind: 'parts-verdict', draftId: 'chain' }, { kind: 'signoff', stage: 'rig-review' }]);
+    const outcomes = await askDeclaredSubjects(host, publicationId, [{ kind: 'parts-verdict', draftId: 'chain' }, { kind: 'signoff', stage: 'rig-review' }], false);
     expect(outcomes.map(outcome => outcome.status)).toEqual(['already', 'refused']);
     expect(outcomes[1]).toMatchObject({ code: 'JOB_ASK_INVALID' });
     expect(host.session.status().generation).toBe(generation);

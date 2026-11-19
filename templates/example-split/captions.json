@@ -3,7 +3,7 @@
   "inputs": {
     "project": {
       "path": "example-project.json",
-      "sha256": "e94ab8a3b2ac558332bbbeebcd6fd5d9aebaa94c58196da57c648e3913b46a55"
+      "sha256": "a9422954da6382fb7095b8f383008bd6cf9ff662c79db9ec501220ea8deb0551"
     },
     "config": {
       "path": "example-split/config.json",

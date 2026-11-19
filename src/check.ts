@@ -908,7 +908,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   refusals.push(...packageUpgradeFindings(project));
   checkCollectionBinding(dir, project, refusals);
   const collection = loadCollection(dir, project);
-  const reopens = collectReopens(project, refusals);
+  const reopens = collectReopens(project, refusals, warnings);
   const historySignoffs = collectSignoffs(project, refusals).filter(s => {
     if (STAGE_VALUES.includes(s.stage)) return true;
     const path = `signoffs[${s.index}]`;
@@ -1008,8 +1008,10 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const checkChat = (value: Json | undefined, path: string): void => {
     if (Array.isArray(value)) value.forEach((entry, index) => checkChat(entry, `${path}[${index}]`));
     else if (isObject(value)) {
-      // The ledger validator checks the relay on discard receipts separately from their referenced actId.
-      const finding = /^project\.json\.review_acts\[\d+\]$/.test(path) && isDiscardReceipt(value) ? undefined : ownerChatFinding(value, path);
+      // Reopen, restart and discard receipts validate their own relay fields.
+      const checked = /^project\.json\.(reopens|restarts)\[\d+\]$/.test(path)
+        || /^project\.json\.review_acts\[\d+\]$/.test(path) && isDiscardReceipt(value);
+      const finding = checked ? undefined : ownerChatFinding(value, path);
       if (finding) ctx.refusals.push(finding);
       for (const [key, entry] of Object.entries(value)) checkChat(entry, `${path}.${key}`);
     }

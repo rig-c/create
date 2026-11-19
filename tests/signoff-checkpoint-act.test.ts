@@ -14,7 +14,7 @@ import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, planCommand, reopenCommand, stepStatusCommand, testClock } from './clock.ts';
 import { arr, fixture, obj } from './fixtures.ts';
-import { clockedCli, gitEnv, tempDir } from './helpers.ts';
+import { clockedCli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -310,7 +310,7 @@ test('P1 immutable checkpoint act replays after withdrawal with bytes inode and 
   expect(calls).toEqual([]);
   expect(refused(dir, () => ingest(dir, act, [], 'parts')).code).toBe('SIGNOFF_CHECKPOINT_INVALID');
   testClock.set(testClock.now() + 1000);
-  reopenCommand(['rigging', dir, '--by', 'user', '--verbatim-file', quote]);
+  reopenCommand(['rigging', dir, '--by', 'user', ...ownerChatArgs(quote)]);
   const next = JSON.parse(nextCommand([dir, '--json'], testClock.now()).stdout) as { moves: { review_act?: { kind: string; step_id?: string } }[] };
   expect(next.moves.some(move => move.review_act?.kind === 'signoff-checkpoint' && move.review_act.step_id === 'constraints')).toBe(false);
 });

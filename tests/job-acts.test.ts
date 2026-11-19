@@ -18,7 +18,7 @@ import type { ActV3, JobOwnerHost, JobHostOptions } from '@rig-c/review/job-host
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
-import { clockedCli } from './helpers.ts';
+import { clockedCli, ownerChatArgs } from './helpers.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -136,7 +136,7 @@ async function page(root: string, url: URL, expectedAsks = 2, requiredSubject?: 
   };
   // Reconnect replays history. Ask counts on an older head do not establish the current page.
   const ready = () => pending().head?.publicationId === expectedPublication.publicationId
-    && pending().asks.length >= expectedAsks
+    && pending().asks.length >= Math.max(expectedAsks, expectedPublication.subjects?.length ?? 0)
     && (requiredSubject === undefined || pending().asks.some(ask => obj(ask.subject).kind === requiredSubject));
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline && !ready()) {
@@ -390,7 +390,9 @@ test('merged record-mode host lists finalized picks and its printed writer comma
 test('#633 post composition Other leads to a cited scene through two Review picks', async () => {
   testClock.set(Date.now());
   const root = copy('4-direction-post');
-  expectExit0(await cli(root, ['reopen', 'post-interview', root, '--by', 'user', '--verbatim-file', (() => { const path = join(root, 'reopen.txt'); writeFileSync(path, 'Choose the synthetic two-plate scene.'); return path; })()]));
+  const reopenWords = join(root, 'reopen.txt');
+  writeFileSync(reopenWords, 'Choose the synthetic two-plate scene.');
+  expectExit0(await cli(root, ['reopen', 'post-interview', root, '--by', 'user', ...ownerChatArgs(reopenWords)]));
   const plate = readFileSync(join(import.meta.dir, '../templates/example-chain/inputs/background.png'));
   writeFileSync(join(root, 'background.png'), plate);
   writeFileSync(join(root, 'foreground.png'), Buffer.concat([plate, Buffer.from('\n')]));
@@ -822,7 +824,7 @@ test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds 
   const preReopenProject = readFileSync(join(root, 'project.json'));
 
   testClock.set(Date.parse('2026-11-08T00:00:01Z'));
-  expectExit0(await cli(root, ['reopen', 'rig-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/reopen.txt')]));
+  expectExit0(await cli(root, ['reopen', 'rig-review', root, '--by', 'user', ...ownerChatArgs(join(root, 'evidence/reopen.txt'))]));
 
   // Same target re-publishing its own ask is not refused.
   const sameTargetBytes = readFileSync(join(root, 'project.json'));
@@ -886,7 +888,7 @@ test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds 
   // 3. Once the ask is answered and ingested, rig-version passes as today and publishes the new rig.
   expectExit0(await cli(root, ['review', '2', root, '--from-review', String(verdict.actId)]));
   testClock.set(Date.now() + 1000);
-  expectExit0(await cli(root, ['reopen', 'rig-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/reopen.txt')]));
+  expectExit0(await cli(root, ['reopen', 'rig-review', root, '--by', 'user', ...ownerChatArgs(join(root, 'evidence/reopen.txt'))]));
   const builtAt = new Date(testClock.now() + 1000).toISOString();
   put('source/run.json', {
     spec: 'rigc-run/1', package: { name: 'rig-c', version: '3.4.1' }, command: 'build',

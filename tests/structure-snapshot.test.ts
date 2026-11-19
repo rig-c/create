@@ -1,3 +1,4 @@
+import { ownerChatArgs } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -82,7 +83,7 @@ function setup(retouch?: string): string {
   testClock.set(new Date('2026-11-19T00:00:00.500Z'));
   signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', words]);
   testClock.set(new Date('2026-11-19T00:00:01Z'));
-  reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words]);
+  reopenCommand(['plan-approved', dir, '--by', 'owner', ...ownerChatArgs(words)]);
   testClock.set(new Date('2026-11-19T00:00:02Z'));
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words]);
   advanceCommand(['parts', dir]);

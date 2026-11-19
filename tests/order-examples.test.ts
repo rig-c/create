@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { fixture } from './fixtures.ts';
-import { clockedCli } from './helpers.ts';
+import { clockedCli, ownerChatArgs } from './helpers.ts';
 import { checkProject } from './clock.ts';
 
 test('all generated example events satisfy every source contract date within two minutes', () => {
@@ -33,12 +33,12 @@ test('all generated example events satisfy every source contract date within two
   expect(dates.every(date => date % 1000 === 0)).toBe(true);
 });
 
-test('the public writer reopens the signed example at the real clock and keeps its approvals', () => {
+test('the public writer reopens the signed example at the fixture clock and keeps its approvals', () => {
   const dir = fixture(() => {}, 'example-project.json');
   const before = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   writeFileSync(join(dir, 'words.txt'), 'Reopen the synthetic parts for correction.');
   const result = Bun.spawnSync([process.execPath, ...clockedCli(), 'reopen', 'parts-review', dir,
-    '--by', 'reviewer', '--verbatim-file', join(dir, 'words.txt')], { stdout: 'pipe', stderr: 'pipe' });
+    '--by', 'reviewer', ...ownerChatArgs(join(dir, 'words.txt'))], { stdout: 'pipe', stderr: 'pipe' });
   expect(result.stderr.toString()).toBe('');
   expect(result.exitCode).toBe(0);
   const after = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;

@@ -3986,7 +3986,10 @@
       "stage": "parts-review",
       "by": "user",
       "at": "2026-11-19T00:01:55.000Z",
-      "verbatim": "Reopen the synthetic parts for remeshing.\n"
+      "verbatim": "Reopen the synthetic parts for remeshing.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-19T00:01:55.000Z",
+      "relayed_by": "fixture-operator"
     }
   ]
 }

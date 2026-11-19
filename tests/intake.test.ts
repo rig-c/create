@@ -1,3 +1,4 @@
+import { ownerChatArgs } from './helpers.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -117,7 +118,7 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>{
       // Reopen through the writer: it moves the stage back and resets later steps, and the later approvals,
       // versions, scenes and direction stay as superseded history, so no hand rewind is needed.
-      reopenCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+      reopenCommand(['parts-review',dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
       testClock.set(new Date('2026-11-20T10:00:01Z'));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--draft','example','--structure-file','evidence/structure-decisions.json']);},
     ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),

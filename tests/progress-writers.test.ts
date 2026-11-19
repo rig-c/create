@@ -10,7 +10,7 @@ import { PROGRESS_HISTORY_SINCE, signoffIdentity, STAGE_PROGRESS_SINCE } from '.
 import { stepHash } from '../src/step-hash.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retainSignoffs, retimeFixture, step } from './fixtures.ts';
-import { clockedCli, tempDir } from './helpers.ts';
+import { clockedCli, tempDir, ownerChatArgs } from './helpers.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { checkProject, planCommand, advanceCommand, handoff, stepStatusCommand, signoffCommand, reopenCommand, reviewCommand, interviewAnswerCommand, interviewOptionsCommand, testClock } from './clock.ts';
@@ -275,7 +275,7 @@ test('a reopened checkpoint cannot authorize done and history remains readable a
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'assemble', 'done');
   testClock.set(new Date('2026-11-21T00:00:00Z'));
-  reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
   expect(codes(dir)).toEqual([]);
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
   refused(dir, 'CHECKPOINT_UNSIGNED', () => status(dir, 'assemble', 'done'));
@@ -442,7 +442,7 @@ test.each([false, true])('historical checkpoint requirement survives reopen and 
   const oldHistory = structuredClone(step(read(dir), 'seethrough').status_history);
   expect(obj(arr(oldHistory)[2]).signoff).toBeNull();
   testClock.set(new Date('2026-11-21T00:00:00Z'));
-  reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  reopenCommand(['plan-approved', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
   const draft = read(dir);
   step(draft, 'seethrough').checkpoint = null;
   step(draft, 'seethrough').checkpoint_proposed = true;
@@ -477,7 +477,7 @@ test('historical no-post advance survives reopened applicable post answers', () 
   const oldAdvanceIndex = arr(read(dir).advances).length - 1;
   const oldAdvance = structuredClone(arr(read(dir).advances)[oldAdvanceIndex]);
   testClock.set(new Date('2026-11-21T00:00:00Z'));
-  reopenCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  reopenCommand(['post-interview', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
   const draft = read(dir);
   const camera = obj(arr(obj(obj(draft.interview).post).items).find(raw => obj(raw).id === 'camera_depth'));
   camera.history = [...arr(camera.history ?? []), camera.guide!];
@@ -512,7 +512,7 @@ test('historical required checkpoint approval survives a later disabled checkpoi
   status(dir, 'assemble', 'done');
   const original = structuredClone(step(read(dir), 'assemble').status_history);
   testClock.set(new Date('2026-11-21T00:00:00Z'));
-  reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  reopenCommand(['plan-approved', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
   const draft = read(dir); step(draft, 'assemble').checkpoint = null; step(draft, 'assemble').checkpoint_proposed = false; save(dir, draft);
   testClock.set(new Date('2026-11-21T00:01:00Z'));
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
@@ -543,7 +543,7 @@ test('writer-made status and advance history links through same-clock reopen res
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint');
   signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
   status(dir, 'assemble', 'done');
-  reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
   status(dir, 'assemble', 'in-progress');
   expect(codes(dir)).toEqual([]);
   expect(linkage(dir, 'warnings')).toEqual([]);
@@ -601,7 +601,7 @@ test('a reopen cannot absorb a hand stage move, and keeps the bytes', () => {
   const dir = partsProject(); advance(dir);
   const p = read(dir); p.stage = 'parts-review'; save(dir, p);
   expect(codes(dir)).toContain('STAGE_SKIPPED');
-  refused(dir, 'STAGE_MOVE_UNLINKED', () => reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)]));
+  refused(dir, 'STAGE_MOVE_UNLINKED', () => reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]));
 });
 
 // #221: each refusal names the code of its cause and the writer that clears it.
@@ -620,7 +620,7 @@ test('advance without a live sign-off at the current stage names ADVANCE_UNAUTHO
 test('a rig acceptance lapsed by a reopen is named with the reopen, not reported as missing', () => {
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain'), dir, { recursive: true });
-  reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+  reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
   testClock.set(new Date('2026-11-20T00:01:00Z'));
   // #243: the writer refuses to sign rig-review on the lapsed acceptance and names it.
   const signature = refused(dir, 'RIG_VERSION_UNACCEPTED', () => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]));

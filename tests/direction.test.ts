@@ -14,7 +14,7 @@ import { reviewPackageCommand } from '../src/review-package.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { generateDirectionFixture } from '../scripts/generate-direction-fixture.ts';
 import { directionFixture } from './direction-fixture.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, reopenCommand, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());
@@ -106,7 +106,7 @@ test('authored document integrates into filled project with no refusals and pack
   const dir=fixture(()=>{},'example-project.json');
   testClock.set(new Date('2026-11-21T08:00:00Z'));
   writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post.');
-  reopenCommand(['post',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+  reopenCommand(['post',dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
   testClock.set(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;const f=setup();testClock.set(new Date('2026-11-21T09:10:00Z'));
   const doc=f.doc;doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
@@ -126,7 +126,7 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   const dir=fixture(()=>{},'example-project.json');
   testClock.set(TEST_NOW);
   writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post answers.');
-  reopenCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+  reopenCommand(['post-interview',dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
   const changed=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
   const camera=objects(((changed.interview as JsonObject).post as JsonObject).items).find(i=>i.id==='camera_depth')!;
   camera.history=[...objects(camera.history),camera.guide as JsonObject];
@@ -188,6 +188,6 @@ test('post direction acceptance closes authoring byte-identically until reopened
   expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);
   expect(existsSync(join(f.dir,'evidence/direction/v3.json'))).toBe(false);
   testClock.set(new Date('2026-11-04T09:02:00Z'));
-  reopenCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]);
+  reopenCommand(['direction-review',f.dir,'--by','user', ...ownerChatArgs(join(f.dir,'words.txt'))]);
   expect(write(f.dir,3).exit).toBe(0);
 });

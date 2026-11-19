@@ -13,7 +13,7 @@ import { currentJobIdentity } from '../src/job-publication.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
 import { arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
-import { cli, gitEnv, tempDir } from './helpers.ts';
+import { cli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
 const EXAMPLE_PARTS_DIR = 'derived/drafts/receipt-fixture/input/rig';
 const RECEIPT_FLAGS = ['--draft', 'receipt-fixture', '--structure-file', 'evidence/receipt-fixture-structure.json'];
 import { checkProject, reopenCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
@@ -90,7 +90,7 @@ describe('B0 normal writer and both producer layouts', () => {
     retimeFixture(p, testClock.now());
     writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
     writeFileSync(join(dir, 'words.txt'), 'Revisit the synthetic parts.');
-    reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+    reopenCommand(['parts-review', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'words.txt'))]);
     if (layout === 'assemble') moveToAssemble(dir);
     testClock.set(testClock.now() + 1000);
     const result = writer(dir);

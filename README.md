@@ -134,15 +134,18 @@ also records the rig-review signature atomically; pending or changes-requested
 stays unsigned. Existing verdict-only receipts and old two-subject publications
 retain their separate-signoff recovery. See [live review](docs/LIVE-REVIEW.md#rig-approval-in-one-sitting).
 
-`signoff` records without moving the stage; `advance` uses its authority. Direct
-`--by` sign-off/review and `interview-answer --pick` are low-level interfaces for
-people operating the CLI themselves and synthetic fixtures, not an agent route
-for human acts. Agents must not type an owner's answer or signature, or request
-one in chat in place of Review. After an accepted post is bounced, host
-`job open --plan` for its single direction-review reopen, list the act with
-`job acts --json`, then ingest `reopen direction-review --from-review <actId>`
-and `job close`. The exported act supplies the reviewer, timestamp and unchanged
-words. Other stages retain the direct human `--by`/`--verbatim-file` reopen route. See [the live Review flow](docs/LIVE-REVIEW.md)
+`signoff` records without moving the stage. `advance` uses its authority. Record
+verdicts in Review. To relay an owner's eligible interview answer or stage
+sign-off, use `--by` with the owner's identity and supply
+`--owner-chat <words file> --said-at <ISO> --relayed-by <operator>`. For a
+verdict-bearing stage, ingest the current accepted live verdict first. After
+an accepted post is bounced, host `job open --plan` and choose the
+direction-review reopen. Plan publications offer a reopen for each eligible
+stage. List the act with `job acts --json`, then ingest
+`reopen direction-review --from-review <actId>` and `job close`.
+The exported act supplies the reviewer, timestamp and unchanged
+words. To record an owner's reopen instruction from chat, supply the owner's
+`--by` and the owner-chat flags to `reopen`. See [the live Review flow](docs/LIVE-REVIEW.md)
 and [the record contract](docs/PROJECT.md#recording-a-sign-off).
 
 ## The clock

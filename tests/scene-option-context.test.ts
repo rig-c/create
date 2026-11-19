@@ -10,7 +10,7 @@ import { SCENE_CONTEXT_SINCE, optionContext, sha256 } from '../src/choices.ts';
 import { asArray, isObject } from '../src/check.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, main, reopenCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
@@ -27,7 +27,7 @@ function chainProject(): string {
   cpSync(root, dir, { recursive: true, filter: source => !source.slice(root.length).split(sep).includes('checkpoints') });
   return dir;
 }
-function reopen(dir: string, stage: string): void { reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', words(dir)]); }
+function reopen(dir: string, stage: string): void { reopenCommand([stage, dir, '--by', 'user', ...ownerChatArgs(words(dir))]); }
 /** The agent drafts a post_composition set against the context create projects at that instant. */
 function draft(dir: string, id: string, context: JsonObject): string {
   const set = JSON.parse(readFileSync(join(dir, 'evidence/interview/post_composition.json'), 'utf8')) as JsonObject;

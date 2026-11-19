@@ -1,4 +1,4 @@
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -25,7 +25,7 @@ test('signed ruling: reopening the filled example with a scene passes check thro
   expect(checkProject(dir).warnings).toEqual([]);
   writeFileSync(join(dir, 'reopen-words.txt'), 'Reopen the synthetic parts for correction.');
   const before = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-  expect(reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'reopen-words.txt')]).exit).toBe(0);
+  expect(reopenCommand(['parts-review', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'reopen-words.txt'))]).exit).toBe(0);
   const after = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   expect(after.scenes).toEqual(before.scenes);
   expect(checkProject(dir).refusals).toEqual([]);
@@ -122,7 +122,7 @@ for (const writer of ['scene', 'direction'] as const) {
     const dir = fixture(() => {}, 'example-project.json');
     testClock.set(EXAMPLE_REOPEN_AT);
     writeFileSync(join(dir, 'reopen-words.txt'), 'Revise the synthetic composition.');
-    reopenCommand(['post', dir, '--by', 'user', '--verbatim-file', join(dir, 'reopen-words.txt')]);
+    reopenCommand(['post', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'reopen-words.txt'))]);
     const before = readFileSync(join(dir, 'project.json'));
     const project = JSON.parse(before.toString('utf8')) as JsonObject;
     const item = collectItems(project, { collection: null }).find(value => value.id === 'post_composition')!;

@@ -16,7 +16,7 @@ import { checkProject, directionCommand, planCommand, reopenCommand, signoffComm
 import { advanceCommand } from '../src/progress-writers.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { arr, fixture, obj, retainSignoffs, step, waypoint } from './fixtures.ts';
-import { cli, gitEnv, tempDir } from './helpers.ts';
+import { cli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
@@ -43,7 +43,7 @@ function unchanged(dir: string, code: string, action: () => unknown): void {
 function reopen(dir: string, stage = 'plan-approved'): void {
   const words = join(dir, 'words.txt');
   writeFileSync(words, 'Reopen the plan for a new draft.');
-  reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', words]);
+  reopenCommand([stage, dir, '--by', 'user', ...ownerChatArgs(words)]);
 }
 function retained(record: JsonObject, at = '2026-11-20T00:00:00Z'): JsonObject {
   return { step: structuredClone(record), sha256: stepHash(record), action: 'revised', at, by: 'agent' };
@@ -427,7 +427,8 @@ test('replacement hash resolution preserves latest-covering approval and reopen 
   project.signoffs = [signature];
   checkReplacedSignoffs(project, [entry], findings);
   expect(findings.map(f => f.code)).toEqual(['PLAN_REPLACED_SIGNOFF']);
-  project.reopens = [{ stage: 'post-interview', from_stage: 'post', at: signature.at, by: 'user', verbatim: 'Reopen.', steps_before: [] }];
+  project.reopens = [{ stage: 'post-interview', from_stage: 'post', at: signature.at, by: 'user', verbatim: 'Reopen.', steps_before: [],
+    source: 'owner chat, relayed', said_at: signature.at, relayed_by: 'synthetic-relay' }];
   findings = [];
   checkReplacedSignoffs(project, [entry], findings);
   expect(findings).toEqual([]);

@@ -1,3 +1,4 @@
+import { ownerChatArgs } from './helpers.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -424,7 +425,7 @@ test('direction@3 integrates into the filled project with zero check refusals', 
   const dir = filled(() => {}, 'example-project.json'); roots.push(dir);
   testClock.set('2026-11-21T08:00:00Z');
   writeFileSync(join(dir, 'words.txt'), 'Revise the synthetic composed take.');
-  reopenCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  reopenCommand(['post-interview', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'words.txt'))]);
   const load = () => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   const save = (p: JsonObject) => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
   for (const name of ['background.png', 'foreground.png']) {

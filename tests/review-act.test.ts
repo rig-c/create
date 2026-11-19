@@ -19,7 +19,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, directionCommand, inputCommand, reopenCommand, reviewCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { fixture } from './fixtures.ts';
-import { clockedCli } from './helpers.ts';
+import { clockedCli, ownerChatArgs } from './helpers.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 
@@ -189,7 +189,7 @@ async function reopenedRig(legacySubjects = false) {
   const history = projectAt(first.root);
   expect(reviewActFindings(history)).toEqual([]);
   testClock.set(testClock.now() + 1);
-  expect(reopenCommand(['rig-review', first.root, '--by', 'user', '--verbatim-file', join(first.root, 'evidence/approval.txt')]).exit).toBe(0);
+  expect(reopenCommand(['rig-review', first.root, '--by', 'user', ...ownerChatArgs(join(first.root, 'evidence/approval.txt'))]).exit).toBe(0);
   const reopened = projectAt(first.root);
   const lapseCodes = checkProject(first.root).warnings.map(f => f.code);
   expect(lapseCodes).toContain('REOPEN_SIGNOFF_LAPSED');
@@ -812,7 +812,7 @@ async function publishedComposed() {
   directories.push(root);
   testClock.set('2026-11-21T08:00:00Z');
   writeFileSync(join(root, 'words.txt'), 'Revise the synthetic composed take.');
-  reopenCommand(['post-interview', root, '--by', 'user', '--verbatim-file', join(root, 'words.txt')]);
+  reopenCommand(['post-interview', root, '--by', 'user', ...ownerChatArgs(join(root, 'words.txt'))]);
   for (const name of ['background.png', 'foreground.png']) {
     cpSync(join(f.dir, name), join(root, name));
     inputCommand(['add', name, root, '--origin', 'synthetic plate']);

@@ -6,11 +6,12 @@ import { FIX_LEDGER_REPORT_SPEC, FIX_LEDGER_SINCE, ledgerCommand } from '../src/
 import { nextCommand } from '../src/next.ts';
 import { restartCommand } from '../src/restart.ts';
 import { freshProjectRecord } from '../src/init.ts';
+import { OWNER_CHAT_SOURCE, REOPEN_RESTART_OWNER_CHAT_SINCE } from '../src/owner-chat.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
 import { checkProject, draftRigCommand, inputCommand, testClock, TEST_NOW } from './clock.ts';
-import { cli, gitEnv, run, tempDir } from './helpers.ts';
+import { cli, gitEnv, ownerChatArgs, run, tempDir } from './helpers.ts';
 
 afterEach(() => testClock.reset());
 
@@ -40,7 +41,7 @@ function commit(dir: string, root = dir): void {
   git('add', '--', relative(root, join(dir, 'project.json')));
   git('commit', '-q', '-m', 'record');
 }
-const restartArgs = (dir: string): string[] => [dir, '--by', 'owner', '--reason-file', words(dir, 'restart')];
+const restartArgs = (dir: string, reason = 'restart'): string[] => [dir, '--by', 'owner', ...ownerChatArgs(words(dir, reason))];
 
 /** The filled example: ledger row T1, the draft `example` (parts receipt, no report) and `lantern` (T1 pass). */
 const example = (): string => fixture(() => {}, 'example-project.json');
@@ -188,13 +189,16 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   const before = readFileSync(join(dir, 'project.json'));
   const old = load(dir);
   refused(dir, 'SIGNOFF_NOT_HUMAN', () => restartCommand([dir, '--by', 'agent', '--reason-file', words(dir, 'restart')], step()));
-  refused(dir, 'RESTART_USAGE', () => restartCommand([dir, '--by', 'owner'], step()));
-  restartCommand([dir, '--by', 'owner', '--reason-file', words(dir, 'Restart at v1; delete everything before it.')], step());
+  refused(dir, 'OWNER_CHAT_REQUIRED', () => restartCommand([dir, '--by', 'owner'], step()));
+  const reason = '\uFEFF  Restart at v1; delete everything before it.\r\n';
+  const saidAt = testClock.iso();
+  restartCommand(restartArgs(dir, reason), step());
   const restarted = load(dir);
   expect(restarted).toMatchObject({ stage: 'interview', versions: [], signoffs: [], name: old.name!, painting: old.painting!, same_artwork: old.same_artwork!, inputs: old.inputs!, fix_ledger: old.fix_ledger! });
   for (const key of ['drafts', 'review_acts', 'advances', 'scenes']) expect(restarted[key]).toBeUndefined();
   expect(obj(restarted.plan).steps).toEqual([]);
-  expect(arr(restarted.restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason: 'Restart at v1; delete everything before it.', previous_record_sha256: sha(before) }]);
+  expect(arr(restarted.restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason, previous_record_sha256: sha(before),
+    source: OWNER_CHAT_SOURCE, said_at: saidAt, relayed_by: 'synthetic-relay' }]);
   // A restarted record checks the same as a fresh init record: the same codes (its open interview) and 0 warnings.
   const checked = checkProject(dir);
   const fresh = checkProject(dir, freshProjectRecord(String(old.name), testClock.now()));
@@ -210,10 +214,38 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   expect(checkProject(dir).refusals).toEqual(open);
 });
 
+test('restart owner chat authority is dated, refuses agent and malformed relays, and preserves bytes on refusal', () => {
+  const dir = example();
+  const at = Date.parse(REOPEN_RESTART_OWNER_CHAT_SINCE);
+  testClock.set(at);
+  const file = words(dir, 'Restart the synthetic project.\r\n');
+  refused(dir, 'OWNER_CHAT_REQUIRED', () => restartCommand([dir, '--by', 'owner', '--reason-file', file], at));
+  refused(dir, 'SIGNOFF_NOT_HUMAN', () => restartCommand([dir, '--by', 'AGENT', ...ownerChatArgs(file)], at));
+  refused(dir, 'OWNER_CHAT_INVALID', () => restartCommand([dir, '--by', 'owner', '--owner-chat', file], at));
+  refused(dir, 'OWNER_CHAT_INVALID', () => restartCommand([dir, '--by', 'owner', '--reason-file', file, ...ownerChatArgs(file)], at));
+  refused(dir, 'RESTART_USAGE', () => restartCommand([dir, '--from-review', 'synthetic-act'], at));
+
+  testClock.reset();
+  const p = load(dir);
+  const record: JsonObject = { at: new Date(at - 1).toISOString(), by: 'owner', reason: 'Restart.', previous_record_sha256: '0'.repeat(64) };
+  p.restarts = [record];
+  const authority = { code: 'OWNER_CHAT_REQUIRED', path: 'restarts[0]' };
+  expect(checkProject(dir, p).warnings).toContainEqual(expect.objectContaining(authority));
+  expect(checkProject(dir, p).refusals).not.toContainEqual(expect.objectContaining(authority));
+  record.at = REOPEN_RESTART_OWNER_CHAT_SINCE;
+  expect(checkProject(dir, p).refusals).toContainEqual(expect.objectContaining(authority));
+  Object.assign(record, { source: OWNER_CHAT_SOURCE, said_at: new Date(at).toISOString(), relayed_by: 'synthetic-relay' });
+  expect(checkProject(dir, p).refusals).toEqual([]);
+  record.said_at = new Date(at + 1).toISOString();
+  expect(checkProject(dir, p).refusals).toContainEqual(expect.objectContaining({ code: 'OWNER_CHAT_INVALID', path: 'restarts[0]' }));
+  record.by = 'AGENT';
+  expect(checkProject(dir, p).refusals).toContainEqual(expect.objectContaining({ code: 'SIGNOFF_NOT_HUMAN', path: 'restarts[0].by' }));
+});
+
 test('restart refuses before writing: a changed input, a part set without its parts.json or rig, a folder that is not a project', () => {
   const dir = example(); commit(dir);
   writeFileSync(join(dir, 'inputs/painting.png'), 'changed bytes');
-  refused(dir, 'RESTART_INPUT_INVALID', () => restartCommand([dir, '--by', 'owner', '--reason-file', words(dir, 'restart')], step()));
+  refused(dir, 'RESTART_INPUT_INVALID', () => restartCommand(restartArgs(dir), step()));
   const clean = example();
   const keep = (path: string, bytes = `synthetic ${path}`): void => {
     mkdirSync(dirname(join(clean, path)), { recursive: true }); writeFileSync(join(clean, path), bytes);
@@ -221,16 +253,16 @@ test('restart refuses before writing: a changed input, a part set without its pa
     commit(clean);
   };
   keep('inputs/seed/parts/hair.png');
-  const refusal = refused(clean, 'RESTART_PART_SET_INCOMPLETE', () => restartCommand([clean, '--by', 'owner', '--reason-file', words(clean, 'restart')], step()));
+  const refusal = refused(clean, 'RESTART_PART_SET_INCOMPLETE', () => restartCommand(restartArgs(clean), step()));
   expect(refusal.message).toContain('inputs/seed/parts.json');
   keep('inputs/seed/parts.json');
   keep('inputs/seed/rig/rig.json');
-  refused(clean, 'RESTART_PART_SET_INCOMPLETE', () => restartCommand([clean, '--by', 'owner', '--reason-file', words(clean, 'restart')], step()));
+  refused(clean, 'RESTART_PART_SET_INCOMPLETE', () => restartCommand(restartArgs(clean), step()));
   keep('inputs/seed/rig/mesh_report.json');
-  restartCommand([clean, '--by', 'owner', '--reason-file', words(clean, 'restart')], step());
+  restartCommand(restartArgs(clean), step());
   expect(checkProject(clean).refusals.map(f => [f.code, f.path])).toEqual(checkProject(clean, freshProjectRecord('project', testClock.now())).refusals.map(f => [f.code, f.path]));
   const empty = tempDir();
-  expect(() => restartCommand([empty, '--by', 'owner', '--reason-file', words(empty, 'restart')], step())).toThrow(Refusal);
+  expect(() => restartCommand(restartArgs(empty), step())).toThrow(Refusal);
   expect(existsSync(join(empty, 'project.json'))).toBe(false);
 });
 
@@ -262,7 +294,8 @@ test('restart resolves project.json at HEAD when the project is a subfolder of t
   commit(dir, root);
   const before = readFileSync(join(dir, 'project.json'));
   restartCommand(restartArgs(dir), step());
-  expect(arr(load(dir).restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason: 'restart', previous_record_sha256: sha(before) }]);
+  expect(arr(load(dir).restarts)).toEqual([expect.objectContaining({ at: testClock.iso(), by: 'owner', reason: 'restart', previous_record_sha256: sha(before),
+    source: OWNER_CHAT_SOURCE, relayed_by: 'synthetic-relay' })]);
 });
 
 test('init with a painting registers it, and refuses a second project for the same artwork unless a reason is given', () => {

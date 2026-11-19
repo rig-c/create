@@ -24,7 +24,7 @@ import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 import { arr, fixture, obj, retimeFixture, retainSignoffs } from './fixtures.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { latestPartsVerdictStatus } from '../src/parts-verdict-record.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
@@ -494,7 +494,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     writeFileSync(words, 'Reopen the synthetic project to parts.\n');
     const reopenAt = Date.parse('2026-11-06T02:00:00Z');
     testClock.set(new Date(reopenAt));
-    reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', words]);
+    reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(words)]);
 
     const report = nextProject(dir, reopenAt);
     expect(report.refusals).toEqual([]);
@@ -1311,7 +1311,10 @@ test('#478 answered rigging guides request plan steps before the publishable sig
   const context = readRecordPublished({ root: dir,
     record: { path: 'project.json', sha256: sha256(readFileSync(join(dir, 'project.json'))) },
     result: { kind: 'plan' }, phase: 'inventory' }, CHAIN_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
+  expect(context.subjects).toEqual([
+    { kind: 'signoff', stage: 'rigging-interview' },
+    ...['interview', 'plan-approved', 'parts', 'parts-review', 'rigging-interview'].map(stage => ({ kind: 'reopen' as const, stage })),
+  ]);
 });
 
 
@@ -2108,7 +2111,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   const reopenWords = join(dir, 'reopen-words.txt');
   writeFileSync(reopenWords, 'Reopen rig-review to rebuild the synthetic rig.\n');
   testClock.set(new Date(reopenAt));
-  reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', reopenWords]);
+  reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(reopenWords)]);
 
   // Attempting to sign rig-review on the history acceptance refuses with RIG_VERSION_UNACCEPTED and leaves project.json byte-identical.
   const beforeRefusedSign = readFileSync(file);
@@ -2312,7 +2315,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
 
   const reopen2At = acceptAt + 6000;
   testClock.set(new Date(reopen2At));
-  reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', reopenWords]);
+  reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(reopenWords)]);
 
   const v5At = reopen2At + 1000;
   registerRig(5, new Date(v5At).toISOString(), v5At);
@@ -2516,7 +2519,7 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
   // Reopen parts-review, then draft-rig <id>, structure-snapshot --draft <id>, and diff-classes with a triage file.
   const reopenAt = CHAIN_NOW + 3000;
   testClock.set(new Date(reopenAt));
-  reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words]);
+  reopenCommand(['parts-review', dir, '--by', 'user', ...ownerChatArgs(words)]);
 
   const draftId = 'chain-reopened';
   cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${draftId}`), { recursive: true });

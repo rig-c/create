@@ -241,6 +241,8 @@ export function pendingJobAsksForTarget(
     const info = sourceTargetInfo(ask.source);
     if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
     const hasUnIngestedAct = acts.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
+    // A reopen is an optional alternative to continuing the published work.
+    if (!hasUnIngestedAct && ask.subject.kind === 'reopen') continue;
     if (!hasUnIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
     pending.push({ label: `${askSubjectText(ask.subject)} on ${info.label}`, version: info.version });
   }

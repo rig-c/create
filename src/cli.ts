@@ -59,7 +59,7 @@ Usage:
 ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
   rig-create init <dir> --painting <file> --origin <words> [--projects-root <dir>] [--same-artwork-reason <file>]
                                                     also register the painting; refuse a second project for one artwork
-  rig-create restart [<dir>] --by <human> --reason-file <file>
+  rig-create restart [<dir>] --by <human> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
                                                     restart the record at v1, keeping inputs and the fix ledger
   rig-create ledger add|retire <id> [<dir>] --by <who> …
                                                     record or retire an owner fix every version inherits
@@ -90,7 +90,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>]
                                                     record an audited forward step status
   rig-create reopen <stage> [<project dir>] --from-review <actId>
-  rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>]
+  rig-create reopen <stage> [<project dir>] --by <who> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
                                                     record a human backward move without deleting history
   rig-create pause --by <who> [--verbatim-file <file>] [<project dir>]
                                                     stop work on a paused sign-off and record the stage it left

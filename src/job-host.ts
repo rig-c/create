@@ -401,11 +401,19 @@ function selectorLabel(selector: JobSelector): string {
 
 /** Resolve only an explicitly requested current record subject, before opening a host. */
 export function requestedRecordResult(root: string, question?: string, plan = false, now = Date.now()): PublicationResult | undefined {
+  return requestedRecordPublication(root, question, plan, now)?.result;
+}
+
+function requestedRecordPublication(root: string, question: string | undefined, plan: boolean, now: number): {
+  result: RecordPublicationRequestResult;
+  recordHash: string;
+  subjects: readonly PublicationSubject[];
+} | undefined {
   if (question === undefined && !plan) return undefined;
   if (question !== undefined && plan) refuse('JOB_BINDING_INVALID', 'project.json: choose --question or --plan, not both');
   const bytes = readFileSync(join(root, 'project.json'));
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
-  let result: PublicationResult = { kind: 'plan' };
+  let result: RecordPublicationRequestResult = { kind: 'plan' };
   if (question !== undefined) {
     const items = collectItems(project, { collection: loadCollection(root, project) }).filter(item => item.id === question);
     const binding = items.length === 1 ? items[0]!.record.pending_options : undefined;
@@ -414,24 +422,27 @@ export function requestedRecordResult(root: string, question?: string, plan = fa
     if (typeof set.id !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: pending option set has no id; restore its original identity');
     result = { kind: 'option-set', questionId: question, setId: set.id };
   }
-  readRecordPublished({ root, record: { path: 'project.json', sha256: jobHash(bytes) }, result: result as RecordPublicationRequestResult, phase: 'inventory' }, now);
-  return result;
+  const recordHash = jobHash(bytes);
+  const { subjects } = readRecordPublished({ root, record: { path: 'project.json', sha256: recordHash }, result, phase: 'inventory' }, now);
+  return { result, recordHash, subjects };
 }
 type RecordPublicationRequestResult = Parameters<typeof readRecordPublished>[0]['result'];
 
 export async function openRecordPublication(root: string, host: JobOwnerHost, question: string | undefined, plan: boolean, now: number): Promise<string[]> {
-  const result = requestedRecordResult(root, question, plan, now)!;
-  if (!isRecordResult(result)) refuse('JOB_PUBLICATION_INVALID', 'project.json: expected an explicit record subject; choose --question or --plan');
   const release = acquireJobLock(root)!;
   let outcomes: AskOutcome[];
   let reused = false;
+  let result: RecordPublicationRequestResult;
   try {
-    const bytes = readFileSync(join(root, 'project.json'));
+    const publication = requestedRecordPublication(root, question, plan, now);
+    if (!publication) refuse('JOB_PUBLICATION_INVALID', 'project.json: expected an explicit record subject; choose --question or --plan');
+    result = publication.result;
     const head = host.session.status().publication;
     const ack = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
-    if (head && ack && isDeepStrictEqual(ack.result, result) && ack.versionHash === jobHash(bytes)) {
+    if (head && ack && isDeepStrictEqual(ack.result, result) && ack.versionHash === publication.recordHash
+      && isDeepStrictEqual(ack.subjects, publication.subjects)) {
       reused = true;
-      outcomes = await askDeclaredSubjects(host, head.publicationId, ack.subjects ?? []);
+      outcomes = await askDeclaredSubjects(host, head.publicationId, publication.subjects);
     } else {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: open the writer-owned job before publishing');

@@ -11,7 +11,10 @@ export function generateExampleReopened(dir: string): Buffer {
   materializeFixture(dir);
   const words = join(dir, 'reopen-words.txt');
   writeFileSync(words, 'Reopen the synthetic parts for correction.\n');
-  reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words], Date.parse(EXAMPLE_REOPEN_AT));
+  reopenCommand([
+    'parts-review', dir, '--by', 'user', '--owner-chat', words,
+    '--said-at', EXAMPLE_REOPEN_AT, '--relayed-by', 'fixture-operator',
+  ], Date.parse(EXAMPLE_REOPEN_AT));
   return readFileSync(join(dir, 'project.json'));
 }
 

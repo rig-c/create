@@ -11,7 +11,7 @@ import { readVersions } from '../src/review.ts';
 import { STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, retimeFixture, step } from './fixtures.ts';
-import { CLI, cli, clockedCli, gitEnv, tempDir } from './helpers.ts';
+import { CLI, cli, clockedCli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
 import { amendCommand, checkProject, correctionCommand, directionCommand, reopenCommand, handoff, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -86,12 +86,12 @@ describe('forward human amendments', () => {
       save(reopenDir, modern);
       directionCommand(['--adopt', reopenDir]);
       const before = readFileSync(join(reopenDir, 'project.json'));
-      refusal(() => reopenCommand([stage, reopenDir, '--by', 'owner', '--verbatim-file', words(reopenDir)]), 'STAGE_LAGGING');
+      refusal(() => reopenCommand([stage, reopenDir, '--by', 'owner', ...ownerChatArgs(words(reopenDir))]), 'STAGE_LAGGING');
       expect(readFileSync(join(reopenDir, 'project.json'))).toEqual(before);
       return;
     }
     amend(amendmentDir, stage);
-    reopenCommand([stage, reopenDir, '--by', 'owner', '--verbatim-file', words(reopenDir)]);
+    reopenCommand([stage, reopenDir, '--by', 'owner', ...ownerChatArgs(words(reopenDir))]);
     const amended = read(amendmentDir);
     const reopened = read(reopenDir);
     expect(nonLive(amended)).toEqual(nonLive(reopened));
@@ -189,7 +189,7 @@ describe('forward human amendments', () => {
     testClock.set(new Date('2026-11-21T00:00:00Z'));
     amend(dir, 'post');
     expect(nonLive(read(dir))).toEqual(first);
-    reopenCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
     expect(nonLive(read(dir))).toEqual(first);
   });
 

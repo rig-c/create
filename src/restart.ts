@@ -14,17 +14,18 @@ import { ledgerRows, writeRecord } from './fix-ledger.ts';
 import { freshProjectRecord, run } from './init.ts';
 import { checkInputs } from './inputs.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { OWNER_CHAT_FLAGS, REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding, readOwnerChat } from './owner-chat.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const RESTART_HELP = `restart:
-  [<dir>] --by <human> --reason-file <file> [--json]
+  [<dir>] --by <human> --owner-chat <file> --said-at <ISO> --relayed-by <operator> [--json]
   Replace project.json with the record init writes: the template's stage, no versions, drafts,
   signoffs, plan, answers or review acts. Keeps name, title, painting, same_artwork, inputs[] (each file must
-  still match its sha256) and fix_ledger with every row, and appends restarts[] { at, by, reason,
-  previous_record_sha256 }. git history holds the earlier record, so restart refuses unless
+  still match its sha256) and fix_ledger with every row, and appends restarts[] with the owner's exact
+  words as reason, the relay and write times, and previous_record_sha256. git history holds the earlier record, so restart refuses unless
   project.json is committed: tracked and byte-identical to HEAD. A kept part set (inputs under
   <set>/parts/*.png or <set>/parts.json) keeps <set>/parts.json and its rig: rig.json and
   mesh_report.json, at <set>/rig/ or <set>/.`;
@@ -82,16 +83,23 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') json = true;
-    else if (arg === '--by' || arg === '--reason-file') {
+    else if (['--by', '--reason-file', ...OWNER_CHAT_FLAGS].includes(arg)) {
       const value = args[++i];
       if (value === undefined || value.startsWith('--') || value.trim() === '' || opts[arg] !== undefined) refuse('RESTART_USAGE', `restart: ${arg} needs one value; see restart help`, USAGE_EXIT);
       opts[arg] = value;
     } else if (arg.startsWith('-')) refuse('RESTART_USAGE', `restart: unsupported ${arg}; see restart help`, USAGE_EXIT);
     else positional.push(arg);
   }
-  if (positional.length > 1 || opts['--by'] === undefined || opts['--reason-file'] === undefined) refuse('RESTART_USAGE', RESTART_HELP, USAGE_EXIT);
-  if (opts['--by'].toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', 'restarts[].by: restart by agent; a person orders a restart');
-  const reason = readVerbatim(opts['--reason-file']).trim();
+  const by = opts['--by'];
+  if (positional.length > 1 || by === undefined) refuse('RESTART_USAGE', RESTART_HELP, USAGE_EXIT);
+  if (by.trim().toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', 'restarts[].by: restart by agent; record the human who ordered the restart');
+  if (opts['--reason-file'] !== undefined && OWNER_CHAT_FLAGS.some(flag => opts[flag] !== undefined)) {
+    refuse('OWNER_CHAT_INVALID', 'restarts[].reason: --owner-chat supplies the reason; use the owner-chat flags without --reason-file', USAGE_EXIT);
+  }
+  const chat = readOwnerChat(opts, by, now, 'restarts[]');
+  const authority = ownerChatAuthorityFinding(chat ?? {}, 'restarts[]', chat?.owner_words ?? '');
+  if (authority && now >= Date.parse(REOPEN_RESTART_OWNER_CHAT_SINCE)) refuse(authority.code, authority.message);
+  const reason = chat ? chat.owner_words as string : opts['--reason-file'] === undefined ? '' : readVerbatim(opts['--reason-file']).trim();
   if (!reason) refuse('RESTART_USAGE', 'restarts[].reason: the reason file is empty; say why the record restarts', USAGE_EXIT);
   const dir = resolve(positional[0] ?? process.cwd());
   const file = join(dir, 'project.json');
@@ -141,7 +149,12 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     if (project.same_artwork !== undefined) candidate.same_artwork = project.same_artwork;
     candidate.inputs = keptInputs;
     candidate.fix_ledger = project.fix_ledger ?? [];
-    const entry: JsonObject = { at: new Date(now).toISOString(), by: opts['--by'], reason, previous_record_sha256: createHash('sha256').update(original).digest('hex') };
+    const entry: JsonObject = { at: new Date(now).toISOString(), by, reason, previous_record_sha256: createHash('sha256').update(original).digest('hex') };
+    if (chat) {
+      entry.source = chat.source!;
+      entry.said_at = chat.said_at!;
+      entry.relayed_by = chat.relayed_by!;
+    }
     candidate.restarts = [...asArray(project.restarts), entry];
     const ledger: Finding[] = [];
     ledgerRows(candidate, ledger, now);

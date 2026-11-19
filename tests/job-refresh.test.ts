@@ -10,7 +10,8 @@ import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock, interviewOptionsCommand, interviewAnswerCommand } from './clock.ts';
 import { optionContext } from '../src/choices.ts';
-import { clockedCli } from './helpers.ts';
+import { clockedCli, ownerChatArgs } from './helpers.ts';
+import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { locateParts } from '../src/parts-sections.ts';
@@ -18,11 +19,13 @@ import { generateExampleParts } from '../scripts/generate-example-parts.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { reviewActFindings, decodeReviewAct, reviewActVerdict } from '../src/review-act.ts';
 import { foldRigSignoff } from '../src/rig-signoff.ts';
+import { STAGES, stageIndex } from '../src/stages.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
 
 const WORDS = '  Synthetic owner review words.\r\n';
 // Measured 2.59s–3.67s per multi-spawn CLI + live host flow locally; 15_000ms tier avoids 5s default timeout flakes under load.
 const REFRESH_FLOW_TIMEOUT_MS = 15_000;
+const reopensThrough = (stage: string) => STAGES.slice(0, stageIndex(stage) + 1).map(({ id }) => ({ kind: 'reopen' as const, stage: id }));
 const roots: string[] = [];
 const legacyClis = new Map<string, string>();
 const opened: { proc: Bun.Subprocess; root: string }[] = [];
@@ -246,8 +249,8 @@ test('#475 source-linked clean interview record signoff ingests advances and off
   });
   expectExit0(await cli(root, ['interview', '--check', root]));
   const opening = await open(root, ['--plan']);
-  const view = await page(root, opening.url, 1);
-  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'interview' }]);
+  const view = await page(root, opening.url, 2);
+  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'interview' }, ...reopensThrough('interview')]);
   expect((view.head.source as JsonObject).subject).toBe('plan');
   const displayed = read(root);
   const planBefore = structuredClone(displayed.plan);
@@ -268,8 +271,8 @@ test('#475 source-linked clean interview record signoff ingests advances and off
   const report = JSON.parse(next.stdout) as { moves: JsonObject[] };
   expect(report.moves).toContainEqual(expect.objectContaining({ command: null, review_act: expect.objectContaining({ kind: 'signoff', stage: 'plan-approved' }) }));
   expectExit0(await cli(root, ['job', 'open', root, '--plan', '--reviewer', 'synthetic-owner', '--role', 'owner']));
-  const approvalPage = await page(root, opening.url, 1);
-  expect(approvalPage.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+  const approvalPage = await page(root, opening.url, 3);
+  expect(approvalPage.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'plan-approved' }, ...reopensThrough('plan-approved')]);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 async function preparedParts(): Promise<string> {
@@ -729,12 +732,14 @@ test('#467 source-linked direction verdict then record sign-off ingests and adva
 
   const record = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan']);
   expectExit0(record);
-  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: plan published', 'job: asked signoff direction-review']);
-  const recordView = await page(root, opening.url, 1);
+  const recordSubjects = [{ kind: 'signoff', stage: 'direction-review' }, ...reopensThrough('direction-review')];
+  expect(record.stdout.trim().split('\n')).toEqual([opening.url.href, 'job: plan published',
+    `job: asked ${recordSubjects.map(({ kind, stage }) => `${kind} ${stage}`).join(', ')}`]);
+  const recordView = await page(root, opening.url, recordSubjects.length);
   expect((recordView.head.source as JsonObject).subject).toBe('plan');
   expect((recordView.head.source as JsonObject).selector).toBeUndefined();
-  expect((recordView.head.source as JsonObject).subjects).toEqual([{ kind: 'signoff', stage: 'direction-review' }]);
-  expect(recordView.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'direction-review' }]);
+  expect((recordView.head.source as JsonObject).subjects).toEqual(recordSubjects);
+  expect(recordView.asks.map(ask => ask.subject)).toEqual(recordSubjects);
   const signed = await recordView.act('signoff', 'signoff', { stage: 'direction-review', decision: 'approved', words: WORDS });
   expect(signed.schema).toBe('rig-review/act@4');
   expect((signed.source as JsonObject).selector).toBeUndefined();
@@ -961,7 +966,8 @@ test('#574 folded rig shares live-target and retained-package refusal gates befo
   expect(() => foldRigSignoff(root, lost, decoded, bytes, baseline, testClock.now())).toThrow(expect.objectContaining({ code: 'SIGNOFF_TARGET_STALE' }));
   const stale = acceptedCandidate();
   stale.reopens = [{ stage: 'rig-review', from_stage: 'rig-review', by: 'user', at: act.at,
-    verbatim: 'Rebuild this synthetic rig.', steps_before: [] }];
+    verbatim: 'Rebuild this synthetic rig.', steps_before: [],
+    source: OWNER_CHAT_SOURCE, said_at: act.at, relayed_by: 'synthetic-relay' }];
   expect(() => foldRigSignoff(root, stale, decoded, bytes, baseline, testClock.now())).toThrow(expect.objectContaining({ code: 'RIG_VERSION_UNACCEPTED' }));
   const missing = acceptedCandidate();
   delete (missing.versions as JsonObject[])[0]!.review_package;
@@ -974,7 +980,7 @@ test('#574 fresh approval refuses actual reopen rigging before ingest without do
   testClock.set(testClock.now() + 1_000);
   const words = join(root, 'reopen-words.txt');
   writeFileSync(words, 'Rebuild this synthetic rig before accepting it.\r\n');
-  expectExit0(await cli(root, ['reopen', 'rigging', root, '--by', 'user', '--verbatim-file', words, '--json']));
+  expectExit0(await cli(root, ['reopen', 'rigging', root, '--by', 'user', ...ownerChatArgs(words), '--json']));
   expect(checkProject(root).effective_stage).toBe('rigging');
   const before = readFileSync(join(root, 'project.json'));
   const result = await cli(root, ['review', '1', root, '--from-review', String(act.actId), '--json']);

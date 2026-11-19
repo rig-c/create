@@ -9,7 +9,7 @@ import { answerRevisionHash, checkSignoffAnswers, selectAnswerHashes, SIGNOFF_AN
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, fixture, materializeFixture, obj, resignAfterChange, step, waypoint } from './fixtures.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { TEST_NOW, amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
@@ -98,7 +98,7 @@ test('later first answers are not missing from the earlier interview', () => {
 test('lapsed approvals never report changed answer bindings', () => {
   const dir = fixture(() => {}, 'example-project.json');
   testClock.set(new Date('2026-11-20T00:00:00Z'));
-  reopenCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
+  reopenCommand(['interview', dir, '--by', 'user', ...ownerChatArgs(words(dir))]);
   const p = load(dir); obj(waypoint(p, 'assemble').guide).verbatim = 'DISTINCT lapsed answer';
   expect(findings(dir, p)).toEqual([]);
 });

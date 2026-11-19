@@ -11,12 +11,16 @@ import { jobHash, jobPrivateRoot } from '../src/job-outbox.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { outputsHash } from '../src/signoff-target.ts';
 import { Refusal } from '../src/refusal.ts';
-import { stageIndex } from '../src/stages.ts';
+import { STAGES, stageIndex } from '../src/stages.ts';
 import { fixture, retainSignoffs, supersede, obj, arr } from './fixtures.ts';
 import { TEST_NOW } from './clock.ts';
 import { tempDir } from './helpers.ts';
 import { checkpointWorkspace } from './checkpoint-evidence-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
+
+function reopensThrough(stage: string) {
+  return STAGES.slice(0, stageIndex(stage) + 1).map(({ id }) => ({ kind: 'reopen' as const, stage: id }));
+}
 
 function save(root: string, project: JsonObject): void {
   writeFileSync(join(root, 'project.json'), JSON.stringify(project, null, 2) + '\n');
@@ -139,12 +143,12 @@ test('duplicate context declarations refuse even when the official context accep
   rejectsUnchanged(request(root));
 });
 
-test('pending plan reads the signoff answer evidence and binds only its effective stage', () => {
+test('pending plan reads the signoff answer evidence and binds the signoff to its effective stage', () => {
   const { root } = pending('plan-approved');
   const input = { ...request(root), result: { kind: 'plan' as const } };
   const before = snapshot(root);
   const context = readRecordPublished(input, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }]);
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'plan-approved' }, ...reopensThrough('plan-approved')]);
   expect(context.plan?.steps.length).toBeGreaterThan(0);
   expect(context.files.some(file => file.path.includes('interview'))).toBe(true);
   expect(snapshot(root)).toEqual(before);
@@ -229,7 +233,7 @@ test.each(['rigging-interview', 'post-interview'])('%s plan seals the current wr
   const before = snapshot(root);
   const input = { ...request(root), result: { kind: 'plan' as const }, phase: 'inventory' as const };
   const context = readRecordPublished(input, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage }]);
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage }, ...reopensThrough(stage)]);
   if (stage === 'rigging-interview') {
     const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
     const approval = project.signoffs.find((signature: JsonObject) => signature.stage === 'parts-review' && signature.checkpoint === null);
@@ -250,8 +254,7 @@ test.each(['plan-approved', 'rigging-interview', 'post-interview', 'direction-re
     const input = { ...request(root), result: { kind: 'plan' as const } };
     const before = snapshot(root);
     const first = readRecordPublished(input, TEST_NOW);
-    expect(first.subjects).toEqual([{ kind: 'signoff', stage }]);
-    expect(first.subjects.some(subject => subject.kind === 'reopen')).toBe(false);
+    expect(first.subjects).toEqual([{ kind: 'signoff', stage }, ...reopensThrough(stage)]);
     expect(readRecordPublished(input, TEST_NOW)).toEqual(first);
     expect(snapshot(root)).toEqual(before);
   },
@@ -304,7 +307,8 @@ test('an explicitly inapplicable empty post plan stays eligible under the writer
   signoffCommand(['interview', root, '--by', 'user', '--verbatim-file', words], TEST_NOW);
   const before = snapshot(root);
   const context = readRecordPublished({ ...request(root), result: { kind: 'plan' }, phase: 'inventory' }, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'post-interview' }]);
+  // The dated post versions still witness reach after the project moved back.
+  expect(context.subjects).toEqual([{ kind: 'signoff', stage: 'post-interview' }, ...reopensThrough('post')]);
   expect(snapshot(root)).toEqual(before);
 });
 
@@ -440,14 +444,14 @@ test('only an enabled at-checkpoint step is offered with canonical subject keys'
   }, 'example-project.json'));
   const input = { ...request(root), result: { kind: 'plan' as const } };
   const context = readRecordPublished(input, TEST_NOW);
-  expect(context.subjects).toEqual([{ kind: 'checkpoint', checkpointId: 'assemble' }]);
+  expect(context.subjects).toEqual([{ kind: 'checkpoint', checkpointId: 'assemble' }, ...reopensThrough('parts')]);
   expect(Object.keys(context.subjects[0]!)).toEqual(['kind', 'checkpointId']);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
   const step = obj(arr(obj(project.plan).steps).find(step => obj(step).id === 'assemble'));
   step.status = 'in-progress';
   step.status_history = arr(step.status_history).filter(entry => obj(entry).status === 'in-progress');
   save(root, project);
-  expect(readRecordPublished({ ...request(root), result: { kind: 'plan' } }, TEST_NOW).subjects).toEqual([]);
+  expect(readRecordPublished({ ...request(root), result: { kind: 'plan' } }, TEST_NOW).subjects).toEqual(reopensThrough('parts'));
 });
 
 /** The host's own parts identity, read independently from create's install and lockfile. */

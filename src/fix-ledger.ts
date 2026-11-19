@@ -11,6 +11,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
+import { REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding } from './owner-chat.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { newRefusals } from './refusal-baseline.ts';
@@ -185,7 +186,7 @@ export interface LedgerSummary { readonly draft: string; readonly fixes: string[
  * per-draft fixes check reports.
  */
 export function checkFixLedger(dir: string, project: JsonObject, refusals: Finding[], warnings: Finding[], now: number): LedgerSummary[] {
-  checkRestarts(project, refusals);
+  checkRestarts(project, refusals, warnings);
   const rows = ledgerRows(project, refusals, now);
   const drafts = asArray(project.drafts);
   if (rows === null && drafts.length > 0) {
@@ -257,12 +258,22 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
   return summaries;
 }
 
-function checkRestarts(project: JsonObject, refusals: Finding[]): void {
+function checkRestarts(project: JsonObject, refusals: Finding[], warnings: Finding[]): void {
   if (project.restarts === undefined) return;
   if (!Array.isArray(project.restarts)) { refusals.push(finding('RESTART_MALFORMED', 'restarts', 'expected a list written by restart')); return; }
   project.restarts.forEach((raw, index) => {
+    const path = `restarts[${index}]`;
+    if (isObject(raw) && typeof raw.by === 'string' && raw.by.trim().toLowerCase() === 'agent') {
+      refusals.push(finding('SIGNOFF_NOT_HUMAN', `${path}.by`, 'signed by agent; record the human who ordered the restart'));
+      return;
+    }
     if (!isObject(raw) || !Number.isFinite(time(raw.at)) || !text(raw.by) || !text(raw.reason) || !hex(raw.previous_record_sha256)) {
-      refusals.push(finding('RESTART_MALFORMED', `restarts[${index}]`, 'needs { at, by, reason, previous_record_sha256 }; restore the entry restart wrote'));
+      refusals.push(finding('RESTART_MALFORMED', path, 'needs { at, by, reason, previous_record_sha256 }; restore the entry restart wrote'));
+      return;
+    }
+    const authority = ownerChatAuthorityFinding(raw, path, raw.reason);
+    if (authority) {
+      (authority.code === 'OWNER_CHAT_REQUIRED' && time(raw.at) < Date.parse(REOPEN_RESTART_OWNER_CHAT_SINCE) ? warnings : refusals).push(authority);
     }
   });
 }

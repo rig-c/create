@@ -21,6 +21,8 @@ import { checkFixLedger, draftLedgerFields } from './fix-ledger.ts';
 import { EDITED_PART_INPUTS_SINCE, editedPartInputFindings } from './edited-part-inputs.ts';
 import type { Json, JsonObject } from './templates.ts';
 
+export const DRAFT_STACK_BINDING_SINCE = '2026-11-19T00:00:00Z';
+
 const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const hex = (v: Json | undefined): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const inside = (root: string, path: string): boolean => { const rel = relative(root, path); return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
@@ -68,6 +70,12 @@ function partsInventory(dir: string, path: string, root: string): { files: JsonO
 
 function binding(v: Json | undefined): v is JsonObject {
   return isObject(v) && typeof v.path === 'string' && hex(v.sha256);
+}
+
+function isBuildInventory(files: Json[], from: string): boolean {
+  return files.some(f => binding(f) && f.path === `${from}/parts.json`)
+    && files.some(f => binding(f) && String(f.path).startsWith(`${from}/parts/`))
+    && files.some(f => binding(f) && f.path === `${from}/rig/rig.json`);
 }
 
 /** parts' rig-run/1 stamp sits beside the rig.json it names: `<out>/run.json` of `rig --out`, which is `<root>/rig/run.json` in a build root. */
@@ -148,12 +156,25 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
     const parts = raw.parts;
     const all = [raw.config, ...asArray(parts.files), ...asArray(raw.files), ...asArray(raw.config_inputs)];
     const inputs = new Set(asArray(raw.config_inputs));
+    const manifestPath = `${String(parts.path)}/parts.json`;
     if (raw.config_inputs !== undefined && (!Array.isArray(raw.config_inputs) || raw.config_inputs.some(f => !binding(f)))) { add('DRAFT_RIG_MALFORMED', path, 'config_inputs must bind paths and sha256 hashes'); continue; }
     if (asArray(raw.config_inputs).some(f => isObject(f) && f.directory !== undefined && (typeof f.directory !== 'string' || f.path !== `${f.directory}/${DIRECTORY_INPUT_RECEIPT}` || typeof f.spec !== 'string' || !f.spec))) { add('DRAFT_RIG_MALFORMED', path, `a config_inputs directory binding must bind <directory>/${DIRECTORY_INPUT_RECEIPT} and its receipt spec`); continue; }
     if (raw.files.length === 0 || asArray(parts.files).length === 0 || all.some(f => !binding(f))
-      || !asArray(parts.files).some(f => binding(f) && f.path === `${String(parts.path)}/parts.json`)) { add('DRAFT_RIG_MALFORMED', path, 'file inventories must bind config, parts.json and output'); continue; }
-    const rigs = asArray(raw.files).filter(f => binding(f) && String(f.path).endsWith('/rig.json'));
-    if (rigs.length !== 1 || !['motion.json', 'mesh_report.json'].every(name => asArray(raw.files).some(f => binding(f) && f.path === String((rigs[0] as JsonObject).path).replace(/rig\.json$/, name)))) { add('DRAFT_RIG_MALFORMED', path, 'expected one complete rig output layout'); continue; }
+      || !asArray(parts.files).some(f => binding(f) && f.path === manifestPath)) { add('DRAFT_RIG_MALFORMED', path, 'file inventories must bind config, parts.json and output'); continue; }
+    const files = raw.files.filter(binding);
+    const rigs = files.filter(f => String(f.path).endsWith('/rig.json'));
+    const rigPath = String(rigs[0]?.path);
+    if (rigs.length !== 1 || !['motion.json', 'mesh_report.json'].every(name => files.some(f => f.path === rigPath.replace(/rig\.json$/, name)))) { add('DRAFT_RIG_MALFORMED', path, 'expected one complete rig output layout'); continue; }
+    const buildSuffix = '/rig/rig.json';
+    const build = rigPath.endsWith(buildSuffix) && isBuildInventory(files, rigPath.slice(0, -buildSuffix.length));
+    if (!build && raw.reuse === undefined) {
+      const candidates = diffStackCandidates(resolve(dir, manifestPath)).map(file => relative(dir, file).split(sep).join('/'));
+      if (!files.some(f => candidates.includes(String(f.path)))) {
+        const field = `${path}.files`;
+        const findings = Date.parse(raw.at) < Date.parse(DRAFT_STACK_BINDING_SINCE) ? warnings : refusals;
+        findings.push({ code: 'DRAFT_RIG_STACK_UNBOUND', path: field, message: `${field}: no sha256 binding for ${candidates.join(' or ')}; preserve this record and register a new draft with draft-rig --parts and the retained recomposite` });
+      }
+    }
     const unavailable = new Set<string>();
     for (const entry of all) {
       if (!binding(entry)) continue;
@@ -167,7 +188,7 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         if (input && entry.directory !== undefined && receiptSpec(bytes) !== entry.spec) throw new Error(`${file} declares spec ${JSON.stringify(receiptSpec(bytes))}, not the recorded ${JSON.stringify(entry.spec)}`);
       } catch (error) { add('DRAFT_RIG_FILE', path, error instanceof Error ? error.message : String(error)); }
     }
-    const stamp = stampBeside(String((rigs[0] as JsonObject).path));
+    const stamp = stampBeside(rigPath);
     const stampBinding = asArray(raw.files).find(f => binding(f) && f.path === stamp) as JsonObject | undefined;
     const recorded = `${raw.producer.name}@${raw.producer.version}`;
     let stampedProducer: JsonObject | undefined;
@@ -188,7 +209,6 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
       }
     }
     let editedInputs = new Set<string>();
-    const manifestPath = `${String(parts.path)}/parts.json`;
     const manifestBinding = asArray(parts.files).find(f => binding(f) && f.path === manifestPath) as JsonObject;
     let manifestBytes: Buffer | undefined;
     try {
@@ -336,9 +356,8 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     try {
       const from = opts['--from'];
       const output = inventory(dir, from, root);
-      const has = (name: string): boolean => output.some(f => f.path === `${from}/${name}`);
-      const build = has('parts.json') && output.some(f => String(f.path).startsWith(`${from}/parts/`)) && has('rig/rig.json');
-      const standalone = has('rig.json');
+      const build = isBuildInventory(output, from);
+      const standalone = output.some(f => f.path === `${from}/rig.json`);
       if (build === standalone) throw new Error('ambiguous or missing build/standalone rig layout');
       if (standalone && !opts['--parts']) throw new Error('standalone rig output needs --parts');
       const parts = opts['--parts'] ?? from;
@@ -346,7 +365,13 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       const candidates = diffStackCandidates(resolve(dir, parts, 'parts.json'));
       const present = candidates.filter(file => existsSync(file));
       if (present.length > 1 || (present.length === 0 && reuseId === undefined)) refuse('DRAFT_RIG_STACK', `drafts[${id}].parts.path: ${parts}/parts.json has ${present.length === 0 ? 'no stack candidate' : 'ambiguous stack candidates'} (${candidates.map(file => relative(dir, file)).join(', ')}); re-run rig-parts build into the draft output, or keep assemble's render/ beside rig/`);
-      if (present[0] !== undefined) fileAt(dir, relative(dir, present[0]).split(sep).join('/'), root);
+      if (present[0] !== undefined) {
+        const stackPath = relative(dir, present[0]).split(sep).join('/');
+        const stack = fileAt(dir, stackPath, root);
+        if (standalone && !output.some(f => f.path === stackPath)) {
+          output.push({ path: stackPath, sha256: sha(readFileSync(stack)) });
+        }
+      }
       const rigPrefix = build ? `${from}/rig` : from;
       for (const name of ['rig.json', 'motion.json', 'mesh_report.json']) if (!output.some(f => f.path === `${rigPrefix}/${name}`)) throw new Error(`${name}: missing rig output`);
       const configFile = fileAt(dir, opts['--config'], root);

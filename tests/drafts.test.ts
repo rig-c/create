@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { cpSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
-import { checkDrafts, draftInputUnavailable, draftVersionFindings } from '../src/drafts.ts';
+import { checkDrafts, DRAFT_STACK_BINDING_SINCE, draftInputUnavailable, draftVersionFindings } from '../src/drafts.ts';
 import { configInputReferences, DRAFT_CONFIG_INPUTS_SINCE, plateReceiptSpec } from '../src/config-inputs.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -14,6 +14,7 @@ import { retainedPartsFiles } from './draft-fixture.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { restartCommand } from '../src/restart.ts';
 import { gitEnv, ownerChatArgs, run } from './helpers.ts';
+import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 
 function write(dir: string, path: string, bytes = '{}'): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); }
 function draft(build = false): { dir: string; args: string[] } {
@@ -36,6 +37,10 @@ test.each([false, true])('draft recorder binds standalone/build=%s without creat
   expect(record.config_inputs).toBeUndefined();
   expect(record.kind).toBe('draft-rig'); expect(record.handoff).toBeUndefined();
   expect(arr(obj(record.parts).files)).toHaveLength(2);
+  const stack = `derived/drafts/sample/${build ? 'out' : 'inputs'}/recomposite_rig.png`;
+  expect(arr(record.files).filter(file => obj(file).path === stack)).toEqual([
+    { path: stack, sha256: createHash('sha256').update(readFileSync(join(dir, stack))).digest('hex') },
+  ]);
   expect(read(dir).versions).toEqual(before.versions);
   expect(read(dir).signoffs).toEqual(before.signoffs);
   expect(checkProject(dir).refusals).toEqual([]);
@@ -265,16 +270,68 @@ test('standalone assemble stack beside rig records and two stack candidates refu
   const parts = `${root}/rig`;
   write(dir, `${parts}/parts.json`);
   write(dir, `${parts}/parts/piece.png`, 'synthetic part bytes');
-  write(dir, `${root}/render/recomposite_rig.png`, 'synthetic stack bytes');
+  const stack = `${root}/render/recomposite_rig.png`;
+  write(dir, stack, 'synthetic stack bytes');
   args[args.indexOf('--parts') + 1] = parts;
   const record = JSON.parse(draftRigCommand(args).stdout) as JsonObject;
   expect(obj(record.parts).path).toBe(parts);
+  expect(arr(record.files).filter(file => obj(file).path === stack)).toEqual([
+    { path: stack, sha256: createHash('sha256').update(readFileSync(join(dir, stack))).digest('hex') },
+  ]);
+  write(dir, stack, 'changed stack bytes');
+  expect(checkProject(dir).refusals.map(f => f.code)).toContain('DRAFT_RIG_FILE');
   const p = read(dir); p.drafts = [];
   writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
   write(dir, `${parts}/recomposite_rig.png`, 'synthetic stack bytes');
   const before = readFileSync(join(dir, 'project.json'));
   rejected(() => draftRigCommand(args), 'DRAFT_RIG_STACK');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test('standalone drafts without a stack binding warn before the cutoff and refuse from it', () => {
+  const { dir, args } = draft();
+  draftRigCommand(args);
+  const project = read(dir);
+  const record = obj(arr(project.drafts)[0]);
+  record.files = arr(record.files).filter(file => obj(file).path !== 'derived/drafts/sample/inputs/recomposite_rig.png');
+  const stackFinding = { code: 'DRAFT_RIG_STACK_UNBOUND', path: 'drafts[0].files' };
+  record.at = new Date(Date.parse(DRAFT_STACK_BINDING_SINCE) - 1).toISOString();
+  const legacy = checkProject(dir, project);
+  expect(legacy.refusals).toEqual([]);
+  expect(legacy.warnings).toContainEqual(expect.objectContaining(stackFinding));
+  record.at = DRAFT_STACK_BINDING_SINCE;
+  const current = checkProject(dir, project);
+  expect(current.refusals).toEqual([expect.objectContaining(stackFinding)]);
+  expect(current.warnings).not.toContainEqual(expect.objectContaining(stackFinding));
+});
+
+test('standalone registration refuses a missing stack before changing the record', () => {
+  const { dir, args } = draft();
+  rmSync(join(dir, 'derived/drafts/sample/inputs/recomposite_rig.png'));
+  const before = readFileSync(join(dir, 'project.json'));
+  rejected(() => draftRigCommand(args), 'DRAFT_RIG_STACK');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+});
+
+test.each([false, true])('standalone draft reuse keeps the stack optional, present=%s', present => {
+  const { dir, args } = draft();
+  const source = 'derived/drafts/sample';
+  const target = 'derived/drafts/reused';
+  write(dir, `${source}/inputs/parts.json`, JSON.stringify({ parts: [{ name: 'synthetic', from: 'painting:synthetic' }] }));
+  draftRigCommand(args);
+  recordPartsReceipt(dir, 'sample', testClock.now());
+  cpSync(join(dir, source), join(dir, target), { recursive: true });
+  const stack = `${target}/inputs/recomposite_rig.png`;
+  if (!present) rmSync(join(dir, stack));
+  const result = draftRigCommand(['reused', dir, '--config', `${target}/config.json`, '--from', `${target}/out`, '--parts', `${target}/inputs`, '--reuse', 'sample', '--json']);
+  expect(result.exit).toBe(0);
+  const record = JSON.parse(result.stdout) as JsonObject;
+  const stacks = arr(record.files).filter(file => obj(file).path === stack);
+  const expected = present ? [{ path: stack, sha256: createHash('sha256').update(readFileSync(join(dir, stack))).digest('hex') }] : [];
+  expect(stacks).toEqual(expected);
+  const report = checkProject(dir);
+  expect(report.refusals).toEqual([]);
+  expect(report.warnings.map(f => f.code)).not.toContain('DRAFT_RIG_STACK_UNBOUND');
 });
 
 /** A synthetic occluder matte at the project's inputs/, named from the draft config as the pinned loader declares it. */

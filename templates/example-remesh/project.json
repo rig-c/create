@@ -3890,6 +3890,10 @@
         {
           "path": "derived/drafts/remesh/out/run.json",
           "sha256": "cf7b175a184c87a9bd12b5d794f590c15bf3faa9d523ff5fbf957cc87596ad7a"
+        },
+        {
+          "path": "derived/drafts/remesh/input/recomposite_rig.png",
+          "sha256": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f"
         }
       ],
       "config_inputs": [

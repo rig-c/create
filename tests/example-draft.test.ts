@@ -1,5 +1,6 @@
 import type { JsonObject } from '../src/templates.ts';
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { cpSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_SOURCE_DATE_EPOCH, exampleTime, retimeExample } from '../scripts/example-time.ts';
@@ -204,19 +205,25 @@ test('the installed producer reproduces every bound draft output from the retain
   { cwd: draft, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, SOURCE_DATE_EPOCH: EXAMPLE_SOURCE_DATE_EPOCH } });
   expect(compiled.exitCode).toBe(0);
   const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  const files = project.drafts[0].files as { path: string; sha256: string }[];
+  const outputPrefix = `${EXAMPLE_DRAFT}/out/`;
   const outputs: string[] = [];
   const compare = (path: string): void => {
     for (const entry of readdirSync(join(out, path), { withFileTypes: true })) {
       const child = path ? `${path}/${entry.name}` : entry.name;
       if (entry.isDirectory()) compare(child);
       else {
-        outputs.push(`${EXAMPLE_DRAFT}/out/${child}`);
+        outputs.push(`${outputPrefix}${child}`);
         expect(readFileSync(join(dir, EXAMPLE_DRAFT, 'out', child))).toEqual(readFileSync(join(out, child)));
       }
     }
   };
   compare('');
-  expect(outputs.sort()).toEqual(project.drafts[0].files.map((file: { path: string }) => file.path).sort());
+  expect(outputs.sort()).toEqual(files.filter(file => file.path.startsWith(outputPrefix)).map(file => file.path).sort());
+  const composite = `${EXAMPLE_DRAFT}/input/recomposite_rig.png`;
+  expect(files.filter(file => !file.path.startsWith(outputPrefix))).toEqual([
+    { path: composite, sha256: createHash('sha256').update(readFileSync(join(dir, composite))).digest('hex') },
+  ]);
   expect(checkProject(dir).refusals).toEqual([]);
   expect(checkProject(dir).warnings).toEqual([]);
 }, 30_000);
@@ -240,7 +247,7 @@ test('generation preserves historical approval fields and writes answer and revi
   expect((generated.project.signoffs as JsonObject[]).filter(s => s.target).map(s => (s.target as JsonObject).version)).toEqual([2, 4]);
 }, 30_000);
 
-test('one byte changed in any retained draft output is refused by code and path', () => {
+test('one byte changed in any bound draft file is refused by code and path', () => {
   const template = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-project.json'), 'utf8'));
   for (const file of template.drafts[0].files as { path: string }[]) {
     const dir = fixture(() => {}, 'example-project.json');

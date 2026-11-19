@@ -14,17 +14,24 @@ import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_DIFF_REPORT, generateDiffFixture } from './diff-fixture.ts';
 import { arr, fixture, historicalFixture, obj, rehashSignoffs, retimeFixture } from './fixtures.ts';
 import { cli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
+import { EXAMPLE_PARTS_DIR as SOURCE_PARTS_DIR } from './parts-package.ts';
 const EXAMPLE_PARTS_DIR = 'derived/drafts/receipt-fixture/input/rig';
+const ASSEMBLE_STACK = 'derived/drafts/receipt-fixture/input/render/recomposite_rig.png';
 const RECEIPT_FLAGS = ['--draft', 'receipt-fixture', '--structure-file', 'evidence/receipt-fixture-structure.json'];
 import { checkProject, reopenCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const reports: Record<string, string> = {};
+let emptyStack: Buffer;
 beforeAll(() => {
   for (const [name, floor, threshold, other, identical, owners] of [
     ['normal', 2, 40, false, false, false], ['owners', 2, 40, false, false, true], ['other', 2, 40, true, false, false],
     ['floor', 3, 40, false, false, false], ['threshold', 2, 41, false, false, false], ['empty', 2, 40, false, true, false],
-  ] as const) reports[name] = generateDiffFixture(join(tempDir(), name), floor, threshold, other, identical, owners);
+  ] as const) {
+    const inputs = join(tempDir(), name);
+    reports[name] = generateDiffFixture(inputs, floor, threshold, other, identical, owners);
+    if (identical) emptyStack = readFileSync(join(inputs, 'recomposite_rig.png'));
+  }
 });
 afterEach(() => testClock.reset());
 
@@ -37,9 +44,11 @@ function rigging(p: JsonObject): void {
   p.signoffs = arr(p.signoffs).filter((s) => ['interview', 'plan-approved', 'parts', 'parts-review'].includes(String(obj(s).stage)) && !Array.isArray(obj(s).steps));
   for (const s of arr(obj(p.plan).steps).map(obj)) if (s.phase === 'post' || ['bones', 'meshes', 'constraints', 'motion'].includes(String(s.id))) s.status = 'pending';
 }
-function project(edit: (s: JsonObject, project: JsonObject) => void = () => {}, name = 'normal', historical = false): string {
+function project(edit: (s: JsonObject, project: JsonObject) => void = () => {}, name = 'normal', historical = false, layout: 'build' | 'assemble' = 'build'): string {
   const report = reports[name];
   const materialize = historical ? historicalFixture : fixture;
+  const files: Record<string, string | Uint8Array> = { [EXAMPLE_DIFF_REPORT]: report };
+  if (name === 'empty') files[`${SOURCE_PARTS_DIR}/recomposite_rig.png`] = emptyStack;
   const dir = materialize((p) => {
     rigging(p);
     const s = signoff(p);
@@ -58,7 +67,14 @@ function project(edit: (s: JsonObject, project: JsonObject) => void = () => {}, 
       };
     }
     edit(s, p);
-  }, 'legacy-example-project.json', { [EXAMPLE_DIFF_REPORT]: report });
+  }, 'legacy-example-project.json', files);
+  if (layout === 'assemble') {
+    // The receipt fixture copies the source stack beside parts.json if present.
+    // Stage assemble's sibling render before the draft writer seals either path.
+    const stack = join(dir, ASSEMBLE_STACK);
+    mkdirSync(dirname(stack), { recursive: true });
+    renameSync(join(dir, SOURCE_PARTS_DIR, 'recomposite_rig.png'), stack);
+  }
   preparePartsApproval(dir, historical ? Date.parse('2026-11-05T00:00:00Z') : testClock.now());
   return dir;
 }
@@ -76,22 +92,17 @@ function only(dir: string, code: string): string {
   expect(finding.message).toContain('diff_map');
   return finding.message;
 }
-function moveToAssemble(dir: string): void {
-  const to = join(dir, EXAMPLE_PARTS_DIR, '../render/recomposite_rig.png');
-  mkdirSync(dirname(to), { recursive: true });
-  renameSync(join(dir, EXAMPLE_PARTS_DIR, 'recomposite_rig.png'), to);
-}
-
 describe('B0 normal writer and both producer layouts', () => {
-  test.each(['build', 'assemble'])('%s permits rigging with every component listed', (layout) => {
-    const dir = project();
+  test.each(['build', 'assemble'] as const)('%s permits rigging with every component listed', (layout) => {
+    const dir = project(undefined, 'normal', false, layout);
     const p = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const stack = layout === 'assemble' ? ASSEMBLE_STACK : `${EXAMPLE_PARTS_DIR}/recomposite_rig.png`;
+    expect(arr(obj(arr(p.drafts)[0]).files)).toContainEqual({ path: stack, sha256: sha(readFileSync(join(dir, stack))) });
     testClock.reset();
     retimeFixture(p, testClock.now());
     writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
     writeFileSync(join(dir, 'words.txt'), 'Revisit the synthetic parts.');
     reopenCommand(['parts-review', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'words.txt'))]);
-    if (layout === 'assemble') moveToAssemble(dir);
     testClock.set(testClock.now() + 1000);
     const result = writer(dir);
     expect(result.code).toBe(0);
@@ -113,10 +124,6 @@ describe('B0 normal writer and both producer layouts', () => {
   });
   test('a zero-component producer report needs no component flags', () => {
     const dir = project(() => {}, 'empty');
-    // This report was measured on the identical-painting stack.
-    const inputs = join(tempDir(), 'empty-stack');
-    generateDiffFixture(inputs, 2, 40, false, true);
-    writeFileSync(join(dir, EXAMPLE_PARTS_DIR, 'recomposite_rig.png'), readFileSync(join(inputs, 'recomposite_rig.png')));
     expect(writer(dir, []).code).toBe(0);
     expect(checkProject(dir).refusals).toEqual([]);
   });

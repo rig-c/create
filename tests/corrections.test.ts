@@ -192,30 +192,38 @@ function partImageFixture(opts: { modelless?: boolean; legacyOrder?: boolean; ed
   roots.push(root);
   const dir = join(root, 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), dir, { recursive: true });
+  const pristine = load(dir);
   if (opts.legacyOrder) {
-    const legacy = load(dir);
-    const interview = legacy.interview as JsonObject;
+    const interview = pristine.interview as JsonObject;
     delete interview.order;
-    legacy.stage_values = [...LEGACY_STAGE_VALUES];
+    pristine.stage_values = [...LEGACY_STAGE_VALUES];
     for (const raw of interview.waypoints as JsonObject[]) {
       if (raw.guide === null) raw.guide = { not_applicable: true, because: 'synthetic legacy-order fixture' };
     }
-    const signoffs = legacy.signoffs as JsonObject[];
+    const signoffs = pristine.signoffs as JsonObject[];
     const stepHashes = signoffs[1]!.step_hashes as JsonObject;
-    for (const step of (legacy.plan as JsonObject).steps as JsonObject[]) {
+    for (const step of (pristine.plan as JsonObject).steps as JsonObject[]) {
       if (step.phase !== 'rig') continue;
       if (step.checkpoint === null) step.checkpoint = { delegated: false, by: 'user', at: signoffs[1]!.at, verbatim: signoffs[1]!.verbatim, value: step.checkpoint_proposed };
       stepHashes[String(step.id)] = stepHash(step);
     }
     delete signoffs[1]!.steps;
-    signoffs[0]!.answer_hashes = selectAnswerHashes(dir, legacy, signoffs[0]!)!;
-    signoffs[1]!.answer_hashes = selectAnswerHashes(dir, legacy, signoffs[1]!)!;
-    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(legacy, null, 2)}\n`);
+    signoffs[0]!.answer_hashes = selectAnswerHashes(dir, pristine, signoffs[0]!)!;
+    signoffs[1]!.answer_hashes = selectAnswerHashes(dir, pristine, signoffs[1]!)!;
   }
+  const partsRoot = 'derived/drafts/chain/input';
+  // The parts-check fixture copies its input tree over the scratch checkpoint before any writer runs.
+  const partsCheckArgs = withPartsCheck(dir, partsRoot);
+  const stackPath = `${partsRoot}/recomposite_rig.png`;
+  const stackHash = correctionHash(readFileSync(join(dir, stackPath)));
+  const chain = (pristine.drafts as JsonObject[]).find(draft => draft.id === 'chain')!;
+  const stackBinding = (chain.files as JsonObject[]).find(file => file.path === stackPath)!;
+  stackBinding.sha256 = stackHash;
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(pristine, null, 2)}\n`);
   testClock.set(new Date('2026-11-06T01:02:05Z'));
-  advanceCommand(['parts-review', dir, ...withPartsCheck(dir, 'derived/drafts/chain/input')]);
+  advanceCommand(['parts-review', dir, ...partsCheckArgs]);
   const diffReport = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), 'utf8')) as JsonObject;
-  (diffReport.stack as JsonObject).sha256 = correctionHash(readFileSync(join(dir, 'derived/drafts/chain/input/recomposite_rig.png')));
+  (diffReport.stack as JsonObject).sha256 = stackHash;
   writeFileSync(join(dir, 'evidence/diff-components.json'), `${JSON.stringify(diffReport, null, 2)}\n`);
   const initial = load(dir);
   initial.drafts = [];

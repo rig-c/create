@@ -57,7 +57,12 @@ export function assertSignoffCandidate(dir: string, asRead: CheckReport, project
   const reopens = collectReopens(project, []);
   const frontier = furthestStageSignoff(collectSignoffs(project, []).filter(s => liveSignoff(reopens, s.stage, s.at)));
   const ownLag = signoff.checkpoint === null && frontier?.index === signoffs.length - 1;
-  const candidateRefusals = checkProject(dir, project, { now }).refusals;
+  const candidateRefusals = checkProject(dir, project, { now, readOnly: true }).refusals;
+  // This signature approves the depth plan itself: carrying its refusal is not an approval waiver.
+  if (signoff.stage === 'rigging-interview' && signoff.checkpoint === null) {
+    const depth = candidateRefusals.find(finding => finding.code === 'RIG_DEPTH_PLAN_MISSING');
+    if (depth) refuse(depth.code, depth.message);
+  }
   // Refusals the record already carried do not block the signature (docs/PROJECT.md); a new one does.
   const fresh = new Set(newFindings(baselineOf(asRead), candidateRefusals));
   const pendingOwnAdvance = (finding: Finding): boolean => ownLag && finding.code === 'STAGE_LAGGING';

@@ -1715,7 +1715,7 @@ New interviews put `turn` and `depth` on rigging waypoint `turn`.
 
 | Code | Meaning and remedy |
 | --- | --- |
-| `RIG_DEPTH_PLAN_MISSING` | `plan.steps[turn]` is absent or ordered after the rig steps for an approved depth turn. Draft a rig-phase depth step resting on `turn` before the rig steps and approve it at rigging-interview. Answers before `HEAD_TURN_SINCE` WARN. |
+| `RIG_DEPTH_PLAN_MISSING` | At `rigging-interview`, before signoff, `plan.steps[turn]` is absent or ordered after the rig steps for a depth turn. Use `plan revise turn --order <before the first rigging step>`, or `plan add turn --phase rig --rests-on turn --order <before the first rigging step>` if absent, then approve it at rigging-interview. Publication and ingest both refuse an invalid depth plan. Answers before `HEAD_TURN_SINCE` WARN. |
 | `RIG_DEPTH_BINDING_MISSING` | A depth-driven rig lacks its retained producer manifests. Register a new rig version with rig's `depth_sheets.json`; for per-part depth include `--depth-manifest` and parts' `depth-report.json`. Before `HEAD_TURN_SINCE` this is a WARN. |
 | `RIG_DEPTH_BINDING_INVALID` | `versions[].registration.depth` has changed bytes, the wrong producer spec, or disagrees with its retained inventory/report manifest hash. Pre-depth accepted source parts bind the prepare manifest's parts hash; already depth-applied accepted parts bind the identical registered parts and the producer report-to-manifest chain. Restore the exact retained producer files or register a new rig version. |
 

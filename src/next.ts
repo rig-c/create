@@ -868,6 +868,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const isResolvableLagging = (finding: Finding): boolean =>
     finding.code === 'STAGE_LAGGING' && (laggingAdvance !== null || (stage === 'post' && !directionReviewPostState(dir, project, now).ready));
 
+  const depthFinding = effectiveStage === 'rigging-interview'
+    ? [...report.refusals, ...report.warnings].find(finding => finding.code === 'RIG_DEPTH_PLAN_MISSING') : undefined;
+  const depthMoves: NextMove[] = depthFinding ? [{ role: 'agent', field: 'plan.steps[turn]', awaits: 'plan.steps[turn]', command: null,
+    act: `${depthFinding.code}: ${depthFinding.message}. Record the chosen depth route and reason in its text, with a bar that reads the producer depth reports.` }] : [];
   const hasBlockingRefusal =
     holes.length > 0 ||
     report.refusals.some(r => !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
@@ -881,8 +885,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       accepted: false,
       refusals,
       ...warningFields,
-      awaits: registrations.map(move => move.awaits),
-      moves: registrations,
+      awaits: [...depthMoves, ...registrations].map(move => move.awaits),
+      moves: [...depthMoves, ...registrations],
     };
   }
 
@@ -890,8 +894,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const addAwait = (target: string): void => {
     if (!awaitsList.includes(target)) awaitsList.push(target);
   };
-  const moves: NextMove[] = [...registrations];
-  registrations.forEach(move => addAwait(move.awaits));
+  const moves: NextMove[] = [...depthMoves, ...registrations];
+  moves.forEach(move => addAwait(move.awaits));
   // The check owns bounce/withdrawal/answer logic; consume its open findings.
   const openFeedback = report.warnings.filter(w => w.code === 'FEEDBACK_OPEN');
   if (openFeedback.length > 0) {
@@ -1119,12 +1123,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const splitOrder = hasStageOrder(project);
   const drafts = asArray(project.drafts).filter(isObject);
   const versions = asArray(project.versions).filter(isObject);
-  if (effectiveStage === 'rigging-interview' && depthPlanMoves(project, collection).length > 0
-    && !steps.some(s => s.id === 'turn' && s.phase === 'rig')) {
-    addAwait('plan.steps[turn]');
-    moves.push({ role: 'agent', field: 'plan.steps[turn]', awaits: 'plan.steps[turn]', command: null,
-      act: 'Draft plan add turn --phase rig --rests-on turn before the rig steps, record the chosen depth route and reason in its text, with a bar that reads the producer depth reports; approve it at rigging-interview.' });
-  }
 
   if (stage === PAUSED_STAGE) {
     const resumeTarget = pausedFrom(project);

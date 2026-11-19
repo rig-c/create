@@ -48,6 +48,11 @@ export class PartsUnreadable extends Error {
 
 const load = createRequire(import.meta.url);
 
+/** Load a source entry by path from the selected installed Parts package. */
+export function loadPartsSource(partsDir: string, source: string): unknown {
+  return load(join(partsDir, source));
+}
+
 /** Create's runtime-resolved dependency install, used when a project has none (running the check in this repo, or before `bun install` in a project). */
 const checkoutNodeModules = join(import.meta.dir, '..', 'node_modules');
 export const OWN_NODE_MODULES = existsSync(join(checkoutNodeModules, PARTS_PACKAGE, 'package.json'))
@@ -91,7 +96,7 @@ export function readPartsSections(projectDir: string): PartsSections {
     new PartsUnreadable('PARTS_SECTIONS_UNREADABLE', `${PARTS_PACKAGE} ${version} at ${dir}: ${why}; the section list cannot be derived (it is exported from 2.3.0)`);
   let mod: unknown;
   try {
-    mod = load(join(dir, CONFIG_SOURCE));
+    mod = loadPartsSource(dir, CONFIG_SOURCE);
   } catch (e) {
     throw unreadable(`${CONFIG_SOURCE} does not load (${e instanceof Error ? e.message : String(e)})`);
   }

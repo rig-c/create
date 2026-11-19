@@ -11,6 +11,7 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
 import { collectAmendments } from './amend.ts';
+import { RunRecordError, validateRunRecord } from './run-record.ts';
 import { stageIndex } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { reviewConfigInputs, reviewHandoffInputs } from './review-package.ts';
@@ -560,16 +561,142 @@ export function correctionsAdopted(project: JsonObject): boolean { return isObje
 export function correctionIsLive(project: JsonObject, r: JsonObject): boolean {
   return date(r.at) > reopenTime(collectReopens(project, []), String(r.stage));
 }
+
+export function meshDeltaKey(artifact: JsonObject): string {
+  return JSON.stringify([artifact.actId, artifact.skin, artifact.slot, artifact.attachment]);
+}
+
+function validateMeshDeltaOutcome(dir: string, record: JsonObject, art: JsonObject, now: number): JsonObject {
+  const invalid = (detail: string): never => fail('CORRECTION_MESH_DELTA_INVALID', detail);
+  const outcome = record.outcome;
+  const closure = record.closure;
+  if (record.schema !== CORRECTION_SPEC || record.path !== 'made' || record.stage !== 'rig-review' || record.by !== 'user'
+    || !closed(art, ['kind', 'actId', 'sourceHash', 'payloadSha256', 'skin', 'slot', 'attachment'])
+    || !text(art.actId) || !hex(art.sourceHash) || !hex(art.payloadSha256)
+    || art.skin !== 'default' || !text(art.slot) || art.slot !== art.attachment
+    || !isObject(closure) || !closed(closure, ['by', 'at', 'reasoning']) || closure.by !== 'agent' || !text(closure.reasoning)
+    || !Number.isFinite(date(closure.at)) || date(closure.at) < date(record.at) || date(closure.at) > now) {
+    return invalid('mesh delta requires a finalized rig-review identity and a dated agent closure');
+  }
+  if (!isObject(outcome) || !closed(outcome, ['kind', 'revision', 'code', 'object', 'provenance', 'written'])
+    || outcome.kind !== 'mesh-delta' || !text(outcome.revision) || outcome.code !== null || outcome.object !== null
+    || !isObject(outcome.provenance) || !Array.isArray(outcome.written)) {
+    return invalid('expected a completed Parts result, its revision, provenance, and written files');
+  }
+  const provenance = outcome.provenance;
+  const request = provenance.request;
+  if (provenance.spec !== 'rig-parts-remesh/1' || !isObject(request) || !isObject(request.edit)
+    || request.act_id !== art.actId || request.act_source_hash !== art.sourceHash || request.payload_sha256 !== art.payloadSha256
+    || request.part !== art.attachment || request.edit.skin !== art.skin || request.edit.slot !== art.slot || request.edit.attachment !== art.attachment
+    || !Array.isArray(provenance.revision)) {
+    return invalid('Parts provenance does not bind the act, payload and attachment');
+  }
+  const receiptPath = `${outcome.revision}/remesh.json`;
+  const expected = new Map<string, { sha256: string; bytes: number }>();
+  for (const row of provenance.revision) {
+    if (!isObject(row) || !text(row.path) || !hex(row.sha256) || typeof row.bytes !== 'number'
+      || !Number.isSafeInteger(row.bytes) || row.bytes < 0 || row.path === 'remesh.json' || expected.has(row.path)) {
+      return invalid('invalid Parts revision file binding');
+    }
+    expected.set(row.path, { sha256: row.sha256, bytes: row.bytes });
+  }
+  if (!expected.has('rig.json') || !expected.has('motion.json') || outcome.written.length !== expected.size + 1) return invalid('written files must cover the Parts revision and remesh.json');
+  let receipt: JsonObject | undefined;
+  for (const binding of outcome.written) {
+    if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(`${outcome.revision}/`)) {
+      return invalid('written file is outside the retained revision');
+    }
+    const bytes = correctionFile(dir, binding);
+    if (binding.path === receiptPath) {
+      if (receipt || !equal(correctionJson(bytes), provenance)) return invalid('retained remesh.json differs from returned Parts provenance');
+      receipt = binding;
+      continue;
+    }
+    const path = binding.path.slice(outcome.revision.length + 1);
+    const row = expected.get(path);
+    if (!row || row.sha256 !== binding.sha256 || row.bytes !== bytes.length) return invalid(`${binding.path}: written file differs from the Parts revision inventory`);
+    expected.delete(path);
+  }
+  if (!receipt || expected.size) return invalid('written files omit the Parts receipt or revision files');
+  return receipt;
+}
+
+/** The last applied edit per live source version is the head of its Parts revision chain. */
+function meshDeltaTargets(project: JsonObject): Map<number, { record: JsonObject; revision: string; written: JsonObject[] }> {
+  const targets = new Map<number, { record: JsonObject; revision: string; written: JsonObject[] }>();
+  for (const record of bindings(project.corrections)) {
+    if (record.verdict === 'withdrawn' || !isObject(record.artifact) || record.artifact.kind !== 'mesh-delta'
+      || !isObject(record.on) || typeof record.on.n !== 'number' || !isObject(record.outcome)
+      || record.outcome.kind !== 'mesh-delta' || !text(record.outcome.revision) || !correctionIsLive(project, record)) continue;
+    targets.set(record.on.n, { record, revision: record.outcome.revision, written: bindings(record.outcome.written) });
+  }
+  return targets;
+}
+
+function meshDeltaSuccessor(project: JsonObject, n: number): JsonObject | undefined {
+  return bindings(project.versions).filter(v => v.kind === 'rig' && Number(v.n) > n).sort((a, b) => Number(a.n) - Number(b.n))[0];
+}
+
+function versionUsesMeshDelta(version: JsonObject, target: { revision: string; written: JsonObject[] }): boolean {
+  const files = new Map(bindings(version.outputs).map(row => [row.path, row.sha256]));
+  const root = `outputs/v${String(version.n)}/out/rig/`;
+  return target.written.length > 0 && target.written.every(row => typeof row.path === 'string'
+    && row.path.startsWith(`${target.revision}/`) && hex(row.sha256)
+    && files.get(`${root}${row.path.slice(target.revision.length + 1)}`) === row.sha256);
+}
+
+function versionBuiltMeshDelta(dir: string, version: JsonObject): boolean {
+  const registration = version.registration;
+  const runs = isObject(registration) ? bindings(registration.runs) : [];
+  const source = runs.find(run => run.spec === 'rigc-run/1')?.source;
+  if (!isObject(source) || !text(source.path) || !hex(source.sha256)) return false;
+  const root = `outputs/v${String(version.n)}/out`;
+  const outputs = new Map(bindings(version.outputs).map(row => [row.path, row.sha256]));
+  const rig = outputs.get(`${root}/rig/rig.json`);
+  const motion = outputs.get(`${root}/rig/motion.json`);
+  const model = outputs.get(`${root}/check/build/skeleton.model.json`);
+  if (!hex(rig) || !hex(motion) || !hex(model)) return false;
+  try {
+    const { spec, record } = validateRunRecord(correctionFile(dir, { path: source.path, sha256: source.sha256 }), source.path);
+    const inputs = bindings(record.inputs);
+    return spec === 'rigc-run/1'
+      && inputs.some(row => row.role === 'rig' && row.sha256 === rig)
+      && inputs.some(row => row.role === 'motion' && row.sha256 === motion)
+      && bindings(record.outputs).some(row => typeof row.path === 'string' && posix.basename(row.path) === 'skeleton.model.json' && row.sha256 === model);
+  } catch (error) {
+    if (error instanceof CorrectionError || error instanceof RunRecordError) return false;
+    throw error;
+  }
+}
+
+export function pendingMeshDeltaRevision(project: JsonObject): { sourceVersion: number; revision: string } | null {
+  for (const [sourceVersion, target] of meshDeltaTargets(project)) {
+    const successor = meshDeltaSuccessor(project, sourceVersion);
+    if (!successor || !versionUsesMeshDelta(successor, target)) return { sourceVersion, revision: target.revision };
+  }
+  return null;
+}
+
 export function correctionApprovalFindings(project: JsonObject, stage: string, signoff?: JsonObject): Finding[] {
   const out: Finding[] = [];
   if (!correctionsAdopted(project)) return out;
   const records = bindings(project.corrections);
   const relevant = records.filter(r => r.stage === stage && r.verdict !== 'withdrawn' && correctionIsLive(project, r) && date(r.at) >= date((project.corrections_contract as JsonObject).adopted_at));
+  if (stage === 'rig-review') {
+    for (const [n, target] of meshDeltaTargets(project)) {
+      const successor = meshDeltaSuccessor(project, n);
+      const registeredAt = successor && date(isObject(successor.registration) ? successor.registration.at : successor.at);
+      if (!successor || !versionUsesMeshDelta(successor, target) || signoff && registeredAt !== undefined && registeredAt > date(signoff.at)) {
+        out.push(correctionFinding('CORRECTION_PENDING', `corrections[${String(target.record.id)}]`, `register a new rig version using Parts revision ${target.revision} before approving rig-review`));
+      }
+    }
+  }
   for (const r of relevant) {
     if (isObject(r.artifact) && r.artifact.kind === 'direction-patch') continue;
     const replacement = relevant.find(next => next.resolves === r.id && (next.outcome !== null || partImageResolvingDraft(project, next) !== null));
     if (replacement) continue;
     const path = `corrections[${String(r.id)}]`;
+    if (isObject(r.artifact) && r.artifact.kind === 'mesh-delta') continue;
     if (isObject(r.artifact) && r.artifact.kind === 'part-image') {
       const resolving = partImageResolvingDraft(project, r);
       const resolvedAt = isObject(r.closure) ? date(r.closure.at) : resolving ? date(resolving.at) : Infinity;
@@ -607,6 +734,8 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
   if (!Array.isArray(project.corrections)) { refusals.push(correctionFinding('CORRECTION_MALFORMED', 'corrections', 'expected list')); return; }
   if (!correctionsAdopted(project) && project.corrections.length) refusals.push(correctionFinding('CORRECTION_CONTRACT_INVALID', 'corrections_contract', 'records require explicit adoption'));
   const seen = new Map<string, JsonObject>();
+  const meshKeys = new Set<string>();
+  const meshReceipts = new Map<number, JsonObject>();
   for (const [index, raw] of project.corrections.entries()) {
     const path = `corrections[${index}]`;
     if (isObject(raw) && isObject(raw.artifact) && raw.artifact.kind === 'direction-patch') {
@@ -616,7 +745,8 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
     }
     try {
       const partImage = isObject(raw) && isObject(raw.artifact) && raw.artifact.kind === 'part-image';
-      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || (partImage ? raw.by !== 'agent' || raw.verbatim !== null : !text(raw.by) || raw.by.toLowerCase() === 'agent' || !text(raw.verbatim)) || !Number.isFinite(date(raw.at)) || date(raw.at) > now || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string') || (raw.verdict !== undefined && raw.verdict !== 'withdrawn')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
+      const meshDelta = isObject(raw) && isObject(raw.artifact) && raw.artifact.kind === 'mesh-delta';
+      if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || (partImage ? raw.by !== 'agent' || raw.verbatim !== null : !text(raw.by) || raw.by.toLowerCase() === 'agent' || !(text(raw.verbatim) || meshDelta && raw.verbatim === null)) || !Number.isFinite(date(raw.at)) || date(raw.at) > now || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string') || (raw.verdict !== undefined && raw.verdict !== 'withdrawn')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
       const record = raw as JsonObject;
       if (record.resolves !== null) {
         const prior = seen.get(String(record.resolves));
@@ -639,6 +769,25 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       const artifact = record.artifact;
       if (!isObject(artifact)) fail('CORRECTION_MALFORMED', 'missing artifact');
       const art = artifact as JsonObject;
+      if (meshDelta) {
+        const receipt = validateMeshDeltaOutcome(dir, record, art, now);
+        const key = meshDeltaKey(art);
+        if (meshKeys.has(key)) fail('CORRECTION_MESH_DELTA_INVALID', 'act and attachment already have a completed mesh delta');
+        const sourceVersion = Number(on.n);
+        const previous = meshReceipts.get(sourceVersion);
+        if (previous) {
+          const outcome = record.outcome as JsonObject;
+          const provenance = outcome.provenance as JsonObject;
+          const input = provenance.input;
+          const parent = isObject(input) && bindings(input.provenance).find(row => row.source === 'remesh.json' && row.sha256 === previous.sha256);
+          if (!parent || !bindings(outcome.written).some(row => row.path === `${String(outcome.revision)}/${String(parent.path)}` && sameHash(row, previous))) {
+            fail('CORRECTION_MESH_DELTA_INVALID', 'Parts revision does not carry the previous applied mesh delta');
+          }
+        }
+        meshKeys.add(key);
+        meshReceipts.set(sourceVersion, receipt);
+        continue;
+      }
       const apiArtifact = record.path === 'made' && !direction && !partImage;
       const legacyRead = apiArtifact && art.review_read === undefined && reviewReadLegacy(record.at);
       if (legacyRead) warnings.push(correctionFinding('REVIEW_READ_LEGACY', path, 'historical correction has no CLI response receipt; preserve history and capture new results through Review feedback'));
@@ -703,6 +852,12 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
     } catch (e) {
       if (!(e instanceof CorrectionError)) throw e;
       refusals.push(correctionFinding(e.code, path, e.message));
+    }
+  }
+  for (const [n, target] of meshDeltaTargets(project)) {
+    const successor = meshDeltaSuccessor(project, n);
+    if (successor && (!versionUsesMeshDelta(successor, target) || !versionBuiltMeshDelta(dir, successor))) {
+      refusals.push(correctionFinding('CORRECTION_MESH_DELTA_REVISION', `versions[v${String(successor.n)}]`, `register the next rig version from Parts revision ${target.revision} with the rigc-run/1 receipt binding its rig, motion and compiled model`));
     }
   }
   checkUnrecordedPartRepaints(dir, project, refusals, warnings);

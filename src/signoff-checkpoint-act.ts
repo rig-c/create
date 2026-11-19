@@ -1,6 +1,7 @@
 /** `signoff --checkpoint <id> --from-review <actId>`: a passed Review checkpoint act becomes the checkpoint sign-off. */
 import { randomUUID } from 'node:crypto';
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
+import { readFileSync } from './check-reads.ts';
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject } from './check.ts';

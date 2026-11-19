@@ -1258,13 +1258,16 @@ export function depthPlanFindings(project: JsonObject, warnings: Finding[], coll
   if (mode !== 'depth') return [];
   const answerAt = typeof answer.at === 'string' ? Date.parse(answer.at) : NaN;
   const approved = asArray(project.signoffs).filter(isObject).some(s => s.stage === 'rigging-interview' && (s.checkpoint ?? null) === null && Date.parse(String(s.at)) >= answerAt);
-  if (!approved && !['rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'].includes(String(project.stage))) return [];
+  if (!approved && !['rigging-interview', 'rigging', 'rig-review', 'post-interview', 'post', 'direction-review', 'accepted'].includes(String(project.stage))) return [];
   const plan = isObject(project.plan) ? project.plan : {};
   const steps = asArray(plan.steps).filter(isObject);
   const depth = steps.find(s => s.id === 'turn' && s.phase === 'rig' && asArray(s.rests_on).includes('turn'));
   if (depth && steps.filter(s => s !== depth && s.phase === 'rig' && stageOfStep('rig', String(s.id)) === 'rigging').every(s => Number(depth.order) < Number(s.order))) return [];
   const path = 'plan.steps[turn]';
-  const finding = { code: 'RIG_DEPTH_PLAN_MISSING', path, message: `${path}: a depth turn needs a rig-phase depth step resting on turn, ordered before the rig steps; draft it with plan add turn and approve it at rigging-interview before running rig` };
+  const remedy = steps.some(step => step.id === 'turn')
+    ? `plan revise turn --order <before the first rigging step>${depth ? '' : ' --phase rig --rests-on turn'}`
+    : 'plan add turn --phase rig --rests-on turn --order <before the first rigging step>';
+  const finding = { code: 'RIG_DEPTH_PLAN_MISSING', path, message: `${path}: a depth turn needs a rig-phase depth step resting on turn, ordered before the rig steps; use ${remedy} and approve it at rigging-interview before running rig` };
   if (answerAt < Date.parse(HEAD_TURN_SINCE)) { warnings.push(finding); return []; }
   return [finding];
 }

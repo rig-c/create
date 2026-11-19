@@ -26,12 +26,12 @@ import {
 } from './collection-binding-reader.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { hasStageOrder, interviewStageOfGuide, stageOfStep, stepCoveredByApproval } from './stages.ts';
-import { selectAnswerHashes } from './signoff-answers.ts';
+import { assertPlanSignoffCandidate } from './signoff.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, stageSignable } from './signable.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
-import { latestPartsApproval, riggingContext } from './structure.ts';
+import { latestPartsApproval } from './structure.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -306,12 +306,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
       if (signable && stage !== 'interview' && stage !== 'direction-review' && !covered.length && !emptyPost) throw Error('the requested plan has no steps at this approval stage');
-      const signature: JsonObject = { stage, steps: covered.map(step => step.id!) };
-      if (signable && stage !== 'direction-review') withCandidateProject(root, project, () => selectAnswerHashes(root, project, signature));
-      if (signable && stage === 'rigging-interview') {
-        const errors: Parameters<typeof riggingContext>[3] = [];
-        const context = withCandidateProject(root, project, () => riggingContext(root, project, new Date(now).toISOString(), errors));
-        if (errors.length || !context) throw Error(errors[0]?.code ?? 'rigging evidence is missing');
+      if (signable) {
+        const reads = withCandidateProject(root, project, () => assertPlanSignoffCandidate(root, project, stage, now));
+        for (const { path, sha256 } of reads) seal({ path, sha256 });
       }
       subjects = steps.filter(step => {
         if (step.status !== 'at-checkpoint' || (step.phase !== 'rig' && step.phase !== 'post') || stageOfStep(step.phase, String(step.id)) !== stage) return false;
@@ -334,7 +331,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
   } catch (error) {
     const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))
       ? error
-      : new Refusal('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
+      : new Refusal('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Refusal ? `${error.code}: ` : ''}${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
     // Review returns only a safe producer token. Its retained root is private and may
     // be removed on refusal, so report here in the host terminal before it is lost.
     if (phase === 'retained') console.error(`${failure.code}: ${failure.message}`);

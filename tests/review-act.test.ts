@@ -21,6 +21,7 @@ import { composeFixture, composeRunFixture } from './direction-compose-fixture.t
 import { fixture } from './fixtures.ts';
 import { clockedCli } from './helpers.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
+import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 
 const directories: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -43,7 +44,8 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
 }
 
 async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false, existing?: { root: string; rigVersion: number }) {
-  if (!existing) testClock.reset();
+  // Keep authored moves after the fixture and before the live host's receipts.
+  if (!existing) testClock.set(EXAMPLE_REOPEN_AT);
   const root = existing?.root ?? temporary('create-act-project-');
   const versionNumber = n === 1 ? existing?.rigVersion ?? 1 : n;
   if (!existing) cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints', checkpoint), root, { recursive: true });

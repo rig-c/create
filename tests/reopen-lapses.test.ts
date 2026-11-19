@@ -3,7 +3,7 @@ import { cpSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { TEST_NOW, amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
 const CHAIN_POST = join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post');
 const lapses = (dir: string): string[][] => checkProject(dir).warnings.filter(f => f.code.startsWith('REOPEN_')).map(f => [f.code, f.path]);
@@ -42,14 +42,14 @@ test('an unreopened project lists no lapsed approvals', () => {
 
 test('a re-signed approval leaves the list; the rest stay until restored', () => {
   const dir = fixture(() => {}, 'example-project.json');
-  testClock.set(new Date('2026-11-19T00:00:00Z'));
+  testClock.set(TEST_NOW);
   reopen(dir, 'post-interview');
   expect(lapses(dir)).toEqual([
     ['REOPEN_SIGNOFF_LAPSED', 'signoffs[9]'],
     ['REOPEN_SIGNOFF_LAPSED', 'signoffs[10]'],
     ['REOPEN_VERDICT_LAPSED', 'versions[v4].verdicts[0]'],
   ]);
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(TEST_NOW + 24 * 60 * 60_000);
   signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
   expect(lapses(dir)).toEqual([['REOPEN_SIGNOFF_LAPSED', 'signoffs[10]'], ['REOPEN_VERDICT_LAPSED', 'versions[v4].verdicts[0]']]);
 });

@@ -1,7 +1,7 @@
 /**
  * The CG gates (docs/CHECKS.md § CG gates): a rig version of a full-screen
  * scene (an illustration CG brought to life, `rig_type` `fullscreen.*`) is held
- * to the three opt-in `@rig-c/parts` gates that measure what a CG build is for —
+ * to the opt-in `@rig-c/parts` gates that measure what a CG build is for —
  * every part's pixels trace to the split or to a receipted edit, no seam shows
  * background in motion, no part boundary carries a colour step the pieces do
  * not have:
@@ -10,7 +10,9 @@
  * - `seam_over_motion.required: true` and
  * - `boundary_colour.max_step_excess` (an integer, at most
  *   {@link CG_BOUNDARY_ALLOWANCE}) in the requirements file the config names
- *   as `requirements`, so `rig-parts build` runs both from the config alone.
+ *   as `requirements`, and
+ * - `behind_seams.threshold` (an integer, at most the same allowance), including
+ *   any pair override, so `rig-parts build` runs them from the config alone.
  *
  * create writes no config: the agent does. So the declarations are not
  * written here; this check refuses, by name, a CG version whose config does
@@ -41,6 +43,9 @@ export const CG_RIG_TYPE_PREFIX = 'fullscreen.';
  * allowed; a higher one is refused.
  */
 export const CG_BOUNDARY_ALLOWANCE = 12;
+
+/** The behind-part seam declaration is required on rig versions from this landing day. */
+export const CG_BEHIND_SEAMS_SINCE = '2026-11-19T00:00:00Z';
 
 /** The first `@rig-c/parts` with all three gates (issues #969, #975, #976). A version built with an earlier one could not declare them. */
 export const CG_GATES_FROM_PARTS = '2.4.0';
@@ -104,7 +109,7 @@ export function readObject(dir: string, file: string, sha256: string | null): Re
   return { ok: true, value: parsed as JsonObject, file };
 }
 
-/** Refuses an unknown `rig_type` and, on a CG project, every rig version whose config does not declare the three gates. */
+/** Refuses an unknown `rig_type` and, on a CG project, every rig version whose config does not declare its gates. */
 export function checkCgGates(ctx: Ctx, recordOnly = false): void {
   const rigType = rigTypeValue(ctx);
   if (rigType === null) return; // unanswered or not applicable: reported by the answer checks
@@ -207,5 +212,28 @@ export function checkCgGates(ctx: Ctx, recordOnly = false): void {
         message: `${label}: ${reqPath} declares boundary_colour.max_step_excess ${allowance}; a CG build declares at most ${CG_BOUNDARY_ALLOWANCE} — a step over it is the art's to fix (the piece's image or mesh), not the allowance's`,
       });
     }
+    const versionAt = typeof v.at === 'string' ? Date.parse(v.at) : Number.NaN;
+    const legacy = Number.isFinite(versionAt) && versionAt < Date.parse(CG_BEHIND_SEAMS_SINCE);
+    const behind = isObject(req.value.behind_seams) ? req.value.behind_seams : {};
+    const threshold = (value: Json | undefined, field: string): void => {
+      const path = `${at} requirements ${field}`;
+      const found = JSON.stringify(value) ?? 'absent';
+      const suffix = legacy ? `; rig version predates ${CG_BEHIND_SEAMS_SINCE}; preserve history and declare the gate on the next CG rig` : '';
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+        (legacy ? ctx.warnings : ctx.refusals).push({
+          code: 'CG_GATE_UNDECLARED', path,
+          message: `${label}: ${reqPath} declares ${field} ${found}; declare an integer from 0 through ${CG_BOUNDARY_ALLOWANCE} and rebuild so parts measures behind-part seams (CHECK_BEHIND_PART_SEAMS)${suffix}`,
+        });
+      } else if (value > CG_BOUNDARY_ALLOWANCE) {
+        (legacy ? ctx.warnings : ctx.refusals).push({
+          code: 'CG_BEHIND_SEAMS_THRESHOLD_RAISED', path,
+          message: `${label}: ${reqPath} declares ${field} ${found}; a CG build requires at most ${CG_BOUNDARY_ALLOWANCE}; declare ${CG_BOUNDARY_ALLOWANCE} or less and fix the image or mesh behind the seam, then rebuild${suffix}`,
+        });
+      }
+    };
+    threshold(behind.threshold, 'behind_seams.threshold');
+    asArray(behind.pairs).forEach((pair, i) => {
+      if (isObject(pair) && pair.threshold !== undefined) threshold(pair.threshold, `behind_seams.pairs[${i}].threshold`);
+    });
   });
 }

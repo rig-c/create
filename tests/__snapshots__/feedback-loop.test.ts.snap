@@ -5,7 +5,7 @@ exports[`#454 no-bounce direction write and next preserve previous bytes and out
   "exit": 0,
   "nextJson": "97a012d9b829abaf6a0897272de816f256804afb67033ba389933d2ab919f7c7",
   "nextText": "4b7870684ffc27dabd2c163577d1c63ef471656666332869e87d52ce1966bd05",
-  "record": "fc78dcc38617fcddd02083a5b790153230a46182d17b644e95afe7e6c15f211c",
+  "record": "4756113fb1b0310e598f715980ba865f3bb57cfdf5da362273fd079f3643c7ae",
   "stdout": "4c4c2cb5d2ed4ae18a58a9b30da2f9706fb47b430349b411044e9ad8e1507f99",
 }
 `;
@@ -15,7 +15,7 @@ exports[`#454 no-bounce direction patch and next preserve previous bytes and out
   "exit": 0,
   "nextJson": "97a012d9b829abaf6a0897272de816f256804afb67033ba389933d2ab919f7c7",
   "nextText": "4b7870684ffc27dabd2c163577d1c63ef471656666332869e87d52ce1966bd05",
-  "record": "481783f890d4e44ee91087f029bd7ef1f87f4ed8aba7e0e9c5ec89858f18d5af",
+  "record": "e481298eb195ab864261f7b4135bb8776d8596f18e59867d9888c6f1b7765e68",
   "stdout": "4c4c2cb5d2ed4ae18a58a9b30da2f9706fb47b430349b411044e9ad8e1507f99",
 }
 `;

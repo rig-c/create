@@ -15,7 +15,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { generateDirectionFixture } from '../scripts/generate-direction-fixture.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { tempDir } from './helpers.ts';
-import { checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, reopenCommand, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, reopenCommand, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());
 /** A reopen of the filled example to post or post-interview voids its direction-review sign-off and acceptance (#220). */
@@ -124,21 +124,21 @@ test('direction check on a current stale take refuses instead of blessing it as 
 test('N/A fixed camera publishes through direction write and checkProject; two keys refuse the writer',async()=>{
   const {fixture}=await import('./fixtures.ts');const {collectItems}=await import('../src/check.ts');
   const dir=fixture(()=>{},'example-project.json');
-  testClock.set(new Date('2026-11-19T00:00:00Z'));
+  testClock.set(TEST_NOW);
   writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post answers.');
   reopenCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
   const changed=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
   const camera=objects(((changed.interview as JsonObject).post as JsonObject).items).find(i=>i.id==='camera_depth')!;
   camera.history=[...objects(camera.history),camera.guide as JsonObject];
-  camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:'2026-11-19T01:00:00Z'};
+  camera.guide={not_applicable:true,because:'No camera motion requested',verbatim:'Keep the view fixed.',by:'user',at:new Date(TEST_NOW + 60 * 60_000).toISOString()};
   writeFileSync(join(dir,'project.json'),JSON.stringify(changed));
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(TEST_NOW + 24 * 60 * 60_000);
   signoffCommand(['post-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
   expect(checkProject(dir).refusals.map(f=>f.code)).toContain('STAGE_LAGGING');
   advanceCommand(['post',dir]);
-  testClock.set(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
+  testClock.set(TEST_NOW + 48 * 60 * 60_000);directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
-  const f=setup();testClock.set(new Date('2026-11-21T09:10:00Z'));const doc=f.doc;
+  const f=setup();testClock.set(TEST_NOW + 48 * 60 * 60_000 + 10 * 60_000);const doc=f.doc;
   doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
   (doc.camera as JsonObject).keys=[objects((doc.camera as JsonObject).keys)[0]!];
   doc.schema=DIRECTION_SCENE_SPEC;doc.scene=sceneReference(currentScene(p)!);

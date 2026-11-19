@@ -10,7 +10,7 @@ import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { arr, fixture, materializeFixture, obj, resignAfterChange, step, waypoint } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
-import { amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { TEST_NOW, amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -112,9 +112,9 @@ test('inheritance binds both resolved content and reference identity', () => {
   }, 'example-project.json');
   const collection: JsonObject = { name: 'group', interview: { waypoints: [{ id: 'bones', guide: answer }] } };
   writeFileSync(join(root, 'collection.json'), JSON.stringify(collection));
-  resignAfterChange(dir, '2026-11-19T00:00:00Z');
+  resignAfterChange(dir, new Date(TEST_NOW).toISOString());
   // The operation under test reads the real parent collection.
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(TEST_NOW + 24 * 60 * 60_000);
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   const signed = obj(arr(load(dir).signoffs).at(-1));
   const item = collectItems(load(dir), { collection }).find(i => i.id === 'bones')!;

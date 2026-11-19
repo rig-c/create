@@ -2392,3 +2392,207 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   });
   expect(afterSignedPostReopen.moves[5]!.act).toContain('after ingesting the accepted direction-review verdict for v6');
 }, 30_000);
+
+test('#587 after a parts-review reopen and a new prepared draft, next awaits the draft parts verdict via job open --draft ahead of any rig-version move', () => {
+  const dir = join(realpathSync(tempDir()), 'reopen-parts-review-draft-verdict');
+  cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+  const file = join(dir, 'project.json');
+  const words = join(dir, 'words.txt');
+  writeFileSync(words, 'Synthetic owner words.\n');
+
+  // Record accepted rig v1, register rig v2, and bounce rig v2 so both REOPEN_VERDICT_LAPSED and FEEDBACK_OPEN are live warnings after reopen.
+  testClock.set(new Date(CHAIN_NOW));
+  reviewCommand([
+    '1',
+    dir,
+    '--verdict',
+    'accepted',
+    '--by',
+    'user',
+    '--review',
+    'rig-review',
+    '--verbatim-file',
+    words,
+    '--source',
+    'synthetic example',
+  ]);
+  signoffCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', words]);
+
+  cpSync(join(REPO, 'tests/fixtures/rig-registration'), join(dir, 'rebuild-source'), { recursive: true });
+  const putSource = (path: string, value: unknown): void =>
+    writeFileSync(
+      join(dir, 'rebuild-source', path),
+      typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value),
+    );
+  putSource('config.json', { key: 'synthetic', requirements: 'requirements.json' });
+  putSource('requirements.json', {
+    spec: 'spine-parts-requirements/1',
+    fps: 4,
+    requirements: [],
+    setup_painting: { required: true },
+  });
+  putSource('adapter.json', []);
+  cpSync(join(dir, 'derived/drafts/chain/input'), join(dir, 'rebuild-source/parts'), { recursive: true });
+  cpSync(join(dir, 'outputs/v1/out/check/build/skeleton.model.json'), join(dir, 'rebuild-source/build/skeleton.model.json'));
+  const v2Iso = new Date(CHAIN_NOW + 1000).toISOString();
+  putSource('at-source.json', { finished_at: v2Iso });
+  putSource('run.json', {
+    spec: 'rigc-run/1',
+    package: { name: 'rig-c', version: '3.4.1' },
+    command: 'build',
+    started_at: v2Iso,
+    finished_at: v2Iso,
+    inputs: [
+      { role: 'rig', path: '../rig/rig.json', sha256: '1'.repeat(64) },
+      { role: 'motion', path: '../rig/motion.json', sha256: '2'.repeat(64) },
+    ],
+    outputs: [
+      { path: '../compile-report.json', sha256: '3'.repeat(64) },
+      { path: 'skeleton.model.json', sha256: '4'.repeat(64) },
+    ],
+  });
+  expect(
+    runMainCapture(
+      [
+        'rig-version',
+        '2',
+        dir,
+        '--parts',
+        'rebuild-source/parts',
+        '--rig',
+        'rebuild-source/rig',
+        '--build',
+        'rebuild-source/build',
+        '--idle',
+        'rebuild-source/idle',
+        '--config',
+        'rebuild-source/config.json',
+        '--path-adapter',
+        'rebuild-source/adapter.json',
+        '--compile-report',
+        'rebuild-source/compile-report.json',
+        '--toolchain-lock',
+        'rebuild-source/package-lock.json',
+        '--run-record',
+        'rebuild-source/run.json',
+        '--at-source',
+        'rebuild-source/at-source.json',
+        '--at-pointer',
+        '/finished_at',
+        '--by',
+        'registrant',
+      ],
+      CHAIN_NOW + 1000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+
+  testClock.set(new Date(CHAIN_NOW + 2000));
+  reviewCommand([
+    '2',
+    dir,
+    '--verdict',
+    'bounced',
+    '--by',
+    'user',
+    '--review',
+    'rig-review',
+    '--item',
+    'rig_type:user',
+    '--verbatim-file',
+    words,
+    '--source',
+    'synthetic bounce',
+  ]);
+
+  // Reopen parts-review, then draft-rig <id>, structure-snapshot --draft <id>, and diff-classes with a triage file.
+  const reopenAt = CHAIN_NOW + 3000;
+  testClock.set(new Date(reopenAt));
+  reopenCommand(['parts-review', dir, '--by', 'user', '--verbatim-file', words]);
+
+  const draftId = 'chain-reopened';
+  cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${draftId}`), { recursive: true });
+  expect(
+    runMainCapture(
+      [
+        'draft-rig',
+        draftId,
+        dir,
+        '--config',
+        `derived/drafts/${draftId}/config.json`,
+        '--from',
+        `derived/drafts/${draftId}/out`,
+        '--parts',
+        `derived/drafts/${draftId}/input`,
+      ],
+      reopenAt + 1000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+  expect(
+    runMainCapture(
+      ['structure-snapshot', dir, '--draft', draftId, '--out', `evidence/structure-${draftId}.json`],
+      reopenAt + 2000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+  const diffReport = JSON.parse(readFileSync(join(dir, 'evidence/diff-components.json'), 'utf8')) as {
+    components: { id: string }[];
+  };
+  const triagePath = join(dir, 'evidence/diff-triage.json');
+  writeFileSync(
+    triagePath,
+    `${JSON.stringify(
+      {
+        components: Object.fromEntries(
+          diffReport.components.map(c => [c.id, { status: 'in-painting', why: 'synthetic component' }]),
+        ),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  expect(
+    runMainCapture(
+      ['diff-classes', dir, '--diff-report', 'evidence/diff-components.json', '--triage-file', 'evidence/diff-triage.json', '--by', 'agent'],
+      reopenAt + 3000,
+    ),
+  ).toMatchObject({ code: 0, stderr: '' });
+
+  const checked = checkProject(dir, undefined, { now: reopenAt + 4000, readOnly: true });
+  expect(checked.refusals).toEqual([]);
+  expect(checked.warnings.map(w => w.code)).toContain('FEEDBACK_OPEN');
+  expect(checked.warnings.map(w => w.code)).toContain('REOPEN_VERDICT_LAPSED');
+
+  const beforeNext = readFileSync(file);
+  for (const withFeedbackOpen of [true, false]) {
+    if (!withFeedbackOpen) {
+      const current = JSON.parse(beforeNext.toString('utf8')) as JsonObject;
+      current.versions = arr(current.versions).filter(v => obj(v).n !== 2);
+      writeFileSync(file, `${JSON.stringify(current, null, 2)}\n`);
+    }
+    const snapshot = readFileSync(file);
+    const report = nextProject(dir, reopenAt + 4000);
+    expect(readFileSync(file)).toEqual(snapshot);
+    expect(report.stage).toBe('parts-review');
+    expect(report.effective_stage).toBe('parts-review');
+    expect(report.refusals).toEqual([]);
+    expect(report.awaits).toEqual([`review_acts[kind=parts-verdict,draft_id=${draftId}]`]);
+    expect(report.moves.some(m => m.command?.includes('rig-version'))).toBe(false);
+    expect(report.moves.map(m => m.command)).toEqual([
+      `rig-create job open ${dir} --draft ${draftId} --reviewer '<reviewer>' --role owner`,
+      null,
+      `rig-create job acts ${dir} --json`,
+      `rig-create parts-review ${dir} --from-review '<actId>'`,
+      `rig-create job close ${dir}`,
+    ]);
+    expect(report.moves[1]).toMatchObject({
+      role: 'human',
+      field: 'review_acts',
+      awaits: `review_acts[kind=parts-verdict,draft_id=${draftId}]`,
+      command: null,
+      review_act: {
+        kind: 'parts-verdict',
+        stage: 'parts-review',
+        draft_id: draftId,
+      },
+    });
+  }
+});

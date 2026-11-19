@@ -567,7 +567,7 @@ assembled parts before `rigging` starts.
   Per-component records remain compatible and do not acquire class requirements.
 
   A report with no components needs only `--diff-report <path> --by agent`. Its spec must be
-  `rig-parts-diff-components/1`, `definition.floor_px` at most 2 and
+  `rig-parts-diff-components/1` or `rig-parts-diff-components/2`, `definition.floor_px` at most 2 and
   `definition.threshold` at most 40. The stack is derived from the verdict's
   covered `parts.json`, resolved relative to that verdict (or the latest draft
   before sign-off). For its directory D, build writes `D/recomposite_rig.png`,

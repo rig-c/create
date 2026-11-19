@@ -250,7 +250,9 @@ writes leave it byte-identical.
 ### Reopening a passed stage
 
 ```sh
-rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>] [<project dir>] [--json]
+rig-create reopen <stage> [<project dir>] --from-review <actId> [--json]
+rig-create reopen <stage> [<project dir>] --by <owner> \
+  --owner-chat <words file> --said-at <ISO> --relayed-by <operator> [--json]
 ```
 
 A human may return to a previously reached stage without deleting signatures.
@@ -261,10 +263,13 @@ The target is in the stage order, excluding `paused` and `accepted`, and no
 later than the furthest stage evidenced by the current stage, historical human
 sign-offs or dated rig/post versions. No producer is run.
 
-Each entry is `{ stage, from_stage, by, at, verbatim, source?, steps_before }`. `at` comes
-from the clock; words come unchanged from UTF-8 file or stdin (omitted or `-`).
-`--source` separately records where the words came from. `from_stage` records
-where the project stood when the reopen was written. Each entry's eligibility
+Each entry retains `stage`, `from_stage`, `by`, `at`, `verbatim`, and
+`steps_before`. A Review reopen uses the reviewer, timestamp and exact words
+from the exported act and records its provenance. An owner-chat reopen
+records the owner's exact UTF-8 words in `verbatim`, the writer's time in
+`at`, and the authority in `source`, `said_at` and `relayed_by`.
+`from_stage` records where the project stood when the reopen was written.
+Each entry's eligibility
 uses its own `from_stage` and historical evidence dated no later than that entry,
 so later backward moves neither erase nor manufacture its reach. An agent cannot sign.
 `steps_before` snapshots `{ id, status }` for every plan step running in the
@@ -2538,11 +2543,15 @@ draft, `lantern`, with a synthetic passing report
 (`templates/example-draft/evidence/fix-ledger/lantern.json`, written by
 `scripts/example-ledger.ts` through `generate-example-order.ts`).
 
-`rig-create restart [<dir>] --by <human> --reason-file <file>` starts the record
-again at v1 when the owner orders it. It writes the record `init` writes, with
+`rig-create restart [<dir>] --by <human> --owner-chat <words file> --said-at <ISO> --relayed-by <operator>`
+starts the record again at v1 when the owner orders it. Supply the owner's exact
+words, the time they said them and the operator relaying them. The legacy
+`--reason-file` option conflicts with `--owner-chat`.
+Restart writes the record `init` writes, with
 no versions, drafts, signoffs, plan, answers or review acts. It keeps the name,
 title, `painting`, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
-`restarts[] { at, by, reason, previous_record_sha256 }`. create does not keep
+`restarts[] { at, by, reason, previous_record_sha256, source, said_at, relayed_by }`.
+The owner's exact words populate `reason`. create does not keep
 the earlier `project.json`; git history holds it, so restart refuses before it
 writes unless `project.json` is committed: tracked and byte-identical to its
 version at HEAD. create's writers don't commit, so commit `project.json`, then

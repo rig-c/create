@@ -7,6 +7,10 @@ export const CLI = join(import.meta.dir, '..', 'src', 'cli.ts');
 /** The CLI process at the suite's current instant (tests/cli-at.ts): spawn `[process.execPath, ...clockedCli(), ...args]`. */
 export const clockedCli = (): string[] => [join(import.meta.dir, 'cli-at.ts'), testClock.iso()];
 
+export function ownerChatArgs(wordsFile: string, saidAt = testClock.iso()): string[] {
+  return ['--owner-chat', wordsFile, '--said-at', saidAt, '--relayed-by', 'synthetic-relay'];
+}
+
 /** A fresh folder under the OS temp dir — never inside the repo, whose node_modules would leak in. */
 export function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'rig-create-test-'));

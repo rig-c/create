@@ -8,6 +8,7 @@ import { collectAmendments } from './amend.ts';
 import { readProject } from './feedback.ts';
 import { jobHash } from './job-outbox.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
+import { OWNER_CHAT_FLAGS, REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding, readOwnerChat } from './owner-chat.ts';
 import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, type ReviewActTransport, type ReopenAct } from './review-act.ts';
 import { stepHash } from './step-hash.ts';
 import { readVerbatim } from './record-input.ts';
@@ -22,8 +23,9 @@ export interface Reopen {
 }
 
 /** Validate history before using it as authority. Invalid entries supersede nothing. */
-export function collectReopens(project: JsonObject, refusals: Finding[]): Reopen[] {
+export function collectReopens(project: JsonObject, refusals: Finding[], warnings?: Finding[]): Reopen[] {
   const out: Reopen[] = [];
+  const receipts = asArray(project.review_acts);
   const push = (code: string, path: string, why: string): void => {
     refusals.push({ code, path, message: `${path}: ${why}; record a human reopen to a previously reached stage` });
   };
@@ -38,7 +40,7 @@ export function collectReopens(project: JsonObject, refusals: Finding[]): Reopen
       push('REOPEN_MALFORMED', path, 'needs stage, from_stage, by, a valid at, verbatim and optional text source');
       continue;
     }
-    if ((raw.by as string).toLowerCase() === 'agent') {
+    if ((raw.by as string).trim().toLowerCase() === 'agent') {
       push('SIGNOFF_NOT_HUMAN', path, 'signed by agent');
       continue;
     }
@@ -58,13 +60,32 @@ export function collectReopens(project: JsonObject, refusals: Finding[]): Reopen
       continue;
     }
     const at = Date.parse(raw.at as string);
-    if (stageIndex(stage) > reachedIndex(project, at, fromStage)) {
+    if (!reopenTargetEligible(project, stage, at, fromStage)) {
       push('REOPEN_NOT_PASSED', path, `target ${stage} was not reached at ${String(raw.at)}`);
       continue;
+    }
+    const receipt = receipts.find(entry => isObject(entry) && entry.schema === 'rig-create/review-act@1'
+      && entry.kind === 'reopen' && entry.reopen === index);
+    // Check validates the full ledger separately; only a valid binding can supersede approvals.
+    if (receipt !== undefined && reviewActFindings({ ...project, review_acts: [receipt] }).length > 0) continue;
+    const authority = ownerChatAuthorityFinding(raw, path, raw.verbatim, receipt !== undefined);
+    if (authority) {
+      if (authority.code === 'OWNER_CHAT_REQUIRED' && at < Date.parse(REOPEN_RESTART_OWNER_CHAT_SINCE)) warnings?.push(authority);
+      else {
+        refusals.push(authority);
+        continue;
+      }
     }
     out.push({ stage, at });
   }
   return [...out, ...collectAmendments(project, refusals)];
+}
+
+/** Use the original stage (the current stage for a new reopen) and witnesses dated by the act. */
+export function reopenTargetEligible(project: JsonObject, stage: string, at: number, fromStage: string): boolean {
+  const target = stageIndex(stage);
+  return target >= 0 && stage !== 'accepted' && Number.isFinite(at) && STAGE_VALUES.includes(fromStage)
+    && target <= reachedIndex(project, at, fromStage);
 }
 
 /** Historical stages and dated builds witness reach even after stage has moved back. */
@@ -110,10 +131,9 @@ export function liveSignoff(reopens: readonly Reopen[], stage: string, at: numbe
 
 export const REOPEN_HELP = `reopen:
   <stage> [<project dir>]  record a human backward move and set project.stage
-  --from-review <actId>   ingest the exported Review reopen (excludes --by, --verbatim-file and --source)
-  --by <who>              human signer (agent is refused)
-  --verbatim-file <file>  unchanged UTF-8 words; relative to the current working directory, not the project; or - for stdin (default)
-  --source <text>         optional origin of the words, separate from verbatim
+  --from-review <actId>   ingest the exported Review reopen
+  --by <who> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
+                         relay the owner's exact UTF-8 words from a file or - for stdin
   --json                  print the reopen record
   The clock supplies at; sign-offs and versions remain history.`;
 
@@ -124,17 +144,20 @@ export function reopenCommand(args: string[], now: number, hooks: { fetch?: (tra
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--json') json = true;
-    else if (['--by', '--verbatim-file', '--source', '--from-review'].includes(arg)) {
+    else if (['--by', '--verbatim-file', '--source', '--from-review', ...OWNER_CHAT_FLAGS].includes(arg)) {
       const value = args[++i];
-      if (arg in opts || value === undefined || value === '') refuse('REOPEN_OPTION_INVALID', `reopens: ${arg} needs one non-empty value; supply it once`, USAGE_EXIT);
+      if (arg in opts || value === undefined || value.startsWith('--') || value.trim() === '') refuse('REOPEN_OPTION_INVALID', `reopens: ${arg} needs one non-empty value; supply it once`, USAGE_EXIT);
       opts[arg] = value;
     } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `reopens: unsupported ${arg}; see reopen help`, USAGE_EXIT);
     else positional.push(arg);
   }
   const actId = opts['--from-review'];
   if (positional.length < 1 || positional.length > 2 || actId === undefined && opts['--by'] === undefined) refuse('REOPEN_OPTION_INVALID', 'reopens: supply a stage, --by or --from-review, and one optional project directory', USAGE_EXIT);
-  if (actId !== undefined && ['--by', '--verbatim-file', '--source'].some(flag => opts[flag] !== undefined)) {
-    refuse('REOPEN_OPTION_INVALID', 'project.json.reopens: --from-review excludes --by, --verbatim-file and --source; use the exported human values', USAGE_EXIT);
+  if (actId !== undefined && ['--by', '--verbatim-file', '--source', ...OWNER_CHAT_FLAGS].some(flag => opts[flag] !== undefined)) {
+    refuse('REOPEN_OPTION_INVALID', 'project.json.reopens: --from-review excludes --by, --verbatim-file, --source and owner-chat flags; use the exported human values', USAGE_EXIT);
+  }
+  if (opts['--by']?.trim().toLowerCase() === 'agent') {
+    refuse('SIGNOFF_NOT_HUMAN', 'reopens[].by: signed by agent; record the human who ordered the reopen');
   }
   const dir = resolve(positional[1] ?? process.cwd());
   const release = actId === undefined ? () => {} : acquireBoundJobWrite(dir);
@@ -179,26 +202,39 @@ function recordReopen(dir: string, stage: string, opts: Record<string, string>, 
   const affected = steps.filter((s): s is JsonObject => isObject(s)
     && stageIndex(stageOfStep(s.phase as 'rig' | 'post', s.id as string)) >= stageIndex(stage));
   const entry: JsonObject = { from_stage: project.stage ?? null, steps_before: affected.map(s => ({ id: s.id as string, ...(s.status === undefined ? {} : { status: s.status }) })), stage, by: review?.act.authority.reviewer.id ?? opts['--by']!, at: review?.act.at ?? new Date(now).toISOString(), verbatim: '' };
-  if (review) entry.source = `review act ${review.act.jobId}/${review.act.actId}`;
-  else if (opts['--source'] !== undefined) entry.source = opts['--source'];
+  const index = asArray(project.reopens).length;
+  const path = `reopens[${index}]`;
+  if (review) {
+    entry.verbatim = review.act.value.words;
+    entry.source = `review act ${review.act.jobId}/${review.act.actId}`;
+  } else {
+    const chat = readOwnerChat(opts, opts['--by']!, now, path);
+    if (chat) {
+      entry.verbatim = chat.owner_words!;
+      entry.source = chat.source!;
+      entry.said_at = chat.said_at!;
+      entry.relayed_by = chat.relayed_by!;
+    } else if (opts['--source'] !== undefined) entry.source = opts['--source'];
+  }
   const refusals: Finding[] = [];
   // Validate against the original reached stage before moving it backwards.
-  const candidate = { ...project, reopens: [...asArray(project.reopens), entry] };
+  const candidate: JsonObject = { ...project, reopens: [...asArray(project.reopens), entry] };
+  if (review) {
+    candidate.review_acts = [...asArray(project.review_acts), { schema: 'rig-create/review-act@1', kind: 'reopen',
+      jobId: review.act.jobId, actId: review.act.actId, reopen: index,
+      bytes: review.bytes, sha256: jobHash(review.bytes), version_hash: jobHash(JSON.stringify(entry)) }];
+    const invalid = reviewActFindings(candidate)[0];
+    if (invalid) refuse(invalid.code, invalid.message);
+  }
   if (project.reopens !== undefined && !Array.isArray(project.reopens)) collectReopens(project, refusals);
   collectReopens(candidate, refusals);
   const first = refusals[0];
   if (first !== undefined) refuse(first.code, first.message);
-  entry.verbatim = review ? review.act.value.words : readVerbatim(opts['--verbatim-file'] ?? '-');
+  if (!review && opts['--owner-chat'] === undefined) entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
   for (const step of affected) step.status = 'pending';
   project.reopens = candidate.reopens;
   project.stage = entry.stage;
-  if (review) {
-    project.review_acts = [...asArray(project.review_acts), { schema: 'rig-create/review-act@1', kind: 'reopen',
-      jobId: review.act.jobId, actId: review.act.actId, reopen: asArray(project.reopens).length - 1,
-      bytes: review.bytes, sha256: jobHash(review.bytes), version_hash: jobHash(JSON.stringify(entry)) }];
-    const invalid = reviewActFindings(project)[0];
-    if (invalid) refuse(invalid.code, invalid.message);
-  }
+  if (review) project.review_acts = candidate.review_acts;
   const rejected = newRefusals(dir, before, project, { now })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   if (review && !readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.reopens: record changed during fetch; retry on the current record');

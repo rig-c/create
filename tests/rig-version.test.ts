@@ -818,7 +818,8 @@ describe('frozen rig registration', () => {
     put(dir, 'project.json', project);
     rigVersionCommand(args);
     const registered = load();
-    registered.reopens = [{ stage: 'interview', from_stage: 'rig-review', by: 'user', at: '2099-01-01T00:00:00Z', verbatim: 'Reopen later', steps_before: [] }];
+    registered.reopens = [{ stage: 'interview', from_stage: 'rig-review', by: 'user', at: '2099-01-01T00:00:00Z', verbatim: 'Reopen later', steps_before: [],
+      source: 'owner chat, relayed', said_at: '2099-01-01T00:00:00Z', relayed_by: 'synthetic-relay' }];
     expect(rigRegistrationFindings(dir, registered)).toEqual([]);
   });
 

@@ -5,7 +5,7 @@ import { Refusal } from '../src/refusal.ts';
 import { baselineOf, countFindings, newFindings } from '../src/refusal-baseline.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr } from './fixtures.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { advanceCommand, checkProject, pauseCommand, reopenCommand, resumeCommand, reviewCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
@@ -45,7 +45,7 @@ function refused(dir: string, code: string, action: () => unknown): void {
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 }
 
-const reopen = (dir: string, stage: string): void => { tick(); reopenCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]); };
+const reopen = (dir: string, stage: string): void => { tick(); reopenCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]); };
 const sign = (dir: string, stage: string, ...rest: string[]): void => { tick(); signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words(dir), ...rest]); };
 function acceptRig(dir: string): void {
   tick();

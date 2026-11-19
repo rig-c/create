@@ -119,7 +119,8 @@ test('DIRECTION_SCENE_STALE refuses new authoring while historical posts retain 
   const old = f.doc.scene;
   testClock.set('2026-11-07T10:01:00Z');
   const reopened = f.load();
-  reopened.reopens = [{stage:'post',from_stage:'post',by:'user',at:testClock.iso(),verbatim:'Revise the composition.',steps_before:[]}]; f.save(reopened);
+  reopened.reopens = [{stage:'post',from_stage:'post',by:'user',at:testClock.iso(),verbatim:'Revise the composition.',steps_before:[],
+    source:'owner chat, relayed',said_at:testClock.iso(),relayed_by:'synthetic-relay'}]; f.save(reopened);
   testClock.set('2026-11-07T10:01:01Z'); f.writeScene(true);
   expect(readDirection(f.dir, f.load(), 2).scene).toEqual(old);
   expect(checked(f).refusals).toEqual([]);
@@ -192,7 +193,8 @@ test('post option context binds scene bytes, resolves freshness and preserves le
   validateContext(f.dir, p, set, at, true);
   testClock.set('2026-11-07T10:01:00Z');
   const reopened = f.load();
-  reopened.reopens = [{stage:'post',from_stage:'post',by:'user',at:testClock.iso(),verbatim:'Revise the composition.',steps_before:[]}]; f.save(reopened);
+  reopened.reopens = [{stage:'post',from_stage:'post',by:'user',at:testClock.iso(),verbatim:'Revise the composition.',steps_before:[],
+    source:'owner chat, relayed',said_at:testClock.iso(),relayed_by:'synthetic-relay'}]; f.save(reopened);
   testClock.set('2026-11-07T10:01:01Z'); f.writeScene(true);
   expect(() => validateContext(f.dir, f.load(), set, testClock.now(), true)).toThrow(expect.objectContaining({ code: 'INTERVIEW_OPTIONS_STALE' }));
   const latest = currentScene(f.load())!;

@@ -7,7 +7,7 @@ import { checkSignoffTarget, SIGNOFF_TARGET_SINCE } from '../src/signoff-target.
 import type { JsonObject } from '../src/templates.ts';
 import { directionFixture } from './direction-fixture.ts';
 import { arr, fixture, obj, withdrawSignature } from './fixtures.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { checkProject, directionCommand, advanceCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
 
 const hash = (bytes: string | Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -18,7 +18,7 @@ function setup(stage = 'rig-review'): string {
   const dir = fixture();
   writeFileSync(join(dir, 'words.txt'), 'Approve this reviewed version.\n');
   testClock.set(new Date('2026-11-20T00:00:00Z'));
-  if (stage === 'direction-review') reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  if (stage === 'direction-review') reopenCommand([stage, dir, '--by', 'user', ...ownerChatArgs(join(dir, 'words.txt'))]);
   // A withdrawn approval is signed again at its own instant, so the move it authorized stays linked.
   testClock.set(new Date(stage === 'direction-review' ? '2026-11-20T00:00:01Z' : withdrawSignature(dir, stage)));
   return dir;
@@ -121,7 +121,7 @@ test('missing target is refused at boundary, with exactly one warning for a lega
 test('live target removes default candidate; after a reopen only a rig accepted since is selectable', () => {
   const dir = setup(); sign(dir, 'rig-review'); refused(dir, 'rig-review');
   testClock.set(new Date('2026-11-21T00:00:00Z'));
-  reopenCommand(['rig-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'words.txt')]);
+  reopenCommand(['rig-review', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'words.txt'))]);
   testClock.set(new Date('2026-11-22T00:00:00Z'));
   // #243: the reopen made v2's acceptance history, so no live rig is accepted.
   refused(dir, 'rig-review', undefined, 'RIG_VERSION_UNACCEPTED');
@@ -194,7 +194,7 @@ test.each(['rig-review','direction-review'])('owner chat rejects changes-request
 
 test.each(['rig-review','direction-review'])('owner chat refuses an accepted verdict voided by a reopen: %s',stage=>{
   const dir=setup(stage);testClock.set('2026-11-20T00:01:00Z');
-  reopenCommand([stage,dir,'--by','user','--verbatim-file',join(dir,'words.txt')]);
+  reopenCommand([stage,dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
   const before=readFileSync(join(dir,'project.json'));
   try{signoffCommand([stage,dir,'--by','user','--owner-chat',join(dir,'words.txt'),'--said-at','2026-11-20T00:00:59Z','--relayed-by','operator']);throw Error('accepted');}
   catch(error){expect((error as Refusal).code).toBe('OWNER_CHAT_GATE_VISUAL');}

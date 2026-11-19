@@ -423,7 +423,10 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
       throw new Error(`expected 0 refusals and 0 warnings before reopen, got: ${JSON.stringify({ refusals: beforeReopen.refusals, warnings: beforeReopen.warnings })}`);
     }
 
-    writer(['reopen', 'parts-review', '--by', 'user', '--verbatim-file', 'evidence/reopen.txt']);
+    writer([
+      'reopen', 'parts-review', '--by', 'user', '--owner-chat', 'evidence/reopen.txt',
+      '--said-at', new Date(clock).toISOString(), '--relayed-by', 'fixture-operator',
+    ]);
     const afterReopen = checkProject(dir, undefined, { now });
     if (afterReopen.refusals.length > 0) {
       throw new Error(`expected 0 refusals after reopen, got: ${JSON.stringify(afterReopen.refusals)}`);

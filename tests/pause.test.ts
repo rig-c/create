@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, obj } from './fixtures.ts';
-import { clockedCli, run, tempDir } from './helpers.ts';
+import { clockedCli, run, tempDir, ownerChatArgs } from './helpers.ts';
 import { checkProject, pauseCommand, reopenCommand, resumeCommand, signoffCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
@@ -141,7 +141,7 @@ describe('leaving a pause another way', () => {
   test('a reopen out of a pause leaves the project unpaused, so resume refuses', () => {
     const dir = chain('3-rig-review');
     signPaused(dir); pause(dir);
-    tick(); reopenCommand(['rigging', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+    tick(); reopenCommand(['rigging', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
     expect(read(dir).stage).toBe('rigging');
     clean(dir);
     refused(dir, 'RESUME_NOT_PAUSED', () => resume(dir, 'rig-review'));

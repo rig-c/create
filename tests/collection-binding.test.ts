@@ -1,3 +1,4 @@
+import { ownerChatArgs } from './helpers.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -605,7 +606,7 @@ test('bound member supports reopen -> review-tool answer override -> check -> in
   // Live interview signoff requires formal reopen before changing an interview answer
   const reopenWords = join(memberRoot, 'reopen-words.txt');
   writeFileSync(reopenWords, 'Reopen interview to override seethrough for this member.\n');
-  reopenCommand(['interview', memberRoot, '--by', 'user', '--verbatim-file', reopenWords], TEST_NOW - 2000);
+  reopenCommand(['interview', memberRoot, '--by', 'user', ...ownerChatArgs(reopenWords, new Date(TEST_NOW - 2000).toISOString())], TEST_NOW - 2000);
 
   // Draft and register a pending option set for the inherited 'seethrough' waypoint question
   const afterReopen = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;

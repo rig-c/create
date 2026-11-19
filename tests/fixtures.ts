@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import type { CheckReport } from '../src/check.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { EXAMPLE_PARTS_CHECK, newOrderExampleFiles } from './draft-fixture.ts';
 import { partsCheckBytes, withPartsCheck } from './parts-check-fixture.ts';
@@ -342,7 +342,7 @@ export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z')
       if (!ids) continue;
       if (!ids.size && stage !== 'post-interview') {
         testClock.set(new Date(at + tick++));
-        reopenCommand([stage, dir, '--by', 'user', '--verbatim-file', words]);
+        reopenCommand([stage, dir, '--by', 'user', ...ownerChatArgs(words)]);
         const phase = stage === 'post-interview' ? 'post' : 'rig';
         for (const step of steps) {
           if (step.phase === phase && approvalStageOfStep(phase, String(step.id), hasStageOrder(before)) === stage) ids.add(String(step.id));

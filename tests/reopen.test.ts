@@ -2,19 +2,20 @@ import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectSignoffs } from '../src/check.ts';
-import { collectReopens, liveSignoff } from '../src/reopen.ts';
+import { OWNER_CHAT_SOURCE, REOPEN_RESTART_OWNER_CHAT_SINCE } from '../src/owner-chat.ts';
+import { collectReopens, liveSignoff, reopenTargetEligible } from '../src/reopen.ts';
 import { readVersions, latestAccepted } from '../src/review.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { Refusal } from '../src/refusal.ts';
 import { fixture, arr, obj, step, version } from './fixtures.ts';
-import { cli, clockedCli, gitEnv } from './helpers.ts';
+import { cli, clockedCli, gitEnv, ownerChatArgs } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { checkProject, reopenCommand, handoff, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p, null, 2));
 function words(dir: string): string { const p = join(dir, 'words.txt'); writeFileSync(p, '\uFEFFRevisit the synthetic parts.\r\n'); return p; }
-function reopen(dir: string, stage = 'parts'): void { reopenCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir), '--source', 'synthetic relay']); }
+function reopen(dir: string, stage = 'parts'): void { reopenCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]); }
 const codes = (dir: string): string[] => checkProject(dir).refusals.map(f => f.code);
 function refusal(fn: () => unknown, code: string): void {
   try { fn(); throw new Error('expected refusal'); } catch (e) { expect(e).toBeInstanceOf(Refusal); expect((e as Refusal).code).toBe(code); }
@@ -34,7 +35,9 @@ describe('human stage reopen', () => {
     expect(p.signoffs).toEqual(before.signoffs);
     expect(p.versions).toEqual(before.versions);
     const entry = obj(arr(p.reopens)[0]);
-    expect(entry).toMatchObject({ stage: 'parts', by: 'owner', at: '2026-11-20T00:00:00.000Z', source: 'synthetic relay', verbatim: '\uFEFFRevisit the synthetic parts.\r\n' });
+    expect(entry).toMatchObject({ stage: 'parts', by: 'owner', at: '2026-11-20T00:00:00.000Z',
+      source: OWNER_CHAT_SOURCE, verbatim: '\uFEFFRevisit the synthetic parts.\r\n',
+      said_at: '2026-11-20T00:00:00.000Z', relayed_by: 'synthetic-relay' });
     expect(entry.steps_before).toEqual(arr(obj(before.plan).steps).map(s => ({ id: obj(s).id, status: obj(s).status })));
     expect(arr(obj(p.plan).steps).every(s => obj(s).status === 'pending')).toBe(true);
     expect(arr(obj(p.plan).steps).map(s => stepHash(obj(s)))).toEqual(hashes);
@@ -108,7 +111,7 @@ describe('human stage reopen', () => {
   test.each([['unknown', 'REOPEN_STAGE_UNKNOWN'], ['paused', 'REOPEN_STAGE_UNKNOWN'], ['accepted', 'REOPEN_STAGE_UNKNOWN'], ['direction-review', 'REOPEN_NOT_PASSED']])('refuses target %s without writing', (target, code) => {
     const dir = fixture(p => { p.stage = 'interview'; p.signoffs = []; p.versions = []; });
     const before = readFileSync(join(dir, 'project.json'));
-    refusal(() => reopenCommand([target, dir, '--by', 'owner', '--verbatim-file', words(dir)]), code);
+    refusal(() => reopenCommand([target, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]), code);
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   });
 
@@ -116,12 +119,53 @@ describe('human stage reopen', () => {
     const dir = fixture(); const file = words(dir); const before = readFileSync(join(dir, 'project.json'));
     refusal(() => reopenCommand(['parts', dir, '--by', 'agent']), 'SIGNOFF_NOT_HUMAN');
     writeFileSync(file, Buffer.from([255]));
-    refusal(() => reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', file]), 'VERBATIM_INVALID_UTF8');
+    refusal(() => reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(file)]), 'VERBATIM_INVALID_UTF8');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
     const p = read(dir); p.reopens = {}; save(dir, p);
     const malformed = readFileSync(join(dir, 'project.json'));
     refusal(() => reopen(dir), 'REOPEN_MALFORMED');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(malformed);
+  });
+
+  test('owner chat is required at the cutoff, and earlier CLI records warn while retaining authority', () => {
+    const dir = fixture();
+    const file = join(dir, 'project.json');
+    const args = ['parts', dir, '--by', 'owner', '--verbatim-file', words(dir)];
+    const cutoff = Date.parse(REOPEN_RESTART_OWNER_CHAT_SINCE);
+    testClock.set(cutoff);
+    const original = readFileSync(file);
+    refusal(() => reopenCommand(args), 'OWNER_CHAT_REQUIRED');
+    refusal(() => reopenCommand(['parts', dir, '--by', 'owner', '--said-at', testClock.iso()]), 'OWNER_CHAT_INVALID');
+    refusal(() => reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(words(dir), new Date(cutoff + 1).toISOString())]), 'OWNER_CHAT_INVALID');
+    expect(readFileSync(file)).toEqual(original);
+    testClock.set(cutoff - 1);
+    expect(reopenCommand(args).exit).toBe(0);
+    testClock.set(cutoff);
+    expect(checkProject(dir).warnings).toContainEqual(expect.objectContaining({ code: 'OWNER_CHAT_REQUIRED', path: 'reopens[0]' }));
+    expect(collectReopens(read(dir), [])).toHaveLength(1);
+    const p = read(dir);
+    const entry = obj(arr(p.reopens)[0]);
+    entry.at = REOPEN_RESTART_OWNER_CHAT_SINCE;
+    entry.source = 'review act synthetic-job/synthetic-act';
+    save(dir, p);
+    expect(checkProject(dir).refusals).toContainEqual(expect.objectContaining({ code: 'OWNER_CHAT_REQUIRED', path: 'reopens[0]' }));
+    expect(collectReopens(p, [])).toEqual([]);
+    entry.source = OWNER_CHAT_SOURCE;
+    save(dir, p);
+    expect(checkProject(dir).refusals).toContainEqual(expect.objectContaining({ code: 'OWNER_CHAT_INVALID', path: 'reopens[0]' }));
+    expect(collectReopens(p, [])).toEqual([]);
+  });
+
+  test('publication eligibility uses from_stage and only witnesses reached at the requested instant', () => {
+    const at = Date.parse('2026-11-20T00:00:00Z');
+    const witness = { kind: 'rig', at: new Date(at).toISOString() };
+    const project = { stage: 'accepted', versions: [witness] };
+    expect(reopenTargetEligible(project, 'parts', at - 1, 'parts')).toBe(true);
+    expect(reopenTargetEligible(project, 'rigging', at - 1, 'parts')).toBe(false);
+    expect(reopenTargetEligible(project, 'rigging', at, 'parts')).toBe(true);
+    expect(reopenTargetEligible(project, 'accepted', at, 'accepted')).toBe(false);
+    expect(reopenTargetEligible(project, 'paused', at, 'parts')).toBe(false);
+    expect(reopenTargetEligible(project, 'parts', at, 'unknown')).toBe(false);
   });
 
   test('equal/earlier signoff dates are superseded, strictly later signatures are live', () => {
@@ -192,7 +236,7 @@ describe('human stage reopen', () => {
   test('CLI stdin and help; user clock and repeated arguments are refused', () => {
     const dir = fixture(); const bytes = Buffer.from('\uFEFFSynthetic words\r\n');
     const result = Bun.spawnSync([process.execPath, ...clockedCli(),
-      'reopen', 'parts', dir, '--by', 'owner', '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
+      'reopen', 'parts', dir, '--by', 'owner', ...ownerChatArgs('-'), '--json'], { stdin: bytes, stdout: 'pipe', stderr: 'pipe' });
     expect(result.exitCode).toBe(0);
     expect(Buffer.from(obj(arr(read(dir).reopens)[0]).verbatim as string)).toEqual(bytes);
     expect(cli(['--help'], dir, gitEnv()).stdout).toContain('rig-create reopen');

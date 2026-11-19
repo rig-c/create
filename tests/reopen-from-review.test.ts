@@ -7,7 +7,7 @@ import { currentJobIdentity, partsEnumerator, readPublished } from '../src/job-p
 import { tempDir } from './helpers.ts';
 import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { decodeReviewAct, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
-import { reopenCommand } from '../src/reopen.ts';
+import { collectReopens, reopenCommand } from '../src/reopen.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
@@ -40,6 +40,7 @@ test.each(['  Revisit the review.\r\nKeep the framing — unchanged.  ', ''])('#
   expect(arr(obj(read(dir).plan).steps).map(step => obj(step).status)).toEqual(
     arr(obj(read(dir).plan).steps).map(() => 'pending'));
   expect(reviewActFindings(read(dir))).toEqual([]);
+  expect(collectReopens(read(dir), [])).toHaveLength(1);
   const beforeReplay = readFileSync(join(dir, 'project.json'));
   expect(reopenCommand(args, NOW + 2000, hook)).toEqual(result);
   expect(readFileSync(join(dir, 'project.json'))).toEqual(beforeReplay);
@@ -48,6 +49,7 @@ test.each(['  Revisit the review.\r\nKeep the framing — unchanged.  ', ''])('#
   const project = read(dir); obj(arr(project.reopens).at(-1)).verbatim = 'different words';
   writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
   expect(reviewActFindings(read(dir)).map(row => row.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+  expect(collectReopens(read(dir), [])).toEqual([]);
 });
 
 test('#356 a bound act for another project refuses before writing', async () => {
@@ -67,7 +69,7 @@ test.each(['stage', 'words', 'authority'])('#493 malformed exported %s refuses b
     { fetch: () => ({ bytes: JSON.stringify(malformed) }) }));
 });
 
-test.each(['--by', '--verbatim-file', '--source'])('#493 mixed %s refuses byte-identically', flag => {
+test.each(['--by', '--verbatim-file', '--source', '--owner-chat', '--said-at', '--relayed-by'])('#493 mixed %s refuses byte-identically', flag => {
   const dir = pending();
   refused(dir, 'REOPEN_OPTION_INVALID', () => reopenCommand(['parts', dir, '--from-review', 'synthetic-act', flag, 'synthetic'], NOW));
 });

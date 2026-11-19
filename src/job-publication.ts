@@ -25,10 +25,10 @@ import {
   withCandidateProject,
 } from './collection-binding-reader.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
-import { hasStageOrder, interviewStageOfGuide, stageOfStep, stepCoveredByApproval } from './stages.ts';
+import { hasStageOrder, interviewStageOfGuide, PAUSED_STAGE, STAGES, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { assertPlanSignoffCandidate } from './signoff.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, stageSignable } from './signable.ts';
-import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
+import { collectReopens, directionReviewClosed, liveSignoff, reopenTargetEligible } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval } from './structure.ts';
@@ -264,11 +264,15 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     // Seal the decision record and every file its record check reads, rather than
     // revalidating all producer artifacts from earlier versions and drafts.
     const interviewSignoff = result.kind === 'plan' && project.stage === 'interview' && stageSignable(project, 'interview');
+    const pausedPlan = result.kind === 'plan' && project.stage === PAUSED_STAGE;
+    const reopenSubjects = result.kind === 'plan' ? STAGES.filter(({ id }) => reopenTargetEligible(project, id, now, String(project.stage)))
+      .map(({ id }) => ({ kind: 'reopen' as const, stage: id })) : [];
     const report = checkProject(root, project, { now, readOnly: true, recordReads: true, recordPublication: !interviewSignoff });
     for (const { path, sha256 } of report.reads ?? []) seal({ path, sha256 });
-    // A pick is how an open interview receives its first answer. Its own silent
-    // questions are todos, as in next/advance; they are not a plan-approval waiver.
-    const openQuestions = result.kind === 'option-set' && ['interview', 'rigging-interview', 'post-interview'].includes(String(report.effective_stage))
+    // Picks and paused reopens can resolve unfinished work without approving the
+    // plan. Only silent questions of the current interview may remain open.
+    const openQuestions = (result.kind === 'option-set' || (pausedPlan && reopenSubjects.length > 0))
+      && ['interview', 'rigging-interview', 'post-interview'].includes(String(report.effective_stage))
       ? new Set(items.filter(item => item.state.state === 'silent'
         && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === report.effective_stage).map(item => item.path))
       : new Set<string>();
@@ -296,6 +300,8 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       }
       withCandidateProject(root, project, () => validateContext(root, project, set, now, true));
       label = `option-set ${result.questionId} / ${result.setId}`;
+    } else if (pausedPlan) {
+      label = `plan / ${project.stage}`;
     } else if (result.kind === 'plan') {
       if (!plan) throw Error('the requested plan is absent');
       const reopenDirection = stage === 'direction-review' && directionReviewClosed(project)
@@ -326,7 +332,6 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         return checkpointSignable(project, stage, String(step.id), now);
       }).map(step => ({ kind: 'checkpoint' as const, checkpointId: String(step.id) }));
       if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
-      if (reopenDirection) subjects = [{ kind: 'reopen', stage: 'direction-review' }];
       label = `plan / ${stage}`;
     } else throw Error('unknown record result');
     // Detect record changes during closure reads as well as changes before entry.
@@ -338,7 +343,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     }
     const evidence = checkpointEvidenceContext(root, project, subjects, files);
     return { label, parts, inputs, files, ...evidence,
-      plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
+      plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects: [...subjects, ...reopenSubjects] };
   } catch (error) {
     const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))
       ? error

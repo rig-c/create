@@ -1,3 +1,4 @@
+import { ownerChatArgs } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { expect, test, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -46,7 +47,7 @@ function setup(density?: number, reopen = true, productionParts = false): string
     testClock.set(new Date('2026-11-19T00:00:00.500Z'));
     signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     testClock.set(new Date('2026-11-19T00:00:01Z'));
-    reopenCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+    reopenCommand(['plan-approved', dir, '--by', 'owner', ...ownerChatArgs(join(dir, 'words.txt'))]);
     testClock.set(new Date('2026-11-19T00:00:02Z'));
     signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
@@ -185,7 +186,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   expect(checkProject(dir).refusals).toEqual([]);
   const frozenV1 = JSON.stringify(v1);
   testClock.set(new Date('2026-11-24T00:00:00Z'));
-  reopenCommand(['parts', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
+  reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(join(dir, 'words.txt'))]);
   p = read(dir);
   expect(latestPartsApproval(p)).toBeUndefined();
   expect(latestPartsApproval(p, Date.parse('2026-11-23T00:00:00Z'))?.draft_id).toBe('shape');

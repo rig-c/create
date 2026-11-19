@@ -10,18 +10,27 @@ import type { JsonObject } from './templates.ts';
 
 export const OWNER_CHAT_SOURCE = 'owner chat, relayed';
 export const OWNER_CHAT_FLAGS = ['--owner-chat', '--said-at', '--relayed-by'];
+export const REOPEN_RESTART_OWNER_CHAT_SINCE = '2026-11-19T00:00:00Z';
 const nonblank = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 
-export function ownerChatFinding(record: JsonObject, path: string): Finding | undefined {
+export function ownerChatFinding(record: JsonObject, path: string, words = record.owner_words ?? record.verbatim): Finding | undefined {
   if (record.source !== OWNER_CHAT_SOURCE && record.said_at === undefined && record.relayed_by === undefined && record.owner_words === undefined) return;
   const said = record.said_at;
-  if (record.source !== OWNER_CHAT_SOURCE || !nonblank(record.owner_words ?? record.verbatim)
+  if (record.source !== OWNER_CHAT_SOURCE || !nonblank(words)
     || !nonblank(record.by) || record.by.toLowerCase() === 'agent' || !nonblank(record.relayed_by)
     || typeof said !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(said)
     || !Number.isFinite(Date.parse(said)) || !Number.isFinite(Date.parse(String(record.at)))
     || Date.parse(said) > Date.parse(String(record.at)) || record.actId !== undefined || record.act_id !== undefined) {
     return {code:'OWNER_CHAT_INVALID',path,message:`${path}: relayed owner chat needs exact nonblank words, owner identity, ISO said_at, relayed_by and a separate write at without an act id; record the owner's words with --owner-chat --said-at --relayed-by`};
   }
+}
+
+/** Reopen and restart need attributed owner authority; only reopen can carry a Review receipt. */
+export function ownerChatAuthorityFinding(record: JsonObject, path: string, words: JsonObject[string], viaReview = false): Finding | undefined {
+  return ownerChatFinding(record, path, words) ?? (viaReview || record.source === OWNER_CHAT_SOURCE ? undefined : {
+    code: 'OWNER_CHAT_REQUIRED', path,
+    message: `${path}: missing owner authority; relay the owner's exact words with --by --owner-chat --said-at --relayed-by`,
+  });
 }
 
 export function readOwnerChat(opts: Record<string,string>, by: string, now: number, path: string): JsonObject | undefined {

@@ -1,3 +1,4 @@
+import { ownerChatArgs } from './helpers.ts';
 import { createHash } from 'node:crypto';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -48,7 +49,7 @@ test('after N/A replacement, reopen moves to post-interview and its empty approv
   testClock.set(new Date('2030-01-01T00:00:00Z'));
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   testClock.set(new Date('2030-01-01T00:00:01Z'));
-  reopenCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
+  reopenCommand(['post-interview', dir, '--by', 'user', ...ownerChatArgs(words(dir))]);
   expect(load(dir).stage).toBe('post-interview');
   testClock.set(new Date('2030-01-01T00:00:02Z'));
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);

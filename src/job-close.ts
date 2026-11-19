@@ -210,12 +210,12 @@ export async function assertNoPendingJobAsk(
     if (pending.length > 0) {
       const listed = pending.map(item => item.label).join('; ');
       const version = pending.find(item => item.version !== null)?.version ?? null;
-      const reviewRemedy = version !== null
-        ? `review ${version} --from-review <actId> (review <n> --from-review <actId>)`
-        : 'review <n> --from-review <actId>';
+      const ingest = version === null || pending.some(item => item.version === null)
+        ? 'run rig-create job acts, run the printed ingest commands'
+        : `give the verdict, run rig-create job acts, ingest with rig-create review ${version} --from-review <actId> (review <n> --from-review <actId>)`;
       refuse(
         'JOB_ASK_PENDING',
-        `project.json: bound job ${binding.jobId} holds pending owner ask(s) ${listed} with no ingested act; give the verdict, run rig-create job acts, ingest with rig-create ${reviewRemedy}, run rig-create job close, then re-run`,
+        `project.json: bound job ${binding.jobId} holds pending owner ask(s) ${listed} with no ingested act; ${ingest}, run rig-create job close, then re-run`,
       );
     }
   } finally {

@@ -284,9 +284,13 @@ chain checkpoint's rig verdict over the loopback API. Separate-UID filesystem
 unreadability is not measurable in this local test environment. The guarded
 path test establishes the accepted consumer access boundary.
 
-`--picks-file`, `--verbatim-file`, parts `--evidence`, and reshaped feedback JSON
-remain available for legacy/history workflows. The current semantic verdict
-path uses `--from-review` and preserves the fetched act directly.
+`--picks-file`, review verdict `--verbatim-file`, parts `--evidence`, and
+reshaped feedback JSON remain available for legacy/history workflows.
+The current verdict path uses `--from-review` and preserves the fetched act
+directly. To ingest a Review reopen, use `reopen <stage> --from-review <actId>`.
+To record an owner's reopen instruction from chat, use `reopen <stage>` with
+`--by <owner> --owner-chat <words file> --said-at <ISO> --relayed-by <operator>`.
+See the [reopen contract](PROJECT.md#reopening-a-passed-stage).
 
 ## Live sign-off routes
 

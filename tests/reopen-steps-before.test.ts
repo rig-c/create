@@ -5,7 +5,7 @@ import { Refusal } from '../src/refusal.ts';
 import { PROGRESS_HISTORY_SINCE } from '../src/stage-progress.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { advanceCommand, checkProject, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
@@ -28,7 +28,7 @@ let clock = 0;
 function at(instant: number): void { clock = instant; testClock.set(clock); }
 function tick(): void { at(clock + 60_000); }
 const status = (dir: string, id: string, value: string): void => { tick(); stepStatusCommand([id, value, dir, '--by', 'agent']); };
-const reopen = (dir: string, stage: string): void => { tick(); reopenCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]); };
+const reopen = (dir: string, stage: string): void => { tick(); reopenCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]); };
 
 /** A writer-built example-chain prefix: its rig steps are done with no status history. */
 function rigReview(start: number): string {

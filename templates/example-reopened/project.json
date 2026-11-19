@@ -4614,7 +4614,10 @@
       "stage": "parts-review",
       "by": "user",
       "at": "2026-11-19T00:01:07.000Z",
-      "verbatim": "Reopen the synthetic parts for correction.\n"
+      "verbatim": "Reopen the synthetic parts for correction.\n",
+      "source": "owner chat, relayed",
+      "said_at": "2026-11-19T00:01:07.000Z",
+      "relayed_by": "fixture-operator"
     }
   ]
 }

@@ -275,7 +275,7 @@ test('landed constrained Other is checked even when another constrained ask is s
 });
 test('a later reopen preserves the historical choice but refuses selecting its stale set again',()=>{
   const w=working();answer(w);testClock.set(riggingDraftAt+2_000);writeFileSync(join(w.dir,'words.txt'),'Review parts again.');
-  reopenCommand(['parts',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);expect(checkProject(w.dir).refusals).toEqual([]);
+  reopenCommand(['parts',w.dir,'--by','user', ...ownerChatArgs(join(w.dir,'words.txt'))]);expect(checkProject(w.dir).refusals).toEqual([]);
   const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>interviewOptionsCommand(['motion',w.dir,'--file',w.path]))).toBe('INTERVIEW_OPTIONS_STALE');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
 });
 
@@ -301,7 +301,7 @@ test('a mixed decision cannot overwrite a user fragment through merge',()=>{
 });
 
 import { generateExampleChoices } from '../scripts/generate-example-choices.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, ownerChatArgs } from './helpers.ts';
 import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
 test('the public-writer consumer fixture and raw option files reproduce exactly',()=>{
   const outputs=generateExampleChoices(join(tempDir(),'choice-generation'));

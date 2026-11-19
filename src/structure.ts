@@ -13,8 +13,8 @@ import type { Json, JsonObject } from './templates.ts';
 
 export const STRUCTURE_SCHEMA = 'rig-create/structure-decisions@0';
 const hash = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
-const add = (out: Finding[], code: string, path: string, why: string, livePartsApproval?: JsonObject): void => {
-  const remedy = livePartsApproval === undefined && code === 'RIGGING_INTERVIEW_CONTEXT'
+const add = (out: Finding[], code: string, path: string, why: string, missingPartsApproval = false): void => {
+  const remedy = missingPartsApproval
     ? 'no live parts-review approval is recorded in signoffs[stage=parts-review]; advance through parts to parts-review, retain the draft structure decisions with structure-snapshot, publish the labelled draft with job open --draft <id>, and record the approval with parts-review --from-review <actId> (or signoff parts-review)'
     : 'review the labelled draft, retain its exact structure decisions, and sign again';
   out.push({ code, path, message: `${path}: ${why}; ${remedy}` });
@@ -123,7 +123,7 @@ export function validateStructureSnapshot(dir: string, project: JsonObject, draf
 export function riggingContext(dir: string, project: JsonObject, at: string, errors: Finding[]): JsonObject | null {
   const review = latestPartsApproval(project);
   if (review === undefined || typeof review.at !== 'string' || !Number.isFinite(Date.parse(review.at)) || !isObject(review.evidence) || !(Date.parse(at) >= Date.parse(review.at))) {
-    add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'a live dated parts review must precede the rigging interview', review); return null;
+    add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'a live dated parts review must precede the rigging interview', review === undefined); return null;
   }
   if (checkStructure(dir, project, review, 'signoffs[parts-review]', errors) === null) return null;
   for (const item of collectItems(project, { collection: loadCollection(dir) })) {
@@ -182,21 +182,21 @@ export function checkRiggingContext(dir: string, project: JsonObject, effectiveS
   const ordered = hasStageOrder(project);
   const checkLegacyBuild = ordered && stageIndex(effectiveStage) >= stageIndex('rigging-interview');
   const interview = isObject(project.interview) ? project.interview : {};
-  if (ordered && (!isObject(interview.order) || typeof interview.order.adopted_at !== 'string' || !Number.isFinite(Date.parse(interview.order.adopted_at)))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.order', 'order adoption needs a clock date', review);
+  if (ordered && (!isObject(interview.order) || typeof interview.order.adopted_at !== 'string' || !Number.isFinite(Date.parse(interview.order.adopted_at)))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.order', 'order adoption needs a clock date');
   const reopens = collectReopens(project, []);
   const approvals = collectSignoffs(project, []).filter(s => ordered && s.stage === 'rigging-interview' && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
   for (const approval of approvals.sort((a, b) => b.at - a.at || b.index - a.index).slice(0, 1)) {
     const context = riggingContext(dir, project, String(approval.record.at), errors);
-    if (context !== null && (!isDeepStrictEqual(approval.record.accepted_parts, context.accepted_parts) || !isDeepStrictEqual(approval.record.structure, context.structure))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', `signoffs[${approval.index}]`, 'approval does not bind the current parts review and structure', review);
+    if (context !== null && (!isDeepStrictEqual(approval.record.accepted_parts, context.accepted_parts) || !isDeepStrictEqual(approval.record.structure, context.structure))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', `signoffs[${approval.index}]`, 'approval does not bind the current parts review and structure');
   }
-  if (checkLegacyBuild && review === undefined) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'review parts before asking rigging questions', review);
+  if (checkLegacyBuild && review === undefined) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'review parts before asking rigging questions', true);
   // Bind production config declarations, not geometry. Historical pre-adoption builds remain history.
   const adoptedAt = isObject(interview.order) ? Date.parse(String(interview.order.adopted_at)) : NaN;
   for (const version of asArray(project.versions)) {
     if (!isObject(version) || version.kind !== 'rig' || (version.accepted_parts === undefined && (!checkLegacyBuild || !(Date.parse(String(version.at)) >= adoptedAt)))) continue;
     const historicalReview = rigPartsApproval(project, version);
     if (historicalReview === undefined && version.accepted_parts !== undefined) continue; // Registration owns the invalid binding.
-    if (historicalReview === undefined) { add(errors, 'RIGGING_INTERVIEW_CONTEXT', `versions[v${String(version.n)}]`, 'no parts structure approval was live when this rig was built', historicalReview); continue; }
+    if (historicalReview === undefined) { add(errors, 'RIGGING_INTERVIEW_CONTEXT', `versions[v${String(version.n)}]`, 'no parts structure approval was live when this rig was built', true); continue; }
     const snapshot = checkStructure(dir, project, historicalReview, `versions[v${String(version.n)}].structure`, errors);
     if (snapshot === null) continue;
     const provenance = isObject(version.provenance) ? version.provenance : {};

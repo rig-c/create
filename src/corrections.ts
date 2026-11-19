@@ -1,7 +1,7 @@
 import { declaredPartImages } from './edited-part-inputs.ts';
 import { retainedReviewRead, reviewReadLegacy, reviewSessionSource, selectedReviewFeedback, ReviewReadError } from './review-read.ts';
 import { configInputBindings, configInputsLegacy } from './config-inputs.ts';
-import { DIRECTION_CORRECTION_SPEC, DirectionError, validateDirectionIdentity, validateDirectionOutcome } from './direction.ts';
+import { DIRECTION_CORRECTION_SPEC, DirectionError, directionPatchLegacyFinding, validateDirectionIdentity } from './direction.ts';
 /** Correction inventory reads retained producer evidence; it never applies a patch or builds a rig. */
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -566,6 +566,7 @@ export function correctionApprovalFindings(project: JsonObject, stage: string, s
   const records = bindings(project.corrections);
   const relevant = records.filter(r => r.stage === stage && r.verdict !== 'withdrawn' && correctionIsLive(project, r) && date(r.at) >= date((project.corrections_contract as JsonObject).adopted_at));
   for (const r of relevant) {
+    if (isObject(r.artifact) && r.artifact.kind === 'direction-patch') continue;
     const replacement = relevant.find(next => next.resolves === r.id && (next.outcome !== null || partImageResolvingDraft(project, next) !== null));
     if (replacement) continue;
     const path = `corrections[${String(r.id)}]`;
@@ -608,6 +609,11 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
   const seen = new Map<string, JsonObject>();
   for (const [index, raw] of project.corrections.entries()) {
     const path = `corrections[${index}]`;
+    if (isObject(raw) && isObject(raw.artifact) && raw.artifact.kind === 'direction-patch') {
+      if (typeof raw.id === 'string') seen.set(raw.id, raw);
+      warnings.push(directionPatchLegacyFinding(`${path}.artifact.patch`));
+      continue;
+    }
     try {
       const partImage = isObject(raw) && isObject(raw.artifact) && raw.artifact.kind === 'part-image';
       if (!isObject(raw) || !closed(raw, ['schema', 'id', 'path', 'by', 'at', 'verbatim', 'stage', 'on', 'artifact', 'outcome', 'resolves'], ['source', 'closure', 'verdict']) || ![CORRECTION_SPEC,DIRECTION_CORRECTION_SPEC].includes(String(raw.schema)) || !id(raw.id) || seen.has(raw.id) || !['described', 'made'].includes(String(raw.path)) || (partImage ? raw.by !== 'agent' || raw.verbatim !== null : !text(raw.by) || raw.by.toLowerCase() === 'agent' || !text(raw.verbatim)) || !Number.isFinite(date(raw.at)) || date(raw.at) > now || !CORRECTION_STAGES.includes(String(raw.stage)) || (raw.source !== undefined && typeof raw.source !== 'string') || (raw.verdict !== undefined && raw.verdict !== 'withdrawn')) fail('CORRECTION_MALFORMED', 'invalid common fields, duplicate id or human timestamp');
@@ -619,8 +625,7 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       seen.set(String(record.id), record);
       const direction = record.schema === DIRECTION_CORRECTION_SPEC;
       const describedDirection = record.path === 'described' && record.stage === 'direction-review' && isObject(record.on) && record.on.kind === 'post';
-      const directionPatch = isObject(record.artifact) && record.artifact.kind === 'direction-patch';
-      if (direction && !describedDirection && !directionPatch || !direction && directionPatch || direction && partImage) fail('CORRECTION_MALFORMED', 'correction@2 requires a direction description or direction-patch');
+      if (direction && (!describedDirection || partImage)) fail('CORRECTION_MALFORMED', 'correction@2 requires a direction description');
       if (!direction && describedDirection) {
         const version = versionRecord(project, (record.on as JsonObject).n);
         if (isObject(version.provenance) && isObject(version.provenance.direction)) {
@@ -650,9 +655,6 @@ export function checkCorrections(ctx: { dir: string; project: JsonObject; refusa
       }
       if (record.path === 'described') {
         if (!closed(art, ['kind']) || art.kind !== 'description') fail('CORRECTION_MALFORMED', 'described artifact is description');
-      } else if (direction) {
-        if (record.by !== 'user') fail('CORRECTION_MALFORMED','made requires by:user');
-        try { validateDirectionOutcome(dir,project,record,art); } catch(e) { if(e instanceof DirectionError) fail(e.code,e.message); throw e; }
       } else if (partImage) {
         if (record.path !== 'made') fail('CORRECTION_MALFORMED', 'part-image requires made path');
         validatePartImageArtifact(dir, project, record, art, on);

@@ -285,17 +285,6 @@
             }
           ]
         }
-      },
-      "direction_origin": {
-        "source_post": 2,
-        "patch": {
-          "path": "evidence/patch.json",
-          "sha256": "57e6d3ad060066847ff24605ba2969a41b89bcd454618c1b9f3a93d3eb46b193"
-        },
-        "result": {
-          "path": "evidence/direction/v3.json",
-          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
-        }
       }
     }
   ],
@@ -312,7 +301,7 @@
     {
       "schema": "rig-create/correction@2",
       "id": "frame",
-      "path": "made",
+      "path": "described",
       "by": "user",
       "at": "2026-11-04T09:20:00.000Z",
       "verbatim": "Tighten the final framing.\n",
@@ -334,16 +323,7 @@
         }
       },
       "artifact": {
-        "kind": "direction-patch",
-        "patch": {
-          "path": "evidence/patch.json",
-          "sha256": "57e6d3ad060066847ff24605ba2969a41b89bcd454618c1b9f3a93d3eb46b193"
-        },
-        "state": "applied-and-checked",
-        "result": {
-          "path": "evidence/direction/v3.json",
-          "sha256": "5b4f0fe8123cbdaac9d5e8433f628e32c813014016e8c7d2afe63f6afbdff569"
-        }
+        "kind": "description"
       },
       "outcome": {
         "kind": "post",

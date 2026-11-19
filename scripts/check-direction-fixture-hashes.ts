@@ -1,4 +1,4 @@
-/** Recompute every recorded file digest, including the patch's two scalar bindings. */
+/** Recompute every recorded file digest in the direction fixture. */
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -29,14 +29,6 @@ export function checkDirectionFixtureHashes(root: string): number {
       }
       digest(path, o.sha256, at);
       consumed.add('sha256');
-    }
-    if ('rig_model_sha256' in o) {
-      digest('derived/review/v1/out/check/build/skeleton.model.json', o.rig_model_sha256, at);
-      consumed.add('rig_model_sha256');
-    }
-    if ('direction_sha256' in o) {
-      digest(`evidence/direction/v${o.source_post}.json`, o.direction_sha256, at);
-      consumed.add('direction_sha256');
     }
     if (basename(source) === 'skeleton.model.json' && at === `${source}.spine` && 'sha256' in o) {
       digest(join(dirname(source), 'skeleton.json'), o.sha256, `${at}.sha256`);

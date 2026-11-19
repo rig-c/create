@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DIRECTION_PATCH_SPEC } from '../src/direction.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
 import { jobHash } from '../src/job-outbox.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -24,14 +23,10 @@ function setup() {
   advanceCommand(['direction-review', dir]);
   writeFileSync(join(dir, 'words.txt'), 'Tighten the synthetic camera hold.');
   const load = (): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
-  const source = arr(load().versions).map(obj).find(v => v.n === 2)!;
-  const direction = obj(obj(source.provenance).direction);
-  const doc = JSON.parse(readFileSync(join(dir, String(direction.path)), 'utf8')) as JsonObject;
-  writeFileSync(join(dir, 'evidence/patch.json'), JSON.stringify({ schema: DIRECTION_PATCH_SPEC, source_post: 2, rig_model_sha256: obj(obj(doc.rig).model).sha256, direction_sha256: direction.sha256, replace: { take: { ...obj(doc.take), loop: !obj(doc.take).loop } } }));
   return { dir, load };
 }
-function args(action: string, dir: string) {
-  return action === 'write' ? ['write', '3', dir, '--file', 'evidence/direction-input.json', '--rig', '1'] : ['patch', '3', dir, '--patch-file', 'evidence/patch.json'];
+function args(dir: string) {
+  return ['write', '3', dir, '--file', 'evidence/direction-input.json', '--rig', '1'];
 }
 function refused(dir: string, code: string, fn: () => unknown) {
   const before = readFileSync(join(dir, 'project.json'));
@@ -43,51 +38,48 @@ function refused(dir: string, code: string, fn: () => unknown) {
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
   expect(existsSync(join(dir, 'evidence/direction/v3.json'))).toBe(false);
 }
-for (const action of ['write', 'patch']) {
-  test(`#454 direction ${action} -> human bounce -> next -> repeatable answers -> check -> new verdict`, () => {
-    const { dir, load } = setup();
-    for (let i = 0; i < 2; i++) reviewCommand(['2', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic review']);
-    const before = readFileSync(join(dir, 'project.json'));
-    const report = nextProject(dir, testClock.now());
-    expect(report.moves).toHaveLength(1);
-    expect(report.moves[0]).toMatchObject({ role: 'agent', field: 'versions' });
-    expect(report.moves[0]!.command).toContain('direction write 3');
-    expect(report.moves[0]!.command).toContain('--answers 2:0 --answers 2:1');
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-    refused(dir, 'FEEDBACK_UNANSWERED', () => directionCommand(args(action, dir)));
-    expect(directionCommand([...args(action, dir), '--answers', '2:0', '--answers', '2:1']).exit).toBe(0);
-    expect(arr(load().versions).map(obj).at(-1)!.answers_feedback).toEqual([{ version: 2, verdict: 0 }, { version: 2, verdict: 1 }]);
-    const checked = checkProject(dir);
-    expect(checked.refusals).toEqual([]);
-    expect(checked.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
-    const next = nextProject(dir, testClock.now());
-    expect(next.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({ role: 'human', review_act: { version_id: 'v3', review: 'direction-review' } });
-    expect(next.moves.some(m => m.command?.includes('--answers'))).toBe(false);
-  });
-  test.each(['missing', 'accepted', 'agent', 'later', 'malformed', 'duplicate'])(`#454 direction ${action} refuses %s byte-identically`, kind => {
-    const { dir, load } = setup();
-    const p = load();
-    // Malicious starting evidence is synthetic setup, never a fabricated owner act.
-    arr(p.versions).map(obj).find(v => v.n === 2)!.verdicts = [{ by: kind === 'agent' ? 'agent' : 'user', at: testClock.iso(), review: 'direction-review', verdict: kind === 'accepted' ? 'accepted' : 'bounced', verbatim: 'Synthetic feedback', source: 'synthetic', on_items: [] }];
-    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
-    // Accepted direction reviews close authoring; use the accepted rig ref to isolate ref validation.
-    if (kind === 'accepted') {
-      arr(p.versions).map(obj).find(v => v.n === 2)!.verdicts = [];
-      writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
-    }
-    const values = kind === 'missing' ? ['2:9'] : kind === 'accepted' ? ['1:0'] : kind === 'later' ? ['3:0'] : kind === 'malformed' ? ['2.0:0'] : kind === 'duplicate' ? ['2:0', '2:0'] : ['2:0'];
-    refused(dir, kind === 'duplicate' ? 'FEEDBACK_REF_DUPLICATE' : 'FEEDBACK_REF_UNKNOWN', () => directionCommand([...args(action, dir), ...values.flatMap(v => ['--answers', v])]));
-  });
-}
 
-for (const action of ['write', 'patch']) {
-  test(`#454 no-bounce direction ${action} and next preserve previous bytes and output`, () => {
-    const { dir } = setup();
-    const result = directionCommand(args(action, dir));
-    const record = readFileSync(join(dir, 'project.json'));
-    // next prints runnable commands containing this synthetic project's temporary root.
-    const outputHash = (json = false): string => jobHash(nextCommand([dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(dir, '<project>'));
-    expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
-    expect(readFileSync(join(dir, 'project.json'))).toEqual(record);
-  });
-}
+test('#454 direction write -> human bounce -> next -> repeatable answers -> check -> new verdict', () => {
+  const { dir, load } = setup();
+  for (let i = 0; i < 2; i++) reviewCommand(['2', dir, '--verdict', 'bounced', '--by', 'user', '--review', 'direction-review', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic review']);
+  const before = readFileSync(join(dir, 'project.json'));
+  const report = nextProject(dir, testClock.now());
+  expect(report.moves).toHaveLength(1);
+  expect(report.moves[0]).toMatchObject({ role: 'agent', field: 'versions' });
+  expect(report.moves[0]!.command).toContain('direction write 3');
+  expect(report.moves[0]!.command).toContain('--answers 2:0 --answers 2:1');
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  refused(dir, 'FEEDBACK_UNANSWERED', () => directionCommand(args(dir)));
+  expect(directionCommand([...args(dir), '--answers', '2:0', '--answers', '2:1']).exit).toBe(0);
+  expect(arr(load().versions).map(obj).at(-1)!.answers_feedback).toEqual([{ version: 2, verdict: 0 }, { version: 2, verdict: 1 }]);
+  const checked = checkProject(dir);
+  expect(checked.refusals).toEqual([]);
+  expect(checked.warnings.filter(w => w.code === 'FEEDBACK_OPEN')).toEqual([]);
+  const next = nextProject(dir, testClock.now());
+  expect(next.moves.find(m => m.review_act?.kind === 'review-verdict')).toMatchObject({ role: 'human', review_act: { version_id: 'v3', review: 'direction-review' } });
+  expect(next.moves.some(m => m.command?.includes('--answers'))).toBe(false);
+});
+test.each(['missing', 'accepted', 'agent', 'later', 'malformed', 'duplicate'])('#454 direction write refuses %s byte-identically', kind => {
+  const { dir, load } = setup();
+  const p = load();
+  // Malicious starting evidence is synthetic setup, never a fabricated owner act.
+  arr(p.versions).map(obj).find(v => v.n === 2)!.verdicts = [{ by: kind === 'agent' ? 'agent' : 'user', at: testClock.iso(), review: 'direction-review', verdict: kind === 'accepted' ? 'accepted' : 'bounced', verbatim: 'Synthetic feedback', source: 'synthetic', on_items: [] }];
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
+  // Accepted direction reviews close authoring; use the accepted rig ref to isolate ref validation.
+  if (kind === 'accepted') {
+    arr(p.versions).map(obj).find(v => v.n === 2)!.verdicts = [];
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
+  }
+  const values = kind === 'missing' ? ['2:9'] : kind === 'accepted' ? ['1:0'] : kind === 'later' ? ['3:0'] : kind === 'malformed' ? ['2.0:0'] : kind === 'duplicate' ? ['2:0', '2:0'] : ['2:0'];
+  refused(dir, kind === 'duplicate' ? 'FEEDBACK_REF_DUPLICATE' : 'FEEDBACK_REF_UNKNOWN', () => directionCommand([...args(dir), ...values.flatMap(v => ['--answers', v])]));
+});
+
+test('#454 no-bounce direction write and next preserve previous bytes and output', () => {
+  const { dir } = setup();
+  const result = directionCommand(args(dir));
+  const record = readFileSync(join(dir, 'project.json'));
+  // next prints runnable commands containing this synthetic project's temporary root.
+  const outputHash = (json = false): string => jobHash(nextCommand([dir, ...(json ? ['--json'] : [])], testClock.now()).stdout.replaceAll(dir, '<project>'));
+  expect({ exit: result.exit, stdout: jobHash(result.stdout), record: jobHash(record), nextJson: outputHash(true), nextText: outputHash() }).toMatchSnapshot();
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(record);
+});

@@ -126,12 +126,11 @@ for (const at of ['2026-11-05T23:59:59Z', '2026-11-06T00:00:00Z']) {
   });
 }
 
-test('made direction-patch preserves nonexistent-version and conflicting-selector refusals', () => {
+test('described direction preserves nonexistent-version and conflicting-selector refusals', () => {
   const f = setup();
-  const args = ['record', f.dir, '--id', 'missing-post', '--path', 'made', '--stage', 'direction-review',
-    '--version', '999', '--direction-patch-file', 'evidence/patch.json', '--by', 'user',
-    '--verbatim-file', join(f.dir, 'words.txt')];
-  refusal(f.dir, 'DIRECTION_VERSION', () => correctionCommand(args));
+  const args = ['record', f.dir, '--id', 'missing-post', '--path', 'described', '--stage', 'direction-review',
+    '--version', '999', '--by', 'user', '--verbatim-file', join(f.dir, 'words.txt')];
+  refusal(f.dir, 'CORRECTION_SOURCE', () => correctionCommand(args));
   const before = readFileSync(join(f.dir, 'project.json'));
   expect(() => correctionCommand([...args, '--draft', 'missing-draft'])).toThrow(
     expect.objectContaining({ code: 'CORRECTION_USAGE', exitCode: 2 }));

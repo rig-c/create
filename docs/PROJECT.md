@@ -916,7 +916,7 @@ version, never an overwrite of an accepted historical build.
 
 After a human bounce, `next` reads check's `FEEDBACK_OPEN` finding and names
 the agent rebuild instead of asking for another verdict or sign-off on the
-bounced version. `rig-version` and `direction write` / `direction patch`
+bounced version. `rig-version` and `direction write`
 accept repeatable `--answers <version>:<verdict-index>` options, recording
 those entries in the new version's `answers_feedback`. Each entry must name
 an earlier human bounced verdict and must occur only once. Without the needed
@@ -1690,7 +1690,7 @@ adopt it with an empty list. Older records get `CORRECTION_PATH_LEGACY` without
 inventing corrections, rewriting dates, or changing their existing origins.
 
 Every record has `schema: "rig-create/correction@1"` (or `@2` for authored
-direction descriptions and made direction patches), `id`, `path`, `by`, `at`,
+direction descriptions), `id`, `path`, `by`, `at`,
 `verbatim`, optional text `source`, `stage`, `on`, `artifact`, `outcome` and
 `resolves`. `path` is `described` or `made`. The stage is `parts-review`,
 `rig-review` or `direction-review`. `on` is the source identity; `outcome:null`
@@ -1972,69 +1972,42 @@ froze them; no second copy is retained. Present bytes are verified on every
 write and check. Absent bytes refuse, as the registration check refuses absent
 frozen outputs, so restore `outputs/vN/` before writing or checking the post.
 
-### Review reads; create ingests direction patches
+### Review reads; create authors direction revisions
 
 Review receives a user-designated project root and post number `N`. It reads
 that version's `provenance.direction`, then exactly
 `evidence/direction/v<N>.json` as `rig-create/direction@1`, validating raw SHA,
 version/path binding and rig model SHA. `readDirection(dir,project,N)` is the
 create reader; `direction check N --json` exposes a checked read. Review never
-writes `project.json` or invokes create. Review 1.6.0 has no authored camera
-consumer; review#373 consumes this contract after it lands. No camera Apply
-capability is claimed for that installation.
+writes `project.json` or invokes create.
 
-This is a planned contract. No review version produces it today: the direction
-producer is review#373, which is parked, and its result will arrive as a job act
-(create#271). The planned patch is a closed `rig-review-direction-patch/1` with exactly
-`{schema,source_post,rig_model_sha256,direction_sha256,replace}`. `replace` holds
-one or more of `camera`, `timing`, `take`, replacing whole typed sections only.
-The source is the current post, and both base hashes must match. Unknown keys,
-arbitrary pointers and a semantic no-op refuse. Binding/citation changes need
-new answer/authoring work, not a patch. The patch's own identity is the raw hash
-of its retained bytes, not a review canonicalization claim.
+The walk carries direction feedback through the `review-verdict` act and
+`direction write <N> --file <direction.json> --rig <R> --answers <version>:<verdict>`
+(create#271). The earlier `--direction-patch-file` and `direction patch --patch-file`
+file routes were removed because no producer wrote their patch file: `--direction-patch-file`
+(and resolving an existing direction-patch record) refuses with
+`CORRECTION_DIRECTION_PATCH_FILE_REMOVED`, and `direction patch` / `--patch-file`
+refuses with `DIRECTION_PATCH_FILE_REMOVED`, each pointing to `direction write --answers`
+after a review verdict. In `check`, an existing record with `version.direction_origin.patch`
+or a correction direction patch WARNs with `DIRECTION_PATCH_LEGACY` under
+`DIRECTION_PATCH_SINCE = 2026-11-19T00:00:00Z` and is never refused or reopened.
 
-```sh
-rig-create correction record <dir> --id framing --path made --stage direction-review \
-  --version 5 --direction-patch-file evidence/direction-patch.json \
-  --by user --verbatim-file correction-words.txt
-rig-create direction patch 6 <dir> --patch-file evidence/direction-patch.json
-rig-create correction resolve framing <dir> --version 6 --by agent \
-  --reasoning-file resolution.txt
-```
-
-The patch writer creates a later immutable document/post and records
-`direction_origin:{source_post,patch:{path,sha256},result:{path,sha256}}` on the
-version. Capture retains the human words separately; no words are invented from
-the patch. Review may label export plus create ingestion “Apply”, but cannot
-claim ingestion or checked completion itself. `rig-review-applied/2` is never
-used as a direction result or proof.
-
-Authored-direction descriptions and `direction-patch` use
+Authored-direction descriptions use
 `rig-create/correction@2`. Other correction records remain
 `rig-create/correction@1`, with existing config-patch and unsupported behavior.
-The made patch artifact is
-`{kind:"direction-patch",patch:{path,sha256},state:"preview/pending"|
-"applied-and-checked",result:null|{path,sha256}}`. Its exact post source/outcome
+Its exact post source/outcome
 identity is `{kind:"post",n,config,model,direction:{path,sha256}}`; config binds
 the direction file, model binds the source rig's compiled model, and direction
 matches `provenance.direction`. This identity is not accepted by @1.
 
-A pending record has no outcome/result and cannot approve. On agent resolution,
-create checks its own patch/base/result and `direction_origin`, not an external
-producer report. The outcome is a later post on exactly the same rig model,
-with changed direction bytes and the typed replacements actually present.
-Same-document, cross-kind, changed-rig or unrelated authored output pairs
-refuse for made patches.
-
 A described request at direction-review on a post with authored direction
-also binds this exact identity, using `artifact:{kind:"description"}`. Record it
+binds this exact identity, using `artifact:{kind:"description"}`. Record it
 with `--version`; an optional `--model-file` must name the source rig's compiled
 model. Selecting the direction JSON as model refuses before writing. Resolve
 it to a later authored post with a different bound direction document hash
 through `correction resolve --version`. This includes a later accepted rig
 because direction@1 embeds `rig.model`. The agent's closure reasoning carries
-the semantic claim that the request was met. No patch or `direction_origin`
-is required for a described request. Both source and outcome use
+the semantic claim that the request was met. Both source and outcome use
 `validateDirectionIdentity`. An existing @1 description cannot resolve with
 the direction document named as model. Capture a new @2 described record to
 close that legacy request.
@@ -2054,8 +2027,8 @@ Reopen rules, historical evidence, human signoff and agent closure remain
 separate gates.
 
 The generated geometric example is `templates/example-direction/`, including a
-small staged project, exact input/result documents, a review-format patch and
-@2 correction. It uses invented sentences shaped like a pilot interview, not
+small staged project, exact input/result documents and a
+@2 described correction. It uses invented sentences shaped like a pilot interview, not
 pilot words or assets. Reproduce with
 `bun scripts/generate-direction-fixture.ts <fresh-dir> --check`. It demonstrates
 writer/contract behavior with a real installed `rigc build` of a public rectangle

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { type Finding } from '../src/check.ts';
 import { optionContext, validateContext } from '../src/choices.ts';
-import { DIRECTION_PATCH_SPEC, DIRECTION_SCENE_SINCE, DIRECTION_SCENE_SPEC, directionHash, directionPostIdentity, objects, patchDirection, readDirection, validateDirectionScene, validateDirectionShape } from '../src/direction.ts';
+import { DIRECTION_SCENE_SINCE, DIRECTION_SCENE_SPEC, directionHash, directionPostIdentity, objects, readDirection, validateDirectionScene, validateDirectionShape } from '../src/direction.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { sceneFixture } from './scene-fixture.ts';
@@ -86,12 +86,6 @@ test('direction@2 keeps direction@1 camera and timing and gains the scene-bound 
   const identity = directionPostIdentity(f.dir, f.load(), 2);
   expect(identity.scene).toEqual({ path: (f.doc.scene as JsonObject).path!, sha256: (f.doc.scene as JsonObject).sha256! });
   expect(checked(f).refusals).toEqual([]); expect(checked(f).warnings).toEqual([]);
-  const patch: JsonObject = { schema: DIRECTION_PATCH_SPEC, source_post: 2, rig_model_sha256: f.modelBinding.sha256!, direction_sha256: (identity.direction as JsonObject).sha256!, replace: { take: { duration: 4, loop: true } } };
-  f.write('evidence/patch.json', JSON.stringify(patch));
-  expect(directionCommand(['patch', '3', f.dir, '--patch-file', 'evidence/patch.json']).exit).toBe(0);
-  expect(readDirection(f.dir, f.load(), 3).scene).toEqual(f.doc.scene);
-  patch.replace = { scene: f.doc.scene! };
-  expect(() => patchDirection(f.load(), f.doc, patch)).toThrow(expect.objectContaining({ code: 'DIRECTION_PATCH' }));
 });
 
 test('non-looping direction@2 retains the selected non-idle scene without idle frames', () => {

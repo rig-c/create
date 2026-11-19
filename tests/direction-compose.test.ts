@@ -521,11 +521,6 @@ test('DIRECTION_COMPOSE_INVENTORY binds atlas and pages as well as the model', (
   expect(() => readDirection(f.dir, p, 2)).toThrow(expect.objectContaining({ code: 'DIRECTION_COMPOSE_INVENTORY' }));
 });
 
-test('DIRECTION_PATCH directs composed revisions through a new compose write', () => {
-  const f = fixture(); f.publish(); f.put('evidence/patch.json', { schema: 'rig-review-direction-patch/1', source_post: 2 });
-  expect(() => directionCommand(['patch', '3', f.dir, '--patch-file', 'evidence/patch.json'])).toThrow(expect.objectContaining({ code: 'DIRECTION_PATCH' }));
-});
-
 for (const target of ['scene-source', 'frozen-extra', 'registered-plate']) test(`DIRECTION_SOURCE_CHANGED refuses a concurrent ${target} edit before committing`, () => {
   const f = fixture(); rejected(f, 'DIRECTION_SOURCE_CHANGED', () => f.publish({ beforeCommit: () => {
     if (target === 'scene-source') rmSync(join(f.dir, 'compose.scene.json'));

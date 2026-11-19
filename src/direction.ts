@@ -21,8 +21,15 @@ export const DIRECTION_SCENE_SPEC = 'rig-create/direction@2';
 /** Landing day at 00:00Z; earlier direction@1 posts WARN. */
 export const DIRECTION_SCENE_SINCE = '2026-11-08T00:00:00Z';
 export const DIRECTION_CONTRACT = 'rig-create/direction-contract@1';
-export const DIRECTION_PATCH_SPEC = 'rig-review-direction-patch/1';
+export const DIRECTION_PATCH_SINCE = '2026-11-19T00:00:00Z';
 export const DIRECTION_CORRECTION_SPEC = 'rig-create/correction@2';
+export function directionPatchLegacyFinding(path: string): Finding {
+  return {
+    code: 'DIRECTION_PATCH_LEGACY',
+    path,
+    message: `${path}: historical direction-patch binding predates ${DIRECTION_PATCH_SINCE}; preserve the record without reopening the patch file and publish future direction changes with direction write --answers after a review verdict`,
+  };
+}
 export const directionHash = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 export const directionPath = (n: number): string => `evidence/direction/v${n}.json`;
 export const objects = (v: Json | undefined): JsonObject[] => asArray(v).filter(isObject);
@@ -220,6 +227,9 @@ export function checkDirections(ctx: {dir:string;project:JsonObject;refusals:Fin
     const latest = Math.max(0,...posts.filter(v=>liveSignoff(reopens,'post',Date.parse(String(v.at)))).map(v=>Number(v.n)));
     for (const v of posts) {
       if (selected !== undefined && v.n !== selected) continue;
+      if (isObject(v.direction_origin) && v.direction_origin.patch !== undefined) {
+        ctx.warnings?.push(directionPatchLegacyFinding(`versions[v${String(v.n)}].direction_origin.patch`));
+      }
       const explicit = isObject(v.provenance) && v.provenance.direction !== undefined;
       if (contract && (contract.grandfathered_posts as Json[]).includes(v.n as number)) continue;
       if (!explicit && !contract && Date.parse(String(v.at)) < Date.parse(DIRECTION_SCENE_SINCE)) continue;
@@ -246,28 +256,4 @@ export function directionPostIdentity(dir:string,project:JsonObject,n:Json|undef
 }
 export function validateDirectionIdentity(dir:string,project:JsonObject,identity:JsonObject):void {
   if(!closed(identity,['kind','n','config','model','direction'],['scene']) || identity.kind!=='post' || !equal(identity,directionPostIdentity(dir,project,identity.n)))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.identity','expected exact bound direction post identity');
-}
-export function patchDirection(project:JsonObject,source:JsonObject,patch:JsonObject):JsonObject {
-  if (source.schema === DIRECTION_COMPOSE_SPEC) directionFail('DIRECTION_PATCH', 'direction.patch', 'a composed idle needs a new direction write --compose-out; camera/timing patches apply to direction@1/@2');
-  if(!closed(patch,['schema','source_post','rig_model_sha256','direction_sha256','replace']) || patch.schema!==DIRECTION_PATCH_SPEC || !positiveInt(patch.source_post) || !hex(patch.rig_model_sha256) || !hex(patch.direction_sha256) || !closed(patch.replace,[],['camera','timing','take']) || Object.keys(patch.replace).length===0)directionFail('DIRECTION_PATCH','direction.patch','expected closed direction-patch/1 and typed whole replacements');
-  const v=directionVersion(project,patch.source_post);const prov=v.provenance;
-  if(v.kind!=='post' || !isObject(prov) || !isObject(prov.direction) || prov.direction.sha256!==patch.direction_sha256 || ((source.rig as JsonObject).model as JsonObject).sha256!==patch.rig_model_sha256)directionFail('DIRECTION_PATCH','direction.patch','patch base post/document/model do not match');
-  const result=structuredClone(source);for(const[k,value]of Object.entries(patch.replace))result[k]=value;
-  validateDirectionShape(result);
-  if(equal(result,source))directionFail('DIRECTION_PATCH','direction.patch','no-op replacements are refused');
-  return result;
-}
-/** Closure revalidates create-owned authoring, never an external producer measurement. */
-export function validateDirectionOutcome(dir:string,project:JsonObject,record:JsonObject,artifact:JsonObject):void {
-  if(!closed(artifact,['kind','patch','state','result']) || artifact.kind!=='direction-patch' || !['preview/pending','applied-and-checked'].includes(String(artifact.state)))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.artifact','invalid direction artifact');
-  if(!isObject(record.on))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.on','post identity required');
-  validateDirectionIdentity(dir,project,record.on);
-  const patch=directionJson(boundDirectionBytes(dir,artifact.patch),'direction.patch');
-  if(patch.source_post!==record.on.n)directionFail('DIRECTION_PATCH','corrections.on','patch source differs from captured post');
-  const source=readDirection(dir,project,record.on.n);const expected=patchDirection(project,source,patch);
-  if(record.outcome===null){if(artifact.state!=='preview/pending' || artifact.result!==null)directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.artifact','pending record cannot claim a result');return;}
-  if(!isObject(record.outcome) || artifact.state!=='applied-and-checked')directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.outcome','closure requires a checked direction result');
-  validateDirectionIdentity(dir,project,record.outcome);
-  const outcome=record.outcome;const v=directionVersion(project,outcome.n);const origin=v.direction_origin;
-  if(Number(outcome.n)<=Number(record.on.n) || !equal(outcome.scene,record.on.scene) || !equal(outcome.model,record.on.model) || !equal(artifact.result,outcome.direction) || equal(record.on.direction,outcome.direction) || !closed(origin,['source_post','patch','result']) || origin.source_post!==record.on.n || !equal(origin.patch,artifact.patch) || !equal(origin.result,artifact.result) || !equal(readDirection(dir,project,outcome.n),expected))directionFail('DIRECTION_CORRECTION_OUTCOME','corrections.outcome','result must be produced from this exact patch/base on the same rig');
 }

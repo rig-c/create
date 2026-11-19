@@ -2,23 +2,30 @@ import { resignAfterChange } from './fixtures.ts';
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 import { repackageFixtureVersion } from './review-fixture.ts';
 import { type CheckReport } from '../src/check.ts';
-import { FIGURE_MASK_SINCE } from '../src/figure-mask.ts';
+import { FIGURE_MASK_MATTE_RECEIPT_SINCE, FIGURE_MASK_SINCE } from '../src/figure-mask.ts';
 import { derivedCommand } from '../src/prepared-inputs.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, version, waypoint, type Mutate } from './fixtures.ts';
 import { checkProject, reviewCommand, handoff, signoffCommand } from './clock.ts';
+import { tempDir } from './helpers.ts';
 
-const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+const load = createRequire(import.meta.url);
+const { MATTE_GRAPH_ID, MATTE_NODE, MATTE_MODEL, matteGraph, matteGraphHash, matteParams, publishMatte } = load('@rig-c/parts/src/matte.ts') as typeof import('../node_modules/@rig-c/parts/src/matte.ts');
+const { newRaster } = load('@rig-c/parts/src/raster/types.ts') as typeof import('../node_modules/@rig-c/parts/src/raster/types.ts');
+const { encodePngBytes } = load('@rig-c/parts/src/raster/png.ts') as typeof import('../node_modules/@rig-c/parts/src/raster/png.ts');
+const sha = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const json = (value: unknown) => `${JSON.stringify(value)}\n`;
 const findings = (report: CheckReport) => [...report.refusals, ...report.warnings].filter((f) => f.code.startsWith('FIGURE_MASK_'));
+const legacyMatte = 'FIGURE_MASK_MATTE_RECEIPT_LEGACY';
 // Opaque synthetic bytes exercise binding only. PNG validity is parts' contract.
 const mask = 'synthetic figure support';
-function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256: sha(mask) } }, mutate: Mutate = () => {}, ground = 'busy'): string {
+function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256: sha(mask) } }, mutate: Mutate = () => {}, ground = 'busy', files: Record<string, Uint8Array> = {}): string {
   const config = json({ assemble: { project: 'visible', ground }, requirements: 'requirements.json' });
   return repackageFixtureVersion(fixture((p) => {
     const guide = obj(waypoint(p, 'assemble').guide);
@@ -35,14 +42,78 @@ function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256
     'evidence/mask/figure.png': mask,
     'painting.txt': 'original',
     'foreground.txt': 'foreground',
+    ...files,
   }), 1);
 }
 
+function matteProject(): string {
+  const producer = tempDir();
+  const painting = newRaster(2, 2);
+  painting.data.fill(255);
+  const bytes = encodePngBytes(painting);
+  const paintingPath = join(producer, 'painting.png');
+  const output = join(producer, 'matte');
+  const graph = matteGraph('painting.png', 'synthetic');
+  writeFileSync(paintingPath, bytes);
+  const receipt = publishMatte(output, paintingPath, bytes, bytes, {
+    model: { node: MATTE_NODE, name: MATTE_MODEL, checkpoint_sha256: 'a'.repeat(64), checkpoint_sha256_from: 'declared' },
+    params: matteParams(64, 10),
+    graph: { id: MATTE_GRAPH_ID, api: graph, sha256: matteGraphHash(graph) },
+    gpu: 'synthetic', input_transform: null, input_sha256: sha(bytes),
+  });
+  const dir = project({ figure_mask: { path: 'matte/mask.png', sha256: receipt.output.sha256 } }, p => {
+    p.derived = [];
+    version(p, 1).at = FIGURE_MASK_MATTE_RECEIPT_SINCE;
+  }, 'busy', {
+    'evidence/mask/painting.png': bytes,
+    'evidence/mask/matte/model-mask.png': readFileSync(join(output, 'model-mask.png')),
+    'evidence/mask/matte/mask.png': readFileSync(join(output, 'mask.png')),
+    'evidence/mask/matte/receipt.json': readFileSync(join(output, 'receipt.json')),
+  });
+  derivedCommand(['add', dir, '--source', 'evidence/mask/painting.png', '--file', 'evidence/mask/matte/mask.png', '--receipt', 'evidence/mask/matte/receipt.json']);
+  return dir;
+}
+
 describe('figure mask declaration and provenance', () => {
-  test('declared and recorded busy mask has no mask findings', () => {
+  test('declared and recorded legacy busy mask passes with an operation provenance warning', () => {
     const report = checkProject(resignAfterChange(project()));
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'PARTS_VERDICT_FILE_LEGACY', legacyMatte, 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  });
+  test('valid producer matte clears the busy-ground gate at the cutoff without operation text', () => {
+    const report = checkProject(resignAfterChange(matteProject()));
+    expect(report.refusals).toEqual([]);
+    expect(findings(report)).toEqual([]);
+  });
+  test('operation-only provenance warns one second before the cutoff and refuses at it', () => {
+    const dir = project(undefined, p => { version(p, 1).at = '2026-11-18T23:59:59Z'; });
+    const before = checkProject(resignAfterChange(dir));
+    expect(before.refusals).toEqual([]);
+    expect(findings(before).map(f => f.code)).toEqual([legacyMatte]);
+    changeRecord(dir, p => { version(p, 1).at = FIGURE_MASK_MATTE_RECEIPT_SINCE; });
+    const at = checkProject(dir);
+    expect(at.refusals.filter(f => f.code.startsWith('FIGURE_MASK_')).map(f => f.code)).toEqual(['FIGURE_MASK_MATTE_RECEIPT_MISSING']);
+    expect(at.warnings.some(f => f.code === legacyMatte)).toBe(false);
+  });
+  test('a changed raw matte invalidates the gate at approval even with intact frozen mask bytes', () => {
+    const dir = matteProject();
+    writeFileSync(join(dir, 'evidence/mask/matte/model-mask.png'), 'changed');
+    const report = checkProject(dir);
+    expect(findings(report).map(f => f.code)).toEqual(['FIGURE_MASK_MATTE_RECEIPT_INVALID']);
+    expect(report.refusals.some(f => f.code === 'MATTE_RECEIPT_INVALID')).toBe(true);
+    writeFileSync(join(dir, 'words.txt'), 'Approve synthetic rig');
+    const before = readFileSync(join(dir, 'project.json'));
+    expect(() => reviewCommand(['1', dir, '--review', 'rig-review', '--verdict', 'accepted', '--by', 'user', '--verbatim-file', join(dir, 'words.txt'), '--source', 'synthetic control']))
+      .toThrow(expect.objectContaining({ code: 'FIGURE_MASK_MATTE_RECEIPT_INVALID' }));
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+  });
+  test('a receipt bound to equal mask bytes at another locator cannot authorize the frozen declaration', () => {
+    const dir = matteProject();
+    const path = 'evidence/mask/matte/mask.png';
+    const copy = 'evidence/mask/figure.png';
+    writeFileSync(join(dir, copy), readFileSync(join(dir, path)));
+    changeRecord(dir, p => { obj(arr(p.derived)[0]).path = copy; });
+    expect(findings(checkProject(dir)).map(f => f.code)).toEqual(['FIGURE_MASK_MATTE_RECEIPT_MISSING']);
   });
   test('missing declaration refuses at the retained version', () => {
     expect(findings(checkProject(project({}))).map((f) => f.code)).toEqual(['FIGURE_MASK_MISSING']);
@@ -91,7 +162,7 @@ describe('figure mask declaration and provenance', () => {
     const dir = project(undefined, (p) => { p.derived = []; });
     derivedCommand(['add', dir, '--source', 'painting.txt', '--source', 'foreground.txt', '--file', 'evidence/mask/figure.png', '--operation', 'Synthetic matte alpha >= 128 minus foreground plane']);
     const report = checkProject(dir);
-    expect(findings(report)).toEqual([]);
+    expect(findings(report).map(f => f.code)).toEqual([legacyMatte]);
     expect(report.refusals.filter((f) => f.code.startsWith('DERIVED_'))).toEqual([]);
     writeFileSync(join(dir, 'foreground.txt'), 'changed');
     expect(checkProject(dir).refusals.some((f) => f.code === 'DERIVED_FILE_CHANGED' && f.path === 'derived[0].sources[1].sha256')).toBe(true);
@@ -131,7 +202,7 @@ for (const input of ['requirements.json', 'figure.png']) {
         if (state === 'missing') rmSync(path);
       }
       const report = checkProject(dir);
-      expect(findings(report)).toEqual([]);
+      expect(findings(report).map(f => f.code)).toEqual(frozen === 'honest' ? [legacyMatte] : []);
       expect(report.refusals.some(f => f.code === 'REVIEW_PACKAGE_CHANGED')).toBe(frozen !== 'honest');
     });
   }

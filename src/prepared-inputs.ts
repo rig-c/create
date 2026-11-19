@@ -4,7 +4,7 @@ import { readFileSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
-import { checkPlateReceipt, checkPlateRegistrations, readPlateReceipt } from './plate-receipt.ts';
+import { checkDerivedReceipt, checkPlateRegistrations, hasMatteReceipt, MATTE_RECEIPT_SPEC, readDerivedReceipt } from './plate-receipt.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -24,9 +24,15 @@ function readHash(dir: string, path: string): string {
 export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>): void {
   asArray(ctx.project.derived).forEach((entry, i) => {
     if (!isObject(entry)) return;
-    checkPlateReceipt(ctx, entry, `derived[${i}]`);
-    if (entry.kind !== 'prepared-input') return;
     const path = `derived[${i}]`;
+    checkDerivedReceipt(ctx, entry, path);
+    if (entry.kind !== 'prepared-input') return;
+    if (hasMatteReceipt(entry)) {
+      if (entry.operation !== undefined && !nonempty(entry.operation)) {
+        ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: omit operation for a matte receipt or record non-empty operation text` });
+      }
+      return;
+    }
     const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
     const files = [
       ...sources.map((source, index) => ({
@@ -57,7 +63,8 @@ export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
   checkPlateRegistrations(ctx);
 }
 
-export const DERIVED_HELP = `derived add [<project dir>] --source <file> [--source <file> …] --file <file> --operation <text> [--receipt <path>] [--json]
+export const DERIVED_HELP = `derived add [<project dir>] --source <file> [--source <file> …] --file <file> [--operation <text>] [--receipt <path>] [--json]
+  --operation is required unless --receipt names a rig-parts-matte-receipt/1 receipt.
   Records an operation already run by another tool, with the files' sha256s.
   Paths are relative to the project. No files are transformed; no stage moves.`;
 
@@ -78,7 +85,9 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
     } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `derived add does not take ${arg}`, USAGE_EXIT);
     else positional.push(arg);
   }
-  if (positional.length > 1 || ['--source', '--file', '--operation'].some((k) => opts[k] === undefined)) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
+  const operation = opts['--operation'];
+  const receiptPath = opts['--receipt'];
+  if (positional.length > 1 || sources.length === 0 || opts['--file'] === undefined || (operation === undefined && receiptPath === undefined)) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
   const dir = resolve(positional[0] ?? process.cwd());
   const file = resolve(dir, 'project.json');
   const read = readJsonObject(file);
@@ -88,6 +97,12 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
   if (project.derived !== undefined && !Array.isArray(project.derived)) refuse('DERIVED_MALFORMED', 'derived must be an array');
   const output = opts['--file'] as string;
   if (![...sources, output].every((p) => inside(dir, p)) || sources.some((p) => resolve(dir, p) === resolve(dir, output))) refuse('DERIVED_PATH_INVALID', 'source and derived file must be distinct project-relative files other than project.json');
+  let receipt: ReturnType<typeof readDerivedReceipt>['binding'] | undefined;
+  if (receiptPath !== undefined) {
+    try { receipt = readDerivedReceipt(dir, receiptPath).binding; }
+    catch (error) { refuse('PLATE_RECEIPT_INVALID', `derived.receipt: ${(error as Error).message}; supply an intact project-relative producer receipt; no record written`); }
+  }
+  if (operation === undefined && receipt?.spec !== MATTE_RECEIPT_SPEC) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
   const hashes = [...sources, output].map((p) => {
     try { return readHash(dir, p); } catch { refuse('DERIVED_FILE_UNREADABLE', `cannot read '${p}'; no record written`); }
   });
@@ -97,17 +112,14 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
     ...(sources.length === 1 ? { source: inputs[0] as JsonObject } : { sources: inputs }),
     path: output,
     sha256: hashes[sources.length] as string,
-    operation: opts['--operation'] as string,
+    ...(operation === undefined ? {} : { operation }),
+    ...(receipt === undefined ? {} : { receipt }),
   };
-  if (opts['--receipt'] !== undefined) {
-    try { entry.receipt = readPlateReceipt(dir, opts['--receipt']).binding; }
-    catch (error) { refuse('PLATE_RECEIPT_INVALID', `derived.receipt: ${(error as Error).message}; supply an intact project-relative producer receipt; no record written`); }
-  }
   project.derived = [...asArray(project.derived), entry];
   const ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'> = { dir, project: { ...project, derived: [entry], scenes: [] }, refusals: [], warnings: [] };
   checkPreparedInputs(ctx);
   const finding = ctx.refusals[0];
   if (finding) refuse(finding.code, finding.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${entry.operation as string}); stage unchanged`, exit: 0 };
+  return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${operation ?? MATTE_RECEIPT_SPEC}); stage unchanged`, exit: 0 };
 }

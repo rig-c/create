@@ -67,6 +67,28 @@ test('a declared edited receipt file is bound by the existing writer and check h
   expect(checkProject(dir).refusals).toEqual([]);
 });
 
+test('an edited receipt with a producer object and no editor binds like an editor receipt', () => {
+  const { dir, args } = editedDraft();
+  const configPath = `${ROOT}/config.json`;
+  const config = JSON.parse(readFileSync(join(dir, configPath), 'utf8')) as JsonObject;
+  const receipts = arr(obj(obj(config.assemble).edited_parts).receipts);
+  const receipt: JsonObject = { ...obj(receipts[0]), producer: { tool: 'synthetic retouch', script_sha256: 'b'.repeat(64) } };
+  delete receipt.editor;
+  receipts[0] = receipt;
+  put(dir, configPath, JSON.stringify(config));
+
+  const manifest = JSON.parse(readFileSync(join(dir, MANIFEST), 'utf8')) as JsonObject;
+  obj(obj(obj(arr(manifest.parts)[0]).provenance).edited_part).receipt = receipt;
+  put(dir, MANIFEST, JSON.stringify(manifest));
+
+  const result = draftRigCommand(args);
+  expect(result.exit).toBe(0);
+  const bindings = [{ path: INPUT, sha256: sha(PNG) }];
+  expect((JSON.parse(result.stdout) as JsonObject).config_inputs).toEqual(bindings);
+  expect(obj(arr(read(dir).drafts)[0]).config_inputs).toEqual(bindings);
+  expect(checkProject(dir).refusals).toEqual([]);
+});
+
 for (const defect of ['omitted', 'empty', 'wrong-sha', 'directory'] as const) {
   for (const at of [new Date(Date.parse(EDITED_PART_INPUTS_SINCE) - 1).toISOString(), EDITED_PART_INPUTS_SINCE]) {
     test(`${defect} edited file binding is dated by draft.at=${at}, including with a loader declaring the ref`, () => {

@@ -608,9 +608,18 @@ test('#664 keeps the context Review emits in act@7 while recording the signed sc
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });
 
-test('#664 ingests Review mesh-only Request changes through Parts and replays without a second revision', async () => {
+test('#664 ingests Review mesh-only Request changes with a sized provenance config and replays without a second revision', async () => {
+  testClock.set(EXAMPLE_REOPEN_AT);
+  const root = temporary('create-mesh-act-project-');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  const initial = projectAt(root);
+  const provenance = (initial.versions as JsonObject[])[0]!.provenance as JsonObject;
+  const { path, sha256 } = provenance.config as JsonObject;
+  const config = { path, sha256, bytes: readFileSync(join(root, String(path))).length };
+  provenance.config = config;
+  putProject(root, initial);
   let sent: JsonObject[] = [];
-  const { root, host, act } = await published('3-rig-review', 1, 'delegate', '', 'changes-requested', 1, false, undefined, (root, source) => {
+  const { host, act } = await published('3-rig-review', 1, 'delegate', '', 'changes-requested', 1, false, { root, rigVersion: 1 }, (root, source) => {
     const model = readFileSync(join(root, String((source.model as JsonObject).path)), 'utf8');
     const { stage, skins } = JSON.parse(model);
     const mesh = readSetupMesh(underNoSkin(readModel(model)), { slot: 'torso', skin: 'default', attachment: 'torso' });
@@ -641,6 +650,8 @@ test('#664 ingests Review mesh-only Request changes through Parts and replays wi
   expect(reviewVerdictReceipts(project)[0]?.bytes).toBe(bytes);
   const corrections = project.corrections as JsonObject[];
   expect(corrections).toHaveLength(1);
+  expect(((project.versions as JsonObject[])[0]!.provenance as JsonObject).config).toEqual(config);
+  expect((corrections[0]!.on as JsonObject).config).toEqual({ path, sha256 });
   const revision = pendingMeshDeltaRevision(project)!;
   expect(revision.sourceVersion).toBe(1);
   expect(revision.revision).toMatch(/^derived\/mesh-delta-.*\/1$/);

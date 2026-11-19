@@ -56,7 +56,8 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
     if (kind === 'post' && !opts['--model-file']) usage('post identity requires --model-file naming a declared retained output');
     if (kind === 'rig' && opts['--model-file']) usage('--model-file is post-only');
     const model = kind === 'post' ? correctionBinding(dir, opts['--model-file'] as string) : correctionBinding(dir, `derived/review/v${n}/out/check/build/skeleton.model.json`);
-    value = {kind,n,config:version.provenance.config,model};
+    const { path, sha256 } = version.provenance.config;
+    value = { kind, n, config: { path, sha256 }, model };
   }
   validateCorrectionIdentity(dir,project,value,stage,false,partImage);
   return structuredClone(value);

@@ -92,7 +92,7 @@ export function partsVerdictNames(verdict: JsonObject): { flagged: string[]; not
 }
 
 /** Compare only recorded hashes. Output paths remain in Review's own frame. */
-export function assertPartsReadDraft(root: string, project: JsonObject, verdict: JsonObject, draftId: string, options: { requireAvailable?: boolean } = {}): void {
+export function assertPartsReadDraft(root: string, project: JsonObject, verdict: JsonObject, draftId: string, options: { requireAvailable?: boolean; retainedManifest?: Buffer } = {}): void {
   const drafts = Array.isArray(project.drafts) ? project.drafts.filter(d => object(d) && d.id === draftId) : [];
   const draft = drafts[0];
   if (drafts.length !== 1 || !object(draft) || !object(draft.parts) || !Array.isArray(draft.parts.files)
@@ -103,12 +103,14 @@ export function assertPartsReadDraft(root: string, project: JsonObject, verdict:
   const recorded = parts.files as FileBinding[];
   const manifest = recorded.find(file => file.path === `${parts.path}/parts.json`);
   if (!manifest) return fail('PARTS_VERDICT_RECEIPT_INVALID', `draft ${draftId} has no bound parts.json`);
-  if (draftFileUnavailable(root, manifest.path, `derived/drafts/${draftId}`)) {
+  const manifestUnavailable = draftFileUnavailable(root, manifest.path, `derived/drafts/${draftId}`);
+  if (manifestUnavailable && (options.requireAvailable !== false || options.retainedManifest === undefined)) {
     const source = (verdict.source as JsonObject).files as JsonObject[];
     if (options.requireAvailable === false && source.some(file => file.sha256 === manifest.sha256)) return;
     return fail('PARTS_VERDICT_RECEIPT_INVALID', `draft ${draftId}'s parts.json is unavailable; restore its recorded bytes`);
   }
-  const bytes = publicationFile(realpathSync(root), manifest.path);
+  const bytes = manifestUnavailable && options.retainedManifest !== undefined
+    ? options.retainedManifest : publicationFile(realpathSync(root), manifest.path);
   if (jobHash(bytes) !== manifest.sha256) return fail('PARTS_VERDICT_RECEIPT_INVALID', `draft ${draftId}'s parts.json differs from its recorded hash`);
   const declared: unknown = JSON.parse(bytes.toString('utf8'));
   const painting = object(declared) && object(declared.painting_in_rig) ? declared.painting_in_rig.path : undefined;
@@ -201,7 +203,7 @@ export function latestPartsReceipt(project: JsonObject, draftId: string): JsonOb
 }
 
 /** Shared by both writers and check. Reads only the response retained by parts-review. */
-export function recordedPartsVerdict(root: string, project: JsonObject, draftId: unknown, evidence?: unknown, options: { requireAvailable?: boolean } = {}): { evidence: JsonObject; partsFile: string } {
+export function recordedPartsVerdict(root: string, project: JsonObject, draftId: unknown, evidence?: unknown, options: { requireAvailable?: boolean; requireApproval?: boolean; retainedManifest?: Buffer } = {}): { evidence: JsonObject; partsFile: string } {
   if (typeof draftId !== 'string' || !draftId) return fail('PARTS_VERDICT_RECEIPT_REQUIRED', 'signoffs.parts-review.draft_id needs a recorded draft id');
   const entries = Array.isArray(project.review_acts) ? project.review_acts : [];
   const receipt = evidence === undefined ? latestPartsReceipt(project, draftId) : entries.find(entry => object(entry)
@@ -228,7 +230,7 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
       || (evidence.spec !== undefined && evidence.spec !== spec))) return fail('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence has an invalid receipt spec');
     const verdict = decodePartsRead(bytes);
     assertPartsReadDraft(root, project, verdict, draftId, options);
-    if (verdict.status !== 'approved') return fail('PARTS_VERDICT_NOT_APPROVED', `signoffs.parts-review.evidence for draft ${draftId} is not approved`);
+    if (options.requireApproval !== false && verdict.status !== 'approved') return fail('PARTS_VERDICT_NOT_APPROVED', `signoffs.parts-review.evidence for draft ${draftId} is not approved`);
     const draft = (project.drafts as JsonObject[]).find(draft => draft.id === draftId)!;
     partsFile = resolve(root, String((draft.parts as JsonObject).path), 'parts.json');
   } else {
@@ -247,9 +249,13 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
       || inputs.some(file => object(file) && typeof file.path === 'string' && draftInputUnavailable(root, file.path, draftRoot)));
     if (unavailable) {
       if (partsActDraftHash(project, act) !== receipt.version_hash) return fail('PARTS_VERDICT_RECEIPT_INVALID', `draft ${draftId}'s recorded identity changed`);
-      if (act.value.verdict !== 'approved') return fail('PARTS_VERDICT_NOT_APPROVED', `signoffs.parts-review.evidence for draft ${draftId} is not approved`);
+      if (options.retainedManifest !== undefined && (act.source.parts.manifest.path !== `${String((draft?.parts as JsonObject | undefined)?.path)}/parts.json`
+        || act.source.parts.manifest.sha256 !== jobHash(options.retainedManifest) || act.source.package.revision !== receipt.version_hash)) {
+        return fail('PARTS_VERDICT_DRAFT_MISMATCH', `the retained act does not bind the reused parts manifest of draft ${draftId}`);
+      }
+      if (options.requireApproval !== false && act.value.verdict !== 'approved') return fail('PARTS_VERDICT_NOT_APPROVED', `signoffs.parts-review.evidence for draft ${draftId} is not approved`);
       partsFile = resolve(root, act.source.parts.manifest.path);
-    } else partsFile = checkPartsActEvidence(root, bytes, String(binding.sha256), project);
+    } else partsFile = checkPartsActEvidence(root, bytes, String(binding.sha256), project, options);
   }
   return { evidence: { kind: 'parts-verdict', path: binding.path, sha256: binding.sha256, spec }, partsFile };
 }

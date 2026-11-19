@@ -99,6 +99,7 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create amend <stage> --kind <kind> --target <id> --change <file> --by <who> [<project dir>]
                                                     record a forward amendment and name lapsed approvals
   rig-create draft-rig <id> [<dir>] --config <path> --from <dir> [--parts <dir>]
+                       [--reuse <draft-id> [--reuse-record <sha256>]]
                                                     record labelled draft artifacts without building or promoting
   rig-create parts-review [<dir>] --from-review <actId> [--json]
                                                     retain the parts verdict; approval also signs parts-review

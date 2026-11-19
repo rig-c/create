@@ -13,7 +13,7 @@ import { checkProject, draftRigCommand, handoff, testClock } from './clock.ts';
 import { retainedPartsFiles } from './draft-fixture.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { restartCommand } from '../src/restart.ts';
-import { gitEnv, run } from './helpers.ts';
+import { gitEnv, ownerChatArgs, run } from './helpers.ts';
 
 function write(dir: string, path: string, bytes = '{}'): void { mkdirSync(dirname(join(dir, path)), { recursive: true }); writeFileSync(join(dir, path), bytes); }
 function draft(build = false): { dir: string; args: string[] } {
@@ -149,7 +149,7 @@ function restartForDraftReuse(dir: string): string {
   }
   const digest = createHash('sha256').update(readFileSync(join(dir, 'project.json'))).digest('hex');
   write(dir, 'restart-reason.txt', 'Start a fresh synthetic record.');
-  expect(restartCommand([dir, '--by', 'owner', '--reason-file', join(dir, 'restart-reason.txt')], testClock.now()).exit).toBe(0);
+  expect(restartCommand([dir, '--by', 'owner', ...ownerChatArgs(join(dir, 'restart-reason.txt'))], testClock.now()).exit).toBe(0);
   expect(read(dir).drafts).toBeUndefined();
   return digest;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { CG_BOUNDARY_ALLOWANCE } from '../src/cg-gates.ts';
+import { CG_BEHIND_SEAMS_SINCE, CG_BOUNDARY_ALLOWANCE } from '../src/cg-gates.ts';
 import { type CheckReport } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
@@ -12,7 +12,7 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 const json = (v: unknown): string => `${JSON.stringify(v, null, 2)}\n`;
 
 /** The codes this card adds, so a fixture's unrelated findings (provenance of a planted config) do not hide them. */
-const CG_CODES = new Set(['RIG_TYPE_UNKNOWN', 'CG_GATES_UNREAD', 'CG_GATE_UNDECLARED', 'CG_BOUNDARY_ALLOWANCE_RAISED']);
+const CG_CODES = new Set(['RIG_TYPE_UNKNOWN', 'CG_GATES_UNREAD', 'CG_GATE_UNDECLARED', 'CG_BOUNDARY_ALLOWANCE_RAISED', 'CG_BEHIND_SEAMS_THRESHOLD_RAISED']);
 const cg = (r: CheckReport): string[] => r.refusals.filter((f) => CG_CODES.has(f.code)).map((f) => `${f.code} ${f.path}`);
 
 const asScene: Mutate = (p) => { obj(framing(p, 'rig_type').answer).value = 'fullscreen.minimal'; };
@@ -23,6 +23,7 @@ const GATED_REQUIREMENTS: JsonObject = {
   setup_painting: { required: true },
   seam_over_motion: { required: true },
   boundary_colour: { max_step_excess: CG_BOUNDARY_ALLOWANCE },
+  behind_seams: { threshold: CG_BOUNDARY_ALLOWANCE },
 };
 
 /** A project whose rig versions v1 and v2 each keep their config (and its requirements file) under `outputs/v<N>/`. */
@@ -35,7 +36,10 @@ function scene(config: JsonObject = GATED_CONFIG, requirements: JsonObject | nul
   }
   return fixture((p) => {
     asScene(p);
-    for (const n of [1, 2]) obj(version(p, n).provenance).config = { path: `outputs/v${n}/config.json`, sha256: sha(configText) };
+    for (const n of [1, 2]) {
+      version(p, n).at = CG_BEHIND_SEAMS_SINCE;
+      obj(version(p, n).provenance).config = { path: `outputs/v${n}/config.json`, sha256: sha(configText) };
+    }
     mutate(p);
   }, 'legacy-example-project.json', files);
 }
@@ -73,7 +77,7 @@ describe('a full-screen scene (CG) rig version', () => {
     ]);
   });
 
-  test('declaring all three gates, it passes', () => {
+  test('declaring all four gates, including threshold 12, it passes', () => {
     expect(cg(checkProject(scene()))).toEqual([]);
   });
 
@@ -103,6 +107,7 @@ describe('a full-screen scene (CG) rig version', () => {
     expect(cg(report).filter((r) => r.includes('[v1]'))).toEqual([
       'CG_GATE_UNDECLARED versions[v1].provenance.config requirements seam_over_motion.required',
       'CG_GATE_UNDECLARED versions[v1].provenance.config requirements boundary_colour.max_step_excess',
+      'CG_GATE_UNDECLARED versions[v1].provenance.config requirements behind_seams.threshold',
     ]);
   });
 
@@ -142,5 +147,52 @@ describe('a full-screen scene (CG) rig version', () => {
     const result = cli(['interview', '--check', scene({ ...GATED_CONFIG, assemble: {} })], tempDir(), gitEnv());
     expect(result.code).toBe(1);
     expect(result.stdout).toContain('CG_GATE_UNDECLARED: versions[v1]: outputs/v1/config.json does not declare assemble.editor_receipts.trace_parts: true');
+  });
+});
+
+describe('behind-part seam declaration from the landing day', () => {
+  test('absent is refused at the actual Parts requirements field with the remedy', () => {
+    const { behind_seams: _dropped, ...requirements } = GATED_REQUIREMENTS;
+    const report = checkProject(scene(GATED_CONFIG, requirements));
+    expect(cg(report)).toEqual([1, 2].map(n => `CG_GATE_UNDECLARED versions[v${n}].provenance.config requirements behind_seams.threshold`));
+    expect(report.refusals.find(f => f.path.endsWith('behind_seams.threshold'))?.message).toBe('versions[v1]: requirements.json declares behind_seams.threshold absent; declare an integer from 0 through 12 and rebuild so parts measures behind-part seams (CHECK_BEHIND_PART_SEAMS)');
+  });
+
+  test('13 is refused with its own code, found value and maximum', () => {
+    const report = checkProject(scene(GATED_CONFIG, { ...GATED_REQUIREMENTS, behind_seams: { threshold: 13 } }));
+    expect(cg(report)).toEqual([1, 2].map(n => `CG_BEHIND_SEAMS_THRESHOLD_RAISED versions[v${n}].provenance.config requirements behind_seams.threshold`));
+    expect(report.refusals.find(f => f.code === 'CG_BEHIND_SEAMS_THRESHOLD_RAISED')?.message).toBe('versions[v1]: requirements.json declares behind_seams.threshold 13; a CG build requires at most 12; declare 12 or less and fix the image or mesh behind the seam, then rebuild');
+  });
+
+  test('zero and stricter thresholds pass; null, strings, negative and fractional values are undeclared', () => {
+    for (const threshold of [0, 4, 12]) expect(cg(checkProject(scene(GATED_CONFIG, { ...GATED_REQUIREMENTS, behind_seams: { threshold } })))).toEqual([]);
+    for (const threshold of [null, '12', -1, 1.5]) {
+      expect(cg(checkProject(scene(GATED_CONFIG, { ...GATED_REQUIREMENTS, behind_seams: { threshold } })))).toEqual([1, 2].map(n => `CG_GATE_UNDECLARED versions[v${n}].provenance.config requirements behind_seams.threshold`));
+    }
+  });
+
+  test('pair overrides cannot raise the tolerance, while an omitted override inherits 12', () => {
+    const pairs = [{ part: 'upper', neighbour: 'lower' }];
+    expect(cg(checkProject(scene(GATED_CONFIG, { ...GATED_REQUIREMENTS, behind_seams: { threshold: 12, pairs } })))).toEqual([]);
+    const report = checkProject(scene(GATED_CONFIG, { ...GATED_REQUIREMENTS, behind_seams: { threshold: 12, pairs: [{ ...pairs[0], threshold: 13 }] } }));
+    expect(cg(report)).toEqual([1, 2].map(n => `CG_BEHIND_SEAMS_THRESHOLD_RAISED versions[v${n}].provenance.config requirements behind_seams.pairs[0].threshold`));
+  });
+
+  test('pre-SINCE absence and 13 only WARN, dated separately for each rig version', () => {
+    const declarations: JsonObject[] = [{}, { threshold: 13 }];
+    for (const behind_seams of declarations) {
+      const code = 'threshold' in behind_seams ? 'CG_BEHIND_SEAMS_THRESHOLD_RAISED' : 'CG_GATE_UNDECLARED';
+      const report = checkProject(scene(GATED_CONFIG, { ...GATED_REQUIREMENTS, behind_seams }, p => {
+        version(p, 1).at = '2026-11-18T23:59:59Z';
+      }));
+      expect(cg(report)).toEqual([`${code} versions[v2].provenance.config requirements behind_seams.threshold`]);
+      expect(report.warnings.filter(f => f.path.endsWith('behind_seams.threshold')).map(f => `${f.code} ${f.path}`)).toEqual([`${code} versions[v1].provenance.config requirements behind_seams.threshold`]);
+    }
+  });
+
+  test('an unreadable date cannot exempt a CG rig; non-CG rigs remain exempt', () => {
+    const requirements = { ...GATED_REQUIREMENTS, behind_seams: {} };
+    expect(cg(checkProject(scene(GATED_CONFIG, requirements, p => { delete version(p, 1).at; })))).toHaveLength(2);
+    expect(cg(checkProject(scene(GATED_CONFIG, requirements, p => { obj(framing(p, 'rig_type').answer).value = 'character.idle'; })))).toEqual([]);
   });
 });

@@ -912,11 +912,11 @@
         "same generated parts"
       ],
       "exit": 0,
-      "output_sha256": "00d8bfa073d66fb85d50aa0b1f8a7a3112a3da1836ff9687981908e79ce14379",
+      "output_sha256": "6cfd74b9bf792e785958e49443afb73725867486a21887b78e2fe97d1ce570cf",
       "outputs": {
         "config.json": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3",
         "interview-requirements.json": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff",
-        "out/check/build/run.json": "59545f29a18f896928232b30ea534a3795fe089986aa01d30d1dde749ae5eefe",
+        "out/check/build/run.json": "ba5b9ef773d496bb745dec3858e562da6284676d3e323d1d221342f42b9343f2",
         "out/check/build/skeleton.atlas": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
         "out/check/build/skeleton.json": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d",
         "out/check/build/skeleton.model.json": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46",
@@ -930,7 +930,7 @@
         "out/mesh_report.json": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db",
         "out/motion.json": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9",
         "out/rig.json": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3",
-        "out/run.json": "63beafbefd134b8e24e9497ebf0326ffabaa4ab515984a060c5ac46120f67632"
+        "out/run.json": "cf7b175a184c87a9bd12b5d794f590c15bf3faa9d523ff5fbf957cc87596ad7a"
       },
       "consumes": [],
       "bindings": {}
@@ -944,7 +944,7 @@
         "derived/drafts/chain"
       ],
       "exit": 0,
-      "output_sha256": "c6d76ef5f7334e60814c4a5eec3903109a49581883874bd5a4602adbbd5745b1",
+      "output_sha256": "be8a0fa522e191393b31ac29332b375c1e4e4c755efdf7dfd865fb2290d0cb09",
       "outputs": {
         "derived/drafts/chain/config.json": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3",
         "derived/drafts/chain/input/painting_in_rig.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
@@ -957,7 +957,7 @@
         "derived/drafts/chain/input/parts/torso.png": "adf6cd5d92568c5f51028df2874b69f4df5ff1d0e3a94484784c867e543cd912",
         "derived/drafts/chain/input/recomposite_rig.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "derived/drafts/chain/interview-requirements.json": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff",
-        "derived/drafts/chain/out/check/build/run.json": "59545f29a18f896928232b30ea534a3795fe089986aa01d30d1dde749ae5eefe",
+        "derived/drafts/chain/out/check/build/run.json": "ba5b9ef773d496bb745dec3858e562da6284676d3e323d1d221342f42b9343f2",
         "derived/drafts/chain/out/check/build/skeleton.atlas": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
         "derived/drafts/chain/out/check/build/skeleton.json": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d",
         "derived/drafts/chain/out/check/build/skeleton.model.json": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46",
@@ -971,7 +971,7 @@
         "derived/drafts/chain/out/mesh_report.json": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db",
         "derived/drafts/chain/out/motion.json": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9",
         "derived/drafts/chain/out/rig.json": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3",
-        "derived/drafts/chain/out/run.json": "63beafbefd134b8e24e9497ebf0326ffabaa4ab515984a060c5ac46120f67632"
+        "derived/drafts/chain/out/run.json": "cf7b175a184c87a9bd12b5d794f590c15bf3faa9d523ff5fbf957cc87596ad7a"
       },
       "consumes": [],
       "bindings": {}
@@ -992,7 +992,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "44792a28aec4b2bfc54897c4395dbe0bbfc2d2cfa5a7fe25808cbf0dd302a69e",
+      "output_sha256": "ea7096168cae4a16c7ad2148e1212604dc9ebf5fae47502e18d7b891bc969788",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1055,7 +1055,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "b7e5e339fadd7a4a4734ce530d814a5e3963b2bd7d1664631fc8084c21d3ddec",
+      "output_sha256": "9939a5be941b82ca36df5ceb6ab48bc9523c3b74f2344b4ecf6e356fcb58868e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1128,7 +1128,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "34b15e1882793b3a2043179417e83f2f4330396b2c439c77dc377d26c236f933",
+      "output_sha256": "b8f7b3207935456576382bffe689246e5819fe76309006a6c3fb4d4b0f801250",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1150,7 +1150,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "54f527beaf23d4a6866924f9555c2a244e2c23587b8296df56895d336c4b6949",
+      "output_sha256": "12898d0a660ed641cf1743cbb334a0d75565775f13f55edfaa4a792d32253e72",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1177,7 +1177,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "127fa6745d41c8be81c4384f57dc3e391073511d51f58b94e15ec9359fa625ab",
+      "output_sha256": "65d3de6a93136cc0a17cfaa4439cb96dfe09cfa89b3cdd738da4a9c08fdaa9d7",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1196,7 +1196,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "5160ce2df7a35d0c3ae782d56a5218704627bbddf61f8d2d21d7176a32d945c9",
+      "output_sha256": "28c15eec375e5f799a64d4b44402bbcee960f33d7e2564fc5aaff5f92f0e10b4",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1235,7 +1235,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "3f4642a09354aeb8e00c72574241ea3d4d5f6396e804a4948491ac7d6e2bf69a",
+      "output_sha256": "7bab1e4cc12c57599b149b13c63406c58b28c1e1494c56a27f28b6f969b35b00",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1266,7 +1266,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1e216c7d618ee1643d4721785de4e40f50e22aa9c9112c5d077ca3abedcd53fc",
+      "output_sha256": "3c1c83389fda5c22ed5128fa72948e909fd7727aadbdcd2bd9e0390637c11de6",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1305,7 +1305,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "6f9a0a59d1984da19c07db7c4a14f8f9ea954597550c11f0789dc99d7542fb48",
+      "output_sha256": "88c1ae1b5bbc4029688d2a318f4577d0f8f237b64c76c829b91c809322270036",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1336,7 +1336,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "abe2d96cb55e4af050f32ec888c247b917ec5d136c980ddb0dd86f7606b0c584",
+      "output_sha256": "2aadcafb7880ffed494ac5daec51cc6f58e98fe66885dccd04cb840d8d75cc1f",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1375,7 +1375,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ab6121a12e48e690ae5bdef929d2bd95e2a91af2092100caff58f2a6dc0a1418",
+      "output_sha256": "6f5310256b37858bcf7fe3e52bbd36e15efea1464725ebdd2f6750e9d39226e1",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1410,7 +1410,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0e158d409a156e23595eabde2549b3570f9459c35bce0f24a5d5d90c801620e2",
+      "output_sha256": "bb26ef52b3afd1cb683033cfd9e38d665afdfa472f6611ba34b6e2c7a21dac51",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1449,7 +1449,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "2a709eb7165575e37c4dc3b5170bb12fa1b0c72e855705a964aab3a37bdd9334",
+      "output_sha256": "88c56b4bdc97e7f9f96991a386fe8141f2d7f3e9de5616a9275e31a0a96b27ca",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1476,7 +1476,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "940d7f668c3520ce5af8ee7b81e86b636cdfa8169ec15e1bcb6e799f8438718c",
+      "output_sha256": "81b951650fbd07762e067062926d1a52c95fe7a793a14a1cd2554f9697e30219",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1515,7 +1515,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "24d9f95e93f4712a6eb49dfaf98a242a507043115988ed25ea15918b1921e475",
+      "output_sha256": "401b55380ecd1d86709a19c496e65479fb35c3d9295487c94c0bf596a8d0d19f",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1550,7 +1550,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "89faf7351770da87302c1701298a6b83867e43225dfaf4fa5b426a95b7a85d36",
+      "output_sha256": "832a164372270546f93ec6a8fd6bd088ebd67fce95eb4383cf71c3fd48b0a7d1",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1573,7 +1573,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "92c9bea8ada1cd79211066347ba095b9221b491f1d11f22bf00c10d31a9f1f99",
+      "output_sha256": "c8c890de9819e6a24fdfc6965cb2d2e2f3437fd1db099c2b0031aec43b8633e0",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1596,7 +1596,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "5ef33ace7e50a80c366cad7a50ac143cbd0490be8284362d501b3b0b3f7dfc4f",
+      "output_sha256": "7588bfaf9e2bbb480b3dde9068ed9cdd3186bb48bc571ae095c592cceae87e99",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1716,7 +1716,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "62db6768349bd9e1dd11b6cdb7b7f6fe64c06a94ff9610f2c3ada5cb4f55fe4e",
+      "output_sha256": "b0c92929d2e2cc5231424c7231f1784e1478574b90c45cddcd844e8f26cec235",
       "consumes": [
         "seed-64",
         "seed-65",
@@ -1743,11 +1743,11 @@
         "same approved parts"
       ],
       "exit": 0,
-      "output_sha256": "00d8bfa073d66fb85d50aa0b1f8a7a3112a3da1836ff9687981908e79ce14379",
+      "output_sha256": "6cfd74b9bf792e785958e49443afb73725867486a21887b78e2fe97d1ce570cf",
       "outputs": {
         "config.json": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3",
         "interview-requirements.json": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff",
-        "out/check/build/run.json": "59545f29a18f896928232b30ea534a3795fe089986aa01d30d1dde749ae5eefe",
+        "out/check/build/run.json": "ba5b9ef773d496bb745dec3858e562da6284676d3e323d1d221342f42b9343f2",
         "out/check/build/skeleton.atlas": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
         "out/check/build/skeleton.json": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d",
         "out/check/build/skeleton.model.json": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46",
@@ -1761,7 +1761,7 @@
         "out/mesh_report.json": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db",
         "out/motion.json": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9",
         "out/rig.json": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3",
-        "out/run.json": "63beafbefd134b8e24e9497ebf0326ffabaa4ab515984a060c5ac46120f67632"
+        "out/run.json": "cf7b175a184c87a9bd12b5d794f590c15bf3faa9d523ff5fbf957cc87596ad7a"
       },
       "consumes": [],
       "bindings": {}
@@ -1775,12 +1775,12 @@
         "outputs/v1/out and evidence"
       ],
       "exit": 0,
-      "output_sha256": "56f0d110ad6b13253983770a828fb0d47fda4c98aa0cfee4690e7289d471e7e4",
+      "output_sha256": "221b23491b78038790bf00fcfedb5cf6fa23c459cc7ea90a348fc3720dc2bf50",
       "outputs": {
         "evidence/setup.png": "02e6ea41dfec89a7eced0f66b98e0fea048846c6f4174fa1cc7631fe360e614f",
         "evidence/v1/config.json": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3",
         "evidence/v1/interview-requirements.json": "214ddb880e94a575cd4afb35f99ddfa3d90198b88095550f20e0b980d2fd0cff",
-        "outputs/v1/out/check/build/run.json": "59545f29a18f896928232b30ea534a3795fe089986aa01d30d1dde749ae5eefe",
+        "outputs/v1/out/check/build/run.json": "ba5b9ef773d496bb745dec3858e562da6284676d3e323d1d221342f42b9343f2",
         "outputs/v1/out/check/build/skeleton.atlas": "68f9cb5eea7a194d59fb14d5c2363894b2eca78c26bf9aee67a760955a6125f3",
         "outputs/v1/out/check/build/skeleton.json": "8e2b5edae8cce48ca98587ddb458f38406d28ba7fb7ade02dbd2a0bc8f28e03d",
         "outputs/v1/out/check/build/skeleton.model.json": "3c899fedb29f61722790c7ae54686d92dad2980699c416b0912dc7883c016d46",
@@ -1802,7 +1802,7 @@
         "outputs/v1/out/rig/mesh_report.json": "06a55efc24facba602ba370a225f5835ce6a95e210a3760707977d2f1a8e36db",
         "outputs/v1/out/rig/motion.json": "727746f1a894513ea33c26b984ceb637f7eef06e935cb174ad99ad65826ec5c9",
         "outputs/v1/out/rig/rig.json": "d266d58324d252e7c932ad41f856284a277e3c84204f7a081de7a5e1d3935de3",
-        "outputs/v1/out/rig/run.json": "63beafbefd134b8e24e9497ebf0326ffabaa4ab515984a060c5ac46120f67632"
+        "outputs/v1/out/rig/run.json": "cf7b175a184c87a9bd12b5d794f590c15bf3faa9d523ff5fbf957cc87596ad7a"
       },
       "consumes": [],
       "bindings": {}
@@ -1949,7 +1949,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "80e57436e3ca9805190e1d3ff76cf3bf525a4d063ea1f1788e3e80d9e28615bb",
+      "output_sha256": "3e9955d0b8cbc61e3c5f084f5c7bb30f2188b8a6ef227d92106b0f815359abbc",
       "consumes": [
         "seed-71"
       ],
@@ -1974,7 +1974,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0b3aeb7fb8d0e3657a8526fe2ae01b624b3aa8eca44cfc1e6133ee2fd900d072",
+      "output_sha256": "bf1d511abd7064bb0ab887ac91bae96c51b14380decc8043cf88a95c7bcd6d15",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2007,7 +2007,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ddc0f3735a49639ac3fb5d4936e36414fe194d12ecde09317e6026b6d779c55a",
+      "output_sha256": "84e5e2fc295289778c661fdf182af7396d068a976607c017cb1d9d0d63e82bae",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2036,7 +2036,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0cc8ea09a6e8597579e72ac34cd06c735e7b24e56c1a5c14b639a9351a65aaaa",
+      "output_sha256": "35f1bca135c913d95c2499321f72824393c7e1a95df04bdb768d33156953e0f1",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2059,7 +2059,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "da4f559ae9cdda8a4942307c11611df56977e8a88059c0de3289846a3059b840",
+      "output_sha256": "7febcc0084cd12d1adafab39c4efe813b6a66dba3763c3c3c37381e3c5765c50",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2213,7 +2213,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "e81916f9a616d72b7fc2357c96687f76ec12799481b4eb94df975838cc93d734",
+      "output_sha256": "1c86aa0e6780b594debdd126a683cf78ae17cd3e1834255940e0737c7f2d8d47",
       "consumes": [
         "seed-77",
         "seed-78",
@@ -2248,7 +2248,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "b006fb82ef742c3fc579328d25276f627406ab189db46931c16b05b512fe4228",
+      "output_sha256": "67dd9b37ea3e53ae9f18be6975eed038a6b1ffab18da27cb5560e7dddf2722dd",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2291,7 +2291,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "d52c9069d12a7e2e572923b86ea0412cdc059b0baf8e8cdd4770a29b81258b67",
+      "output_sha256": "7e472ca6706398bce0a5afe2ded5bb40948d70d442a9e33f8358c6e00a23ac70",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2322,7 +2322,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "6fbebdb6dfaf41c34e21f38fd57bea384a43bbd3162f1f6030d66f3e12fc1728",
+      "output_sha256": "215db12e97fc085926348645416707ad6d1bcf172df85d3c0e16953dbe7662a8",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2365,7 +2365,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "322db076d6596a241bbe7a2a31850ba16229dedaad0a0cf68a70866568753f29",
+      "output_sha256": "f254779c7e217f9eda4d3c14b8ba065e10e39442926fd4ba57564ae665b2d621",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2396,7 +2396,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "6008e5724f0f9b0049f9bcaa657d09435898e1cc98df8c54c17f4a4190c8c1db",
+      "output_sha256": "7790db7684233cf412762ee6fd5f13594cca56365c15742f9de952ae375817fa",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2423,7 +2423,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "58dea307d55fd4592e166290571d8154d6e90abbc5b959e2d53e247a917cd473",
+      "output_sha256": "0a93cfb615f00251a15b6e1f1b792123a4a1bfcdaa519021c52a77e6f7fea781",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2449,7 +2449,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "5af9419c95f9d4bba028a63f89669d0f052436d038e1d556967902b7f16314a5",
+      "output_sha256": "af45f36f511278ccf168c9b9e265e8c68936218b13cace1926e2ef15dff7e701",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2547,7 +2547,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "d3ebc5832be160a9d00a7007c5260c5b66122eea65f488ee862e6b84a2413eca",
+      "output_sha256": "45efc790a27fc7708de8b81755cf1c33e31be54b5074c2adb6451cbddb30f74b",
       "consumes": [
         "seed-91",
         "seed-92",
@@ -2597,7 +2597,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "9a46b12d47176d52a196cec05d4c040c88a7081428776185bbc0fd8b57b2d870",
+      "output_sha256": "016c9831eae0fbee1b26e23be4c5f9b452a3cbb4048728a1f2b820c39c9978c7",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2648,7 +2648,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "9bf5d9679aa473758409c9cf8b44edc1b03b79dbdb7b33c5d9741cac167b2d84",
+      "output_sha256": "1c07745c73f00c4d1b0f6c5e7f0190b9ab4f2420b7ccbd3020d0542da749b4d7",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2675,10 +2675,10 @@
       ],
       "exit": 0,
       "output_path": "evidence/direction-input.json",
-      "output_sha256": "26cf39f2eed14a86a5bbeb98dd3a2ca1fb25fd854ddf1eb7b570c129a903a11a",
+      "output_sha256": "92903a0eb02bc186c15bc73e1f28242deb0fbfe1d9e0e88b5aff3d5d7524beca",
       "authored_by": "agent",
       "outputs": {
-        "evidence/direction-input.json": "26cf39f2eed14a86a5bbeb98dd3a2ca1fb25fd854ddf1eb7b570c129a903a11a"
+        "evidence/direction-input.json": "92903a0eb02bc186c15bc73e1f28242deb0fbfe1d9e0e88b5aff3d5d7524beca"
       },
       "consumes": [],
       "bindings": {}
@@ -2698,7 +2698,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ec9f36e4119802591594281fb578541a29f1c6b5af1262c85ab29d92fcfceb33",
+      "output_sha256": "56bdbc6ed5e9124c5a3b97ffc4a44272d246a75251c918476c1e25b6243f88f9",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2727,7 +2727,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ec9f36e4119802591594281fb578541a29f1c6b5af1262c85ab29d92fcfceb33",
+      "output_sha256": "56bdbc6ed5e9124c5a3b97ffc4a44272d246a75251c918476c1e25b6243f88f9",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2754,7 +2754,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "783ed8761fea2cb599e86bd54fcbc97a63cb82bad0bc3eeae5ed983f0933f5c4",
+      "output_sha256": "7a3c4484715d9762bdabe8ca5221f56691d56d16a67c05f3857e29ad7f63af5f",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2791,7 +2791,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "963dc666d0c1210145f9c8f97d2a5b3bd2d5a030abb66c8411234502dd7936de",
+      "output_sha256": "cb363079a77b18aa563ea2f8c973764b0b39da0c9c4380f01b6224c569fce191",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2824,7 +2824,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a6a34e4bafcb598f460aeab6f4c17cc903aef77a1a5abe26016e4f971894d03e",
+      "output_sha256": "23a983732fb531a536879e6f42179321b7b4b70c5ce68241d23b76e58c54cdc1",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2851,7 +2851,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "16f7e5d87ab19d3c97cd9f9e2362aae042c9325537d1dac4ca3d2db46ff72ee4",
+      "output_sha256": "6739c5ab2601822259cc89784f6c892e26fe4e15e7e3d62323dec616ffaf6121",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2879,7 +2879,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "16f7e5d87ab19d3c97cd9f9e2362aae042c9325537d1dac4ca3d2db46ff72ee4",
+      "output_sha256": "6739c5ab2601822259cc89784f6c892e26fe4e15e7e3d62323dec616ffaf6121",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2907,7 +2907,7 @@
       ],
       "exit": 0,
       "output_path": "evidence/captions.json",
-      "output_sha256": "9da5d7b1437dc6582aa56f42f32c787ede388ad62fb5e1c3ee0f47ebe1c0837f",
+      "output_sha256": "203aa1b15ac25a97088347f0049407070c47d29d8d03cf3e26b37cb7fa6f5c9f",
       "consumes": [
         "seed-5"
       ],

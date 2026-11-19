@@ -322,7 +322,7 @@ no finding. These new refusals require an explicitly written field.
 
 A project whose `rig_type` is a full-screen scene (`fullscreen.minimal` or
 `fullscreen.game_logic`) is a CG build: a painting brought to life whole. Each
-of its `rig` versions is held to the three `@rig-c/parts` gates that measure
+of its `rig` versions is held to the `@rig-c/parts` gates that measure
 what a CG build is for, declared in the files the version was built from
 (`src/cg-gates.ts`):
 
@@ -331,10 +331,11 @@ what a CG build is for, declared in the files the version was built from
 | `assemble.editor_receipts.trace_parts: true` | the version's config | a part carved by a shape the config draws (`ASSEMBLE_PART_SOURCE`), an edited image with no receipt (`ASSEMBLE_EDITOR_RECEIPT_MISSING`) |
 | `seam_over_motion.required: true` | the requirements file the config names as `requirements` | background at a declared seam pair on any frame, or no pair to read (`CHECK_SEAM_OVER_MOTION_REQUIRED`) |
 | `boundary_colour.max_step_excess`, at most 12 | the same requirements file | a part boundary whose colour step exceeds the pieces' own by more than the allowance (`CHECK_BOUNDARY_COLOUR_STEP`), a step that cannot be taken (`CHECK_BOUNDARY_COLOUR_UNMEASURED`) |
+| `behind_seams.threshold`, an integer from 0 through 12 (also on any `pairs[].threshold` override) | the same requirements file; required from `CG_BEHIND_SEAMS_SINCE = 2026-11-19T00:00:00Z`, dated by `versions[].at` | a motion-opened or standing seam showing a part drawn behind (`CHECK_BEHIND_PART_SEAMS`); an unread declared seam (`CHECK_BEHIND_PART_SEAMS_UNMEASURED`) |
 
 - **Why `config.requirements`.** `rig-parts build` reads the file the config
   names and forwards it to its check, so a build from the config alone runs
-  both requirements-file gates; a file passed only as `--requirements` by hand
+  the requirements-file gates; a file passed only as `--requirements` by hand
   is a gate someone has to remember.
 - **Why 12.** parts declares no default. Its public examples read 1 to 4 clean
   and 21 and up on planted stretches and notches, and each declares 12 (parts
@@ -491,6 +492,8 @@ Exit `1`. Each names its object in `path`.
 | `CG_GATES_UNREAD` | a CG project's `rig` version (§ CG gates) has no config at `provenance.config.path` under the project with the recorded sha256, or the requirements file its config names is not there, under the project, a JSON object | keep the config the version was built from, and its requirements file, under the project (`evidence/v<N>/`) and record the config's path and sha256. For a `pre_interview: true` version with no `provenance.config` whose config did not survive, record the loss with `version config-lost <n>` (`CG_GATES_CONFIG_LOST`) |
 | `CG_GATE_UNDECLARED` | a CG project's `rig` version's config lacks `assemble.editor_receipts.trace_parts: true` or a `requirements` path, or its requirements file lacks `seam_over_motion.required: true` or an integer `boundary_colour.max_step_excess`; `path` names the field | declare it and rebuild; a refusal parts then gives is the art's to fix, not a reason to drop the gate |
 | `CG_BOUNDARY_ALLOWANCE_RAISED` | a CG version's requirements file declares `boundary_colour.max_step_excess` above 12 | declare 12 or less; fix the piece's image or mesh that the step points at |
+| `CG_GATE_UNDECLARED` (behind-part seams) | a CG rig version from `CG_BEHIND_SEAMS_SINCE`, or without a readable `at`, lacks a nonnegative integer `behind_seams.threshold`, or supplies an invalid pair threshold; the field path and found value are named | declare `behind_seams.threshold` from 0 through 12 in the config's requirements file and rebuild; pair thresholds must also be from 0 through 12 |
+| `CG_BEHIND_SEAMS_THRESHOLD_RAISED` | a CG rig version from `CG_BEHIND_SEAMS_SINCE`, or without a readable `at`, declares `behind_seams.threshold` or a `behind_seams.pairs[].threshold` above 12 | declare 12 or less and fix the image or mesh behind the seam, then rebuild |
 | `BUST_EXCLUSION_UNREASONED` | the `meshes` value excludes the bust (`"excluded": true`) with an empty, blank or missing `reason` | write the user's reason (a rigid breastplate, say), or record `"bust": "default"`; the reason goes to parts with the opt-out |
 | `BUST_VALUE_UNKNOWN` | the `meshes` value's `bust` is neither `"default"` nor `{ "excluded": true, "reason": "…" }` | write one of the two ([INTERVIEW.md](INTERVIEW.md)) |
 
@@ -575,6 +578,7 @@ Exit `0`. Bookkeeping that names no missing decision.
 | `PARTS_REVIEW_PREDATES_STAGE` | the project passed `plan-approved` (its first sign-off dated before 2026-11-04) before `parts` and `parts-review` existed, is past `parts-review`, and has no `parts-review` sign-off; the message names the project | nothing is assumed: no sign-off is written for it. A person may still review the parts and sign `parts-review`, which clears it ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
 | `CG_GATES_CONFIG_LOST` | a CG rig has a valid pre-interview `config_lost` declaration and no config; may accompany `CG_GATES_PREDATE` | preserve its loss note and source; build and accept a new rig with its retained config before post work |
 | `CG_GATES_PREDATE` | a CG project's `rig` version was built with `@rig-c/parts` older than 2.4.0, before the CG gates existed (§ CG gates) | nothing for that version; the next CG version declares the gates |
+| `CG_GATE_UNDECLARED`, `CG_BEHIND_SEAMS_THRESHOLD_RAISED` (behind-part seams) | the same missing/invalid or raised behind-part seam threshold on a CG rig version dated before `CG_BEHIND_SEAMS_SINCE` | preserve history; declare the gate with threshold at most 12 on the next CG rig |
 | `REOPEN_SIGNOFF_LAPSED` | a human sign-off (stage or checkpoint) is history because of a `reopens[]` entry, and no live sign-off of the same stage and checkpoint exists; one per approval, at its latest lapsed record, naming the reopen (§ Reopening stages) | the person approves it again in the review tool and `signoff` records it (with `--checkpoint <id>` for a checkpoint, `--draft` and `--structure-file` for parts-review) |
 | `REOPEN_VERDICT_LAPSED` | the latest human rig-review or direction-review acceptance is history because of a `reopens[]` entry, and no live acceptance of that review exists; the message names the verdict and the reopen | review a live version in the review tool and record the acceptance with `review <n> --verdict accepted`; a lapsed rig needs a new rig version (`rig-version`) first |
 
@@ -741,7 +745,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE`, `DRAFT_CONFIG_INPUTS_SINCE`, `EDITED_PART_INPUTS_SINCE` and `DIRECTION_REVIEW_ADVANCE_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`CG_BEHIND_SEAMS_SINCE`, `HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE`, `DRAFT_CONFIG_INPUTS_SINCE`, `EDITED_PART_INPUTS_SINCE` and `DIRECTION_REVIEW_ADVANCE_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 

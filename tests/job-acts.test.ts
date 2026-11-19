@@ -17,6 +17,7 @@ import { currentJobIdentity } from '../src/job-publication.ts';
 import type { ActV3, JobOwnerHost, JobHostOptions } from '@rig-c/review/job-host';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
+import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
@@ -529,6 +530,7 @@ test('#507 reachable interview signoff executes printed host, acts, ingest and c
 
 test('#557 fresh parts verdict executes printed commands and atomically signs without a second human act', async () => {
   receipt({ test: '#557 fresh parts fold', source: 'writer-prepared synthetic checkpoint 1-parts-verdict' });
+  testClock.set(EXAMPLE_REOPEN_AT);
   const root = copy('1-parts-verdict');
   const before = nextProject(root, testClock.now());
   expect(before.moves.some(move => move.review_act?.kind === 'parts-verdict')).toBe(false);

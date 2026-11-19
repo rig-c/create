@@ -3,11 +3,13 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, framing, obj, waypoint } from './fixtures.ts';
-import { checkProject, directionCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { TEST_NOW, checkProject, directionCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), JSON.stringify(p, null, 2) + '\n');
+const feedbackAt = new Date(TEST_NOW + 24 * 60 * 60_000).toISOString();
+const resignAt = TEST_NOW + 48 * 60 * 60_000;
 function sign(dir: string, stage: string, steps?: string): void {
   const words = join(dir, 'approval.txt');
   writeFileSync(words, 'Approve the revised synthetic answers.\n');
@@ -16,11 +18,11 @@ function sign(dir: string, stage: string, steps?: string): void {
 
 test('review refuses newly stale approval hashes without changing project bytes', () => {
   const dir = fixture(p => { delete p.direction_contract; }, 'example-project.json', {}, true);
-  testClock.set(new Date('2026-11-19T00:00:00Z'));
+  testClock.set(TEST_NOW);
   directionCommand(['--adopt', dir]);
   const before = readFileSync(join(dir, 'project.json'));
   expect(() => reviewCommand(['4', dir, '--review', 'direction-review', '--verdict', 'provisional', '--by', 'user', '--source', 'chat',
-    '--at', '2026-11-20T00:00:00Z', '--verbatim', 'Add a slower pause and hold the camera.', '--item', 'motion:not-asked', '--item', 'camera_depth:not-asked']))
+    '--at', feedbackAt, '--verbatim', 'Add a slower pause and hold the camera.', '--item', 'motion:not-asked', '--item', 'camera_depth:not-asked']))
     .toThrow(expect.objectContaining({ code: 'SIGNOFF_ANSWERS_STALE' }));
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
@@ -31,10 +33,10 @@ test('preexisting feedback additions can be approved by partial rigging and post
     const motion = obj(waypoint(p, 'motion').guide);
     const post = arr(obj(obj(p.interview).post).items).map(obj).find(item => item.id === 'camera_depth')!;
     for (const guide of [motion, obj(post.guide)]) guide.additions = [...arr(guide.additions ?? []), {
-      by: 'user', at: '2026-11-20T00:00:00Z', verbatim: 'Add a slower pause and hold the camera.', value: null, source: 'polish feedback, v4',
+      by: 'user', at: feedbackAt, verbatim: 'Add a slower pause and hold the camera.', value: null, source: 'polish feedback, v4',
     }];
   }, 'example-project.json', {}, true);
-  testClock.set(new Date('2026-11-19T00:00:00Z'));
+  testClock.set(TEST_NOW);
   directionCommand(['--adopt', dir]);
   const original = arr(load(dir).signoffs);
   const changed = checkProject(dir);
@@ -42,7 +44,7 @@ test('preexisting feedback additions can be approved by partial rigging and post
   expect(changed.refusals.filter(f => f.code === 'GUIDE_CHANGED_UNSIGNED').map(f => f.path)).toEqual([
     'plan.steps[motion]', 'plan.steps[camera]', 'plan.steps[timing]',
   ]);
-  testClock.set(new Date('2026-11-21T00:00:00Z'));
+  testClock.set(resignAt);
   sign(dir, 'rigging-interview', 'motion');
   expect(checkProject(dir).refusals.filter(f => f.code === 'GUIDE_CHANGED_UNSIGNED').map(f => f.path)).toEqual(['plan.steps[camera]', 'plan.steps[timing]']);
   sign(dir, 'post-interview', 'camera,timing');
@@ -52,9 +54,9 @@ test('preexisting feedback additions can be approved by partial rigging and post
 
 test('interview re-sign supersedes an earlier framing answer binding', () => {
   const dir = fixture(() => {}, 'example-project.json', {}, true), p = load(dir);
-  obj(framing(p, 'reference').answer).additions = [{ by: 'user', at: '2026-11-20T00:00:00Z', verbatim: 'A newly stated framing sentence.', value: 'none' }];
+  obj(framing(p, 'reference').answer).additions = [{ by: 'user', at: feedbackAt, verbatim: 'A newly stated framing sentence.', value: 'none' }];
   const before = arr(structuredClone(p.signoffs)); save(dir, p);
-  testClock.set(new Date('2026-11-21T00:00:00Z')); sign(dir, 'interview');
+  testClock.set(resignAt); sign(dir, 'interview');
   expect(checkProject(dir).refusals).toEqual([]);
   expect(arr(load(dir).signoffs).slice(0, arr(before).length)).toEqual(before);
 });

@@ -5,6 +5,7 @@ import { optionContext, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
+import { CG_BEHIND_SEAMS_SINCE } from '../src/cg-gates.ts';
 import { arr, fixture, framing, obj, waypoint } from './fixtures.ts';
 import { checkProject, interviewAnswerCommand, interviewDecisionCommand, interviewOptionsCommand, testClock } from './clock.ts';
 
@@ -73,6 +74,28 @@ test('a decision introducing CG refusals is refused without writing', () => {
     expect((error as Refusal).exitCode).toBe(1);
   }
   expect(readFileSync(w.file)).toEqual(before);
+});
+
+test('a CG decision with missing or raised behind-seam threshold refuses with byte-identical project.json', () => {
+  for (const threshold of [undefined, 13]) {
+    const w = transition('character.idle');
+    const config = JSON.stringify({ assemble: { editor_receipts: { trace_parts: true } }, requirements: 'requirements.json' });
+    writeFileSync(join(w.dir, 'config.json'), config);
+    writeFileSync(join(w.dir, 'requirements.json'), JSON.stringify({
+      setup_painting: { required: true }, seam_over_motion: { required: true },
+      boundary_colour: { max_step_excess: 12 },
+      ...(threshold === undefined ? {} : { behind_seams: { threshold } }),
+    }));
+    rewrite(w, project => {
+      for (const raw of arr(project.versions)) {
+        const version = obj(raw);
+        if (version.kind !== 'rig') continue;
+        version.at = CG_BEHIND_SEAMS_SINCE;
+        obj(version.provenance).config = { path: 'config.json', sha256: sha256(Buffer.from(config)) };
+      }
+    });
+    refused(w, 'fullscreen.minimal', threshold === undefined ? 'CG_GATE_UNDECLARED' : 'CG_BEHIND_SEAMS_THRESHOLD_RAISED');
+  }
 });
 
 function rewrite(w: ReturnType<typeof transition>, edit: (project: JsonObject) => void): void {

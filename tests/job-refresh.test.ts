@@ -15,6 +15,7 @@ import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import { generateExampleParts } from '../scripts/generate-example-parts.ts';
+import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { reviewActFindings, decodeReviewAct, reviewActVerdict } from '../src/review-act.ts';
 import { foldRigSignoff } from '../src/rig-signoff.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
@@ -272,6 +273,8 @@ test('#475 source-linked clean interview record signoff ingests advances and off
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 async function preparedParts(): Promise<string> {
+  // Write after the retained narrative, before the live host stamps its verdict.
+  testClock.set(EXAMPLE_REOPEN_AT);
   const root = copy('1-parts-verdict');
   expectExit0(await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']));
   cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));

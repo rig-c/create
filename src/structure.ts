@@ -32,10 +32,26 @@ export function structurePathIsIgnored(dir: string, path: string): boolean {
     .some(rel => ignored.includes(rel.split(sep)[0] as string));
 }
 
-export function latestPartsApproval(project: JsonObject, at = Infinity): JsonObject | undefined {
+export function partsApprovalIdentity(review: JsonObject): JsonObject | undefined {
+  if (typeof review.at !== 'string' || !Number.isFinite(Date.parse(review.at)) || !isObject(review.evidence)) return undefined;
+  return { signoff_at: review.at, evidence: review.evidence };
+}
+
+export function latestPartsApproval(project: JsonObject, at = Infinity, identity?: Json): JsonObject | undefined {
   const reopens = collectReopens(project, []).filter(r => r.at <= at);
-  return collectSignoffs(project, []).filter(s => s.stage === 'parts-review' && s.checkpoint === null && s.at <= at && liveSignoff(reopens, s.stage, s.at))
-    .sort((a, b) => b.at - a.at || b.index - a.index)[0]?.record;
+  const signoffs = collectSignoffs(project, []).filter(s => s.stage === 'parts-review' && s.checkpoint === null && s.at <= at && liveSignoff(reopens, s.stage, s.at));
+  if (identity !== undefined) {
+    const matches = signoffs.filter(s => isDeepStrictEqual(partsApprovalIdentity(s.record), identity));
+    return matches.length === 1 ? matches[0]?.record : undefined;
+  }
+  return signoffs.sort((a, b) => b.at - a.at || b.index - a.index)[0]?.record;
+}
+
+/** An explicit identity must resolve at registration, even after a later reopen. */
+export function rigPartsApproval(project: JsonObject, version: JsonObject, legacyAt = Date.parse(String(version.at))): JsonObject | undefined {
+  if (version.accepted_parts === undefined) return latestPartsApproval(project, legacyAt);
+  const at = isObject(version.registration) ? Date.parse(String(version.registration.at)) : NaN;
+  return latestPartsApproval(project, at, version.accepted_parts);
 }
 
 export function checkStructure(dir: string, project: JsonObject, signoff: JsonObject, path: string, errors: Finding[]): JsonObject | null {
@@ -87,7 +103,7 @@ export function riggingContext(dir: string, project: JsonObject, at: string, err
     const when = typeof state.answer.at === 'string' ? Date.parse(state.answer.at) : NaN;
     if (!Number.isFinite(when) || when < Date.parse(review.at) || when > Date.parse(at)) add(errors, 'RIG_GUIDE_BEFORE_PARTS', item.path, 'fresh rig guides must follow the accepted parts and precede their approval; preserve earlier answers as history');
   }
-  return { accepted_parts: { signoff_at: review.at, evidence: review.evidence }, structure: review.structure as Json };
+  return { accepted_parts: partsApprovalIdentity(review)!, structure: review.structure as Json };
 }
 
 /** The meshes answer must be covered by a live later interview approval at build time. */
@@ -118,36 +134,38 @@ export function structureDelta(snapshot: JsonObject, config: JsonObject): JsonOb
 }
 
 /** Writer and checker share the approval gate and exact file-derived delta. */
-export function approvedStructureDelta(dir: string, project: JsonObject, at: number, config: JsonObject): JsonObject[] {
+export function approvedStructureDelta(dir: string, project: JsonObject, version: JsonObject, config: JsonObject): JsonObject[] {
+  const at = Date.parse(String(version.at));
   const interview = isObject(project.interview) ? project.interview : {};
   const adoptedAt = isObject(interview.order) ? Date.parse(String(interview.order.adopted_at)) : NaN;
-  if (!(at >= adoptedAt)) return [];
-  const review = latestPartsApproval(project, at);
-  if (!hasStageOrder(project) || review === undefined || !acceptsStructureDelta(project, review, at)) return [];
+  if (version.accepted_parts === undefined && (!(at >= adoptedAt) || !hasStageOrder(project))) return [];
+  const review = rigPartsApproval(project, version);
+  if (review === undefined) return [];
   const errors: Finding[] = [];
   const snapshot = checkStructure(dir, project, review, 'signoffs[parts-review]', errors);
-  return snapshot === null ? [] : structureDelta(snapshot, config);
+  return snapshot === null || !acceptsStructureDelta(project, review, at) ? [] : structureDelta(snapshot, config);
 }
 
 export function checkRiggingContext(dir: string, project: JsonObject, effectiveStage: string, errors: Finding[], warnings: Finding[] = []): void {
   const review = latestPartsApproval(project);
   if (review !== undefined && (hasStageOrder(project) || review.structure !== undefined)) checkStructure(dir, project, review, 'signoffs[parts-review]', errors);
-  if (!hasStageOrder(project)) return;
+  const ordered = hasStageOrder(project);
+  const checkLegacyBuild = ordered && stageIndex(effectiveStage) >= stageIndex('rigging-interview');
   const interview = isObject(project.interview) ? project.interview : {};
-  if (!isObject(interview.order) || typeof interview.order.adopted_at !== 'string' || !Number.isFinite(Date.parse(interview.order.adopted_at))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.order', 'order adoption needs a clock date');
+  if (ordered && (!isObject(interview.order) || typeof interview.order.adopted_at !== 'string' || !Number.isFinite(Date.parse(interview.order.adopted_at)))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.order', 'order adoption needs a clock date');
   const reopens = collectReopens(project, []);
-  const approvals = collectSignoffs(project, []).filter(s => s.stage === 'rigging-interview' && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  const approvals = collectSignoffs(project, []).filter(s => ordered && s.stage === 'rigging-interview' && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
   for (const approval of approvals.sort((a, b) => b.at - a.at || b.index - a.index).slice(0, 1)) {
     const context = riggingContext(dir, project, String(approval.record.at), errors);
     if (context !== null && (!isDeepStrictEqual(approval.record.accepted_parts, context.accepted_parts) || !isDeepStrictEqual(approval.record.structure, context.structure))) add(errors, 'RIGGING_INTERVIEW_CONTEXT', `signoffs[${approval.index}]`, 'approval does not bind the current parts review and structure');
   }
-  if (stageIndex(effectiveStage) < stageIndex('rigging-interview')) return;
-  if (review === undefined) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'review parts before asking rigging questions');
+  if (checkLegacyBuild && review === undefined) add(errors, 'RIGGING_INTERVIEW_CONTEXT', 'interview.rigging_context', 'review parts before asking rigging questions');
   // Bind production config declarations, not geometry. Historical pre-adoption builds remain history.
   const adoptedAt = isObject(interview.order) ? Date.parse(String(interview.order.adopted_at)) : NaN;
   for (const version of asArray(project.versions)) {
-    if (!isObject(version) || version.kind !== 'rig' || !(Date.parse(String(version.at)) >= adoptedAt)) continue;
-    const historicalReview = latestPartsApproval(project, Date.parse(String(version.at)));
+    if (!isObject(version) || version.kind !== 'rig' || (version.accepted_parts === undefined && (!checkLegacyBuild || !(Date.parse(String(version.at)) >= adoptedAt)))) continue;
+    const historicalReview = rigPartsApproval(project, version);
+    if (historicalReview === undefined && version.accepted_parts !== undefined) continue; // Registration owns the invalid binding.
     if (historicalReview === undefined) { add(errors, 'RIGGING_INTERVIEW_CONTEXT', `versions[v${String(version.n)}]`, 'no parts structure approval was live when this rig was built'); continue; }
     const snapshot = checkStructure(dir, project, historicalReview, `versions[v${String(version.n)}].structure`, errors);
     if (snapshot === null) continue;

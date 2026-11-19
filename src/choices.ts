@@ -9,7 +9,7 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isObject, type Ctx, type Finding, type Item } from './check.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
-import { latestPartsApproval, structurePathIsIgnored } from './structure.ts';
+import { latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { CHOICE_ORDER_SPEC, approvalStageOfGuide, hasStageOrder, interviewStageOfGuide, stageIndex } from './stages.ts';
 import { WAYPOINT_ASKS } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -158,7 +158,7 @@ export function optionContext(project: JsonObject, stage: string, at: number, di
     const approval = latestPartsApproval(project, at);
     const draft = objects(project.drafts).find(d => d.id === approval?.draft_id);
     if (!approval || !draft || date(draft.at) > at || !isObject(approval.evidence) || !isObject(approval.structure) || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', 'review and retain parts/structure before drafting rigging options');
-    return { kind: 'parts', accepted_parts: { signoff_at: approval.at as Json, evidence: approval.evidence }, structure: approval.structure, draft_id: draft.id as Json, parts: draft.parts };
+    return { kind: 'parts', accepted_parts: partsApprovalIdentity(approval)!, structure: approval.structure, draft_id: draft.id as Json, parts: draft.parts };
   }
   try {
     const candidate = currentScene(project, at);
@@ -175,7 +175,8 @@ export function optionContext(project: JsonObject, stage: string, at: number, di
   const rig = rigs[0];
   const provenance = isObject(rig?.provenance) ? rig.provenance : {};
   if (!signoff || !rig || !isObject(provenance.config)) fail('INTERVIEW_OPTIONS_STALE', 'accept a rig with retained config before drafting post options');
-  const approval = latestPartsApproval(project, date(rig.at));
+  const approval = rigPartsApproval(project, rig);
+  if (rig.accepted_parts !== undefined && !approval) fail('RIG_PARTS_APPROVAL_INVALID', `versions[v${String(rig.n)}].accepted_parts: restore the parts approval bound when this rig was registered`);
   const draft = objects(project.drafts).find(d => d.id === approval?.draft_id);
   if (!draft || !isObject(draft.parts)) fail('INTERVIEW_OPTIONS_STALE', `versions[v${String(rig.n)}]: no retained approved draft parts are available at rig.at ${String(rig.at)}; restore the parts-review approval and draft live at that build date, or register a new rig version after parts-review before drafting post options`);
   return { kind: 'rig', rig_version: rig.n as Json, signoff_at: signoff.record.at as Json, config: provenance.config, parts: draft.parts };

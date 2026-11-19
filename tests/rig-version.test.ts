@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import os from 'node:os';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
-import { DEPTH_MAP_BINDING_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
+import { DEPTH_MAP_BINDING_SINCE, RIG_PARTS_APPROVAL_SINCE, depthPlanFindings, depthPlanMoves, registeredDepthPartsMatch, rigRegistrationFindings } from '../src/rig-version.ts';
 import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
@@ -86,6 +86,74 @@ function refused(args: string[], code: string): Refusal {
   expect(readFileSync(projectFile)).toEqual(before);
   return caught as Refusal;
 }
+
+test('frozen registration without a live parts approval refuses on the contract date', () => {
+  const f = setup();
+  testClock.set(new Date(RIG_PARTS_APPROVAL_SINCE));
+  refused(f.args, 'RIG_PARTS_APPROVAL_REQUIRED');
+  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(false);
+});
+
+/** A synthetic retained Review response and structure snapshot for the exact frozen parts. */
+function approveFrozenParts(dir: string, project: JsonObject, args: string[]): JsonObject {
+  const bind = (path: string) => ({ path, sha256: jobHash(readFileSync(join(dir, path))) });
+  const draftPath = 'derived/drafts/synthetic-frozen';
+  const partsPath = `${draftPath}/parts`;
+  mkdirSync(join(dir, draftPath), { recursive: true });
+  cpSync(join(dir, 'source/parts'), join(dir, partsPath), { recursive: true });
+  cpSync(join(dir, 'source/config.json'), join(dir, draftPath, 'config.json'));
+  args[args.indexOf('--parts') + 1] = partsPath;
+  const files = ['parts.json', 'painting_in_rig.png', ...readdirSync(join(dir, partsPath, 'parts')).map(file => `parts/${file}`)]
+    .map(path => bind(`${partsPath}/${path}`));
+  const config = bind(`${draftPath}/config.json`);
+  const tool = { name: '@rig-c/review', version: '2.5.0' };
+  const bytes = `${JSON.stringify({ schema: 'rig-review-parts-verdict/2', tool, source: { sha256: 'a'.repeat(64), files },
+    status: 'approved', parts: {} })}\n`;
+  const path = `evidence/review-reads/${jobHash(bytes)}.json`;
+  put(dir, path, bytes);
+  const evidence = { ...bind(path), kind: 'parts-verdict', spec: 'rig-create/parts-verdict-cli@1' };
+  const at = '2026-11-18T12:00:00.000Z';
+  const draftId = 'synthetic-frozen';
+  project.drafts = [{ id: draftId, config, parts: { path: partsPath, files } }];
+  project.review_acts = [{ kind: 'parts-verdict', schema: evidence.spec, route: 'cli', draft_id: draftId, by: 'user', at,
+    argv: ['opaque/input', '--verdict', 'opaque/verdict.json'], evidence, tool, status: 'approved', flagged: [], noted: [] }];
+  put(dir, 'evidence/frozen-structure.json', { schema: 'rig-create/structure-decisions@0', draft_id: draftId, config, entries: [] });
+  project.signoffs = [{ stage: 'parts-review', checkpoint: null, draft_id: draftId, by: 'user', at,
+    verbatim: 'Approve the synthetic frozen parts.', evidence, structure: bind('evidence/frozen-structure.json') }];
+  put(dir, 'project.json', project);
+  return { signoff_at: at, evidence };
+}
+
+test('frozen registration refuses parts bytes that differ from the newer bound approval', () => {
+  const f = setup();
+  const frozenParts = f.args[f.args.indexOf('--parts') + 1]!;
+  approveFrozenParts(f.dir, f.load(), f.args);
+  const manifest = `${frozenParts}/parts.json`;
+  writeFileSync(join(f.dir, manifest), Buffer.concat([readFileSync(join(f.dir, manifest)), Buffer.from(' ')]));
+  f.args[f.args.indexOf('--parts') + 1] = frozenParts;
+  testClock.set(new Date(RIG_PARTS_APPROVAL_SINCE));
+  refused(f.args, 'REVIEW_PACKAGE_PARTS_MISMATCH');
+  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(false);
+});
+
+test('frozen registration refuses structure conflicts against the newer bound approval', () => {
+  const f = setup();
+  approveFrozenParts(f.dir, f.load(), f.args);
+  const project = f.load();
+  const approval = obj(arr(project.signoffs)[0]);
+  const binding = obj(approval.structure);
+  const path = String(binding.path);
+  const snapshot = JSON.parse(readFileSync(join(f.dir, path), 'utf8'));
+  snapshot.entries = [{ path: '/meshes/rectangle', value: null }];
+  put(f.dir, path, snapshot);
+  binding.sha256 = jobHash(readFileSync(join(f.dir, path)));
+  put(f.dir, 'project.json', project);
+  // Keep the approval valid while the frozen producer config overrides its declaration.
+  put(f.dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', meshes: { rectangle: { grid: 4 } } });
+  testClock.set(new Date(RIG_PARTS_APPROVAL_SINCE));
+  refused(f.args, 'STRUCTURE_DECISIONS_CONFLICT');
+  expect(existsSync(join(f.dir, 'outputs/v1'))).toBe(false);
+});
 
 function setupProvenancePointers() {
   const base = setup();
@@ -1801,6 +1869,7 @@ describe('#514 producer depth bindings in frozen registration', () => {
     report.manifestSha256 = jobHash(readFileSync(join(dir, 'source/manifest.json'))); put(dir, 'source/parts/depth-report.json', report);
     const sheets = JSON.parse(readFileSync(join(dir, 'source/rig/depth_sheets.json'), 'utf8'));
     sheets.parts.push({ part: 'second', size: [8, 16], depth: second.depth }); put(dir, 'source/rig/depth_sheets.json', sheets);
+    approveFrozenParts(dir, load(), args);
     testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
     const error = refused(args, 'RIG_DEPTH_MAP_BINDING_MISSING');
     expect(error.message).toContain('map_bindings[second]');
@@ -1844,16 +1913,19 @@ describe('#514 producer depth bindings in frozen registration', () => {
     }
     testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
     const fresh = depthSetup();
+    approveFrozenParts(fresh.dir, fresh.load(), fresh.args);
     testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
     refused(fresh.args, 'RIG_DEPTH_MAP_BINDING_MISSING');
   });
 
   test('#559 current bound registration passes and retained tampering refuses in every era', () => {
     const { dir, args, load } = boundDepthSetup();
+    const approval = approveFrozenParts(dir, load(), args);
     testClock.set(new Date(DEPTH_MAP_BINDING_SINCE));
     rigVersionCommand(args);
     expect(rigRegistrationFindings(dir, load())).toEqual([]);
-    const project = load(), registration = obj(obj(arr(project.versions)[0]).registration);
+    const project = load(), version = obj(arr(project.versions)[0]), registration = obj(version.registration);
+    expect(version.accepted_parts).toEqual(approval);
     const binding = obj(arr(obj(registration.depth).map_bindings)[0]);
     writeFileSync(join(dir, String(binding.path)), '{}\n');
     registration.at = '2026-11-18T23:59:59Z';

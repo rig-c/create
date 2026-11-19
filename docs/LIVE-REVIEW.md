@@ -91,7 +91,7 @@ HOLE visible.
 | --- | --- | --- |
 | `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector; `parts-verdict` is deferred until parts-review and prepared evidence for that draft; eligible sign subjects |
 | `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
-| `direction write` and `direction patch` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
+| `direction write` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
 | `advance rig-review` | The current live rig at the entered review stage | `rig` selector and one `review-verdict`; approval also signs rig-review |
 | `advance direction-review` | The current live post at the entered review stage | `post` selector and only `review-verdict direction-review` |
 
@@ -334,8 +334,8 @@ the list, or no receipt at all (a clone), leaves only Review's ask binding.
 ### Asks
 
 Every publication create acknowledges is followed, in the same process, by an
-ask for each subject it declares (using one `ask-batch` call when Review's `next` response advertises `capabilities.askBatch: true`, in chunks of up to 64 subjects). That covers `draft-rig`, `rig-version`,
-`direction write|patch`, `advance rig-review|direction-review`, `job reconcile`
+ask for each subject it declares. A record publication (an option set or a plan) uses one `ask-batch` call when Review's `next` response advertises `capabilities.askBatch: true`, in chunks of up to 64 subjects; a `draft`, `rig` or `post` selector publication keeps one ask per subject, because Review refuses `ask-batch` on a package-retained head. That covers `draft-rig`, `rig-version`,
+`direction write`, `advance rig-review|direction-review`, `job reconcile`
 and `job open`. The process already
 holds Review's agent authority in memory for the publish, so the ask needs no
 other transport. The authority never enters argv, the environment or a project

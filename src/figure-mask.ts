@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { asArray, asString, isObject, type Ctx } from './check.ts';
 import { readObject } from './cg-gates.ts';
-import { hasMatteReceipt, MATTE_RECEIPT_SPEC, verifyMatteReceipt } from './plate-receipt.ts';
+import { EXTERNAL_RECEIPT_SPEC, maskReceiptSpec, MASK_RECEIPT_SPECS, verifyMaskReceipt } from './plate-receipt.ts';
 import { checkReviewPackages, reviewConfigInputs } from './review-package.ts';
 import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -124,16 +124,21 @@ export function checkFigureMask(ctx: MaskContext): void {
     const recorded = asArray(ctx.project.derived).filter(isObject).filter(entry =>
       entry.kind === 'prepared-input' && typeof entry.path === 'string'
       && resolve(ctx.dir, entry.path) === originalMask && typeof entry.sha256 === 'string' && entry.sha256.toLowerCase() === mask.sha256);
-    const remedy = `${relative(ctx.dir, originalMask)}: record this PNG and its painting with derived add --receipt using the producer's ${MATTE_RECEIPT_SPEC} receipt`;
-    let invalid: string | undefined;
-    for (const entry of recorded.filter(hasMatteReceipt)) {
+    const remedy = `${relative(ctx.dir, originalMask)}: record this PNG and its painting with derived add --receipt using ${MASK_RECEIPT_SPECS}`;
+    let invalid: { code: string; detail: string } | undefined;
+    for (const entry of recorded) {
+      const spec = maskReceiptSpec(entry.receipt);
+      if (!spec) continue;
       try {
-        verifyMatteReceipt(ctx.dir, entry);
+        verifyMaskReceipt(ctx.dir, entry, spec);
         return;
-      } catch (error) { invalid ??= (error as Error).message; }
+      } catch (error) {
+        const code = spec === EXTERNAL_RECEIPT_SPEC ? 'FIGURE_MASK_EXTERNAL_RECEIPT_INVALID' : 'FIGURE_MASK_MATTE_RECEIPT_INVALID';
+        invalid ??= { code, detail: (error as Error).message };
+      }
     }
     if (invalid !== undefined) {
-      ctx.refusals.push({ code: 'FIGURE_MASK_MATTE_RECEIPT_INVALID', path, message: `${path}: ${invalid}; ${remedy}` });
+      ctx.refusals.push({ code: invalid.code, path, message: `${path}: ${invalid.detail}; ${remedy}` });
       return;
     }
     if (at >= Date.parse(FIGURE_MASK_MATTE_RECEIPT_SINCE)) {

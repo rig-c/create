@@ -1,12 +1,13 @@
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { cpSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { checkPreparedInputs, derivedCommand } from '../src/prepared-inputs.ts';
 import { checkPlateRegistrations, PLATE_RECEIPT_SINCE } from '../src/plate-receipt.ts';
 import type { Finding } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
+import { externalMaskEvidence } from './external-receipt-fixture.ts';
 import { cli, gitEnv, tempDir } from './helpers.ts';
 import { sceneFixture } from './scene-fixture.ts';
 import { checkProject, inputCommand, sceneCommand, testClock } from './clock.ts';
@@ -202,8 +203,133 @@ test('check refuses an unknown recorded spec even without a scene', () => {
   writeFileSync(join(f.dir, 'project.json'), JSON.stringify(p));
   expect(f.findings().refusals).toEqual([expect.objectContaining({
     code: 'PLATE_RECEIPT_INVALID',
-    message: expect.stringContaining('rig-parts-plate-receipt/1 or rig-parts-matte-receipt/1'),
+    message: expect.stringContaining('rig-parts-plate-receipt/1 or rig-parts-matte-receipt/1 or rig-parts-external-receipt/1'),
   })]);
+});
+
+function externalProducer() {
+  const dir = tempDir();
+  const { paintingBytes, maskBytes, receipt } = externalMaskEvidence();
+  const receiptPath = join(dir, 'external/receipt.json');
+  const projectPath = join(dir, 'project.json');
+  mkdirSync(join(dir, 'external'));
+  writeFileSync(join(dir, 'painting.png'), paintingBytes);
+  writeFileSync(join(dir, 'external/mask.png'), maskBytes);
+  const writeReceipt = (report: JsonObject) => writeFileSync(receiptPath, `${JSON.stringify(report, null, 2)}\n`);
+  writeReceipt(receipt);
+  writeFileSync(projectPath, JSON.stringify({ schema: 'rig-create/project@0', derived: [] }));
+  const args = ['add', dir, '--source', 'painting.png', '--file', 'external/mask.png', '--receipt', 'external/receipt.json', '--json'];
+  const project = () => JSON.parse(readFileSync(projectPath, 'utf8')) as JsonObject;
+  const findings = () => {
+    const ctx = { dir, project: project(), refusals: [] as Finding[], warnings: [] as Finding[] };
+    checkPreparedInputs(ctx);
+    return ctx;
+  };
+  return { dir, args, receipt, receiptPath, projectPath, writeReceipt, project, findings };
+}
+
+test.each(['checkpoint_sha256', 'graph_sha256', 'script_sha256'])('external mask writer and check bind %s provenance without operation', digest => {
+  const f = externalProducer();
+  const producer = { tool: 'synthetic', ...(digest === 'checkpoint_sha256' ? { model: 'synthetic model' } : {}), [digest]: 'd'.repeat(64) };
+  f.writeReceipt({ ...f.receipt, producer });
+  const result = derivedCommand(f.args);
+  expect(result.exit).toBe(0);
+  const binding = {
+    kind: 'prepared-input', source: { path: 'painting.png', sha256: f.receipt.painting.sha256 },
+    path: 'external/mask.png', sha256: f.receipt.file.sha256,
+    receipt: { path: 'external/receipt.json', sha256: sha256(readFileSync(f.receiptPath)), spec: f.receipt.spec },
+  };
+  expect(JSON.parse(result.stdout)).toEqual(binding);
+  expect(f.project().derived).toEqual([binding]);
+  expect(f.findings().refusals).toEqual([]);
+  expect(f.findings().warnings).toEqual([]);
+});
+
+test('external mask check binds the reported grid without remeasuring the PNGs', () => {
+  const f = externalProducer();
+  f.writeReceipt({ ...f.receipt, grid: { width: 7, height: 11 } });
+  expect(derivedCommand(f.args).exit).toBe(0);
+  expect(f.findings().refusals).toEqual([]);
+});
+
+test.each<JsonObject>([
+  { producer: { script_sha256: 'a'.repeat(64) } },
+  { producer: { tool: ' ', script_sha256: 'a'.repeat(64) } },
+  { producer: { tool: 'synthetic', model: ' ', script_sha256: 'a'.repeat(64) } },
+  { producer: { tool: 'synthetic' } },
+  { producer: { tool: 'synthetic', script_sha256: 'a'.repeat(64), graph_sha256: 'a'.repeat(64) } },
+  { producer: { tool: 'synthetic', script_sha256: 'A'.repeat(64) } },
+  { producer: { tool: 'synthetic', artifact_sha256: 'a'.repeat(64) } },
+  { producer: { tool: 'synthetic', script_sha256: 'a'.repeat(64), extra: true } },
+  { grid: { width: 0, height: 2 } },
+  { grid: { width: 1.5, height: 2 } },
+])('external mask writer and check reject malformed receipt %j', fields => {
+  const f = externalProducer();
+  const before = readFileSync(f.projectPath);
+  f.writeReceipt({ ...f.receipt, ...fields });
+  expect(() => derivedCommand(f.args)).toThrow(expect.objectContaining({ code: 'EXTERNAL_RECEIPT_INVALID' }));
+  expect(readFileSync(f.projectPath)).toEqual(before);
+
+  f.writeReceipt(f.receipt);
+  derivedCommand(f.args);
+  f.writeReceipt({ ...f.receipt, ...fields });
+  const project = f.project();
+  const entry = (project.derived as JsonObject[])[0]!;
+  (entry.receipt as JsonObject).sha256 = sha256(readFileSync(f.receiptPath));
+  writeFileSync(f.projectPath, JSON.stringify(project));
+  expect(f.findings().refusals.map(f => f.code)).toEqual(['EXTERNAL_RECEIPT_INVALID']);
+});
+
+test('external receipt kind refusal names mask and the accepted specs before writing', () => {
+  const f = externalProducer();
+  const before = readFileSync(f.projectPath);
+  f.writeReceipt({ ...f.receipt, kind: 'fill' });
+  expect(() => derivedCommand(f.args)).toThrow(expect.objectContaining({
+    code: 'EXTERNAL_RECEIPT_INVALID',
+    message: expect.stringContaining('requires kind "mask"; accepted derived receipt specs are rig-parts-plate-receipt/1 or rig-parts-matte-receipt/1 or rig-parts-external-receipt/1'),
+  }));
+  expect(readFileSync(f.projectPath)).toEqual(before);
+});
+
+test.each(['painting.png', 'external/mask.png'])('external mask refuses tampered %s even when the receipt is intact', path => {
+  const f = externalProducer();
+  derivedCommand(f.args);
+  const before = readFileSync(f.projectPath);
+  writeFileSync(join(f.dir, path), 'tampered');
+  expect(f.findings().refusals.map(f => f.code)).toEqual(['EXTERNAL_RECEIPT_INVALID']);
+  expect(() => derivedCommand(f.args)).toThrow(expect.objectContaining({ code: 'EXTERNAL_RECEIPT_INVALID' }));
+  expect(readFileSync(f.projectPath)).toEqual(before);
+});
+
+test('external mask check rejects reserialization of the bound receipt', () => {
+  const f = externalProducer();
+  derivedCommand(f.args);
+  writeFileSync(f.receiptPath, JSON.stringify(f.receipt));
+  expect(f.findings().refusals).toEqual([expect.objectContaining({
+    code: 'EXTERNAL_RECEIPT_INVALID', message: expect.stringContaining('receipt bytes differ'),
+  })]);
+});
+
+test.each(['--source', '--file'])('external mask writer rejects matching bytes at another %s locator', option => {
+  const f = externalProducer();
+  const before = readFileSync(f.projectPath);
+  const index = f.args.indexOf(option) + 1;
+  cpSync(join(f.dir, f.args[index]!), join(f.dir, 'copy.png'));
+  f.args[index] = 'copy.png';
+  expect(() => derivedCommand(f.args)).toThrow(expect.objectContaining({ code: 'EXTERNAL_RECEIPT_INVALID' }));
+  expect(readFileSync(f.projectPath)).toEqual(before);
+});
+
+test('an external mask receipt does not qualify a derived scene plate', () => {
+  const f = externalProducer();
+  derivedCommand(f.args);
+  const project = f.project();
+  const entry = (project.derived as JsonObject[])[0]!;
+  const bytes = Buffer.from(JSON.stringify({ plates: [{ path: entry.path, sha256: entry.sha256, registered: { kind: 'derived', ref: 'derived[0]' } }] }));
+  writeFileSync(join(f.dir, 'scene.json'), bytes);
+  project.scenes = [{ path: 'scene.json', sha256: sha256(bytes), at: PLATE_RECEIPT_SINCE }];
+  writeFileSync(f.projectPath, JSON.stringify(project));
+  expect(f.findings().refusals.map(f => f.code)).toEqual(['PLATE_RECEIPT_INVALID']);
 });
 
 function derivedScene() {

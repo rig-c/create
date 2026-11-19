@@ -4,7 +4,7 @@ import { readFileSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
-import { checkDerivedReceipt, checkPlateRegistrations, hasMatteReceipt, MATTE_RECEIPT_SPEC, readDerivedReceipt } from './plate-receipt.ts';
+import { checkDerivedReceipt, checkPlateRegistrations, maskReceiptSpec, MASK_RECEIPT_SPECS, readDerivedReceipt } from './plate-receipt.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -27,9 +27,10 @@ export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
     const path = `derived[${i}]`;
     checkDerivedReceipt(ctx, entry, path);
     if (entry.kind !== 'prepared-input') return;
-    if (hasMatteReceipt(entry)) {
+    const maskSpec = maskReceiptSpec(entry.receipt);
+    if (maskSpec) {
       if (entry.operation !== undefined && !nonempty(entry.operation)) {
-        ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: omit operation for a matte receipt or record non-empty operation text` });
+        ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: omit operation for a ${maskSpec} receipt or record non-empty operation text` });
       }
       return;
     }
@@ -64,7 +65,7 @@ export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
 }
 
 export const DERIVED_HELP = `derived add [<project dir>] --source <file> [--source <file> …] --file <file> [--operation <text>] [--receipt <path>] [--json]
-  --operation is required unless --receipt names a rig-parts-matte-receipt/1 receipt.
+  --operation is required unless --receipt names a mask receipt (${MASK_RECEIPT_SPECS}).
   Records an operation already run by another tool, with the files' sha256s.
   Paths are relative to the project. No files are transformed; no stage moves.`;
 
@@ -102,7 +103,7 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
     try { receipt = readDerivedReceipt(dir, receiptPath).binding; }
     catch (error) { refuse('PLATE_RECEIPT_INVALID', `derived.receipt: ${(error as Error).message}; supply an intact project-relative producer receipt; no record written`); }
   }
-  if (operation === undefined && receipt?.spec !== MATTE_RECEIPT_SPEC) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
+  if (operation === undefined && !maskReceiptSpec(receipt)) refuse('DERIVED_USAGE', DERIVED_HELP, USAGE_EXIT);
   const hashes = [...sources, output].map((p) => {
     try { return readHash(dir, p); } catch { refuse('DERIVED_FILE_UNREADABLE', `cannot read '${p}'; no record written`); }
   });
@@ -121,5 +122,5 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
   const finding = ctx.refusals[0];
   if (finding) refuse(finding.code, finding.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
-  return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${operation ?? MATTE_RECEIPT_SPEC}); stage unchanged`, exit: 0 };
+  return { stdout: json ? JSON.stringify(entry, null, 2) : `derived: recorded '${sources.join("', '")}' → '${output}' (${operation ?? receipt?.spec}); stage unchanged`, exit: 0 };
 }

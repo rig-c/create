@@ -8,8 +8,12 @@ import type { Json, JsonObject } from './templates.ts';
 export const PLATE_RECEIPT_SINCE = '2026-11-08T00:00:00Z';
 const PLATE_SPEC = 'rig-parts-plate-receipt/1';
 export const MATTE_RECEIPT_SPEC = 'rig-parts-matte-receipt/1';
+export const EXTERNAL_RECEIPT_SPEC = 'rig-parts-external-receipt/1';
+export const MASK_RECEIPT_SPECS = `${MATTE_RECEIPT_SPEC} or ${EXTERNAL_RECEIPT_SPEC}`;
+type MaskReceiptSpec = typeof MATTE_RECEIPT_SPEC | typeof EXTERNAL_RECEIPT_SPEC;
 const PLATE_KEYS = ['spec', 'mode', 'painting', 'mask', 'model', 'params', 'graph', 'gpu'];
 const MATTE_KEYS = ['spec', 'painting', 'model', 'params', 'graph', 'gpu', 'input_transform', 'input_sha256', 'raw_output', 'output'];
+type ReceiptFile = { path: string; sha256: string };
 const hash = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value);
 const lowercaseHash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -24,6 +28,11 @@ const RECEIPTS = {
     verify: verifyMatteReport,
     code: 'MATTE_RECEIPT_INVALID',
     remedy: 'restore the producer receipt and its painting, raw mask and output, then record with derived add --receipt',
+  },
+  [EXTERNAL_RECEIPT_SPEC]: {
+    verify: verifyExternalReport,
+    code: 'EXTERNAL_RECEIPT_INVALID',
+    remedy: 'restore the producer receipt, painting and mask, then record with derived add --receipt',
   },
 };
 type ReceiptSpec = keyof typeof RECEIPTS;
@@ -119,12 +128,13 @@ export function checkPlateReceipt(ctx: Pick<Ctx, 'dir' | 'refusals'>, entry: Jso
   checkReceipt(ctx, entry, at, PLATE_SPEC);
 }
 
-export function hasMatteReceipt(entry: JsonObject): boolean {
-  return isObject(entry.receipt) && entry.receipt.spec === MATTE_RECEIPT_SPEC;
+export function maskReceiptSpec(receipt: Json | undefined): MaskReceiptSpec | undefined {
+  const spec = isObject(receipt) ? receipt.spec : undefined;
+  return spec === MATTE_RECEIPT_SPEC || spec === EXTERNAL_RECEIPT_SPEC ? spec : undefined;
 }
 
-export function verifyMatteReceipt(dir: string, entry: JsonObject): void {
-  verifyReceipt(dir, entry, MATTE_RECEIPT_SPEC);
+export function verifyMaskReceipt(dir: string, entry: JsonObject, spec: MaskReceiptSpec): void {
+  verifyReceipt(dir, entry, spec);
 }
 
 /** Matte leaves pixel, graph and transform derivation with Parts. */
@@ -145,22 +155,21 @@ function verifyMatteReport(dir: string, entry: JsonObject, base: string, report:
   if (!matteArtifact(raw, 'model-mask.png') || !matteArtifact(output, 'mask.png')) {
     throw Error('raw_output and output need fixed paths model-mask.png and mask.png, lowercase sha256 and positive integer dimensions');
   }
-  const paintingPath = resolve(base, painting.path);
-  const outputPath = resolve(base, output.path);
+  const paintingFile = { path: resolve(base, painting.path), sha256: painting.sha256 };
+  const outputFile = { path: resolve(base, output.path), sha256: output.sha256 };
   const rawPath = resolve(base, raw.path);
-  const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
-  const source = sources[0];
-  if (entry.kind !== 'prepared-input' || sources.length !== 1 || !isObject(source)
-    || !matchesMatteFile(dir, source, paintingPath, painting.sha256)
-    || !matchesMatteFile(dir, entry, outputPath, output.sha256)
-    || paintingPath === outputPath || paintingPath === rawPath) {
+  if (!matchesPreparedReceipt(dir, entry, paintingFile, outputFile) || paintingFile.path === rawPath) {
     throw Error('prepared-input needs the receipt painting as its only source and the receipt output as its distinct result, with matching paths and hashes');
   }
-  for (const [field, file, sha256] of [
-    ['painting', paintingPath, painting.sha256],
+  verifyReceiptFiles(dir, [
+    ['painting', paintingFile.path, paintingFile.sha256],
     ['raw_output', rawPath, raw.sha256],
-    ['output', outputPath, output.sha256],
-  ]) {
+    ['output', outputFile.path, outputFile.sha256],
+  ]);
+}
+
+function verifyReceiptFiles(dir: string, files: [field: string, file: string, sha256: string][]): void {
+  for (const [field, file, sha256] of files) {
     const path = relative(dir, file);
     let actual: string;
     try { actual = hash(receiptBytes(dir, path)); }
@@ -169,14 +178,66 @@ function verifyMatteReport(dir: string, entry: JsonObject, base: string, report:
   }
 }
 
-function matteArtifact(value: Json | undefined, path: string): value is { path: string; sha256: string } {
+function matteArtifact(value: Json | undefined, path: string): value is ReceiptFile {
   return isObject(value) && value.path === path && lowercaseHash(value.sha256)
-    && [value.width, value.height].every(n => typeof n === 'number' && Number.isSafeInteger(n) && n > 0);
+    && positiveGrid(value);
 }
 
-function matchesMatteFile(dir: string, recorded: JsonObject, path: string, sha256: string): boolean {
-  return relativePath(recorded.path) && resolve(dir, recorded.path) === path
-    && hex(recorded.sha256) && recorded.sha256.toLowerCase() === sha256;
+function matchesReceiptFile(dir: string, recorded: JsonObject, file: ReceiptFile): boolean {
+  return relativePath(recorded.path) && resolve(dir, recorded.path) === file.path
+    && hex(recorded.sha256) && recorded.sha256.toLowerCase() === file.sha256;
+}
+
+function matchesPreparedReceipt(dir: string, entry: JsonObject, painting: ReceiptFile, result: ReceiptFile): boolean {
+  const sources = entry.sources === undefined ? [entry.source] : asArray(entry.sources);
+  const source = sources[0];
+  return entry.kind === 'prepared-input' && sources.length === 1 && isObject(source)
+    && matchesReceiptFile(dir, source, painting) && matchesReceiptFile(dir, entry, result)
+    && painting.path !== result.path;
+}
+
+function positiveGrid(value: JsonObject): boolean {
+  return [value.width, value.height].every(n => typeof n === 'number' && Number.isSafeInteger(n) && n > 0);
+}
+
+function hasKeys(value: Json | undefined, keys: string[]): value is JsonObject {
+  return isObject(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+}
+
+function nonblank(value: Json | undefined): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function externalFile(value: Json | undefined): value is ReceiptFile {
+  return hasKeys(value, ['path', 'sha256']) && relativePath(value.path) && nonblank(value.path)
+    && !/^[A-Za-z]:/.test(value.path) && !value.path.includes('\0') && lowercaseHash(value.sha256);
+}
+
+/** External receipts bind the producer's measured grid without decoding either PNG. */
+function verifyExternalReport(dir: string, entry: JsonObject, base: string, report: JsonObject): void {
+  if (report.kind !== 'mask') {
+    throw Error(`${EXTERNAL_RECEIPT_SPEC} requires kind "mask"; accepted derived receipt specs are ${KNOWN_SPECS}`);
+  }
+  const { file, painting, grid, producer } = report;
+  if (!hasKeys(report, ['spec', 'kind', 'file', 'painting', 'grid', 'producer'])
+    || !externalFile(file) || !externalFile(painting) || !hasKeys(grid, ['width', 'height']) || !positiveGrid(grid)) {
+    throw Error(`${EXTERNAL_RECEIPT_SPEC} requires receipt-relative file and painting paths with lowercase sha256 and a positive integer grid`);
+  }
+  if (!isObject(producer) || !nonblank(producer.tool)
+    || (Object.hasOwn(producer, 'model') && !nonblank(producer.model))) {
+    throw Error('producer requires a nonblank tool and an optional nonblank model');
+  }
+  const digests = ['checkpoint_sha256', 'graph_sha256', 'script_sha256'].filter(key => Object.hasOwn(producer, key));
+  if (digests.length !== 1 || !lowercaseHash(producer[digests[0]!])
+    || !Object.keys(producer).every(key => key === 'tool' || key === 'model' || key === digests[0])) {
+    throw Error('producer requires exactly one lowercase SHA-256 in checkpoint_sha256, graph_sha256 or script_sha256 and no other fields');
+  }
+  const paintingFile = { path: resolve(base, painting.path), sha256: painting.sha256 };
+  const maskFile = { path: resolve(base, file.path), sha256: file.sha256 };
+  if (!matchesPreparedReceipt(dir, entry, paintingFile, maskFile)) {
+    throw Error('prepared-input needs the receipt painting as its only source and the receipt mask as its distinct result, with matching paths and hashes');
+  }
+  verifyReceiptFiles(dir, [['painting', paintingFile.path, paintingFile.sha256], ['file', maskFile.path, maskFile.sha256]]);
 }
 
 /** Scene plate registrations are the recorded discriminator. Earliest registration dates the rule. */
@@ -205,7 +266,7 @@ export function checkPlateRegistrations(ctx: Pick<Ctx, 'dir' | 'project' | 'refu
   for (const [index, first] of earliest) {
     const entry = asArray(ctx.project.derived)[index] as JsonObject;
     if (entry.receipt !== undefined) {
-      if (hasMatteReceipt(entry)) checkPlateReceipt(ctx, entry, `derived[${index}]`);
+      if (maskReceiptSpec(entry.receipt)) checkPlateReceipt(ctx, entry, `derived[${index}]`);
       continue;
     }
     const path = `derived[${index}].receipt`;

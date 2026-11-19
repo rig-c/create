@@ -387,7 +387,7 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
 
-test('post scene route: Review pick act, from-review ingestion, scene write without by, check', async () => {
+test('#633 post composition Other leads to a cited scene through two Review picks', async () => {
   testClock.set(Date.now());
   const root = copy('4-direction-post');
   expectExit0(await cli(root, ['reopen', 'post-interview', root, '--by', 'user', '--verbatim-file', (() => { const path = join(root, 'reopen.txt'); writeFileSync(path, 'Choose the synthetic two-plate scene.'); return path; })()]));
@@ -403,16 +403,52 @@ test('post scene route: Review pick act, from-review ingestion, scene write with
   set.context = optionContext(project, 'post-interview', testClock.now(), root);
   const model = JSON.parse(readFileSync(join(root, 'derived/review/v1/out/check/build/skeleton.model.json'), 'utf8')) as JsonObject;
   const option = obj((obj((set.asks as JsonObject[])[0]).options as JsonObject[])[0]);
-  option.fragment = { scene: { background: { path: 'background.png', rect: model.stage! }, foreground: { path: 'foreground.png', rect: model.stage! } } };
-  const path = 'evidence/interview/scene-act-two-plates.json'; writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
-  expectExit0(await cli(root, ['interview-options', 'post_composition', root, '--file', path]));
-  const opening = await open(root, ['--question', 'post_composition']); const view = await page(root, opening.url, 1);
-  const act = await view.act('interview-picks', 'interview-picks', { questionId: 'post_composition', selections: [{ itemId: 'post_composition', optionId: 'keep', otherText: null }], note: WORDS });
-  expectExit0(await cli(root, ['interview-answer', 'post_composition', root, '--from-review', String(act.actId)]));
-  const ingested = obj(collectItems(read(root), { collection: null }).find(i => i.id === 'post_composition')!.raw);
-  const citation = { guide: 'post_composition', asks: ['post_composition'], quote: ingested.verbatim! };
-  writeFileSync(join(root, 'citations.json'), JSON.stringify({ background: citation, foreground: citation }));
-  expectExit0(await cli(root, ['scene', 'write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root]));
+  const background = { path: 'background.png', rect: model.stage! };
+  option.fragment = { scene: { background } };
+  const question = 'post_composition';
+  const otherText = '배경과 앞쪽 레이어를 함께 보여 주세요.';
+  const path = 'evidence/interview/scene-act-two-plates.json';
+  writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
+  expectExit0(await cli(root, ['interview-options', question, root, '--file', path]));
+  const opening = await open(root, ['--question', question]);
+  const view = await page(root, opening.url, 1);
+  const act = await view.act('interview-picks', 'interview-picks', { questionId: question, selections: [{ itemId: question, optionId: 'other', otherText }], note: '' });
+  expectExit0(await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]));
+  expectExit0(await cli(root, ['job', 'close', root]));
+  expect(await opening.proc.exited).toBe(0);
+  const composition = () => collectItems(read(root), { collection: null }).find(i => i.id === question)!;
+  const otherAnswer = obj(composition().raw);
+  expect(obj(arr(obj(otherAnswer.choice).picks)[0]).other_text).toBe(otherText);
+  const sceneArgs = ['scene', 'write', '--rig', '1', '--background', 'background.png', '--foreground', 'foreground.png', '--citations-file', 'citations.json', root];
+  const writeCitations = (quote: unknown) => {
+    const citation = { guide: question, asks: [question], quote };
+    writeFileSync(join(root, 'citations.json'), JSON.stringify({ background: citation, foreground: citation }));
+  };
+  writeCitations(otherAnswer.verbatim);
+  const before = readFileSync(join(root, 'project.json'));
+  const refused = await cli(root, sceneArgs);
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toContain('SCENE_CHOICE_MISSING');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+
+  const report = nextProject(root, testClock.now());
+  const move = report.moves.find(move => move.field === composition().path && move.command?.includes('interview-options'))!;
+  expect(move.act).toContain('use the recorded Other words to draft concrete scene options with fragment.scene');
+  expect(nextCommand([root], testClock.now()).stdout).toContain('draft concrete scene options with fragment.scene');
+  expect(move.act).not.toContain('--other-fragment');
+  const followUpPath = 'evidence/interview/scene-act-follow-up.json';
+  option.label = '배경과 앞쪽 레이어를 함께 보여 줘요.';
+  option.effect = '두 레이어를 전체 화면에 맞춰요.';
+  option.fragment = { scene: { background, foreground: { path: 'foreground.png', rect: model.stage! } } };
+  set.id = 'scene-act-follow-up';
+  writeFileSync(join(root, followUpPath), JSON.stringify(set, null, 2) + '\n');
+  await executePrinted(root, move.command!.replace("'<option-set.json>'", quote(followUpPath)));
+  await nextReview(root, 'interview-picks', { questionId: question, selections: [{ itemId: question, optionId: 'keep', otherText: null }], note: '' }, question, ['INTERVIEW_CHOICE_REQUIRED']);
+  const ingested = obj(composition().raw);
+  expect(composition().record.history).toContainEqual(otherAnswer);
+  expect(ingested.value).toEqual(option.fragment);
+  writeCitations(ingested.verbatim);
+  expectExit0(await cli(root, sceneArgs));
   expect(obj((read(root).scenes as JsonObject[]).at(-1)).by).toBe('agent');
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
@@ -453,9 +489,9 @@ test('#490 legacy parts signoff prints ordered verdict and structure prerequisit
 
 
 /** Execute the surrounding commands from next, with an actual owner-page export in between. */
-async function nextReview(root: string, kind: string, value: object, question?: string): Promise<void> {
+async function nextReview(root: string, kind: string, value: object, question?: string, expectedRefusals: string[] = []): Promise<void> {
   const report = nextProject(root, testClock.now());
-  expect(report.refusals.filter(row => row.code !== 'INTERVIEW_INCOMPLETE')).toEqual([]);
+  expect(report.refusals.filter(row => row.code !== 'INTERVIEW_INCOMPLETE').map(row => row.code)).toEqual(expectedRefusals);
   const index = report.moves.findIndex(move => move.role === 'human' && move.review_act?.kind === kind
     && (question === undefined || move.review_act.question_id === question));
   expect(index).toBeGreaterThan(0);

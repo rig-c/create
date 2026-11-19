@@ -161,7 +161,7 @@ test('#639 open replaces an unchanged old plan head and reuses the new head on r
       expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
       const { publication, generation } = oldHost.session.status();
       acknowledgePublication(entry, publication!.publicationId, generation, requestId, oldSubjects);
-      expect(await askDeclaredSubjects(oldHost, publication!.publicationId, oldSubjects)).toEqual(
+      expect(await askDeclaredSubjects(oldHost, publication!.publicationId, oldSubjects, false)).toEqual(
         oldSubjects.map(subject => ({ subject, status: 'asked' })));
     });
     oldId = oldHost.session.status().publication!.publicationId;

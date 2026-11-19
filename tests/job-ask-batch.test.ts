@@ -111,7 +111,7 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
 
   test('with capabilities.askBatch: sends one ask-batch call in declared order and maps asks[i] to subjects[i]', async () => {
     const { host, calls } = makeStubHost({ askBatch: true, generation: 10 });
-    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects);
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects, true);
     expect(calls.map(c => c.verb)).toEqual(['next', 'ask-batch']);
     expect(calls[1]).toMatchObject({
       verb: 'ask-batch',
@@ -126,9 +126,16 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
     ]);
   });
 
+  test('a package-mode publication keeps single asks even when Review advertises askBatch', async () => {
+    const { host, calls } = makeStubHost({ askBatch: true, generation: 10 });
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects, false);
+    expect(calls.map(c => c.verb)).toEqual(['next', 'ask', 'ask', 'ask']);
+    expect(outcomes).toEqual(sampleSubjects.map(subject => ({ subject, status: 'asked' })));
+  });
+
   test('without capabilities.askBatch: sends N single ask calls as today', async () => {
     const { host, calls } = makeStubHost({ askBatch: false, generation: 10 });
-    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects);
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects, true);
     expect(calls.map(c => c.verb)).toEqual(['next', 'ask', 'ask', 'ask']);
     expect(calls[1]).toMatchObject({
       verb: 'ask',
@@ -163,7 +170,7 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
         error: { code: 'JOB_ASK_INVALID', message: 'subjects[1]: subject is not declared' },
       }),
     });
-    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects);
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects, true);
     expect(calls.filter(c => c.verb !== 'next').map(c => c.verb)).toEqual(['ask-batch']);
     expect(calls.find(c => c.verb === 'ask-batch')!.subjects).toEqual([sampleSubjects[1]!, sampleSubjects[2]!]);
     // subjects[1] in the batch is sampleSubjects[2] ("checkpoint spine"); sampleSubjects[1] was not asked.
@@ -187,7 +194,7 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
         error: { code: 'JOB_SOURCE_STALE', message: 'project.json changed since publication' },
       }),
     });
-    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects);
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects, true);
     expect(outcomes).toEqual(sampleSubjects.map(subject => ({
       subject,
       status: 'refused',
@@ -209,7 +216,7 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
       alreadyAsked: [sampleSubjects[1]!],
       generation: 7,
     });
-    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects);
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects, true);
     expect(calls.filter(c => c.verb !== 'next').map(c => c.verb)).toEqual(['ask-batch']);
     expect(calls.find(c => c.verb === 'ask-batch')!.subjects).toEqual([sampleSubjects[0]!, sampleSubjects[2]!]);
     expect(outcomes).toEqual([
@@ -224,7 +231,7 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
       askBatch: true,
       alreadyAsked: sampleSubjects,
     });
-    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects);
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', sampleSubjects, true);
     expect(calls.filter(c => c.verb !== 'next')).toEqual([]);
     expect(outcomes).toEqual(sampleSubjects.map(subject => ({ subject, status: 'already' })));
   });
@@ -235,7 +242,7 @@ describe('askDeclaredSubjects batch ask (#658)', () => {
       checkpointId: `step-${i + 1}`,
     }));
     const { host, calls } = makeStubHost({ askBatch: true, generation: 1 });
-    const outcomes = await askDeclaredSubjects(host, 'pub-1', manySubjects);
+    const outcomes = await askDeclaredSubjects(host, 'pub-1', manySubjects, true);
     expect(calls.map(c => c.verb)).toEqual(['next', 'ask-batch', 'ask-batch']);
     expect(calls[1]!.subjects).toHaveLength(64);
     expect(calls[1]!.subjects).toEqual(manySubjects.slice(0, 64));

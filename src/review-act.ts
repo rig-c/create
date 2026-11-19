@@ -7,8 +7,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobRuntimeExecArgv } from './job-writer.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { JOB_COMMENTS_ACT_SCHEMA, parseCommentsAct, parseRecordAct, projectComments,
-  type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
+import { JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA,
+  parseCommentsAct, parseContextCommentsAct, parseMeshEditsAct, parseRecordAct, projectComments,
+  type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobContextCommentsAct, type JobMeshEditsAct,
+  type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { composedPublishedBuildFiles, liveManifestPath, publicationFile } from './job-publication.ts';
@@ -31,11 +33,9 @@ export type PartsIssue = {
   readonly crop: JsonObject | JobCommentPartsAnchor['crop'];
   readonly nativeCrop: JsonObject | JobCommentPartsAnchor['nativeCrop'] | null;
 };
-/**
- * Review's JobAct now includes comments; legacy adapters keep their original source guarantees.
- * act@8 (mesh edits) is refused at decode (`REVIEW_ACT_V8_UNSUPPORTED`) and read only by mesh-edit.ts.
- */
-type LegacyJobAct = Exclude<JobAct, { schema: typeof JOB_COMMENTS_ACT_SCHEMA | 'rig-review/act@8' }>;
+/** The older scalar verdicts retain their original source adapters. */
+type LegacyJobAct = Exclude<JobAct, { schema: CommentAct['schema'] | typeof JOB_MESH_EDITS_ACT_SCHEMA }>;
+type CommentAct = JobCommentsAct | JobContextCommentsAct;
 export type ReopenAct = Extract<RecordAct, { kind: 'reopen' }>;
 export type ReviewActKind = 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' | 'reopen';
 export type DecodedReviewAct = ReviewVerdictAct | PartsVerdictAct | InterviewPicksAct | CheckpointAct | SignoffAct | ReopenAct;
@@ -49,17 +49,19 @@ export type PartsVerdictActV5 = Omit<PartsVerdictActV2, 'schema' | 'value'> & {
     readonly words: string;
   };
 };
-type CommentsPartsVerdictAct = Extract<JobCommentsAct, { kind: 'parts-verdict' }> & { source: PartsVerdictActV2['source'] };
+type CommentsPartsVerdictAct = Extract<CommentAct, { kind: 'parts-verdict' }> & { source: PartsVerdictActV2['source'] };
 export type PartsVerdictAct = PartsVerdictActV2 | PartsVerdictActV5 | CommentsPartsVerdictAct;
 type LegacyReviewVerdictAct = Extract<LegacyJobAct, { kind: 'review-verdict' }> & { source: JobModelSourceBinding };
-type CommentsReviewVerdictAct = Extract<JobCommentsAct, { kind: 'review-verdict' }> & {
+type CommentsReviewVerdictAct = Extract<CommentAct, { kind: 'review-verdict' }> & {
   source: JobModelSourceBinding; value: { stage: 'rig-review' | 'direction-review' };
 };
-export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct;
+export type MeshReviewVerdictAct = Extract<JobAct, { schema: typeof JOB_MESH_EDITS_ACT_SCHEMA }>
+  & { source: { readonly parts: NonNullable<JobModelSourceBinding['parts']> } };
+export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct | MeshReviewVerdictAct;
 type LegacyCheckpointAct = Extract<LegacyJobAct | RecordAct, { kind: 'checkpoint' }>;
-export type CheckpointAct = LegacyCheckpointAct | (Extract<JobCommentsAct, { kind: 'checkpoint' }> & { source: LegacyCheckpointAct['source'] });
+export type CheckpointAct = LegacyCheckpointAct | (Extract<CommentAct, { kind: 'checkpoint' }> & { source: LegacyCheckpointAct['source'] });
 type LegacySignoffAct = Extract<LegacyJobAct | RecordAct, { kind: 'signoff' }>;
-export type SignoffAct = LegacySignoffAct | (Extract<JobCommentsAct, { kind: 'signoff' }> & { source: LegacySignoffAct['source'] });
+export type SignoffAct = LegacySignoffAct | (Extract<CommentAct, { kind: 'signoff' }> & { source: LegacySignoffAct['source'] });
 /** Review requires a displayed plan before it creates a signoff act for these stages (job-contract JOB_PLAN_BOUND_SIGNOFF_STAGES). */
 export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'rigging-interview', 'post-interview'];
 /** Interview is plan-bound only on the record route; legacy package acts keep their contract. */
@@ -70,13 +72,15 @@ export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillB
 
 /** The scalar consumed by the existing feedback writers and immutable replay checks. */
 export function reviewActVerbatim(act: ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct): string {
-  return act.schema === JOB_COMMENTS_ACT_SCHEMA ? projectComments(act.value.comments) : act.value.words;
+  if (!('comments' in act.value)) return act.value.words;
+  // The signed scalar projector accepts only text and anchors. The receipt retains the full act.
+  return projectComments(act.value.comments.map(({ text, anchor }) => anchor === undefined ? { text } : { text, anchor }));
 }
 
 /** A still belongs to the recorded rig verdict, independently of its transport. */
 export function reviewActStill(act: ReviewVerdictAct): JobRigStill | null {
-  if (act.schema === 'rig-review/act@3') return act.still;
-  if (act.schema === JOB_COMMENTS_ACT_SCHEMA && act.value.stage === 'rig-review') {
+  if (act.schema === 'rig-review/act@3' || act.schema === JOB_MESH_EDITS_ACT_SCHEMA) return act.still;
+  if ((act.schema === JOB_COMMENTS_ACT_SCHEMA || act.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA) && act.value.stage === 'rig-review') {
     return act.still ?? failure('REVIEW_ACT_STILL_INVALID', 'comments rig verdict has no recorded still');
   }
   return null;
@@ -84,7 +88,7 @@ export function reviewActStill(act: ReviewVerdictAct): JobRigStill | null {
 
 /** Pointed parts evidence stays distinct from the overall verdict's words. */
 export function partsActIssues(act: PartsVerdictAct): readonly PartsIssue[] | null {
-  if (act.schema === JOB_COMMENTS_ACT_SCHEMA) {
+  if ('comments' in act.value) {
     return act.value.comments.flatMap(comment => comment.anchor && 'schema' in comment.anchor
       ? [{ ...comment.anchor, summary: comment.text }] : []);
   }
@@ -104,10 +108,17 @@ function failure(code: string, detail: string): never {
 /** The shared decoder validates grammar; Create separately admits its existing source adapters. */
 function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct {
   if (kind === 'interview-picks' || raw.kind === 'interview-picks') failure('REVIEW_ACT_KIND_MISMATCH', 'comments acts do not carry interview answers');
-  let act: JobCommentsAct;
-  try { act = parseCommentsAct(raw); }
+  let act: CommentAct | JobMeshEditsAct;
+  try {
+    act = raw.schema === JOB_MESH_EDITS_ACT_SCHEMA ? parseMeshEditsAct(raw)
+      : raw.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA ? parseContextCommentsAct(raw) : parseCommentsAct(raw);
+  }
   catch { return failure('REVIEW_ACT_INVALID', 'comments act or its declared source binding is malformed'); }
   if (act.kind !== kind) failure('REVIEW_ACT_KIND_MISMATCH', `kind ${act.kind} does not match ${kind}`);
+  if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA
+    && (act.kind !== 'review-verdict' || !act.value.meshEdits?.length)) {
+    failure('REVIEW_ACT_INVALID', 'Review emits act@8 for a rig verdict with mesh edits');
+  }
   const source = act.source as unknown as JsonObject;
   if ('record' in source) {
     if (act.kind !== 'checkpoint' || source.subject !== 'plan') failure('REVIEW_ACT_KIND_MISMATCH', 'this record-source kind has no Create writer mapping');
@@ -159,7 +170,7 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     || selector.kind === 'post' && (!Number.isSafeInteger(selector.rigVersion) || Number(selector.rigVersion) < 1 || !file(source.direction))) {
     failure('REVIEW_ACT_KIND_MISMATCH', 'comments verdict has no existing rig/post source mapping');
   }
-  return act as CommentsReviewVerdictAct;
+  return act as CommentsReviewVerdictAct | MeshReviewVerdictAct;
 }
 
 /** Also used by check on the retained, explicitly encoded act bytes. */
@@ -174,14 +185,13 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
   let act: JsonObject;
   try { const parsed: unknown = JSON.parse(bytes); if (!object(parsed)) throw Error(); act = parsed; }
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
-  if (act.schema === 'rig-review/act@8') {
-    refuse('REVIEW_ACT_V8_UNSUPPORTED', 'project.json.review_acts: rig-review/act@8 is disabled in this Create version; request an act in a supported schema from the live Review job');
-  }
   if (kind === 'reopen' && act.schema !== 'rig-review/act@4') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'reopen requires a record act@4');
   if (act.schema === 'rig-review/act@4' && act.kind === 'reopen' && kind !== 'reopen') {
     failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts require the reopen writer');
   }
-  if (act.schema === JOB_COMMENTS_ACT_SCHEMA) return decodeCommentsReviewAct(act, kind);
+  if (act.schema === JOB_COMMENTS_ACT_SCHEMA || act.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA || act.schema === JOB_MESH_EDITS_ACT_SCHEMA) {
+    return decodeCommentsReviewAct(act, kind);
+  }
   if (['checkpoint', 'interview-picks', 'signoff', 'reopen'].includes(kind) && act.schema === 'rig-review/act@4') {
     try {
       const recordAct = parseRecordAct(act);
@@ -507,6 +517,20 @@ export function reviewActVerdict(act: ReviewVerdictAct): JsonObject {
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}`, on_items: [] };
 }
 
+function assertMeshActCorrections(project: JsonObject, act: MeshReviewVerdictAct): void {
+  const verdict = reviewActVerdict(act);
+  const corrections = asArray(project.corrections).filter(object).filter(record => record.source === verdict.source);
+  if (corrections.length !== act.value.meshEdits.length || act.value.meshEdits.some(({ edit, sha256 }, i) => {
+    const record = corrections[i];
+    const on = record?.on;
+    const artifact = record?.artifact;
+    return !object(on) || on.n !== act.source.selector.version || !isDeepStrictEqual(on.model, act.source.model)
+      || !isDeepStrictEqual(artifact, { kind: 'mesh-delta', actId: act.actId, sourceHash: act.source.sourceHash,
+        payloadSha256: sha256, skin: edit.skin, slot: edit.slot, attachment: edit.attachment })
+      || record?.by !== verdict.by || record.at !== act.at || record.verbatim !== (verdict.verbatim || null);
+  })) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded mesh corrections differ from the immutable act');
+}
+
 /** The sign-off fields a passed checkpoint act supplies; the writer and check share them. */
 export function checkpointActSignoff(act: CheckpointAct): { by: string; at: string; verbatim: string; source: string } {
   return { by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
@@ -711,6 +735,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       const version = Array.isArray(project.versions) ? project.versions.find(v => object(v) && v.n === entry.version) : null;
       const verdict = object(version) && Array.isArray(version.verdicts) ? version.verdicts[Number(entry.verdict)] : null;
       if (!isDeepStrictEqual(verdict, reviewActVerdict(act))) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded verdict differs from the immutable act');
+      if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) assertMeshActCorrections(project, act);
       const expectedSignoff = rigVerdictSignoff(act);
       const namedSignoffs = asArray(project.signoffs).filter(object).filter(row => row.source === expectedSignoff.source);
       if (entry.signoff !== undefined || namedSignoffs.length > 0) {

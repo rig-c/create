@@ -1,6 +1,7 @@
 import { assertDirectionApproval } from './direction.ts';
 import { assertFigureMaskApproval } from './figure-mask.ts';
-import { assertCorrectionApproval } from './correction-writers.ts';
+import { assertCorrectionApproval, stageReviewMeshDeltaCorrections } from './correction-writers.ts';
+import { JOB_MESH_EDITS_ACT_SCHEMA } from '@rig-c/review/job-host';
 import { foldsRigVerdict, foldRigSignoff } from './rig-signoff.ts';
 /**
  * Polish feedback (rig-c/create#9, docs/INTERVIEW.md § Polish feedback):
@@ -512,6 +513,8 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review), now);
   const result = { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage), ...(warnings.length ? { warnings } : {}) };
   const created: string[] = [];
+  let discardMeshRevision: (() => void) | undefined;
+  let committed = false;
   try {
     const addedEvidence: JsonObject[] = [];
     const still = fetched === undefined ? null : reviewActStill(fetched.act);
@@ -545,6 +548,9 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
         version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence };
       project.review_acts = [...asArray(project.review_acts), receipt];
       if (foldBaseline) foldRigSignoff(dir, project, fetched.act, originalBytes, foldBaseline, now);
+      if (fetched.act.schema === JOB_MESH_EDITS_ACT_SCHEMA) {
+        discardMeshRevision = stageReviewMeshDeltaCorrections(dir, original, project, fetched.act, now);
+      }
       const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? (foldBaseline ? undefined : newRefusals(dir, original, project, { now })[0]);
       if (invalid) refuse(invalid.code, invalid.message);
       assertReviewActSource(dir, original, fetched.act);
@@ -555,6 +561,7 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
         writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
         fsyncSync(fd);
         renameSync(temporary, file);
+        committed = true;
         const directory = openSync(dir, 'r');
         try { fsyncSync(directory); } finally { closeSync(directory); }
       } finally { closeSync(fd); rmSync(temporary, { force: true }); }
@@ -564,7 +571,13 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
     if (invalid) refuse(invalid.code, invalid.message);
     writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
     return { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage) };
-  } catch (error) { for (const path of created) rmSync(path, { force: true }); throw error; }
+  } catch (error) {
+    if (!committed) {
+      discardMeshRevision?.();
+      for (const path of created) rmSync(path, { force: true });
+    }
+    throw error;
+  }
 }
 
 /** The common #184 lock covers fetch, source validation and the atomic write. */
@@ -583,7 +596,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
     assertReviewActSource(root, project, act);
     const existing = asArray(project.review_acts).find(entry => isObject(entry) && entry.jobId === act.jobId && entry.actId === act.actId);
     if (isObject(existing)) {
-      const sameAct = act.schema === 'rig-review/act@6'
+      const sameAct = 'comments' in act.value
         ? existing.bytes === response.bytes
         : isDeepStrictEqual(JSON.parse(String(existing.bytes)), act);
       if (!sameAct) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable act changed; restore the original receipt');

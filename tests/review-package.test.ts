@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, posix } from 'node:path';
 import { checkAppliedReview } from '../src/applied-review.ts';
 import { readReview } from '../src/review-read.ts';
+import { decodeReviewAct, reviewActVerdict, reviewActVersionHash } from '../src/review-act.ts';
 import { checkReviewPackages, reviewPackageCommand, reviewConfigInputs, reviewHandoffInputs } from '../src/review-package.ts';
 import { plateReceiptSpec } from '../src/config-inputs.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
@@ -49,6 +50,47 @@ function checked(dir: string) {
 }
 
 describe('frozen review package', () => {
+  test('a selected package keeps the full verdict history needed by its Parts approval', () => {
+    const dir = exampleFixture(() => {}, 'example-project.json');
+    roots.push(dirname(dir));
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const history = version(project, 1);
+    const bytes = JSON.stringify({
+      schema: 'rig-review/act@2', kind: 'review-verdict', jobId: 'synthetic-history-job', actId: 'rig-one-verdict',
+      askId: 'ask-rig-one', publicationId: 'publication-rig-one', at: history.at,
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+      source: { sourceHash: sha('source'), projectHash: sha('project'), package: { id: 'rig-one', revision: 'one' },
+        selector: { kind: 'rig', version: 1 }, model: { path: 'skeleton.model.json', sha256: sha('model') },
+        direction: null, plan: null, parts: { enumeratorVersion: '2.45.0', manifest: { path: 'parts.json', sha256: sha('parts') }, images: [] } },
+      value: { stage: 'rig-review', verdict: 'changes-requested', words: 'Revise the synthetic rig.' },
+    });
+    const act = decodeReviewAct(bytes);
+    history.verdicts = [reviewActVerdict(act)];
+    project.review_acts = [...(project.review_acts as JsonObject[]), {
+      schema: 'rig-create/review-act@1', jobId: act.jobId, actId: act.actId, bytes, sha256: sha(bytes),
+      version: 1, verdict: 0, version_hash: reviewActVersionHash(project, act, 0), added_evidence: [],
+    }];
+    const refusals = (record: JsonObject, selected?: number) => {
+      const ctx: Parameters<typeof checkReviewPackages>[0] = { dir, project: record, refusals: [], warnings: [] };
+      checkReviewPackages(ctx, selected);
+      return ctx.refusals;
+    };
+    expect(refusals(project)).toEqual([]);
+    expect(refusals({ ...project, versions: [version(project, 2)] }).map(finding => finding.code)).toEqual(['REVIEW_PACKAGE_PARTS_UNREAD']);
+
+    history.review_package = {};
+    expect(refusals(project).map(({ code, path }) => [code, path])).toEqual([
+      ['REVIEW_PACKAGE_MALFORMED', 'versions[v1].review_package'],
+    ]);
+    expect(refusals(project, 2)).toEqual([]);
+
+    const partsApproval = (project.signoffs as JsonObject[]).find(row => row.stage === 'parts-review')!;
+    appendFileSync(join(dir, String(obj(partsApproval.evidence).path)), '\n');
+    expect(refusals(project, 2).map(({ code, path }) => [code, path])).toEqual([
+      ['REVIEW_PACKAGE_PARTS_UNREAD', 'versions[v2].review_package.files[out/parts.json]'],
+    ]);
+  });
+
   test('copied parts trees replace historical SVG declarations without re-reading absent files', () => {
     const dir = fixture();
     const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));

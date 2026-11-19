@@ -150,7 +150,9 @@ test('#493 live Review emits reopen act@4 and the production CLI fetch runtime i
       fetched_schema: fetched.act.schema, command: ['reopen', 'parts', '<synthetic>', '--from-review', act.actId, '--json'], stdout, stderr, exit }) + '\n');
     expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
     expect(JSON.parse(stdout)).toMatchObject({ stage: 'parts', by: 'synthetic-live-owner', at: act.at, verbatim: words });
-    expect(reviewActFindings(read(root))).toEqual([]);
+    const warnings: Parameters<typeof reviewActFindings>[1] = [];
+    expect(reviewActFindings(read(root), warnings)).toEqual([]);
+    expect(warnings).toEqual([]);
   } finally { host.stop(); rmSync(stateDir, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
 }, 30_000);
 

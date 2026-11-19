@@ -2360,9 +2360,9 @@ ordered `{id, hash}` step identities and eligible
 Subject key order follows these declarations. Identifiers must fit the
 review record-id domain of 1–128 ASCII letters, digits, dots, underscores
 and hyphens, starting with a letter or digit. The reader identity is
-`rig-create/publication-reader/2`. Create's current live host stays in
-`package-only` mode while installed Review 2.8.0 exports the public
-record-mode V3 symbols and types.
+`rig-create/publication-reader/2`. Create opens the live host in `package-only`
+mode by default. Record publications opt into the V3 symbols and types
+exported by the release-pinned Review 4.8.0.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.
 Its effective stage must match the requested option set's stage. Plan
@@ -2810,5 +2810,5 @@ The rest of the frozen compose inventory (`scene.json`, `check/check.json`,
 published. Each published build file must match its recorded hash, and a
 declared build path that Review's `jobPath` rule refuses is
 `JOB_PUBLICATION_INVALID` before anything is written. It does not substitute
-the accepted character package. The release-pinned Review 4.7.0 reads
-direction@3; an older installed Review refuses the document.
+the accepted character package. The release-pinned Review 4.8.0 reads
+direction@3.

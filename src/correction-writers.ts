@@ -8,6 +8,8 @@ import { lstatSync } from './check-reads.ts';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
 import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionHash, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, meshDeltaKey, validatePartImageArtifact, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
+import { checkReviewPackages } from './review-package.ts';
+import { reviewActVerdict, type MeshReviewVerdictAct } from './review-act.ts';
 import { readVerbatim } from './record-input.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
@@ -53,8 +55,13 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
     if (kind !== 'rig' && kind !== 'post') throw new CorrectionError('CORRECTION_SOURCE', 'unknown version kind');
     if (kind === 'post' && !opts['--model-file']) usage('post identity requires --model-file naming a declared retained output');
     if (kind === 'rig' && opts['--model-file']) usage('--model-file is post-only');
+    const { bytes, ...config } = version.provenance.config;
+    if (!Object.hasOwn(config, 'path') || !Object.hasOwn(config, 'sha256') || Object.keys(config).length !== 2
+      || (Object.hasOwn(version.provenance.config, 'bytes') && (typeof bytes !== 'number' || !Number.isSafeInteger(bytes) || bytes < 0))) {
+      throw new CorrectionError('CORRECTION_MALFORMED', `versions[v${n}].provenance.config: expected path and sha256 with an optional nonnegative integer byte count`);
+    }
     const model = kind === 'post' ? correctionBinding(dir, opts['--model-file'] as string) : correctionBinding(dir, `derived/review/v${n}/out/check/build/skeleton.model.json`);
-    value = {kind,n,config:version.provenance.config,model};
+    value = { kind, n, config, model };
   }
   validateCorrectionIdentity(dir,project,value,stage,false,partImage);
   return structuredClone(value);
@@ -126,7 +133,90 @@ function meshDeltaEntries(act: MeshDeltaCorrectionAct): Map<string, MeshEditEntr
   return entries;
 }
 
-/** Atomically append the completed outcomes from one already-applied act. No callable CLI route uses this seam. */
+function collectMeshDeltaCorrections(
+  dir: string, project: JsonObject, act: MeshDeltaCorrectionAct, on: JsonObject,
+  results: readonly MeshEditResult[], now: number, review?: MeshReviewVerdictAct,
+): { appended: JsonObject[]; returned: MeshDeltaCorrectionResult[] } {
+  const entries = [...meshDeltaEntries(act).values()];
+  if (results.length !== entries.length) return meshDeltaRefusal('expected one ordered Parts result for each unique act attachment');
+  const records = objects(project.corrections);
+  const known = new Map(records.filter(r => isObject(r.artifact) && r.artifact.kind === 'mesh-delta')
+    .map(r => [meshDeltaKey(r.artifact as JsonObject), r]));
+  const appended: JsonObject[] = [];
+  const returned: MeshDeltaCorrectionResult[] = [];
+  const verdict = review ? reviewActVerdict(review) : null;
+  const comment = verdict ? String(verdict.verbatim) : act.value.comments?.map(item => item.text).join('\n\n');
+  let chainedRig: string | undefined;
+  for (const [index, result] of results.entries()) {
+    const entry = entries[index]!;
+    const artifact = meshDeltaArtifact(act, entry);
+    const key = meshDeltaKey(artifact);
+    const { input } = result;
+    const rig = resolve(input.rig);
+    if (input.actId !== act.actId || input.actSourceHash !== act.source.sourceHash || input.payloadSha256 !== entry.sha256
+      || input.part !== entry.edit.attachment || !isDeepStrictEqual(input.edit, entry.edit) || chainedRig !== undefined && rig !== chainedRig) {
+      return meshDeltaRefusal('Parts result does not follow the act and the current revision chain');
+    }
+    const prior = known.get(key);
+    if (prior && (!isDeepStrictEqual(prior.artifact, artifact) || !isDeepStrictEqual(prior.on, on))) {
+      return meshDeltaRefusal('completed act and attachment have a different source or payload binding');
+    }
+    chainedRig = rig;
+    if (result.status === 'superseded') {
+      if (result.problem.code !== 'REMESH_DELTA_ACT_SUPERSEDED') return meshDeltaRefusal('expected the Parts superseded result');
+      returned.push({ status: 'superseded', ...result.problem });
+      continue;
+    }
+    const request = result.provenance.request;
+    if (result.provenance.spec !== 'rig-parts-remesh/1' || !isObject(request) || request.act_id !== act.actId
+      || request.act_source_hash !== act.source.sourceHash || request.payload_sha256 !== entry.sha256
+      || request.part !== entry.edit.attachment || !isDeepStrictEqual(request.edit, entry.edit)) {
+      return meshDeltaRefusal('Parts result provenance differs from the finalized act and attachment');
+    }
+    if (result.status === 'replayed') {
+      if (result.written.length || prior && (!isObject(prior.outcome) || !isDeepStrictEqual(prior.outcome.provenance, result.provenance))) {
+        return meshDeltaRefusal('exact replay differs from its recorded Parts result');
+      }
+      returned.push({ status: 'replayed', code: null, object: null });
+      continue;
+    }
+    if (prior) return meshDeltaRefusal('Parts reported a new write for an already completed act attachment; replay from the recorded revision');
+    const out = resolve(input.out);
+    chainedRig = out;
+    const revision = relative(dir, out).split(sep).join('/');
+    if (!revision || revision === '..' || revision.startsWith('../')) return meshDeltaRefusal('Parts must return a retained project-relative revision');
+    const written = result.written.map(path => {
+      if (posix.isAbsolute(path) || path.split('/').some(piece => !piece || piece === '.' || piece === '..')) {
+        return meshDeltaRefusal('Parts written paths must be literal paths relative to the revision');
+      }
+      return correctionBinding(dir, `${revision}/${path}`);
+    });
+    const record: JsonObject = {
+      schema: CORRECTION_SPEC, id: `mesh-${correctionHash(Buffer.from(key)).slice(0, 59)}`, path: 'made',
+      by: verdict?.by ?? 'user', at: act.at, verbatim: comment?.trim() ? comment : null, stage: 'rig-review', on, artifact,
+      ...(verdict ? { source: verdict.source } : {}),
+      resolves: null, closure: { by: 'agent', at: new Date(now).toISOString(), reasoning: 'Applied the finalized Review mesh edit through Parts.' },
+      outcome: { kind: 'mesh-delta', revision, code: null, object: null, provenance: structuredClone(result.provenance), written },
+    };
+    appended.push(record);
+    returned.push({ status: 'applied', code: null, object: null, correction: record });
+  }
+  if (appended.length) {
+    openStage(project, 'rig-review');
+    if (appended.some(record => !correctionIsLive(project, record))) return meshDeltaRefusal('the act predates the live rig-review');
+  }
+  return { appended, returned };
+}
+
+function rethrowCorrectionError(error: unknown): never {
+  if (error instanceof CorrectionError) {
+    const finding = correctionFinding(error.code, 'corrections', error.message);
+    refuse(finding.code, finding.message);
+  }
+  throw error;
+}
+
+/** Atomically append the completed outcomes from one already-applied act. */
 export function recordMeshDeltaCorrections(
   projectDir: string, act: MeshDeltaCorrectionAct, results: readonly MeshEditResult[], now: number,
 ): readonly MeshDeltaCorrectionResult[] {
@@ -135,82 +225,56 @@ export function recordMeshDeltaCorrections(
     const before = correctionBytes(dir, 'project.json');
     const project = correctionJson(before);
     const on = meshDeltaSource(dir, project, act, now);
-    const entries = [...meshDeltaEntries(act).values()];
-    if (results.length !== entries.length) return meshDeltaRefusal('expected one ordered Parts result for each unique act attachment');
-    const records = objects(project.corrections);
-    const known = new Map(records.filter(r => isObject(r.artifact) && r.artifact.kind === 'mesh-delta')
-      .map(r => [meshDeltaKey(r.artifact as JsonObject), r]));
-    const appended: JsonObject[] = [];
-    const returned: MeshDeltaCorrectionResult[] = [];
-    let chainedRig: string | undefined;
-    for (const [index, result] of results.entries()) {
-      const entry = entries[index]!;
-      const artifact = meshDeltaArtifact(act, entry);
-      const key = meshDeltaKey(artifact);
-      const { input } = result;
-      const rig = resolve(input.rig);
-      if (input.actId !== act.actId || input.actSourceHash !== act.source.sourceHash || input.payloadSha256 !== entry.sha256
-        || input.part !== entry.edit.attachment || !isDeepStrictEqual(input.edit, entry.edit) || chainedRig !== undefined && rig !== chainedRig) {
-        return meshDeltaRefusal('Parts result does not follow the act and the current revision chain');
-      }
-      const prior = known.get(key);
-      if (prior && (!isDeepStrictEqual(prior.artifact, artifact) || !isDeepStrictEqual(prior.on, on))) {
-        return meshDeltaRefusal('completed act and attachment have a different source or payload binding');
-      }
-      chainedRig = rig;
-      if (result.status === 'superseded') {
-        if (result.problem.code !== 'REMESH_DELTA_ACT_SUPERSEDED') return meshDeltaRefusal('expected the Parts superseded result');
-        returned.push({ status: 'superseded', ...result.problem });
-        continue;
-      }
-      const request = result.provenance.request;
-      if (result.provenance.spec !== 'rig-parts-remesh/1' || !isObject(request) || request.act_id !== act.actId
-        || request.act_source_hash !== act.source.sourceHash || request.payload_sha256 !== entry.sha256
-        || request.part !== entry.edit.attachment || !isDeepStrictEqual(request.edit, entry.edit)) {
-        return meshDeltaRefusal('Parts result provenance differs from the finalized act and attachment');
-      }
-      if (result.status === 'replayed') {
-        if (result.written.length || prior && (!isObject(prior.outcome) || !isDeepStrictEqual(prior.outcome.provenance, result.provenance))) {
-          return meshDeltaRefusal('exact replay differs from its recorded Parts result');
-        }
-        returned.push({ status: 'replayed', code: null, object: null });
-        continue;
-      }
-      if (prior) return meshDeltaRefusal('Parts reported a new write for an already completed act attachment; replay from the recorded revision');
-      const out = resolve(input.out);
-      chainedRig = out;
-      const revision = relative(dir, out).split(sep).join('/');
-      if (!revision || revision === '..' || revision.startsWith('../')) return meshDeltaRefusal('Parts must return a retained project-relative revision');
-      const written = result.written.map(path => {
-        if (posix.isAbsolute(path) || path.split('/').some(piece => !piece || piece === '.' || piece === '..')) {
-          return meshDeltaRefusal('Parts written paths must be literal paths relative to the revision');
-        }
-        return correctionBinding(dir, `${revision}/${path}`);
-      });
-      const comment = act.value.comments?.map(item => item.text).join('\n\n');
-      const record: JsonObject = {
-        schema: CORRECTION_SPEC, id: `mesh-${correctionHash(Buffer.from(key)).slice(0, 59)}`, path: 'made',
-        by: 'user', at: act.at, verbatim: comment?.trim() ? comment : null, stage: 'rig-review', on, artifact,
-        resolves: null, closure: { by: 'agent', at: new Date(now).toISOString(), reasoning: 'Applied the finalized Review mesh edit through Parts.' },
-        outcome: { kind: 'mesh-delta', revision, code: null, object: null, provenance: structuredClone(result.provenance), written },
-      };
-      appended.push(record);
-      returned.push({ status: 'applied', code: null, object: null, correction: record });
-    }
-    if (appended.length) {
-      openStage(project, 'rig-review');
-      if (appended.some(record => !correctionIsLive(project, record))) return meshDeltaRefusal('the act predates the live rig-review');
-      save(dir, join(dir, 'project.json'), before.toString('utf8'), project,
-        { ...project, corrections: [...asArray(project.corrections), ...appended] }, now);
-    }
+    const { appended, returned } = collectMeshDeltaCorrections(dir, project, act, on, results, now);
+    if (appended.length) save(dir, join(dir, 'project.json'), before.toString('utf8'), project,
+      { ...project, corrections: [...asArray(project.corrections), ...appended] }, now);
     return returned;
-  } catch (error) {
-    if (error instanceof CorrectionError) {
-      const finding = correctionFinding(error.code, 'corrections', error.message);
-      refuse(finding.code, finding.message);
-    }
-    throw error;
-  }
+  } catch (error) { return rethrowCorrectionError(error); }
+}
+
+function stageMeshDeltaCorrections(
+  dir: string, original: JsonObject, act: MeshDeltaCorrectionAct, paths: Omit<MeshEditPaths, 'out'>,
+  now: number, review?: MeshReviewVerdictAct,
+): { appended: JsonObject[]; returned: MeshDeltaCorrectionResult[]; discard: () => void } {
+  const on = meshDeltaSource(dir, original, act, now);
+  meshDeltaEntries(act);
+  const derived = join(dir, 'derived');
+  if (!lstatSync(derived).isDirectory()) return meshDeltaRefusal('derived must be a retained project directory');
+  const root = mkdtempSync(join(derived, 'mesh-delta-'));
+  const discard = () => rmSync(root, { force: true, recursive: true });
+  try {
+    const results = applyMeshEdits(dir, act, (_entry, prior) => ({
+      rig: resolve(dir, paths.rig), config: resolve(dir, paths.config), parts: resolve(dir, paths.parts),
+      out: join(root, String(prior.length + 1)),
+    }));
+    const collected = collectMeshDeltaCorrections(dir, original, act, on, results, now, review);
+    if (!collected.appended.length) discard();
+    return { ...collected, discard };
+  } catch (error) { discard(); throw error; }
+}
+
+/** Apply against the displayed package and stage the correction records in the verdict's pending write. */
+export function stageReviewMeshDeltaCorrections(
+  dir: string, original: JsonObject, next: JsonObject, act: MeshReviewVerdictAct, now: number,
+): () => void {
+  try {
+    const invalid = localValidation(dir, original, now)[0];
+    if (invalid) refuse(invalid.code, invalid.message);
+    const version = versionRecord(original, act.source.selector.version);
+    const packageCheck: Parameters<typeof checkReviewPackages>[0] = { dir, project: original, refusals: [], warnings: [] };
+    checkReviewPackages(packageCheck, act.source.selector.version);
+    const packageProblem = packageCheck.refusals[0];
+    if (packageProblem) refuse(packageProblem.code, packageProblem.message);
+    openStage(original, 'rig-review');
+    const root = `derived/review/v${act.source.selector.version}`;
+    const prior = objects(original.corrections).findLast(record => isObject(record.on) && record.on.n === version.n
+      && isObject(record.outcome) && record.outcome.kind === 'mesh-delta');
+    const paths = { rig: prior ? String((prior.outcome as JsonObject).revision) : `${root}/out/rig`,
+      config: `${root}/config.json`, parts: dirname(act.source.parts.manifest.path) };
+    const { appended, discard } = stageMeshDeltaCorrections(dir, original, act, paths, now, act);
+    next.corrections = [...asArray(original.corrections), ...appended];
+    return discard;
+  } catch (error) { return rethrowCorrectionError(error); }
 }
 
 /** Apply a finalized act using fresh owned destinations, then record only after the whole batch succeeds. */
@@ -218,24 +282,14 @@ export function applyMeshDeltaCorrections(
   projectDir: string, act: MeshDeltaCorrectionAct, paths: Omit<MeshEditPaths, 'out'>, now: number,
 ): readonly MeshDeltaCorrectionResult[] {
   const dir = resolve(projectDir);
-  const project = correctionJson(correctionBytes(dir, 'project.json'));
-  meshDeltaSource(dir, project, act, now);
-  meshDeltaEntries(act);
-  const derived = join(dir, 'derived');
-  if (!lstatSync(derived).isDirectory()) return meshDeltaRefusal('derived must be a retained project directory');
-  const root = mkdtempSync(join(derived, 'mesh-delta-'));
-  let retain = false;
+  const before = correctionBytes(dir, 'project.json');
+  const project = correctionJson(before);
+  const { appended, returned, discard } = stageMeshDeltaCorrections(dir, project, act, paths, now);
   try {
-    const results = applyMeshEdits(dir, act, (_entry, prior) => ({
-      rig: resolve(dir, paths.rig), config: resolve(dir, paths.config), parts: resolve(dir, paths.parts),
-      out: join(root, String(prior.length + 1)),
-    }));
-    const recorded = recordMeshDeltaCorrections(dir, act, results, now);
-    retain = recorded.some(result => result.status === 'applied');
-    return recorded;
-  } finally {
-    if (!retain) rmSync(root, { force: true, recursive: true });
-  }
+    if (appended.length) save(dir, join(dir, 'project.json'), before.toString('utf8'), project,
+      { ...project, corrections: [...asArray(project.corrections), ...appended] }, now);
+  } catch (error) { discard(); return rethrowCorrectionError(error); }
+  return returned;
 }
 
 export function correctionCommand(args: string[], now: number, runner?: ReviewReadRunner): {stdout:string;exit:number} {

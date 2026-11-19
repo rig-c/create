@@ -232,13 +232,14 @@ export async function publishPending(
 /** One declared subject after the ask step: asked now, asked before on this publication, or refused by Review. */
 export type AskOutcome = { readonly subject: PublicationSubject; readonly status: 'asked' | 'already' } | { readonly subject: PublicationSubject; readonly status: 'refused'; readonly code: string };
 
-/** The subjects already asked on this publication, from the same event reader as job acts. */
-async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise<PublicationSubject[]> {
+/**The subjects already asked on this publication, from the same event reader as job acts, plus host capabilities from the `next` response. */
+async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise<{ asked: PublicationSubject[]; askBatch: boolean }> {
   const asked: PublicationSubject[] = [];
-  for await (const event of jobEvents(host)) {
+  const capabilities: { askBatch?: boolean } = {};
+  for await (const event of jobEvents(host, false, capabilities)) {
     if (event.type === 'pending' && event.ask.publicationId === publicationId) asked.push(event.ask.subject as PublicationSubject);
   }
-  return asked;
+  return { asked, askBatch: capabilities.askBatch === true };
 }
 
 /** Read through the official strict attachment; never bootstrap, publish or install a writer binding. */
@@ -257,25 +258,57 @@ export async function listCreateJobActs(
   } finally { host.stop(); }
 }
 
+const ASK_BATCH_LIMIT = 64;
+
 /**
  * Ask each declared subject of a publication once. A subject already asked on that
  * publication, pending or answered, is not asked again, so a re-open never shows a second
  * control. Asks stay limited to the declared list (`REVIEW_ACT_SUBJECT_UNDECLARED`).
  */
 export async function askDeclaredSubjects(host: JobOwnerHost, publicationId: string, subjects: readonly PublicationSubject[]): Promise<AskOutcome[]> {
-  const before = await askedSubjects(host, publicationId);
-  const outcomes: AskOutcome[] = [];
-  for (const subject of subjects) {
-    if (before.some(asked => isDeepStrictEqual(asked, subject))) { outcomes.push({ subject, status: 'already' }); continue; }
+  const { asked: before, askBatch } = await askedSubjects(host, publicationId);
+  if (!askBatch) {
+    const outcomes: AskOutcome[] = [];
+    for (const subject of subjects) {
+      if (before.some(asked => isDeepStrictEqual(asked, subject))) { outcomes.push({ subject, status: 'already' }); continue; }
+      const expectedGeneration = host.session.status().generation;
+      let reply: AgentReply;
+      try {
+        reply = await agentCall(host, { verb: 'ask', expectedGeneration, publicationId, subject,
+          idempotencyKey: jobHash(JSON.stringify([publicationId, subject, expectedGeneration])) });
+      } catch { reply = { ok: false }; }
+      outcomes.push(reply.ok ? { subject, status: 'asked' } : { subject, status: 'refused', code: reply.error?.code ?? 'JOB_ASK_INVALID' });
+    }
+    return outcomes;
+  }
+  const outcomes: (AskOutcome | undefined)[] = subjects.map(subject =>
+    before.some(asked => isDeepStrictEqual(asked, subject)) ? { subject, status: 'already' } : undefined);
+  const remaining = subjects.flatMap((subject, index) => outcomes[index] ? [] : [{ subject, index }]);
+  for (let offset = 0; offset < remaining.length; offset += ASK_BATCH_LIMIT) {
+    const chunk = remaining.slice(offset, offset + ASK_BATCH_LIMIT);
+    const batchSubjects = chunk.map(item => item.subject);
     const expectedGeneration = host.session.status().generation;
     let reply: AgentReply;
     try {
-      reply = await agentCall(host, { verb: 'ask', expectedGeneration, publicationId, subject,
-        idempotencyKey: jobHash(JSON.stringify([publicationId, subject, expectedGeneration])) });
+      reply = await agentCall(host, { verb: 'ask-batch', expectedGeneration, publicationId, subjects: batchSubjects,
+        idempotencyKey: jobHash(JSON.stringify([publicationId, batchSubjects, expectedGeneration])) });
     } catch { reply = { ok: false }; }
-    outcomes.push(reply.ok ? { subject, status: 'asked' } : { subject, status: 'refused', code: reply.error?.code ?? 'JOB_ASK_INVALID' });
+    const asks = reply.ok && Array.isArray(reply.value?.asks) ? reply.value.asks : undefined;
+    if (asks && asks.length === chunk.length) {
+      for (let i = 0; i < chunk.length; i++) outcomes[chunk[i]!.index] = { subject: chunk[i]!.subject, status: 'asked' };
+      continue;
+    }
+    const code = reply.error?.code ?? 'JOB_ASK_INVALID';
+    const match = typeof reply.error?.message === 'string' ? /^subjects\[(\d+)\]: /.exec(reply.error.message) : null;
+    const failedIndex = match ? Number(match[1]) : -1;
+    if (failedIndex >= 0 && failedIndex < chunk.length) {
+      outcomes[chunk[failedIndex]!.index] = { subject: chunk[failedIndex]!.subject, status: 'refused', code };
+    } else {
+      for (const item of chunk) outcomes[item.index] = { subject: item.subject, status: 'refused', code };
+    }
+    break;
   }
-  return outcomes;
+  return outcomes.filter((outcome): outcome is AskOutcome => outcome !== undefined);
 }
 
 export function subjectLabel(subject: PublicationSubject): string {

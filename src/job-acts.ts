@@ -11,7 +11,11 @@ import { checkStructure } from './structure.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { JsonObject } from './templates.ts';
 
-export type AgentReply = { ok?: boolean; error?: { code?: string }; value?: { events?: unknown; status?: unknown; cursor?: unknown } };
+export type AgentReply = {
+  ok?: boolean;
+  error?: { code?: string; message?: string };
+  value?: { events?: unknown; status?: unknown; cursor?: unknown; capabilities?: { askBatch?: unknown }; asks?: unknown };
+};
 
 export async function agentCall(host: JobOwnerHost, body: object): Promise<AgentReply> {
   const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
@@ -22,7 +26,7 @@ export async function agentCall(host: JobOwnerHost, body: object): Promise<Agent
 }
 
 /** The shared agent-next traversal; listing is strict while existing ask retries retain their contract. */
-export async function* jobEvents(host: JobOwnerHost, strict = false): AsyncGenerator<JobEventV3> {
+export async function* jobEvents(host: JobOwnerHost, strict = false, capabilities?: { askBatch?: boolean }): AsyncGenerator<JobEventV3> {
   let after: unknown = null;
   for (let page = 0; page < 10_000; page++) {
     let reply: AgentReply;
@@ -30,6 +34,9 @@ export async function* jobEvents(host: JobOwnerHost, strict = false): AsyncGener
     catch (error) {
       if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job event read failed; restore the bound host and retry job acts');
       throw error;
+    }
+    if (capabilities && reply.ok && reply.value?.capabilities !== null && typeof reply.value?.capabilities === 'object') {
+      capabilities.askBatch = reply.value.capabilities.askBatch === true;
     }
     const events = reply.ok ? reply.value?.events : undefined;
     if (!Array.isArray(events)) {

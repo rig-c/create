@@ -1670,6 +1670,7 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   expect(next.effective_stage).toBe('parts-review');
   expect(next.moves.every(move => move.role !== 'human')).toBe(true);
   expect(next.moves[0]!.act).toContain('assemble.edited_parts');
+  expect(next.moves[0]!.act).toContain('only then take edited-part baselines');
   expect(next.moves[0]!.act).toContain('from_sha256');
   expect(next.moves[0]!.act).toContain('docs/SOURCE.md#handing-a-retouch-to-an-image-editor');
   const commands = next.moves.flatMap(move => move.command === null ? [] : [move.command]);

@@ -74,6 +74,7 @@ import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
+const BASELINES_AFTER_FINAL_ASSEMBLE = 'Finalize the assembly inputs (turn.depths and constraints.physics included), assemble again, and only then take edited-part baselines (from_sha256); a baseline from an earlier assembly refuses ASSEMBLE_EDITED_PART_BASELINE.';
 const RIG_VERSION_INPUTS = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --check-report <check.json> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
 
 export const NEXT_HELP = `next [<project dir>] [--json]
@@ -821,7 +822,7 @@ function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject):
   const move = (role: NextRole, field: string, command: string | null, act: string): NextMove => ({ role, field, awaits: `drafts[${id}]`, command, act });
   const diff = resolveDiffComponentsMove(dir, id, build, paintingPath, evidence.diff);
   return [
-    move('agent', `drafts[${id}].config`, null, `Draft ${String(draft.id)} requests changes. Retain it and its verdict and evidence; keep parts-review throughout. ${prepared ? `Resume ${root}/config.json without replacing the prepared config or its inputs; it matches the previous config outside assemble.edited_parts. The producer and draft writer still validate its contents. Original config:` : `Prepare ${root}/config.json from`} ${String(isObject(draft.config) ? draft.config.path : '<previous config>')}, preserving source input bindings and declaring assemble.edited_parts with dir and per-file receipts (part, file, from_sha256, sha256, editor) for the retouch against the painting (docs/SOURCE.md#handing-a-retouch-to-an-image-editor). Do not replace the old draft's files.`),
+    move('agent', `drafts[${id}].config`, null, `Draft ${String(draft.id)} requests changes. Retain it and its verdict and evidence; keep parts-review throughout. ${prepared ? `Resume ${root}/config.json without replacing the prepared config or its inputs; it matches the previous config outside assemble.edited_parts. The producer and draft writer still validate its contents. Original config:` : `Prepare ${root}/config.json from`} ${String(isObject(draft.config) ? draft.config.path : '<previous config>')}, preserving source input bindings and declaring assemble.edited_parts with dir and per-file receipts (part, file, from_sha256, sha256, editor) for the retouch against the painting (docs/SOURCE.md#handing-a-retouch-to-an-image-editor). ${BASELINES_AFTER_FINAL_ASSEMBLE} Do not replace the old draft's files.`),
     ...(existingBuild
       ? [move('agent', `drafts[${id}].parts`, null, `Preserve the existing ${build} entry; do not rerun build over it. Try the draft-rig registration below to validate retained output. If incomplete or unrelated, inspect it and choose a separate output target rather than overwriting it.`)]
       : [move('producer', `drafts[${id}].parts`, `rig-parts build --config ${shellWord(resolve(dir, root, 'config.json'))} --source ${shellWord(resolve(dir, paintingPath))} --full '<source layers dir or PSD>' --out ${shellWord(resolve(dir, build))}`, 'build the edited_parts draft from its source layers; preserve any required head/source arguments and stop on producer refusals')]),
@@ -1650,7 +1651,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         field: 'drafts',
         awaits: 'drafts',
         command: null,
-        act: 'Run rig-parts assemble, then rig-parts propose --write-config, then rig-parts assemble again with the written config. Register the second output and its config with draft-rig before job open --draft.',
+        act: `Run rig-parts assemble, then rig-parts propose --write-config, then rig-parts assemble again with the written config. ${BASELINES_AFTER_FINAL_ASSEMBLE} Register the second output and its config with draft-rig before job open --draft.`,
       });
     }
 

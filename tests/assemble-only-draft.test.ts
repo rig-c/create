@@ -156,6 +156,7 @@ test('next names reassembly before draft registration and publication', () => {
   });
   const move = nextProject(dir, now).moves.find(move => move.field === 'drafts');
   expect(move?.act).toMatch(/assemble.*propose --write-config.*assemble again.*draft-rig.*job open --draft/);
+  expect(move?.act).toMatch(/assemble again with the written config\. Finalize the assembly inputs.*only then take edited-part baselines/);
 });
 
 test.each(['rig.json', 'motion.json', 'mesh_report.json', 'skeleton.model.json'])('partial output with %s cannot silently become assemble-only', name => {

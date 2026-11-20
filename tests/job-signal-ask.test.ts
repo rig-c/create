@@ -173,7 +173,7 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
 
 }, 15_000);
 
-test('bound writers print concise asked/already subject lines in text mode', async () => {
+test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
   expect(askOutcomeLines([
     { subject: { kind: 'parts-verdict', draftId: 'chain-2' }, status: 'asked' },
     { subject: { kind: 'checkpoint', checkpointId: 'assemble' }, status: 'already' },
@@ -194,7 +194,20 @@ test('bound writers print concise asked/already subject lines in text mode', asy
     'job: asked review-verdict rig-review',
   ]);
 
-}, 15_000);
+  // --json stdout stays one JSON document; a bound draft-rig carries the page update inside it.
+  const draftRoot = await preparedParts();
+  const args = copyDraft(draftRoot, 'chain-2');
+  const snapshot = JSON.parse(readFileSync(join(draftRoot, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
+  snapshot.draft_id = 'chain-2';
+  (snapshot.config as JsonObject).path = 'derived/drafts/chain-2/config.json';
+  writeFileSync(join(draftRoot, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
+  await open(draftRoot);
+  const draftedJson = await cli(draftRoot, [...args, '--json']);
+  expect({ exit: draftedJson.exit, stderr: draftedJson.stderr }).toEqual({ exit: 0, stderr: '' });
+  const printed = JSON.parse(draftedJson.stdout) as JsonObject;
+  expect(printed).toMatchObject({ id: 'chain-2', publication: { status: 'published' } });
+  expect((printed.publication as { lines: string[] }).lines).toContain(`job: updated the open page: publication ${publicationId(draftRoot)}, ask parts-verdict chain-2`);
+}, 30_000);
 
 function publicationId(root: string): string {
   const binding = readWriterBinding(root)!;
@@ -274,6 +287,22 @@ test('#690 prepared draft updates an open page with its parts-verdict ask', asyn
   const binding = readWriterBinding(root)!;
   expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
   expect(pendingPublications(root)).toEqual([]);
+}, 30_000);
+
+test('#690 draft-rig --json reports a deferred update of the open page', async () => {
+  const root = await preparedParts();
+  const args = copyDraft(root, 'chain-2');
+  await open(root);
+  const before = publicationId(root);
+  const recorded = await cli(root, [...args, '--json']);
+  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
+  const printed = JSON.parse(recorded.stdout) as JsonObject;
+  expect(printed.id).toBe('chain-2');
+  const notice = printed.publication as { status: string; lines: string[] };
+  expect(notice.status).toBe('deferred');
+  expect(notice.lines.join('\n')).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
+  expect(publicationId(root)).toBe(before);
+  expect(read(root).drafts).toContainEqual(expect.not.objectContaining({ publication: expect.anything() }));
 }, 30_000);
 
 test('#690 advance updates the same rig with its review verdict ask', async () => {

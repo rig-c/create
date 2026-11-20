@@ -169,7 +169,7 @@ test.each(['parts-review','rig-review','direction-review'])('owner chat signs on
   }
   const args=[stage,dir,'--by','user','--owner-chat',join(dir,'words.txt'),
     '--said-at',new Date(testClock.now()-1000).toISOString(),'--relayed-by','operator','--json',
-    ...(stage==='parts-review'?['--draft',draft,'--structure-file','evidence/structure-decisions.json']:[])];
+    ...(stage==='parts-review'?['--draft',draft,'--structure-file','evidence/structure-example.json']:[])];
   const accepted=readFileSync(join(dir,'project.json'));
   if(stage==='parts-review')p.review_acts=arr(p.review_acts).filter(raw=>obj(raw).kind!=='parts-verdict');
   else for(const raw of arr(p.versions))if(obj(raw).kind===(stage==='rig-review'?'rig':'post'))obj(raw).verdicts=[];

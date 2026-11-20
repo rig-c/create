@@ -281,7 +281,7 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         expect(project.review_acts ?? []).toEqual([]);
         expect(report.moves.find(m => m.role === 'agent')).toMatchObject({
           field: 'drafts[chain]', awaits: 'evidence/structure-chain.json',
-          command: `rig-create structure-snapshot ${cpDir} --draft chain --out evidence/structure-chain.json`,
+          command: `rig-create structure-snapshot ${cpDir} --draft chain`,
         });
         expect(report.moves.find(m => m.role === 'producer')?.command).toBe(
           `rig-parts diff-components --stack ${cpDir}/derived/drafts/chain/input/recomposite_rig.png --painting ${cpDir}/inputs/painting.png --parts ${cpDir}/derived/drafts/chain/input/parts.json --floor 2 --threshold 40 --out ${cpDir}/evidence/diff-components.json`,
@@ -622,7 +622,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       role: 'agent',
       field: 'drafts[chain]',
       awaits: 'evidence/structure-chain.json',
-      command: `rig-create structure-snapshot ${cliDir} --draft chain --out evidence/structure-chain.json`,
+      command: `rig-create structure-snapshot ${cliDir} --draft chain`,
     });
     const cliScratch = join(tempDir(), 'parts-cli-scratch');
     cpSync(cliDir, cliScratch, { recursive: true });
@@ -1686,7 +1686,7 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   ]);
   expect(commands[1]).toContain('chain-retouch-1');
   expect(commands[2]).toContain('evidence/parts-chain-retouch-1');
-  expect(commands[3]).toContain('evidence/structure-chain-retouch-1.json');
+  expect(commands[3]).toContain('--draft chain-retouch-1');
   expect(commands[4]).toContain('evidence/parts-chain-retouch-1/diff-components.json');
   expect(commands[6]).toContain('--draft chain-retouch-1');
   expect(next.moves.at(-1)!.act).toContain('only after the new evidence is ready');

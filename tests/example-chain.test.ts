@@ -347,7 +347,7 @@ test.each([
   if (stage === 1) {
     expect(report.refusals).toEqual([]);
     expect(declaration.files.some(file => file.path === 'evidence/parts-review.json')).toBe(false);
-    expect(declaration.files.some(file => file.path === 'evidence/structure.json')).toBe(false);
+    expect(declaration.files.some(file => file.path === 'evidence/structure-chain.json')).toBe(false);
     expect(declaration.pending.command_roles).toEqual(['producer', 'agent', 'agent', 'producer', 'human', 'agent', 'human']);
   }
   if (stage === 2) {
@@ -478,7 +478,7 @@ test.each(['0a-interview-options', '0b-plan-pending', '1-parts-verdict', '2-rigg
 
 test('the parts-review structure snapshot is written by structure-snapshot after the verdict, not authored by hand', () => {
   const chain = JSON.parse(readFileSync(join(shipped, 'chain.json'), 'utf8')) as { steps: ChainStep[] };
-  const path = 'evidence/structure.json';
+  const path = 'evidence/structure-chain.json';
   const at = (command: string[]): number => chain.steps.findIndex(step => command.every((arg, index) => step.command[index] === arg));
   const writer = at(['rig-create', 'structure-snapshot']);
   expect(chain.steps[writer]!.kind).toBe('writer');

@@ -41,7 +41,7 @@ function approveParts(dir: string, id: string): void {
   put(dir, `${root}/input/recomposite_rig.png`, readFileSync(join(dir, 'derived/parts/rig/recomposite_rig.png')));
   for (const file of ['rig.json', 'motion.json', 'mesh_report.json']) put(dir, `${root}/out/${file}`, '{}');
   draftRigCommand([id, dir, '--config', `${root}/config.json`, '--from', `${root}/out`, '--parts', `${root}/input`]);
-  const snapshot = `evidence/${id}-structure.json`;
+  const snapshot = `evidence/structure-${id}.json`;
   structureSnapshotCommand([dir, '--draft', id, '--out', snapshot]);
   recordPartsReceipt(dir, id, testClock.now());
   signoffCommand(['parts-review', dir, '--draft', id, '--structure-file', snapshot, ...words(dir)]);

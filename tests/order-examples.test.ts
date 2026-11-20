@@ -87,6 +87,6 @@ test('a cloned new-order example keeps its retained structure while ignored arti
     'DRAFT_RIG_UNAVAILABLE', 'DRAFT_RIG_UNAVAILABLE', 'DERIVED_RESULT_MISSING', 'REVIEW_PACKAGE_MISSING', 'REVIEW_PACKAGE_MISSING',
   ]);
   // A retained human snapshot remains mandatory and hash-bound on that same clone.
-  rmSync(join(dir, 'evidence/structure-decisions.json'));
+  rmSync(join(dir, 'evidence/structure-example.json'));
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DECISIONS_INVALID');
 });

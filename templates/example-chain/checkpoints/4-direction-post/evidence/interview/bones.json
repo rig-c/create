@@ -17,7 +17,7 @@
       }
     },
     "structure": {
-      "path": "evidence/structure.json",
+      "path": "evidence/structure-chain.json",
       "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
     },
     "draft_id": "chain",

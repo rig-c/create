@@ -143,8 +143,8 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   reload();
   const responsePath = String(obj(receipt.evidence).path);
   files[responsePath] = readFileSync(join(dir, responsePath));
-  structureSnapshotCommand([dir, '--draft', 'example', '--out', 'evidence/structure-decisions.json']);
-  files['evidence/structure-decisions.json'] = readFileSync(join(dir, 'evidence/structure-decisions.json'));
+  structureSnapshotCommand([dir, '--draft', 'example']);
+  files['evidence/structure-example.json'] = readFileSync(join(dir, 'evidence/structure-example.json'));
   // The producer's parts-stage check on the retained assembled root, bound by the advance.
   files[EXAMPLE_PARTS_CHECK] = checkExampleParts(join(dir, `${EXAMPLE_DRAFT}/input`), join(dir, 'parts-check-producer'));
   write(EXAMPLE_PARTS_CHECK, files[EXAMPLE_PARTS_CHECK]!);
@@ -153,7 +153,7 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
   diffClassesCommand([dir, '--diff-report', EXAMPLE_DIFF_REPORT,
     '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here', '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here',
     '--by', 'agent'], clock.now); reload();
-  sign('parts-review', '2026-11-11T10:20:00Z', ['--draft', 'example', '--structure-file', 'evidence/structure-decisions.json']);
+  sign('parts-review', '2026-11-11T10:20:00Z', ['--draft', 'example', '--structure-file', 'evidence/structure-example.json']);
   obj(p.plan).rigging_drafted_at = exampleTime('2026-11-11T11:05:00Z');
   for (const w of arr(obj(p.interview).waypoints).map(obj)) {
     if (!['bones', 'meshes', 'constraints', 'motion'].includes(String(w.id))) continue;

@@ -76,7 +76,7 @@
       },
       "draft_id": "chain",
       "structure": {
-        "path": "evidence/structure.json",
+        "path": "evidence/structure-chain.json",
         "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
       }
     }
@@ -418,7 +418,7 @@
         "history": [],
         "pending_options": {
           "path": "evidence/interview/bones.json",
-          "sha256": "ec52614827d9fe6931e7593595f2c11f58a4861db579d725615be8928e9722df"
+          "sha256": "bfe14ab33a8289bb917a303f05180f210bc2a4aa1a7dd7dc610e7ffd9244e312"
         }
       },
       {

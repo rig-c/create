@@ -210,14 +210,14 @@ async function submit(
 }
 
 function prepareSignoff(root: string, _evidence: string): void {
-  structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure.json']);
+  structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
   advanceCommand(['parts-review', root,
     '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], Date.now());
   diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], Date.now());
 }
 function sign(root: string, _evidence: string): void {
   signoffCommand(['parts-review', root, '--by', 'user', '--verbatim-file', join(root, 'evidence/approval.txt'), '--draft', 'chain',
-    '--structure-file', 'evidence/structure.json'], Date.now());
+    '--structure-file', 'evidence/structure-chain.json'], Date.now());
 }
 
 for (const verdict of ['approved', 'changes-requested'] as const) {

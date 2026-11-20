@@ -17,7 +17,7 @@ import { cli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
 import { EXAMPLE_PARTS_DIR as SOURCE_PARTS_DIR } from './parts-package.ts';
 const EXAMPLE_PARTS_DIR = 'derived/drafts/receipt-fixture/input/rig';
 const ASSEMBLE_STACK = 'derived/drafts/receipt-fixture/input/render/recomposite_rig.png';
-const RECEIPT_FLAGS = ['--draft', 'receipt-fixture', '--structure-file', 'evidence/receipt-fixture-structure.json'];
+const RECEIPT_FLAGS = ['--draft', 'receipt-fixture', '--structure-file', 'evidence/structure-receipt-fixture.json'];
 import { checkProject, reopenCommand, advanceCommand, signoffCommand, testClock } from './clock.ts';
 
 const sha = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');

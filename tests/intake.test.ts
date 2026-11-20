@@ -119,7 +119,7 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
       // Reopen through the writer: it moves the stage back and resets later steps, and the later approvals,
       // versions, scenes and direction stay as superseded history, so no hand rewind is needed.
       reopenCommand(['parts-review',dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
-      testClock.set(new Date('2026-11-20T10:00:01Z'));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--draft','example','--structure-file','evidence/structure-decisions.json']);},
+      testClock.set(new Date('2026-11-20T10:00:01Z'));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--draft','example','--structure-file','evidence/structure-example.json']);},
     ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),
     ()=>recordVerdict(dir,{version:4,review:'direction-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),

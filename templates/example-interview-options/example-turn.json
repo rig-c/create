@@ -17,7 +17,7 @@
       }
     },
     "structure": {
-      "path": "evidence/structure-decisions.json",
+      "path": "evidence/structure-example.json",
       "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
     },
     "draft_id": "example",

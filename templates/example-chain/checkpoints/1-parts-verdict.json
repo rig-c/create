@@ -8,11 +8,11 @@
     "commands": [
       "partsPackage tests/parts-package.ts",
       "rig-create parts-review --draft chain --from-review-cli --by user -- derived/drafts/chain/input --verdict evidence/parts-review.json",
-      "rig-create structure-snapshot --draft chain --out evidence/structure.json",
+      "rig-create structure-snapshot --draft chain",
       "rig-parts diff-components --stack assembled/render/recomposite_rig.png --painting painting.png --parts assembled/rig/parts.json --floor 2 --threshold 40 --out diff-components.json",
       "rig-create advance parts-review --parts-check evidence/parts-check.json --parts derived/drafts/chain/input",
       "rig-create diff-classes --diff-report evidence/diff-components.json --by agent",
-      "rig-create signoff parts-review --by user --verbatim-file evidence/approval.txt --draft chain --structure-file evidence/structure.json"
+      "rig-create signoff parts-review --by user --verbatim-file evidence/approval.txt --draft chain --structure-file evidence/structure-chain.json"
     ],
     "command_roles": [
       "producer",
@@ -25,7 +25,7 @@
     ],
     "awaits": [
       "evidence/parts-review.json",
-      "evidence/structure.json",
+      "evidence/structure-chain.json",
       "signoffs[stage=parts-review]",
       "project.stage"
     ]
@@ -46,7 +46,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "e4504248d29501033f4ed0594e82b1648b2d4ed671aebcef5b70a793c327fbee"
+      "sha256": "ea044f8710e42db6006442cfd48a5aee52535496a4659636ecb39bcb04e80436"
     },
     {
       "path": "CLAUDE.md",

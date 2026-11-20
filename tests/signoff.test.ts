@@ -119,7 +119,7 @@ describe('parts-review evidence and execution checkpoints', () => {
     const dir = fixture(() => {}, 'example-project.json');
     testClock.set(new Date(withdrawSignature(dir, 'parts-review')));
     expect(checkProject(dir).refusals.map((r) => r.code)).toContain('PARTS_REVIEW_UNSIGNED');
-    const result = cli(['signoff', 'parts-review', '--by', 'user', '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json', '--verbatim-file', input(dir)], dir, gitEnv());
+    const result = cli(['signoff', 'parts-review', '--by', 'user', '--draft', 'example', '--structure-file', 'evidence/structure-example.json', '--verbatim-file', input(dir)], dir, gitEnv());
     expect(result).toMatchObject({ code: 0, stderr: '' });
     const signed = obj(arr(read(dir).signoffs).at(-1));
     expect(signed.evidence).toEqual({ ...obj(obj(arr(read(dir).review_acts)[0]).evidence), spec: 'rig-create/parts-verdict-cli@1' });

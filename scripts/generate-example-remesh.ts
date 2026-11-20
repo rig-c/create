@@ -298,7 +298,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
     });
     write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
     writer(['parts-review', '--draft', 'remesh', '--from-review-cli', '--by', 'user', '--', partsDir, '--verdict', 'evidence/parts-review.json']);
-    writer(['structure-snapshot', '--draft', 'remesh', '--out', 'evidence/structure.json']);
+    writer(['structure-snapshot', '--draft', 'remesh']);
     const diff = Bun.spawnSync(
       [process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
         'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png', '--parts', 'assembled/rig/parts.json',
@@ -322,7 +322,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
       '--draft',
       'remesh',
       '--structure-file',
-      'evidence/structure.json',
+      'evidence/structure-remesh.json',
     ]);
 
     advance('rigging-interview');

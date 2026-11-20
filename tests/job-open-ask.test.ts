@@ -530,6 +530,33 @@ test('a --draft that the record does not hold refuses before writing project.jso
   expect(existsSync(jobHostStateRoot(root))).toBe(false);
 });
 
+test('a parts-review job open --draft refuses JOB_PARTS_VERDICT_UNASKABLE when the snapshot is missing and publishes with parts-verdict once the default snapshot exists', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-snapshot-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  expect((await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'])).exit).toBe(0);
+  expect((await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'])).exit).toBe(0);
+  const before = readFileSync(join(root, 'project.json'));
+  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'chain']);
+  expect(refused.exit).toBe(1);
+  expect(refused.stdout).toBe('');
+  expect(refused.stderr).toStartWith('JOB_PARTS_VERDICT_UNASKABLE: ');
+  expect(refused.stderr).toContain(`rig-create structure-snapshot ${root} --draft chain`);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(read(root).review_job).toBeUndefined();
+  expect(readWriterBinding(root)).toBeNull();
+  expect(existsSync(jobHostStateRoot(root))).toBe(false);
+
+  const snap = await cli(root, ['structure-snapshot', root, '--draft', 'chain']);
+  expect({ exit: snap.exit, stderr: snap.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(existsSync(join(root, 'evidence/structure-chain.json'))).toBe(true);
+  const opening = await open(root, ['--draft', 'chain']);
+  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  const view = await publication(root, opening.url, 1);
+  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
+});
+
 test('job open retries a refused ask on an acknowledged rig head without overwriting it with a draft or duplicating pending or answered asks', async () => {
   const kind = 'rig';
   const root = realpathSync(mkdtempSync(join(tmpdir(), `create-job-open-${kind}-`)));

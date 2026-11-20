@@ -32,7 +32,7 @@ one input, survives restart and checks sibling artwork; optional on older record
 ## The user's four steps
 
 1. **Parts and meshes**. Ask framing/source; review a labelled draft's parts and mesh/chest structure. `parts-review` records its Review API response.
-   The latest receipt must approve the draft for `structure-snapshot --draft <id> --out <f>`
+   The latest receipt must approve the draft for `structure-snapshot --draft <id>`
    and `signoff parts-review --draft <id> --structure-file <f>`; record component triage with `diff-classes --diff-report <p> --by agent` ([Draft rigs](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#labelled-draft-rigs-and-structure-decisions)).
 2. **Rigging interview**. Ask fresh bones, deformation, physics and motion
    against approved parts/structure; use interview-options/answer/decision.

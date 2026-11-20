@@ -13,6 +13,7 @@ import { ReviewReadError, storedReviewRead } from './review-read.ts';
 import type { Finding } from './check.ts';
 import type { JsonObject } from './templates.ts';
 import { PARTS_COMMENTS_VERDICT_SCHEMA, parseCommentsPartsVerdict } from '@rig-c/review/job-host';
+import { draftAmendmentTime } from './amend.ts';
 
 export const PARTS_CLI_RECEIPT = 'rig-create/parts-verdict-cli@1';
 export const PARTS_VERDICT_LATEST_SINCE = '2026-11-08T00:00:00Z';
@@ -197,9 +198,17 @@ export function assertPartsCliArgs(args: string[]): void {
 export const PARTS_VERDICT_RECEIPT_SINCE = '2026-11-08T00:00:00Z';
 
 export function latestPartsReceipt(project: JsonObject, draftId: string): JsonObject | undefined {
-  return Array.isArray(project.review_acts) ? [...project.review_acts].reverse().find(
-    entry => object(entry) && entry.kind === 'parts-verdict' && entry.draft_id === draftId,
-  ) as JsonObject | undefined : undefined;
+  if (!Array.isArray(project.review_acts)) return;
+  const amendedAt = draftAmendmentTime(project, draftId);
+  return project.review_acts.filter(object).findLast(receipt => {
+    if (receipt.kind !== 'parts-verdict' || receipt.draft_id !== draftId) return false;
+    if (amendedAt === -Infinity) return true;
+    try {
+      const at = receipt.schema === PARTS_CLI_RECEIPT ? String(receipt.at)
+        : decodeReviewAct(String(receipt.bytes), 'parts-verdict').at;
+      return Date.parse(at) > amendedAt;
+    } catch { return false; } // The ledger validator reports malformed evidence.
+  });
 }
 
 /** Shared by both writers and check. Reads only the response retained by parts-review. */

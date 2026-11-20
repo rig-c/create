@@ -1,6 +1,5 @@
 import { checkInputs } from './inputs.ts';
 import { pngDimensions } from './scene.ts';
-import { hasPartsReceipt } from './fix-ledger.ts';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
@@ -768,7 +767,7 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
   const plan = project.plan as JsonObject | undefined;
   return { selector: { kind: 'draft', id }, plan: plan ? { steps: (plan.steps as JsonObject[] ?? []).map(step => ({ id: String(step.id), hash: stepHash(step) })) } : null,
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
-    subjects: hasPartsReceipt(project, id) ? [] : [{ kind: 'parts-verdict', draftId: id }],
+    subjects: latestPartsApproval(project, Infinity, undefined, id) ? [] : [{ kind: 'parts-verdict', draftId: id }],
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files };
 }
 

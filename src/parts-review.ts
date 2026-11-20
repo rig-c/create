@@ -1,6 +1,7 @@
 import { assertPartsCliArgs, assertPartsReadDraft, decodePartsRead, partsReadFindings, partsVerdictNames, PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 /** Approved live parts verdicts atomically record their parts-review signature. */
 import { foldPartsSignoff } from './parts-signoff.ts';
+import { draftAmendmentTime } from './amend.ts';
 import { randomUUID } from 'node:crypto';
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -79,6 +80,10 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
       if (existing.bytes !== response.bytes) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable parts act changed; restore the original receipt');
       if (existing.version_hash !== hash) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed draft entry changed; review a new draft id');
     } else {
+      const amendedAt = draftAmendmentTime(project, act.source.selector.id);
+      if (amendedAt !== -Infinity && (Date.parse(act.at) <= amendedAt || act.source.projectHash !== jobHash(original))) {
+        refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: parts verdict must follow the draft amendment and bind the current record; publish the amended draft and ask again');
+      }
       const publication = readAcknowledgedPublication(root, act.jobId, act.publicationId);
       if (publication && (publication.versionHash !== hash || publication.result.selector?.kind !== 'draft' || publication.result.selector.id !== act.source.selector.id)) {
         refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: draft differs from its acknowledged publication; record and review a new id');

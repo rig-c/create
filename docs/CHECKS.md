@@ -684,7 +684,7 @@ empty `keep_by_binding` list. The fixed G table and re-signing contract are in
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
 | `AMENDMENT_MALFORMED` | amendments is not a list, or an entry lacks a human name, valid date, verbatim or optional text source | restore the named amendment to the writer's record shape |
-| `AMENDMENT_TARGET_INVALID` | target lacks a supported kind, artifact id or ordered non-terminal stage | supply the artifact and its owning stage to amend |
+| `AMENDMENT_TARGET_INVALID` | target lacks a supported kind, artifact id or ordered non-terminal stage, or a draft amendment fails to name one registered draft at parts-review | supply the artifact and its owning stage to amend |
 | `AMENDMENT_CHANGES_INVALID` | new input bindings are empty, duplicate or lack paths and lowercase SHA-256 hashes | record distinct new input files through amend |
 | `AMENDMENT_INPUT_UNREAD` | a new input cannot be read or escapes the project, including through a symlink | retain readable input bytes under the project and amend again |
 | `AMENDMENT_OPTION_INVALID` | required arguments are absent, option values are empty/repeated or the argument count is invalid (exit 2) | supply stage, kind, target, new input and signer once, repeating only change |

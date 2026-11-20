@@ -49,9 +49,10 @@ function partsApprovalCandidates(project: JsonObject) {
     .sort((a, b) => b.at - a.at || b.index - a.index);
 }
 
-export function latestPartsApproval(project: JsonObject, at = Infinity, identity?: Json): JsonObject | undefined {
+export function latestPartsApproval(project: JsonObject, at = Infinity, identity?: Json, draftId?: string): JsonObject | undefined {
   const reopens = collectReopens(project, []).filter(r => r.at <= at);
-  const signoffs = partsApprovalCandidates(project).filter(s => s.at <= at && liveSignoff(reopens, s.stage, s.at));
+  const signoffs = partsApprovalCandidates(project).filter(s => s.at <= at && liveSignoff(reopens, s.stage, s.at)
+    && (draftId === undefined || s.record.draft_id === draftId));
   if (identity !== undefined) {
     const matches = signoffs.filter(s => isDeepStrictEqual(partsApprovalIdentity(s.record), identity));
     return matches.length === 1 ? matches[0]?.record : undefined;

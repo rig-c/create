@@ -120,7 +120,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.47.1)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.48.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -1156,7 +1156,7 @@
       "at": "2026-11-06T01:00:56.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.47.1",
+        "@rig-c/parts": "2.48.0",
         "@rig-c/core": "3.8.0"
       },
       "changed": "Build the synthetic approved parts.",
@@ -1367,7 +1367,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "a7094e315295475540f659122a5b761eadd35388a3817f7c158930c9bb3acb98"
+            "sha256": "d1d5fc03bf4746800d3934b8a678aad2dd3198ec31b7e7287e2b4c106c4c2724"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -1822,7 +1822,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.47.1"
+        "version": "2.48.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -1924,7 +1924,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "a7094e315295475540f659122a5b761eadd35388a3817f7c158930c9bb3acb98"
+          "sha256": "d1d5fc03bf4746800d3934b8a678aad2dd3198ec31b7e7287e2b4c106c4c2724"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",

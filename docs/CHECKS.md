@@ -95,7 +95,7 @@ together. A replay uses the retained receipt.
 | `PARTS_REVIEW_CLI_ARGUMENT_INVALID` | `review_acts.argv` contains an absolute or escaping argument, or overrides create's JSON format. Pass literal project-relative arguments after `--`. |
 | `PARTS_REVIEW_CLI_FAILED` | The review CLI failed or could not run, or the Review it ran has no `@rig-c/review` name and version. The message retains its exit code and diagnostic line. Restore the saved verdict and repeat its original display arguments. |
 | `PARTS_REVIEW_CLI_INVALID` | CLI stdout is not supported UTF-8 verdict JSON with status, tool, source hashes and per-part outcomes and notes. Query a supported review CLI. |
-| `PARTS_VERDICT_RECEIPT_INVALID` | A CLI receipt's metadata, retained response hash or copied fields differ, its draft/parts manifest binding is unavailable, or it repeats a receipt. Restore the exact retained response and draft record. |
+| `PARTS_VERDICT_RECEIPT_INVALID` | A CLI receipt's metadata, retained response hash or copied fields differ, its draft/parts manifest binding is unavailable, or it repeats a receipt. This also covers a parts signature whose explicit evidence names an act outside its parts-review package. Restore the exact retained response and draft record, or review the draft at parts-review to obtain signature evidence. |
 | `PARTS_VERDICT_LATEST_NOT_APPROVED` | The draft's latest parts receipt, from either CLI or act, requests changes. Record a newer approved verdict before signing. The writer always refuses; check refuses signatures from `PARTS_VERDICT_LATEST_SINCE = 2026-11-08T00:00:00Z` and WARNs earlier ones. |
 
 
@@ -1565,6 +1565,16 @@ before the check runs. In the inventory phase, check refusals produce
 
 
 ## Recorded parts verdicts (create#267)
+
+At rigging, `job open --draft <id>` gives a draft with recorded rig and
+mesh-report files and no compiled model its own `parts-verdict` publication,
+`review-rigging-draft-<id>.json`. Ingest either result with
+`parts-review --from-review <actId>` to retain the exact Review comments.
+Ingest and replay verify the draft selector, retained manifest and file
+hashes. Changed or missing source files give `REVIEW_ACT_SOURCE_STALE`.
+Either result leaves the stage and signatures unchanged. `next` points to
+changes-requested evidence for building a new draft. A registered rig version
+gets its own rig-review verdict.
 
 | Code | Meaning and remedy |
 | --- | --- |

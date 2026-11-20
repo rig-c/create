@@ -36,11 +36,12 @@ import {
 import { partsStructureSnapshot } from './job-acts.ts';
 import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
 import { isPartsCheckMove, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
-import { latestPartsVerdictStatus, recordedPartsVerdict } from './parts-verdict-record.ts';
+import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
+import { assertPartsActSource } from './parts-act.ts';
 import { pausedFrom } from './pause.ts';
 import { checkCollection, collectionDirOf } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
-import { refuse, USAGE_EXIT } from './refusal.ts';
+import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict, latestAccepted, readVersions } from './review.ts';
@@ -871,7 +872,7 @@ function partsDraftEvidenceMoves(
   const previousPartsActAt = Math.max(
     -Infinity,
     ...asArray(project.review_acts)
-      .filter((entry): entry is JsonObject => isObject(entry) && entry.kind === 'parts-verdict' && entry.draft_id !== draftId)
+      .filter((entry): entry is JsonObject => isObject(entry) && entry.draft_id !== draftId && isPartsReviewReceipt(entry))
       .map(entry => {
         if (typeof entry.at === 'string') return Date.parse(entry.at);
         if (typeof entry.bytes === 'string') {
@@ -1152,6 +1153,28 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         awaits: awaitsList,
         moves: [...moves, ...runnableDraftMoves],
       };
+    }
+  }
+  if (effectiveStage === 'rigging') {
+    const draft = asArray(project.drafts).filter(isObject).at(-1);
+    const feedback = typeof draft?.id === 'string' ? latestRiggingDraftFeedback(project, draft.id) : undefined;
+    if (feedback?.act.value.verdict === 'changes-requested' && liveSignoff(collectReopens(project, []), 'rigging', Date.parse(feedback.act.at))) {
+      const id = feedback.act.source.selector.id;
+      const field = `drafts[${id}]`;
+      addAwait(field);
+      try {
+        assertPartsActSource(dir, project, feedback.act, { comparePlan: false });
+        moves.push({
+          role: 'agent', field, awaits: field,
+          command: `rig-create draft-rig '<new-id>' ${shellWord(dir)} --config '<new-config>' --from '<new-output>'`,
+          act: `Rigging draft ${id} requests changes. Read the owner's exact comments in ${String(feedback.evidence.path)} (sha256 ${String(feedback.evidence.sha256)}), apply them to a new draft output, then register and publish it for review. Preserve the reviewed draft and evidence.`,
+        });
+      } catch (error) {
+        if (!(error instanceof Refusal)) throw error;
+        moves.push({ role: 'agent', field, awaits: field, command: null, act: `${error.code} ${error.message}` });
+      }
+      return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
+        accepted: false, refusals, ...warningFields, awaits: awaitsList, moves };
     }
   }
   // The check owns bounce/withdrawal/answer logic; consume its open findings.

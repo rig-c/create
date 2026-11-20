@@ -10,7 +10,8 @@ import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunne
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, reviewActVerbatim, type ReviewActTransport } from './review-act.ts';
-import { assertPartsActSource, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
+import { assertPartsActSource, isRiggingDraftAct, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
+import { draftPackageIdentity } from './job-publication.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -71,22 +72,32 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
     const project = JSON.parse(original.toString('utf8')) as JsonObject;
     const invalid = [...reviewActFindings(project), ...partsActFindings(root, project), ...partsReadFindings(root, project)][0];
     if (invalid) refuse(invalid.code, invalid.message);
-    assertPartsActSource(root, project, act);
-    const hash = partsActDraftHash(project, act);
     const existing = partsActReceipt(project, act);
+    const rigging = isRiggingDraftAct(act);
+    assertPartsActSource(root, project, act, { comparePlan: !rigging || !existing });
+    const hash = partsActDraftHash(project, act);
     const evidence = { path: `evidence/review-acts/${jobHash(JSON.stringify([act.jobId, act.actId]))}.json`, sha256: jobHash(response.bytes) };
     const warnings: string[] = [];
+    if (existing && existing.bytes !== response.bytes) {
+      refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable parts act changed; restore the original receipt');
+    }
+    const publication = !existing || rigging ? readAcknowledgedPublication(root, act.jobId, act.publicationId) : null;
+    if (rigging && !publication?.draftSource) {
+      refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: rigging draft verdict requires its acknowledged publication and source hashes; restore the private acknowledgment or publish the draft and ask again');
+    }
+    if (publication && (publication.versionHash !== hash || publication.result.selector?.kind !== 'draft' || publication.result.selector.id !== act.source.selector.id)) {
+      refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: draft differs from its acknowledged publication; record and review a new id');
+    }
+    if (publication && (rigging || publication.draftSource) && (publication.result.path !== draftPackageIdentity(act.source.selector.id, rigging).path
+      || publication.draftSource && (publication.draftSource.sourceHash !== act.source.sourceHash || publication.draftSource.projectHash !== act.source.projectHash))) {
+      refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: rigging draft source differs from its acknowledged publication; publish the retained draft and ask again');
+    }
     if (existing) {
-      if (existing.bytes !== response.bytes) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable parts act changed; restore the original receipt');
       if (existing.version_hash !== hash) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed draft entry changed; review a new draft id');
     } else {
       const amendedAt = draftAmendmentTime(project, act.source.selector.id);
       if (amendedAt !== -Infinity && (Date.parse(act.at) <= amendedAt || act.source.projectHash !== jobHash(original))) {
         refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: parts verdict must follow the draft amendment and bind the current record; publish the amended draft and ask again');
-      }
-      const publication = readAcknowledgedPublication(root, act.jobId, act.publicationId);
-      if (publication && (publication.versionHash !== hash || publication.result.selector?.kind !== 'draft' || publication.result.selector.id !== act.source.selector.id)) {
-        refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: draft differs from its acknowledged publication; record and review a new id');
       }
       if (!publication) warnings.push('REVIEW_ACT_VERSION_UNVERIFIED: project.json.review_acts: publication receipt is absent, so the first-ingest draft-entry check was skipped; retain acknowledged receipts');
       const directory = dirname(join(root, evidence.path));
@@ -123,7 +134,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
       next.review_acts = [...(project.review_acts as JsonObject[] ?? []), { schema: 'rig-create/review-act@1', kind: 'parts-verdict',
         jobId: act.jobId, actId: act.actId, draft_id: act.source.selector.id, version_hash: hash,
         bytes: response.bytes, sha256: evidence.sha256, evidence }];
-      const folded = act.value.verdict === 'approved';
+      const folded = !rigging && act.value.verdict === 'approved';
       if (folded) foldPartsSignoff(root, project, next, act, original, now);
       const failure = [...reviewActFindings(next), ...partsActFindings(root, next), ...(folded ? [] : newRefusals(root, project, next, { now }))][0];
       if (failure) refuse(failure.code, failure.message);

@@ -5,6 +5,7 @@ import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
+import { isRiggingDraftAct } from './parts-act.ts';
 import { refuse } from './refusal.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { OWNER_CHAT_SOURCE } from './owner-chat.ts';
@@ -127,9 +128,10 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
       case 'parts-verdict': {
         const selector = act.source.selector;
         if (selector?.kind === 'draft') {
-          subject = `draft ${selector.id}`;
+          const rigging = isRiggingDraftAct(act);
+          subject = `${rigging ? 'rigging ' : ''}draft ${selector.id}`;
           args = ['parts-review', root];
-          if (act.value.verdict === 'approved') {
+          if (!rigging && act.value.verdict === 'approved') {
             const structure = partsStructureSnapshot(root, project, selector.id);
             const missing: string[] = [];
             if (!structure.valid) missing.push(`retained structure snapshot ${structure.path}`);

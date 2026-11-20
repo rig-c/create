@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobSelector } from '@rig-c/review/job-host';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication, type WriterBinding } from './job-outbox.ts';
-import { liveManifestPath, livePublicationSubjects, draftPublicationContext, inspectDraftPublication, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
+import { liveManifestPath, livePublicationSubjects, draftPackageIdentity, inspectDraftPublication, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
 import type { Finding } from './check.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { shellWord } from './job-acts.ts';
@@ -112,17 +112,16 @@ export function publishCommittedVersion(root: string, n: number | string): strin
   const binding = readWriterBinding(root);
   if (!binding) return [];
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
-  if (typeof n === 'string') {
-    const warnings: Finding[] = [];
-    draftPublicationContext(root, project, n, warnings);
-    publishedLines.push(...warnings.map(finding => `WARN ${finding.code}: ${finding.message}`));
-  }
-  const result = typeof n === 'string' ? draftPublicationResult(n) : { path: liveManifestPath(root, project, n), selector: publicationSelector(project, n) };
+  const draftWarnings: Finding[] = [];
+  const result = typeof n === 'string'
+    ? draftPublicationResult(n, inspectDraftPublication(root, project, n, draftWarnings).rigging)
+    : { path: liveManifestPath(root, project, n), selector: publicationSelector(project, n) };
+  publishedLines.push(...draftWarnings.map(finding => `WARN ${finding.code}: ${finding.message}`));
   const entry = enqueuePublication(root, binding, result);
   entry.phase = 'pending';
   failPublication(root, entry, entry.failure);
   try {
-    if (typeof n === 'string') prepareDraftManifest(root, project, n);
+    if (typeof n === 'string') prepareDraftManifest(root, project, n, result.path);
     else {
       const warnings: Finding[] = [];
       prepareLiveManifest(root, project, n, warnings);
@@ -158,8 +157,8 @@ export function publishCommittedVersion(root: string, n: number | string): strin
   return lines;
 }
 
-export function draftPublicationResult(id: string): { path: string; selector: { kind: 'draft'; id: string } } {
-  return { path: `review-draft-${id}.json`, selector: { kind: 'draft', id } };
+export function draftPublicationResult(id: string, rigging = false): { path: string; selector: { kind: 'draft'; id: string } } {
+  return { path: draftPackageIdentity(id, rigging).path, selector: { kind: 'draft', id } };
 }
 
 export function prepareDraftIntent(
@@ -178,7 +177,7 @@ export function prepareDraftIntent(
     if (!(error instanceof Refusal)) throw error;
     return defer(`${error.code}: ${error.message}. Run rig-create next ${dir} to prepare the next review.`);
   }
-  const { context, missingStructure, diffFinding } = readiness;
+  const { context, missingStructure, diffFinding, rigging } = readiness;
   const repairs: string[] = [];
   if (missingStructure !== undefined) {
     repairs.push(`structure snapshot missing or invalid at ${missingStructure}. Run rig-create structure-snapshot ${dir} --draft ${draft} --out ${shellWord(missingStructure)}.`);
@@ -188,7 +187,7 @@ export function prepareDraftIntent(
   }
   if (repairs.length > 0) return defer(repairs.join(' '));
   if (context.subjects.length === 0) return defer(`no owner ask is ready. Run rig-create next ${dir} to prepare the next review.`);
-  const result = draftPublicationResult(id);
+  const result = draftPublicationResult(id, rigging);
   try { assertBoundJobAskReady(root, binding, result.selector); }
   catch (error) {
     if (!(error instanceof Refusal)) throw error;

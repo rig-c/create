@@ -40,17 +40,17 @@ requires Bun 1.4 or later. See [Live review](LIVE-REVIEW.md).
 | `JOB_PUBLISH_PENDING` | A committed `project.json` result awaits publication. Restore its bound host and sources, then run `job reconcile` before another participating write or close. To abandon failed publications explicitly, `job close --retire-refused` archives their complete receipts under the private `retired-publications/` directory and closes without acknowledging them; unfailed pending publications still block close. |
 | `JOB_ROOT_REPLACED` | `project.json`: the managed Review state belongs to a replaced project directory, or its ownership/liveness cannot be established safely. Stop the original `job open` host in its terminal, then retry `job open` or `job reconcile`. With no pending publication or startup claim, both commands preserve the old state in a dated `.replaced-…` sibling only when its recorded PID is absent and its recorded loopback port refuses connections. Missing/unsafe metadata, an occupied port or uncertain liveness refuses without retiring state; restore the retained metadata or original directory before retrying. |
 | `JOB_HOST_ATTACH_REFUSED` | Strict reuse-only attach to the bound live host was refused. The pending receipt names the host `reason` and `phase` (including `incarnation-missing` on `record` or `probe`). Reopen or restore the bound live host before reconciling. |
-| `JOB_HOST_REUSE_MISMATCH` | The private binding's host tuple or `listenerIncarnation` (`jobId`, `origin`, `listenerIncarnation`, `root`, `stateDir`, `fingerprint`, `reviewer.id`, `reviewer.role`, `readerId`, `bindingId`, `partsEnumeratorId`, `partsEnumeratorVersion`, `apiSchema`, `actSchema`, `port`) differs. The pending receipt names the `field` and both `expected` and `actual` values. Restore the original host configuration before reconciling. |
+| `JOB_HOST_REUSE_MISMATCH` | Until #700, opening a question or plan against a package-only job refuses. Finish and ingest its pending acts, explicitly run `job close`, then reopen with `--question <id>` or `--plan`. For other mismatches in the bound host tuple (`jobId`, `origin`, `listenerIncarnation`, `root`, `stateDir`, `fingerprint`, `reviewer.id`, `reviewer.role`, `readerId`, `bindingId`, `partsEnumeratorId`, `partsEnumeratorVersion`, `apiSchema`, `actSchema`, `port`), restore the original bound configuration, then run `job reconcile` for a pending publication or retry the intended command. Field-level pending receipts name the `field` and both `expected` and `actual` values. For a pin or hook bump, follow [job retirement](JOB-RETIREMENT.md). |
 | `JOB_PUBLICATION_STALE` | The pending version entry is missing or has a different entry hash. Restore that retained version and its files before reconciling. Later surrounding-record changes do not invalidate version publications. Exception: a record publication binds the whole project.json byte hash, so any record change while it is pending makes it stale; restore the bound record bytes before reconciling. The check preserves the receipt and names the HOLE. |
 | `JOB_PUBLICATION_INVALID` | A result, selector or retained file (including a declared rig/post or draft original painting `inputs[0]` and its PNG header) differs from the writer's recorded rig/post or draft, or a declared publication path violates Review's `jobPath` rule (empty, `.`, `..` or matching `[\\:%?#]`). Restore its declared package, source painting and direction bytes with literal project-relative paths. Missing/empty rig/post inputs keep no reference; an unreadable legacy original retains `INPUT_WRITER_MISSING` and no reference, as check does. |
 | `JOB_PUBLICATION_SCENE_MISSING` | An @2 post lacks its scene reference or the scene file is missing or unreadable; restore the direction.scene reference and retained scene bytes before publishing. |
 | `JOB_PUBLICATION_SCENE_CHANGED` | An @2 post scene differs from project.scenes, its path, document identity or recorded hash; restore the committed scene reference and bytes before publishing. |
 | `JOB_PUBLICATION_PLATE_MISSING` | An @2 post scene lacks a plate identity or a plate file is missing or unreadable; restore every declared plate before publishing. |
 | `JOB_PUBLICATION_PLATE_CHANGED` | An @2 post plate differs from its scene-recorded sha256; restore the retained plate bytes before publishing. |
-| `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed/unavailable, or a job command has invalid arguments. Restore effective private ignores and the writer-owned binding through `job open`. |
+| `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed, unavailable or mismatched, or a job command has invalid arguments. Restore effective private ignores. Restore the matching writer-owned binding through `job open`, then retry publication into the existing job. |
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
-| `JOB_ASK_PENDING` | A bound writer would publish into an open job that holds a pending owner ask with no ingested act for a different target. The message names the job, the pending ask and the remedy: give the verdict, run `job acts`, ingest with `review <n> --from-review <actId>`, run `job close`, then re-run. Refusal preserves `project.json` and the job state byte-identically. |
+| `JOB_ASK_PENDING` | A bound writer would publish a different target while the job has an owner ask with no ingested act. The message names the job and pending asks. Have the owner finish those asks, run `job acts` and ingest the acts with the printed commands, then retry the writer to publish into the existing job. Refusal preserves `project.json` and the job state byte-identically. |
 | `JOB_PUBLICATION_ASK_REQUIRED` | A bound version writer would replace an open publication with no owner ask. Keep the open page and use `job open` when the next review is ready. The refusal leaves the record and outbox unchanged. |
 | `JOB_ASK_REFUSED` | A publication is acknowledged, but Review refused the ask for one of its declared subjects. The message names each subject and Review's code. The publication is not pending. Restore the published record bytes and run `job open` to ask again. |
 | `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Record the draft with `draft-rig` or name a recorded draft. |
@@ -1681,9 +1681,9 @@ Register a retained set with `interview-options <question> <dir> --file <set>`.
 Then run `job open <dir> --reviewer <id> --role owner --question <question>`.
 For an eligible plan use the same command with `--plan` instead. These selectors
 are exclusive with each other, `--draft` and `--rig`; no pending question is
-selected implicitly. A package-only job from an earlier host must be closed
-with `job close` before opening its first record subject. Its exact stored
-package reuse identity is never silently upgraded.
+selected implicitly. Until #700, a package-only job refuses a switch to a
+record subject. Finish and ingest its pending acts, explicitly run
+`job close`, then reopen with `--question <question>` or `--plan`.
 
 Record asks seal `project.json`, their declared inputs and context evidence, and
 all files read by the shared decision-record check, without rechecking or sealing
@@ -1725,6 +1725,7 @@ using the same reader as publication ask reconciliation. It lists finalized
 acts absent from `project.json.review_acts` and signoff source identities,
 with their exact writer arguments/POSIX-quoted command. It never ingests, advances,
 creates a host or writes the project/binding/outbox. Empty lists succeed.
+Until #698 lands, ask the owner to tell the agent after submitting in Review.
 A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
 `job open`. The existing strict close attachment preserves stored identities.
 

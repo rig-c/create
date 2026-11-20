@@ -1,16 +1,48 @@
 # Writer-owned live review
 
-Open the standing owner window from a foreground terminal. Keep that command
-running while writers commit results. The reviewer identity is the trusted
-bootstrap identity used by Review.
+## The live Review loop
+
+1. Start `rig-create job open <project> --reviewer <id> --role owner` as a
+   background job. Add the selector for the first ask if it is ready. Keep the
+   first process running. The reviewer identity is Review's trusted bootstrap
+   identity.
+2. Give the owner the printed private URL once. Keep it private. A successful
+   open against the running host prints the same URL, including the same
+   persisted UI capability in its fragment.
+3. Publish each new draft, rig, post, question or plan with the matching
+   `job open` selector or a bound writer. Repeat the project, reviewer and role
+   on each open. A reused open publishes and exits while the original host
+   keeps serving. Have the owner leave the page open for live updates.
+4. Ask the owner to tell you after they submit in Review. Until
+   [#698](https://github.com/rig-c/create/issues/698) lands, `job acts` lists
+   finalized acts on demand and the owner has to tell the agent.
+5. Run `job acts` and ingest the matching act with its printed
+   `--from-review` command. Ingest the current owner asks before sending a new
+   target. Run `advance` if the stage requires it, then publish the next ask
+   into the same host.
+6. Use `job close` at the end, for an explicit act discard, or to retire the
+   host across a [pin or hook bump](JOB-RETIREMENT.md). If the process stops
+   while the job is active, run `job open` again in the background using the
+   same project, reviewer and role. It restores the same port and URL, then
+   run `job reconcile` before more writes. Share a new URL only after a close.
+
+Until [#700](https://github.com/rig-c/create/issues/700) lands, an existing
+package-only host refuses a switch to a question or plan with
+`JOB_HOST_REUSE_MISMATCH`. Finish and ingest its pending acts, close it
+explicitly, then reopen in the background with `--question <id>` or `--plan`
+and share the new job's URL.
+
+## Job commands
 
 ```sh
-rig-create job open <project> --reviewer <id> --role owner [--draft <id> | --rig <n> | --plan | --question <id>]
-rig-create job reconcile <project>
-rig-create job close <project>
+rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --question <question> | --plan]
+rig-create job acts [<dir>] [--json]
+rig-create job reconcile [<dir>]
+rig-create job close [<dir>] [--retire-refused]
+rig-create job close [<dir>] --discard-acts <reason> --by agent
+rig-create job close [<dir>] --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
 ```
 
-The open command prints the private owner-window URL. Keep it private.
 `--rig <n>` selects an already registered rig or post and its retained review package,
 including on a new job with an empty publication head. It accepts `1` or `v1`.
 The version, complete retained package inventory and compiled model are checked
@@ -54,7 +86,7 @@ when the job's head publication is already that draft (or an acknowledged `rig`
 or `post` version) over the current record,
 then `job: asked …` and `job: already asked …` with each subject. A `--draft` id
 the record does not hold refuses `JOB_DRAFT_UNKNOWN` before writing `review_job`. A refused publish or ask
-is printed while the foreground host keeps serving. The
+is printed while the background host keeps serving. The
 versioned `review_job` stores only `jobId` and `origin`. The host installs its
 fetch grant in the owner-only sibling `.rig-create-review-binding.json` and
 ensures it and the durable `.rig-create-review/` outbox are ignored before
@@ -65,7 +97,8 @@ minimal `.gitignore` append. Effective ignores are checked before writing.
 A tracked private path refuses startup. Agents invoke writers and never construct this file.
 Explicit close revokes the grant and removes the matching binding (see
 [Job retirement](JOB-RETIREMENT.md)). Listener shutdown alone preserves the
-active job. A new incarnation receives a new grant.
+active job. A listener restart updates the private binding's listener
+incarnation while retaining the active job's capabilities.
 
 Re-opening with an existing binding keeps its job. A running host is reused.
 A stopped host restarts on the same job, state directory and port, and the
@@ -123,6 +156,10 @@ When a bound draft is missing evidence for its owner ask, `draft-rig` records it
 and leaves the open page and outbox unchanged. Its text output identifies the
 missing evidence. Run the preparation moves shown by `next` and then
 `job open --draft <id>` to show the prepared draft in the same job.
+
+A bound writer that reports `JOB_ASK_PENDING` needs the owner to finish the
+current asks. Run `job acts`, ingest with the printed commands, then retry
+the writer to publish into the existing job.
 
 A bound version writer refuses with `JOB_PUBLICATION_ASK_REQUIRED` before
 committing if its candidate would replace an open page without an owner ask.
@@ -476,8 +513,8 @@ Prepare the first draft before asking for a verdict:
    `parts-review`. Do not wait for owner approval to enter the review stage.
 3. Publish the prepared draft with `job open --draft <id>`. The one owner ask
    is `parts-verdict`, and it is asked only at `parts-review`.
-4. List `job acts` and ingest its printed `parts-review --from-review <actId>`
-   writer command.
+4. Ask the owner to tell you after submitting the verdict. Run `job acts`
+   and ingest its printed `parts-review --from-review <actId>` writer command.
 
 Stay at `parts-review` throughout retouch rounds. A changes-requested verdict
 leaves the stage unsigned. The agent makes an `edited_parts` correction,

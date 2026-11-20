@@ -45,13 +45,6 @@ one input, survives restart and checks sibling artwork; optional on older record
    Ingest `review <post> --from-review <actId>`, then `job open --plan` for
    record-page sign-off (source-linked Review).
 
-Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
-ingest `--from-review <actId>`, then advance. With all owner picks ingested,
-complete the plan and follow `next` for `signoff <stage> --from-picks`.
-Keep the plan sign-off page for other answers.
-Keep the host up across bound writes; after a stop, `job open` with reviewer/role,
-then `job reconcile` before writing.
-
 Use `advance <stage>` and `step-status <id>` (`rig-create --help`).
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
 refusing {{PARTS_CHECK_LINK}}.
@@ -61,6 +54,27 @@ In `parts`, record an `intake-report` preflight and offer its choice, both advis
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
 An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig` ({{RETOUCH_HANDOFF_LINK}}).
 Preserve history/dates; adopt choices explicitly.
+
+**Live Review loop**
+
+1. Run the first `job open <dir> --reviewer <id> --role owner` in the
+   background. Include the first ask's selector if ready and give the owner
+   the private URL once.
+2. Keep the host up across bound writes. Publish with a bound writer or
+   repeat `job open` with the same reviewer/role and `--draft <id>`,
+   `--rig <n>`, `--question <id>` or `--plan`. Reuse prints the same URL
+   and exits. The open page updates in place.
+3. Until #698 lands, have the owner tell you after submitting in Review.
+   Run `job acts`, ingest with its printed `--from-review` command, advance
+   if needed and publish the next ask.
+4. Close at the end, for an explicit discard or for pin/hook retirement.
+   After a stop, run `job open` in the background with the same reviewer/role,
+   then `job reconcile`. Use the same link.
+
+Until #700, finish and ingest pending acts on a package-only job, explicitly
+close it and reopen with `--question <id>` or `--plan` to switch to record
+asks. Share a new URL after close.
+See [the live Review loop](https://github.com/rig-c/create/blob/main/docs/LIVE-REVIEW.md#the-live-review-loop).
 
 ## Before you ask, plan or show
 

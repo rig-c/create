@@ -2564,13 +2564,16 @@ the project's next moves and whose they are from `project.json`:
   - `producer`: a command of a pinned package (`rig-parts`, `rigc`).
   - `human`: a person's act collected through the review tool (`review_act`),
     with `command: null` and never a `--by user` writer.
-- **Host and ingest human acts.** For a recorded Review subject, the human
-  move is surrounded by `job open` with its question, plan, draft or rig
-  selector, `job acts --json`, the writer with `--from-review '<actId>'`, and
-  `job close`. `job open` hosts and blocks until `job close`; keep it running
-  in a separate terminal. Fill the reviewer and exported act placeholders,
-  and follow the matching `job acts` preconditions before ingestion, including
-  its structure snapshot guidance for parts-review sign-off. Moves marked
+- **Host and ingest human acts.** Start the first `job open` in the background
+  and share its private URL once. Later opens with a question, plan, draft or
+  rig selector publish into the running host and exit. Ask the owner to tell
+  you after submitting in Review until #698 lands. Run `job acts --json` and
+  follow the matching act's preconditions, including the structure snapshot
+  guidance for legacy parts-review sign-off. Fill the reviewer and exported act
+  placeholders and ingest with the printed `--from-review '<actId>'` command.
+  Advance if the stage requires it and keep the job open for the next ask.
+  See [the live Review loop](LIVE-REVIEW.md#the-live-review-loop) for recovery,
+  close and the package-only host transition pending #700. Moves marked
   `unanswered_by_record` retain their missing-field guidance.
 - **Scene writing does not plan work.** `scene write` adds no plan step.
   Author the post plan steps through `plan add` before post-interview sign-off.

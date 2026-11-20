@@ -201,6 +201,7 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const before = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion']);
   expect(again.exit, again.stderr).toBe(0);
+  expect(again.stdout.startsWith(opened.url.href + '\n')).toBe(true);
   expect(again.stdout).toContain('already published');
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   // Recover a lost consumer acknowledgement through the public reconcile command.
@@ -422,6 +423,27 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
     await unchanged(root, ['interview-options', question, root, '--file', path], 'INTERVIEW_CHOICE_REQUIRED');
   }
+  let ownerUrl: URL | undefined;
+  const publishNext = async (selector: string, id?: string): Promise<URL> => {
+    const next = await cli(root, ['next', root, '--json']);
+    expect(next.exit, next.stderr).toBe(0);
+    const commands = arr(obj(JSON.parse(next.stdout)).moves).map(move => obj(move).command);
+    const flags = id === undefined ? [selector] : [selector, id];
+    expect(commands).toContain(`rig-create job open ${root} ${flags.join(' ')} --reviewer '<reviewer>' --role owner`);
+    expect(commands).toContain(`rig-create job acts ${root} --json`);
+    expect(commands).not.toContain(`rig-create job close ${root}`);
+    if (!ownerUrl) {
+      ownerUrl = (await open(root, flags)).url;
+    } else {
+      const previous = readWriterBinding(root)!;
+      const attached = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...flags]);
+      expect(attached.exit, attached.stderr).toBe(0);
+      expect(attached.stdout.startsWith(ownerUrl.href + '\n')).toBe(true);
+      expect(readWriterBinding(root)).toMatchObject({ jobId: previous.jobId, origin: previous.origin });
+    }
+    return ownerUrl;
+  };
+  // The first page is a question while package-only hosts cannot switch modes (#700).
   for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
     const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-interview-options/example-' + question.replaceAll('_', '-') + '.json'), 'utf8')) as JsonObject;
     set.id = 'legacy-' + question;
@@ -432,8 +454,7 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
     const registered = await cli(root, ['interview-options', question, root, '--file', path]);
     expect(registered.exit, registered.stderr).toBe(0);
-    const opened = await open(root, ['--question', question]);
-    const owner = await page(root, opened.url, 1);
+    const owner = await page(root, await publishNext('--question', question), 1);
     const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
     const act = await owner.act('interview-picks', 'interview-picks', { questionId: question, selections, note: WORDS });
     const acts = await cli(root, ['job', 'acts', root]);
@@ -441,8 +462,7 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     const answer = await cli(root, ['interview-answer', question, root, '--from-review', String(act.actId)]);
     expect(answer.exit, answer.stderr).toBe(0);
   }
-  const opened = await open(root, ['--plan']);
-  const owner = await page(root, opened.url, 1);
+  const owner = await page(root, await publishNext('--plan'), 1);
   const act = await owner.act('signoff', 'signoff', { stage: 'post-interview', decision: 'approved', words: WORDS });
   const signed = await cli(root, ['signoff', 'post-interview', root, '--from-review', String(act.actId)]);
   expect(signed.exit, signed.stderr).toBe(0);

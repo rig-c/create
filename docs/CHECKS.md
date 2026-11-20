@@ -756,7 +756,7 @@ are unchanged. No prepared files are silently registered or repaired.
 | `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
-Contract dates (`DISCARD_ACT_ACTOR_SINCE`, `CG_BEHIND_SEAMS_SINCE`, `DEPTH_MAP_BINDING_SINCE`, `HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `FIGURE_MASK_MATTE_RECEIPT_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `RIG_PARTS_APPROVAL_SINCE`, `RIG_CHECK_REPORT_SINCE`, `DRAFT_STACK_BINDING_SINCE`, `DIRECTION_PATCH_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE`, `DRAFT_CONFIG_INPUTS_SINCE`, `EDITED_PART_INPUTS_SINCE`, `DIRECTION_REVIEW_ADVANCE_SINCE` and `REOPEN_RESTART_OWNER_CHAT_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
+Contract dates (`DISCARD_ACT_ACTOR_SINCE`, `CG_BEHIND_SEAMS_SINCE`, `DEPTH_MAP_BINDING_SINCE`, `HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `ASSEMBLE_CONFIG_MATCH_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `FIGURE_MASK_MATTE_RECEIPT_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `RIG_PARTS_APPROVAL_SINCE`, `RIG_CHECK_REPORT_SINCE`, `DRAFT_STACK_BINDING_SINCE`, `DIRECTION_PATCH_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE`, `DRAFT_CONFIG_INPUTS_SINCE`, `EDITED_PART_INPUTS_SINCE`, `DIRECTION_REVIEW_ADVANCE_SINCE` and `REOPEN_RESTART_OWNER_CHAT_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
 
 Exception for #117 (2026-11-06): `original_n` has no `*_SINCE` boundary because repo HQ counted zero consumer records with `pre_interview: true`, only the synthetic fixture being updated, and historical build dates cannot date a migration.
 
@@ -863,7 +863,11 @@ plain or busy, record its ask and value, and write `assemble.ground` into the
 config. The check reads `config.json` if present and retained rig-version
 configs via their provenance paths and hashes. Core and absent projection add
 no ground question or refusal. Unread retained files remain under the existing
-provenance checks. Answer/config mismatch is outside this check.
+provenance checks.
+
+| Code | Finding and remedy |
+| --- | --- |
+| `ASSEMBLE_CONFIG_ANSWER_MISMATCH` | A readable current or retained config differs from the decided projection or ground answer. Align the config with the recorded answer. Omitted fields take Parts defaults (`core` and `plain`). Pending and undecided answers are skipped. Refusal for answers dated at or after `ASSEMBLE_CONFIG_MATCH_SINCE` (2026-11-20T00:00:00Z), WARN for earlier or unreadable answer dates. |
 
 The resolved guide's own `at` controls `PROJECTION_ASKS_SINCE`,
 2026-11-06T00:00:00Z. Earlier or unreadable dates preserve the legacy contract

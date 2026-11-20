@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { PROJECTION_ASKS_SINCE } from '../src/assemble-answers.ts';
+import { ASSEMBLE_CONFIG_MATCH_SINCE, PROJECTION_ASKS_SINCE } from '../src/assemble-answers.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json } from '../src/templates.ts';
 import { arr, fixture, obj, version, waypoint } from './fixtures.ts';
@@ -19,7 +19,7 @@ function project(projectRule: string | undefined, ground?: Json, delegated = fal
       obj(obj(guide.agent_decision).value).ground = ground ?? null;
     } else if (ground !== undefined) obj(guide.value).ground = ground;
     if (ground !== undefined) arr(guide.asks).push({ id: 'ground', state: delegated ? 'delegated' : 'user' });
-  }, 'legacy-example-project.json', { 'config.json': JSON.stringify({ assemble: { ...(projectRule === undefined ? {} : { project: projectRule }) } }) });
+  }, 'legacy-example-project.json', { 'config.json': JSON.stringify({ assemble: { ...(projectRule === undefined ? {} : { project: projectRule }), ...(ground === 'plain' || ground === 'busy' ? { ground } : {}) } }) });
 }
 
 for (const ground of ['plain', 'busy']) {
@@ -133,4 +133,47 @@ test('projection coverage cannot substitute an array for the scalar choice', () 
     obj(obj(waypoint(p, 'assemble').guide).value).project = ['core'];
   });
   expect(checkProject(dir).refusals.map((f) => f.path)).toEqual(['signoffs[0].answer_hashes[assemble]', 'signoffs[1].answer_hashes[assemble]', 'interview.waypoints[assemble].guide.asks[projection]']);
+});
+
+const mismatch = 'ASSEMBLE_CONFIG_ANSWER_MISMATCH';
+
+for (const { config, fields } of [
+  { config: { project: 'visible', ground: 'busy' }, fields: [] },
+  { config: { project: 'core', ground: 'busy' }, fields: ['project'] },
+  { config: { project: 'visible', ground: 'plain' }, fields: ['ground'] },
+  { config: { project: 'visible' }, fields: ['ground'] },
+]) {
+  test(`decided assemble values are checked against ${JSON.stringify(config)}`, () => {
+    const dir = resignAfterChange(project('visible', 'busy', false, ASSEMBLE_CONFIG_MATCH_SINCE));
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ assemble: config }));
+    const report = checkProject(dir);
+    expect(report.refusals.filter(f => f.code === mismatch).map(f => f.path))
+      .toEqual(fields.map(field => `config.json assemble.${field}`));
+    expect(report.warnings.some(f => f.code === mismatch)).toBe(false);
+  });
+}
+
+test('a retained config mismatch warns for an answer before the boundary', () => {
+  const path = 'evidence/retained.json';
+  const bytes = JSON.stringify({ assemble: { project: 'visible' } });
+  const dir = fixture((p) => {
+    const guide = obj(waypoint(p, 'assemble').guide);
+    guide.at = new Date(Date.parse(ASSEMBLE_CONFIG_MATCH_SINCE) - 1).toISOString();
+    obj(version(p, 1).provenance).config = { path, sha256: createHash('sha256').update(bytes).digest('hex') };
+  }, 'legacy-example-project.json', { [path]: bytes });
+  const report = checkProject(dir);
+  expect(report.refusals.some(f => f.code === mismatch)).toBe(false);
+  const warnings = report.warnings.filter(f => f.code === mismatch);
+  expect(warnings.map(f => f.path)).toEqual(['versions[v1].provenance.config assemble.project']);
+  expect(warnings[0]?.message).toContain('evidence/retained.json: assemble.project is "visible", but the recorded assemble answer is "core"');
+});
+
+test('a pending projection ask skips the mismatch even when a value is present', () => {
+  const dir = fixture((p) => {
+    const guide = obj(waypoint(p, 'assemble').guide);
+    guide.at = ASSEMBLE_CONFIG_MATCH_SINCE;
+    obj(arr(guide.asks).find(raw => obj(raw).id === 'projection')).state = 'other-pending';
+  }, 'legacy-example-project.json', { 'config.json': '{"assemble":{"project":"visible"}}' });
+  const report = checkProject(dir);
+  expect([...report.refusals, ...report.warnings].some(f => f.code === mismatch)).toBe(false);
 });

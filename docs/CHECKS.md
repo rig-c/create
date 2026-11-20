@@ -752,9 +752,10 @@ are unchanged. No prepared files are silently registered or repaired.
 | `MATTE_RECEIPT_INVALID` | a declared `rig-parts-matte-receipt/1` receipt, painting, raw mask, or output is malformed, absent, or disagrees with its path or sha256 binding | restore the producer receipt and its files, then record them with `derived add --receipt` |
 | `EXTERNAL_RECEIPT_INVALID` | a declared `rig-parts-external-receipt/1` receipt is malformed, its kind differs from `mask`, or the receipt, painting or mask fails its path or sha256 binding | restore the producer receipt and its files, then record the painting as the sole `--source` and the mask as `--file` with `derived add --receipt`. Operation text is optional |
 | `PLATE_RECEIPT_MISSING` | a derived plate first registered by a retained scene on or after `PLATE_RECEIPT_SINCE` lacks a receipt | record the producer receipt with `derived add --receipt` |
-| `DERIVED_MALFORMED` | a prepared-input lacks operation, source path/hash, result path/hash, or a path escapes the project | use the prepared-input shape in PROJECT.md |
-| `DERIVED_FILE_UNREADABLE` | the source is absent or unreadable, or a present prepared result cannot be read | restore the named source or make the named result readable |
-| `DERIVED_FILE_CHANGED` | either file's bytes differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
+| `DERIVED_MALFORMED` | a prepared-input or run entry lacks required source, member or result path/hash fields, has unsorted/duplicate members, or a path escapes the project | use the prepared-input or run shape in PROJECT.md |
+| `DERIVED_RUN_MISSING_LAYERS` | a `--file` run folder or `kind: "run"` derived entry has no `layers.json` member | pass a See-through run folder containing `layers.json`, or restore `layers.json` before recording |
+| `DERIVED_FILE_UNREADABLE` | the source is absent or unreadable, or a present prepared result or run member cannot be read | restore the named source or make the named result or member readable |
+| `DERIVED_FILE_CHANGED` | a source, result or run member's bytes (or the run digest) differ from its recorded sha256 | restore the recorded bytes, or record the new preparation |
 | `AGENT_BOUNCE_MALFORMED` | a history entry dated on or after `AGENT_BOUNCE_SINCE` has a `bounce` other than `{ cause: "agent", failed, bar, replacement }` with non-empty text | write what failed, the bar, and its replacement |
 
 Contract dates (`DISCARD_ACT_ACTOR_SINCE`, `CG_BEHIND_SEAMS_SINCE`, `DEPTH_MAP_BINDING_SINCE`, `HEAD_TURN_SINCE`, `AGENT_BOUNCE_SINCE`, `ASK_COVERAGE_SINCE`, `DIFF_MAP_SINCE`, `DIFF_MAP_AGENT_SINCE`, `APPLIED_REVIEW_SINCE`, `PROJECTION_ASKS_SINCE`, `ASSEMBLE_CONFIG_MATCH_SINCE`, `SETUP_PAINTING_SINCE`, `FIGURE_MASK_SINCE`, `FIGURE_MASK_INPUTS_SINCE`, `FIGURE_MASK_MATTE_RECEIPT_SINCE`, `CHOICE_ANSWERS_SINCE`, `BUILD_IDENTITY_SINCE`, `PART_FILE_IDENTITY_SINCE`, `CONFIG_INPUTS_SINCE`, `DESCRIBED_DIRECTION_SINCE`, `SIGNOFF_TARGET_SINCE`, `SIGNOFF_PAIR_SINCE`, `SIGNOFF_ANSWERS_SINCE`, `STAGE_PROGRESS_SINCE`, `INPUT_WRITER_SINCE`, `DIRECTION_SCENE_SINCE`, `OVERRIDDEN_ANSWERS_SINCE`, `RUN_RECORD_SINCE`, `RIG_PARTS_APPROVAL_SINCE`, `RIG_CHECK_REPORT_SINCE`, `DRAFT_STACK_BINDING_SINCE`, `DIRECTION_PATCH_SINCE`, `PROGRESS_HISTORY_SINCE`, `SCENE_CONTEXT_SINCE`, `PARTS_CHECK_SINCE`, `PLATE_RECEIPT_SINCE`, `REVIEW_READ_SINCE`, `PARTS_VERDICT_DRAFT_SINCE`, `PARTS_VERDICT_LATEST_SINCE`, `PARTS_VERDICT_RECEIPT_SINCE`, `FIX_LEDGER_SINCE`, `DRAFT_CONFIG_INPUTS_SINCE`, `EDITED_PART_INPUTS_SINCE`, `DIRECTION_REVIEW_ADVANCE_SINCE` and `REOPEN_RESTART_OWNER_CHAT_SINCE`) are the day the change lands, at 00:00Z, so they are never in the future; a record made earlier that day is checked against pilot projects before the change lands.
@@ -773,7 +774,8 @@ independent of the parts-review stage boundary. Read the history entry's own
 
 `derived add` refuses before writing on `DERIVED_USAGE` (exit 2: missing or
 invalid arguments), `DERIVED_PATH_INVALID` (source and result not distinct
-project-relative files, or either is `project.json`), `DERIVED_FILE_UNREADABLE`, `DERIVED_MALFORMED` (a
+project-relative files, or either is `project.json`), `DERIVED_RUN_MISSING_LAYERS` (a
+`--file` folder lacks `layers.json`), `DERIVED_FILE_UNREADABLE`, `DERIVED_MALFORMED` (a
 non-array `derived`), `PROJECT_JSON_INVALID`, or `SCHEMA_UNKNOWN` (exit 1).
 
 `PLATE_RECEIPT_SINCE = 2026-11-08T00:00:00Z` uses the earliest retained scene registration with matching derived index, path and sha256. Input plates are excluded. Every declared receipt is verified regardless of date or scene registration. `scene write` runs the same project checker before committing.

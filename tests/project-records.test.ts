@@ -104,6 +104,114 @@ describe('prepared inputs recorded after external work', () => {
     expect(usage.stderr).toContain('DERIVED_USAGE');
     expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(original);
   });
+
+  test('derived add records a run folder entry with sorted members and reproducible digest, leaving single-file entries unchanged', () => {
+    const dir = fixture();
+    const before = read(dir);
+    const source = readFileSync(join(dir, 'inputs/preparation-source.svg'), 'utf8');
+    mkdirSync(join(dir, 'derived/seethrough-run/parts'), { recursive: true });
+    writeFileSync(join(dir, 'derived/seethrough-run/parts/b.png'), 'synthetic-part-b');
+    writeFileSync(join(dir, 'derived/seethrough-run/layers.json'), '{"layers":["a","b"]}\n');
+    writeFileSync(join(dir, 'derived/seethrough-run/parts/a.png'), 'synthetic-part-a');
+
+    const expectedMembers = [
+      { path: 'layers.json', sha256: sha('{"layers":["a","b"]}\n') },
+      { path: 'parts/a.png', sha256: sha('synthetic-part-a') },
+      { path: 'parts/b.png', sha256: sha('synthetic-part-b') },
+    ];
+    const expectedDigest = sha(expectedMembers.map((m) => `${m.path}\t${m.sha256}\n`).join(''));
+
+    const command = cli(['derived', 'add', dir, '--source', 'inputs/preparation-source.svg', '--file', 'derived/seethrough-run', '--operation', 'synthetic seethrough pass', '--json'], dir, gitEnv());
+    expect(command.code).toBe(0);
+    expect(command.stderr).toBe('');
+    expect(JSON.parse(command.stdout)).toEqual({
+      kind: 'run',
+      source: { path: 'inputs/preparation-source.svg', sha256: sha(source) },
+      path: 'derived/seethrough-run',
+      members: expectedMembers,
+      sha256: expectedDigest,
+      operation: 'synthetic seethrough pass',
+    });
+
+    const after = read(dir);
+    expect(after.derived.slice(0, -1)).toEqual(before.derived);
+    expect(after.derived[0]).toEqual(before.derived[0]);
+    expect(checkProject(dir).ok).toBe(true);
+
+    const dir2 = fixture();
+    mkdirSync(join(dir2, 'derived/seethrough-run/parts'), { recursive: true });
+    writeFileSync(join(dir2, 'derived/seethrough-run/layers.json'), '{"layers":["a","b"]}\n');
+    writeFileSync(join(dir2, 'derived/seethrough-run/parts/a.png'), 'synthetic-part-a');
+    writeFileSync(join(dir2, 'derived/seethrough-run/parts/b.png'), 'synthetic-part-b');
+    const second = cli(['derived', 'add', dir2, '--source', 'inputs/preparation-source.svg', '--file', 'derived/seethrough-run', '--json'], dir2, gitEnv());
+    expect(second.code).toBe(0);
+    expect(JSON.parse(second.stdout).sha256).toBe(expectedDigest);
+    expect(JSON.parse(second.stdout).members).toEqual(expectedMembers);
+  });
+
+  test('a run folder without layers.json is refused with DERIVED_RUN_MISSING_LAYERS and leaves project.json byte-identical', () => {
+    const dir = fixture();
+    mkdirSync(join(dir, 'derived/no-layers/parts'), { recursive: true });
+    writeFileSync(join(dir, 'derived/no-layers/parts/a.png'), 'synthetic-part-a');
+    writeFileSync(join(dir, 'derived/no-layers/parts/b.png'), 'synthetic-part-b');
+    const original = readFileSync(join(dir, 'project.json'), 'utf8');
+
+    const r = cli(['derived', 'add', dir, '--source', 'inputs/preparation-source.svg', '--file', 'derived/no-layers', '--operation', 'synthetic run'], dir, gitEnv());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('DERIVED_RUN_MISSING_LAYERS');
+    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(original);
+  });
+
+  test('a run whose source sits inside its own folder is refused by the writer and by check', () => {
+    const dir = fixture();
+    mkdirSync(join(dir, 'derived/self-run/parts'), { recursive: true });
+    writeFileSync(join(dir, 'derived/self-run/layers.json'), '{"layers":["a"]}\n');
+    writeFileSync(join(dir, 'derived/self-run/parts/a.png'), 'synthetic-part-a');
+    const original = readFileSync(join(dir, 'project.json'), 'utf8');
+    const r = cli(['derived', 'add', dir, '--source', 'derived/self-run/layers.json', '--file', 'derived/self-run', '--operation', 'synthetic run'], dir, gitEnv());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('DERIVED_PATH_INVALID');
+    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(original);
+
+    const ok = cli(['derived', 'add', dir, '--source', 'inputs/preparation-source.svg', '--file', 'derived/self-run', '--operation', 'synthetic run'], dir, gitEnv());
+    expect(ok.code).toBe(0);
+    const project = read(dir);
+    const entry = project.derived[project.derived.length - 1];
+    entry.source = { path: 'derived/self-run/layers.json', sha256: entry.members.find((m: { path: string }) => m.path === 'layers.json').sha256 };
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('DERIVED_MALFORMED');
+  });
+
+  test('changing one run member bytes causes check to refuse with DERIVED_FILE_CHANGED and the member path', () => {
+    const dir = fixture();
+    mkdirSync(join(dir, 'derived/seethrough-run/parts'), { recursive: true });
+    writeFileSync(join(dir, 'derived/seethrough-run/layers.json'), '{"layers":["a","b"]}\n');
+    writeFileSync(join(dir, 'derived/seethrough-run/parts/a.png'), 'synthetic-part-a');
+    writeFileSync(join(dir, 'derived/seethrough-run/parts/b.png'), 'synthetic-part-b');
+    const add = cli(['derived', 'add', dir, '--source', 'inputs/preparation-source.svg', '--file', 'derived/seethrough-run', '--operation', 'synthetic seethrough pass'], dir, gitEnv());
+    expect(add.code).toBe(0);
+    const index = read(dir).derived.length - 1;
+
+    writeFileSync(join(dir, 'derived/seethrough-run/parts/a.png'), 'tampered-part-a');
+    const r = checkProject(dir);
+    expect(r.ok).toBe(false);
+    const findings = withCode(r, 'DERIVED_FILE_CHANGED');
+    expect(findings.map((f) => f.path)).toEqual([`derived[${index}].members[1].sha256`]);
+    expect(findings[0]?.message).toContain('derived/seethrough-run/parts/a.png');
+    expect(findings[0]?.message).toContain('parts/a.png');
+
+    rmSync(join(dir, 'derived/seethrough-run/parts/b.png'));
+    const missingMember = checkProject(dir);
+    expect(withCode(missingMember, 'DERIVED_FILE_UNREADABLE').map((f) => f.path)).toEqual([`derived[${index}].members[2].path`]);
+    expect(withCode(missingMember, 'DERIVED_FILE_UNREADABLE')[0]?.message).toContain('derived/seethrough-run/parts/b.png');
+
+    rmSync(join(dir, 'derived/seethrough-run'), { recursive: true });
+    const missingFolder = checkProject(dir);
+    expect(missingFolder.ok).toBe(true);
+    const warnings = missingFolder.warnings.filter((w) => w.code === 'DERIVED_RESULT_MISSING' && w.path === `derived[${index}].path`);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toContain('derived/seethrough-run');
+  });
 });
 
 describe('agent-found bounces in guide history', () => {

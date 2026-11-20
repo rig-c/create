@@ -6,7 +6,6 @@ import { sceneCommand } from '../src/scene-writers.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import { splitCaptions } from '../src/split-captions.ts';
 import { generatorArgs } from './generator-args.ts';
-import { writeExampleReopened } from './generate-example-reopened.ts';
 import { exampleTime, retimeExample } from './example-time.ts';
 import { generateExampleDraft } from './generate-example-draft.ts';
 import { checkExampleParts, generateExampleParts } from './generate-example-parts.ts';
@@ -289,6 +288,5 @@ if (import.meta.main) {
   const captionsFile = join(root, 'example-split/captions.json');
   if (check) { if (readFileSync(captionsFile, 'utf8') !== captions) throw new Error('example captions differ'); }
   else writeFileSync(captionsFile, captions);
-  writeExampleReopened(join(resolve(destination), 'reopened'), check);
   console.log('new-order example and draft identities reproduce through the writers; 0 refusals, 0 warnings');
 }

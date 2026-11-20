@@ -2,12 +2,11 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { Refusal } from '../src/refusal.ts';
 import { PROGRESS_HISTORY_SINCE } from '../src/stage-progress.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
-import { advanceCommand, checkProject, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, arr, fixture, obj, retimeFixture } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
+import { advanceCommand, checkProject, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
 const CODE = 'REOPEN_STEP_UNLINKED';
@@ -16,20 +15,13 @@ const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir,
 function words(dir: string): string { const path = join(dir, 'words.txt'); writeFileSync(path, 'Move the synthetic project.\n'); return path; }
 const findings = (dir: string, list: 'refusals' | 'warnings'): string[][] => checkProject(dir)[list].map(f => [f.code, f.path]);
 const unlinked = (dir: string, list: 'refusals' | 'warnings'): string[][] => findings(dir, list).filter(([code]) => code!.endsWith('_UNLINKED'));
-function refused(dir: string, code: string, action: () => unknown): void {
-  const before = readFileSync(join(dir, 'project.json'));
-  try { action(); throw new Error(`expected ${code}`); } catch (error) {
-    expect(error).toBeInstanceOf(Refusal); expect((error as Refusal).code).toBe(code);
-  }
-  expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-}
 
 let clock = 0;
 /** Each writer call runs one minute after the last, so every new record is ordered in time. */
 function at(instant: number): void { clock = instant; testClock.set(clock); }
 function tick(): void { at(clock + 60_000); }
 const status = (dir: string, id: string, value: string): void => { tick(); stepStatusCommand([id, value, dir, '--by', 'agent']); };
-const reopen = (dir: string, stage: string): void => { tick(); reopenCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]); };
+const reopen = (dir: string, stage: string): void => { tick(); plantLegacyReopen(dir, stage, { by: 'owner', wordsFile: words(dir) }); };
 
 /** A writer-built example-chain prefix: its rig steps are done with no status history. */
 function rigReview(start: number): string {
@@ -66,7 +58,7 @@ const SINCE = Date.parse(PROGRESS_HISTORY_SINCE);
 /** What a reopen to post voids on the filled example (#220): the direction-review sign-off and acceptance. */
 const POST_LAPSES = [['REOPEN_SIGNOFF_LAPSED', 'signoffs[10]'], ['REOPEN_VERDICT_LAPSED', 'versions[v4].verdicts[0]']];
 
-test('writer-only round trip on the generated example: reopen, step-status chain, reopen, check lists only the lapsed approvals', () => {
+test('historical reopen snapshots and a step-status chain preserve the exact lapsed approvals', () => {
   const dir = fixture(() => {}, 'example-project.json');
   expect(read(dir).stage).toBe('accepted');
   expect(findings(dir, 'refusals')).toEqual([]);
@@ -142,15 +134,16 @@ test('a step whose history is malformed is skipped; its shape error keeps its ow
   expect(findings(dir, 'refusals').map(([code]) => code)).toContain('STEP_STATUS_TRANSITION');
 });
 
-// The reopen writer copies the current status, so a hand-set status reaches steps_before.
-test('the reopen writer refuses to carry a hand-set status dated from the cutoff into steps_before', () => {
+test('the checker refuses a historical snapshot of a hand-set status dated from the cutoff', () => {
   const dir = parts(NOW);
   status(dir, 'seethrough', 'in-progress');
   handSet(dir, 'seethrough', 'at-checkpoint');
   expect(unlinked(dir, 'refusals')).toEqual([['STEP_STATUS_UNLINKED', 'plan.steps[seethrough].status']]);
-  refused(dir, CODE, () => reopen(dir, 'parts'));
-  handSet(dir, 'seethrough', 'in-progress');
   reopen(dir, 'parts');
+  const project = read(dir);
+  expect(unlinked(dir, 'refusals')).toEqual([[CODE, beforePath(project, 'seethrough')]]);
+  before(project, 'seethrough').status = 'in-progress';
+  save(dir, project);
   expect(findings(dir, 'refusals')).toEqual([]);
 });
 

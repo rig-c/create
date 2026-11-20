@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
 import { DIRECTION_REVIEW_ADVANCE_SINCE, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
+import { tempDir } from './helpers.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
-import { checkProject, advanceCommand, stepStatusCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, arr, bindFixtureAnswers, fixture, obj, rehashSignoffs, retimeFixture, step } from './fixtures.ts';
+import { checkProject, advanceCommand, stepStatusCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const codes = (dir: string): string[] => checkProject(dir).refusals.map(f => f.code);
@@ -35,7 +35,7 @@ function riggingProject(empty = false): string {
   testClock.set(new Date('2026-11-06T23:59:00Z'));
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), dir, { recursive: true });
-  reopenCommand(['rigging-interview', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
+  plantLegacyReopen(dir, 'rigging-interview', { by: 'owner', wordsFile: words(dir) });
   if (empty) {
     const p = read(dir);
     obj(p.plan).steps = arr(obj(p.plan).steps).filter(raw => obj(raw).phase !== 'rig' || ['assemble', 'seethrough'].includes(String(obj(raw).id)));
@@ -73,7 +73,7 @@ test.each(['plan-approved', 'interview'])('review pre-parts checkpoint history s
   status(dir, 'assemble', 'in-progress'); status(dir, 'assemble', 'at-checkpoint'); status(dir, 'assemble', 'done');
   const history = structuredClone(step(read(dir), 'assemble').status_history);
   testClock.set(new Date('2026-11-21T00:00:00Z'));
-  reopenCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
+  plantLegacyReopen(dir, stage, { by: 'owner', wordsFile: words(dir) });
   expect(codes(dir)).toEqual([]);
   expect(step(read(dir), 'assemble').status_history).toEqual(history);
   const malformed = read(dir);
@@ -135,7 +135,7 @@ test('review a new writer cannot bypass unfinished post with a legacy frontier',
   const dir = join(tempDir(), 'project');
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), dir, { recursive: true });
   testClock.set(new Date('2026-11-06T23:59:00Z'));
-  reopenCommand(['post', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
+  plantLegacyReopen(dir, 'post', { by: 'owner', wordsFile: words(dir) });
   expect(step(read(dir), 'camera').status).toBe('pending');
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   unchangedRefusal(dir, 'STAGE_SKIPPED', () => advance(dir, 'direction-review'));
@@ -152,7 +152,7 @@ test('review a fresh project remains green at the initial stage', () => {
 test('review latest reopen is green and a different hand-set stage is refused', () => {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
-  reopenCommand(['post-interview', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
+  plantLegacyReopen(dir, 'post-interview', { by: 'owner', wordsFile: words(dir) });
   expect(codes(dir)).toEqual([]);
   const p = read(dir); p.stage = 'rig-review';
   writeFileSync(join(dir, 'project.json'), JSON.stringify(p));
@@ -360,7 +360,7 @@ test('review a hand move after a post-contract advance is refused although its a
 test('review a hand move after a post-contract reopen is refused although its arrival sign-off is older', () => {
   const dir = checkpoint('3-rig-review');
   testClock.set(new Date('2026-11-20T00:00:00Z'));
-  reopenCommand(['rigging-interview', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
+  plantLegacyReopen(dir, 'rigging-interview', { by: 'owner', wordsFile: words(dir) });
   hand(dir, 'rig-review');
   expect(progress(dir)).toEqual({ refusals: ['STAGE_SKIPPED'], warnings: ['STAGE_SKIPPED'] });
 });

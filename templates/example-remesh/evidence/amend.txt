@@ -1,0 +1,1 @@
+Remesh the synthetic torso at a finer grid.

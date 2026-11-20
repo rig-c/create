@@ -109,7 +109,7 @@ export interface NextCollectionReport {
 }
 
 export interface NextReviewAct {
-  kind: 'parts-verdict' | 'interview-picks' | 'review-verdict' | 'signoff' | 'signoff-checkpoint' | 'reopen';
+  kind: 'parts-verdict' | 'interview-picks' | 'review-verdict' | 'signoff' | 'signoff-checkpoint';
   stage: string;
   draft_id?: string;
   question_id?: string;
@@ -347,10 +347,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   if (move.role !== 'human' || move.unanswered_by_record || move.field === 'pauses' || !act) return [move];
   let selector: string;
   let writer: string;
-  if (act.kind === 'reopen') {
-    selector = '--plan';
-    writer = `reopen ${act.stage}`;
-  } else if (act.kind === 'interview-picks' && act.question_id) {
+  if (act.kind === 'interview-picks' && act.question_id) {
     selector = `--question ${shellWord(act.question_id)}`;
     writer = `interview-answer ${shellWord(act.question_id)}`;
   } else if (act.kind === 'signoff' && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(act.stage)) {
@@ -1187,14 +1184,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 
     for (const [kind, refs] of groups) {
       if (kind === 'post') {
-        // Match the direction writer's authoring gate, including earlier
-        // accepted verdicts that a later bounce does not itself reopen.
+        // Earlier acceptance still closes authoring after a bounce.
         if (directionReviewClosed(project)) {
-          const target = 'reopens[stage=direction-review]';
+          const target = 'amendments[target.stage=direction-review]';
           addAwait(target);
-          moves.push({ role: 'human', field: 'reopens', awaits: target,
-            command: null, review_act: { kind: 'reopen', stage: 'direction-review' },
-            act: 'reopen direction-review in Review, then ingest the exported reopen act before writing the replacement post' });
+          moves.push({ role: 'human', field: 'amendments', awaits: target,
+            command: `rig-create amend direction-review ${shellWord(dir)} --kind '<kind>' --target '<artifact id>' --change '<project-relative file>' --by '<human>' --verbatim-file '<words file>'`,
+            act: 'record the human amendment and its changed artifact before writing the replacement post' });
           continue;
         }
       }
@@ -1779,7 +1775,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           field: 'versions',
           awaits: nextRigField,
           command: `rig-create rig-version ${nextRigN} ${shellWord(dir)} ${RIG_VERSION_INPUTS.replace(/<[^>]+>/g, shellWord)}`,
-          act: `register a new rig version built after the reopen with rig-version ${nextRigN}, then publish it for one verdict`,
+          act: `register a new rig version built after the reopen or amendment with rig-version ${nextRigN}, then publish it for one verdict`,
         });
       } else if (rigN === null) {
         const verdictAwait = 'versions[kind=rig].verdicts[review=rig-review]';

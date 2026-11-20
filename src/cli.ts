@@ -25,7 +25,6 @@ import { COLLECTION_HELP, collectionCommand } from './pins-check.ts';
 import { Refusal, formatRefusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { REVIEW_HELP, reviewCommand } from './feedback.ts';
 import { PROGRESS_HELP, advanceCommand, stepStatusCommand } from './progress-writers.ts';
-import { REOPEN_HELP, reopenCommand } from './reopen.ts';
 import { PAUSE_HELP, pauseCommand, resumeCommand } from './pause.ts';
 import { AMEND_HELP, amendCommand } from './amend.ts';
 import { SIGNOFF_HELP, signoffCommand } from './signoff.ts';
@@ -89,9 +88,6 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     move to the next stage authorized by a live signoff
   rig-create step-status <step> <status> --by <who> [<project dir>] [--note-file <path>]
                                                     record an audited forward step status
-  rig-create reopen <stage> [<project dir>] --from-review <actId>
-  rig-create reopen <stage> [<project dir>] --by <who> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
-                                                    record a human backward move without deleting history
   rig-create pause --by <who> [--verbatim-file <file>] [<project dir>]
                                                     stop work on a paused sign-off and record the stage it left
   rig-create resume <stage> --by <who> [--verbatim-file <file>] [<project dir>]
@@ -166,8 +162,6 @@ ${PLAN_HELP}
 ${CHECKPOINT_EVIDENCE_HELP}
 
 ${PROGRESS_HELP}
-
-${REOPEN_HELP}
 
 ${PAUSE_HELP}
 
@@ -275,7 +269,6 @@ const COMMANDS: Record<string, Command> = {
   plan: planCommand,
   'checkpoint-evidence': checkpointEvidenceCommand,
   'checkpoint-table': checkpointTableCommand,
-  reopen: reopenCommand,
   pause: pauseCommand,
   resume: resumeCommand,
   advance: advanceCommand,

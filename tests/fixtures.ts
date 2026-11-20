@@ -7,6 +7,7 @@ import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { asArray, collectItems, isObject, loadCollection, postNotPassed } from '../src/check.ts';
 import { acceptedReviewVerdict } from '../src/review.ts';
 import { outputsHash, reviewPackageHash } from '../src/signoff-target.ts';
+import { OWNER_CHAT_SOURCE } from '../src/owner-chat.ts';
 /**
  * Project fixtures for `interview --check` tests: the filled example (or any
  * template) written to a fresh folder under the OS temp dir, mutated in place
@@ -18,15 +19,33 @@ import { dirname, join } from 'node:path';
 import type { CheckReport } from '../src/check.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
+import { tempDir } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { EXAMPLE_PARTS_CHECK, newOrderExampleFiles } from './draft-fixture.ts';
 import { partsCheckBytes, withPartsCheck } from './parts-check-fixture.ts';
 import { preparedExampleFiles } from './prepared-fixture.ts';
 import { alignLegacyBuilds, materializeLegacyPartPackages, reviewExampleFiles } from './review-fixture.ts';
-import { reopenCommand, advanceCommand, signoffCommand, checkProject, testClock } from './clock.ts';
+import { advanceCommand, signoffCommand, checkProject, testClock } from './clock.ts';
 
 export type Mutate = (project: JsonObject) => void;
+
+/** Plant the persisted state of a historical reopen for an existing fixture. */
+export function plantLegacyReopen(dir: string, stage: string,
+  { by = 'owner', wordsFile, at = testClock.iso() }: { by?: string; wordsFile?: string; at?: string } = {}): void {
+  const file = join(dir, 'project.json');
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  const affected = arr(obj(project.plan).steps).filter(isObject).filter(step =>
+    stageIndex(stageOfStep(step.phase as 'rig' | 'post', String(step.id))) >= stageIndex(stage));
+  const stepsBefore = affected.map(step => ({ id: step.id!, status: step.status }));
+  project.reopens = [...arr(project.reopens ?? []), {
+    stage, from_stage: project.stage!, by, at,
+    verbatim: wordsFile === undefined ? 'Revisit the synthetic stage.\n' : readFileSync(wordsFile, 'utf8'),
+    source: OWNER_CHAT_SOURCE, said_at: at, relayed_by: 'synthetic-relay', steps_before: stepsBefore,
+  }];
+  for (const step of affected) step.status = 'pending';
+  project.stage = stage;
+  writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
+}
 
 /**
  * What a reopen of the filled example to parts-review voids (#220), as [code, path]: the latest
@@ -54,12 +73,12 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   const legacyFiles = template === 'legacy-example-project.json'
     ? { ...preparedExampleFiles(), ...reviewExampleFiles(), ...partsPackage({ verdict: EXAMPLE_VERDICT }).files, [EXAMPLE_PARTS_CHECK]: partsCheckBytes() } : null;
   if (legacyFiles) files = { ...legacyFiles, ...suppliedFiles };
-  if (template === 'example-project.json' || template === 'example-reopened/project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
+  if (template === 'example-project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
   const project = readTemplate(template);
   // Keep the synthetic legacy cohort before scene adoption. Preserve the sealed raw template.
   if (template === 'legacy-example-project.json' && !rawLegacy) retimeFixture(project, Date.parse(DIRECTION_SCENE_SINCE), false);
-  if (['legacy-example-project.json', 'example-project.json', 'example-reopened/project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
+  if (['legacy-example-project.json', 'example-project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);
   if (legacyFiles && !rawLegacy && bindAnswers) {
     materializeLegacyPartPackages(dir, project, legacyFiles);
     files = { ...legacyFiles, ...suppliedFiles };
@@ -342,7 +361,7 @@ export function resignAfterChange(dir: string, eventAt = '2030-01-01T00:00:00Z')
       if (!ids) continue;
       if (!ids.size && stage !== 'post-interview') {
         testClock.set(new Date(at + tick++));
-        reopenCommand([stage, dir, '--by', 'user', ...ownerChatArgs(words)]);
+        plantLegacyReopen(dir, stage, { by: 'user', wordsFile: words });
         const phase = stage === 'post-interview' ? 'post' : 'rig';
         for (const step of steps) {
           if (step.phase === phase && approvalStageOfStep(phase, String(step.id), hasStageOrder(before)) === stage) ids.add(String(step.id));

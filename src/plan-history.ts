@@ -72,7 +72,7 @@ export function checkReplacedSignoffs(project: JsonObject, entries: JsonObject[]
       if (isObject(hashes) && allowed.some(step => stepHash(step) === hashes[id])) continue;
       const path = `signoffs[${signature.index}].step_hashes[${id}]`;
       refusals.push({ code: 'PLAN_REPLACED_SIGNOFF', path,
-        message: `${path}: does not match ${live ? 'the current step' : 'a current or retained previous step'}; restore the signed step and its replacement history, or reopen the live approval before replanning` });
+        message: `${path}: does not match ${live ? 'the current step' : 'a current or retained previous step'}; restore the signed step and its replacement history, or record a human amendment before replanning` });
     }
   }
 }

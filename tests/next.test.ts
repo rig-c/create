@@ -6,13 +6,11 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import type { ActV3, JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
-import { reopenCommand as ingestReopen } from '../src/reopen.ts';
-import { exportedReopen } from './reopen-act-fixture.ts';
 import { checkProject } from '../src/check.ts';
 import { openCreateJob } from '../src/job-host.ts';
 import { readRecordPublished } from '../src/job-publication.ts';
 import { stageIndex } from '../src/stages.ts';
-import { JOB_BINDING_FILE, jobHostStateRoot } from '../src/job-outbox.ts';
+import { jobHostStateRoot } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { baselineOf, newFindings } from '../src/refusal-baseline.ts';
 import { partsStructureSnapshot, pendingJobActs } from '../src/job-acts.ts';
@@ -22,9 +20,9 @@ import { optionContext } from '../src/choices.ts';
 import { NEXT_SCHEMA, nextCommand, nextProject, type NextReport } from '../src/next.ts';
 import { Refusal, USAGE_EXIT } from '../src/refusal.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { planCommand, stepStatusCommand, amendCommand, reopenCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
-import { arr, fixture, obj, retimeFixture, retainSignoffs } from './fixtures.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
+import { planCommand, stepStatusCommand, amendCommand, reviewCommand, signoffCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, arr, fixture, obj, retimeFixture, retainSignoffs } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { latestPartsVerdictStatus } from '../src/parts-verdict-record.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
@@ -487,7 +485,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     writeFileSync(words, 'Reopen the synthetic project to parts.\n');
     const reopenAt = Date.parse('2026-11-06T02:00:00Z');
     testClock.set(new Date(reopenAt));
-    reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(words)]);
+    plantLegacyReopen(dir, 'parts', { by: 'owner', wordsFile: words });
 
     const report = nextProject(dir, reopenAt);
     expect(report.refusals).toEqual([]);
@@ -507,13 +505,14 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       expect(move.act).toContain(move.lapse!.code);
     }
 
-    // Also verify example-remesh (which is reopened to parts-review).
+    // The remesh example retains its accepted stage while resuming at parts-review.
     const remeshReport = nextProject(REMESH_DIR, CHAIN_NOW);
-    const remeshLapses = remeshReport.moves.filter(m => m.lapse !== undefined && !m.command?.includes('--owner-chat'));
+    expect(remeshReport).toMatchObject({ refusals: [], stage: 'accepted', effective_stage: 'parts-review' });
+    const remeshLapses = remeshReport.moves.filter(m => m.lapse?.code === 'AMENDED_STEP');
     expect(remeshLapses.length).toBeGreaterThan(0);
     for (const move of remeshLapses) {
       expect(move.role).toBe('human');
-      expect(move.field).toBe('reopens[0]');
+      expect(move.field).toBe('amendments[0]');
       expect(move.command).toBeNull();
     }
 
@@ -781,7 +780,7 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     }
   });
 
-  test('plant 6 (human bounce): rig and direction reviews name the agent rebuild instead of stale human acts', async () => {
+  test('#674 bounced accepted post routes through amend before the rebuild, and a rig bounce still routes to the agent', () => {
     // rig-review: accepted followed by changes-requested
     const rigDir = join(tempDir(), 'rig-withdrawn');
     cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), rigDir, { recursive: true });
@@ -945,32 +944,27 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
       'camera_depth:user',
     ]);
 
-    const beforeReopen = readFileSync(join(postDir, 'project.json'));
+    const beforeAmend = readFileSync(join(postDir, 'project.json'));
     const closedReport = nextProject(postDir, CHAIN_NOW + 2000);
-    expect(closedReport.moves).toHaveLength(5);
-    expect(closedReport.moves.find(move => move.role === 'human')).toMatchObject({ field: 'reopens', awaits: 'reopens[stage=direction-review]',
-      review_act: { kind: 'reopen', stage: 'direction-review' }, command: null });
-    const commands = closedReport.moves.filter(move => move.role === 'agent').map(move => move.command!);
-    expect(commands).toEqual([
-      `rig-create job open ${postDir} --plan --reviewer '<reviewer>' --role owner`,
-      `rig-create job acts ${postDir} --json`,
-      `rig-create reopen direction-review ${postDir} --from-review '<actId>'`,
-      `rig-create job close ${postDir}`,
-    ]);
-    expect(JSON.stringify(closedReport)).not.toContain('Until create#493');
+    const amendment = closedReport.moves.find(move => move.command?.startsWith('rig-create amend direction-review '))!;
+    expect(amendment).toMatchObject({ role: 'human', field: 'amendments', awaits: 'amendments[target.stage=direction-review]' });
+    expect(amendment.review_act).toBeUndefined();
+    expect(closedReport.moves.some(move => move.command?.startsWith('rig-create reopen '))).toBe(false);
     expect(closedReport.moves.some(move => move.command?.includes('direction write'))).toBe(false);
-    expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeReopen);
-    const exported = await exportedReopen(postDir, 'direction-review', CHAIN_NOW + 3000);
-    const reopenArgs = printedArgs(commands[2]!).slice(2).map(arg => arg === '<actId>' ? exported.act.actId : arg);
-    const previousCwd = process.cwd();
-    try {
-      process.chdir(tempDir());
-      expect(ingestReopen(reopenArgs, CHAIN_NOW + 3000, { fetch: () => ({ bytes: exported.bytes }) }).exit).toBe(0);
-    } finally { process.chdir(previousCwd); }
-    const reopened = JSON.parse(readFileSync(join(postDir, 'project.json'), 'utf8')) as JsonObject;
-    // The unit fixture's injected read grant has no host; model the printed job close before the next writer.
-    rmSync(join(postDir, JOB_BINDING_FILE));
-    expect(obj(arr(reopened.reopens).at(-1))).toMatchObject({ by: exported.act.authority.reviewer.id, verbatim: exported.act.value.words, source: `review act ${exported.act.jobId}/${exported.act.actId}` });
+    expect(readFileSync(join(postDir, 'project.json'))).toEqual(beforeAmend);
+
+    const beforeProject = JSON.parse(beforeAmend.toString('utf8')) as JsonObject;
+    const values: Record<string, string> = {
+      '<kind>': 'motion-track', '<artifact id>': 'camera', '<project-relative file>': 'evidence/direction-input.json',
+      '<human>': 'user', '<words file>': postBounceWords,
+    };
+    const amendArgs = printedArgs(amendment.command!).slice(1).map(arg => values[arg] ?? arg);
+    expect(amendArgs.slice(0, 3)).toEqual(['amend', 'direction-review', postDir]);
+    expect(runMainCapture(amendArgs, CHAIN_NOW + 3000)).toMatchObject({ code: 0, stderr: '' });
+    const amended = JSON.parse(readFileSync(join(postDir, 'project.json'), 'utf8')) as JsonObject;
+    expect(amended.stage).toBe(beforeProject.stage!);
+    expect(amended.reopens).toEqual(beforeProject.reopens);
+    expect(obj(arr(amended.amendments).at(-1))).toMatchObject({ by: 'user', target: { stage: 'direction-review', kind: 'motion-track', id: 'camera' } });
     expect(checkProject(postDir, undefined, { now: CHAIN_NOW + 3000, readOnly: true }).warnings.map(row => row.code)).toContain('FEEDBACK_OPEN');
     const postReport = nextProject(postDir, CHAIN_NOW + 3000);
     expect(postReport.moves).toHaveLength(1);
@@ -1309,7 +1303,6 @@ test('#478 answered rigging guides request plan steps before the publishable sig
     result: { kind: 'plan' }, phase: 'inventory' }, CHAIN_NOW);
   expect(context.subjects).toEqual([
     { kind: 'signoff', stage: 'rigging-interview' },
-    ...['interview', 'plan-approved', 'parts', 'parts-review', 'rigging-interview'].map(stage => ({ kind: 'reopen' as const, stage })),
   ]);
 });
 
@@ -2110,7 +2103,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   const reopenWords = join(dir, 'reopen-words.txt');
   writeFileSync(reopenWords, 'Reopen rig-review to rebuild the synthetic rig.\n');
   testClock.set(new Date(reopenAt));
-  reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(reopenWords)]);
+  plantLegacyReopen(dir, 'rig-review', { by: 'owner', wordsFile: reopenWords });
 
   // Attempting to sign rig-review on the history acceptance refuses with RIG_VERSION_UNACCEPTED and leaves project.json byte-identical.
   const beforeRefusedSign = readFileSync(file);
@@ -2320,7 +2313,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
 
   const reopen2At = acceptAt + 6000;
   testClock.set(new Date(reopen2At));
-  reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(reopenWords)]);
+  plantLegacyReopen(dir, 'rig-review', { by: 'owner', wordsFile: reopenWords });
 
   const v5At = reopen2At + 1000;
   registerRig(5, new Date(v5At).toISOString(), v5At);
@@ -2524,7 +2517,7 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
   // Reopen parts-review, then draft-rig <id>, structure-snapshot --draft <id>, and diff-classes with a triage file.
   const reopenAt = CHAIN_NOW + 3000;
   testClock.set(new Date(reopenAt));
-  reopenCommand(['parts-review', dir, '--by', 'user', ...ownerChatArgs(words)]);
+  plantLegacyReopen(dir, 'parts-review', { by: 'user', wordsFile: words });
 
   const draftId = 'chain-reopened';
   cpSync(join(dir, 'derived/drafts/chain'), join(dir, `derived/drafts/${draftId}`), { recursive: true });
@@ -2621,7 +2614,7 @@ test('#656 after a reopen to rigging-interview with a lapsed post-interview sign
   writeFileSync(words, 'Reopen to rigging-interview.\n');
   const reopenAt = Date.parse('2026-11-06T02:00:00Z');
   testClock.set(new Date(reopenAt));
-  reopenCommand(['rigging-interview', dir, '--by', 'owner', ...ownerChatArgs(words)]);
+  plantLegacyReopen(dir, 'rigging-interview', { by: 'owner', wordsFile: words });
 
   const report = nextProject(dir, reopenAt);
   expect(report.stage).toBe('rigging-interview');

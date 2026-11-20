@@ -74,7 +74,7 @@ export interface PendingJobAct {
   args: string[] | null;
   command: string | null;
   preconditions?: { command: string | null; act: string }[];
-  unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE'; message: string };
+  unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' | 'REOPEN_ACT_RETIRED'; message: string };
 }
 
 export function shellWord(value: string): string {
@@ -102,7 +102,7 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
   const ingested = new Set(asArray(project.review_acts).filter(isObject).map(row => JSON.stringify([row.jobId, row.actId])));
   const signoffs = asArray(project.signoffs).filter(isObject);
   const seen = new Set<string>();
-  return acts.flatMap(act => {
+  return acts.flatMap<PendingJobAct>(act => {
     const key = JSON.stringify([act.jobId, act.actId]);
     if (seen.has(key) || ingested.has(key) || signoffs.some(row => row.source === `review act ${act.jobId}/${act.actId}`)) return [];
     seen.add(key);
@@ -143,9 +143,9 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         args = ['interview-answer', act.value.questionId, root];
         break;
       case 'reopen':
-        subject = `stage ${act.value.stage}`;
-        args = ['reopen', act.value.stage, root];
-        break;
+        return [{ actId: act.actId, kind: act.kind, subject: `stage ${act.value.stage}`, at: act.at, args: null, command: null,
+          unavailable: { code: 'REOPEN_ACT_RETIRED',
+            message: `project.json.review_acts: reopen act ${act.actId} is retired; correct an earlier answer with rig-create interview-options and interview-answer, then re-sign each stale approval. For an artifact change, use rig-create amend. After handling any other pending acts, close with rig-create job close --discard-acts <reason> --by agent` } }];
       case 'signoff': {
         subject = `stage ${act.value.stage}`;
         args = ['signoff', act.value.stage, root];
@@ -205,7 +205,7 @@ function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
     case 'interview-picks': return act.kind === 'interview-picks' && act.value.questionId === ask.subject.questionId;
     case 'checkpoint': return act.kind === 'checkpoint' && act.value.checkpointId === ask.subject.checkpointId;
     case 'signoff': return act.kind === 'signoff' && act.value.stage === ask.subject.stage;
-    case 'reopen': return act.kind === 'reopen' && act.value.stage === ask.subject.stage;
+    case 'reopen': return false;
   }
 }
 
@@ -239,22 +239,23 @@ export function pendingJobAsksForTarget(
   root: string,
   target: JobSelector,
 ): PendingTargetAsk[] {
-  const unIngested = pendingJobActs(project, acts, root);
+  // Retired reopens stay visible in job acts and job close, but cannot gate a new target.
+  const actionableAsks = asks.filter(ask => ask.subject.kind !== 'reopen');
+  const actionableActs = acts.filter(act => act.kind !== 'reopen');
+  const unIngested = pendingJobActs(project, actionableActs, root);
   const unIngestedIds = new Set(unIngested.map(act => act.actId));
-  const ingestedActs = acts.filter(act => !unIngestedIds.has(act.actId));
+  const ingestedActs = actionableActs.filter(act => !unIngestedIds.has(act.actId));
   const pending: PendingTargetAsk[] = [];
-  for (const ask of asks) {
+  for (const ask of actionableAsks) {
     if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(ask.source);
     if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
-    const hasUnIngestedAct = acts.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
-    // A reopen is an optional alternative to continuing the published work.
-    if (!hasUnIngestedAct && ask.subject.kind === 'reopen') continue;
+    const hasUnIngestedAct = actionableActs.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
     if (!hasUnIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
     pending.push({ label: `${askSubjectText(ask.subject)} on ${info.label}`, version: info.version });
   }
-  for (const act of acts) {
-    if (!unIngestedIds.has(act.actId) || asks.some(ask => actMatchesAsk(act, ask))) continue;
+  for (const act of actionableActs) {
+    if (!unIngestedIds.has(act.actId) || actionableAsks.some(ask => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(act.source);
     if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
     pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version });

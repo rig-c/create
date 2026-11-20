@@ -1,4 +1,3 @@
-import { ownerChatArgs } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -12,9 +11,9 @@ import { locateParts } from '../src/parts-sections.ts';
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { reviewStdout } from './review-read-fixture.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, main, reopenCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, main, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
-import { arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
+import { plantLegacyReopen, arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
 import { EXAMPLE_VERDICT, writeReviewedInput } from './parts-package.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 
@@ -83,7 +82,7 @@ function setup(retouch?: string): string {
   testClock.set(new Date('2026-11-19T00:00:00.500Z'));
   signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', words]);
   testClock.set(new Date('2026-11-19T00:00:01Z'));
-  reopenCommand(['plan-approved', dir, '--by', 'owner', ...ownerChatArgs(words)]);
+  plantLegacyReopen(dir, 'plan-approved', { by: 'owner', wordsFile: words });
   testClock.set(new Date('2026-11-19T00:00:02Z'));
   signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', words]);
   advanceCommand(['parts', dir]);

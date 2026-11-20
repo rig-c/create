@@ -1,6 +1,6 @@
 import { TURN_OPTIONS, TURN_QUESTION } from '../src/waypoints.ts';
-/** A five-version synthetic lifecycle with a producer-made torso mesh, reopened to parts-review. */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+/** A five-version synthetic lifecycle with a producer-made torso mesh and a parts-review amendment. */
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { main } from '../src/cli.ts';
 import { asArray, checkProject, collectItems, isObject } from '../src/check.ts';
@@ -14,23 +14,6 @@ import { EXAMPLE_ANCHOR } from './example-time.ts';
 import { generatorArgs } from './generator-args.ts';
 import { EXAMPLE_BREATH_AMP, generateExampleMeshDraft } from './generate-example-draft.ts';
 import { checkExampleParts, generateExampleParts } from './generate-example-parts.ts';
-
-export const REMESH_WARNINGS_BEFORE_REOPEN: readonly [string, string][] = [
-  ['RIG_CHECK_REPORT_MISSING', 'versions[v1].registration.check_report'],
-  ['RIG_CHECK_REPORT_MISSING', 'versions[v2].registration.check_report'],
-  ['RIG_CHECK_REPORT_MISSING', 'versions[v3].registration.check_report'],
-];
-
-export const REMESH_WARNINGS_AFTER_REOPEN: readonly [string, string][] = [
-  ...REMESH_WARNINGS_BEFORE_REOPEN,
-  ['REOPEN_SIGNOFF_LAPSED', 'signoffs[3]'],
-  ['REOPEN_SIGNOFF_LAPSED', 'signoffs[4]'],
-  ['REOPEN_SIGNOFF_LAPSED', 'signoffs[5]'],
-  ['REOPEN_SIGNOFF_LAPSED', 'signoffs[6]'],
-  ['REOPEN_SIGNOFF_LAPSED', 'signoffs[7]'],
-  ['REOPEN_VERDICT_LAPSED', 'versions[v3].verdicts[0]'],
-  ['REOPEN_VERDICT_LAPSED', 'versions[v5].verdicts[0]'],
-];
 
 export function remeshFiles(dir: string, prefix = ''): Record<string, Buffer> {
   const files: Record<string, Buffer> = {};
@@ -59,6 +42,8 @@ export const REMESH_RIG_BREATH_AMPS: readonly [number, number, number] = [
 function buildMeshRigCandidate(
   dir: string,
   parts: Record<string, Uint8Array>,
+  painting: Buffer,
+  checkRequirements: Buffer,
   amp: number,
   epochSeconds: string,
 ): void {
@@ -92,10 +77,13 @@ function buildMeshRigCandidate(
     join(dir, 'interview-requirements.json'),
     `${JSON.stringify({ spec: 'spine-parts-requirements/1', fps: 12, requirements: [], setup_painting: { required: true } }, null, 2)}\n`,
   );
+  writeFileSync(join(dir, 'rig-check-requirements.json'), checkRequirements);
+  writeFileSync(join(dir, 'painting.png'), painting);
   const env = { ...process.env, SOURCE_DATE_EPOCH: epochSeconds };
+  const bin = join(import.meta.dir, '../node_modules/.bin');
+  const partsCli = join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs');
   const rigResult = Bun.spawnSync(
-    [process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
-      'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
+    [process.execPath, partsCli, 'rig', '--config', 'config.json', '--parts', 'input', '--out', 'out'],
     { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 },
   );
   if (rigResult.exitCode !== 0) throw new Error(`rig exit ${rigResult.exitCode}\n${rigResult.stdout}\n${rigResult.stderr}`);
@@ -104,8 +92,20 @@ function buildMeshRigCandidate(
       { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 });
     if (result.exitCode !== 0) throw new Error(`rigc ${args[0]} exit ${result.exitCode}\n${result.stdout}\n${result.stderr}`);
   };
+  // Match the build's relative texture paths in the Parts check's build/ subdirectory.
+  mkdirSync(join(dir, 'check'));
+  cpSync(join(dir, 'out'), join(dir, 'check/out'), { recursive: true });
+  const checkResult = Bun.spawnSync(
+    [process.execPath, partsCli, 'check', '--rig', 'check/out', '--parts', 'input', '--source', 'painting.png',
+      '--requirements', 'rig-check-requirements.json', '--out', 'check', '--page-edges', 'free', '--pack-shape', 'polygon', '--no-extremes'],
+    { cwd: dir, env: { ...env, PATH: `${bin}:${process.env.PATH ?? ''}` }, stdout: 'pipe', stderr: 'pipe', timeout: 600_000 },
+  );
+  if (checkResult.exitCode !== 0) throw new Error(`check exit ${checkResult.exitCode}\n${checkResult.stdout}\n${checkResult.stderr}`);
   rigc(['build', '--rig', 'out/rig.json', '--motion', 'out/motion.json', '--out', 'build',
     '--profile', 'rig-play', '--pack', '--page-edges', 'free', '--pack-shape', 'polygon', '--report', 'build-report.json']);
+  if (!readFileSync(join(dir, 'build/skeleton.model.json')).equals(
+    readFileSync(join(dir, 'check/build/skeleton.model.json')),
+  )) throw new Error('compile receipt build differs from the Parts-checked model');
   rigc(['render', '--candidate', 'build', '--out', 'idle', '--animation', 'idle', '--fps', '1', '--max', '32', '--poser', 'core']);
 }
 
@@ -255,9 +255,9 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
     writer(['init', 'project', '--no-install']);
     process.chdir(dir);
     write('evidence/approval.txt', 'Approve this synthetic geometric example.\n');
-    write('evidence/reopen.txt', 'Reopen the synthetic parts for remeshing.\n');
     const input = generateExampleParts(join(scratch, 'parts-producer'));
-    write('inputs/painting.png', readFileSync(join(scratch, 'parts-producer/painting.png')));
+    const painting = readFileSync(join(scratch, 'parts-producer/painting.png'));
+    write('inputs/painting.png', painting);
     write('evidence/split-config.json', readFileSync(join(scratch, 'parts-producer/config.json')));
     writer(['input', 'add', 'inputs/painting.png', '--origin', 'synthetic, generated by generateExampleParts']);
     const manifest = JSON.parse(input['parts.json']!.toString()) as { parts: { name: string }[] };
@@ -349,19 +349,33 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
       { version: JSON.parse(readFileSync(join(import.meta.dir, '../node_modules', name, 'package.json'), 'utf8')).version as string },
     ])) };
 
+    // Author the check limits separately so the historical rig input and its review package keep their bytes.
+    const requirementsPath = 'evidence/rig-check-requirements.json';
+    json(requirementsPath, {
+      spec: 'spine-parts-requirements/1',
+      fps: 12,
+      requirements: [],
+      setup_painting: {
+        required: true,
+        rgb_tolerance: 40,
+        regions: [{ name: 'whole-painting', box: [0, 0, 128, 128], max_pixels: 0 }],
+      },
+    });
+    const checkRequirements = readFileSync(join(dir, requirementsPath));
     for (const [index, amp] of REMESH_RIG_BREATH_AMPS.entries()) {
       const n = index + 1;
       tick();
       const buildEpoch = String(Math.trunc(now / 1000));
       const producer = join(scratch, `rig-producer-v${n}`);
-      buildMeshRigCandidate(producer, input, amp, buildEpoch);
+      buildMeshRigCandidate(producer, input, painting, checkRequirements, amp, buildEpoch);
       writeFileSync(join(producer, 'path-adapter.json'), '[]\n');
       writeFileSync(join(producer, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
       writeFileSync(join(producer, 'citations.json'), `${JSON.stringify(sections, null, 2)}\n`);
+      const runRecord = join(producer, 'build/run.json');
       writer(['rig-version', String(n), '--parts', join(producer, 'input'), '--rig', join(producer, 'out'), '--build', join(producer, 'build'),
         '--idle', join(producer, 'idle'), '--config', join(producer, 'config.json'), '--path-adapter', join(producer, 'path-adapter.json'),
         '--compile-report', join(producer, 'build-report.json'), '--toolchain-lock', join(producer, 'package-lock.json'),
-        '--run-record', join(producer, 'build/run.json'), '--at-source', join(producer, 'build/run.json'), '--at-pointer', '/finished_at',
+        '--check-report', join(producer, 'check/check.json'), '--run-record', runRecord, '--at-source', runRecord, '--at-pointer', '/finished_at',
         '--citations', join(producer, 'citations.json'), '--by', 'agent']);
     }
     // Declared seed: the still the user accepts v3 on. Its writer is a displayed review-tool act (review --from-review),
@@ -425,27 +439,21 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
     writer(['interview', '--check', '--json']);
     writer(['split-captions', '--config', 'evidence/split-config.json'], 'evidence/captions.json');
 
-    const beforeReopen = checkProject(dir, undefined, { now });
-    if (beforeReopen.refusals.length > 0) {
-      throw new Error(`expected 0 refusals before reopen, got: ${JSON.stringify(beforeReopen.refusals)}`);
-    }
-    const beforeWarnings = beforeReopen.warnings.map(f => [f.code, f.path]);
-    if (JSON.stringify(beforeWarnings) !== JSON.stringify(REMESH_WARNINGS_BEFORE_REOPEN)) {
-      throw new Error(`unexpected warnings before reopen: ${JSON.stringify(beforeWarnings)}`);
-    }
+    const assertClean = (when: string): void => {
+      const { refusals, warnings } = checkProject(dir, undefined, { now });
+      if (refusals.length || warnings.length) {
+        throw new Error(`expected 0 refusals and 0 warnings ${when}: ${JSON.stringify({ refusals, warnings })}`);
+      }
+    };
+    assertClean('before the amendment');
 
+    write('evidence/amend.txt', 'Remesh the synthetic torso at a finer grid.\n');
+    json('evidence/remesh-grid.json', { meshes: { torso: { grid: 12 } } });
     writer([
-      'reopen', 'parts-review', '--by', 'user', '--owner-chat', 'evidence/reopen.txt',
-      '--said-at', new Date(clock).toISOString(), '--relayed-by', 'fixture-operator',
+      'amend', 'parts-review', '--kind', 'config-field', '--target', '/meshes/torso/grid',
+      '--change', 'evidence/remesh-grid.json', '--by', 'user', '--verbatim-file', 'evidence/amend.txt',
     ]);
-    const afterReopen = checkProject(dir, undefined, { now });
-    if (afterReopen.refusals.length > 0) {
-      throw new Error(`expected 0 refusals after reopen, got: ${JSON.stringify(afterReopen.refusals)}`);
-    }
-    const afterWarnings = afterReopen.warnings.map(f => [f.code, f.path]);
-    if (JSON.stringify(afterWarnings) !== JSON.stringify(REMESH_WARNINGS_AFTER_REOPEN)) {
-      throw new Error(`unexpected warnings after reopen: ${JSON.stringify(afterWarnings)}`);
-    }
+    assertClean('after the amendment');
     return remeshFiles(dir);
   } finally {
     process.chdir(originalCwd);

@@ -27,10 +27,10 @@ import {
   withCandidateProject,
 } from './collection-binding-reader.ts';
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
-import { hasStageOrder, interviewStageOfGuide, PAUSED_STAGE, STAGES, stageOfStep, stepCoveredByApproval } from './stages.ts';
+import { hasStageOrder, interviewStageOfGuide, PAUSED_STAGE, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { assertPlanSignoffCandidate } from './signoff.ts';
 import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, stageSignable } from './signable.ts';
-import { collectReopens, directionReviewClosed, liveSignoff, reopenTargetEligible } from './reopen.ts';
+import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
@@ -267,13 +267,11 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     // revalidating all producer artifacts from earlier versions and drafts.
     const interviewSignoff = result.kind === 'plan' && project.stage === 'interview' && stageSignable(project, 'interview');
     const pausedPlan = result.kind === 'plan' && project.stage === PAUSED_STAGE;
-    const reopenSubjects = result.kind === 'plan' ? STAGES.filter(({ id }) => reopenTargetEligible(project, id, now, String(project.stage)))
-      .map(({ id }) => ({ kind: 'reopen' as const, stage: id })) : [];
     const report = checkProject(root, project, { now, readOnly: true, recordReads: true, recordPublication: !interviewSignoff });
     for (const { path, sha256 } of report.reads ?? []) seal({ path, sha256 });
-    // Picks and paused reopens can resolve unfinished work without approving the
-    // plan. Only silent questions of the current interview may remain open.
-    const openQuestions = (result.kind === 'option-set' || (pausedPlan && reopenSubjects.length > 0))
+    // Picks and read-only paused plans can show unfinished work. Only silent
+    // questions of the current interview may remain open.
+    const openQuestions = (result.kind === 'option-set' || pausedPlan)
       && ['interview', 'rigging-interview', 'post-interview'].includes(String(report.effective_stage))
       ? new Set(items.filter(item => item.state.state === 'silent'
         && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === report.effective_stage).map(item => item.path))
@@ -306,9 +304,9 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       label = `plan / ${project.stage}`;
     } else if (result.kind === 'plan') {
       if (!plan) throw Error('the requested plan is absent');
-      const reopenDirection = stage === 'direction-review' && directionReviewClosed(project)
+      const directionNeedsAmendment = stage === 'direction-review' && directionReviewClosed(project)
         && recordDirectionTarget(project, now) === null;
-      if (stage === 'direction-review' && !reopenDirection) {
+      if (stage === 'direction-review' && !directionNeedsAmendment) {
         const reopens = collectReopens(project, []);
         const post = asArray(project.versions).filter(isObject).filter(version => version.kind === 'post'
           && liveSignoff(reopens, 'post', Date.parse(String(version.at)))).at(-1);
@@ -321,7 +319,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         requireRecordDirectionTarget(project, now);
       }
       const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
-      const signable = !reopenDirection && stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
+      const signable = !directionNeedsAmendment && stage !== null && ['interview', 'plan-approved', 'rigging-interview', 'post-interview', 'direction-review'].includes(stage)
         && (stage !== 'interview' || interviewSignoff) && stageSignable(project, stage);
       if (signable && stage === 'direction-review' && steps.length === 0) throw Error('direction-review record sign-off needs displayed plan steps');
       const emptyPost = stage === 'post-interview' && !steps.some(step => step.phase === 'post') && postNotPassed({ items });
@@ -346,7 +344,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     }
     const evidence = checkpointEvidenceContext(root, project, subjects, files);
     return { label, parts, inputs, files, ...evidence,
-      plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects: [...subjects, ...reopenSubjects] };
+      plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
     const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))
       ? error

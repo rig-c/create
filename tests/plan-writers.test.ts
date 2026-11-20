@@ -13,11 +13,11 @@ import { signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { STAGE_ORDER_SPEC } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { checkProject, directionCommand, planCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { amendCommand, checkProject, directionCommand, planCommand, signoffCommand, testClock } from './clock.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
 import { directionFixture } from './direction-fixture.ts';
-import { arr, fixture, obj, retainSignoffs, step, waypoint } from './fixtures.ts';
-import { cli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
+import { plantLegacyReopen, arr, fixture, obj, retainSignoffs, step, waypoint } from './fixtures.ts';
+import { cli, gitEnv, tempDir } from './helpers.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
 const save = (dir: string, project: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
@@ -44,7 +44,7 @@ function unchanged(dir: string, code: string, action: () => unknown): void {
 function reopen(dir: string, stage = 'plan-approved'): void {
   const words = join(dir, 'words.txt');
   writeFileSync(words, 'Reopen the plan for a new draft.');
-  reopenCommand([stage, dir, '--by', 'user', ...ownerChatArgs(words)]);
+  plantLegacyReopen(dir, stage, { by: 'user', wordsFile: words });
 }
 function retained(record: JsonObject, at = '2026-11-20T00:00:00Z'): JsonObject {
   return { step: structuredClone(record), sha256: stepHash(record), action: 'revised', at, by: 'agent' };
@@ -292,6 +292,36 @@ test('a removed done rig step accepts its waypoint id after a later plan-approve
   expect(codes(dir)).toEqual([]);
 });
 
+test('#674 an amendment authorizes same-id replacement of a completed step and retains its signed history', () => {
+  testClock.set(EXAMPLE_NOW);
+  const dir = fixture(() => {}, 'example-project.json');
+  const before = read(dir);
+  const original = step(before, 'seethrough');
+  expect(original.status).toBe('done');
+  unchanged(dir, 'PLAN_STEP_SIGNED', () => write(dir, 'remove', 'seethrough'));
+
+  writeFileSync(join(dir, 'changed-input.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+  const quote = join(dir, 'amend.txt');
+  writeFileSync(quote, 'Redo the synthetic separation with this updated input.\n');
+  expect(amendCommand(['plan-approved', dir, '--kind', 'part', '--target', 'seethrough',
+    '--change', 'changed-input.svg', '--by', 'user', '--verbatim-file', quote]).exit).toBe(0);
+  write(dir, 'remove', 'seethrough');
+  const archived = obj(arr(obj(read(dir).plan).replaced).at(-1));
+  const flags = ['--phase', 'rig', '--order', String(original.order), '--does', 'Rebuild the approved parts.',
+    '--produces', 'Replacement parts.', '--rests-on', 'seethrough', '--bar', 'The replacement meets the owner answer.', '--checkpoint-proposed', 'false'];
+  write(dir, 'add', 'seethrough', flags);
+
+  const after = read(dir);
+  expect(after.stage).toBe(before.stage!);
+  expect(after.reopens).toEqual(before.reopens);
+  expect(after.signoffs).toEqual(before.signoffs);
+  expect(step(after, 'seethrough')).toMatchObject({ status: 'pending', does: 'Rebuild the approved parts.' });
+  expect(obj(arr(obj(after.plan).replaced).at(-1))).toEqual(archived);
+  expect(archived.sha256).toBe(stepHash(original));
+  expect(obj(arr(obj(archived.step).status_history).at(-1)).status).toBe('done');
+  expect(codes(dir)).toEqual([]);
+});
+
 test.each(['absent', 'earlier', 'equal', 'later-stage', 'rig-review', 'post-interview', 'malformed', 'future'])('done rig replacement refuses %s reopen byte-identically', mode => {
   const { dir, original, flags } = rigReplacement();
   const project = read(dir);
@@ -384,7 +414,7 @@ test('after a cycle and rig-review reopen, replacing camera lets post-interview 
   expect(obj(obj(arr(obj(f.load().plan).replaced)[0]).step).does).toBe('Author direction');
 });
 
-test.each(['absent', 'earlier', 'equal', 'post', 'direction-review', 'amendment', 'malformed', 'future', 'wrong-phase'])('done post replacement refuses %s reopen byte-identically', mode => {
+test.each(['absent', 'earlier', 'equal', 'post', 'direction-review', 'malformed-amendment', 'malformed', 'future', 'wrong-phase'])('done post replacement refuses %s reopen byte-identically', mode => {
   const { dir, original, flags } = postReplacement();
   const project = read(dir);
   const completion = obj(arr(original.status_history).find(event => obj(event).status === 'done')!).at as string;
@@ -393,7 +423,7 @@ test.each(['absent', 'earlier', 'equal', 'post', 'direction-review', 'amendment'
   if (mode === 'earlier') entry.at = new Date(Date.parse(completion) - 1).toISOString();
   if (mode === 'equal') entry.at = completion;
   if (mode === 'post' || mode === 'direction-review') entry.stage = mode;
-  if (mode === 'amendment') {
+  if (mode === 'malformed-amendment') {
     project.reopens = [];
     project.amendments = [{ by: 'user', at: '2026-11-20T00:00:00.000Z', reason: 'Amend.', target: { stage: 'rig-review' } }];
   }

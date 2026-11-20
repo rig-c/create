@@ -46,7 +46,7 @@ export class CorrectionError extends Error {
 }
 function fail(code: string, why: string): never { throw new CorrectionError(code, why); }
 export function correctionFinding(code: string, path: string, why: string): Finding {
-  return { code, path, message: `${path}: ${why}; retain the original correction evidence, resolve its named source/outcome, or reopen its review before recording again` };
+  return { code, path, message: `${path}: ${why}; retain the original correction evidence, resolve its named source/outcome, or record a human amendment at its review stage before recording again` };
 }
 /** Every ancestor must be a real directory, including under an otherwise contained symlink. */
 export function correctionBytes(dir: string, path: string): Buffer {

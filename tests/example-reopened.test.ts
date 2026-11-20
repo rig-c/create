@@ -1,16 +1,15 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { generateExampleReopened } from '../scripts/generate-example-reopened.ts';
 import { EXAMPLE_ANCHOR, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { exampleLedgerReport } from '../scripts/example-ledger.ts';
 import { collectSignoffs } from '../src/check.ts';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { collectReopens, liveSignoff } from '../src/reopen.ts';
 import { stageIndex } from '../src/stages.ts';
-import { readTemplate, type JsonObject } from '../src/templates.ts';
+import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture } from './correction-fixture.ts';
-import { arr, fixture, obj, PARTS_REVIEW_LAPSES } from './fixtures.ts';
+import { arr, fixture, obj, PARTS_REVIEW_LAPSES, plantLegacyReopen } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { checkProject, correctionCommand, draftRigCommand, testClock } from './clock.ts';
 
@@ -19,16 +18,11 @@ function scratch(): string { const dir = tempDir(); roots.push(dir); return dir;
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 afterEach(() => { testClock.reset(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-test('two public-writer generations match the shipped reopened record byte for byte', () => {
-  const first = generateExampleReopened(join(scratch(), 'first'));
-  expect(generateExampleReopened(join(scratch(), 'second'))).toEqual(first);
-  expect(readFileSync(join(import.meta.dir, '../templates/example-reopened/project.json')).equals(first)).toBe(true);
-});
-
 test('reopened example retains history and supersedes exactly the parts-review suffix', () => {
   const plainDir = fixture(() => {}, 'example-project.json'); roots.push(join(plainDir, '..'));
-  const dir = fixture(() => {}, 'example-reopened/project.json'); roots.push(join(dir, '..'));
-  const plain = readTemplate('example-project.json'); const reopened = load(dir);
+  const dir = fixture(() => {}, 'example-project.json'); roots.push(join(dir, '..'));
+  plantLegacyReopen(dir, 'parts-review', { by: 'user', at: EXAMPLE_REOPEN_AT });
+  const plain = load(plainDir); const reopened = load(dir);
   expect(checkProject(plainDir)).toMatchObject({ refusals: [], warnings: [] });
   expect(checkProject(dir)).toMatchObject({ refusals: [] });
   expect(checkProject(dir).warnings.map(f => [f.code, f.path])).toEqual(PARTS_REVIEW_LAPSES);
@@ -58,7 +52,8 @@ test('reopened example retains history and supersedes exactly the parts-review s
 });
 
 test('a parts-review made correction records and resolves against the reopened example draft', () => {
-  const dir = fixture(() => {}, 'example-reopened/project.json'); roots.push(join(dir, '..'));
+  const dir = fixture(() => {}, 'example-project.json'); roots.push(join(dir, '..'));
+  plantLegacyReopen(dir, 'parts-review', { by: 'user', at: EXAMPLE_REOPEN_AT });
   const source = obj(arr(load(dir).drafts)[0]);
   // Reuse the synthetic consumer-shape Apply control. No producer measurement is claimed.
   const controlDir = scratch(); correctionFixture(controlDir, 'rig');

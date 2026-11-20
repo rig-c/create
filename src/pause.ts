@@ -90,7 +90,7 @@ export function pauseCommand(args: string[], now: number): { stdout: string; exi
   const dir = resolve(positional[0] ?? process.cwd());
   const { file, project } = readProject(dir);
   const from = String(project.stage);
-  if (from === PAUSED_STAGE) refuse('PAUSE_ALREADY_PAUSED', 'stage: already paused; resume it, or reopen a passed stage');
+  if (from === PAUSED_STAGE) refuse('PAUSE_ALREADY_PAUSED', 'stage: already paused; resume from the recorded stage, then use amend if an artifact needs changing');
   if (!pausable(from)) refuse('PAUSE_STAGE_INVALID', `stage: ${from} is not a stage in the order before accepted; only work in progress can be paused`);
   const after = latestEvent(project)?.at ?? -Infinity;
   const signature = collectSignoffs(project, []).filter(s => s.stage === PAUSED_STAGE && s.checkpoint === null && s.at >= after && s.at <= now)
@@ -110,7 +110,7 @@ export function resumeCommand(args: string[], now: number): { stdout: string; ex
   const { file, project } = readProject(dir);
   if (project.stage !== PAUSED_STAGE) refuse('RESUME_NOT_PAUSED', `stage: ${String(project.stage)} is not paused; there is nothing to resume`);
   const from = pausedFrom(project);
-  if (target !== from) refuse('RESUME_STAGE_MISMATCH', `stage: the project was paused from ${from}, not ${target}; resume ${from}, then advance or reopen from there`);
+  if (target !== from) refuse('RESUME_STAGE_MISMATCH', `stage: the project was paused from ${from}, not ${target}; resume ${from}, then advance when ready or use amend if an artifact needs changing`);
   const entry: JsonObject = { from_stage: PAUSED_STAGE, stage: target, by: opts['--by']!, at: new Date(now).toISOString(), verbatim: readVerbatim(opts['--verbatim-file'] ?? '-') };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   commit(dir, file, project, entry, target, now);

@@ -768,7 +768,8 @@ measurement:
   ([PROJECT.md, "Scene option context"](PROJECT.md#scene-option-context)).
 
 Draft time and selection time must both see that context live. New selection
-or decision after changed files/approval/structure or a relevant reopen refuses
+or decision after changed files, approval or structure, or a relevant historical reopen
+or amendment, refuses
 `INTERVIEW_OPTIONS_STALE`; redraft first. An old answer is checked against the
 context live when it was given, so later approvals do not rewrite history.
 Later appended source inputs do not change which immutable inputs an earlier

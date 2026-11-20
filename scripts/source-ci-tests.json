@@ -228,7 +228,7 @@
   {
     "file": "tests/job-refresh.test.ts",
     "name": "#574 fresh approval refuses actual reopen rigging before ingest without downgrading to legacy",
-    "reason": "Exercises published Review rig approval after an actual rigging reopen under sibling source resolution."
+    "reason": "Exercises a stale published Review rig approval against a retained legacy rigging reopen under sibling source resolution."
   },
   {
     "file": "tests/sign-subjects.test.ts",

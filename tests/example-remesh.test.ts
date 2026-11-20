@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REMESH_WARNINGS_AFTER_REOPEN, REMESH_WARNINGS_BEFORE_REOPEN, generateExampleRemesh, remeshFiles } from '../scripts/generate-example-remesh.ts';
+import { generateExampleRemesh, remeshFiles } from '../scripts/generate-example-remesh.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { asArray, checkProject, isObject } from '../src/check.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -12,13 +12,20 @@ import type { JsonObject } from '../src/templates.ts';
 const templateRoot = join(import.meta.dir, '../templates/example-remesh');
 const sha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 
-describe('five-version reopened example with a producer mesh', () => {
-  test('committed template checks with 0 refusals, exact warnings before and after reopen, 5 bound versions and producer meshes', () => {
+describe('five-version amended example with a producer mesh', () => {
+  test('committed template checks clean before and after the amendment and binds five versions and producer meshes', () => {
     const project = JSON.parse(readFileSync(join(templateRoot, 'project.json'), 'utf8')) as JsonObject;
-    expect(project.stage).toBe('parts-review');
+    expect(project.stage).toBe('accepted');
+    expect(asArray(project.reopens)).toEqual([]);
 
-    const reopens = asArray(project.reopens).filter(isObject);
-    expect(reopens.map(r => r.stage)).toEqual(['parts-review']);
+    const amendments = asArray(project.amendments).filter(isObject);
+    expect(amendments).toHaveLength(1);
+    const [amendment] = amendments;
+    const change = 'evidence/remesh-grid.json';
+    expect(amendment).toMatchObject({
+      by: 'user', target: { stage: 'parts-review', kind: 'config-field', id: '/meshes/torso/grid' },
+      changes: [{ path: change, sha256: sha256(readFileSync(join(templateRoot, change))) }],
+    });
 
     const drafts = asArray(project.drafts).filter(isObject);
     expect(drafts.length).toBeGreaterThan(0);
@@ -86,26 +93,26 @@ describe('five-version reopened example with a producer mesh', () => {
       }
     }
 
-    // The reopen receipt records the stage and step statuses needed to check the prior state.
+    // The amendment keeps stage and status_history. Recover the earlier status from each history.
     const before = structuredClone(project);
-    const reopen = reopens[0]!;
-    before.stage = reopen.from_stage!;
-    before.reopens = [];
+    delete before.amendments;
     const steps = asArray((before.plan as JsonObject).steps).filter(isObject);
-    for (const prior of asArray(reopen.steps_before).filter(isObject)) {
-      const step = steps.find(step => step.id === prior.id)!;
-      if (prior.status === undefined) delete step.status;
-      else step.status = prior.status;
+    for (const step of steps) {
+      const last = asArray(step.status_history).filter(isObject).at(-1);
+      if (last?.status !== undefined) step.status = last.status;
     }
     const beforeReport = checkProject(templateRoot, before, { now: EXAMPLE_NOW, readOnly: true });
-    expect(beforeReport.refusals).toEqual([]);
-    expect(beforeReport.warnings.map(f => [f.code, f.path])).toEqual([...REMESH_WARNINGS_BEFORE_REOPEN]);
+    expect(beforeReport).toMatchObject({ refusals: [], warnings: [], effective_stage: 'accepted' });
 
     const afterReport = checkProject(templateRoot, undefined, { now: EXAMPLE_NOW, readOnly: true });
-    expect(afterReport.refusals).toEqual([]);
-    expect(afterReport.warnings.map(f => [f.code, f.path])).toEqual([...REMESH_WARNINGS_AFTER_REOPEN]);
+    expect(afterReport).toMatchObject({ refusals: [], warnings: [], effective_stage: 'parts-review' });
+    expect(afterReport.amendments?.[0]?.lapsed.map(approval => approval.path)).toEqual([
+      'signoffs[3]', 'signoffs[4]', 'signoffs[5]', 'signoffs[6]', 'signoffs[7]',
+      'versions[2].verdicts[0]', 'versions[4].verdicts[0]',
+    ]);
   });
 
+  // The two sequential Nova runs measured 130 s and 142 s.
   consumerOnlyTest('tests/example-remesh.test.ts', 'two fresh generator runs match each other and templates/example-remesh byte for byte', () => {
     const dirA = mkdtempSync(join(tmpdir(), 'rig-create-remesh-a-'));
     const dirB = mkdtempSync(join(tmpdir(), 'rig-create-remesh-b-'));
@@ -124,5 +131,5 @@ describe('five-version reopened example with a producer mesh', () => {
       rmSync(dirA, { recursive: true, force: true });
       rmSync(dirB, { recursive: true, force: true });
     }
-  }, 120_000);
+  }, 360_000);
 });

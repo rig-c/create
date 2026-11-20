@@ -101,7 +101,7 @@ function checkNewAnswer(dir: string, project: JsonObject, item: Item, correction
   }
   const stage = approvalStageOfGuide(item.id,item.kind === 'post',true);
   const reopens = collectReopens(project,[]);
-  if (!correction && collectSignoffs(project,[]).some(s => s.stage === stage && s.checkpoint === null && liveSignoff(reopens,s.stage,s.at))) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: approval is still live; reopen ${stage === 'plan-approved' ? 'interview' : stage} before changing this answer`);
+  if (!correction && collectSignoffs(project,[]).some(s => s.stage === stage && s.checkpoint === null && liveSignoff(reopens,s.stage,s.at))) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: approval is still live; resolve the missing earlier answer with the owner and record amend ${stage === 'plan-approved' ? 'interview' : stage} before adding it`);
   if (choiceAdoption(project, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED', `${item.path}: adopt order@2 with interview-options --adopt before recording new choices`);
   if (isObject(item.raw) && item.raw.basis === 'inherited') {
     // This changes the local member record, never its resolved collection source.

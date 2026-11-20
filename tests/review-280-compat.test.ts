@@ -24,7 +24,6 @@ import { jobHostStateRoot, jobPrivateRoot, readWriterBinding } from '../src/job-
 import { currentJobIdentity, JOB_BINDING_ID, JOB_ENUMERATOR_ID, JOB_READER_ID } from '../src/job-publication.ts';
 import { Refusal } from '../src/refusal.ts';
 import { decodeReviewAct, decodeReviewResponse } from '../src/review-act.ts';
-import { exportedReopen } from './reopen-act-fixture.ts';
 
 function expectRefusalCode(fn: () => unknown, code: string): void {
   try {
@@ -286,9 +285,9 @@ test('well-formed record picks and signoff decode directly and through legacy AP
 });
 
 
-test('#493 producer reopen act@4 decodes explicitly and refuses other writer kinds', async () => {
-  const root = makeProject();
-  const { act, bytes } = await exportedReopen(root, 'interview', Date.parse('2026-11-09T00:00:00Z'));
+test('#493 a historical producer reopen act@4 retains its reader compatibility', () => {
+  const bytes = readFileSync(join(import.meta.dir, 'fixtures/record-acts/reopen.json'), 'utf8').trimEnd();
+  const act = JSON.parse(bytes);
   expect(decodeReviewAct(bytes, 'reopen')).toEqual(act);
   const decoded = decodeReviewResponse(JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act',
     jobId: act.jobId, requestId: 'synthetic-reopen-fetch', ok: true, value: act }),

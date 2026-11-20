@@ -8,7 +8,7 @@ One painting; one rig and its takes.
 2. Run `rig-create next` for next moves and owners.
 3. Resume: [Resume](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#how-an-agent-resumes-a-project).
 
-After an accepted post is bounced, reopen direction-review through Review: `job open --plan`, then `job acts --json`, ingest `reopen direction-review --from-review <actId>`, and `job close`. The exported act supplies the reviewer, date and verbatim words.
+After an accepted post is bounced, record the owner's correction with `amend direction-review`.
 
 Stale pins: `rig-create packages upgrade --by <operator>`.
 

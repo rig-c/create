@@ -9,10 +9,9 @@ import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, diffClassesCommand, draftRigCommand, interviewAnswerCommand,
-  interviewCommand, interviewOptionsCommand, reopenCommand, rigVersionCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+  interviewCommand, interviewOptionsCommand, rigVersionCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
-import { arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
-import { ownerChatArgs } from './helpers.ts';
+import { plantLegacyReopen, arr, fixture, obj, rehashSignoffs, step, supersede, waypoint } from './fixtures.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { partsPackage, writeReviewedInput } from './parts-package.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
@@ -81,7 +80,7 @@ function retainedDelta(): string {
   put(dir, 'words.txt', 'Approve this synthetic structure.');
   testClock.set('2026-11-19T00:00:00.500Z'); signoffCommand(['interview', dir, ...words(dir)]);
   testClock.set('2026-11-19T00:00:01Z');
-  reopenCommand(['plan-approved', dir, '--by', 'owner', ...ownerChatArgs(join(dir, 'words.txt'))]);
+  plantLegacyReopen(dir, 'plan-approved', { by: 'owner', wordsFile: join(dir, 'words.txt') });
   testClock.set('2026-11-19T00:00:02Z'); signoffCommand(['plan-approved', dir, ...words(dir)]);
   advanceCommand(['parts', dir]);
   testClock.set('2026-11-19T00:00:03Z'); completeParts(dir);
@@ -113,7 +112,7 @@ function showQuestion(dir: string, question: string): { path: string; hash: stri
 
 function prepareRenewal(dir: string): ReturnType<typeof showQuestion> {
   testClock.set('2026-11-24T00:00:00Z');
-  reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(join(dir, 'words.txt'))]);
+  plantLegacyReopen(dir, 'parts', { by: 'owner', wordsFile: join(dir, 'words.txt') });
   testClock.set('2026-11-24T01:00:00Z'); completeParts(dir);
   advanceCommand(['parts-review', dir, ...withPartsCheck(dir)]);
   testClock.set('2026-11-25T00:00:00Z'); approveParts(dir, 'b');

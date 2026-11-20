@@ -56,23 +56,24 @@ together. A replay uses the retained receipt.
 | Code | Finding and remedy |
 | --- | --- |
 | `REVIEW_API_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported API schema. Restore a live job using job-api@2 and fetch again. |
-| `REVIEW_ACT_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported act schema, explicitly including act@1. Request a supported act from Review without migrating the old act; record reopen uses act@4. |
+| `REVIEW_ACT_SCHEMA_UNSUPPORTED` | `project.json.review_acts` received an unsupported act schema, explicitly including act@1. Request a supported act from Review for current work. Retained reopen acts use act@4. |
 | `REVIEW_ACT_V8_UNSUPPORTED` | Retired in Create 1.13.0. Earlier Create releases returned this code when `project.json.review_acts` received `rig-review/act@8`. |
 | `PARTS_REMESH_API_UNAVAILABLE` | The selected Parts installation lacks `src/remesh-api.ts` or its `applyMeshEditAct` export. Install a project Parts release that provides this API before applying the mesh edit. |
 | `REMESH_DELTA_ACT_SUPERSEDED` | Parts found an earlier application of the same act and attachment in the current rig's revision history. Continue from the current revision named by Parts without recording another completion for the attachment. Other Parts refusals retain the producer's code, object and detail. |
 | `REVIEW_PARTS_ENUMERATOR_UNSUPPORTED` | The act's Parts enumerator is missing or outside `>=2.25.0 <4.0.0`. Publish through an accepted installed Parts enumerator and review again. A `review-verdict` act on a composed `direction@3` post carries `source.parts: null` and is exempt: it binds the composed build model, not parts. |
-| `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date, rig/post or parts value, or record reopen value is malformed. Restore the original act evidence or request a new act. |
-| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict, parts-verdict, interview-picks, checkpoint, signoff or reopen writer, or a signoff/reopen act names a stage other than the requested writer stage. Use the matching version, stage and supported writer. |
+| `REVIEW_ACT_INVALID` | The fetched/retained act, response identity, authority, date, rig/post or parts value, or historical reopen value is malformed. Restore the original act evidence or request a new act. |
+| `REVIEW_ACT_KIND_MISMATCH` | The act is for another version or a kind outside the requested review-verdict, parts-verdict, interview-picks, checkpoint or signoff writer, or a signoff act names a stage other than the requested writer stage. Use the matching version, stage and supported writer. |
 | `REVIEW_ACT_TARGET_MISMATCH` | `signoffs[].target.version`: a `rig-review` or `direction-review` signoff act is ingested with `signoff <stage> --from-review <actId>`, but its `source.selector` names no version of that stage's kind (`rig` for rig-review, `post` for direction-review), or `--version` names another version than the one the person approved. The signature's target is the version Review displayed, so drop `--version` or ask for the sign-off again in Review on the version to sign. Refusal preserves the project record. |
 | `REVIEW_ACT_DRAFT_MISMATCH` | `signoffs[].draft_id`: a `parts-review` signoff act is ingested with `signoff parts-review --from-review <actId>`, and its `source.selector` is a non-draft selector or names another draft than `--draft`. Drop `--draft` so the signature takes the draft from the act's `{ kind: 'draft', id }` selector, or ask for `parts-review` again in Review on the draft to sign. Refusal preserves the project record. |
 | `REVIEW_ACT_CHECKPOINT_MISMATCH` | `signoff <stage> --checkpoint <id> --from-review <actId>` fetched a checkpoint act whose `planStepId` is not `<id>`, or whose `checkpointId` differs from its `planStepId` (create publishes no checkpoint alias). Sign the checkpoint the act names, or ask Review for this one. Refusal preserves the project record. |
 | `REVIEW_ACT_CHECKPOINT_FAILED` | The fetched checkpoint act's outcome is `fail`. A failed checkpoint is feedback, never a sign-off: nothing is written. Fix the step from the act's words and ask for the checkpoint again in the live Review job. |
-| `REVIEW_ACT_SUBJECT_UNDECLARED` | `signoff <stage> --from-review <actId>` or `signoff <stage> --checkpoint <id> --from-review <actId>` or `reopen <stage> --from-review <actId>` fetched an act whose subject (`signoff` for its stage, `checkpoint` for its checkpoint id, or `reopen` for its stage) is not among the subjects create declared for the act's publication, as kept in the private acknowledged receipt. A package publication declares only the record's own signable stage and its enabled checkpoints (LIVE-REVIEW.md). Ask for the sign-off in Review on a publication made while the record can sign it. A receipt written before declarations were retained, or none (a clone), skips this comparison. Refusal preserves the project record. |
+| `REVIEW_ACT_SUBJECT_UNDECLARED` | `signoff <stage> --from-review <actId>` or `signoff <stage> --checkpoint <id> --from-review <actId>` fetched an act whose subject (`signoff` for its stage or `checkpoint` for its checkpoint id) is not among the subjects create declared for the act's publication, as kept in the private acknowledged receipt. A package publication declares only the record's own signable stage and its enabled checkpoints (LIVE-REVIEW.md). Ask for the sign-off in Review on a publication made while the record can sign it. A receipt written before declarations were retained, or none (a clone), skips this comparison. Refusal preserves the project record. |
 | `REVIEW_FILE_ROUTE_REMOVED` | `project.json.review_acts` cannot ingest saved act files (exit 2). Use `review <version> --from-review <actId>` through the live Review job API. |
+| `REOPEN_ACT_RETIRED` | `job acts` lists a finalized reopen act with no recorded receipt in `project.json.review_acts` as unavailable. For an interview correction register a fresh set with `interview-options`, record the owner's pick with `interview-answer` and re-sign the affected approvals. For an artifact correction use `amend` at the owning stage. After handling other pending acts, close with `job close --discard-acts <reason> --by agent`. |
 | `REVIEW_ACT_FETCH_REFUSED` | The live job refused or could not complete finalized-act fetch. The diagnostic retains the producer refusal code without exposing its private details. Restore the live job and its writer grant. |
 | `REVIEW_ACT_SOURCE_STALE` | A fresh folded rig approval or approved parts verdict does not bind the exact current `project.json` bytes, predates its parts-review advance or component evidence, or a current source binding or retained version/draft-entry identity differs from the displayed act, including a plan-bound signoff act (`plan-approved`, `rigging-interview`, `post-interview`) whose `source.plan` step ids and hashes, in order, differ from the current `plan.steps`. Restore the retained bytes or publish the current plan and request a new review or sign-off. Replays also refuse without changing the recorded verdict. |
 | `REVIEW_ACT_REPLAY_CONFLICT` | A `(jobId, actId)` appears twice or its immutable value changed. Restore the original receipt and its single linked verdict. |
-| `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target, linked verdict, linked signoff (the one `signoffs[]` entry whose `source` names the act, with the act's stage, `by`, `at` and words, and for rig-review or direction-review a `target.version` equal to the act's `source.selector` version), linked reopen (including its original status snapshot and exact exported reviewer, date and words), retained parts evidence, a folded parts receipt's `signoff` index and its human authority, draft and evidence pointer, a folded rig receipt's unique `signoff` index, human authority, exact words and version/verdict/package target, or a discarded act receipt (`kind: "discarded"`, `jobId`, `actId`, `at` and attribution with a reason or relayed owner words) is invalid. Restore the original receipt and recorded act together. |
+| `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target, linked verdict, linked signoff (the one `signoffs[]` entry whose `source` names the act, with the act's stage, `by`, `at` and words, and for rig-review or direction-review a `target.version` equal to the act's `source.selector` version), linked historical reopen (including its original status snapshot and exact exported reviewer, date and words), retained parts evidence, a folded parts receipt's `signoff` index and its human authority, draft and evidence pointer, a folded rig receipt's unique `signoff` index, human authority, exact words and version/verdict/package target, or a discarded act receipt (`kind: "discarded"`, `jobId`, `actId`, `at` and attribution with a reason or relayed owner words) is invalid. Restore the original receipt and recorded act together. |
 | `REVIEW_ACT_VERSION_UNVERIFIED` | WARN on ingest when the acknowledged publication receipt is unavailable. The version-entry comparison was skipped, and all explicit source bindings were checked. Preserve private acknowledged receipts for future ingests. |
 | `PARTS_REVIEW_FOLD_NOT_READY` | `project.json` is not effectively at `parts-review`, or has no actual parts-to-parts-review advance retaining its stage-entry parts-check, when ingesting a fresh approved Review UI parts verdict. Retain the parts-check, structure snapshot and component classification, advance to parts-review, then publish and request approval; ingestion writes the verdict and its stage signature together. Earlier separate signoffs remain valid. |
 | `PARTS_REVIEW_OPTION_INVALID` | `project.json.review_acts` received missing, duplicate or competing parts-review options. Use `parts-review --from-review <actId>` and submit human values through Review. |
@@ -415,11 +416,11 @@ Exit `1`. Each names its object in `path`.
 | `PLAN_REPLACED_ACTION` | a history action is neither `revised` nor `removed` | retain the writer's original action |
 | `PLAN_REPLACED_ORDER` | a history entry predates an earlier entry | preserve append order and restore the recorded dates |
 | `PLAN_REPLACED_DUPLICATE` | two entries share `step.id` and `at` | retain unique history identities and retry with the current clock |
-| `PLAN_REPLACED_SIGNOFF` | a reopened signature's hash for a replaced id matches neither current nor valid history, or the latest live covering signature matches only history | restore the signed step and history; reopen a live approval before replanning |
+| `PLAN_REPLACED_SIGNOFF` | a historical signature's hash for a replaced id matches neither current nor valid history, or the latest live covering signature matches only history | restore the signed step and history. Amend the stage that owns a live approval before replanning |
 | `PLAN_OPTION_INVALID` | plan CLI arguments are missing, repeated or malformed (exit 2) | use plan add, revise or remove with the documented fields and drafter |
 | `PLAN_STEP_INVALID` | plan writer sees no steps list, a duplicate add id or no unique revise/remove target | restore the plan and use the appropriate action and id |
-| `PLAN_STEP_SIGNED` | revise/remove targets a step bound by a live covering plan signature | reopen its approving stage before replanning |
-| `PLAN_STEP_DONE` | revise targets completed work, including completion retained by reopen, or add reuses its archived id without a recorded reopen later than its recorded completion (`plan-approved` for rig steps, or a stage before `post` for post steps) | record `reopen plan-approved` (for rig steps) or a reopen to a stage before `post` (for post steps) after completion, remove the step and add the same id; keep the old step in `plan.replaced` |
+| `PLAN_STEP_SIGNED` | revise/remove targets a step bound by a live covering plan signature | amend its approving stage before replanning |
+| `PLAN_STEP_DONE` | revise targets completed work, or add reuses its archived id without a qualifying amendment or historical reopen after completion | amend the step's approval stage or an earlier stage, then remove the step and add it with the same id and phase. Retain the completed step in `plan.replaced` |
 | `PLAN_WRITE_CONFLICT` | another plan write holds the project lock, or project bytes change during validation | finish or recover the active writer, reload the project and retry |
 | `STEP_MALFORMED` | a step has no string `id`, a `phase` other than `rig` / `post`, or an id used twice | fix the step |
 | `STEP_NO_BASIS` | a step's `rests_on` is empty | name the answers it is built on; a step never rests on nothing — ask for the sentence first |
@@ -438,7 +439,7 @@ Exit `1`. Each names its object in `path`.
 | `SIGNOFF_MALFORMED` | a sign-off lacks `stage`, `by`, `at` or `verbatim` | write it in the answer shape |
 | `SIGNOFF_NOT_HUMAN` | a sign-off's `by` is `agent` | a person signs; the entry does not count |
 | `SIGNOFF_UNKNOWN_STAGE` | a sign-off names a stage that does not exist | fix the stage |
-| `SIGNOFF_AHEAD_OF_STAGE` | a sign-off names a stage later than the project's `stage` | move the stage, reopen a previously reached stage to preserve its history, or remove an entry that was never given |
+| `SIGNOFF_AHEAD_OF_STAGE` | a sign-off names a stage later than the project's `stage` | restore the recorded stage history and signatures. Use advance for later stage moves |
 | `SIGNOFF_UNKNOWN_CHECKPOINT` | a sign-off's `checkpoint` names no step that runs in that stage | name the step |
 | `PARTS_BAR_UNMET` | the stage is past `parts` and a step it runs (`seethrough`, `assemble`) is not `done` | finish the step and meet its bar (the parts check passing on the assembled parts), or move the stage back to `parts` |
 | `PARTS_REVIEW_UNSIGNED` | the stage is past `parts-review`, or a `rigging` step is past `pending`, and no person signed `{ "stage": "parts-review", "checkpoint": null }` | the user reviews the assembled parts in rig-review's parts view and signs; until then the stage stays at `parts-review` and no rig step after `assemble` runs ([PROJECT.md § The parts are reviewed before rigging](PROJECT.md#the-parts-are-reviewed-before-rigging)) |
@@ -648,42 +649,30 @@ collection's stages.
 
 ## Reopening stages
 
-`rig-create reopen <stage> --by <who> [--verbatim-file <file>] [--source <text>]`
-records a human backward move, snapshots affected step statuses into
-`steps_before`, resets those statuses to `pending`, and sets `stage` in one
-write. Existing signatures and versions remain unchanged. The check and writer
-share the reopen validator. Each entry retains `from_stage` as its own reach
-evidence, and the writer runs the complete project check on the final candidate
-before writing. No reopen list means the existing contract applies.
-This new record has no retroactive requirement on earlier project records.
+The check continues to read and validate historical `reopens[]` entries
+and their linked Review acts. Each entry retains `from_stage` as evidence
+of the stage the project had reached when that entry was recorded.
 
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
-| `REOPEN_STAGE_UNKNOWN` | a target is unknown, `paused` or `accepted` | choose a stage in the order that can be reopened |
-| `REOPEN_NOT_PASSED` | the target is later than its own from_stage and historical signatures/versions dated by the reopen | reopen a previously reached stage |
-| `REOPEN_MALFORMED` | reopens is not a list, an entry lacks its human signature, from_stage, valid date or status snapshot, source is not text, or the writer cannot identify a plan step | restore the named record to the PROJECT.md reopen shape |
-| `REOPEN_OPTION_INVALID` | missing/repeated option values, invalid argument count, or --from-review mixed with human flags (exit 2) | supply a stage and either --from-review or --by with optional source and words file, plus one optional folder |
-| `SIGNOFF_NOT_HUMAN` | a reopen is signed by agent, case-insensitively | obtain a person's signature |
+| `REOPEN_STAGE_UNKNOWN` | a historical target is unknown, `paused` or `accepted` | restore the recorded stage from the original evidence |
+| `REOPEN_NOT_PASSED` | a historical target is later than its own `from_stage` and signatures/versions dated by the entry | restore the original stage history and evidence |
+| `REOPEN_MALFORMED` | `reopens` is not a list, an entry lacks its human signature, `from_stage`, valid date or status snapshot, or `source` is not text | restore the named entry to the [historical record shape](PROJECT.md#reopening-a-passed-stage) |
+| `SIGNOFF_NOT_HUMAN` | a historical reopen is signed by agent, case-insensitively | restore the original human signature |
 
-The existing `UNKNOWN_OPTION`, `VERBATIM_*`, `PROJECT_JSON_*` and
-`SCHEMA_UNKNOWN` command refusals apply. A refused command writes nothing.
-Sign-offs and checkpoints at or before their applicable reopen are historical,
-not live; they cannot satisfy `STAGE_UNSIGNED`, `PARTS_REVIEW_UNSIGNED`,
-`PAUSED_UNSIGNED`, `CHECKPOINT_UNSIGNED` or authorise execution. Fresh work on
-a historical rig is `POST_ON_SUPERSEDED_RIG`; the hand-off requires a newly
-built and accepted rig, using its existing named refusals. Historical rig
-acceptances remain recorded, and an unaffected rig survives a post-only reopen.
+Sign-offs and checkpoints at or before their applicable reopen are historical.
+Fresh work on a historical rig is `POST_ON_SUPERSEDED_RIG`. Live handoff
+requires a later build and acceptance when the cutoff covers rig-review.
+A cutoff covering only post work preserves the unaffected rig acceptance.
 
-The check lists what a reopen voided and nothing has restored yet, as WARNs:
-`REOPEN_SIGNOFF_LAPSED` and `REOPEN_VERDICT_LAPSED` (§ Warnings). Liveness is
-the same cutoff the gates above read. A reopen is legitimate, so the list refuses
-nothing and carries no contract date. Approvals voided only by an amendment are
-listed by the report's `amendments[].lapsed` instead (§ Forward amendments).
+`REOPEN_SIGNOFF_LAPSED` and `REOPEN_VERDICT_LAPSED` report approvals lapsed by
+historical reopens. Approvals lapsed by an amendment appear in
+`amendments[].lapsed` (§ Forward amendments).
 
 ## Forward amendments
 
 `rig-create amend` records a human correction against an artifact and its
-owning stage. It shares approval cutoffs with `reopen`, retains the current
+owning stage. It shares approval cutoff rules with historical reopens, retains the current
 stage, and checks the complete candidate before writing. New records carry
 `target`, `by`, clock-supplied `at`, unchanged `verbatim`, optional `source`
 and new input `changes` hashed by the writer. Existing records acquire no new
@@ -1011,8 +1000,8 @@ snapshot must be retained outside ignored roots (`evidence/`, for example);
 the writer refuses ignored paths and aliases into them. On a clone its retained
 snapshot is still hash/schema checked without requiring the regenerable config.
 Production declarations are compared to the latest structure approval live at
-their own build date, applying only reopens at or before that date. A later
-reopen/approval never rewrites an earlier version's obligations. Delegated
+their own build date, applying only amendments and historical reopens at or
+before that date. Later approval changes preserve each earlier version's obligations. Delegated
 framing uses the same central interview membership as source guides, so it
 must be decided before the first plan approval or parts execution.
 
@@ -1027,10 +1016,10 @@ answers remain unchanged. See INTERVIEW.md for the frozen shapes and writers.
 | `INTERVIEW_OPTIONS_USAGE` | malformed writer flags or unreadable CLI argument files (exit 2) | supply documented question, file and per-ask arguments |
 | `INTERVIEW_OPTIONS_INVALID` | malformed set, recommendation/cardinality/ask/fragment/assembly/constraint schema | draft a complete set using the closed schema and applicable asks |
 | `INTERVIEW_OPTIONS_FILE` | missing, changed, nonretained, escaping, symlinked or nonregular option file, reused id/path | restore original bytes and retain a new id/path for redrafts |
-| `INTERVIEW_OPTIONS_STALE` | changed displayed sha, source/parts/structure/rig/scene context, relevant reopen, unavailable fresh viewed bytes; from `SCENE_CONTEXT_SINCE` a scene-kind set on a scene that is not current | refresh and redraft against the live accepted context |
+| `INTERVIEW_OPTIONS_STALE` | changed displayed sha, source/parts/structure/rig/scene context, a relevant amendment or historical reopen, unavailable fresh viewed bytes; from `SCENE_CONTEXT_SINCE` a scene-kind set on a scene that is not current | refresh and redraft against the live accepted context |
 | `INTERVIEW_CHOICE_REQUIRED` | newly answered adopted question lacks a choice, or Other is still pending at approval | explicitly pick each ask; resolve Other through a new tailored option and pick |
 | `INTERVIEW_REASK_PENDING` | WARN: `project.json` holds a pending option set over the named question's decided answer | have the owner pick from the registered set via `job open --question <id>` and record the pick with `interview-answer`; the owner may keep the previous choice |
-| `INTERVIEW_CHOICE_INVALID` | malformed picks payload, shown/value/coverage/verbatim drift, clock/identity/decision mismatch or changed still-approved answer | retain the shown snapshot and record exact human picks; reopen before changing approval |
+| `INTERVIEW_CHOICE_INVALID` | malformed picks payload, shown/value/coverage/verbatim drift, clock/identity/decision mismatch or an attempt to add a first answer under live approval | retain the shown snapshot and record exact human picks. For a correction, register a fresh set and re-sign the approvals named by next |
 | `INTERVIEW_CHOICE_CONSTRAINT` | disallowed tuple or constrained Other/auto fragment has zero or multiple value-option matches | choose an allowed combination or redraft the set to offer that option |
 | `CHOICE_ANSWERS_LEGACY` | WARN: no explicit choice adoption, or grandfathered current sentence/inherited answer | preserve source words/date; adopt explicitly and show a tailored option when asked again |
 | `INTERVIEW_OPTIONS_SCENE_LEGACY` | WARN: a scene-kind set drafted before `SCENE_CONTEXT_SINCE = 2026-11-08T00:00:00Z` holds only under that day's rule, because its scene was not current (PROJECT.md "Scene option context"); one per pending set or answer path | preserve the record; redraft against the current context when the question is asked again |
@@ -1098,7 +1087,7 @@ a present count is checked against the retained PNGs. The newly detected unrecor
 draft transition only WARNs at every date, so it introduces no SINCE constant.
 
 The remedy is to retain the original evidence, select its exact source/outcome,
-resolve the correction, or reopen its review before changing approved work.
+resolve the correction, or amend its owning stage before changing approved work.
 Unsupported operations remain pending until a separately contracted adapter
 exists. Historical superseded corrections remain validated but do not impose
 current approval obligations. Existing structure, provenance, feedback and CG
@@ -1127,7 +1116,7 @@ direction*, defines the closed schema, immutable paths and read contract.
 | `DIRECTION_TIME_NON_MONOTONIC` | duplicate/decreasing take times or decreasing source time | strictly order take times and use nondecreasing source seconds |
 | `DIRECTION_CITATION` | camera/timing citations, resolved selections or live approved step hashes do not match the retained request | preserve words and complete/reapprove the named answers/steps |
 | `DIRECTION_VERSION` | post identity/number/path/config/output binding conflicts or is not uniquely later for authoring/current for acceptance | create a later uniquely numbered post and bind its document |
-| `DIRECTION_REVIEW_CLOSED` | authoring attempts to change still-live approved direction review | explicitly reopen before writing |
+| `DIRECTION_REVIEW_CLOSED` | authoring attempts to change still-live approved direction review | record the owner's correction with `amend direction-review` before writing |
 | `DIRECTION_SOURCE_CHANGED` | lock held, immutable destination exists, or any captured source differs before project commit | preserve published bytes and retry against frozen inputs |
 | `DIRECTION_PATCH` | wrong patch schema/base/allowed replacement fields, absent replacements or semantic no-op | export whole changed camera/timing/take sections on the exact current base |
 | `DIRECTION_CORRECTION_OUTCOME` | a correction@2 source/outcome differs from the exact direction post identity, or a made direction closure lacks matching patch/base/result and the same rig | retain the exact compiled model and direction bindings, and resolve a made patch only to its create-ingested result |
@@ -1204,7 +1193,7 @@ direction-review signature binds an accepted verdict and its version's reviewed 
 | `SIGNOFF_ANSWERS_UNANSWERED` | The writer's covered `rests_on` item is absent, unanswered or unresolved | Answer the named item before signing |
 | `SIGNOFF_ANSWERS_MISSING` | A current-era live approval has no answer hash map or omits an expected item | Sign the named stage again |
 | `SIGNOFF_ANSWERS_MISSING_LEGACY` | A pre-contract live approval lacks a complete answer hash map | Preserve history and bind the next approval |
-| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs | Restore the intended answer and sign its stage again |
+| `SIGNOFF_ANSWERS_STALE` | A live approval's bound item is missing, unresolved or its answer revision differs | Complete any missing or unresolved answer. After a correction, use `next` to re-sign each affected approval against the current answer |
 
 ## Forward stage and step progress
 
@@ -1223,18 +1212,18 @@ amendment grants no authority. A completed bar permits its next review.
 | Code | Fires when | Remedy |
 | --- | --- | --- |
 | `STAGE_LAGGING` | stage precedes the stage authorized by the live closing signature | run advance for the next authorized stage |
-| `STAGE_SKIPPED` | stage exceeds the signature frontier and completed bar exits, differs from its latest advance/reopen, or has no move from the initial stage | reopen the unfinished stage, finish its work and use advance |
+| `STAGE_SKIPPED` | stage exceeds the signature frontier and completed bar exits, differs from its latest advance/reopen, or has no move from the initial stage | restore the recorded stage, finish outstanding work and use advance |
 | `STAGE_SIGNOFF_DATE_INVALID` | the live frontier approval has an unreadable date | restore its original readable date before advancing |
 | `ADVANCE_UNAUTHORIZED` | advance has no live stage-level human approval, or the latest one is at a stage before the one that owns the move (the current stage, or the last signed stage before a bar stage) | record `signoff <stage>` for the stage the message names before advancing |
 | `ADVANCE_WORDS_REMOVED` | advance receives `--by` or `--verbatim-file` (exit 2). The move's authority is the live stage sign-off it records in `signoff`, so advance takes no mover or words of its own | record the person's approval with `signoff <stage>` (from the review tool, `signoff <stage> --from-review <actId>`) and run advance without those flags |
 | `ADVANCE_MALFORMED` | advances history lacks the human move, adjacent target, a string `by` and `verbatim` pair when an older entry carries either one (a human `by`, never `agent`; current advances carry neither), boolean event-time post_not_passed snapshot, required steps_before phases and completed bars, or matching event-time live authorizing signoff | retain the original move and matching `{stage,checkpoint,at}` signature through advance |
-| `DIRECTION_REVIEW_POST_MISSING` | a `post` → `direction-review` advance lacks `direction_contract`, a current scene (or composed `direction@3` post) or a live `kind: "post"` version in `versions[]`: refused on the move being written and from `DIRECTION_REVIEW_ADVANCE_SINCE = 2026-11-18T00:00:00Z`, dated by `advances[].at`, a WARN before it | adopt direction with `rig-create direction --adopt`, write the current scene with `rig-create scene write` (or compose `direction@3`) and record the post version with `rig-create direction write` before advancing to `direction-review`; preserve an earlier move or reopen `post` |
+| `DIRECTION_REVIEW_POST_MISSING` | a `post` → `direction-review` advance lacks `direction_contract`, a current scene (or composed `direction@3` post) or a live `kind: "post"` version in `versions[]`: refused on the move being written and from `DIRECTION_REVIEW_ADVANCE_SINCE = 2026-11-18T00:00:00Z`, dated by `advances[].at`, a WARN before it | adopt direction with `rig-create direction --adopt`, write the current scene with `rig-create scene write` (or compose `direction@3`) and record the post version with `rig-create direction write` before advancing to `direction-review`; preserve the earlier move and amend `post` if work there needs correction |
 | `PROGRESS_OPTION_INVALID` | advance, step-status, pause or resume arguments are missing, repeated or malformed, a step-status note is unreadable, empty, invalid UTF-8, over 1,000 bytes, contains controls other than newline, or has an incomplete or mismatched note/hash pair, or advance's `--parts-check` and `--parts` are not given together or are given on a move other than `parts` → `parts-review` | supply the target (advance) or step/status and --by once (step-status), a valid --note-file with its matching retained note_sha256 when used, and both parts-check flags only on that move |
-| `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage (on an amended project, outside both the retained stage and the effective stage the work resumes at), or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage, or on an amended project re-sign the lapsed approvals and finish the earlier bars, and use pending, in-progress, at-checkpoint, done in order; the step-status refusal names the next status to record, or `reopen` after done |
+| `STEP_STATUS_TRANSITION` | step-status skips or reverses the status sequence, runs outside its execution stage (on an amended project, outside both the retained stage and the effective stage the work resumes at), or history lacks its boolean event-time checkpoint_required snapshot or is malformed | advance to the execution stage, or on an amended project re-sign the lapsed approvals and finish the earlier bars, and use pending, in-progress, at-checkpoint, done in order; the step-status refusal names the next status to record, or an amendment for completed work |
 | `STEP_STATUS_SIGNOFF` | retained status history has a missing or mismatched checkpoint signature reference | retain its matching human checkpoint signoff and record done through step-status |
-| `STAGE_MOVE_UNLINKED` | an advance or reopen's `from_stage` is not the stage the previous recorded move (by time) left, starting from `interview` (`paused` links to either side), or an `advances[]` entry is dated before an earlier one | preserve the history; record each later move through advance or reopen |
+| `STAGE_MOVE_UNLINKED` | an advance or reopen's `from_stage` is not the stage the previous recorded move (by time) left, starting from `interview` (`paused` links to either side), or an `advances[]` entry is dated before an earlier one | preserve the history; record later moves through advance, pause or resume |
 | `STEP_STATUS_UNLINKED` | a `status_history[]` entry's `from_status` is not the previous entry's `status` (`pending` for the first, or after a reopen or amendment that reset the step), an entry is dated before the one before it, or the step's `status` is not the last recorded status | preserve the history; record transitions through step-status (a reopen copies a hand-set status into `steps_before`, where `REOPEN_STEP_UNLINKED` reports it) |
-| `REOPEN_STEP_UNLINKED` | a `reopens[]` entry's `steps_before[]` status (`pending` when omitted) is not the status the step's `status_history[]` chain held at the reopen's `at`; steps with no history entry dated before the reopen, a malformed entry or reordered entries are not judged, and an entry tied with the reopen may fall on either side | restore the status the reopen recorded; before reopening, return a hand-set status to its last recorded one and record moves through step-status |
+| `REOPEN_STEP_UNLINKED` | a `reopens[]` entry's `steps_before[]` status (`pending` when omitted) is not the status the step's `status_history[]` chain held at the reopen's `at`; steps with no history entry dated before the reopen, a malformed entry or reordered entries are not judged, and an entry tied with the reopen may fall on either side | restore the status the historical reopen recorded and use step-status for later transitions |
 
 `PROGRESS_HISTORY_SINCE = 2026-11-08T00:00:00Z` dates each link break by the
 latest recorded event the unrecorded move must follow: the previous move or
@@ -1242,7 +1231,7 @@ status entry, a reopen or amendment that reset the step, the advance into the
 step's execution stage, and for a stage move the latest stage-level signature
 at the furthest stage before its `from_stage`. A `steps_before` mismatch is
 dated by those events up to the reopen, not by the reopen itself, because the
-reopen writer copies the current, possibly hand-set status. A reordered entry is dated by the
+historical reopen snapshot could carry a hand-set status. A reordered entry is dated by the
 later of the two entries. Breaks dated from the cutoff refuse; earlier ones,
 and breaks with no preceding dated event, WARN with the same code. A later
 writer entry therefore does not turn an older hand move into a refusal. A
@@ -1309,10 +1298,10 @@ so its shape check refuses no earlier record and has no contract date.
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
-| `PAUSE_ALREADY_PAUSED` | pause runs on a project whose stage is already `paused` | resume it, or reopen a passed stage |
+| `PAUSE_ALREADY_PAUSED` | pause runs on a project whose stage is already `paused` | resume it |
 | `PAUSE_STAGE_INVALID` | pause runs on `accepted` or on a stage outside the order | pause only work in progress |
-| `RESUME_NOT_PAUSED` | resume runs on a project whose stage is not `paused` | nothing to resume; use advance or reopen |
-| `RESUME_STAGE_MISMATCH` | resume names a stage other than the one the project was paused from (its latest pause's `from_stage`, or for a hand pause the stage its latest recorded move reached) | resume that stage, then advance or reopen from there |
+| `RESUME_NOT_PAUSED` | resume runs on a project whose stage is not `paused` | resume applies to paused projects. Use advance for a forward move or amend for an artifact change |
+| `RESUME_STAGE_MISMATCH` | resume names a stage other than the one the project was paused from (its latest pause's `from_stage`, or for a hand pause the stage its latest recorded move reached) | resume that stage, then use advance or amend as appropriate |
 | `PAUSE_MALFORMED` | `pauses` is not a list, or an entry lacks string `stage`, `from_stage`, `verbatim`, a human `by`, a readable `at` or a text `source`, is dated before the entry before it, neither enters `paused` from a stage before `accepted` nor leaves it for a stage in the order, or a pause's `signoff` is not the identity of a human paused sign-off dated at or before it | preserve the history; record pauses through pause and resume |
 
 `SIGNOFF_NOT_HUMAN` refuses either writer run `--by agent`.
@@ -1341,7 +1330,7 @@ registrations by `registration.at`: before it they WARN under
 | `RIG_TOOLCHAIN_LOCK_INVALID` | the declared lock is absent, unreadable, differs from its hash, has lockfileVersion other than 3 or lacks either package version | retain the original npm v3 lock with both producer package entries |
 | `RIG_TOOLCHAIN_MISMATCH` | built_with disagrees with the retained lock's two package versions | restore the declared lock and matching version values |
 | `RIG_AT_SOURCE_INVALID` | the cited record/pointer lacks a valid UTC instant, differs from at or is later than registration | explicitly cite a retained dated record's UTC timestamp through --at-source and --at-pointer |
-| `RIG_BUILD_BEFORE_REOPEN` | the cited not-after instant is at or before a reopen covering rig-review at registration | register a later frozen build with an explicit retained date citation |
+| `RIG_BUILD_BEFORE_REOPEN` | the cited not-after instant is at or before an amendment or historical reopen covering rig-review at registration | register a later frozen build with an explicit retained date citation |
 | `RIG_PATH_ADAPTER_INVALID` | the adapter lacks distinct `{at,before,after}` or `{doc,pointer,before,after}` mappings, names an unknown document or non-asset pointer, or disagrees with `config-source.json` / `requirements-source.json` | retain an exact adapter matching the original `config` and `requirements` asset pointers and `before` values |
 | `RIG_RUNTIME_PATH_UNRESOLVED` | an absolute config input lacks an exact adapter mapping, or a `requirements` asset path is absolute | retain the recorded runtime mapping and project-relative asset paths |
 | `RIG_IDLE_MANIFEST_MISSING` | idle evidence lacks the public render's frames.json | render through public rigc render and supply its output directory |
@@ -1533,7 +1522,7 @@ the record unchanged.
 | Code | Finding and remedy |
 | --- | --- |
 | `JOB_RECORD_SUBJECT_INVALID` | `project.json` does not bind the explicitly requested question, option set and effective stage, including a question whose pick is already recorded and so has no pending set, or a subject id cannot be represented by the record publication contract. Publish the exact current pending subject with its original representable id. |
-| `JOB_DIRECTION_VERDICT_REQUIRED` | `job open --plan` at `direction-review` finds no accepted live direction verdict on the current live post in `project.json.versions`. Open the post with `job open --rig <n>` and ingest `review <n> --from-review <actId>` before requesting direction sign-off. An accepted-then-bounced post instead offers exactly one reopen subject, for direction-review; it does not offer direction sign-off. Ordinary record-plan pages declare no reopen subjects. This is a publication precondition, not a new record-check rule. |
+| `JOB_DIRECTION_VERDICT_REQUIRED` | `job open --plan` at `direction-review` finds no accepted live direction verdict on the current live post in `project.json.versions`. Open the post with `job open --rig <n>` and ingest `review <n> --from-review <actId>` before requesting direction sign-off. For an accepted-then-bounced post, follow `next` to record the owner's correction with `amend direction-review`. This is a publication precondition, not a new record-check rule. |
 | `INTERVIEW_SIGNOFF_NOT_CLEAN` | An interview record-plan publication or first record-mode sign-off ingest finds a refusal or delivery hole from the full `interview --check` function on `project.json`. Resolve that check, republish with `job open --plan` and ask for the interview signature again. This is a new-route precondition; existing records and CLI `--by` signatures keep their checks. A refused ingest leaves the record byte-identical. |
 | `INTERVIEW_SIGNOFF_PLAN_REQUIRED` | An interview record-plan publication or first record-mode sign-off ingest has no displayed `project.json.plan.steps`. Draft non-empty plan steps through the writers and publish with `job open --plan` before asking for the interview signature. A refused operation leaves the record byte-identical. |
 | `REVIEW_ACT_RECORD_TARGET_INVALID` | A direction record publication or first sign-off ingest cannot resolve one current/latest live post with an accepted live direction verdict from the hash-bound `project.json` bytes (including a duplicated current version number). Review that current post and publish its corrected record through the writers. Historical accepted posts do not create ambiguity. A refused ingest leaves the record byte-identical. |
@@ -1805,7 +1794,7 @@ interview is the existing `WAYPOINT_MISSING` refusal.
 | Code | Meaning and remedy |
 | --- | --- |
 | `OWNER_CHAT_INVALID` | The named project.json answer/signoff lacks exact nonblank owner words, a valid explicit ISO said_at, relay identity, or the relayed source, or mixes chat and Review flags. Supply `--owner-chat`, `--said-at`, `--relayed-by` and owner `--by` together; keep at as the write time and omit act ids. |
-| `OWNER_CHAT_REQUIRED` | A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt, or a restart lacks relayed owner chat. Refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. Record new actions with `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`, or ingest a reopen with `--from-review <actId>`. |
+| `OWNER_CHAT_REQUIRED` | A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt, or a restart lacks relayed owner chat. Refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For restart, record `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
 | `OWNER_CHAT_GATE_VISUAL` | The named project.json stage signoff has no accepted live verdict for the current draft, rig or post. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
 
 ## Composed idle direction (direction@3)

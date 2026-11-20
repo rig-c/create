@@ -82,7 +82,7 @@ function save(dir: string, file: string, beforeBytes: string, original: JsonObje
 }
 function openStage(project: JsonObject, stage: string): void {
   const reopens=collectReopens(project,[]);
-  if (collectSignoffs(project,[]).some(s=>s.stage===stage&&s.checkpoint===null&&liveSignoff(reopens,stage,s.at)) || objects(project.versions).some(v=>objects(v.verdicts).some(d=>d.review===stage&&d.verdict==='accepted'&&liveSignoff(reopens,stage,Date.parse(String(d.at)))))) throw new CorrectionError('CORRECTION_SOURCE',`approval for ${stage} is still live; reopen before changing its corrections`);
+  if (collectSignoffs(project,[]).some(s=>s.stage===stage&&s.checkpoint===null&&liveSignoff(reopens,stage,s.at)) || objects(project.versions).some(v=>objects(v.verdicts).some(d=>d.review===stage&&d.verdict==='accepted'&&liveSignoff(reopens,stage,Date.parse(String(d.at)))))) throw new CorrectionError('CORRECTION_SOURCE',`approval for ${stage} is still live; record a human amendment with amend ${stage} before changing its corrections`);
 }
 
 /** The finalized act projection needed to bind its displayed rig. The live fetch owns decoding and authorization. */

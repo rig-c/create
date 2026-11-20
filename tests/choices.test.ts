@@ -1,6 +1,6 @@
 import { reviewStdout } from './review-read-fixture.ts';
 
-import { retainSignoffs } from './fixtures.ts';
+import { plantLegacyReopen, retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync, rmSync, renameSync } from 'node:fs';
@@ -390,7 +390,7 @@ test('landed constrained Other is checked even when another constrained ask is s
 });
 test('a later reopen preserves the historical choice but refuses selecting its stale set again',()=>{
   const w=working();answer(w);testClock.set(riggingDraftAt+2_000);writeFileSync(join(w.dir,'words.txt'),'Review parts again.');
-  reopenCommand(['parts',w.dir,'--by','user', ...ownerChatArgs(join(w.dir,'words.txt'))]);expect(checkProject(w.dir).refusals).toEqual([]);
+  plantLegacyReopen(w.dir, 'parts', { by: 'user', wordsFile: join(w.dir,'words.txt') });expect(checkProject(w.dir).refusals).toEqual([]);
   const before=readFileSync(join(w.dir,'project.json'));expect(code(()=>interviewOptionsCommand(['motion',w.dir,'--file',w.path]))).toBe('INTERVIEW_OPTIONS_STALE');expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
 });
 
@@ -417,7 +417,7 @@ test('a mixed decision cannot overwrite a user fragment through merge',()=>{
 
 import { generateExampleChoices } from '../scripts/generate-example-choices.ts';
 import { tempDir, ownerChatArgs } from './helpers.ts';
-import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, interviewCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, interviewCommand, signoffCommand, testClock } from './clock.ts';
 test('the public-writer consumer fixture and raw option files reproduce exactly',()=>{
   const outputs=generateExampleChoices(join(tempDir(),'choice-generation'));
   for(const[path,bytes]of Object.entries(outputs))expect(readFileSync(join(import.meta.dir,'../templates',path),'utf8')).toBe(bytes);

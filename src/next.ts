@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { publicationFile } from './job-publication.ts';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import {
+  answered,
   asArray,
   checkProject,
   collectItems,
@@ -1085,20 +1086,27 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const registrations = plateInputMoves(dir, project, allItems, now);
   if (hasBlockingRefusal) {
     const signoffs = asArray(project.signoffs);
-    const resignMoves = new Map<string, NextMove>();
+    const readyToResign = new Map<string, boolean>();
     for (const finding of report.refusals) {
       if (finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
-      const match = /^signoffs\[(\d+)\]\.answer_hashes\[/.exec(finding.path);
-      const signoff = match ? signoffs[Number(match[1])] : undefined;
-      if (!isObject(signoff) || typeof signoff.stage !== 'string' || resignMoves.has(signoff.stage)) continue;
-      const stage = signoff.stage;
+      const match = /^signoffs\[(\d+)\]\.answer_hashes\[(.+)\]$/.exec(finding.path);
+      if (!match) continue;
+      const signoff = signoffs[Number(match[1])];
+      if (!isObject(signoff) || typeof signoff.stage !== 'string') continue;
+      const item = allItems.find(item => item.id === match[2]);
+      // A missing or unfinished answer needs repair before the owner can re-sign.
+      const ready = item !== undefined && answered(item.state) && !hasPendingOther(item) && !isUndecidedDelegation(item);
+      readyToResign.set(signoff.stage, readyToResign.get(signoff.stage) !== false && ready);
+    }
+    const moves = [...depthMoves, ...registrations];
+    for (const [stage, ready] of readyToResign) {
+      if (!ready) continue;
       const command = ownerChatSignoffCommand(dir, project, { kind: 'signoff', stage }, `signoff ${shellWord(stage)}`);
-      if (command) resignMoves.set(stage, {
+      if (command) moves.push({
         role: 'human', field: 'signoffs', awaits: `signoffs[stage=${stage}]`, command,
         act: `re-sign ${stage} after confirming the intended answers and relay the owner's exact words`,
       });
     }
-    const moves = [...depthMoves, ...registrations, ...resignMoves.values()];
     return {
       schema: NEXT_SCHEMA,
       project_id: String(project.name ?? ''),

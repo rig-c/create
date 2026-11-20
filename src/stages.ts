@@ -49,6 +49,9 @@ export const PAUSED_STAGE = 'paused';
 /** What a record's `stage_values` is expected to hold: the order, then `paused`. */
 export const STAGE_VALUES: readonly string[] = [...STAGES.map((s) => s.id), PAUSED_STAGE];
 
+/** Stages a `signoff --from-picks` may sign from recorded owner picks. */
+export const PICK_SIGNOFF_STAGES: readonly string[] = ['interview', 'plan-approved', 'rigging-interview'];
+
 /**
  * The stages skipped when every post item is answered not applicable
  * (PROJECT.md § When post is not passed): the project moves from

@@ -46,7 +46,9 @@ one input, survives restart and checks sibling artwork; optional on older record
    record-page sign-off (source-linked Review).
 
 Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
-ingest `--from-review <actId>`, then advance.
+ingest `--from-review <actId>`, then advance. With all owner picks ingested,
+complete the plan and follow `next` for `signoff <stage> --from-picks`.
+Keep the plan sign-off page for other answers.
 Keep the host up across bound writes; after a stop, `job open` with reviewer/role,
 then `job reconcile` before writing.
 

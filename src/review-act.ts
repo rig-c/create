@@ -13,6 +13,7 @@ import { JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS
   type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
+import { PICK_SIGNOFF_STAGES } from './stages.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { composedPublishedBuildFiles, liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -636,13 +637,13 @@ function validateDiscardReceipt(entry: JsonObject, path: string, warnings?: Find
 
 /** Ledger validation deliberately checks retained evidence, not current sources. */
 export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Finding[] {
-  if (project.review_acts === undefined) return [];
   const findings: Finding[] = [];
   const seen = new Set<string>();
   const targets = new Set<string>();
+  const ownerPickActs = new Map<string, InterviewPicksAct>();
   const add = (code: string, path: string, detail: string): void => { findings.push({ code, path, message: `${path}: ${detail}; restore the original act receipt and its recorded verdict` }); };
-  if (!Array.isArray(project.review_acts)) { add('REVIEW_ACT_LEDGER_INVALID', 'review_acts', 'expected a replay ledger array'); return findings; }
-  project.review_acts.forEach((entry, index) => {
+  if (project.review_acts !== undefined && !Array.isArray(project.review_acts)) { add('REVIEW_ACT_LEDGER_INVALID', 'review_acts', 'expected a replay ledger array'); return findings; }
+  asArray(project.review_acts).forEach((entry, index) => {
     const path = `review_acts[${index}]`;
     if (object(entry) && entry.schema === PARTS_CLI_RECEIPT) return;
     try {
@@ -694,6 +695,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
             ? { itemId: raw.ask, optionId: raw.option_id, otherText: raw.other_text ?? null } : null), act.value.selections)) {
           failure('REVIEW_ACT_LEDGER_INVALID', 'recorded interview answer differs from the immutable act');
         }
+        ownerPickActs.set(JSON.stringify([act.jobId, act.actId]), act);
         return;
       }
       if (act.kind === 'reopen') {
@@ -776,5 +778,22 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       }
     } catch (error) { add(error instanceof Refusal ? error.code : 'REVIEW_ACT_LEDGER_INVALID', path, error instanceof Refusal ? error.message : 'invalid act receipt'); }
   });
+  for (const [index, row] of asArray(project.signoffs).entries()) {
+    if (!object(row) || !object(row.evidence) || row.evidence.from !== 'picks') continue;
+    const evidence = row.evidence;
+    const sources = asArray(evidence.picks).map(ref =>
+      object(ref) ? ownerPickActs.get(JSON.stringify([ref.job_id, ref.act_id])) : undefined);
+    const last = ownerPickActs.get(JSON.stringify([evidence.job_id, evidence.act_id]));
+    if (!last || !sources.includes(last) || row.checkpoint !== null
+        || !PICK_SIGNOFF_STAGES.includes(String(row.stage))
+        || evidence.said_at !== last.at || !(Date.parse(String(row.at)) >= Date.parse(last.at))
+        || new Set(sources.map(act => act?.value.questionId)).size !== sources.length
+        || sources.some(act => !act || act.authority.reviewer.role !== 'owner'
+          || act.authority.reviewer.id !== row.by || Date.parse(act.at) > Date.parse(last.at)
+          || !object(row.answer_hashes) || !Object.hasOwn(row.answer_hashes, act.value.questionId)
+          || act.value.selections.some(selection => selection.otherText !== null))) {
+      add('REVIEW_ACT_LEDGER_INVALID', `signoffs[${index}].evidence`, 'derived pick signoff differs from its owner pick receipts');
+    }
+  }
   return findings;
 }

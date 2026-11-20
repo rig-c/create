@@ -33,13 +33,13 @@ function requiredIds(project: JsonObject, signoff: JsonObject, items: Item[]): s
   return [...new Set(steps.flatMap(step => asArray(step.rests_on).filter((id): id is string => typeof id === 'string')))];
 }
 
-export function selectAnswerHashes(dir: string, project: JsonObject, signoff: JsonObject): JsonObject | undefined {
+export function selectAnswerHashes(dir: string, project: JsonObject, signoff: JsonObject, extraIds: readonly string[] = []): JsonObject | undefined {
   if (!stages.includes(String(signoff.stage))) return undefined;
   const items = collectItems(project, { collection: loadCollection(dir) });
   // The writer captures every answer present now, independent of its recorded date.
   const ids = signoff.stage === 'interview' ? items.filter(item => answered(item.state)).map(item => item.id) : requiredIds(project, signoff, items);
   const hashes = Object.create(null) as JsonObject;
-  for (const id of ids) {
+  for (const id of new Set([...ids, ...extraIds])) {
     const item = items.find(item => item.id === id);
     if (!item || !answered(item.state)) refuse('SIGNOFF_ANSWERS_UNANSWERED', `signoffs[${asArray(project.signoffs).length}].answer_hashes[${id}]: answer is missing or unresolved; answer ${id} before signing ${String(signoff.stage)}`);
     hashes[id] = answerRevisionHash(item, String(signoff.stage));

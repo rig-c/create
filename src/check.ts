@@ -1011,8 +1011,9 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const checkChat = (value: Json | undefined, path: string): void => {
     if (Array.isArray(value)) value.forEach((entry, index) => checkChat(entry, `${path}[${index}]`));
     else if (isObject(value)) {
-      // Reopen, restart, amendment and discard records validate their own relay fields.
-      const checked = /^project\.json\.(reopens|restarts)\[\d+\]$/.test(path)
+      // Reopen, restart, amendment, derived pick signoff and discard records validate their own relay fields.
+      const checked = value.from === 'picks' && /^project\.json\.signoffs\[\d+\]\.evidence$/.test(path)
+        || /^project\.json\.(reopens|restarts)\[\d+\]$/.test(path)
         || /^project\.json\.amendments\[\d+\]$/.test(path)
         || /^project\.json\.review_acts\[\d+\]$/.test(path) && isDiscardReceipt(value);
       const finding = checked ? undefined : ownerChatFinding(value, path);

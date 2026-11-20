@@ -2263,7 +2263,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(beforePostReopenRig.moves[0]!.command).toContain("--check-report '<check.json>'");
   expect(checkProject(dir, undefined, { now: reopenAt, readOnly: true }).warnings).toContainEqual({
     code: 'RIG_CHECK_REPORT_MISSING', path: 'versions[v2].registration.check_report',
-    message: expect.stringContaining('rig-parts check --rig <rig dir> --parts <parts dir> --out <check dir>'),
+    message: expect.stringContaining('rig-parts check --rig <rig dir> --parts <parts dir> --source <painting> --requirements <requirements file> --out <check dir>'),
   });
   expect(beforePostReopenRig.moves[0]!.act).toContain('built after the reopen');
   expect(beforePostReopenRig.moves.some(m => m.lapse !== undefined)).toBe(false);

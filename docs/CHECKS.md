@@ -1352,7 +1352,7 @@ registrations by `registration.at`: before it they WARN under
 | `RIG_REGISTRATION_PATH_INVALID` | an input escapes project containment, traverses a symlink or collides with reserved metadata, differing file bytes or an incompatible file/directory target | retain regular project-contained source inputs with literal targets and byte-identical shared files |
 | `RIG_REGISTRATION_FILE_INVALID` | an unsupported adapter format, a required input, referenced asset, declared sha256, runtime config/requirements adaptation, producer report/manifest, complete output inventory or copied totals is missing, changed or malformed | restore the exact frozen inputs, retained source documents and producer reports before registration |
 | `RIG_REGISTRATION_SOURCE_CHANGED` | source or project bytes change during copying | freeze the inputs and retry against the current project |
-| `RIG_TOOLCHAIN_LOCK_INVALID` | the declared lock is absent, unreadable, differs from its hash, has lockfileVersion other than 3 or lacks either package version | retain the original npm v3 lock with both producer package entries |
+| `RIG_TOOLCHAIN_LOCK_INVALID` | the declared lock is absent, unreadable, differs from its hash, has an unsupported format or lacks either producer entry | retain the original Bun text lock with exact versions and integrity, or npm v3 lock with both producer versions |
 | `RIG_TOOLCHAIN_MISMATCH` | built_with disagrees with the retained lock's two package versions | restore the declared lock and matching version values |
 | `RIG_AT_SOURCE_INVALID` | the cited record/pointer lacks a valid UTC instant, differs from at or is later than registration | explicitly cite a retained dated record's UTC timestamp through --at-source and --at-pointer |
 | `RIG_BUILD_BEFORE_REOPEN` | the cited not-after instant is at or before an amendment or historical reopen covering rig-review at registration | register a later frozen build with an explicit retained date citation |
@@ -1373,7 +1373,7 @@ registrations by `registration.at`: before it they WARN under
 | `RUN_RECORD_ROLE_INVALID` | a `rigc-run/1` record omits a required input role (`rig` or `motion`), names an unknown role, or sorts roles outside `rig`, `motion`, `manifest`, `cuts` | retain the unedited `rigc-run/1` `run.json` with required `rig` and `motion` inputs |
 | `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes, unsorted outputs, or duplicate specs. The assemble-only reader accepts the published optional assemble `inputs` field in its declared key and role order. Draft registration refuses malformed stamps. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | retain at most one unedited producer `run.json` per spec in its published key order |
 
-The date citation declares a completion bound, the npm lock declares the
+The date citation declares a completion bound, the toolchain lock declares the
 toolchain, and `registration.runs` binds the producer run stamps (`rig-run/1`
 from parts#1165 and `rigc-run/1` from core#1718) by raw SHA-256 and spec.
 Acceptance and forward stage moves retain their

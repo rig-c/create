@@ -367,11 +367,13 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
       const configDir = relative(dir, dirname(config)).split(sep).join('/');
       const prefix = `${configDir}/`;
       const runFiles = new Set(asArray(version.registration.runs).flatMap(r => isObject(r) && isObject(r.source) && typeof r.source.path === 'string' ? [r.source.path] : []));
+      const toolchain = version.registration.toolchain;
+      const lockPath = isObject(toolchain) && isObject(toolchain.source) ? toolchain.source.path : undefined;
       const metadataNames = new Set(['at-source.json', 'compile-report.json', 'config-source.json', 'requirements-source.json', 'config.json', 'package-lock.json', 'path-adapter.json', 'citations.json']);
       for (const binding of asArray(version.registration.files)) {
         if (!isObject(binding) || typeof binding.path !== 'string' || !binding.path.startsWith(prefix)) continue;
         const rel = binding.path.slice(prefix.length);
-        if (metadataNames.has(rel) || runFiles.has(binding.path)) continue;
+        if (binding.path === lockPath || metadataNames.has(rel) || runFiles.has(binding.path)) continue;
         if ([...directories].some(d => rel.startsWith(`${d}/`)) && !named.some(input => input.path === rel)) continue;
         const file = source(binding.path);
         const bytes = readFileSync(file);

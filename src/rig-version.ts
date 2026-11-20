@@ -6,7 +6,7 @@ import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } f
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, checkProject, collectItems, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
@@ -19,6 +19,7 @@ import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { collectReopens, reopenTime } from './reopen.ts';
 import { prepareRigReviewPackage } from './review-package.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, type RigCheckTarget } from './rig-check-report.ts';
+import { lockedPackage, type ToolchainKind } from './toolchain-lock.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
 import { approvedStructureDelta, latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
@@ -73,15 +74,37 @@ function bytesAt(dir: string, binding: Json | undefined, output = false): Buffer
   return bytes;
 }
 
-function lockVersions(raw: Json): JsonObject {
-  if (!isObject(raw) || raw.lockfileVersion !== 3 || !isObject(raw.packages)) throw Error('supply an npm lockfileVersion 3 package-lock.json');
+const TOOLCHAIN_KINDS = 'npm-lock-v3 (package-lock.json) or bun-lock (bun.lock)';
+
+function lockVersions(bytes: Buffer, found: string, declared?: ToolchainKind): { kind: ToolchainKind; versions: JsonObject } {
+  const invalid = (reason: string): Error => Error(`found ${found}: ${reason}; supply ${TOOLCHAIN_KINDS}`);
+  const text = bytes.toString();
+  let raw: Json;
+  let strictJson = false;
+  try {
+    raw = JSON.parse(text) as Json;
+    strictJson = true;
+  } catch {
+    try { raw = Bun.JSONC.parse(text) as Json; }
+    catch { throw invalid('unparseable lock'); }
+  }
+  if (!isObject(raw) || !isObject(raw.packages)) throw invalid('missing lock package entries');
+  const kind = strictJson && raw.lockfileVersion === 3 ? 'npm-lock-v3'
+    : (raw.lockfileVersion === 1 || raw.lockfileVersion === 2) && isObject(raw.workspaces) ? 'bun-lock'
+    : undefined;
+  if (!kind || (declared && kind !== declared)) throw invalid('lock format does not match a supported declaration');
   const versions: JsonObject = {};
   for (const name of ['@rig-c/parts', '@rig-c/core']) {
-    const pkg = raw.packages[`node_modules/${name}`];
-    if (!isObject(pkg) || typeof pkg.version !== 'string' || !pkg.version.trim()) throw Error(`missing packages[node_modules/${name}].version`);
-    versions[name] = pkg.version;
+    const { version, integrity } = lockedPackage(raw, kind, name);
+    if (typeof version !== 'string' || !version.trim()) throw invalid(`missing resolved version for ${name}`);
+    if (kind === 'bun-lock'
+      && (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(version)
+        || typeof integrity !== 'string' || !/^sha(?:1|256|384|512)-[A-Za-z0-9+/]+={0,2}$/.test(integrity))) {
+      throw invalid(`missing exact registry version or integrity for ${name}`);
+    }
+    versions[name] = version;
   }
-  return versions;
+  return { kind, versions };
 }
 
 function pointerTokens(pointer: Json | undefined): string[] {
@@ -574,8 +597,8 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
     const add = (code: string, field: string, why: string): void => { findings.push({ code, path: `${path}.${field}`, message: `${path}.${field}: ${why}; restore the retained registration inputs or register a new rig version` }); };
     const record = version.registration;
     if (version.kind !== 'rig' || !isObject(record) || record.kind !== 'frozen-rig/1' || !utcDate(record.at)
-      || !isObject(record.toolchain) || record.toolchain.kind !== 'npm-lock-v3' || version.at_basis !== 'not-after') {
-      add('RIG_REGISTRATION_INVALID', 'registration', 'expected frozen-rig/1, a UTC registration date and npm-lock-v3 declaration'); continue;
+      || !isObject(record.toolchain) || (record.toolchain.kind !== 'npm-lock-v3' && record.toolchain.kind !== 'bun-lock') || version.at_basis !== 'not-after') {
+      add('RIG_REGISTRATION_INVALID', 'registration', `expected frozen-rig/1, a UTC registration date and ${TOOLCHAIN_KINDS} declaration`); continue;
     }
     const prevMax = Math.max(0, ...allVersions.slice(0, index).map(v => typeof v.n === 'number' && Number.isSafeInteger(v.n) ? v.n : 0));
     const versionN = typeof version.n === 'number' && Number.isSafeInteger(version.n) ? version.n : 0;
@@ -608,9 +631,9 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
     }
     const runPaths = checkRegisteredRuns(dir, path, record, findings, warnings);
     try {
-      const versions = lockVersions(JSON.parse(bytesAt(dir, record.toolchain.source).toString()));
-      if (!isDeepStrictEqual(versions, version.built_with)) add('RIG_TOOLCHAIN_MISMATCH', 'built_with', 'declared versions disagree with the retained npm lock');
-    } catch (error) { add('RIG_TOOLCHAIN_LOCK_INVALID', 'registration.toolchain.source', String(error)); }
+      const { versions } = lockVersions(bytesAt(dir, record.toolchain.source), record.toolchain.kind, record.toolchain.kind);
+      if (!isDeepStrictEqual(versions, version.built_with)) add('RIG_TOOLCHAIN_MISMATCH', 'built_with', 'declared versions disagree with the retained toolchain lock');
+    } catch (error) { add('RIG_TOOLCHAIN_LOCK_INVALID', 'registration.toolchain.source', `declared ${record.toolchain.kind}: ${String(error)}; retain ${TOOLCHAIN_KINDS}`); }
     try {
       const source = version.at_source;
       const raw = JSON.parse(bytesAt(dir, source).toString()) as Json;
@@ -818,10 +841,10 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
 }
 
 export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <render dir>
-  --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <package-lock.json>
+  --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <bun.lock|package-lock.json>
   --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--depth-map-binding <map.binding.json>]... [--json]
   [--check-report <check.json>]
-  Copy and hash frozen producer outputs. Retain an explicitly declared npm lock, producer run records and UTC not-after date.
+  Copy and hash frozen producer outputs. Retain an explicitly declared toolchain lock, producer run records and UTC not-after date.
   Accept specific failed bars or unmet requirement lines from --check-report with repeatable --accept-check-bar <id> or --accept-check-line <name>.
   Acceptance requires --check-accepted-by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
@@ -953,9 +976,20 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     };
     const input = (flagOrPath: string, name: string): JsonObject => retain(`${evidence}/${name}`, sourceBytes(options[flagOrPath] ?? flagOrPath));
     // Validate the toolchain lock and run records before creating retained directories.
-    let versions: JsonObject;
-    try { versions = lockVersions(JSON.parse(sourceBytes(options['--toolchain-lock']!).toString())); }
-    catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_TOOLCHAIN_LOCK_INVALID', `versions[v${n}].built_with`, String(error)); }
+    const lockPath = options['--toolchain-lock']!;
+    let lockBytes: Buffer;
+    let lock: ReturnType<typeof lockVersions>;
+    try {
+      lockBytes = sourceBytes(lockPath);
+      lock = lockVersions(lockBytes, basename(lockPath));
+    } catch (error) {
+      if (error instanceof Refusal) throw error;
+      const reason = (error as NodeJS.ErrnoException).code === 'ENOENT'
+        ? `found no lock at ${lockPath}; supply ${TOOLCHAIN_KINDS}`
+        : String(error);
+      return fail('RIG_TOOLCHAIN_LOCK_INVALID', `versions[v${n}].built_with`, reason);
+    }
+    const { kind: toolchainKind, versions } = lock;
     const registrationAt = new Date(now).toISOString();
     const needsApproval = now >= Date.parse(RIG_PARTS_APPROVAL_SINCE);
     const liveApproval = needsApproval ? latestPartsApproval(project, now) : undefined;
@@ -980,7 +1014,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       }
     }
     if (validatedRuns.length === 0 && Date.parse(registrationAt) >= Date.parse(RUN_RECORD_SINCE)) {
-      return fail('RUN_RECORD_REQUIRED', `versions[v${n}].registration.runs`, 'version registered from the npm lock alone; retain producer run.json records with --run-record');
+      return fail('RUN_RECORD_REQUIRED', `versions[v${n}].registration.runs`, 'version registered from the toolchain lock alone; retain producer run.json records with --run-record');
     }
     // Pre-existing refusals stay the project's; the candidate may not add a new one.
     const baseline = baselineOf(checkProject(dir, project, { now }));
@@ -994,7 +1028,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     }
     created.push(join(dir, evidence), join(dir, out));
     mkdirSync(join(dir, evidence), { recursive: true });
-    const toolchain = input('--toolchain-lock', 'package-lock.json');
+    const toolchain = retain(`${evidence}/${toolchainKind === 'bun-lock' ? 'bun.lock' : 'package-lock.json'}`, lockBytes);
     const runs = validatedRuns.map(({ path, spec }) => ({
       spec,
       source: input(path, `${spec.replace('/', '-')}.json`),
@@ -1060,6 +1094,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const portableRefs = collectConfigAssetRefs(dir, portable);
     const effectiveAdapter: JsonObject[] = callerAdapter.map(r => r.raw);
     const reservedTargets = new Set<string>(RESERVED_REGISTRATION_NAMES);
+    if (toolchainKind === 'bun-lock') reservedTargets.add('bun.lock');
     for (const { spec } of validatedRuns) reservedTargets.add(`${spec.replace('/', '-')}.json`);
     const conflictsWithReserved = (candidate: string): boolean => {
       for (const existing of reservedTargets) {
@@ -1280,7 +1315,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       ...(acceptedParts ? { accepted_parts: acceptedParts } : {}),
       built_by: options['--by']!, built_with: versions, outputs: outputFiles, evidence: [], verdicts: [], answers_feedback: answersFeedback, review_origin: null,
       changed: 'Registered frozen producer outputs', provenance: { config: configBinding, sections, ...(structureChanges.length ? { structure_delta: structureChanges } : {}) },
-      registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: 'npm-lock-v3', source: toolchain },
+      registration: { kind: 'frozen-rig/1', at: registrationAt, toolchain: { kind: toolchainKind, source: toolchain },
         ...(runs.length ? { runs } : {}),
         ...(checkReport ? { check_report: checkReport } : {}),
         ...(depthBinding ? { depth: depthBinding } : {}),

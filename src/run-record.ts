@@ -156,7 +156,7 @@ export function checkRegisteredRuns(
     const finding: Finding = {
       code: 'RUN_RECORD_REQUIRED',
       path: runsPath,
-      message: `${runsPath}: version registered from the npm lock alone; retain producer run.json records with --run-record and register a new rig version`,
+      message: `${runsPath}: version registered from the toolchain lock alone; retain producer run.json records with --run-record and register a new rig version`,
     };
     const at = Date.parse(String(record.at));
     if (Number.isFinite(at) && at < Date.parse(RUN_RECORD_SINCE)) warnings.push(finding);

@@ -106,7 +106,7 @@ export interface CreateDoc {
 export const CREATE_DOCS: readonly CreateDoc[] = [
   {
     path: 'docs/PROJECT.md',
-    why: 'the folder, stages and sign-offs, the plan, versions, and `project.json` field by field',
+    why: 'project fields, stages, sign-offs, and rig registration with the build’s `bun.lock` or npm v3 lock',
   },
   {
     path: 'docs/INTERVIEW.md',

@@ -119,7 +119,7 @@ Run refusal `(see … guide …)` commands first.
 
 Project docs:
 
-- [docs/PROJECT.md](https://github.com/rig-c/create/blob/main/docs/PROJECT.md): the folder, stages and sign-offs, the plan, versions, and `project.json` field by field.
+- [docs/PROJECT.md](https://github.com/rig-c/create/blob/main/docs/PROJECT.md): project fields, stages, sign-offs, and rig registration with the build’s `bun.lock` or npm v3 lock.
 - [docs/INTERVIEW.md](https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md): how to ask, and the shape every answer, delegation and piece of feedback takes.
 - [docs/CRAFT.md](https://github.com/rig-c/create/blob/main/docs/CRAFT.md): the default to propose at each waypoint.
 - [docs/COLLECTIONS.md](https://github.com/rig-c/create/blob/main/docs/COLLECTIONS.md): when this project is a member of a collection.

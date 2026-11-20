@@ -37,6 +37,7 @@ import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
 import { isPartsCheckMove, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { latestPartsVerdictStatus, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { pausedFrom } from './pause.ts';
+import { checkCollection, collectionDirOf } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
@@ -81,8 +82,31 @@ export type NextRole = 'agent' | 'producer' | 'human';
 export interface NextRefusal {
   code: string;
   field: string;
+  path?: string;
   message: string;
   fix: string;
+  remedy?: string;
+}
+
+export interface NextCollectionRefusal {
+  code: string;
+  path: string;
+  message: string;
+  remedy: string;
+}
+
+export interface NextCollectionMember {
+  name: string;
+  command: string;
+}
+
+export interface NextCollectionReport {
+  kind: 'collection';
+  collection_dir: string;
+  stage: string | null;
+  effective_stage: string | null;
+  refusals: NextCollectionRefusal[];
+  members: NextCollectionMember[];
 }
 
 export interface NextReviewAct {
@@ -118,12 +142,15 @@ export interface NextMove {
 }
 
 export interface NextReport {
+  kind?: 'collection';
+  collection_dir?: string;
   schema: typeof NEXT_SCHEMA;
   project_id: string;
   stage: string;
   effective_stage: string;
   accepted: boolean;
   refusals: NextRefusal[];
+  members?: NextCollectionMember[];
   warnings?: Finding[];
   /** A view of existing answers, never a new project record. */
   answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
@@ -996,8 +1023,32 @@ function partsDraftEvidenceMoves(
   };
 }
 
+export function nextCollection(collectionDirArg: string): NextCollectionReport {
+  const checked = checkCollection(collectionDirArg);
+  return {
+    kind: 'collection',
+    collection_dir: checked.collection_dir,
+    stage: checked.stage,
+    effective_stage: checked.effective_stage,
+    refusals: checked.refusals.map(r => ({
+      code: r.code,
+      path: r.path,
+      message: r.message,
+      remedy: remedyForFinding(r.code, r.message),
+    })),
+    members: checked.members.map(name => ({
+      name,
+      command: `rig-create next ${shellWord(join(checked.collection_dir, 'members', name))}`,
+    })),
+  };
+}
+
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
+  const collectionDir = collectionDirOf(dir);
+  if (collectionDir !== null) {
+    return nextCollection(collectionDir) as unknown as NextReport;
+  }
   const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true });
   const fatal = report.refusals.find(r => FATAL_CODES.has(r.code));
   if (fatal !== undefined) refuse(fatal.code, fatal.message);
@@ -2030,7 +2081,31 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   };
 }
 
-export function formatNext(report: NextReport): string {
+export function formatNext(report: NextReport | NextCollectionReport): string {
+  if (report.kind === 'collection') {
+    const collection = report as NextCollectionReport;
+    const lines: string[] = [
+      `next (collection): ${collection.collection_dir} — stage: ${collection.stage ?? '(unknown)'}${
+        collection.effective_stage !== collection.stage ? ` (effective: ${collection.effective_stage})` : ''
+      }`,
+    ];
+    if (collection.refusals.length > 0) {
+      lines.push(`refusals (${collection.refusals.length}):`);
+      for (const r of collection.refusals) {
+        lines.push(`  [${r.code}] ${r.path}: ${r.message}`);
+        lines.push(`    remedy: ${r.remedy}`);
+      }
+    }
+    if (collection.members.length === 0) {
+      lines.push('members (0): none');
+    } else {
+      lines.push(`members (${collection.members.length}):`);
+      for (const member of collection.members) {
+        lines.push(`  ${member.name}: ${member.command}`);
+      }
+    }
+    return lines.join('\n');
+  }
   const lines: string[] = [];
   lines.push(
     `next: ${report.project_id || '(unnamed)'} — stage: ${report.stage}${

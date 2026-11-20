@@ -1063,7 +1063,10 @@ Acceptance dates remain on verdicts written through the review and signoff flow.
 
 The copied rig, motion and model use producer specs `rigc-rig/1`,
 `rigc-motion/1` and `rigc-compiled/3`. The producer's compile document must
-be a successful `build-report/1`. Idle
+be a successful `build-report/1`. From `@rig-c/parts` 2.47.0, `rig-parts check`
+writes it as `check/build-report.json` beside `check/build/`, so a build
+registered from a Parts check passes that file to `--compile-report` and needs
+no second `rigc build --report`. Idle
 evidence is a public `rigc render` directory with `frames.json`, spec
 `rigc-frames/1`, and an `idle` set. The writer binds that manifest and every
 copied frame and diagnostic file. It preserves the producer's fps, viewport,
@@ -2420,7 +2423,7 @@ review record-id domain of 1–128 ASCII letters, digits, dots, underscores
 and hyphens, starting with a letter or digit. The reader identity is
 `rig-create/publication-reader/2`. Create opens the live host in `package-only`
 mode by default. Record publications opt into the V3 symbols and types
-exported by the release-pinned Review 4.9.0.
+exported by the release-pinned Review 4.9.1.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.
 Its effective stage must match the requested option set's stage. Plan
@@ -2871,5 +2874,5 @@ The rest of the frozen compose inventory (`scene.json`, `check/check.json`,
 published. Each published build file must match its recorded hash, and a
 declared build path that Review's `jobPath` rule refuses is
 `JOB_PUBLICATION_INVALID` before anything is written. It does not substitute
-the accepted character package. The release-pinned Review 4.9.0 reads
+the accepted character package. The release-pinned Review 4.9.1 reads
 direction@3.

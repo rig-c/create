@@ -2068,7 +2068,7 @@ describe('#720 next offers the frozen checked build', () => {
     })) expect(argv[argv.indexOf(flag) + 1]).toBe(value);
     expect(move.act).toContain(`from ${source} as v5`);
     expect(move.act).toContain(`rig-create rig-version adapter ${dir} --config '${config}' --out '<path-adapter.json>'`);
-    for (const producer of ['rig-parts assemble', 'rig-parts rig', 'rig-parts check', 'rigc render', 'rigc build --report', 'bun install', 'npm install']) {
+    for (const producer of ['rig-parts assemble', 'rig-parts rig', 'rig-parts check', 'rigc render', `${source}/check/build-report.json`, 'bun install', 'npm install']) {
       expect(move.act).toContain(producer);
     }
 

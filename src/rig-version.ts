@@ -1109,6 +1109,7 @@ export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <di
   --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--depth-map-binding <map.binding.json>]... [--json]
   [--check-report <check.json>]
   Copy and hash frozen producer outputs. Retain an explicitly declared toolchain lock, producer run records and UTC not-after date.
+  For --build check/build from rig-parts check, --compile-report is check/build-report.json beside it (Parts 2.47.0 and later).
   Accept specific failed bars or unmet requirement lines from --check-report with repeatable --accept-check-bar <id> or --accept-check-line <name>.
   Acceptance requires --check-accepted-by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.

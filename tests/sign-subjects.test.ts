@@ -242,7 +242,8 @@ test('bar: parts-verdict is declared when the draft has no receipt or a new draf
   expect(await reconcileCreateJob(root)).toBe(1);
   // Initial draft with no receipt declares parts-verdict.
   expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
-  // Recording a new draft through draft-rig publishes it and declares parts-verdict for the new draft id.
+  const originalPublication = host.session.status().publication!.publicationId;
+  // The fresh draft records before it can ask for its verdict.
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/chain-2'), { recursive: true });
   const drafted = await cli(root, [
     'draft-rig', 'chain-2', root,
@@ -252,8 +253,9 @@ test('bar: parts-verdict is declared when the draft has no receipt or a new draf
     '--json',
   ]);
   expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
-  // The new inventory waits until its own retained structure evidence exists.
-  expect(declared(root, host)).toEqual([]);
+  // The open page and its ask remain bound to the original draft.
+  expect(host.session.status().publication!.publicationId).toBe(originalPublication);
+  expect(declared(root, host)).toEqual([{ kind: 'parts-verdict', draftId: 'chain' }]);
   structureSnapshotCommand([root, '--draft', 'chain-2', '--out', 'evidence/structure-chain-2.json']);
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain-2'));
   expect(await reconcileCreateJob(root)).toBe(1);

@@ -162,7 +162,8 @@ test.each(['flat', 'standalone', 'build'] as const)('recognizes %s and leaves fu
   const result = draftRigCommand(input.args, now);
   expect(result.exit).toBe(0);
   const record = obj(arr(read(dir).drafts)[0]);
-  expect(record.layout).toBe(layout === 'flat' ? 'assemble-only' : undefined);
+  if (layout === 'flat') expect(record.layout).toBe('assemble-only');
+  else expect(record.layout).toBeUndefined();
   const errors: Finding[] = [];
   checkDrafts(dir, read(dir), errors);
   expect(errors).toEqual([]);

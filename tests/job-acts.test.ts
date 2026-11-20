@@ -21,7 +21,6 @@ import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
-import { sourceOnlyTest } from './source-only.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -395,7 +394,7 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
 
-sourceOnlyTest('#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing', async () => {
+test('#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing', async () => {
   const { root, url, view, value } = await openMotionQuestion();
   const before = readFileSync(join(root, 'project.json'));
   const requests: { after: string | null; waitMs: number }[] = [];

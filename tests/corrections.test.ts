@@ -269,6 +269,8 @@ export function configFileReferences(config) {
       writeFileSync(configFile, JSON.stringify(config));
       const manifestFile = join(dir, draftRoot, 'input/parts.json');
       const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as JsonObject;
+      // This hand-authored legacy manifest models a correction without an assembly reading.
+      delete manifest.assembly_config;
       const torso = (manifest.parts as JsonObject[]).find(part => part.name === 'torso')!;
       torso.provenance = { ...(torso.provenance as JsonObject), edited_part: { edit: 'edited_parts[0]', dir: 'input/parts', receipt, changed_px: 1 } };
       writeFileSync(manifestFile, JSON.stringify(manifest));

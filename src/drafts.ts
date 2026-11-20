@@ -439,14 +439,6 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       const configFile = fileAt(dir, opts['--config'], root);
       const config = JSON.parse(readFileSync(configFile, 'utf8')) as Json;
       if (!isObject(config)) throw new Error('config must be an object');
-      const manifestFile = fileAt(dir, `${parts}/parts.json`, root);
-      const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as Json;
-      if (isObject(manifest) && Object.hasOwn(manifest, 'assembly_config')) {
-        const changes = assemblyConfigChanges(configFile, readPartsManifest(manifestFile));
-        if (changes.length > 0) {
-          refuse('ASSEMBLY_CONFIG_STALE', `drafts[${id}].config: ${assemblyChangeDetail(changes)} as the second assemble before draft-rig`);
-        }
-      }
       const installed = locateParts(dir);
       if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
       const pkgFile = join(installed, 'package.json');
@@ -497,6 +489,19 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     const index = asArray(project.drafts).length - 1;
     const first = errors[0] ?? ledger.find(f => f.path === `drafts[${index}]` || f.path.startsWith(`drafts[${index}].`)) ?? newRefusals(dir, before, project, { now })[0];
     if (first !== undefined) refuse(first.code, first.message);
+    try {
+      const manifestFile = fileAt(dir, `${String((record.parts as JsonObject).path)}/parts.json`, root);
+      const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as Json;
+      if (isObject(manifest) && Object.hasOwn(manifest, 'assembly_config')) {
+        const changes = assemblyConfigChanges(fileAt(dir, opts['--config'], root), readPartsManifest(manifestFile));
+        if (changes.length > 0) {
+          refuse('ASSEMBLY_CONFIG_STALE', `drafts[${id}].config: ${assemblyChangeDetail(changes)} as the second assemble before draft-rig`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Refusal) throw error;
+      refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`);
+    }
     const bytes = Buffer.from(`${JSON.stringify(project, null, 2)}\n`);
     if (!readFileSync(file).equals(original)) refuse('DRAFT_RIG_FILE', 'project.json: draft source changed during registration; retry with frozen inputs');
     const publication = prepareDraftIntent(dir, bytes, id);

@@ -1,11 +1,12 @@
 /** The installed Parts provider-map identity contract, on synthetic inputs only. */
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { locateParts } from '../src/parts-sections.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
+import { EXAMPLE_SEETHROUGH, generateExampleParts } from '../scripts/generate-example-parts.ts';
 import { EXAMPLE_SOURCE_DATE_EPOCH } from '../scripts/example-time.ts';
 
 const hash = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -21,21 +22,23 @@ test('#559 real Parts sequence binds new maps, reuses unchanged input and refuse
       return `${result.stdout}\n${result.stderr}`;
     };
     const put = (path: string, value: unknown) => writeFileSync(join(root, path), `${JSON.stringify(value, null, 2)}\n`);
-    cpSync(join(import.meta.dir, '../templates/example-draft/input'), join(root, 'parts'), { recursive: true });
-    const manifest = JSON.parse(readFileSync(join(root, 'parts/parts.json'), 'utf8'));
+    const original = JSON.parse(generateExampleParts(root)['parts.json']!.toString('utf8'));
     const selected = ['torso', 'lantern'];
-    put('config.json', { key: 'synthetic',
-      assemble: { rig_scale: 1, plan: manifest.parts.map((part: { name: string; from: string }) => [part.name, part.from.slice(0, part.from.indexOf(':')), part.from.slice(part.from.indexOf(':') + 1)]) },
+    put('config.json', { key: 'synthetic', seethrough: EXAMPLE_SEETHROUGH,
+      assemble: { rig_scale: 1, plan: original.parts.map((part: { name: string; from: string }) => [part.name, part.from.slice(0, part.from.indexOf(':')), part.from.slice(part.from.indexOf(':') + 1)]) },
       motion: { duration: 4, tracks: [{ bone: 'body', prop: 'translatey', amp: 0.9, period: 4, phase: 0, base: 0 }] },
       bones: [{ name: 'body', parent: 'root', at: [64, 64] }], meshes: {},
-      regions: Object.fromEntries(manifest.parts.map((part: { name: string }) => [part.name, 'body'])),
+      regions: Object.fromEntries(original.parts.map((part: { name: string }) => [part.name, 'body'])),
       turn: { body: { bone: 'body', pivot: 15, roles: Object.fromEntries(selected.map(part => [part, 'surface'])) } } });
+    cli(['assemble', '--source', 'painting.png', '--full', 'layers', '--config', 'config.json', '--out', 'with-turn']);
+    const assembled = 'with-turn/rig';
+    const manifest = JSON.parse(readFileSync(join(root, assembled, 'parts.json'), 'utf8'));
     const recipe = { spec: 'rig-parts-depth/1', prepare: { longSide: 64, paddingFraction: 0, padding: 0 },
       groups: { body: { near: 'white', zScale: 30, pivot: 15 } },
       parts: Object.fromEntries(selected.map(part => [part, { map: `${part}.json`, source: 'depth', frame: 'part', group: 'body', median: 15, relief: 2 }])), clear: [] };
     put('depth.json', recipe);
-    const prepare = (out: string) => cli(['depth-prepare', '--parts', 'parts', '--config', 'depth.json', '--out', out]);
-    const apply = (input: string, out: string, expected = 0) => cli(['depth-apply', '--parts', 'parts', '--manifest', `${input}/manifest.json`, '--config', 'depth.json', '--rig-config', 'config.json', '--out', out], expected);
+    const prepare = (out: string) => cli(['depth-prepare', '--parts', assembled, '--config', 'depth.json', '--out', out]);
+    const apply = (input: string, out: string, expected = 0) => cli(['depth-apply', '--parts', assembled, '--manifest', `${input}/manifest.json`, '--config', 'depth.json', '--rig-config', 'config.json', '--out', out], expected);
     prepare('inference');
     for (const part of selected) {
       const size = manifest.parts.find((row: { name: string }) => row.name === part);

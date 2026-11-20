@@ -232,6 +232,12 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     cpSync(root, depthRoot, { recursive: true });
     const turnConfig = { ...structuredClone(config), turn: { body: { pivot: 0.5, roles: { [part]: 'surface' } } } };
     writeFileSync(join(depthRoot, 'edited-turn.json'), `${JSON.stringify(turnConfig, null, 2)}\n`);
+    const turnParts = join(depthRoot, 'with-turn/rig');
+    const assembly = Bun.spawnSync([process.execPath, ...runtimeArgs, join(parts, 'cli.ts'),
+      'assemble', '--config', 'edited-turn.json', '--source', 'painting.png', '--full', 'full', '--head', 'head', '--out', 'with-turn'],
+    { cwd: depthRoot, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+    expect(assembly.exitCode, `assemble with turn:\n${assembly.stdout}\n${assembly.stderr}`).toBe(0);
+    cpSync(join(depthRoot, 'with-turn/render/recomposite_rig.png'), join(turnParts, 'recomposite_rig.png'));
     const depthMap = {
       spec: 'rig-parts-map/1',
       width: decoded.width,
@@ -249,12 +255,12 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     };
     writeFileSync(join(depthRoot, 'depth-recipe.json'), `${JSON.stringify(depthRecipe, null, 2)}\n`);
     const prepared = Bun.spawnSync([process.execPath, ...runtimeArgs, join(parts, 'cli.ts'),
-      'depth-prepare', '--parts', join(depthRoot, 'rebuilt'), '--config', join(depthRoot, 'depth-recipe.json'),
+      'depth-prepare', '--parts', turnParts, '--config', join(depthRoot, 'depth-recipe.json'),
       '--out', join(depthRoot, 'depth_in')],
     { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
     expect(prepared.exitCode, `depth-prepare:\n${prepared.stdout}\n${prepared.stderr}`).toBe(0);
     const applied = Bun.spawnSync([process.execPath, ...runtimeArgs, join(parts, 'cli.ts'),
-      'depth-apply', '--parts', join(depthRoot, 'rebuilt'), '--manifest', join(depthRoot, 'depth_in/manifest.json'),
+      'depth-apply', '--parts', turnParts, '--manifest', join(depthRoot, 'depth_in/manifest.json'),
       '--config', join(depthRoot, 'depth-recipe.json'), '--rig-config', join(depthRoot, 'edited-turn.json'),
       '--out', join(depthRoot, 'depth_out')],
     { cwd: dir, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
@@ -269,7 +275,12 @@ test('#543 source-linked real build alpha receipt rebuild draft binds edited byt
     });
     expect(obj(obj(arr(json(depthManifestPath).parts).map(obj).find(entry => entry.name === part)!).provenance).edited_part).toEqual(metadata);
 
-    const depthArgs = [depthId, dir, '--config', `${depthRelativeRoot}/depth_out/config.json`, '--from', `${depthRelativeRoot}/depth_out`, '--json'];
+    const depthRig = Bun.spawnSync([process.execPath, ...runtimeArgs, join(parts, 'cli.ts'),
+      'rig', '--parts', 'depth_out', '--config', 'depth_out/config.json', '--out', 'depth_rig'],
+    { cwd: depthRoot, env, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
+    expect(depthRig.exitCode, `rig with depth:\n${depthRig.stdout}\n${depthRig.stderr}`).toBe(0);
+    const depthArgs = [depthId, dir, '--config', `${depthRelativeRoot}/depth_out/config.json`, '--from', `${depthRelativeRoot}/depth_rig`,
+      '--parts', `${depthRelativeRoot}/depth_out`, '--json'];
     const beforeDepthControls = readFileSync(join(dir, 'project.json'));
     const missingBindingConfig = json(depthConfigPath);
     delete obj(missingBindingConfig.assemble).edited_parts;

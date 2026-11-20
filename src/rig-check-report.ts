@@ -5,7 +5,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const RIG_CHECK_REPORT_SINCE = '2026-11-19T00:00:00Z';
 export const RIG_CHECK_REPORT_FILE = 'check.json';
 const CHECK_SPEC = 'rig-parts-check/1';
-const PRODUCE = 'run rig-parts check --rig <rig dir> --parts <parts dir> --out <check dir> with the build’s original check inputs and options';
+const PRODUCE = 'run rig-parts check --rig <rig dir> --parts <parts dir> --source <painting> --requirements <requirements file> --out <check dir> with the build’s original check inputs and options';
 const REGISTER = `pass <check dir>/${RIG_CHECK_REPORT_FILE} with --check-report and its build directory with --build`;
 
 export interface RigCheckTarget {

@@ -538,9 +538,11 @@ test.each([
       `signoffs[${(project.signoffs as JsonObject[]).findIndex(s => s.stage === approval)}].answer_hashes[${question}]`));
     const moves = nextProject(dir, now).moves;
     const reSign = moves.filter(move => move.command?.startsWith('rig-create signoff '));
-    expect(reSign.filter(move => move.role === 'human').map(move => move.command?.split(' ')[2])).toEqual([...approvals]);
-    expect(reSign.filter(move => move.role === 'agent').map(move => move.command?.split(' ')[2])).toEqual([...approvals]);
-    expect(reSign.filter(move => move.role === 'agent').every(move => move.command?.includes('--from-review'))).toBe(true);
+    expect(reSign.map(move => move.command?.split(' ')[2])).toEqual([...approvals]);
+    for (const move of reSign) {
+      expect(move.role).toBe('human');
+      expect(move.command).toContain('--owner-chat');
+    }
     for (const approval of approvals) {
       expect(signoffCommand([approval, dir, '--by', 'user', ...ownerChatArgs(words)]).exit).toBe(0);
     }

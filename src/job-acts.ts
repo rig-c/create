@@ -1,7 +1,8 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
-import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, SourceV3 } from '@rig-c/review/job-host';
+import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, RecordResult, SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
+import { optionFile } from './choices.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -278,6 +279,15 @@ function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
   }
 }
 
+/** A publication target: a package selector, or a record result (`--question` option set or `--plan`). */
+export type JobAskTarget = JobSelector | RecordResult;
+
+function sameTarget(source: SourceV3, target: JobAskTarget): boolean {
+  if ('selector' in source && source.selector) return isDeepStrictEqual(source.selector, target);
+  if ('selection' in source && source.selection) return isDeepStrictEqual(source.selection, target);
+  return false;
+}
+
 function sourceTargetInfo(source: SourceV3): { label: string; selector: JobSelector | null; version: number | null } {
   if ('selector' in source && source.selector) {
     const selector = source.selector;
@@ -328,12 +338,34 @@ function signoffSettlesAsk(project: JsonObject, ask: PendingAskV3): boolean {
   });
 }
 
+/**
+ * An owner-chat interview answer (`interview-answer --owner-chat`) creates no Review act.
+ * It settles the interview-picks ask when the question's current answer is bound to the
+ * same option set the ask published: path and sha256, and the set id they resolve to.
+ */
+function ownerChatAnswerSettlesAsk(project: JsonObject, root: string, ask: PendingAskV3): boolean {
+  if (ask.status !== 'pending' || ask.subject.kind !== 'interview-picks') return false;
+  const source = ask.source;
+  if (!('selection' in source) || source.selection?.kind !== 'option-set' || !source.optionSet || !source.optionSetFile) return false;
+  const { questionId, setId } = source.selection;
+  if (ask.subject.questionId !== questionId || ask.subject.setId !== setId || source.optionSet.id !== setId) return false;
+  let item: ReturnType<typeof collectItems>[number] | undefined;
+  try { item = collectItems(project, { collection: loadCollection(root, project) }).find(candidate => candidate.id === questionId); }
+  catch { return false; }
+  if (!item || (item.state.state !== 'user' && item.state.state !== 'delegated') || item.state.answer !== item.raw) return false;
+  const answer = item.state.answer;
+  if (answer.source !== OWNER_CHAT_SOURCE || !isObject(answer.choice)) return false;
+  const binding = answer.choice.set;
+  if (!isObject(binding) || binding.path !== source.optionSetFile.path || binding.sha256 !== source.optionSet.sha256) return false;
+  try { return optionFile(root, binding).set.id === setId; } catch { return false; }
+}
+
 export function pendingJobAsksForTarget(
   project: JsonObject,
   asks: readonly PendingAskV3[],
   acts: readonly ActV3[],
   root: string,
-  target: JobSelector,
+  target: JobAskTarget,
 ): PendingTargetAsk[] {
   // Retired reopens stay visible in job acts and job close, but cannot gate a new target.
   const actionableAsks = asks.filter(ask => ask.subject.kind !== 'reopen');
@@ -345,16 +377,16 @@ export function pendingJobAsksForTarget(
   for (const ask of actionableAsks) {
     if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(ask.source);
-    if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
+    if (sameTarget(ask.source, target)) continue;
     const hasUnIngestedAct = actionableActs.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
-    if (!hasUnIngestedAct && signoffSettlesAsk(project, ask)) continue;
+    if (!hasUnIngestedAct && (signoffSettlesAsk(project, ask) || ownerChatAnswerSettlesAsk(project, root, ask))) continue;
     if (!hasUnIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
     pending.push({ label: `${askSubjectText(ask.subject)} on ${info.label}`, version: info.version });
   }
   for (const act of actionableActs) {
     if (!unIngestedIds.has(act.actId) || actionableAsks.some(ask => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(act.source);
-    if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
+    if (sameTarget(act.source, target)) continue;
     pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version });
   }
   return pending;

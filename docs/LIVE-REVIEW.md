@@ -155,9 +155,10 @@ and leaves the open page and outbox unchanged. Its text output identifies the
 missing evidence. Run the preparation moves shown by `next` and then
 `job open --draft <id>` to show the prepared draft in the same job.
 
-A bound writer that reports `JOB_ASK_PENDING` needs the owner to finish the
-current asks. Run `job acts`, ingest with the printed commands, then retry
-the writer to publish into the existing job.
+A bound writer or `job open --question`/`--plan` that reports
+`JOB_ASK_PENDING` needs the owner to finish the current asks. Run
+`job acts --wait`, ingest with the printed commands, then retry the command
+to publish into the existing job.
 
 A bound version writer refuses with `JOB_PUBLICATION_ASK_REQUIRED` before
 committing if its candidate would replace an open page without an owner ask.
@@ -421,9 +422,12 @@ Review's code. Run `job open` to retry the ask.
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
 | `interview` | record plan, using release-pinned Review 4.9.1 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
 
-Interview picks use `job open --question <id>`. After ingesting every pick,
-run `interview --check`, then `job open --plan` for the interview signature.
-This record route is supported by release-pinned
+Interview picks use `job open --question <id>`, one question at a time: a
+new publication supersedes the open ask, so publish one question, run
+`job acts <dir> --json --wait`, ingest its act, then publish the next. A
+second `--question` while an ask is open refuses `JOB_ASK_PENDING`. After
+ingesting every pick, run `interview --check`, then `job open --plan` for
+the interview signature. This record route is supported by release-pinned
 [Review 4.9.1](https://github.com/rig-c/review/tree/v4.9.1), including the
 [Review #803](https://github.com/rig-c/review/pull/803) carrier (issue #800).
 The record subject is `plan`, with non-empty

@@ -12,7 +12,7 @@ import {
   type JobSelector,
 } from '@rig-c/review/job-host';
 import { asArray, checkProject } from './check.ts';
-import { pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndAsks } from './job-acts.ts';
+import { pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndAsks, shellWord, type JobAskTarget } from './job-acts.ts';
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
@@ -188,7 +188,7 @@ export async function attachCreateJobForClose(
 
 export async function assertNoPendingJobAsk(
   root: string,
-  target: JobSelector,
+  target: JobAskTarget,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
 ): Promise<string | null> {
   root = realpathSync(root);
@@ -204,24 +204,34 @@ export async function assertNoPendingJobAsk(
     throw error;
   }
   try {
-    const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
-    const { head, asks, acts } = await readHostActsAndAsks(host);
-    const pending = pendingJobAsksForTarget(project, asks, acts, root, target);
-    if (pending.length > 0) {
-      const listed = pending.map(item => item.label).join('; ');
-      const version = pending.find(item => item.version !== null)?.version ?? null;
-      const ingest = version === null || pending.some(item => item.version === null)
-        ? 'have the owner respond in Review, run rig-create job acts, and run the printed ingest commands'
-        : `have the owner give the verdict in Review, run rig-create job acts, and ingest with rig-create review ${version} --from-review <actId> (review <n> --from-review <actId>)`;
-      refuse(
-        'JOB_ASK_PENDING',
-        `project.json: bound job ${binding.jobId} holds pending owner ask(s) ${listed} with no ingested act; ${ingest}; re-run this command to publish into the existing job`,
-      );
-    }
-    return head;
+    return await refusePendingJobAsks(root, binding.jobId, host, target);
   } finally {
     host.stop();
   }
+}
+
+/**
+ * Publishing supersedes every pending ask on the job, and an answer to a superseded ask
+ * never becomes an act. Refuse JOB_ASK_PENDING while an ask for another target is still
+ * open, or answered but not ingested. Returns the job's head publication.
+ */
+export async function refusePendingJobAsks(root: string, jobId: string, host: JobOwnerHost, target: JobAskTarget): Promise<string | null> {
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const { head, asks, acts } = await readHostActsAndAsks(host);
+  const pending = pendingJobAsksForTarget(project, asks, acts, root, target);
+  if (pending.length > 0) {
+    const listed = pending.map(item => item.label).join('; ');
+    const version = pending.find(item => item.version !== null)?.version ?? null;
+    const wait = `rig-create job acts ${shellWord(root)} --wait`;
+    const ingest = version === null || pending.some(item => item.version === null)
+      ? `have the owner respond in Review, run ${wait}, and run the printed ingest commands`
+      : `have the owner give the verdict in Review, run ${wait}, and ingest with rig-create review ${version} --from-review <actId> (review <n> --from-review <actId>)`;
+    refuse(
+      'JOB_ASK_PENDING',
+      `project.json: bound job ${jobId} holds pending owner ask(s) ${listed} with no ingested act; ${ingest}; re-run this command to publish into the existing job`,
+    );
+  }
+  return head;
 }
 
 export async function closeCreateJob(

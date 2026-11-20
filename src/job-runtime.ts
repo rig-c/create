@@ -78,7 +78,9 @@ async function run(): Promise<void> {
     case 'close': await closeCreateJob(root, undefined, input.retireRefused, input.discardActs, input.now); console.log('job: closed'); break;
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
-      requestedRecordResult(root, input.question, input.plan, input.now);
+      const record = requestedRecordResult(root, input.question, input.plan, input.now);
+      // Refuse before attaching or writing; openRecordPublication repeats it under the job lock (#737).
+      if (record) await assertNoPendingJobAsk(root, record);
       const rig = assertRequestedRig(root, input.rig, input.draft);
       const { bytes, draftId } = assertRequestedDraft(root, input.draft, input.now);
       if (rig || draftId !== undefined) requireOwnerLanguage(JSON.parse(bytes.toString('utf8')) as JsonObject);

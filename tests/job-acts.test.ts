@@ -10,14 +10,14 @@ import { plantLegacyReopen, fixture, retainSignoffs, arr, obj } from './fixtures
 import { stageIndex } from '../src/stages.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
-import { pendingJobActs, jobActsText, type PendingJobAct } from '../src/job-acts.ts';
+import { pendingJobActs, jobActsText, shellWord, type PendingJobAct } from '../src/job-acts.ts';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
 import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import { startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
-import type { JsonObject } from '../src/templates.ts';
+import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
@@ -360,7 +360,7 @@ test.each([false, true])('agent next pagination is shared and read failures rema
 });
 
 
-async function openMotionQuestion() {
+function riggingInterviewRoot(): string {
   testClock.set(Date.now());
   const root = realpathSync(fixture(project => {
     project.stage = 'rigging-interview'; project.versions = []; project.scenes = []; delete project.direction_contract;
@@ -370,17 +370,30 @@ async function openMotionQuestion() {
     for (const step of arr(obj(project.plan).steps).map(obj)) if (!['seethrough', 'assemble'].includes(String(step.id))) step.status = 'pending';
   }, 'example-project.json'));
   roots.push(root);
-  const project = read(root); const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+  return root;
+}
+
+/** Register a fresh pending option set for one rigging question; returns the page value that answers it. */
+async function registerQuestion(root: string, question: string) {
+  const project = read(root); const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
   const retained = obj(obj(item.raw).choice).set as JsonObject;
   const set = JSON.parse(readFileSync(join(root, String(retained.path)), 'utf8')) as JsonObject;
-  set.id = 'pending-acts-motion'; set.drafted_at = new Date(testClock.now() - 1000).toISOString();
+  set.id = `pending-acts-${question}`; set.drafted_at = new Date(testClock.now() - 1000).toISOString();
   set.context = optionContext(project, 'rigging-interview', testClock.now() - 1000, root);
-  const path = 'evidence/interview/pending-acts-motion.json';
+  const path = `evidence/interview/pending-acts-${question}.json`;
   writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
-  expectExit0(await cli(root, ['interview-options', 'motion', root, '--file', path]));
-  const opening = await open(root, ['--question', 'motion']); const view = await page(root, opening.url, 1);
+  expectExit0(await cli(root, ['interview-options', question, root, '--file', path]));
   const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
-  return { root, url: opening.url, view, value: { questionId: 'motion', selections, note: WORDS } };
+  return { questionId: question, selections, note: WORDS };
+}
+
+async function openMotionQuestion(also: string[] = []) {
+  const root = riggingInterviewRoot();
+  const value = await registerQuestion(root, 'motion');
+  const others = [];
+  for (const question of also) others.push(await registerQuestion(root, question));
+  const opening = await open(root, ['--question', 'motion']); const view = await page(root, opening.url, 1);
+  return { root, url: opening.url, view, value, others };
 }
 
 test('merged record-mode host lists finalized picks and its printed writer command ingests them', async () => {
@@ -412,6 +425,86 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expect(report.answers!.find(answer => answer.question_id === 'motion')).toMatchObject({ field: 'interview.waypoints[motion].guide', at: act.at });
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
+
+test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is open, keeps its answer, and publishes after ingest', async () => {
+  const { root, url, view, value, others: [bones] } = await openMotionQuestion(['bones']);
+  // Re-opening the pending question itself is not a second ask.
+  const same = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'motion']);
+  expectExit0(same);
+  expect(same.stdout).toContain('job: option-set motion/pending-acts-motion already published');
+  const before = snapshot(root);
+  const second = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
+  expect(second.exit).toBe(1);
+  expect(second.stderr).toMatch(/^JOB_ASK_PENDING: /);
+  expect(second.stderr).toContain('interview-picks motion/pending-acts-motion');
+  expect(second.stderr).toContain(`rig-create job acts ${shellWord(root)} --wait`);
+  expect(snapshot(root)).toEqual(before);
+
+  // The first page still holds its ask: the owner's answer arrives as an act.
+  const act = await view.act('interview-picks', 'interview-picks', value);
+  const unIngested = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
+  expect(unIngested.exit).toBe(1);
+  expect(unIngested.stderr).toMatch(/^JOB_ASK_PENDING: /);
+  expect(snapshot(root)).toEqual(before);
+  const listed = await cli(root, ['job', 'acts', root, '--json', '--wait']); expectExit0(listed);
+  const row = JSON.parse(listed.stdout).acts[0] as PendingJobAct;
+  expect(row).toMatchObject({ actId: act.actId, kind: 'interview-picks' });
+  await executePrinted(root, row.command!);
+
+  const next = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
+  expectExit0(next);
+  expect(next.stdout).toContain('job: option-set bones/pending-acts-bones published');
+  const bonesView = await page(root, url, 1);
+  const bonesAct = await bonesView.act('interview-picks', 'interview-picks', bones!);
+  const after = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts as PendingJobAct[];
+  expect(after.map(row => row.actId)).toEqual([String(bonesAct.actId)]);
+}, 60_000);
+
+/** Record the owner's chat answer for the question's registered pending set, as AGENTS.md goal 3 allows. */
+async function ownerChatAnswer(root: string, value: { questionId: string; selections: { itemId: Json; optionId: Json }[] }) {
+  const binding = obj(collectItems(read(root), { collection: null }).find(item => item.id === value.questionId)!.record.pending_options);
+  const words = join(root, `owner-words-${value.questionId}.txt`);
+  writeFileSync(words, 'Synthetic owner chat words.\n');
+  expectExit0(await cli(root, ['interview-answer', value.questionId, root, '--set', String(binding.path), '--sha256', String(binding.sha256),
+    '--by', 'user', '--owner-chat', words, '--said-at', new Date(testClock.now() - 500).toISOString(), '--relayed-by', 'synthetic-operator',
+    ...value.selections.flatMap(row => ['--pick', `${String(row.itemId)}=${String(row.optionId)}`])]));
+}
+
+test('#737 an owner-chat answer for the published set settles its ask, so the next --question publishes', async () => {
+  const { root, value } = await openMotionQuestion(['bones']);
+  await ownerChatAnswer(root, value);
+  const next = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
+  expectExit0(next);
+  expect(next.stdout).toContain('job: option-set bones/pending-acts-bones published');
+}, 60_000);
+
+test('#737 an owner-chat answer bound to a different set leaves the published ask open', async () => {
+  const { root } = await openMotionQuestion(['bones']);
+  // Register a second motion set after the first was published, then answer that one in chat.
+  const project = read(root); const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+  const shown = JSON.parse(readFileSync(join(root, String(obj(item.record.pending_options).path)), 'utf8')) as JsonObject;
+  shown.id = 'pending-acts-motion-chat'; shown.drafted_at = new Date(testClock.now() - 900).toISOString();
+  const path = 'evidence/interview/pending-acts-motion-chat.json';
+  writeFileSync(join(root, path), JSON.stringify(shown, null, 2) + '\n');
+  expectExit0(await cli(root, ['interview-options', 'motion', root, '--file', path]));
+  const selections = (shown.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id }));
+  await ownerChatAnswer(root, { questionId: 'motion', selections });
+  const before = snapshot(root);
+  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: .*interview-picks motion\/pending-acts-motion on /);
+  expect(snapshot(root)).toEqual(before);
+}, 60_000);
+
+test('#737 next at the rigging interview names the one-question-at-a-time loop with job acts --wait', async () => {
+  const root = riggingInterviewRoot();
+  for (const question of ['motion', 'bones']) await registerQuestion(root, question);
+  const opens = nextProject(root).moves.filter(move => move.role === 'agent' && (move.command ?? '').includes('job open') && (move.command ?? '').includes('--question'));
+  expect(opens.map(move => /--question (\S+)/.exec(move.command ?? '')![1])).toEqual(['bones', 'motion']);
+  expect(opens[0]!.act).toContain('one question at a time: publish it, wait with job acts --json --wait, ingest, then publish the next question');
+  expect(opens[1]!.act).toMatch(/^only after the bones act is ingested: one question at a time/);
+  expect(opens[1]!.act).toContain('JOB_ASK_PENDING');
+});
 
 test('#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing', async () => {
   const { root, url, view, value } = await openMotionQuestion();

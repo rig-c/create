@@ -57,7 +57,7 @@ In `parts`, record an `intake-report` preflight and offer its choice, both advis
 {{INTAKE_LINK}}.
 
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
-An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`.
+An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig` ({{RETOUCH_HANDOFF_LINK}}).
 Preserve history/dates; adopt choices explicitly.
 
 ## Before you ask, plan or show

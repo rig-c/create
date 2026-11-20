@@ -1678,6 +1678,7 @@ test('#557 bounced parts verdict prints the ordered NEW edited_parts scaffold wi
   expect(next.moves.every(move => move.role !== 'human')).toBe(true);
   expect(next.moves[0]!.act).toContain('assemble.edited_parts');
   expect(next.moves[0]!.act).toContain('from_sha256');
+  expect(next.moves[0]!.act).toContain('docs/SOURCE.md#handing-a-retouch-to-an-image-editor');
   const commands = next.moves.flatMap(move => move.command === null ? [] : [move.command]);
   expect(commands.map(command => printedArgs(command).slice(0, 2).join(' '))).toEqual([
     'rig-parts build', 'rig-create draft-rig', 'rig-parts check-parts', 'rig-create structure-snapshot',

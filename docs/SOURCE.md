@@ -186,6 +186,16 @@ Measured limits:
   pilot measurement, 2026-11-03 (outline selection, alpha where no line, shift
   outward, feather 0, the inward-edge limit).
 
+#### Handing a retouch to an image editor
+
+- input 1 = the original painting crop, input 2 = the current part on a 1:1
+  sheet, at its own pixels;
+- several runs, picking the best run for each part;
+- drift measured outside the fixed region;
+- the result recorded with `assemble.edited_parts` receipts (part, file,
+  from_sha256, sha256, editor).
+- *Source*: owner ruling, 2026-11-20 (the editor gets the original beside the part).
+
 ### Feather only continuous skin
 
 Feather a cut face only on continuous skin (a bare arm below a short sleeve);

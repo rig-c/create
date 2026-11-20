@@ -134,6 +134,7 @@ export const CG_GATES_LINK = { path: 'docs/CHECKS.md', anchor: 'cg-gates' } as c
 export const APPEARANCE_LINK = { path: 'docs/CHECKS.md', anchor: 'appearance-bar-wording' } as const;
 export const BUST_LINK = { path: 'docs/CHECKS.md', anchor: 'the-bust-at-meshes' } as const;
 export const PROJECTION_LINK = { path: 'docs/CHECKS.md', anchor: 'projection-and-ground' } as const;
+export const RETOUCH_HANDOFF_LINK = { path: 'docs/SOURCE.md', anchor: 'handing-a-retouch-to-an-image-editor' } as const;
 /** The heading is "Parts-stage check at the parts → parts-review move": the arrow drops, leaving two hyphens. */
 export const PARTS_CHECK_LINK = { path: 'docs/CHECKS.md', anchor: 'parts-stage-check-at-the-parts--parts-review-move' } as const;
 
@@ -215,6 +216,7 @@ export function renderAgentGuide(): string {
     APPEARANCE_LINK: `[CHECKS.md § Appearance bar wording](${createDocUrl(APPEARANCE_LINK.path, APPEARANCE_LINK.anchor)})`,
     BUST_LINK: `[CHECKS.md § The bust at meshes](${createDocUrl(BUST_LINK.path, BUST_LINK.anchor)})`,
     PROJECTION_LINK: `[CHECKS.md § Projection and ground](${createDocUrl(PROJECTION_LINK.path, PROJECTION_LINK.anchor)})`,
+    RETOUCH_HANDOFF_LINK: `[SOURCE.md § Handing a retouch to an image editor](${createDocUrl(RETOUCH_HANDOFF_LINK.path, RETOUCH_HANDOFF_LINK.anchor)})`,
     PARTS_CHECK_LINK: `[${PARTS_CHECK_CODES.map((code) => `\`${code}\``).join(', ')}](${createDocUrl(PARTS_CHECK_LINK.path, PARTS_CHECK_LINK.anchor)})`,
     READ_FIRST,
     PACKAGE_DOCS: PACKAGE_DOCS.map((doc) =>

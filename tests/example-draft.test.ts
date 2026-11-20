@@ -84,7 +84,7 @@ const originalSignoffs = [
     },
     "draft_id": "example",
     "structure": {
-      "path": "evidence/structure-decisions.json",
+      "path": "evidence/structure-example.json",
       "sha256": "regenerated structure binding"
     }
   },
@@ -115,7 +115,7 @@ const originalSignoffs = [
       }
     },
     "structure": {
-      "path": "evidence/structure-decisions.json",
+      "path": "evidence/structure-example.json",
       "sha256": "regenerated structure binding"
     }
   },
@@ -142,7 +142,7 @@ const originalSignoffs = [
       }
     },
     "structure": {
-      "path": "evidence/structure-decisions.json",
+      "path": "evidence/structure-example.json",
       "sha256": "regenerated structure binding"
     }
   },

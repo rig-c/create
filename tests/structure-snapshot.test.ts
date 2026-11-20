@@ -25,7 +25,7 @@ afterEach(() => testClock.reset());
 
 /** Part names exercise JSON Pointer escaping; values are copied, never derived. */
 const MESHES = { torso: { contour: { bust: { alpha: 0.5 } } }, 'arm/l~1': { density: 3 } };
-const OUT = 'evidence/structure-decisions.json';
+const OUT = 'evidence/structure-shape.json';
 
 /**
  * Records draft `id`; its parts (and the rig outputs a mesh verdict lists) are the ones `verdict` reviewed
@@ -200,8 +200,8 @@ test('a draft config without meshes gives explicit entries:[]', () => {
   const dir = setup();
   draft(dir, 'plain', { bones: { root: {} } });
   recordPartsReceipt(dir, 'plain', testClock.now());
-  expect(structureSnapshotCommand([dir, '--draft', 'plain', '--out', OUT]).exit).toBe(0);
-  expect(JSON.parse(readFileSync(join(dir, OUT), 'utf8')).entries).toEqual([]);
+  expect(structureSnapshotCommand([dir, '--draft', 'plain']).exit).toBe(0);
+  expect(JSON.parse(readFileSync(join(dir, 'evidence/structure-plain.json'), 'utf8')).entries).toEqual([]);
 });
 
 test('a hand-edited entry of a written snapshot is refused at signoff and the record is unchanged', () => {
@@ -225,8 +225,9 @@ test.each([
   ['meshes that are not an object of declarations', 'STRUCTURE_DECISIONS_INVALID', (dir: string): string[] => {
     draft(dir, 'odd', { meshes: [{ density: 3 }] });
     recordPartsReceipt(dir, 'odd', testClock.now());
-    return ['--draft', 'odd', '--out', OUT];
+    return ['--draft', 'odd', '--out', 'evidence/structure-odd.json'];
   }],
+  ['--out that partsStructureSnapshot will not read for this draft', 'STRUCTURE_SNAPSHOT_OUT_UNREAD', (): string[] => ['--draft', 'shape', '--out', 'evidence/structure-decisions.json']],
   ['--out under an ignored root', 'STRUCTURE_SNAPSHOT_OUT_IGNORED', (): string[] => ['--draft', 'shape', '--out', 'scratch/new/structure.json']],
   ['--out through an alias into an ignored root', 'STRUCTURE_SNAPSHOT_OUT_IGNORED', (dir: string): string[] => {
     mkdirSync(join(dir, 'derived/kept'), { recursive: true });
@@ -254,18 +255,33 @@ test('--out holding different bytes is refused and left as it was', () => {
 
 test('missing and repeated flags are usage refusals with exit 2', () => {
   const dir = setup();
-  expect(refused(() => structureSnapshotCommand([dir, '--draft', 'shape']), 'STRUCTURE_SNAPSHOT_USAGE').exitCode).toBe(2);
-  refused(() => structureSnapshotCommand([dir, '--draft', 'shape', '--draft', 'shape', '--out', OUT]), 'STRUCTURE_SNAPSHOT_USAGE');
+  expect(refused(() => structureSnapshotCommand([dir]), 'STRUCTURE_SNAPSHOT_USAGE').exitCode).toBe(2);
+  refused(() => structureSnapshotCommand([dir, '--draft', 'shape', '--draft', 'shape']), 'STRUCTURE_SNAPSHOT_USAGE');
+  refused(() => structureSnapshotCommand([dir, '--draft', 'shape', '--out']), 'STRUCTURE_SNAPSHOT_USAGE');
   expect(main(['structure-snapshot', dir, '--out', OUT])).toBe(2);
   expect(existsSync(join(dir, OUT))).toBe(false);
+});
+
+test('omitting --out writes the default path partsStructureSnapshot reads, and wrong --out leaves project.json and target unchanged', () => {
+  const dir = setup();
+  const project = readFileSync(join(dir, 'project.json'));
+  const wrongOut = 'evidence/structure-decisions.json';
+  const err = refused(() => structureSnapshotCommand([dir, '--draft', 'shape', '--out', wrongOut]), 'STRUCTURE_SNAPSHOT_OUT_UNREAD');
+  expect(err.message).toContain(OUT);
+  expect(existsSync(join(dir, wrongOut))).toBe(false);
+  expect(existsSync(join(dir, OUT))).toBe(false);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(project);
+  expect(structureSnapshotCommand([dir, '--draft', 'shape']).exit).toBe(0);
+  expect(existsSync(join(dir, OUT))).toBe(true);
+  expect(readFileSync(join(dir, 'project.json'))).toEqual(project);
 });
 
 test('a draft with no API receipt allows a snapshot but still refuses signoff without changing the record', () => {
   const dir = setup();
   draft(dir, 'other', { meshes: MESHES });
   const before = readFileSync(join(dir, 'project.json'));
-  expect(structureSnapshotCommand([dir, '--draft', 'other', '--out', OUT]).exit).toBe(0);
-  refused(() => signoffCommand(['parts-review', dir, '--by', 'user', '--draft', 'other', '--structure-file', OUT]), 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  expect(structureSnapshotCommand([dir, '--draft', 'other']).exit).toBe(0);
+  refused(() => signoffCommand(['parts-review', dir, '--by', 'user', '--draft', 'other', '--structure-file', 'evidence/structure-other.json']), 'PARTS_VERDICT_RECEIPT_REQUIRED');
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
-  expect(existsSync(join(dir, OUT))).toBe(true);
+  expect(existsSync(join(dir, 'evidence/structure-other.json'))).toBe(true);
 });

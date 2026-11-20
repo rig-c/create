@@ -76,7 +76,7 @@
     ],
     "warnings": []
   },
-  "project_sha256": "ea4bc441419189c3ae4c029fafb215ebea5126e447b2f069af11910ff2e03a38",
+  "project_sha256": "6937c8e0419566bdd1dbb0018a1d0d5aaecdaf1344fb7217289d9bafb533132d",
   "files": [
     {
       "path": ".gitignore",
@@ -88,7 +88,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "e4504248d29501033f4ed0594e82b1648b2d4ed671aebcef5b70a793c327fbee"
+      "sha256": "ea044f8710e42db6006442cfd48a5aee52535496a4659636ecb39bcb04e80436"
     },
     {
       "path": "CLAUDE.md",
@@ -216,7 +216,7 @@
     },
     {
       "path": "evidence/interview/bones.json",
-      "sha256": "ec52614827d9fe6931e7593595f2c11f58a4861db579d725615be8928e9722df"
+      "sha256": "bfe14ab33a8289bb917a303f05180f210bc2a4aa1a7dd7dc610e7ffd9244e312"
     },
     {
       "path": "evidence/interview/reference.json",
@@ -247,7 +247,7 @@
       "sha256": "09894c45fb493a697713d2055cbd294b0cb2c9c28cf9d2cda41334d8f1904100"
     },
     {
-      "path": "evidence/structure.json",
+      "path": "evidence/structure-chain.json",
       "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
     },
     {
@@ -264,7 +264,7 @@
     },
     {
       "path": "project.json",
-      "sha256": "ea4bc441419189c3ae4c029fafb215ebea5126e447b2f069af11910ff2e03a38"
+      "sha256": "6937c8e0419566bdd1dbb0018a1d0d5aaecdaf1344fb7217289d9bafb533132d"
     }
   ]
 }

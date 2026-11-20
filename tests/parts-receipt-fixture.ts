@@ -40,7 +40,7 @@ export function preparePartsApproval(root: string, now: number, partsDir = 'deri
   if (existsSync(stack)) put(`${draftRoot}/input/rig/recomposite_rig.png`, readFileSync(stack));
   draftRigCommand([id, root, '--config', `${draftRoot}/config.json`, '--parts', `${draftRoot}/input/rig`, '--from', `${draftRoot}/out`], now);
   const receipt = recordPartsReceipt(root, id, now);
-  const snapshot = `evidence/${id}-structure.json`;
+  const snapshot = `evidence/structure-${id}.json`;
   structureSnapshotCommand([root, '--draft', id, '--out', snapshot]);
   const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const bytes = readFileSync(join(root, snapshot));

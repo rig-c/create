@@ -54,7 +54,7 @@ test('writer-only draft, parts approval, new producer build and displayed-still 
     command(['diff-classes', dir, '--diff-report', EXAMPLE_DIFF_REPORT, '--component', 'p10-n3=in-painting:the synthetic painting deliberately differs here',
       '--component', 'p1000-n3=in-painting:the synthetic painting deliberately differs here', '--by', 'agent'], partsAt);
     command(['signoff', 'parts-review', dir, '--by', 'user', '--verbatim-file', join(dir, 'approval.txt'),
-      '--draft', 'example', '--structure-file', 'evidence/structure-decisions.json'], partsAt);
+      '--draft', 'example', '--structure-file', 'evidence/structure-example.json'], partsAt);
     const now = EXAMPLE_ANCHOR + 300_000;
     const core = join(import.meta.dir, '../node_modules/@rig-c/core/bin/rigc.cjs');
     const producer = (args: string[]): void => {

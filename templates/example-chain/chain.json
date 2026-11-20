@@ -1071,12 +1071,10 @@
         "rig-create",
         "structure-snapshot",
         "--draft",
-        "chain",
-        "--out",
-        "evidence/structure.json"
+        "chain"
       ],
       "exit": 0,
-      "output_path": "evidence/structure.json",
+      "output_path": "evidence/structure-chain.json",
       "output_sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d",
       "consumes": [],
       "bindings": {
@@ -1173,11 +1171,11 @@
         "--draft",
         "chain",
         "--structure-file",
-        "evidence/structure.json"
+        "evidence/structure-chain.json"
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "edc1ecef1bcd3c5bbc81e418303cb1262aebb7294fd25ee42597ced0e16252c3",
+      "output_sha256": "f451e259cd3cb2c803e18b4f01e9a57372cf22de2f61137a2cb28404fd55a54f",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1196,7 +1194,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "b95c0d2c236450c3d89dfc6ca601e9bba61c85361946c8022dcaba3b4407f1fd",
+      "output_sha256": "280e7bbcb6dddf697b5563cf1e806eafce63ccfd900eafa9e3fe9157de3d5a44",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1215,10 +1213,10 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/bones.json",
-      "output_sha256": "ec52614827d9fe6931e7593595f2c11f58a4861db579d725615be8928e9722df",
+      "output_sha256": "bfe14ab33a8289bb917a303f05180f210bc2a4aa1a7dd7dc610e7ffd9244e312",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/bones.json": "ec52614827d9fe6931e7593595f2c11f58a4861db579d725615be8928e9722df"
+        "evidence/interview/bones.json": "bfe14ab33a8289bb917a303f05180f210bc2a4aa1a7dd7dc610e7ffd9244e312"
       },
       "consumes": [],
       "bindings": {}
@@ -1235,7 +1233,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "ea4bc441419189c3ae4c029fafb215ebea5126e447b2f069af11910ff2e03a38",
+      "output_sha256": "6937c8e0419566bdd1dbb0018a1d0d5aaecdaf1344fb7217289d9bafb533132d",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1254,7 +1252,7 @@
         "--set",
         "evidence/interview/bones.json",
         "--sha256",
-        "ec52614827d9fe6931e7593595f2c11f58a4861db579d725615be8928e9722df",
+        "bfe14ab33a8289bb917a303f05180f210bc2a4aa1a7dd7dc610e7ffd9244e312",
         "--by",
         "user",
         "--pick",
@@ -1266,7 +1264,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "94317ed179fdec04e80c4f597d82e74066b9c75e63af910287a2e84620d42abb",
+      "output_sha256": "c010a5721552e876264f59975fef0193a46552a2d0b6d7d8121ab82818ddc2c0",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1285,10 +1283,10 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/meshes.json",
-      "output_sha256": "035cd9b43b52bae6e1de98063d7e87d42e198dab3655a61bdf564f88cdc8c3c9",
+      "output_sha256": "8ccb757ad9fd53ae51a4d0c1ef916720356c36bc1dff692da0729ac8360f81e1",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/meshes.json": "035cd9b43b52bae6e1de98063d7e87d42e198dab3655a61bdf564f88cdc8c3c9"
+        "evidence/interview/meshes.json": "8ccb757ad9fd53ae51a4d0c1ef916720356c36bc1dff692da0729ac8360f81e1"
       },
       "consumes": [],
       "bindings": {}
@@ -1305,7 +1303,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1faddc5c0bf3e797a50f2ed7c9e4ef61fbc0cbeb53c54678b454788e74223600",
+      "output_sha256": "07f09ad732c37cabe5dfec96fa855a044e93e501d93c9870129480eea10b38c0",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1324,7 +1322,7 @@
         "--set",
         "evidence/interview/meshes.json",
         "--sha256",
-        "035cd9b43b52bae6e1de98063d7e87d42e198dab3655a61bdf564f88cdc8c3c9",
+        "8ccb757ad9fd53ae51a4d0c1ef916720356c36bc1dff692da0729ac8360f81e1",
         "--by",
         "user",
         "--pick",
@@ -1336,7 +1334,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "09b3c55ad705d3799503bfb5da35860188503d71e195343aaba4e82a00049b6d",
+      "output_sha256": "77cf350648b947c9ee7eaab8b29c9bfea68b64fd373890f11ca6237d65d2ec43",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1355,10 +1353,10 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/constraints.json",
-      "output_sha256": "f848462e9b4098f67389aab6bc3478d0a990edf793efe4d61a6a60ac0a87ad00",
+      "output_sha256": "ca77d5a5adae0775eb4041a70842df0438fa5dec8628b752c8df80dec9a4a1cb",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/constraints.json": "f848462e9b4098f67389aab6bc3478d0a990edf793efe4d61a6a60ac0a87ad00"
+        "evidence/interview/constraints.json": "ca77d5a5adae0775eb4041a70842df0438fa5dec8628b752c8df80dec9a4a1cb"
       },
       "consumes": [],
       "bindings": {}
@@ -1375,7 +1373,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "04f8635085e9291468c4cfc5ca1eb524296b0a19a6b2c7552b4a5d7433de45ff",
+      "output_sha256": "a768741494122aa27173439eda157b7b78ff45644d29e8ef5a56513435d237c9",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1394,7 +1392,7 @@
         "--set",
         "evidence/interview/constraints.json",
         "--sha256",
-        "f848462e9b4098f67389aab6bc3478d0a990edf793efe4d61a6a60ac0a87ad00",
+        "ca77d5a5adae0775eb4041a70842df0438fa5dec8628b752c8df80dec9a4a1cb",
         "--by",
         "user",
         "--pick",
@@ -1410,7 +1408,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "8cef5be0c1e818dd2d1ce1366e2e09e6dbc458d4cdc25d67754d0a489ed6c7a6",
+      "output_sha256": "a2591348cc07a932dd177cc5fc2a53ec231abedcf8cfa2d786dee0971fe5ee51",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1429,10 +1427,10 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/turn.json",
-      "output_sha256": "415305189be92ad844c9570b24d338d2ca9abde327bfe59a1ca149f43ef7cdcb",
+      "output_sha256": "e22a77c14430109f4031fb11a7c497baab90e58179f30ae75f590e0049735635",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/turn.json": "415305189be92ad844c9570b24d338d2ca9abde327bfe59a1ca149f43ef7cdcb"
+        "evidence/interview/turn.json": "e22a77c14430109f4031fb11a7c497baab90e58179f30ae75f590e0049735635"
       },
       "consumes": [],
       "bindings": {}
@@ -1449,7 +1447,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0b9a309473e61b86b5c6e2b15f7fa01bd176ca02c500249078beb4914629ad5b",
+      "output_sha256": "df051c60a372655b11a5664fcdcc587d29369d776bf263c4dc2253e5556e029f",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1468,7 +1466,7 @@
         "--set",
         "evidence/interview/turn.json",
         "--sha256",
-        "415305189be92ad844c9570b24d338d2ca9abde327bfe59a1ca149f43ef7cdcb",
+        "e22a77c14430109f4031fb11a7c497baab90e58179f30ae75f590e0049735635",
         "--by",
         "user",
         "--pick",
@@ -1476,7 +1474,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "44cbaacb8925c465e576fbc9d28d0f71aa947dcf660bf3cd3a0f59f1e0bca676",
+      "output_sha256": "e25a9b6ab9d4c5692c32ed2a7478f1cde0850f582ce8fbc330dd2a58e91a736e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1495,10 +1493,10 @@
       ],
       "exit": 0,
       "output_path": "evidence/interview/motion.json",
-      "output_sha256": "1d95bcbb75d4eca7ffc7df1b39f45a8c5159c3ae909b27d71eca08bc3e10562f",
+      "output_sha256": "d3417a9ae8ceefaa763b7ab0eb7d8ab03d909df9be9f263421f0857a3bb3ffd8",
       "authored_by": "agent",
       "outputs": {
-        "evidence/interview/motion.json": "1d95bcbb75d4eca7ffc7df1b39f45a8c5159c3ae909b27d71eca08bc3e10562f"
+        "evidence/interview/motion.json": "d3417a9ae8ceefaa763b7ab0eb7d8ab03d909df9be9f263421f0857a3bb3ffd8"
       },
       "consumes": [],
       "bindings": {}
@@ -1515,7 +1513,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "3b66f52ab3e7ecf7b9b3a5c0cc3a84982209594640efcb483a957687ad4cdaa3",
+      "output_sha256": "645efd396a2958645256293f0ae9b8a00910104b24f337c44007c913eb573f7b",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1534,7 +1532,7 @@
         "--set",
         "evidence/interview/motion.json",
         "--sha256",
-        "1d95bcbb75d4eca7ffc7df1b39f45a8c5159c3ae909b27d71eca08bc3e10562f",
+        "d3417a9ae8ceefaa763b7ab0eb7d8ab03d909df9be9f263421f0857a3bb3ffd8",
         "--by",
         "user",
         "--pick",
@@ -1550,7 +1548,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "3ba749e2380374a0f41e3c96b33eadef07d5a4f27f5365b86080aafb7e74b8cf",
+      "output_sha256": "fb4969e4972cc988795f3c0740450c510ccc93ede41f0766545e632cece7cfe9",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1573,7 +1571,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "fbbe722835f831c6ac189990fb8c0f0d4c6284f0dc26264085dcc6145617e6a5",
+      "output_sha256": "2874b6895c0d5a78d4e09288c16253552aeebb3e75151315fd6accc5b356b99e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1596,7 +1594,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "6e30c841db7ef3d90ed2cd794925d1118b07d57ab21da8fa84057b4e73d1e4e2",
+      "output_sha256": "cef6812703ae21113007414d6b1c93fcd7001ba62a4c41dbc66a08076b28c60e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -1716,7 +1714,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "a92f264baf5c3d0152b9e4bf0657b671c4f5dd8780d4924540f47cd6d3b08df7",
+      "output_sha256": "db3fcdd0578aec01e514f21b1b66f19d421835a81e3610d86e363b5587edd2f3",
       "consumes": [
         "seed-64",
         "seed-65",
@@ -1949,7 +1947,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "10fe1ba676d623899f175a7c2d090b546ac0ff472880873c6e9595c00db17d23",
+      "output_sha256": "00d42a1ac8327a91e9cf3ed2df63783771d52a04824e5f2b9e5b50a731ea226b",
       "consumes": [
         "seed-71"
       ],
@@ -1974,7 +1972,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1ffb41664e24322c08af4853af3d49b4652dc4b2504fa78ba41a4e9ff62022df",
+      "output_sha256": "673a15fc9aa6db21de3125272cf560257fd02a4c29d545b5ab44a56c5cbed31a",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2007,7 +2005,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "03de4736dc581f196d50a2351db5b6f9e4bf3f9ffe1a5cfbb1572af580a04cbd",
+      "output_sha256": "00ebcda830509ff1a88dd008ccd6baef22063942806d36559b0285e0fc28f839",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2036,7 +2034,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "fef5e8e1e8e12d2b46e9bca3b32ded191d1e5d0d3e91b7a278ea298518231792",
+      "output_sha256": "d5a2b28a53513dc88a57e31c78b5e4a348d0b0382368b79665ef2f08fd2e752c",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2059,7 +2057,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7b1860acfe343995e3059f9ea0fd88b5a9735d1a2e1ae493cde65245772d0fdb",
+      "output_sha256": "8429d3618b38830fdd442da213e66bd98e0e0e59ae33a0dffb52b02a8fece797",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2213,7 +2211,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "d5c7005aeb3a13f0c6fe8c4173515fbe62bdfe372560bd1686770d33d475ed86",
+      "output_sha256": "58419c0e016b0c2da9618a4b8309f4ff51e28f4d6bad555e2fa0b64ad7290c89",
       "consumes": [
         "seed-77",
         "seed-78",
@@ -2248,7 +2246,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7c54c1f7d76b0844b43abc600c6310cb2d581f680d17c18d599e6f332ee791f5",
+      "output_sha256": "35484462b63b16ba6bf458fa91509a552f73dbd73134481d56ca2036590e652e",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2291,7 +2289,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7afa0600e736a3c9dfee2460dc68d812a8c4cd3791a294c87b4f15411bf9ce1c",
+      "output_sha256": "afe77affa0814ec62673b7ab23e388930623d304ddceaee320eb3d6762edd6a4",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2322,7 +2320,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "869b751c83b9ddcd49d7c1a0e7138abb7a015e036195e5f359ed173f4288bea0",
+      "output_sha256": "3820528ea9400e0a6fe6a379e545780d19107cebe64b5b40ec883dc11cf01a03",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2365,7 +2363,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "76cf8ff6b7e2b6d0d845ea37b5419a35af79478bcd05d0e33959c4c6d7195b08",
+      "output_sha256": "f1cb79da469dbca34cf451df5605c883aee91708682289eb170fe0b176fa463f",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2396,7 +2394,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "985cb1b190df55444ae42fc5b59402f2e158ffe7a5476cc07c6f295a026da72c",
+      "output_sha256": "45657b10c71e9add2d0e0bfb39dec007b36e3c7224dde907fded6d713c24e0dd",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2423,7 +2421,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7f5e8ef7057402d5c417c2a27a73d03c82b7667dc0fc2fed389d4cd43ceada08",
+      "output_sha256": "f1c5e5535f74dacf004a6827423a139d27b83278368a77571f44e41ceb20e36c",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2449,7 +2447,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "1abd93ebc51443424cdc7ced9199bcf670a49132fe2d1d6b9dcf4e52b3bb4b69",
+      "output_sha256": "f312b96e8e0639cf3503e111ae9553452997b81475c93f2b9cf66aa0fb2e9a00",
       "consumes": [],
       "bindings": {
         "inputs[]": "dca4c96f914d92132d8ab1fb4c85c3e902031d6359cb675554e4ff8ebb39ff8e",
@@ -2547,7 +2545,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "eacd78d6e465ea8a8e10c03da6f6d44ea110323645561583c26d1a5fda755210",
+      "output_sha256": "86f359e516c4ab1b1c901bfa843ec32f81676bb0b613d3985f3211e14f65b467",
       "consumes": [
         "seed-91",
         "seed-92",
@@ -2597,7 +2595,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "13475e177e7d8303a11d56ad6e26f570cb3f1e2e85bca8980202c48a6e04ec9e",
+      "output_sha256": "f3287caab8e66b847478373ecc73a1b386749932f8864bbb3fc75e944f553733",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2648,7 +2646,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "61c33c1cd7bab195ab37fdbb3885233df8e83358ce26140e8c538060e3ddc5fd",
+      "output_sha256": "9329cf87df1b2e1c40583689a0506189c0e977b7bbfcdf80f951577ae48b3f60",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2698,7 +2696,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "363f809c6936e7f491a9e077bb780c66d9e34f2305030471b9afd5beba23a02a",
+      "output_sha256": "e18fb41e4a47eb060dbd3cca01f7acd6594720b5c305ae476236ff266887f6d6",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2727,7 +2725,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "363f809c6936e7f491a9e077bb780c66d9e34f2305030471b9afd5beba23a02a",
+      "output_sha256": "e18fb41e4a47eb060dbd3cca01f7acd6594720b5c305ae476236ff266887f6d6",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2754,7 +2752,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "b04d0725cc3cac51a9fe2050c4bbb1882643e49c946ff02c2c72cf5c5939cb33",
+      "output_sha256": "7b72120c2d88aa55a944515f6c453c6e0261403be20b531bc41ea08af88101d4",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2791,7 +2789,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "0399f324ebc02fc35cb76e0944c5fbe217eaae5accbd1b1585a2601c4b657307",
+      "output_sha256": "ba3f26a5ce7b9f7756bfa4d941d40c2c8ec47571b81ab8e6205fdc4c7b7d6c6e",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2824,7 +2822,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "7081a21ff9cfd03ef89ea0af1940ac3ac16e14d5bc8139fea70aea6f9d0bccf0",
+      "output_sha256": "3caaadd8613772f3ea04a25d1b6fa9ffa82dfae7ff688a7a9a130b56873a7e25",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2851,7 +2849,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "412ecbf8dc96060e649c6994c9302a4c3dd70d8c6579551b02e9b1f2977fad55",
+      "output_sha256": "a42d450fee3ce0ac8af4685e4f4621e03819b79c471d8f92cd0f453dfbda69d8",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2879,7 +2877,7 @@
       ],
       "exit": 0,
       "output_path": "project.json",
-      "output_sha256": "412ecbf8dc96060e649c6994c9302a4c3dd70d8c6579551b02e9b1f2977fad55",
+      "output_sha256": "a42d450fee3ce0ac8af4685e4f4621e03819b79c471d8f92cd0f453dfbda69d8",
       "consumes": [],
       "bindings": {
         "inputs[]": "05a2203175d1d1674bba37b12a69d426a759fef0b6a5276fbd7ab8aff5947563",
@@ -2907,7 +2905,7 @@
       ],
       "exit": 0,
       "output_path": "evidence/captions.json",
-      "output_sha256": "7b26a5f79115fc9eb4b627c2b262cf20798137a3e4ac90f374ba435597b7581e",
+      "output_sha256": "9d7726ceebb9408761f384021e8f299d5717d8fb1633b82180b787b0056291cd",
       "consumes": [
         "seed-5"
       ],

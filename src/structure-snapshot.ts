@@ -11,27 +11,35 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
+import { partsStructureSnapshot } from './job-acts.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { retainedJson, STRUCTURE_SCHEMA, structurePathIsIgnored, validateStructureSnapshot } from './structure.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const STRUCTURE_SNAPSHOT_HELP = `structure-snapshot:
-  [<project dir>] --draft <id> --out <path>
+  [<project dir>] --draft <id> [--out <path>]
   Write ${STRUCTURE_SCHEMA} from the recorded draft <id>: one entry per
   meshes.<part> of its config, copied exactly, or entries:[] without meshes.
   Prepare this evidence before publishing the draft for its parts verdict.
-  --out is project-relative and outside ignored roots, for example evidence/.
+  --out defaults to the evidence/structure-<encoded draft>.json path Review asks read.
   Writes only --out; an existing --out with the same bytes is left as it is.
   Parts verdict ingestion retains this snapshot with the folded stage signature.`;
 
 const pointer = (part: string): string => `/meshes/${part.replaceAll('~', '~0').replaceAll('/', '~1')}`;
+
+export function isStructureSnapshotOutForDraft(draft: string, out: string): boolean {
+  const stem = `evidence/structure-${encodeURIComponent(draft)}`;
+  if (out === `${stem}.json`) return true;
+  if (!out.startsWith(`${stem}-`) || !out.endsWith('.json')) return false;
+  return /^[1-9]\d*$/.test(out.slice(stem.length + 1, -'.json'.length));
+}
 
 /** Where --out may be written, refusing before any byte is: a literal path under the project, outside ignored roots. */
 function outTarget(dir: string, out: string): string {
   const at = `structure-snapshot --out ${out}`;
   const segments = out.split('/');
   if (isAbsolute(out) || out.includes('\\') || segments.some(s => s === '' || s === '.' || s === '..')) {
-    refuse('STRUCTURE_SNAPSHOT_OUT_INVALID', `${at}: expected a literal project-relative POSIX path; name a file under the project, for example evidence/structure-decisions.json`);
+    refuse('STRUCTURE_SNAPSHOT_OUT_INVALID', `${at}: expected a literal project-relative POSIX path; name a file under the project, for example evidence/structure-<id>.json`);
   }
   const root = realpathSync(dir);
   // The longest existing prefix: it carries the links the write would follow.
@@ -71,15 +79,19 @@ export function structureSnapshotCommand(args: string[]): { stdout: string; exit
     else positional.push(arg);
   }
   const draftId = opts['--draft'];
-  const out = opts['--out'];
-  if (positional.length > 1 || draftId === undefined || out === undefined) refuse('STRUCTURE_SNAPSHOT_USAGE', `structure-snapshot: needs --draft and --out and at most one project folder; ${STRUCTURE_SNAPSHOT_HELP}`, USAGE_EXIT);
+  const requestedOut = opts['--out'];
+  if (positional.length > 1 || draftId === undefined) refuse('STRUCTURE_SNAPSHOT_USAGE', `structure-snapshot: needs --draft and at most one project folder; ${STRUCTURE_SNAPSHOT_HELP}`, USAGE_EXIT);
   const dir = resolve(positional[0] ?? process.cwd());
   const { project } = readProject(dir);
-  const file = outTarget(dir, out);
-
   const index = asArray(project.drafts).findIndex(d => isObject(d) && d.id === draftId);
   const draft = asArray(project.drafts)[index];
+  const expectedOut = partsStructureSnapshot(dir, project, draftId).path;
+  const out = requestedOut ?? expectedOut;
+  const file = outTarget(dir, out);
   if (!isObject(draft)) refuse('STRUCTURE_SNAPSHOT_DRAFT_UNKNOWN', `drafts[${draftId}]: no recorded draft has this id; record the reviewed draft with draft-rig, then name its id with --draft`);
+  if (requestedOut !== undefined && !isStructureSnapshotOutForDraft(draftId, requestedOut)) {
+    refuse('STRUCTURE_SNAPSHOT_OUT_UNREAD', `structure-snapshot --out ${requestedOut}: parts-verdict publication reads only evidence/structure-${encodeURIComponent(draftId)}.json (or -<n>.json) for draft ${draftId}; omit --out or use --out ${expectedOut}`);
+  }
   let config: JsonObject;
   try { config = retainedJson(dir, draft.config); } catch (error) {
     refuse('STRUCTURE_SNAPSHOT_CONFIG_CHANGED', `drafts[${index}].config: ${error instanceof Error ? error.message : String(error)}; the snapshot copies the config the draft recorded, so restore those bytes, or record the changed config as a new draft with draft-rig and review it`);

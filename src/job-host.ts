@@ -5,11 +5,11 @@ import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobH
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, draftPublicationContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished, readRecordPublished } from './job-publication.ts';
+import { liveManifestPath, draftPublicationContext, draftPublishedContext, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished, readRecordPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose } from './job-close.ts';
-import { agentCall, jobEvents, pendingJobActs, readHostActs, type AgentReply, type PendingJobAct } from './job-acts.ts';
+import { agentCall, jobEvents, partsStructureSnapshot, pendingJobActs, readHostActs, shellWord, type AgentReply, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import type { JsonObject } from './templates.ts';
@@ -377,13 +377,23 @@ async function reconcileLocked(root: string, publish: (entry: PendingPublication
 /** The stages whose record consumes a draft: `job open` publishes the latest one there. */
 const DRAFT_OPEN_STAGES = ['parts', 'parts-review'];
 
-export function assertRequestedDraft(root: string, requested?: string): { bytes: Buffer; ids: string[] } {
+export function assertRequestedDraft(root: string, requested?: string, now = Date.now()): { bytes: Buffer; ids: string[] } {
   root = realpathSync(root);
   const bytes = readFileSync(join(root, 'project.json'));
-  const project = JSON.parse(bytes.toString('utf8')) as { drafts?: unknown };
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const ids = (Array.isArray(project.drafts) ? project.drafts : []).map(draft => (draft as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string');
   if (requested !== undefined && !ids.includes(requested)) {
     refuse('JOB_DRAFT_UNKNOWN', `project.json.drafts: no recorded draft has id ${requested}; record it with rig-create draft-rig or name a recorded draft`);
+  }
+  const stage = checkProject(root, project, { now, readOnly: true }).effective_stage;
+  if (requested !== undefined && stage === 'parts-review'
+    && draftPublishedContext(root, project, requested).subjects.some(subject => subject.kind === 'parts-verdict')
+    && !draftPublicationContext(root, project, requested).subjects.some(subject => subject.kind === 'parts-verdict')) {
+    const structure = partsStructureSnapshot(root, project, requested);
+    if (!structure.valid) {
+      const command = ['rig-create', 'structure-snapshot', root, '--draft', requested].map(shellWord).join(' ');
+      refuse('JOB_PARTS_VERDICT_UNASKABLE', `drafts[${requested}]: stage parts-review requires a valid structure snapshot at ${structure.path} before publishing a draft for its parts-verdict; run ${command} and retry job open --draft ${shellWord(requested)}`);
+    }
   }
   return { bytes, ids };
 }
@@ -499,7 +509,7 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
 export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string, requestedRig?: string): Promise<string[]> {
   root = realpathSync(root);
   const rigSelector = assertRequestedRig(root, requestedRig, requested);
-  const { bytes, ids } = assertRequestedDraft(root, requested);
+  const { bytes, ids } = assertRequestedDraft(root, requested, now);
   const stage = checkProject(root, JSON.parse(bytes.toString('utf8')), { now, readOnly: true }).effective_stage;
   const draftId = requested ?? (DRAFT_OPEN_STAGES.includes(String(stage)) ? ids.at(-1) : undefined);
   const head = host.session.status().publication;

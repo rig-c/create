@@ -55,7 +55,7 @@ async function run(): Promise<void> {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       requestedRecordResult(root, input.question, input.plan, input.now);
       assertRequestedRig(root, input.rig, input.draft);
-      assertRequestedDraft(root, input.draft);
+      assertRequestedDraft(root, input.draft, input.now);
       let stopping = false;
       let stopHost: (() => void) | null = null;
       const onSignal = () => {

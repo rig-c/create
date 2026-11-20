@@ -829,7 +829,7 @@ function partsRetouchMoves(dir: string, project: JsonObject, draft: JsonObject):
       : [move('producer', `drafts[${id}].parts`, `rig-parts build --config ${shellWord(resolve(dir, root, 'config.json'))} --source ${shellWord(resolve(dir, paintingPath))} --full '<source layers dir or PSD>' --out ${shellWord(resolve(dir, build))}`, 'build the edited_parts draft from its source layers; preserve any required head/source arguments and stop on producer refusals')]),
     move('agent', 'drafts', `rig-create draft-rig ${shellWord(id)} ${shellWord(dir)} --config ${shellWord(`${root}/config.json`)} --from ${shellWord(build)}`, `register NEW draft ${id}; inventory only, without asking for a verdict yet`),
     move('producer', `drafts[${id}].parts`, `rig-parts check-parts --parts ${shellWord(resolve(dir, build))} --out ${shellWord(resolve(dir, evidence.directory))}`, `retain the new draft's parts-check at ${evidence.check}; preserve the original stage-entry advance evidence`),
-    move('agent', `drafts[${id}]`, `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(id)} --out ${shellWord(`evidence/structure-${id}.json`)}`, 'retain a NEW structure snapshot of the retouched draft'),
+    move('agent', `drafts[${id}]`, `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(id)}`, 'retain a NEW structure snapshot of the retouched draft'),
     move('producer', `drafts[${id}].parts`, diff.command, diff.act),
     move('agent', 'diff_map', resolveDiffClassesCommand(dir, evidence.diff, evidence.triage), `classify the NEW diff report ${evidence.diff}; rerun next after producing it to omit triage when no components exist`),
     move('agent', 'review_acts', `rig-create job open ${shellWord(dir)} --draft ${shellWord(id)} --reviewer '<reviewer>' --role owner`, `only after the new evidence is ready, publish NEW draft ${id} and ask for one parts-verdict; approval also records its parts-review signature`),
@@ -918,7 +918,7 @@ function partsDraftEvidenceMoves(
       role: 'agent',
       field: `drafts[${draftId}]`,
       awaits: structure.path,
-      command: `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(draftId)} --out ${shellWord(structure.path)}`,
+      command: `rig-create structure-snapshot ${shellWord(dir)} --draft ${shellWord(draftId)}`,
       act: `write structure-snapshot for drafts[${draftId}] to ${structure.path}`,
     });
   }

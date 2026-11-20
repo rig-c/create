@@ -345,13 +345,13 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     write('evidence/parts-check.json', partsCheck);
     producer('parts-stage check report', ['rig-parts', 'check-parts', '--parts', partsDir, '--out', '../parts-check-producer'], { 'evidence/parts-check.json': partsCheck });
     checkpoint(1, '1-parts-verdict', 'Export the synthetic review-tool parts verdict, then approve the parts',
-      ['evidence/parts-review.json', 'evidence/structure.json', 'signoffs[stage=parts-review]', 'project.stage']);
+      ['evidence/parts-review.json', 'evidence/structure-chain.json', 'signoffs[stage=parts-review]', 'project.stage']);
     const verdict = partsPackage({ input, partsDir, verdict: 'evidence/parts-review.json', edit: v => { v.updatedAt = new Date(now).toISOString(); } });
     write('evidence/parts-review.json', verdict.files['evidence/parts-review.json']!);
     producer('synthetic review-tool parts verdict (tests/parts-package.ts)', ['partsPackage', 'tests/parts-package.ts'],
       { 'evidence/parts-review.json': readFileSync(join(dir, 'evidence/parts-review.json')) });
     writer(['parts-review', '--draft', 'chain', '--from-review-cli', '--by', 'user', '--', partsDir, '--verdict', 'evidence/parts-review.json']);
-    writer(['structure-snapshot', '--draft', 'chain', '--out', 'evidence/structure.json'], 'evidence/structure.json', false);
+    writer(['structure-snapshot', '--draft', 'chain'], 'evidence/structure-chain.json', false);
     const diff = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'),
       'diff-components', '--stack', 'assembled/render/recomposite_rig.png', '--painting', 'painting.png', '--parts', 'assembled/rig/parts.json',
       '--floor', '2', '--threshold', '40', '--out', 'diff-components.json'],
@@ -365,7 +365,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     advance('parts-review', ['--parts-check', 'evidence/parts-check.json', '--parts', partsDir]);
     writer(['diff-classes', '--diff-report', 'evidence/diff-components.json', '--by', 'agent',
       ...diffReport.components.flatMap(c => ['--component', `${c.id}=in-painting:the generated synthetic painting contains this component`])]);
-    sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure.json']);
+    sign('parts-review', ['--draft', 'chain', '--structure-file', 'evidence/structure-chain.json']);
     advance('rigging-interview'); choices('rigging-interview'); sign('rigging-interview');
     advance('rigging'); status(['bones', 'meshes', 'constraints', 'motion'], ['interview', '--check']);
     writer(['interview', '--check', '--json']);

@@ -480,7 +480,7 @@ test('#557 parts-review retouch lifecycle rejects once, records a real edited dr
     const move = pending.moves.find(move => move.command?.startsWith(prefix));
     expect(move, `EXPECTED_NEXT_HINT: ${prefix}`).toBeDefined();
     const argv = retouchArgs(move!.command!);
-    if (prefix === 'rig-create structure-snapshot') structurePath = argv[argv.indexOf('--out') + 1]!;
+    if (prefix === 'rig-create structure-snapshot') structurePath = move!.awaits;
     if (argv[0] === 'rig-create') await run(argv.slice(1));
     else {
       const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(parts, 'cli.ts'), ...argv.slice(1)],

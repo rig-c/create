@@ -224,10 +224,10 @@ test('receipt consumers select the latest response and retain a historical appro
   record(root, response(root));
   const approved = recordedPartsVerdict(root, read(root), 'chain');
   expect(approved.evidence.spec).toBe(PARTS_CLI_RECEIPT);
-  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-api.json']).exit).toBe(0);
+  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']).exit).toBe(0);
   record(root, response(root, 'pending'));
-  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/missing.json']).exit).toBe(0);
-  expect(existsSync(join(root, 'evidence/missing.json'))).toBe(true);
+  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain-1.json']).exit).toBe(0);
+  expect(existsSync(join(root, 'evidence/structure-chain-1.json'))).toBe(true);
   expect(recordedPartsFinding(root, read(root), { draft_id: 'chain', at: new Date(EXAMPLE_NOW).toISOString(), evidence: approved.evidence }, 'signoffs[0]')).toBeUndefined();
   refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => recordedPartsVerdict(root, read(root), 'chain', { ...approved.evidence, spec: 'unknown/1' }));
   refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => recordedPartsVerdict(root, read(root), 'chain', { ...approved.evidence, sha256: '0'.repeat(64) }));
@@ -268,7 +268,7 @@ test('snapshot copies retained config while signoff still requires ignored draft
   const root = fixture();
   record(root, response(root));
   rmSync(join(root, 'derived/drafts/chain/input'), { recursive: true });
-  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/unwritten.json']).exit).toBe(0);
-  expect(existsSync(join(root, 'evidence/unwritten.json'))).toBe(true);
-  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain', '--structure-file', 'evidence/unwritten.json'], EXAMPLE_NOW));
+  expect(structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']).exit).toBe(0);
+  expect(existsSync(join(root, 'evidence/structure-chain.json'))).toBe(true);
+  refuses(root, 'PARTS_VERDICT_RECEIPT_INVALID', () => signoffCommand(['parts-review', root, '--by', 'user', '--draft', 'chain', '--structure-file', 'evidence/structure-chain.json'], EXAMPLE_NOW));
 });

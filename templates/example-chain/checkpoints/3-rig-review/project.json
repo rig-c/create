@@ -76,7 +76,7 @@
       },
       "draft_id": "chain",
       "structure": {
-        "path": "evidence/structure.json",
+        "path": "evidence/structure-chain.json",
         "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
       }
     },
@@ -99,10 +99,10 @@
         "motion": "518ff49c26fa26b0fd8fe95308ab991468fbed4756336f5d4ee473e9165985ac"
       },
       "answer_hashes": {
-        "bones": "a5b71f01dfef5f46671e2c9a1c6516771ef41aa5eaf561bd0fc530b98348248f",
-        "meshes": "de83fc1e842143cdfd6b17555320df765dbaa3629d5e0e996255a596bff2831f",
-        "constraints": "42d3713ca972e1e06f87595aff5df9b581b273582a06ea9415b0ffc18688494b",
-        "motion": "cdf557ef308c8242c2038f13a92acad8e3022b8ef7ba33cf96890899cc1035e3"
+        "bones": "7dc7468868e08921d6647cd593b164dad5c1963e8de3a4a58bf8155b37647876",
+        "meshes": "fdc6fd8c29770dce2adf5f2dfefbaca49b47077d7be0bfd6eaf038aec8a319d1",
+        "constraints": "93183b6400d3a9e07459f0ba7cc875c72c4c9c15c33274fafd4be0eb62c5d979",
+        "motion": "c2e2ab005d61389eaef84d345e02f96e7f4300d69da8759d5f762197176dc5f2"
       },
       "accepted_parts": {
         "signoff_at": "2026-11-06T01:00:37.000Z",
@@ -114,7 +114,7 @@
         }
       },
       "structure": {
-        "path": "evidence/structure.json",
+        "path": "evidence/structure-chain.json",
         "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
       }
     }
@@ -462,7 +462,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/bones.json",
-              "sha256": "ec52614827d9fe6931e7593595f2c11f58a4861db579d725615be8928e9722df"
+              "sha256": "bfe14ab33a8289bb917a303f05180f210bc2a4aa1a7dd7dc610e7ffd9244e312"
             },
             "picks": [
               {
@@ -539,7 +539,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/meshes.json",
-              "sha256": "035cd9b43b52bae6e1de98063d7e87d42e198dab3655a61bdf564f88cdc8c3c9"
+              "sha256": "8ccb757ad9fd53ae51a4d0c1ef916720356c36bc1dff692da0729ac8360f81e1"
             },
             "picks": [
               {
@@ -617,7 +617,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/constraints.json",
-              "sha256": "f848462e9b4098f67389aab6bc3478d0a990edf793efe4d61a6a60ac0a87ad00"
+              "sha256": "ca77d5a5adae0775eb4041a70842df0438fa5dec8628b752c8df80dec9a4a1cb"
             },
             "picks": [
               {
@@ -720,7 +720,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/turn.json",
-              "sha256": "415305189be92ad844c9570b24d338d2ca9abde327bfe59a1ca149f43ef7cdcb"
+              "sha256": "e22a77c14430109f4031fb11a7c497baab90e58179f30ae75f590e0049735635"
             },
             "picks": [
               {
@@ -781,7 +781,7 @@
             "spec": "rig-create/interview-choice@1",
             "set": {
               "path": "evidence/interview/motion.json",
-              "sha256": "1d95bcbb75d4eca7ffc7df1b39f45a8c5159c3ae909b27d71eca08bc3e10562f"
+              "sha256": "d3417a9ae8ceefaa763b7ab0eb7d8ab03d909df9be9f263421f0857a3bb3ffd8"
             },
             "picks": [
               {
@@ -905,7 +905,7 @@
         }
       },
       "structure": {
-        "path": "evidence/structure.json",
+        "path": "evidence/structure-chain.json",
         "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
       }
     }

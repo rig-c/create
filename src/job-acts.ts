@@ -77,7 +77,7 @@ export interface PendingJobAct {
   unavailable?: { code: 'JOB_ACTS_WRITER_UNAVAILABLE'; message: string };
 }
 
-function shellWord(value: string): string {
+export function shellWord(value: string): string {
   return /^[A-Za-z0-9_./:-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
@@ -159,7 +159,7 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
           try { recordedPartsVerdict(root, project, draft); approved = true; } catch { /* Ordered prerequisite below. */ }
           if (!approved) preconditions.push({ command: null, act: `this separate signoff route is only for a midflight approved parts-verdict already ingested unsigned for draft ${draft}; otherwise prepare evidence and advance, republish the draft and ask for one parts-verdict` });
           if (!structure.valid) preconditions.push({
-            command: ['rig-create', 'structure-snapshot', root, '--draft', draft, '--out', structure.path].map(shellWord).join(' '),
+            command: ['rig-create', 'structure-snapshot', root, '--draft', draft].map(shellWord).join(' '),
             act: 'retain the structure snapshot from the draft; no verdict is required to create it',
           });
           args.push('--draft', draft, '--structure-file', structure.path);

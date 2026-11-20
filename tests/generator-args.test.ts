@@ -32,8 +32,8 @@ describe.each(scripts)('%s argument refusals', script => {
   });
 });
 
-test('all fourteen generators are covered', () => {
-  expect(scripts).toHaveLength(14);
+test('all thirteen generators are covered', () => {
+  expect(scripts).toHaveLength(13);
 });
 
 test('valid write and check arguments retain their meaning', () => {

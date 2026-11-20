@@ -352,6 +352,8 @@ test.each([false, true])('agent next pagination is shared and read failures rema
   } else {
     const result = await listCreateJobActs(root, start);
     expect(result.acts.map(row => row.actId)).toEqual(['act-0', 'act-1']);
+    expect(result).toMatchObject({ ingested: [], asked: 0 });
+    expect(jobActsText({ ...result, acts: [] })).toBe('job: no un-ingested acts; none asked on the current publication');
     expect(cursors).toEqual([null, 'one', 'two']);
   }
   expect(stopped).toBe(true); expect(snapshot(root)).toEqual(before);
@@ -389,8 +391,25 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expect(snapshot(root)).toEqual(before);
   const row = JSON.parse(listed.stdout).acts[0];
   expect(row.args).toEqual(['interview-answer', 'motion', root, '--from-review', act.actId]);
+  const offered = nextProject(root).moves.filter(move => move.command?.includes('--question motion'));
+  expect(offered).toHaveLength(1);
   await executePrinted(root, row.command);
-  expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
+  // #738: an empty pending list names the act already ingested for the current ask.
+  const after = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout);
+  expect(after.acts).toEqual([]);
+  expect(after.asked).toBe(1);
+  expect(after.ingested).toEqual([{ askId: expect.any(String), actId: act.actId, kind: 'interview-picks', question: 'motion',
+    subject: 'question motion', at: act.at, recorded: 'interview.waypoints[motion].guide' }]);
+  const text = await cli(root, ['job', 'acts', root]); expectExit0(text);
+  expect(text.stdout).toContain('job: no un-ingested acts; 1 already ingested for 1 current ask(s)');
+  expect(text.stdout).toContain(`${act.actId} interview-picks question motion at ${act.at}\n  already recorded at interview.waypoints[motion].guide; no ingest needed`);
+  const timeout = await cli(root, ['job', 'acts', root, '--wait', '--timeout-ms', '1']);
+  expect(timeout.exit).toBe(3); expect(timeout.stderr).toContain('JOB_NEXT_TIMEOUT');
+  expect(timeout.stderr).toContain(`1 already ingested for 1 current ask(s) (${act.actId} question motion -> interview.waypoints[motion].guide)`);
+  // #738: next shows the guide as answered and offers no second publication of the question.
+  const report = nextProject(root);
+  expect(report.moves.filter(move => move.command?.includes('--question motion') || move.review_act?.question_id === 'motion')).toEqual([]);
+  expect(report.answers!.find(answer => answer.question_id === 'motion')).toMatchObject({ field: 'interview.waypoints[motion].guide', at: act.at });
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
 

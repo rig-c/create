@@ -1739,6 +1739,13 @@ using the same reader as publication ask reconciliation. It lists finalized
 acts absent from `project.json.review_acts` and signoff source identities,
 with their exact writer arguments/POSIX-quoted command. It never ingests, advances,
 creates a host or writes the project/binding/outbox. Empty lists succeed.
+It also lists, as `ingested` in `--json` and as "already recorded" lines in
+text, the acts on the current publication's asks that `project.json` already
+holds: ask id, act id, kind, question or stage, `at`, and the `recorded` path
+(the answer field, its `history[<i>]` row once superseded, `signoffs[<i>]`
+or `review_acts[<i>]`). These need no ingest. `asked` counts the current asks;
+with no pending act the text says how many were already ingested, or that none
+were asked, so an empty `acts` is never read as unanswered.
 With `--wait`, an already-pending act returns immediately. Otherwise, the
 command waits on the same Review attachment for a finalized act.
 A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
@@ -1747,7 +1754,7 @@ A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
 | Code | Meaning and remedy |
 | --- | --- |
 | `JOB_ACTS_READ_REFUSED` | `project.json`: the live job event read or wait failed, or paging exceeded its bound. Restore or reopen the bound live host as needed, and retry `job acts`. |
-| `JOB_NEXT_TIMEOUT` | `project.json`: no finalized un-ingested act arrived during `job acts --wait`. Exit 3 with the code on stderr. Retry the wait, optionally setting `--timeout-ms` (1–600000, default 600000). |
+| `JOB_NEXT_TIMEOUT` | `project.json`: no finalized un-ingested act arrived during `job acts --wait`. Exit 3 with the code on stderr. The message names the acts already ingested for the current asks and where each is recorded, or that none were asked; those need no ingest. Otherwise retry the wait, optionally setting `--timeout-ms` (1–600000, default 600000). |
 | `JOB_ACTS_WRITER_UNAVAILABLE` | `project.json`: a listed act has no current writer target (for example a removed checkpoint step or a subject without a Create adapter). Its command is null, not guessed. Restore the named plan step or use a supported Review subject before ingestion. |
 | `JOB_ACTS_PENDING` | `project.json.review_acts`: `job close` found finalized human Review acts that have not been ingested into `project.json`. The message names each act id and its ingest command. Ingest each act before closing, or run `rig-create job close --discard-acts <reason>` with `--by agent` to record the discarded act ids and close. To relay a person’s instruction, use `job close --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. |
 | `REVIEW_ACT_DISCARDED` | A `--from-review` act id names a discard receipt in `project.json.review_acts`. Open a new job and obtain a fresh act. |

@@ -10,7 +10,7 @@ import { liveManifestPath, draftPackageIdentity, inspectDraftPublication, curren
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose } from './job-close.ts';
-import { agentCall, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type PendingJobAct } from './job-acts.ts';
+import { agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import type { JsonObject } from './templates.ts';
@@ -267,7 +267,7 @@ export async function listCreateJobActs(
   root: string,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
   wait?: { timeoutMs: number; signal?: AbortSignal },
-): Promise<{ jobId: string; acts: PendingJobAct[] }> {
+): Promise<{ jobId: string; acts: PendingJobAct[]; ingested: IngestedJobAct[]; asked: number }> {
   try { root = realpathSync(root); }
   catch { refuse('JOB_HOST_ATTACH_REFUSED', 'project.json: project has no bound live host; open it with job open before job acts'); }
   const binding = readWriterBinding(root);
@@ -275,12 +275,13 @@ export async function listCreateJobActs(
   const host = await attachCreateJobForClose(root, binding, startHost);
   try {
     const list = async () => {
-      const { acts, cursor } = await readHostActsAndAsks(host);
+      const { acts, asks, cursor } = await readHostActsAndAsks(host);
       const project: JsonObject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
-      return { acts: pendingJobActs(project, acts, root), cursor };
+      return { acts: pendingJobActs(project, acts, root), ingested: ingestedJobActs(project, asks, acts, root), asked: asks.length, cursor };
     };
     let listed = await list();
-    if (!wait || listed.acts.length) return { jobId: binding.jobId, acts: listed.acts };
+    const result = () => ({ jobId: binding.jobId, acts: listed.acts, ingested: listed.ingested, asked: listed.asked });
+    if (!wait || listed.acts.length) return result();
 
     const deadline = performance.now() + wait.timeoutMs;
     for (;;) {
@@ -292,13 +293,13 @@ export async function listCreateJobActs(
       });
       if (outcome.kind === 'timeout') break;
       listed = await list();
-      if (listed.acts.length) return { jobId: binding.jobId, acts: listed.acts };
+      if (listed.acts.length) return result();
       if (outcome.kind === 'closed') {
         refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job closed during the act wait; reopen it with job open before retrying job acts');
       }
       // Another writer may already have ingested the act that woke the waiter.
     }
-    refuse('JOB_NEXT_TIMEOUT', 'project.json: no finalized un-ingested act arrived before the deadline; retry job acts --wait', 3);
+    refuse('JOB_NEXT_TIMEOUT', `project.json: no finalized un-ingested act arrived before the deadline; ${ingestedSummary(listed)}; an ingested act needs no ingest, otherwise retry job acts --wait`, 3);
   } finally { host.stop(); }
 }
 

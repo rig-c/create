@@ -8,7 +8,7 @@ import { checkProject as rawCheckProject } from '../src/check.ts';
 import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
-import type { JsonObject } from '../src/templates.ts';
+import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock, interviewOptionsCommand, interviewAnswerCommand } from './clock.ts';
 import { optionContext } from '../src/choices.ts';
 import { clockedCli } from './helpers.ts';
@@ -374,24 +374,27 @@ test('#712A model-backed rigging draft still publishes without a verdict ask', a
 
 async function reviewedMeshPreview(verdict: 'approved' | 'changes-requested') {
   const { root, opening } = await riggingPreview();
-  const subject = { kind: 'parts-verdict', draftId: MESH_DRAFT };
+  const subject = { kind: 'parts-verdict', draftId: MESH_DRAFT } as const;
   expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published`, `job: asked parts-verdict ${MESH_DRAFT}`]);
   const view = await page(root, opening.url, 1);
   expect(view.asks.map(ask => ask.subject)).toEqual([subject]);
   const source = view.head.source as JsonObject;
+  const { sourceHash } = source;
+  if (typeof sourceHash !== 'string') throw new Error('Review did not publish a source hash');
   const record = { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) };
   const selector = { kind: 'draft', id: MESH_DRAFT } as const;
   expect(source).toMatchObject({ selector, model: null, projectHash: record.sha256 });
   const jobId = readWriterBinding(root)!.jobId;
-  const publication = readAcknowledgedPublication(root, jobId, String(view.head.publicationId))!;
-  expect(publication.subjects).toEqual([subject]);
-  expect(publication.result.path).toBe(`review-rigging-draft-${MESH_DRAFT}.json`);
-  const manifest = JSON.parse(readFileSync(join(root, publication.result.path), 'utf8')) as JsonObject;
+  const publication = readAcknowledgedPublication(root, jobId, String(view.head.publicationId));
+  const manifestPath = `review-rigging-draft-${MESH_DRAFT}.json`;
+  expect(publication?.subjects).toEqual([subject]);
+  expect(publication?.result.path).toBe(manifestPath);
+  const manifest = JSON.parse(readFileSync(join(root, manifestPath), 'utf8')) as JsonObject;
   expect(manifest.id).toBe(`create-rigging-draft-${MESH_DRAFT}`);
   expect(source.package).toEqual({ id: manifest.id, revision: manifest.revision });
   expect(manifest.model).toBeUndefined();
-  expect(publication.draftSource).toEqual({ sourceHash: source.sourceHash, projectHash: record.sha256 });
-  const closure = await readPublished({ root, record, result: { path: publication.result.path, selector } });
+  expect(publication?.draftSource).toEqual({ sourceHash, projectHash: record.sha256 });
+  const closure = await readPublished({ root, record, result: { path: manifestPath, selector } });
   for (const file of ['rig.json', 'mesh_report.json']) {
     const path = `derived/drafts/${MESH_DRAFT}/out/${file}`;
     expect(closure.files).toContainEqual({ path, sha256: jobHash(readFileSync(join(root, path))) });
@@ -409,7 +412,7 @@ async function reviewedMeshPreview(verdict: 'approved' | 'changes-requested') {
   expect(after.signoffs).toEqual(before.signoffs);
   expect(after.versions).toEqual(before.versions);
   const receipts = after.review_acts as JsonObject[];
-  expect(receipts.slice(0, -1)).toEqual(before.review_acts);
+  expect<Json>(receipts.slice(0, -1)).toEqual(before.review_acts);
   const receipt = receipts.at(-1)!;
   expect(receipt).toMatchObject({ schema: 'rig-create/review-act@1', kind: 'parts-verdict', actId: act.actId, jobId, draft_id: MESH_DRAFT });
   expect(receipt.signoff).toBeUndefined();
@@ -419,13 +422,13 @@ async function reviewedMeshPreview(verdict: 'approved' | 'changes-requested') {
   expect(evidence.sha256).toBe(jobHash(bytes));
   expect(JSON.parse(bytes)).toEqual(act);
   const decoded = decodeReviewAct(bytes, 'parts-verdict');
-  expect(decoded.source.sourceHash).toBe(source.sourceHash);
+  expect(decoded.source.sourceHash).toBe(sourceHash);
   expect(decoded.source.selector).toEqual(selector);
   if (!('comments' in decoded.value)) throw new Error('Review did not retain a comments act');
   expect(decoded.value.comments).toContainEqual({ text: MESH_WORDS });
   if (issue) expect(decoded.value.comments.map(comment => comment.text)).toContain('Synthetic edge needs correction.');
   expect(checkProject(root).effective_stage).toBe('rigging');
-  return { root, opening, act, evidence, publication };
+  return { root, opening, act, evidence, manifestPath };
 }
 
 test('#712A model-less rigging changes-requested feeds the next draft', async () => {
@@ -458,7 +461,7 @@ test('#712A rigging approval requires a separate version rig-review verdict', as
   const draft = (read(root).drafts as JsonObject[]).find(row => row.id === MESH_DRAFT)!;
   for (const file of (draft.parts as JsonObject).files as JsonObject[]) {
     const part = String(file.path).slice(`${draftPath}/input/`.length);
-    expect(jobHash(readFileSync(join(root, 'outputs/v1/out', part)))).toBe(file.sha256);
+    expect<Json>(jobHash(readFileSync(join(root, 'outputs/v1/out', part)))).toBe(file.sha256);
   }
   expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
   const view = await page(root, opening.url, 1);
@@ -468,7 +471,7 @@ test('#712A rigging approval requires a separate version rig-review verdict', as
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 test('#712A cloned rigging approval cannot sign or authorize a parts-review advance', async () => {
-  const { root, act, evidence, publication } = await reviewedMeshPreview('approved');
+  const { root, act, evidence, manifestPath } = await reviewedMeshPreview('approved');
   const recorded = (read(root).review_acts as JsonObject[]).at(-1)!;
   const clone = copy('1-parts-verdict', project => {
     const draft = (read(root).drafts as JsonObject[]).find(row => row.id === MESH_DRAFT)!;
@@ -477,7 +480,7 @@ test('#712A cloned rigging approval cannot sign or authorize a parts-review adva
   });
   const draftPath = `derived/drafts/${MESH_DRAFT}`;
   cpSync(join(root, draftPath), join(clone, draftPath), { recursive: true });
-  cpSync(join(root, publication.result.path), join(clone, publication.result.path));
+  cpSync(join(root, manifestPath), join(clone, manifestPath));
   mkdirSync(join(clone, dirname(String(evidence.path))), { recursive: true });
   cpSync(join(root, String(evidence.path)), join(clone, String(evidence.path)));
 
@@ -522,8 +525,9 @@ test.each(['missing source binding', 'mismatched source hash'] as const)('#712A 
   const act = await view.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: MESH_WORDS });
   const jobId = String(act.jobId), publicationId = String(act.publicationId);
   const ack = readAcknowledgedPublication(root, jobId, publicationId)!;
-  const source = act.source as JsonObject;
-  expect(ack.draftSource).toEqual({ sourceHash: source.sourceHash, projectHash: source.projectHash });
+  const { sourceHash, projectHash } = act.source as JsonObject;
+  if (typeof sourceHash !== 'string' || typeof projectHash !== 'string') throw new Error('Review act is missing its source binding');
+  expect(ack.draftSource).toEqual({ sourceHash, projectHash });
   const path = join(jobPrivateRoot(root), 'acknowledged-publications', `${jobHash(JSON.stringify([jobId, publicationId]))}.json`);
   const originalAck = readFileSync(path);
   if (fault === 'missing source binding') delete ack.draftSource;

@@ -1,4 +1,4 @@
-import { tempDir, ownerChatArgs } from './helpers.ts';
+import { tempDir } from './helpers.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -8,9 +8,9 @@ import { checkScenes, currentScene, readScene, sceneReference } from '../src/sce
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
-import { fixture, materializeFixture } from './fixtures.ts';
+import { plantLegacyReopen, fixture, materializeFixture } from './fixtures.ts';
 import { sceneFixture } from './scene-fixture.ts';
-import { checkProject, directionCommand, reopenCommand, sceneCommand, testClock } from './clock.ts';
+import { checkProject, directionCommand, sceneCommand, testClock } from './clock.ts';
 import { PARTS_REVIEW_LAPSES } from './fixtures.ts';
 
 afterEach(() => testClock.reset());
@@ -18,14 +18,14 @@ function scenes(dir: string, project: JsonObject): Finding[] {
   const ctx = { dir, project, refusals: [] as Finding[] }; checkScenes(ctx); return ctx.refusals;
 }
 
-test('signed ruling: reopening the filled example with a scene passes check through the public writer', () => {
+test('legacy reopen of the filled example with a scene still passes check', () => {
   const dir = fixture(() => {}, 'example-project.json');
   testClock.set(EXAMPLE_REOPEN_AT);
   expect(checkProject(dir).refusals).toEqual([]);
   expect(checkProject(dir).warnings).toEqual([]);
   writeFileSync(join(dir, 'reopen-words.txt'), 'Reopen the synthetic parts for correction.');
   const before = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
-  expect(reopenCommand(['parts-review', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'reopen-words.txt'))]).exit).toBe(0);
+  plantLegacyReopen(dir, 'parts-review', { by: 'user', wordsFile: join(dir, 'reopen-words.txt') });
   const after = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
   expect(after.scenes).toEqual(before.scenes);
   expect(checkProject(dir).refusals).toEqual([]);
@@ -122,7 +122,7 @@ for (const writer of ['scene', 'direction'] as const) {
     const dir = fixture(() => {}, 'example-project.json');
     testClock.set(EXAMPLE_REOPEN_AT);
     writeFileSync(join(dir, 'reopen-words.txt'), 'Revise the synthetic composition.');
-    reopenCommand(['post', dir, '--by', 'user', ...ownerChatArgs(join(dir, 'reopen-words.txt'))]);
+    plantLegacyReopen(dir, 'post', { by: 'user', wordsFile: join(dir, 'reopen-words.txt') });
     const before = readFileSync(join(dir, 'project.json'));
     const project = JSON.parse(before.toString('utf8')) as JsonObject;
     const item = collectItems(project, { collection: null }).find(value => value.id === 'post_composition')!;

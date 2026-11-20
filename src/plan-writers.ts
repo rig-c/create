@@ -23,7 +23,7 @@ export const PLAN_HELP = `plan add|revise|remove <id> [<project dir>] --by <draf
   Withdraw one enabled execution checkpoint without changing the signed step.
   Add requires all fields. Revise accepts any of these fields and preserves the id.
   Revise/remove retain the full previous step in plan.replaced[].
-  Reopen live covering plan signatures first. Completed steps require removal and a later reopen (plan-approved for rig, before post for post) before same-id replacement.
+  Amend at the step's approval stage or earlier to lapse its live signature. A same-id replacement of completed work requires removal and an amendment after completion.
   Dates follow approval ownership: parts/legacy rig update drafted_at and drafted_by,
   production rigging updates rigging_drafted_at, and post preserves plan dates.
   Each candidate passes check's refusal delta before writing.`;
@@ -43,14 +43,14 @@ function generationStart(project: JsonObject, id: unknown, index = Infinity): nu
     .map(entry => Date.parse(String(entry.at))));
 }
 
-/** Reopen resets status while retaining completion evidence for this generation only. */
+/** Resets retain the dated completion of this definition and legacy reopen snapshots. */
 function completed(project: JsonObject, step: JsonObject, after = generationStart(project, step.id), before = Infinity): boolean {
   return step.status === 'done' || asArray(step.status_history).some(event => isObject(event) && event.status === 'done')
     || doneSnapshots(project, step, after, before).length > 0;
 }
 
 /** A removed rig or post definition can be replaced only after its recorded completion. */
-function replacementReopened(project: JsonObject, step: JsonObject, now: number, after: number, before: number): boolean {
+function replacementAuthorized(project: JsonObject, step: JsonObject, now: number, after: number, before: number): boolean {
   if (step.phase !== 'rig' && step.phase !== 'post') return false;
   const dates = asArray(step.status_history).filter(isObject).filter(event => event.status === 'done')
     .map(event => Date.parse(String(event.at)));
@@ -58,12 +58,13 @@ function replacementReopened(project: JsonObject, step: JsonObject, now: number,
   if (!dates.length) dates.push(...doneSnapshots(project, step, after, before));
   if (!dates.length || dates.some(date => !Number.isFinite(date))) return false;
   const completion = Math.max(...dates);
-  // collectReopens also includes amendments. Only a recorded reopen authorizes this operation.
-  return collectReopens(project, []).some(reopen => (step.phase === 'rig'
-    ? reopen.stage === 'plan-approved'
-    : stageIndex(reopen.stage) >= 0 && stageIndex(reopen.stage) < stageIndex('post'))
-    && reopen.at > completion && reopen.at <= now
-    && asArray(project.reopens).some(raw => isObject(raw) && raw.stage === reopen.stage && Date.parse(String(raw.at)) === reopen.at));
+  const approval = approvalStageOfStep(step.phase, String(step.id), hasStageOrder(project));
+  return collectReopens(project, []).some(cutoff => {
+    if (cutoff.at <= completion || cutoff.at > now) return false;
+    if ('target' in cutoff) return completion <= before && stageIndex(cutoff.stage) <= stageIndex(approval);
+    // Historical reopen authority keeps its original stage rules.
+    return step.phase === 'rig' ? cutoff.stage === 'plan-approved' : stageIndex(cutoff.stage) < stageIndex('post');
+  });
 }
 
 export function planCommand(args: string[], now: number): { stdout: string; exit: number } {
@@ -149,9 +150,9 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
       const after = generationStart(project, id, index);
       const before = Date.parse(String(entry.at));
       return completed(project, entry.step, after, before)
-        && !(entry.action === 'removed' && patch.phase === entry.step.phase && replacementReopened(project, entry.step, now, after, before));
+        && !(entry.action === 'removed' && patch.phase === entry.step.phase && replacementAuthorized(project, entry.step, now, after, before));
     })) {
-      refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in plan.replaced; for a rig step, record reopen plan-approved later than its completion, remove it, then add its waypoint id; for a post step, record a reopen to a stage before post later than its completion, remove it, then add the same id`);
+      refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work is retained in plan.replaced; record a human amendment at the step's approval stage or earlier after its completion, remove the old definition, then add the same id and phase`);
     }
     const at = new Date(now).toISOString();
     if (amendingBar) {
@@ -197,9 +198,9 @@ export function planCommand(args: string[], now: number): { stdout: string; exit
         const reopens = collectReopens(project, []);
         if (collectSignoffs(project, []).some(signature => signature.stage === stage && signature.checkpoint === null
           && (signature.steps === null || signature.steps.includes(id!)) && liveSignoff(reopens, signature.stage, signature.at))) {
-          refuse('PLAN_STEP_SIGNED', `plan.steps[${id}]: a live ${stage} signature binds this step; reopen ${stage} before revising or removing it`);
+          refuse('PLAN_STEP_SIGNED', `plan.steps[${id}]: a live ${stage} signature binds this step; record a human amendment with amend ${stage} before revising or removing it`);
         }
-        if (action === 'revise' && completed(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; remove it and add the replacement under a new id`);
+        if (action === 'revise' && completed(project, previous)) refuse('PLAN_STEP_DONE', `plan.steps[${id}]: completed work cannot be revised; remove it and add the replacement, using a later human amendment at ${stage} or earlier for the same id`);
       }
       if (previous !== undefined) {
         plan.replaced = [...asArray(plan.replaced), { step: structuredClone(previous), sha256: stepHash(previous), action: action === 'revise' ? 'revised' : 'removed', at, by: opts['--by']! }];

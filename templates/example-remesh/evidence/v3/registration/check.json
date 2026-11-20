@@ -1,0 +1,870 @@
+{
+ "spec": "rig-parts-check/1",
+ "bar_outcomes": {
+  "gate": {
+   "status": "PASS"
+  },
+  "loop": {
+   "status": "PASS"
+  },
+  "seam": {
+   "status": "PASS"
+  },
+  "BREATH_VISIBLE": {
+   "status": "PASS"
+  },
+  "BLINK_NO_HOLE": {
+   "status": "SKIP",
+   "reason": "no-blink-track"
+  },
+  "CHAIN_LAG": {
+   "status": "SKIP",
+   "reason": "no-comparable-tracks"
+  },
+  "TIP_OVER_ROOT": {
+   "status": "SKIP",
+   "reason": "no-swing-parts"
+  },
+  "STILL_REGIONS_DARK": {
+   "status": "PASS"
+  },
+  "TEXTURE_STRETCH": {
+   "status": "PASS"
+  },
+  "ANIMATIONS_DO_NOT_FOLD": {
+   "status": "PASS"
+  },
+  "FEET_STAY_LEVEL": {
+   "status": "SKIP",
+   "reason": "no-hanging-footwear"
+  },
+  "STRESS_OFF_CHAIN": {
+   "status": "SKIP",
+   "reason": "no-handwear"
+  },
+  "LIMB_ONE_BONE": {
+   "status": "SKIP",
+   "reason": "no-limb-segments"
+  },
+  "SEAM_OVER_RANGE": {
+   "status": "SKIP",
+   "reason": "no-joint-range"
+  },
+  "ART_JOINT_DISTANCE": {
+   "status": "SKIP",
+   "reason": "undeclared"
+  },
+  "CUT_JOINT_MATERIAL": {
+   "status": "SKIP",
+   "reason": "undeclared"
+  },
+  "SETUP_MATCHES_PAINTING": {
+   "status": "PASS"
+  },
+  "BOUNDARY_COLOUR_STEP": {
+   "status": "SKIP",
+   "reason": "undeclared"
+  },
+  "BEHIND_PART_SEAMS": {
+   "status": "SKIP",
+   "reason": "undeclared"
+  },
+  "SEAM_OVER_MOTION": {
+   "status": "SKIP",
+   "reason": "no-root-gate"
+  }
+ },
+ "build": {
+  "model_sha256": "f978c74189cc8130f802b7b7238394f159d64ee6db378cb91adf38dd0ea5b5ea"
+ },
+ "gate_spine_html_green": true,
+ "rigc_entry": {
+  "entry": "cli_core.ts",
+  "spine_core": null
+ },
+ "pack_mode": {
+  "page_edges": "free",
+  "pack_shape": "polygon"
+ },
+ "loop_max_diff": 0,
+ "seam_mean": 0,
+ "seam_px_over_40": 0,
+ "seam_px_over_80": 0,
+ "seam_frame_scale": 1,
+ "seam_scope": {
+  "mode": "source-grid/base",
+  "domain": {
+   "viewport": {
+    "x": -69,
+    "y": -4,
+    "width": 138,
+    "height": 136,
+    "scale": 1,
+    "pixelWidth": 138,
+    "pixelHeight": 136
+   },
+   "authored": {
+    "x": -64,
+    "y": 0,
+    "width": 128,
+    "height": 128
+   },
+   "numerator": "whole-union",
+   "states": [
+    {
+     "row_scope": "rig",
+     "row_kind": "evidence",
+     "row_subjects": [],
+     "state": "base",
+     "frames": 2,
+     "pieces": 12,
+     "bounds": {
+      "minX": -68.0000062189677,
+      "minY": -3.9999999999999716,
+      "maxX": 68.00000324871446,
+      "maxY": 131.99999999999994
+     },
+     "pose_sha256": "d2f9c7a51e1c9cfdccabdddd67813b9e125ba75f26c24a08e8886382e35f1089"
+    }
+   ]
+  },
+  "denominator_px": 16384,
+  "auto_frame_raw": {
+   "mean": 0.0403594970703125,
+   "display_mean": 0.04,
+   "denominator_px": 16384,
+   "px_over_40": 0,
+   "px_over_80": 0,
+   "frame_scale": 0.8714596343221742,
+   "viewport": {
+    "x": -73.44000659767498,
+    "y": -9.440000378707257,
+    "width": 146.88001022509673,
+    "height": 146.88000075741448,
+    "scale": 0.8714596343221742,
+    "pixelWidth": 128,
+    "pixelHeight": 128
+   }
+  },
+  "whole": {
+   "mean": 0,
+   "display_mean": 0,
+   "denominator_px": 16384,
+   "px_over_40": 0,
+   "px_over_80": 0,
+   "frame_scale": 1,
+   "viewport": {
+    "x": -69,
+    "y": -4,
+    "width": 138,
+    "height": 136,
+    "scale": 1,
+    "pixelWidth": 138,
+    "pixelHeight": 136
+   }
+  },
+  "population": {
+   "basis": "reference-alpha/top-two-of-2x2",
+   "measured_sample_px": 18768,
+   "pair_count": 5,
+   "pairs": [
+    {
+     "parts": [
+      "background",
+      "torso"
+     ],
+     "whole_sample_px": 3185,
+     "scope_sample_px": 3185,
+     "inherited_sample_px": 0,
+     "row_scope": "pair",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "background",
+      "torso"
+     ]
+    },
+    {
+     "parts": [
+      "background",
+      "lantern"
+     ],
+     "whole_sample_px": 425,
+     "scope_sample_px": 425,
+     "inherited_sample_px": 0,
+     "row_scope": "pair",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "background",
+      "lantern"
+     ]
+    },
+    {
+     "parts": [
+      "background",
+      "face"
+     ],
+     "whole_sample_px": 1191,
+     "scope_sample_px": 1191,
+     "inherited_sample_px": 0,
+     "row_scope": "pair",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "background",
+      "face"
+     ]
+    },
+    {
+     "parts": [
+      "face",
+      "eye_r"
+     ],
+     "whole_sample_px": 81,
+     "scope_sample_px": 81,
+     "inherited_sample_px": 0,
+     "row_scope": "pair",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "face",
+      "eye_r"
+     ]
+    },
+    {
+     "parts": [
+      "face",
+      "eye_l"
+     ],
+     "whole_sample_px": 81,
+     "scope_sample_px": 81,
+     "inherited_sample_px": 0,
+     "row_scope": "pair",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "face",
+      "eye_l"
+     ]
+    }
+   ],
+   "single_art": [
+    {
+     "part": "background",
+     "whole_sample_px": 11678,
+     "scope_sample_px": 11678,
+     "inherited_sample_px": 0,
+     "row_scope": "part",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "background"
+     ]
+    }
+   ],
+   "no_reference_art": {
+    "whole_sample_px": 2127,
+    "scope_sample_px": 2127,
+    "inherited_sample_px": 0
+   }
+  },
+  "whole_pairs": []
+ },
+ "BREATH_VISIBLE": {
+  "status": "PASS",
+  "halves_measured": "1 of 2",
+  "torso_status": "PASS",
+  "torso_parts": [
+   "torso"
+  ],
+  "torso_heat_mean": 4.912,
+  "torso_floor": 3.809,
+  "feet_status": "SKIP",
+  "feet_reason": "no part comes from a See-through \"footwear\" layer, so there are no feet to hold still"
+ },
+ "BLINK_NO_HOLE": {
+  "status": "SKIP",
+  "reason": "no idle \"scaley\" track on the bones of \"eye_r\", \"eye_l\" goes below its first key, so the idle has no blink"
+ },
+ "CHAIN_LAG": {
+  "status": "SKIP",
+  "reason": "no idle \"rotate\" track sits under another at the same period, so there is no chain to lag"
+ },
+ "TIP_OVER_ROOT": {
+  "status": "SKIP",
+  "reason": "no part comes from a See-through \"handwear\" or \"bottomwear\" layer, so there is no hem or sleeve to swing"
+ },
+ "STILL_REGIONS_DARK": {
+  "status": "PASS",
+  "face": {
+   "parts": [
+    "face"
+   ],
+   "head_bone": "body",
+   "instrument": "geometry",
+   "still_slots": [
+    {
+     "row_scope": "part",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "face"
+     ],
+     "slot": "face",
+     "max_rig_px": 1.465e-14,
+     "rms_rig_px": 7.647e-15
+    },
+    {
+     "row_scope": "part",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "eye_r"
+     ],
+     "slot": "eye_r",
+     "max_rig_px": 1.066e-14,
+     "rms_rig_px": 2.759e-15
+    },
+    {
+     "row_scope": "part",
+     "row_kind": "evidence",
+     "row_subjects": [
+      "eye_l"
+     ],
+     "slot": "eye_l",
+     "max_rig_px": 1.066e-14,
+     "rms_rig_px": 2.757e-15
+    }
+   ],
+   "max_rig_px": 1.465e-14,
+   "at": null,
+   "rms_rig_px": 7.338e-15,
+   "tolerance_rig_px": 1.407e-12,
+   "crossing": [],
+   "driven_slots": []
+  },
+  "feet": {
+   "unmeasured": "no part comes from a See-through \"footwear\" layer"
+  }
+ },
+ "TEXTURE_STRETCH": {
+  "status": "PASS",
+  "meshes": 1,
+  "triangles": 40,
+  "frames": 49,
+  "severity": 1,
+  "severity_ceiling": 1.926544,
+  "worst": {
+   "slot": "torso",
+   "triangle": 0,
+   "vertices": [
+    0,
+    18,
+    1
+   ],
+   "edge": [
+    18,
+    1
+   ],
+   "frame": 2,
+   "ratio": 1
+  },
+  "max_ratio": 1,
+  "min_ratio": 1,
+  "per_mesh": [
+   {
+    "row_scope": "part",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "torso"
+    ],
+    "slot": "torso",
+    "triangles": 40,
+    "max_ratio": 1,
+    "max_at": "triangle 0 (vertices 0 18 1), edge 18-1, idle frame 2",
+    "min_ratio": 1,
+    "min_at": "triangle 32 (vertices 14 12 27), edge 14-12, idle frame 7",
+    "severity": 1
+   }
+  ]
+ },
+ "ANIMATIONS_DO_NOT_FOLD": {
+  "status": "PASS",
+  "animations": [
+   "idle"
+  ],
+  "fps": 12,
+  "physics_left_out": 0,
+  "folding": [],
+  "folding_undeclared": 0,
+  "declared_not_folding": [],
+  "bar": 0
+ },
+ "RECOMPOSITE_HOLES": {
+  "status": "REPORTED",
+  "error_px": 0,
+  "uncovered_error_px": 0,
+  "hole_count": 0,
+  "largest": null
+ },
+ "figure_openings": {
+  "status": "CLEAR",
+  "fps": 12,
+  "cell": 0.5,
+  "pairs": 7,
+  "animations": [
+   "idle"
+  ],
+  "warnings": 0,
+  "openings": []
+ },
+ "SETUP_POSE_VS_SOURCE": {
+  "status": "REPORTED",
+  "painting_px": "128x128",
+  "stage_px": "128x128",
+  "render_px": "128x128",
+  "render_scale": 0.8715,
+  "mean_abs": 1.909,
+  "within_limit": 8,
+  "within_share": 0.9271,
+  "error_limit": 40,
+  "error_px": 174,
+  "covered_alpha": 128,
+  "uncovered_error_px": 0,
+  "hole_count": 0,
+  "largest": null
+ },
+ "PART_SUPPORT_REPORT": {
+  "status": "UNCLASSIFIED",
+  "grid": [
+   128,
+   128
+  ],
+  "alpha": "alpha >= 128",
+  "pair_registration": "pre-rig parts.json placements, setup slot order",
+  "unowned_registration": "official renderer setup, native stage grid",
+  "boundary": "4-neighbour unit pixel-cell edges, exact coincidence",
+  "pairs": [
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "torso",
+     "background"
+    ],
+    "front": "torso",
+    "back": "background",
+    "status": "unavailable",
+    "reason": "background: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "lantern",
+     "background"
+    ],
+    "front": "lantern",
+    "back": "background",
+    "status": "unavailable",
+    "reason": "background: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "face",
+     "background"
+    ],
+    "front": "face",
+    "back": "background",
+    "status": "unavailable",
+    "reason": "background: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_r",
+     "background"
+    ],
+    "front": "eye_r",
+    "back": "background",
+    "status": "unavailable",
+    "reason": "background: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_l",
+     "background"
+    ],
+    "front": "eye_l",
+    "back": "background",
+    "status": "unavailable",
+    "reason": "background: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "lantern",
+     "torso"
+    ],
+    "front": "lantern",
+    "back": "torso",
+    "status": "unavailable",
+    "reason": "torso: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "face",
+     "torso"
+    ],
+    "front": "face",
+    "back": "torso",
+    "status": "unavailable",
+    "reason": "torso: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_r",
+     "torso"
+    ],
+    "front": "eye_r",
+    "back": "torso",
+    "status": "unavailable",
+    "reason": "torso: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_l",
+     "torso"
+    ],
+    "front": "eye_l",
+    "back": "torso",
+    "status": "unavailable",
+    "reason": "torso: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "face",
+     "lantern"
+    ],
+    "front": "face",
+    "back": "lantern",
+    "status": "unavailable",
+    "reason": "lantern: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_r",
+     "lantern"
+    ],
+    "front": "eye_r",
+    "back": "lantern",
+    "status": "unavailable",
+    "reason": "lantern: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_l",
+     "lantern"
+    ],
+    "front": "eye_l",
+    "back": "lantern",
+    "status": "unavailable",
+    "reason": "lantern: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_r",
+     "face"
+    ],
+    "front": "eye_r",
+    "back": "face",
+    "status": "unavailable",
+    "reason": "face: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_l",
+     "face"
+    ],
+    "front": "eye_l",
+    "back": "face",
+    "status": "unavailable",
+    "reason": "face: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_l",
+     "eye_r"
+    ],
+    "front": "eye_l",
+    "back": "eye_r",
+    "status": "unavailable",
+    "reason": "eye_r: independent support sidecar is unavailable (legacy output)",
+    "boundary_length_px": null,
+    "box": null,
+    "continuation_candidate_area_px": null
+   }
+  ],
+  "raw_pairs": [
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "torso",
+     "background"
+    ],
+    "front": "torso",
+    "back": "background",
+    "boundary_length_px": 0,
+    "box": [
+     40,
+     56,
+     48,
+     64
+    ],
+    "overlap_area_px": 3072,
+    "classification": "ownership unknown, unclassified"
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "lantern",
+     "background"
+    ],
+    "front": "lantern",
+    "back": "background",
+    "boundary_length_px": 0,
+    "box": [
+     96,
+     72,
+     16,
+     24
+    ],
+    "overlap_area_px": 384,
+    "classification": "ownership unknown, unclassified"
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "face",
+     "background"
+    ],
+    "front": "face",
+    "back": "background",
+    "boundary_length_px": 0,
+    "box": [
+     44,
+     16,
+     40,
+     32
+    ],
+    "overlap_area_px": 1280,
+    "classification": "ownership unknown, unclassified"
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_r",
+     "background"
+    ],
+    "front": "eye_r",
+    "back": "background",
+    "boundary_length_px": 0,
+    "box": [
+     50,
+     28,
+     8,
+     8
+    ],
+    "overlap_area_px": 64,
+    "classification": "ownership unknown, unclassified"
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_l",
+     "background"
+    ],
+    "front": "eye_l",
+    "back": "background",
+    "boundary_length_px": 0,
+    "box": [
+     70,
+     28,
+     8,
+     8
+    ],
+    "overlap_area_px": 64,
+    "classification": "ownership unknown, unclassified"
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_r",
+     "face"
+    ],
+    "front": "eye_r",
+    "back": "face",
+    "boundary_length_px": 0,
+    "box": [
+     50,
+     28,
+     8,
+     8
+    ],
+    "overlap_area_px": 64,
+    "classification": "ownership unknown, unclassified"
+   },
+   {
+    "row_scope": "pair",
+    "row_kind": "evidence",
+    "row_subjects": [
+     "eye_l",
+     "face"
+    ],
+    "front": "eye_l",
+    "back": "face",
+    "boundary_length_px": 0,
+    "box": [
+     70,
+     28,
+     8,
+     8
+    ],
+    "overlap_area_px": 64,
+    "classification": "ownership unknown, unclassified"
+   }
+  ],
+  "coverage": {
+   "measured": 0,
+   "total": 15
+  },
+  "unowned": {
+   "status": "measured",
+   "area_px": 0,
+   "regions": []
+  }
+ },
+ "SETUP_MATCHES_PAINTING": {
+  "status": "PASS",
+  "instrument": "rigc renderer setup textured pieces",
+  "registration": "declared stage grid, scale 1, no fitting",
+  "compositing": "source-over white, RGBA8",
+  "figure": "source figureSilhouette union rendered alpha > 0",
+  "ownership": "last actual drawn piece with sampled alpha > 0; uncovered explicit",
+  "rgb_tolerance": 40,
+  "regions": [
+   {
+    "name": "whole-painting",
+    "box": [
+     0,
+     0,
+     128,
+     128
+    ],
+    "max_pixels": 0,
+    "row_scope": "rig",
+    "row_kind": "evidence",
+    "row_subjects": [],
+    "status": "PASS",
+    "pixel_count": 0,
+    "limit": 0,
+    "slots": []
+   }
+  ]
+ },
+ "requirements": {
+  "file": {
+   "path": "rig-check-requirements.json",
+   "sha256": "9cbae4e4804fc055aa598852dd7cb2957483b566b764a96a095bb066758f819f",
+   "keys": [
+    "spec",
+    "fps",
+    "requirements",
+    "setup_painting"
+   ]
+  },
+  "fps": 12,
+  "summary": {
+   "declared": 0,
+   "measured": 0,
+   "pass": 0,
+   "fail": 0,
+   "not_measurable": 0,
+   "not_declared": [
+    "contact",
+    "follow",
+    "aim",
+    "range",
+    "stretch",
+    "seam"
+   ]
+  },
+  "lines": {}
+ },
+ "PASS": true
+}

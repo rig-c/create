@@ -390,8 +390,7 @@ export function checkProgressLinkage(ctx: Ctx): void {
   const remedies: Record<string, string> = {
     STAGE_MOVE_UNLINKED: 'preserve the history and record the move through advance or reopen',
     STEP_STATUS_UNLINKED: 'preserve the history and record the move through step-status',
-    // A reopen copies the current status, so a hand-set status must be restored before the stage is reopened.
-    REOPEN_STEP_UNLINKED: 'restore the status the reopen recorded; before reopening, return a hand-set status to its last recorded one and record moves through step-status',
+    REOPEN_STEP_UNLINKED: 'restore the historical reopen snapshot and its recorded step-status chain',
   };
   const push = (code: string, path: string, why: string, after: number): void => {
     (after >= since ? ctx.refusals : ctx.warnings).push({ code, path, message: `${path}: ${why}; ${remedies[code]!}` });

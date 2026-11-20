@@ -103,7 +103,7 @@ A writer validates its whole candidate with `checkProject` and refuses only a
 refusal the record as read did not already carry. The baseline is that check at
 write time and is never stored. Findings match by code and path with
 multiplicity, so a carried code at a new path is new, and the refusal names only
-the new code. `reopen`, `signoff`, `step-status`, `pause`, `resume`, `amend` and
+the new code. `signoff`, `step-status`, `pause`, `resume`, `amend`,
 `draft-rig` and `review` follow this rule; the interview, plan, scene, direction, correction,
 `rig-version`, `version config-lost` and `version outputs-lost` writers already did. Each writer's own
 pre-checks are unchanged (`signoff` still refuses a carried lag, and a carried
@@ -164,7 +164,7 @@ adoption preserves historical moves. `post_not_passed` captures whether every
 post item was not applicable at the move. A historical post-interview to
 accepted skip reads this boolean snapshot, so reopening and later applicable
 post answers preserve the earlier authorized move. The current frontier still
-uses current post answers. Forward history grants no reopen cutoff.
+uses current post answers. Forward history grants no approval cutoff.
 Earlier plan re-signatures do not revoke later approvals. Among live approvals,
 the furthest closing stage supplies the frontier, using its latest signature
 by time and then array position. Reopen and amendment rules still invalidate
@@ -205,7 +205,7 @@ checkpoint is enabled. Its `signoff` uses the same stable
 identity object or null. A checkpointed `done` references
 the latest matching live human checkpoint signature. Other transitions have
 `signoff` null. Existing status-only history remains readable. Status and its
-history stay outside the signed plan hash. Reopen continues to reset steps.
+history stay outside the signed plan hash.
 History must link: each advance or reopen leaves from the stage the previous
 move reached (starting at `interview`), and each status entry starts from the
 previous entry's status, or `pending` first and after a reopen or amendment
@@ -232,7 +232,7 @@ sets `stage` back to the stage the project was paused from, and refuses any
 other target (`RESUME_STAGE_MISMATCH`). A project paused by hand before the
 writer existed resumes at the stage its latest recorded move reached. Pausing
 a paused project, resuming one that is not paused, and pausing at `accepted`
-are refused by name. A reopen may also leave `paused`, as before.
+are refused by name. A historical reopen can also account for leaving `paused`.
 
 Both append to `pauses[]`: `{ from_stage, stage: "paused", by, at, verbatim,
 source?, signoff }` for a pause, with `signoff` the stable `{ stage,
@@ -249,50 +249,27 @@ writes leave it byte-identical.
 
 ### Reopening a passed stage
 
-```sh
-rig-create reopen <stage> [<project dir>] --from-review <actId> [--json]
-rig-create reopen <stage> [<project dir>] --by <owner> \
-  --owner-chat <words file> --said-at <ISO> --relayed-by <operator> [--json]
-```
+Existing records may contain `reopens[]` from the retired stage-reopen
+writer. Each entry records the target `stage`, the previous `from_stage`,
+`by`, `at`, `verbatim` and `steps_before`. Review-sourced entries retain
+the linked act and its provenance. Owner-chat entries retain the exact words
+and the authority recorded in `source`, `said_at` and `relayed_by`.
 
-A human may return to a previously reached stage without deleting signatures.
-`reopen` appends `reopens[]` and sets `stage` to its target in the same validated
-write. This backward move is the exception to `signoff`'s record-only writer:
-leaving the old forward stage would require signatures the reopen supersedes.
-The target is in the stage order, excluding `paused` and `accepted`, and no
-later than the furthest stage evidenced by the current stage, historical human
-sign-offs or dated rig/post versions. No producer is run.
+The check verifies the entry against its own `from_stage` and the signatures
+and versions dated no later than the entry. The target has to be a previously
+reached stage other than `paused` or `accepted`. `steps_before` records the
+pre-reset status of steps at the target stage and later, omitting `status`
+where it was absent. Step history validates the snapshot.
 
-Each entry retains `stage`, `from_stage`, `by`, `at`, `verbatim`, and
-`steps_before`. A Review reopen uses the reviewer, timestamp and exact words
-from the exported act and records its provenance. An owner-chat reopen
-records the owner's exact UTF-8 words in `verbatim`, the writer's time in
-`at`, and the authority in `source`, `said_at` and `relayed_by`.
-`from_stage` records where the project stood when the reopen was written.
-Each entry's eligibility
-uses its own `from_stage` and historical evidence dated no later than that entry,
-so later backward moves neither erase nor manufacture its reach. An agent cannot sign.
-`steps_before` snapshots `{ id, status }` for every plan step running in the
-target stage or later, preserving an absent status by omitting it. Those steps
-are reset to `pending`; their other fields stay unchanged. Status is outside
-`step_hashes`, so existing plan hashes still verify. The append, resets and
-stage move happen together, or the file is unchanged on refusal. Before writing,
-the command runs the complete project check against the candidate record and
-the existing project files; any refusal leaves the original bytes unchanged.
+For each stage, a signature or checkpoint is live only if dated strictly
+after every reopen that covers the stage. Successive cutoffs accumulate.
+Signatures, verdicts and builds stay in history. If the cutoff covers
+rig-review, live handoff requires a later build and acceptance. A cutoff
+covering only post work preserves the unaffected rig acceptance.
 
-For each stage, a sign-off is live only if dated strictly after every reopen
-whose target is that stage or earlier. Checkpoints follow the same rule;
-undated entries cannot outrank a reopen. A second reopen advances that cutoff
-without restoring signatures invalidated by an earlier, wider reopen. All
-signatures remain in place, structurally checked as history. Advancing again
-requires live signatures under the existing stage/checkpoint rules. A newly
-run step without them is still refused; there is no execution exemption.
-
-Accepted historical rig versions remain accepted as history. If the reopen
-covers rig-review, a live hand-off requires a rig version built after it;
-a new verdict on an old build cannot revive that build. Historical post
-versions keep their original basis; new post work requires the live rig.
-Reopening only post work preserves the unaffected rig acceptance.
+Use a fresh option set and `interview-answer` for an
+[interview correction](INTERVIEW.md#public-writers-and-review-ingestion).
+Use a forward amendment for an artifact change.
 
 ### Forward amendments
 
@@ -316,7 +293,7 @@ bytes forever. `at` comes from the clock, and UTF-8 words are retained unchanged
 An agent signer is refused. Optional `--source` records the origin separately.
 
 An amendment invalidates every approval at its owning stage or later, using
-the same stage/time cutoff as `reopen`. The reason for each is exactly
+the same stage and time cutoff as a historical reopen. The reason for each is exactly
 `no binding proves independence`, with the fixed gap row below. Upstream means
 every ordered stage preceding the amended stage. Its live approvals remain
 live and its plan-step states are preserved. There is no additional unrelated
@@ -375,8 +352,8 @@ stage again and the signature window applies as before; no `advance` is needed
 when the stored stage was already reached. Existing upstream approvals need no re-sign.
 A rig covered by the cutoff needs a new build and acceptance before handoff.
 The writer runs the same complete candidate check before writing. Any refusal
-leaves `project.json` byte-identical. Existing records and `reopen` output retain
-their existing shape when no amendment is present.
+leaves `project.json` byte-identical. After an accepted post is bounced,
+`next` offers `amend direction-review` to record the owner's artifact change.
 
 ### The parts are reviewed before rigging
 
@@ -397,9 +374,9 @@ registers a new draft, then prepares fresh `check-parts` and `diff-components`
 reports, a structure snapshot and `diff-classes` classifications for that
 draft. Publish the new draft with `job open --draft <new id>` and ask for one
 new verdict; approved ingestion also signs the stage. This loop requires no
-owner reopen, separate signoff or move back to `parts`. Retain earlier evidence
-as history; it must not stand in for the new draft's evidence or block its
-approval. If registering the new draft requires a reopen or a move back to
+separate signoff or move back to `parts`. Retain earlier evidence as history.
+Prepare evidence for the new draft. If registering it requires an amendment
+or a move back to
 `parts`, or old evidence prevents its approved verdict from signing, stop and
 report the structural blocker rather than adding another owner act.
 
@@ -776,12 +753,15 @@ Draft steps with `rig-create plan add|revise|remove <id> [<project dir>]
 existing [phase-date contract](#explicit-adoption-of-the-split-interview),
 using both previous and resulting approval ownership on revision, with
 `drafted_by` updated only alongside `drafted_at`. Every write refuses
-additional checker findings counted by code and path before changing the file. Reopen live covering plan
-approvals first. Completed work, including completion retained by reopen,
-requires removal and a new id. Revise/remove append the full previous step
-to optional `replaced[]`, with its existing `stepHash`, action, ISO date and
+additional checker findings counted by code and path before changing the file.
+Amend the stage that owns the change before replanning under a live covering
+approval. To replace completed work under the same id, record an amendment
+after completion at the step's approval stage or an earlier stage. Remove the
+step and add its replacement with the same id and phase. Historical reopens
+still qualify under their original stage rules. Revise/remove append the full
+previous step to optional `replaced[]`, with its existing `stepHash`, action, ISO date and
 drafter. Entries retain write order, nondecreasing dates and unique
-`step.id` / `at` identities. Reopened signatures may resolve hashes and
+`step.id` / `at` identities. Historical signatures may resolve hashes and
 checkpoints against history. Live approvals bind current steps.
 
 - **Rig steps follow the waypoints**: one step per waypoint the plan passes, in
@@ -911,7 +891,7 @@ new reference. Both writers refuse `by: agent` case-insensitively.
 
 ## Versions
 
-A reopen preserves every version and verdict; a rebuild is a new numbered
+Amendments and historical reopens preserve every version and verdict. A rebuild is a new numbered
 version, never an overwrite of an accepted historical build.
 
 After a human bounce, `next` reads check's `FEEDBACK_OPEN` finding and names
@@ -1021,9 +1001,9 @@ shape (`RUN_RECORD_MALFORMED`). Lock-only `frozen-rig/1` versions without
 selects an explicit UTC ISO timestamp ending `Z` or `+00:00`, including fractional
 seconds. `at` preserves that exact string and `at_basis` is `"not-after"`.
 The registrant declares that the build had finished by that cited instant.
-The clock supplies `registration.at`. A cited bound at or before a reopen
+The clock supplies `registration.at`. A cited bound at or before an amendment or historical reopen
 covering `rig-review`, as of registration, refuses the write. A later bound is
-admitted with its retained citation for review. A reopen after registration
+admitted with its retained citation for review. An amendment or reopen after registration
 preserves the historical record and the existing liveness rules supersede it.
 Acceptance dates remain on verdicts written through the review and signoff flow.
 
@@ -1599,7 +1579,7 @@ Each entry is the complete exact `meshes.<part>` declaration, including
 escaping. Explicit `entries: []` is legal when no declarations are carried.
 
 A production config may differ from this snapshot only when a live (not
-reopened) `rigging-interview` sign-off with `checkpoint: null` follows that
+lapsed) `rigging-interview` sign-off with `checkpoint: null` follows that
 parts-review sign-off, and `interview.waypoints[meshes].guide.at` is strictly
 after parts-review and no later than the rigging-interview sign-off. The
 interview approval must already exist at the version's build time. Otherwise,
@@ -1650,7 +1630,7 @@ and `structure` from the live human parts review and stores a shared
 follow that approval and precede their rigging signature. Contradictory retained
 production config declarations require renewed approval rather than a silent
 override. Each production version uses the latest structure approval live at
-its build date, with reopen supersession evaluated at that same date; a later
+its build date, with supersession by amendments or historical reopens evaluated at that date; a later
 approval does not impose its declarations on old versions. Both new-order writers validate the full candidate before writing.
 
 Mesh sign-off UI evidence from review#365 is optional in this contract, not a
@@ -1793,17 +1773,15 @@ Stage-1 corrections use parts/drafts outside versions. After changes-requested,
 the agent records an `edited_parts` correction, registers a new draft and
 prepares fresh evidence while staying at parts-review. Its approved verdict
 also records the parts-review signature for that corrected draft and snapshot;
-no owner reopen or separate signoff is needed for this unsigned correction
-loop. Production versions still compare mesh declarations to the accepted
-snapshot. Structure changes after approval require the existing reopen and
-fresh snapshot, never a correction override.
+the unsigned correction loop has a single approval. Production versions
+still compare mesh declarations to the accepted snapshot. To change approved
+structure, amend at the owning stage and record a fresh snapshot.
 
-A valid reopen supersedes the same stage suffix as signoffs: entries at or
-before its epoch remain history. A narrower later reopen cannot resurrect an
-earlier suffix. Recording under a live scoped approval requires reopening first;
-corrections do not move stages or sign plan steps themselves.
+An amendment or a historical reopen supersedes corrections at or before its
+cutoff for the covered stages. Later cutoffs accumulate. Amend the owning
+stage before recording corrections under a live scoped approval.
 
-| State | check | approval / handoff | reopen | provenance | structure | CG |
+| State | check | approval / handoff | approval cutoff | provenance | structure | CG |
 | --- | --- | --- | --- | --- | --- | --- |
 | described-open | pending/WARN | pending; attempted approval refuses | pass history | pending response, no citation authority | pass existing checks | pass existing checks |
 | described-linked | pass declared linkage | pass correction gate only | pass history | pass linkage, citations still required | pass if snapshot matches, else refuse | pass if ordinary gates pass, else refuse |
@@ -1814,7 +1792,7 @@ corrections do not move stages or sign plan steps themselves.
 | stage-1 parts/draft overlay | pass retained identity; absent closure bytes refuse | pending until corrected draft/parts is approved | parts-review suffix | identity only | pass approved corrected snapshot | pass / not applicable to parts |
 | rig-version overlay | pass source/result hashes | pending until correction and normal review complete | rig-review suffix | existing citations required | existing snapshot comparison | normal gates required |
 | direction-review post overlay | pass retained declared output | pending until changed output and normal review complete | direction-review suffix | post citations still required | no new rig claim | no new CG claim |
-| validly superseded overlay | pass history validation | pass exclusion from current obligations | pass only for valid human reopen | historical only | historical context | existing historical gates remain |
+| validly superseded overlay | pass history validation | pass exclusion from current obligations | pass with a valid human amendment or historical reopen | historical only | historical context | existing historical gates remain |
 
 The overlays combine with path state; refuse overrides pending, which overrides
 pass. A pass never waives existing gates or manufactures acceptance.
@@ -2023,7 +2001,7 @@ unchanged. Unsupported operations remain pending.
 `checkProject`, direction signoff and the acceptance writer all check the
 relevant document. Handoff stays rig-only to bootstrap authoring. Review-package
 stays rig-only and cannot rebind a model already cited by a direction document.
-Reopen rules, historical evidence, human signoff and agent closure remain
+Approval cutoffs, historical evidence, human signoff and agent closure remain
 separate gates.
 
 The generated geometric example is `templates/example-direction/`, including a
@@ -2196,7 +2174,7 @@ SCENE_RIG_STALE, lapsed-signoff SCENE_ACCEPTANCE_STALE and
 DIRECTION_SCENE_STALE share one currentness gate. Every committed scene
 retains its historical human acceptance and matching review-package identity,
 plus all schema, file, model, animation, frame, plate, registration and citation
-checks. Reopening preserves these historical records. The next accepted rig
+checks. Amendments and historical reopens preserve these records. The next accepted rig
 gets a new scene number.
 Post identity gains `scene:{path,sha256}`. Patches retain their existing
 whole-section schema, so a scene change is a new post.
@@ -2239,7 +2217,7 @@ contract.
    exactly as if no scene existed, so a scene built on an earlier rig never
    anchors a post set. The rig kind keeps its own refusals: with no live
    accepted rig and live rig-review signoff at *t*, for example after a
-   rig-review reopen, it refuses `INTERVIEW_OPTIONS_STALE`. An unreadable,
+   rig-review amendment or historical reopen, it refuses `INTERVIEW_OPTIONS_STALE`. An unreadable,
    changed or malformed candidate refuses `INTERVIEW_OPTIONS_STALE` instead
    of falling back.
 

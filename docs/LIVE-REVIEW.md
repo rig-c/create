@@ -287,10 +287,16 @@ path test establishes the accepted consumer access boundary.
 `--picks-file`, review verdict `--verbatim-file`, parts `--evidence`, and
 reshaped feedback JSON remain available for legacy/history workflows.
 The current verdict path uses `--from-review` and preserves the fetched act
-directly. To ingest a Review reopen, use `reopen <stage> --from-review <actId>`.
-To record an owner's reopen instruction from chat, use `reopen <stage>` with
-`--by <owner> --owner-chat <words file> --said-at <ISO> --relayed-by <operator>`.
-See the [reopen contract](PROJECT.md#reopening-a-passed-stage).
+directly. Already recorded reopen acts remain checkable alongside their
+`reopens[]` entries. An un-ingested reopen act produces
+`REOPEN_ACT_RETIRED` in `job acts`. To correct an interview answer,
+record the owner's new selection with `interview-options` and
+`interview-answer`, then re-sign the approvals named by `next`. For an
+artifact change, record the owner's correction with `amend` at the owning
+stage. After an accepted post is bounced, `next` offers
+`amend direction-review`. Then use `direction write` with
+`--answers <version>:<verdict>` to bind the replacement post to the bounce.
+[Forward amendments](PROJECT.md#forward-amendments).
 
 ## Live sign-off routes
 
@@ -463,7 +469,7 @@ leaves the stage unsigned. The agent makes an `edited_parts` correction,
 registers a new draft, and prepares fresh check and difference reports,
 structure snapshot and classifications for that draft. Open the new draft
 with `job open --draft <new id>` and ask for one new verdict. This loop needs
-no owner reopen, separate signoff or move back to `parts`.
+no separate signoff or move back to `parts`.
 
 Approved UI ingestion atomically records the receipt and `parts-review`
 signature, taking `draft_id` from the verdict, `structure` from that draft's
@@ -471,7 +477,7 @@ retained snapshot and `evidence` from that verdict. It requires no second
 human act. Pending and changes-requested verdicts leave the stage unsigned.
 Earlier evidence stays historical; prepare the new draft's evidence rather
 than reusing the prior round's reports or snapshot. If old evidence blocks the
-new approval's signature, or registering the new draft requires reopening or
+new approval's signature, or registering the new draft requires an amendment or
 moving back to `parts`, stop and report that structural blocker.
 
 Finish each draft's record changes before publishing and asking for its

@@ -4,9 +4,9 @@ import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
 import { baselineOf, countFindings, newFindings } from '../src/refusal-baseline.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr } from './fixtures.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
-import { advanceCommand, checkProject, pauseCommand, reopenCommand, resumeCommand, reviewCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, arr } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
+import { advanceCommand, checkProject, pauseCommand, resumeCommand, reviewCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const CHECKPOINTS = join(import.meta.dir, '../templates/example-chain/checkpoints');
 /** The one planted refusal: a second inventory row for the same input. No writer below touches inputs[]. */
@@ -45,7 +45,7 @@ function refused(dir: string, code: string, action: () => unknown): void {
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 }
 
-const reopen = (dir: string, stage: string): void => { tick(); reopenCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]); };
+const reopen = (dir: string, stage: string): void => { tick(); plantLegacyReopen(dir, stage, { by: 'owner', wordsFile: words(dir) }); };
 const sign = (dir: string, stage: string, ...rest: string[]): void => { tick(); signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words(dir), ...rest]); };
 function acceptRig(dir: string): void {
   tick();
@@ -54,7 +54,6 @@ function acceptRig(dir: string): void {
 }
 
 const writes: [string, string, (dir: string) => void][] = [
-  ['reopen', '3-rig-review', dir => reopen(dir, 'rigging-interview')],
   ['signoff', '3-rig-review', acceptRig],
   ['step-status', '3-rig-review', dir => { reopen(dir, 'parts'); tick(); stepStatusCommand(['assemble', 'in-progress', dir, '--by', 'agent']); }],
   ['pause and resume', '3-rig-review', dir => {

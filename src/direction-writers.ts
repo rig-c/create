@@ -1,13 +1,12 @@
 /** Immutable direction publication; project.json is the single commit point. */
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { asArray, checkProject, collectItems, collectSignoffs, loadCollection, isObject, type Finding } from './check.ts';
+import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBytes, directionContract, directionFail, directionHash, directionIdleBytes, directionIdlePath, directionJson, directionPath, directionVersion, objects, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC, validateComposeDirection } from './direction-compose.ts';
 import { freezeCompose, rollbackComposeDirectories } from './direction-compose-writer.ts';
 import { sceneBytes, SceneError } from './scene.ts';
-import { collectReopens, liveSignoff } from './reopen.ts';
-import { REVIEW_ACCEPTS } from './stages.ts';
+import { directionReviewClosed } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { parseFeedbackAnswers } from './feedback.ts';
@@ -24,8 +23,7 @@ direction check <N> [<dir>] [--json]
   A bounced predecessor needs --answers <version>:<verdict> on write.`;
 function usage(why:string):never {refuse('DIRECTION_USAGE',`direction: ${why}; ${DIRECTION_HELP}`,USAGE_EXIT);}
 function openReview(project:JsonObject):void {
-  const reopens=collectReopens(project,[]);
-  if(collectSignoffs(project,[]).some(s=>s.stage==='direction-review'&&s.checkpoint===null&&liveSignoff(reopens,s.stage,s.at)) || objects(project.versions).some(v=>v.kind===REVIEW_ACCEPTS['direction-review']&&objects(v.verdicts).some(d=>d.review==='direction-review'&&d.verdict==='accepted'&&liveSignoff(reopens,'direction-review',Date.parse(String(d.at))))))directionFail('DIRECTION_REVIEW_CLOSED','signoffs','reopen direction-review before authoring');
+  if (directionReviewClosed(project)) directionFail('DIRECTION_REVIEW_CLOSED', 'signoffs', 'record a human amendment with amend direction-review before authoring');
 }
 function ownValidation(dir:string,project:JsonObject,now:number):void {const refusals:Finding[]=[];checkDirections({dir,project,refusals},now);if(refusals[0]){const f=refusals[0];directionFail(f.code,f.path,f.message);}}
 function prospective(dir:string,before:JsonObject,next:JsonObject,now:number):void {

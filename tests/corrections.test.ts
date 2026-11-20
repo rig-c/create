@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CorrectionError, checkUnrecordedPartRepaints, correctionApprovalFindings, correctionHash, validateCorrectionPatch } from '../src/corrections.ts';
-import { fixture as projectFixture } from './fixtures.ts';
+import { plantLegacyReopen, fixture as projectFixture } from './fixtures.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -15,8 +15,8 @@ import { stepHash } from '../src/step-hash.ts';
 import { locateParts } from '../src/parts-sections.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { correctionFixture, correctionCommentsFixture, commentsReviewRunner, COMMENTS_APPLY_ID } from './correction-fixture.ts';
-import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, diffClassesCommand, draftRigCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
-import { clockedCli, ownerChatArgs } from './helpers.ts';
+import { advanceCommand, checkCorrections, checkProject, assertCorrectionApproval, correctionCommand, diffClassesCommand, draftRigCommand, signoffCommand, testClock } from './clock.ts';
+import { clockedCli } from './helpers.ts';
 
 const requireCore = createRequire(import.meta.url);
 const { encodePng } = requireCore('@rig-c/core/plate') as { encodePng: (width: number, height: number, data: Uint8Array) => Buffer };
@@ -81,7 +81,7 @@ test('a parts manifest inventory cannot omit a retained part',()=>{const f=fixtu
 test('contained symlinks and traversal are refused before capture',()=>{const f=fixture();symlinkSync(join(f.dir,'evidence/source.model.json'),join(f.dir,'evidence/link.json'));rejected(f.dir,'CORRECTION_FILE',()=>record(f.dir,['--version','1','--model-file','evidence/link.json']));rejected(f.dir,'CORRECTION_FILE',()=>record(f.dir,['--version','1','--model-file','evidence/../evidence/source.model.json']));});
 
 test('stage-1 described drafts use public draft inventory and bind the corrected approval draft',()=>{
- const dir=projectFixture();roots.push(join(dir,'..'));testClock.set(new Date('2026-12-01T07:00:00Z'));writeFileSync(join(dir,'words.txt'),'Refine the draft mesh.');writeFileSync(join(dir,'reasoning.txt'),'Declared corrected draft, not a measured build.');reopenCommand(['parts-review',dir,'--by','reviewer', ...ownerChatArgs(join(dir,'words.txt'))]);correctionCommand(['--adopt',dir]);
+ const dir=projectFixture();roots.push(join(dir,'..'));testClock.set(new Date('2026-12-01T07:00:00Z'));writeFileSync(join(dir,'words.txt'),'Refine the draft mesh.');writeFileSync(join(dir,'reasoning.txt'),'Declared corrected draft, not a measured build.');plantLegacyReopen(dir, 'parts-review', { by: 'reviewer', wordsFile: join(dir,'words.txt') });correctionCommand(['--adopt',dir]);
  const draft=(id:string,hour:string)=>{const root=`derived/drafts/${id}`;mkdirSync(join(dir,root,'input/parts'),{recursive:true});mkdirSync(join(dir,root,'out'),{recursive:true});for(const[path,bytes]of Object.entries({'config.json':'{}','input/parts.json':'{}','input/recomposite_rig.png':'synthetic stack bytes','input/parts/piece.png':'synthetic bytes','out/rig.json':'{}','out/motion.json':'{}','out/mesh_report.json':'{}','out/skeleton.model.json':JSON.stringify({synthetic:id})}))writeFileSync(join(dir,root,path),bytes);testClock.set(new Date(`2026-12-01T${hour}:00:00Z`));draftRigCommand([id,dir,'--config',`${root}/config.json`,'--from',`${root}/out`,'--parts',`${root}/input`]);};
  draft('before','08');testClock.set(new Date('2026-12-01T09:00:00Z'));correctionCommand(['record',dir,'--id','draft-fix','--path','described','--stage','parts-review','--draft','before','--by','reviewer','--verbatim-file',join(dir,'words.txt')]);draft('after','10');testClock.set(new Date('2026-12-01T11:00:00Z'));correctionCommand(['resolve','draft-fix',dir,'--draft','after','--by','agent','--reasoning-file',join(dir,'reasoning.txt')]);const p=load(dir);expect(check(dir).refusals).toEqual([]);expect(correctionApprovalFindings(p,'parts-review',{draft_id:'before',at:'2026-12-01T12:00:00Z'}).map(f=>f.code)).toEqual(['CORRECTION_OUTCOME']);expect(correctionApprovalFindings(p,'parts-review',{draft_id:'after',at:'2026-12-01T12:00:00Z'})).toEqual([]);
 });
@@ -96,7 +96,7 @@ function mixedStageOne(source:'parts'|'draft', target:'parts'|'draft', partsChan
   testClock.set(new Date('2026-12-01T07:00:00Z'));
   writeFileSync(join(dir,'words.txt'),'Correct the reviewed parts or mesh.');
   writeFileSync(join(dir,'reasoning.txt'),'Declare the corrected output.');
-  reopenCommand(['parts-review',dir,'--by','reviewer', ...ownerChatArgs(join(dir,'words.txt'))]);
+  plantLegacyReopen(dir, 'parts-review', { by: 'reviewer', wordsFile: join(dir,'words.txt') });
   correctionCommand(['--adopt',dir]);
   const draft=(id:string,hour:string,part:string,model:string)=>{
     const root=`derived/drafts/${id}`;
@@ -497,7 +497,7 @@ test('part-image unrecorded changes WARN; known withdrawn/superseded/post-dated 
   // Reopening parts-review after a repaint is resolved does not retroactively uncover the resolving draft or refuse the reopen.
   writeFileSync(join(dir2, 'reopen-words.txt'), 'Revisit parts-review after repaint.\n');
   testClock.set(new Date('2026-11-06T04:00:00Z'));
-  expect(reopenCommand(['parts-review', dir2, '--by', 'reviewer', ...ownerChatArgs(join(dir2, 'reopen-words.txt'))]).exit).toBe(0);
+  plantLegacyReopen(dir2, 'parts-review', { by: 'reviewer', wordsFile: join(dir2, 'reopen-words.txt') });
   expect(checkProject(dir2).refusals).toEqual([]);
 
   // And if a correction was withdrawn, checkProject still refuses by name.

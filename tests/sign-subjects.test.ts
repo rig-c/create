@@ -19,7 +19,7 @@ import { enqueuePublication, jobHostStateRoot, readAcknowledgedPublication, read
 import { currentScene, sceneReference } from '../src/scene.ts';
 import { packageSignSubjects } from '../src/signable.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { ownerChatArgs } from './helpers.ts';
+import { plantLegacyReopen } from './fixtures.ts';
 
 const roots: string[] = [];
 const hosts: JobOwnerHost[] = [];
@@ -319,8 +319,7 @@ test('bar: review-verdict is declared when only an earlier version has a verdict
   enqueuePublication(rigRoot, readWriterBinding(rigRoot)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
   expect(await reconcileCreateJob(rigRoot)).toBe(1);
   expect(declared(rigRoot, rigHost)).toEqual([]);
-  const reopened = await cli(rigRoot, ['reopen', 'rig-review', rigRoot, '--by', 'user', ...ownerChatArgs('evidence/approval.txt', new Date().toISOString()), '--json']);
-  expect({ exit: reopened.exit, stderr: reopened.stderr }).toEqual({ exit: 0, stderr: '' });
+  plantLegacyReopen(rigRoot, 'rig-review', { by: 'user', wordsFile: join(rigRoot, 'evidence/approval.txt'), at: new Date().toISOString() });
   enqueuePublication(rigRoot, readWriterBinding(rigRoot)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
   expect(await reconcileCreateJob(rigRoot)).toBe(1);
   expect(declared(rigRoot, rigHost)).toEqual([
@@ -354,8 +353,7 @@ test('bar: checkpoint is declared when its signature lapsed or the stage was reo
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([]);
-  const reopened = await cli(root, ['reopen', 'parts', root, '--by', 'user', ...ownerChatArgs('evidence/approval.txt', new Date().toISOString()), '--json']);
-  expect({ exit: reopened.exit, stderr: reopened.stderr }).toEqual({ exit: 0, stderr: '' });
+  plantLegacyReopen(root, 'parts', { by: 'user', wordsFile: join(root, 'evidence/approval.txt'), at: new Date().toISOString() });
   enqueuePublication(root, readWriterBinding(root)!, draftPublicationResult('chain'));
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([
@@ -383,7 +381,7 @@ test('bar: fresh rig approval folds its signature and reopened stages ask only f
   enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([]);
-  expect((await cli(root, ['reopen', 'rig-review', root, '--by', 'user', ...ownerChatArgs('evidence/approval.txt', new Date().toISOString()), '--json'])).exit).toBe(0);
+  plantLegacyReopen(root, 'rig-review', { by: 'user', wordsFile: join(root, 'evidence/approval.txt'), at: new Date().toISOString() });
   enqueuePublication(root, readWriterBinding(root)!, { path: 'review-live-v1.json', selector: { kind: 'rig', version: 1 } });
   expect(await reconcileCreateJob(root)).toBe(1);
   expect(declared(root, host)).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);

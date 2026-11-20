@@ -2,7 +2,7 @@ import { sceneFixture } from './scene-fixture.ts';
 import { reviewPackageHash } from '../src/signoff-target.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
-import { retainSignoffs } from './fixtures.ts';
+import { plantLegacyReopen, retainSignoffs } from './fixtures.ts';
 import { resignAfterChange } from './fixtures.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -14,8 +14,8 @@ import { reviewPackageCommand } from '../src/review-package.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { generateDirectionFixture } from '../scripts/generate-direction-fixture.ts';
 import { directionFixture } from './direction-fixture.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
-import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, reopenCommand, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { tempDir } from './helpers.ts';
+import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());
 /** A reopen of the filled example to post or post-interview voids its direction-review sign-off and acceptance (#220). */
@@ -59,7 +59,7 @@ test('rig model unavailable or mismatched is not regenerated',()=>{const f=setup
 test('stale rig refuses current post but historical reading remains possible',()=>{const f=setup();write(f.dir);const p=f.load();const rig=structuredClone(objects(p.versions)[0]!);rig.n=3;p.versions=[...objects(p.versions),rig];f.save(p);expect(checked(f.dir)).toEqual(['DIRECTION_RIG_STALE']);expect(readDirection(f.dir,p,2,false).schema).toBe('rig-create/direction@1');});
 test('handoff bootstraps direction without demanding a future document',()=>{const f=setup();expect(handoff(f.dir,1).rig_version).toBe(1);});
 test('review-package keeps post refusal instead of creating a rig package',()=>{const f=setup();write(f.dir);refuses('REVIEW_PACKAGE_VERSION_INVALID',()=>reviewPackageCommand(['2',f.dir,'--config','evidence/input.json','--from','evidence']));});
-test('live direction review must be reopened before writer runs',()=>{const f=setup();const p=f.load();(p.signoffs as JsonObject[]).push({stage:'direction-review',checkpoint:null,by:'user',at:new Date(testClock.now()).toISOString(),verbatim:'accept'});f.save(p);refuses('DIRECTION_REVIEW_CLOSED',()=>write(f.dir));});
+test('live direction review blocks the direction writer',()=>{const f=setup();const p=f.load();(p.signoffs as JsonObject[]).push({stage:'direction-review',checkpoint:null,by:'user',at:new Date(testClock.now()).toISOString(),verbatim:'accept'});f.save(p);refuses('DIRECTION_REVIEW_CLOSED',()=>write(f.dir));});
 test('live approval must still bind current step hashes',()=>{const f=setup();const p=f.load();objects((p.plan as JsonObject).steps)[0]!.does='changed';f.save(p);refuses('DIRECTION_CITATION',()=>write(f.dir));});
 test('pending described correction warns and blocks both approval paths',()=>{const f=setup();write(f.dir);recordDescribed(f);const p=f.load();const ctx={dir:f.dir,project:p,refusals:[] as Finding[],warnings:[] as Finding[]};checkCorrections(ctx);expect(ctx.refusals).toEqual([]);expect(ctx.warnings.map(w=>w.code)).toEqual(['CORRECTION_OPEN']);refuses('CORRECTION_PENDING',()=>signoffCommand(['direction-review',f.dir,'--by','user','--verbatim-file',join(f.dir,'words.txt')]));refuses('CORRECTION_PENDING',()=>recordVerdict(f.dir,{version:2,review:'direction-review',verdict:'accepted',by:'user',verbatim:'accept',source:'synthetic',items:[],quotes:{},values:{}}));});
 test('removed direction patch flags refuse byte-identically and point to direction write --answers',()=>{
@@ -127,7 +127,7 @@ test('authored document integrates into filled project with no refusals and pack
   const dir=fixture(()=>{},'example-project.json');
   testClock.set(new Date('2026-11-21T08:00:00Z'));
   writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post.');
-  reopenCommand(['post',dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
+  plantLegacyReopen(dir, 'post', { by: 'user', wordsFile: join(dir,'words.txt') });
   testClock.set(new Date('2026-11-21T09:00:00Z'));directionCommand(['--adopt',dir]);
   const p=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;const f=setup();testClock.set(new Date('2026-11-21T09:10:00Z'));
   const doc=f.doc;doc.rig={version:2,model:{path:'derived/review/v2/out/check/build/skeleton.model.json',sha256:directionHash(readFileSync(join(dir,'derived/review/v2/out/check/build/skeleton.model.json')))}};
@@ -147,7 +147,7 @@ test('N/A fixed camera publishes through direction write and checkProject; two k
   const dir=fixture(()=>{},'example-project.json');
   testClock.set(TEST_NOW);
   writeFileSync(join(dir,'words.txt'),'Revisit the synthetic post answers.');
-  reopenCommand(['post-interview',dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
+  plantLegacyReopen(dir, 'post-interview', { by: 'user', wordsFile: join(dir,'words.txt') });
   const changed=JSON.parse(readFileSync(join(dir,'project.json'),'utf8')) as JsonObject;
   const camera=objects(((changed.interview as JsonObject).post as JsonObject).items).find(i=>i.id==='camera_depth')!;
   camera.history=[...objects(camera.history),camera.guide as JsonObject];
@@ -209,6 +209,6 @@ test('post direction acceptance closes authoring byte-identically until reopened
   expect(readFileSync(join(f.dir,'project.json'))).toEqual(before);
   expect(existsSync(join(f.dir,'evidence/direction/v3.json'))).toBe(false);
   testClock.set(new Date('2026-11-04T09:02:00Z'));
-  reopenCommand(['direction-review',f.dir,'--by','user', ...ownerChatArgs(join(f.dir,'words.txt'))]);
+  plantLegacyReopen(f.dir, 'direction-review', { by: 'user', wordsFile: join(f.dir,'words.txt') });
   expect(write(f.dir,3).exit).toBe(0);
 });

@@ -117,7 +117,7 @@ Stay at `parts-review` throughout retouch rounds. Changes-requested leaves the
 stage unsigned: the agent makes an `edited_parts` correction, registers a new
 draft and prepares fresh reports, snapshot and classifications for that draft.
 Open the new draft and ask for one new verdict. This correction loop requires
-no owner reopen, separate signoff or move back to `parts`. Ingesting an approved
+no separate signoff or move back to `parts`. Ingesting an approved
 UI verdict atomically records its receipt and the parts-review signature.
 Finish each draft's record changes before publishing: a stale `projectHash`
 refuses ingestion. See [the live Review flow](docs/LIVE-REVIEW.md) for the order.
@@ -139,14 +139,9 @@ verdicts in Review. To relay an owner's eligible interview answer or stage
 sign-off, use `--by` with the owner's identity and supply
 `--owner-chat <words file> --said-at <ISO> --relayed-by <operator>`. For a
 verdict-bearing stage, ingest the current accepted live verdict first. After
-an accepted post is bounced, host `job open --plan` and choose the
-direction-review reopen. Plan publications offer a reopen for each eligible
-stage. List the act with `job acts --json`, then ingest
-`reopen direction-review --from-review <actId>` and `job close`.
-The exported act supplies the reviewer, timestamp and unchanged
-words. To record an owner's reopen instruction from chat, supply the owner's
-`--by` and the owner-chat flags to `reopen`. See [the live Review flow](docs/LIVE-REVIEW.md)
-and [the record contract](docs/PROJECT.md#recording-a-sign-off).
+an accepted post is bounced, follow `next` to record the owner's correction
+with `amend direction-review`. See [the live Review flow](docs/LIVE-REVIEW.md)
+and [forward amendments](docs/PROJECT.md#forward-amendments).
 
 ## The clock
 
@@ -183,9 +178,9 @@ it fails, naming the constant, when a `*_SINCE` date is still in the future.
 - [templates/](templates/) — the empty `project.json` and `collection.json`
   skeletons, and a worked example ([example-interview.md](templates/example-interview.md),
   [example-project.json](templates/example-project.json)) on a made-up painting.
-  Its sign-offs and the [reopened variant](templates/example-reopened/project.json)'s reopen
-  are synthetic fixture records, not a person's approval
-  ([why](templates/example-draft/README.md)).
+  Its sign-offs are [synthetic fixture records](templates/example-draft/README.md).
+  The remesh example records a request for a finer torso mesh as a forward
+  amendment. [Remesh record](templates/example-remesh/project.json)
 
 ## Verify the installed examples
 
@@ -197,7 +192,7 @@ bun node_modules/@rig-c/create/scripts/verify-example-seals.ts
 
 The shipped, dependency-free script verifies every `files[]` entry and
 `project_sha256` in the six example-chain checkpoint manifests (currently
-319 checks). It names missing files and hash mismatches and exits nonzero.
+327 checks). It names missing files and hash mismatches and exits nonzero.
 It reads installed bytes only; it does not regenerate examples or run producers.
 The CLI creates projects from empty templates; it does not copy worked examples.
 

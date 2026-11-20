@@ -1,4 +1,3 @@
-import { ownerChatArgs } from './helpers.ts';
 import { afterAll, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,7 +5,6 @@ import { dirname, join } from 'node:path';
 import { checkProject, collectItems, loadCollection } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
-import { reopenCommand } from '../src/reopen.ts';
 import { selectAnswerHashes } from '../src/signoff-answers.ts';
 import { main } from '../src/cli.ts';
 import {
@@ -22,7 +20,7 @@ import { Refusal } from '../src/refusal.ts';
 import { stageIndex } from '../src/stages.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
-import { arr, fixture, obj, retainSignoffs } from './fixtures.ts';
+import { arr, fixture, obj, retainSignoffs, plantLegacyReopen } from './fixtures.ts';
 import { installStrictReads, uninstallStrictReads } from './strict-reads.ts';
 
 installStrictReads();
@@ -606,7 +604,7 @@ test('bound member supports reopen -> review-tool answer override -> check -> in
   // Live interview signoff requires formal reopen before changing an interview answer
   const reopenWords = join(memberRoot, 'reopen-words.txt');
   writeFileSync(reopenWords, 'Reopen interview to override seethrough for this member.\n');
-  reopenCommand(['interview', memberRoot, '--by', 'user', ...ownerChatArgs(reopenWords, new Date(TEST_NOW - 2000).toISOString())], TEST_NOW - 2000);
+  plantLegacyReopen(memberRoot, 'interview', { by: 'user', wordsFile: reopenWords, at: new Date(TEST_NOW - 2000).toISOString() });
 
   // Draft and register a pending option set for the inherited 'seethrough' waypoint question
   const afterReopen = JSON.parse(readFileSync(join(memberRoot, 'project.json'), 'utf8')) as JsonObject;

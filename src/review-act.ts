@@ -187,7 +187,7 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
   catch { return failure('REVIEW_ACT_INVALID', 'act is not a JSON object'); }
   if (kind === 'reopen' && act.schema !== 'rig-review/act@4') failure('REVIEW_ACT_SCHEMA_UNSUPPORTED', 'reopen requires a record act@4');
   if (act.schema === 'rig-review/act@4' && act.kind === 'reopen' && kind !== 'reopen') {
-    failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts require the reopen writer');
+    failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts are retained for historical ledger validation');
   }
   if (act.schema === JOB_COMMENTS_ACT_SCHEMA || act.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA || act.schema === JOB_MESH_EDITS_ACT_SCHEMA) {
     return decodeCommentsReviewAct(act, kind);
@@ -348,7 +348,7 @@ export interface ReviewActTransport {
   jobId: string;
   actId: string;
   fetchCapability: string;
-  kind?: Exclude<ReviewActKind, 'review-verdict'>;
+  kind?: Exclude<ReviewActKind, 'review-verdict' | 'reopen'>;
 }
 
 /** Synchronous writers use the same authenticated fetch/decoder through the private runtime. */
@@ -396,7 +396,7 @@ export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter
       return response;
     } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
   }
-  if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks' || transport.kind === 'checkpoint' || transport.kind === 'signoff' || transport.kind === 'reopen') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
+  if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks' || transport.kind === 'checkpoint' || transport.kind === 'signoff') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
   const bytes = await (await read('application/vnd.rig-review.act+json')).text();
   const act = decodeReviewAct(bytes);
   if (act.jobId !== transport.jobId || act.actId !== transport.actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
@@ -561,12 +561,12 @@ export function rigVerdictSignoff(act: ReviewVerdictAct): JsonObject {
  * acknowledged receipt keeps the subjects create published; a receipt that predates
  * them, or none (a clone), leaves only Review's own ask binding to vouch for it.
  */
-export function assertActSubjectDeclared(root: string, act: SignoffAct | CheckpointAct | InterviewPicksAct | ReopenAct, path: string): void {
+export function assertActSubjectDeclared(root: string, act: SignoffAct | CheckpointAct | InterviewPicksAct, path: string): void {
   const receipt = readAcknowledgedPublication(root, act.jobId, act.publicationId);
   if (receipt?.subjects === undefined) return;
-  const subject = act.kind === 'interview-picks' ? { kind: 'interview-picks', questionId: act.value.questionId, setId: act.source.optionSet.id } : act.kind === 'signoff' || act.kind === 'reopen' ? { kind: act.kind, stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
+  const subject = act.kind === 'interview-picks' ? { kind: 'interview-picks', questionId: act.value.questionId, setId: act.source.optionSet.id } : act.kind === 'signoff' ? { kind: 'signoff', stage: act.value.stage } : { kind: 'checkpoint', checkpointId: act.value.checkpointId };
   if (receipt.subjects.some(declared => isDeepStrictEqual(declared, subject))) return;
-  const named = act.kind === 'interview-picks' ? `answers ${act.value.questionId}` : act.kind === 'signoff' || act.kind === 'reopen' ? `${act.kind} ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
+  const named = act.kind === 'interview-picks' ? `answers ${act.value.questionId}` : act.kind === 'signoff' ? `signs ${act.value.stage}` : `passes checkpoint ${act.value.checkpointId}`;
   refuse('REVIEW_ACT_SUBJECT_UNDECLARED', `${path}: act ${act.jobId}/${act.actId} ${named}, which its publication ${act.publicationId} did not declare; ask for it in Review on a publication made while the record can sign it`);
 }
 

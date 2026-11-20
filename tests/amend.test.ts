@@ -11,9 +11,9 @@ import { collectReopens, liveSignoff } from '../src/reopen.ts';
 import { readVersions } from '../src/review.ts';
 import { STAGES, stageIndex, stageOfStep } from '../src/stages.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj, retimeFixture, step } from './fixtures.ts';
-import { CLI, cli, clockedCli, gitEnv, tempDir, ownerChatArgs } from './helpers.ts';
-import { amendCommand, checkProject, correctionCommand, directionCommand, reopenCommand, handoff, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, arr, fixture, obj, step } from './fixtures.ts';
+import { CLI, cli, clockedCli, gitEnv, tempDir } from './helpers.ts';
+import { amendCommand, checkProject, correctionCommand, handoff, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
@@ -78,21 +78,12 @@ describe('forward human amendments', () => {
     refusal(() => handoff(dir, null), 'RIG_REVIEW_UNSIGNED');
   });
 
-  test.each(STAGES.filter(s => s.id !== 'accepted').flatMap(s => ['legacy-example-project.json', 'example-project.json'].map(template => [s.id, template] as const)))('amend %s and reopen have equal liveness in %s', (stage, template) => {
+  test.each(STAGES.filter(s => s.id !== 'accepted').flatMap(s => ['legacy-example-project.json', 'example-project.json'].map(template => [s.id, template] as const))
+    .filter(([stage, template]) => stage !== 'rigging-interview' || template !== 'legacy-example-project.json'))('amend %s and reopen have equal liveness in %s', (stage, template) => {
     const amendmentDir = fixture(() => {}, template);
     const reopenDir = fixture(() => {}, template);
-    if (stage === 'rigging-interview' && template === 'legacy-example-project.json') {
-      const modern = read(reopenDir);
-      retimeFixture(modern, Date.parse('2026-11-16T00:00:00Z'));
-      save(reopenDir, modern);
-      directionCommand(['--adopt', reopenDir]);
-      const before = readFileSync(join(reopenDir, 'project.json'));
-      refusal(() => reopenCommand([stage, reopenDir, '--by', 'owner', ...ownerChatArgs(words(reopenDir))]), 'STAGE_LAGGING');
-      expect(readFileSync(join(reopenDir, 'project.json'))).toEqual(before);
-      return;
-    }
     amend(amendmentDir, stage);
-    reopenCommand([stage, reopenDir, '--by', 'owner', ...ownerChatArgs(words(reopenDir))]);
+    plantLegacyReopen(reopenDir, stage, { by: 'owner', wordsFile: words(reopenDir) });
     const amended = read(amendmentDir);
     const reopened = read(reopenDir);
     expect(nonLive(amended)).toEqual(nonLive(reopened));
@@ -190,7 +181,7 @@ describe('forward human amendments', () => {
     testClock.set(EXAMPLE_NOW + 86_400_000);
     amend(dir, 'post');
     expect(nonLive(read(dir))).toEqual(first);
-    reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
+    plantLegacyReopen(dir, 'rig-review', { by: 'owner', wordsFile: words(dir) });
     expect(nonLive(read(dir))).toEqual(first);
   });
 

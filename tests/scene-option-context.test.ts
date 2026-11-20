@@ -1,3 +1,4 @@
+import { plantLegacyReopen } from './fixtures.ts';
 /**
  * Which option context a post set takes once a scene exists (#216). Every
  * record comes from the public writers on a copy of the writer-built example
@@ -10,8 +11,8 @@ import { SCENE_CONTEXT_SINCE, optionContext, sha256 } from '../src/choices.ts';
 import { asArray, isObject } from '../src/check.ts';
 import { currentScene, sceneReference } from '../src/scene.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
-import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, main, reopenCommand, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
+import { tempDir } from './helpers.ts';
+import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, main, reviewCommand, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -27,7 +28,7 @@ function chainProject(): string {
   cpSync(root, dir, { recursive: true, filter: source => !source.slice(root.length).split(sep).includes('checkpoints') });
   return dir;
 }
-function reopen(dir: string, stage: string): void { reopenCommand([stage, dir, '--by', 'user', ...ownerChatArgs(words(dir))]); }
+function reopen(dir: string, stage: string): void { plantLegacyReopen(dir, stage, { by: 'user', wordsFile: words(dir) }); }
 /** The agent drafts a post_composition set against the context create projects at that instant. */
 function draft(dir: string, id: string, context: JsonObject): string {
   const set = JSON.parse(readFileSync(join(dir, 'evidence/interview/post_composition.json'), 'utf8')) as JsonObject;

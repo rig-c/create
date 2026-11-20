@@ -161,7 +161,7 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
   if (from >= 0 && STEP_STATUSES.indexOf(entry.status as typeof STEP_STATUSES[number]) !== from + 1) {
     const next = STEP_STATUSES[from + 1];
     refuse('STEP_STATUS_TRANSITION', next === undefined
-      ? `plan.steps[${positional[0]}].status: ${String(entry.from_status)} is the last status, so ${String(entry.status)} cannot follow it; to run the step again record rig-create reopen ${stage}`
+      ? `plan.steps[${positional[0]}].status: ${String(entry.from_status)} is the last status, so ${String(entry.status)} cannot follow it; to run the step again record a human amendment with rig-create amend ${stage}`
       : `plan.steps[${positional[0]}].status: ${String(entry.status)} cannot follow ${String(entry.from_status)}; statuses move one at a time through ${STEP_STATUSES.join(' → ')}, so record rig-create step-status ${String(step.id)} ${next} next`);
   }
   const invalid = statusTransitionFinding(entry, `plan.steps[${positional[0]}].status_history`);

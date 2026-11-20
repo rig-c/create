@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import * as intake from '../src/intake.ts';
 import { checkProject, type CheckReport } from '../src/check.ts';
 import { TEST_NOW } from './clock.ts';
-import { fixture } from './fixtures.ts';
+import { fixture, plantLegacyReopen } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { installStrictReads, uninstallStrictReads } from './strict-reads.ts';
 
@@ -45,13 +45,18 @@ test('no check module imports a read function from node:fs', () => {
 
 /** Each committed example as a fresh project folder: the example folders copied, the record templates materialized. */
 const EXAMPLES: [string, () => string][] = [
+  ['legacy reopened record', () => {
+    const dir = realpathSync(fixture(() => {}, 'example-project.json'));
+    plantLegacyReopen(dir, 'parts-review');
+    return dir;
+  }],
   ...['example-chain', ...readdirSync(join(TEMPLATES, 'example-chain', 'checkpoints'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => `example-chain/checkpoints/${entry.name}`), 'example-direction', 'example-remesh']
     .map(name => [name, () => {
       const dir = join(tempDir(), 'project');
       cpSync(join(TEMPLATES, name), dir, { recursive: true });
       return realpathSync(dir);
     }] as [string, () => string]),
-  ...['example-project.json', 'legacy-example-project.json', 'example-reopened/project.json', 'project.json']
+  ...['example-project.json', 'legacy-example-project.json', 'project.json']
     .map(name => [name, () => realpathSync(fixture(() => {}, name))] as [string, () => string]),
 ];
 

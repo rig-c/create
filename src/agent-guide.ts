@@ -178,8 +178,6 @@ export const READ_FIRST = [
  */
 export const INTERVIEW_CHECK_LINE = 'Run `rig-create interview --check` before interview sign-off: it names every `null` answer.';
 
-export const REOPEN_EXCEPTION = 'After an accepted post is bounced, reopen direction-review through Review: `job open --plan`, then `job acts --json`, ingest `reopen direction-review --from-review <actId>`, and `job close`. The exported act supplies the reviewer, date and verbatim words.';
-
 export const GUIDE_TEMPLATE = 'agent-guide.md';
 /** Copied from the same installed create distribution as the rendered guide. */
 export const AGENT_REFERENCE = 'AGENT-REFERENCE.md';
@@ -205,7 +203,6 @@ export function renderAgentGuide(): string {
   const fills: Record<string, string> = {
     RESUME_LINK: `[Resume](${createDocUrl(RESUME_LINK.path, RESUME_LINK.anchor)})`,
     INTERVIEW_CHECK: INTERVIEW_CHECK_LINE,
-    REOPEN_EXCEPTION,
     DERIVED_LINK: `[INTERVIEW.md § Derived answers](${createDocUrl(DERIVED_LINK.path, DERIVED_LINK.anchor)})`,
     GATES_LINK: `[CRAFT.md G8](${createDocUrl(GATES_LINK.path, GATES_LINK.anchor)})`,
     DRAFTS_LINK: `[Draft rigs](${createDocUrl(DRAFTS_LINK.path, DRAFTS_LINK.anchor)})`,

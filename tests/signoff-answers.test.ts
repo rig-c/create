@@ -9,9 +9,9 @@ import { Refusal } from '../src/refusal.ts';
 import { answerRevisionHash, checkSignoffAnswers, selectAnswerHashes, SIGNOFF_ANSWERS_SINCE } from '../src/signoff-answers.ts';
 import { stepHash } from '../src/step-hash.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { arr, fixture, materializeFixture, obj, resignAfterChange, step, waypoint } from './fixtures.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
-import { TEST_NOW, amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, arr, fixture, materializeFixture, obj, resignAfterChange, step, waypoint } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
+import { TEST_NOW, amendCommand, checkProject, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -99,7 +99,7 @@ test('later first answers are not missing from the earlier interview', () => {
 test('lapsed approvals never report changed answer bindings', () => {
   const dir = fixture(() => {}, 'example-project.json');
   testClock.set(EXAMPLE_NOW);
-  reopenCommand(['interview', dir, '--by', 'user', ...ownerChatArgs(words(dir))]);
+  plantLegacyReopen(dir, 'interview', { by: 'user', wordsFile: words(dir) });
   const p = load(dir); obj(waypoint(p, 'assemble').guide).verbatim = 'DISTINCT lapsed answer';
   expect(findings(dir, p)).toEqual([]);
 });

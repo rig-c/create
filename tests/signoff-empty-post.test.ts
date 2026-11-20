@@ -1,12 +1,11 @@
-import { ownerChatArgs } from './helpers.ts';
 import { createHash } from 'node:crypto';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj, supersede } from './fixtures.ts';
-import { checkProject, advanceCommand, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, arr, fixture, obj, supersede } from './fixtures.ts';
+import { checkProject, advanceCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(() => testClock.reset());
 const load = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
@@ -49,7 +48,7 @@ test('after N/A replacement, reopen moves to post-interview and its empty approv
   testClock.set(new Date('2030-01-01T00:00:00Z'));
   signoffCommand(['interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);
   testClock.set(new Date('2030-01-01T00:00:01Z'));
-  reopenCommand(['post-interview', dir, '--by', 'user', ...ownerChatArgs(words(dir))]);
+  plantLegacyReopen(dir, 'post-interview', { by: 'user', wordsFile: words(dir) });
   expect(load(dir).stage).toBe('post-interview');
   testClock.set(new Date('2030-01-01T00:00:02Z'));
   signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words(dir)]);

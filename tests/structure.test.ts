@@ -1,4 +1,3 @@
-import { ownerChatArgs } from './helpers.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { expect, test, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -7,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { STAGE_ORDER_SPEC, STAGE_VALUES } from '../src/stages.ts';
 import { STRUCTURE_SCHEMA, latestPartsApproval, previousPartsApproval, acceptsStructureDelta, structureDelta } from '../src/structure.ts';
 import { Refusal } from '../src/refusal.ts';
-import { arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './fixtures.ts';
+import { plantLegacyReopen, arr, fixture, obj, step, waypoint, rehashSignoffs, supersede } from './fixtures.ts';
 import { partsPackage, writeReviewedInput } from './parts-package.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
 import { withPartsCheck } from './parts-check-fixture.ts';
@@ -47,7 +46,7 @@ function setup(density?: number, reopen = true, productionParts = false): string
     testClock.set(new Date('2026-11-19T00:00:00.500Z'));
     signoffCommand(['interview', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     testClock.set(new Date('2026-11-19T00:00:01Z'));
-    reopenCommand(['plan-approved', dir, '--by', 'owner', ...ownerChatArgs(join(dir, 'words.txt'))]);
+    plantLegacyReopen(dir, 'plan-approved', { by: 'owner', wordsFile: join(dir, 'words.txt') });
     testClock.set(new Date('2026-11-19T00:00:02Z'));
     signoffCommand(['plan-approved', dir, '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');
@@ -166,7 +165,7 @@ test.each([false, true])('structure writer refuses ignored storage, including a 
   try { partsSign(dir, 'shape', path); throw Error('expected refusal'); } catch (error) { expect((error as Refusal).code).toBe('STRUCTURE_DECISIONS_INVALID'); }
   expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
 });
-import { checkProject, diffClassesCommand, draftRigCommand, advanceCommand, stepStatusCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
+import { checkProject, diffClassesCommand, draftRigCommand, advanceCommand, stepStatusCommand, signoffCommand, testClock } from './clock.ts';
 
 test('reopen and re-approved density preserve v1 and bind v2 to its own build-time structure', () => {
   const dir = setup(10); partsSign(dir); freshRigInterview(dir);
@@ -186,7 +185,7 @@ test('reopen and re-approved density preserve v1 and bind v2 to its own build-ti
   expect(checkProject(dir).refusals).toEqual([]);
   const frozenV1 = JSON.stringify(v1);
   testClock.set(new Date('2026-11-24T00:00:00Z'));
-  reopenCommand(['parts', dir, '--by', 'owner', ...ownerChatArgs(join(dir, 'words.txt'))]);
+  plantLegacyReopen(dir, 'parts', { by: 'owner', wordsFile: join(dir, 'words.txt') });
   p = read(dir);
   expect(latestPartsApproval(p)).toBeUndefined();
   expect(latestPartsApproval(p, Date.parse('2026-11-23T00:00:00Z'))?.draft_id).toBe('shape');
@@ -331,7 +330,7 @@ test.each(['valid', 'missing', 'early', 'unchanged'])('rig registration structur
   expect(checkProject(dir).refusals.map(f => f.code)).toContain('STRUCTURE_DELTA_MISMATCH');
 });
 
-test('#656 reopen rigging at stage interview without a live parts approval names signoffs[stage=parts-review] and the parts-review route', () => {
+test('#656 a historical move to rigging without live parts approval names the parts-review route', () => {
   testClock.set(new Date('2026-11-20T00:00:00Z'));
   const dir = fixture(p => {
     p.stage = 'interview';
@@ -346,16 +345,10 @@ test('#656 reopen rigging at stage interview without a live parts approval names
   });
   const words = join(dir, 'words.txt');
   writeFileSync(words, 'Reopen rigging without a live parts approval.\n');
+  plantLegacyReopen(dir, 'rigging', { by: 'owner', wordsFile: words });
   const before = readFileSync(join(dir, 'project.json'));
-  let caught: unknown;
-  try {
-    reopenCommand(['rigging', dir, '--by', 'owner', ...ownerChatArgs(words)]);
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(Refusal);
-  const refusal = caught as Refusal;
-  expect(refusal.code).toBe('RIGGING_INTERVIEW_CONTEXT');
+  const refusal = checkProject(dir).refusals.find(row => row.code === 'RIGGING_INTERVIEW_CONTEXT')!;
+  expect(refusal.path).toBe('interview.rigging_context');
   expect(refusal.message).toContain('interview.rigging_context');
   expect(refusal.message).toContain('signoffs[stage=parts-review]');
   expect(refusal.message).toContain('structure-snapshot');

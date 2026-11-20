@@ -72,13 +72,12 @@ test('#691 the editor rung documents the four retouch hand-off points and the gu
   }
 });
 
-test('#493 reopen instructions ingest the exported human act', () => {
+test('#674 the guide routes a bounced accepted post through a human amendment', () => {
   const guide = renderAgentGuide();
-  for (const text of ['`job open --plan`', '`job acts --json`', '`reopen direction-review --from-review <actId>`', '`job close`', 'verbatim words', 'After an accepted post is bounced']) expect(guide).toContain(text);
-  expect(guide).not.toContain('Until create#493');
+  expect(guide).toContain("After an accepted post is bounced, record the owner's correction with `amend direction-review`.");
   const readme = readFileSync(join(REPO, 'README.md'), 'utf8');
-  expect(readme).not.toContain('Until create#493');
-  expect(readme).toContain('reopen direction-review --from-review <actId>');
+  expect(readme).toContain('with `amend direction-review`');
+  for (const text of [guide, readme]) expect(text).not.toContain('reopen direction-review --from-review');
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });
 

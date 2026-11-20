@@ -1,14 +1,14 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fixture } from './fixtures.ts';
-import { tempDir, ownerChatArgs } from './helpers.ts';
-import { TEST_NOW, amendCommand, checkProject, reopenCommand, signoffCommand, testClock } from './clock.ts';
+import { plantLegacyReopen, fixture } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
+import { TEST_NOW, amendCommand, checkProject, signoffCommand, testClock } from './clock.ts';
 
 const CHAIN_POST = join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post');
 const lapses = (dir: string): string[][] => checkProject(dir).warnings.filter(f => f.code.startsWith('REOPEN_')).map(f => [f.code, f.path]);
 function words(dir: string): string { const file = join(dir, 'words.txt'); writeFileSync(file, 'Reopen the synthetic project.\n'); return file; }
-const reopen = (dir: string, stage: string): void => { reopenCommand([stage, dir, '--by', 'owner', ...ownerChatArgs(words(dir))]); };
+const reopen = (dir: string, stage: string): void => { plantLegacyReopen(dir, stage, { by: 'owner', wordsFile: words(dir) }); };
 
 afterEach(() => testClock.reset());
 

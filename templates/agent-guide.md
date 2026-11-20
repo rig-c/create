@@ -8,7 +8,7 @@ One painting; one rig and its takes.
 2. Run `rig-create next` for next moves and owners.
 3. Resume: {{RESUME_LINK}}.
 
-{{REOPEN_EXCEPTION}}
+After an accepted post is bounced, record the owner's correction with `amend direction-review`.
 
 Stale pins: `rig-create packages upgrade --by <operator>`.
 

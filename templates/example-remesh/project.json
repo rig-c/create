@@ -7,7 +7,7 @@
   "corrections": [],
   "name": "project",
   "title": null,
-  "stage": "parts-review",
+  "stage": "accepted",
   "stage_values": [
     "interview",
     "plan-approved",
@@ -1838,6 +1838,12 @@
             }
           }
         ],
+        "check_report": {
+          "path": "evidence/v1/registration/check.json",
+          "sha256": "094ad75332e8a4338152ee3361a23608dd80d55995b578e84be0a4afa17c88f7",
+          "bytes": 18126,
+          "spec": "rig-parts-check/1"
+        },
         "files": [
           {
             "path": "evidence/v1/registration/at-source.json",
@@ -2291,6 +2297,12 @@
             }
           }
         ],
+        "check_report": {
+          "path": "evidence/v2/registration/check.json",
+          "sha256": "f820b710e692ebbd9f240056f3bdf039d47daf8c952eee14bdc7f7d782b4ca2c",
+          "bytes": 18126,
+          "spec": "rig-parts-check/1"
+        },
         "files": [
           {
             "path": "evidence/v2/registration/at-source.json",
@@ -2762,6 +2774,12 @@
             }
           }
         ],
+        "check_report": {
+          "path": "evidence/v3/registration/check.json",
+          "sha256": "5e63ba97e59eb9ffd828001c31cd435207e5d5ba2897b0b4516ccdbb5c74e6eb",
+          "bytes": 18126,
+          "spec": "rig-parts-check/1"
+        },
         "files": [
           {
             "path": "evidence/v3/registration/at-source.json",
@@ -3954,46 +3972,22 @@
       "by": "agent"
     }
   ],
-  "reopens": [
+  "amendments": [
     {
-      "from_stage": "accepted",
-      "steps_before": [
-        {
-          "id": "bones",
-          "status": "done"
-        },
-        {
-          "id": "meshes",
-          "status": "done"
-        },
-        {
-          "id": "constraints",
-          "status": "done"
-        },
-        {
-          "id": "motion",
-          "status": "done"
-        },
-        {
-          "id": "camera",
-          "status": "done"
-        },
-        {
-          "id": "timing",
-          "status": "done"
-        },
-        {
-          "id": "composition",
-          "status": "done"
-        }
-      ],
-      "stage": "parts-review",
+      "target": {
+        "stage": "parts-review",
+        "kind": "config-field",
+        "id": "/meshes/torso/grid"
+      },
       "by": "user",
       "at": "2026-11-20T00:01:55.000Z",
-      "verbatim": "Reopen the synthetic parts for remeshing.\n",
-      "source": "owner chat, relayed",
-      "said_at": "2026-11-20T00:01:55.000Z",
-      "relayed_by": "fixture-operator"
+      "verbatim": "Remesh the synthetic torso at a finer grid.\n",
+      "changes": [
+        {
+          "path": "evidence/remesh-grid.json",
+          "sha256": "457fa9e7236d1657048964f0ab5275fc9bbe7d0309560c6e3f01f328151e5519"
+        }
+      ]
     }
   ]
 }

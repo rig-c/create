@@ -1,4 +1,3 @@
-import { ownerChatArgs } from './helpers.ts';
 import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync, symlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,9 +6,9 @@ import { intakeCommand, intakeWarnings, intakeItem, intakeContext } from '../src
 import { OPTIONS_SPEC, sha256 } from '../src/choices.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
-import { fixture, obj, arr } from './fixtures.ts';
+import { plantLegacyReopen, fixture, obj, arr } from './fixtures.ts';
 import { EXAMPLE_DIFF_REPORT } from './diff-fixture.ts';
-import { checkProject, reopenCommand, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
+import { checkProject, interviewOptionsCommand, interviewAnswerCommand, interviewDecisionCommand, intakeReportCommand, signoffCommand, handoff, recordVerdict, testClock } from './clock.ts';
 
 const raw = readFileSync(join(import.meta.dir,'fixtures/intake/preflight.json'));
 const load=(dir:string):JsonObject=>JSON.parse(readFileSync(join(dir,'project.json'),'utf8'));
@@ -116,9 +115,8 @@ for(const state of states)test(`approval readers ignore optional intake: ${state
     ()=>signoffCommand(['plan-approved',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>signoffCommand(['rigging-interview',dir,'--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>{
-      // Reopen through the writer: it moves the stage back and resets later steps, and the later approvals,
-      // versions, scenes and direction stay as superseded history, so no hand rewind is needed.
-      reopenCommand(['parts-review',dir,'--by','user', ...ownerChatArgs(join(dir,'words.txt'))]);
+      // Plant a historical reopen so later approvals, versions, scenes and direction remain in the record.
+      plantLegacyReopen(dir, 'parts-review', { by: 'user', wordsFile: join(dir,'words.txt') });
       testClock.set(new Date('2026-11-20T10:00:01Z'));return signoffCommand(['parts-review',dir,'--by','user','--verbatim-file',join(dir,'words.txt'),'--draft','example','--structure-file','evidence/structure-example.json']);},
     ()=>signoffCommand(['direction-review',dir,'--version','4','--by','user','--verbatim-file',join(dir,'words.txt')]),
     ()=>recordVerdict(dir,{version:2,review:'rig-review',verdict:'accepted',by:'user',verbatim:'Approved',source:'review',items:[],quotes:{},values:{}}),

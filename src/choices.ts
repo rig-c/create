@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
-import { asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isObject, type Ctx, type Finding, type Item } from './check.ts';
+import { answered, asArray, collectItems, collectSignoffs, collectionQuestion, loadCollection, isDecision, isObject, type Ctx, type Finding, type Item } from './check.ts';
 import { draftFileUnavailable } from './drafts.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
@@ -352,6 +352,33 @@ function legacyScene(ctx: Ctx, path: string): (why: string) => void {
     ctx.warnings.push({ code: 'INTERVIEW_OPTIONS_SCENE_LEGACY', path, message: `${path}: option set ${why}; preserve the record and redraft against the current context when this question is asked again` });
   };
 }
+
+export function pendingInterviewOptions(item: Item): JsonObject | undefined {
+  const binding = item.record.pending_options;
+  return isObject(binding) ? binding : undefined;
+}
+
+export function pendingInterviewOptionsPath(item: Item): string {
+  return item.path.replace(/\.(answer|guide)$/, '.pending_options');
+}
+
+export function hasPendingOther(item: Item): boolean {
+  const answer = item.state.state === 'user' || item.state.state === 'delegated'
+    ? item.state.answer
+    : isObject(item.raw) ? item.raw : null;
+  return answer !== null && asArray(answer.asks).some(ask => isObject(ask) && ask.state === 'other-pending');
+}
+
+export function isUndecidedDelegation(item: Item): boolean {
+  if (item.state.state === 'delegated') return !item.state.decided;
+  if (item.state.state === 'user') {
+    return ('agent_decision' in item.state.answer
+      || asArray(item.state.answer.asks).some(a => isObject(a) && a.state === 'delegated'))
+      && !isDecision(item.state.answer.agent_decision);
+  }
+  return false;
+}
+
 export function checkChoices(ctx: Ctx): void {
   const adopted = choiceAdoption(ctx.project);
   if (adopted !== null && (!Number.isFinite(adopted) || !hasStageOrder(ctx.project))) ctx.refusals.push(finding(new ChoiceError('INTERVIEW_CHOICE_INVALID', 'order@2 requires choices_adopted_at'), 'interview.order'));
@@ -363,6 +390,11 @@ export function checkChoices(ctx: Ctx): void {
     if (item.record.pending_options !== undefined) {
       try { const { set } = optionFile(ctx.dir, item.record.pending_options); validateSet(ctx.project, item, set,ctx.collection); validateContext(ctx.dir, ctx.project, set, date(set.drafted_at), false, legacyScene(ctx, `${item.path}.pending_options`)); }
       catch (e) { ctx.refusals.push(finding(e, `${item.path}.pending_options`)); }
+    }
+    if (pendingInterviewOptions(item) && answered(item.state) && !isUndecidedDelegation(item) && !hasPendingOther(item)) {
+      const path = pendingInterviewOptionsPath(item);
+      ctx.warnings.push({ code: 'INTERVIEW_REASK_PENDING', path,
+        message: `${path}: re-ask pending over a decided answer for ${item.id}; have the owner pick from the registered set with rig-create job open --question ${item.id}, then record the pick with interview-answer` });
     }
     const answers: { answer: JsonObject; path: string; current: boolean }[] = objects(item.record.history).map((answer,i) => ({ answer, path: `${item.path}.history[${i}]`, current: false }));
     if (item.state.state === 'user' || item.state.state === 'delegated') answers.push({ answer: item.state.answer, path: item.path, current: true });

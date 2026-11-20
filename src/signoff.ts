@@ -1,4 +1,5 @@
 import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
+import { pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.ts';
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
 import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
@@ -20,7 +21,7 @@ import { readProject } from './feedback.ts';
 import { riggingContext } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { approvalStageOfStep, hasStageOrder, PARTS_REVIEW, RIG_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PARTS_REVIEW, RIG_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
 import { assertRigReviewSignable } from './review.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
@@ -144,7 +145,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     targetVersion = String(shown);
   }
   if (review !== undefined) {
-    // Replays dedupe before current-source checks: the recorded signoff is returned unchanged.
+    // Replays dedupe before current eligibility: the recorded signoff is returned unchanged.
     const existing = asArray(project.review_acts).filter(isObject).find(entry => entry.jobId === review.act.jobId && entry.actId === review.act.actId);
     if (existing !== undefined) {
       if (existing.bytes !== review.bytes) refuse('REVIEW_ACT_REPLAY_CONFLICT', 'project.json.review_acts: immutable signoff act changed; restore the original receipt');
@@ -158,6 +159,14 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       if (pair) refuse(pair.code, pair.message);
       return { stdout: json ? JSON.stringify(recorded, null, 2) : `signoff: replayed ${stage} by ${by} at ${String(recorded.at)}; stage unchanged`, exit: 0 };
     }
+  }
+  if (opts['--checkpoint'] === undefined && isOpenInterviewStage(stage)) {
+    const split = hasStageOrder(project);
+    const pending = collectItems(project, { collection: loadCollection(dir) }).find(item =>
+      interviewStageOfGuide(item.id, item.kind === 'post', split) === stage && pendingInterviewOptions(item));
+    if (pending) refuse('SIGNOFF_REASK_PENDING', `project.json.${pendingInterviewOptionsPath(pending)}: ${stage} has a pending option set for ${pending.id}; open it with rig-create job open --question ${pending.id} and record the owner's pick with interview-answer before signing`);
+  }
+  if (review !== undefined) {
     if (review.act.schema === 'rig-review/act@4' && review.act.source.projectHash !== jobHash(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: displayed signoff record differs; publish the current plan and ask again');
     if (isRecordDirectionSignoff(review.act)) {
       const shown = recordSignoffActVersion(review.act, original!.toString('utf8'));

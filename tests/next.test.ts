@@ -229,8 +229,8 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
       expect(report.stage).toBe(String(project.stage));
 
       if (spec.name === '0a-interview-options') {
-        // Awaits match the checkpoint's pending.awaits 100%.
-        expect(report.awaits).toEqual(spec.pending.awaits);
+        // The question's registered set takes precedence over the frozen signoff move.
+        expect(report.awaits).toEqual(spec.pending.awaits.filter(field => field !== 'signoffs[stage=interview]'));
         // 4 INTERVIEW_INCOMPLETE refusals come first, matching the 4 unanswered questions.
         expect(report.refusals.map(r => [r.code, r.field])).toEqual([
           ['INTERVIEW_INCOMPLETE', 'interview.framing[rig_type].answer'],
@@ -261,13 +261,7 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         expect(report.moves[2]?.unanswered_by_record).toBe('interview.waypoints[seethrough].pending_options');
         expect(report.moves[3]?.unanswered_by_record).toBe('interview.waypoints[assemble].pending_options');
         expect((project.plan as { steps: unknown[] }).steps).toEqual([]);
-        expect(report.moves.find(move => move.field === 'signoffs')).toMatchObject({
-          role: 'human',
-          field: 'signoffs',
-          awaits: 'signoffs[stage=interview]',
-          command: null,
-          unanswered_by_record: 'plan.steps',
-        });
+        expect(report.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'interview')).toBe(false);
       } else if (spec.name === '0b-plan-pending') {
         // Awaits and roles match pending 100%.
         expect(report.awaits).toEqual(spec.pending.awaits);
@@ -296,8 +290,7 @@ describe('Frozen Bar 1 — The chain is the answer key (example-chain checkpoint
         expect(report.moves.some(m => m.review_act?.kind === 'parts-verdict')).toBe(false);
         expect(report.moves.some(m => m.review_act?.kind === 'signoff')).toBe(false);
       } else if (spec.name === '2-rigging-answers') {
-        // Awaits match the checkpoint's pending.awaits 100%.
-        expect(report.awaits).toEqual(spec.pending.awaits);
+        expect(report.awaits).toEqual(spec.pending.awaits.filter(field => field !== 'signoffs[stage=rigging-interview]'));
         expect(report.refusals.map(r => [r.code, r.field])).toEqual([
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[bones].guide'],
           ['INTERVIEW_INCOMPLETE', 'interview.waypoints[meshes].guide'],

@@ -1,6 +1,6 @@
 /** Register frozen bytes. Toolchain association and the not-after date are declarations. */
 import { createHash } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
 import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
@@ -21,7 +21,7 @@ import { prepareRigReviewPackage } from './review-package.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE, type RigCheckTarget } from './rig-check-report.ts';
 import { lockedPackage, type ToolchainKind } from './toolchain-lock.ts';
 import { rigVersionDateFinding } from './rig-version-date.ts';
-import { checkRegisteredRuns, RUN_RECORD_SINCE, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
+import { checkRegisteredRuns, RUN_RECORD_SINCE, RUN_SPECS, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
 import { approvedStructureDelta, latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { stageOfStep } from './stages.ts';
 import { HEAD_TURN_SINCE } from './waypoints.ts';
@@ -168,6 +168,17 @@ function destinationExists(dir: string, target: string, onInvalidPath: (target: 
     if (existsSync(current) && (lstatSync(current).isSymbolicLink() || !lstatSync(current).isDirectory())) onInvalidPath(target);
   }
   return existsSync(join(dir, target));
+}
+
+/** Find a vacant registration number after the recorded versions using the writer's destination rules. */
+export function nextRigRegistrationNumber(dir: string, start: number): number | undefined {
+  const onInvalidPath = (target: string): never => fail('RIG_REGISTRATION_PATH_INVALID', target, 'destination must have real directory parents');
+  try {
+    for (let n = start; Number.isSafeInteger(n); n++) {
+      const occupied = versionDestinations(n).filter(target => destinationExists(dir, target, onInvalidPath));
+      if (occupied.length === 0) return n;
+    }
+  } catch { /* An invalid or unreadable destination prevents a safe suggestion. */ }
 }
 
 function treeBindings(dir: string, root: string): JsonObject[] {
@@ -424,7 +435,7 @@ function collectRequirementsAssetRefs(requirements: JsonObject, portableRequirem
       if (!strict && key === 'backdrop') continue;
       throw Error(`requirements.setup_painting.${key} must declare a nonempty path and 64-character lowercase hex sha256`);
     }
-    const candidateRel = reqParent === '.' ? entry.path : `${reqParent}/${entry.path}`;
+    const candidateRel = requirementsAssetTarget(reqParent, entry.path);
     refs.push({
       doc: 'requirements',
       pointer: `/setup_painting/${key}/path`,
@@ -437,6 +448,37 @@ function collectRequirementsAssetRefs(requirements: JsonObject, portableRequirem
     });
   }
   return refs;
+}
+
+function requirementsAssetTarget(parent: string, path: string): string {
+  return parent === '.' ? path : `${parent}/${path}`;
+}
+
+function mappedAssetPath(ref: AssetRefSpec, row?: NormalizedAdapterRow, parent = '.'): string {
+  if (row) return row.adaptedString;
+  if (!ref.autoRelocate) return ref.value;
+  const fieldPath = ref.dotPath.split('.').join('/');
+  return parent === '.' ? `inputs/${fieldPath}` : fieldPath;
+}
+
+function pointerAdapterRow(ref: AssetRefSpec, after: string): JsonObject {
+  return { doc: ref.doc, pointer: ref.pointer, before: ref.value, after };
+}
+
+function absoluteConfigAdapter(config: JsonObject, ref: AssetRefSpec): NormalizedAdapterRow | undefined {
+  // In the legacy grammar, before names the frozen file and after matches
+  // the literal config value. Generation can infer a source only from that value.
+  if (!isAbsolute(ref.value)) return undefined;
+  const raw = { at: `.${ref.dotPath}`, before: ref.value, after: ref.value };
+  const [row] = parsePathAdapter([raw]);
+  return row?.pointer === ref.pointer && pointerValue(config, ref.pointer) === ref.value ? row : undefined;
+}
+
+function registrationReservedTargets(bunLock: boolean, runs: readonly RunSpec[]): Set<string> {
+  const targets = new Set(RESERVED_REGISTRATION_NAMES);
+  if (bunLock) targets.add('bun.lock');
+  for (const spec of runs) targets.add(`${spec.replace('/', '-')}.json`);
+  return targets;
 }
 
 /** A declared depth/turn config is the existing registration's depth input branch. */
@@ -660,23 +702,6 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const portable = JSON.parse(bytesAt(dir, config).toString()) as Json;
       if (!isObject(configSourceRaw) || !isObject(portable)) throw Error('config-source and portable config must be JSON objects');
       findings.push(...depthBindingFindings(dir, version, configSourceRaw, record, warnings));
-      const checkPortable = (value: Json, document: string, requirementsDocument = false, location: string[] = []): void => {
-        if (typeof value === 'string' && absolute(value)) {
-          const field = `${document}#/${location.map(escapePointerToken).join('/')}`;
-          const provenancePointer = requirementsDocument
-            && location.at(-2) === 'x-source' && location.at(-1) === 'json_pointer';
-          if (!provenancePointer) throw Error(`${field}: contains an unresolved absolute path`);
-          // Parts leaves x-* metadata opaque, without declaring a target document to resolve.
-          if (!value.startsWith('/') || /~(?![01])/.test(value)) throw Error(`${field}: expected an RFC 6901 JSON pointer with valid escapes`);
-        }
-        if (Array.isArray(value)) {
-          value.forEach((entry, index) => checkPortable(entry, document, requirementsDocument, [...location, String(index)]));
-        } else if (isObject(value)) {
-          for (const [key, entry] of Object.entries(value)) {
-            checkPortable(entry, document, requirementsDocument, [...location, key]);
-          }
-        }
-      };
       checkPortable(portable, String((config as JsonObject).path));
       const evidenceRoot = dirname(String((config as JsonObject).path));
       const reqAdapters = (adapterRows ?? []).filter(r => r.doc === 'requirements');
@@ -687,39 +712,10 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
       const isPointerAdaptedRecord = adapterFormat === 'json-pointer/1' || hasPointerAdapters || hasReqBindings;
       const sourceConfigRefs = collectConfigAssetRefs(dir, configSourceRaw, isPointerAdaptedRecord);
       if (adapterRows !== null) {
-        const expectedConfig = structuredClone(configSourceRaw);
-        const expectedConfigRefs = collectConfigAssetRefs(dir, expectedConfig, isPointerAdaptedRecord);
-        const adaptedConfigPointers = new Set<string>();
-        for (const row of adapterRows.filter(r => r.doc === 'config')) {
-          if (row.kind === 'legacy-abs') {
-            const currentVal = row.pointer ? pointerValue(configSourceRaw, row.pointer) : undefined;
-            if (row.pointer && typeof currentVal === 'string' && absolute(currentVal) && currentVal === row.originalString) {
-              if (!row.sourcePath || !absolute(row.sourcePath) || !isValidAdaptedTarget(row.adaptedString)) {
-                add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `config ${row.pointer}: invalid legacy adapter`);
-                throw Error(`config ${row.pointer}: invalid legacy adapter`);
-              }
-              setPointerValue(expectedConfig, row.pointer, row.adaptedString);
-              adaptedConfigPointers.add(row.pointer);
-            }
-            continue;
-          }
-          const ref = sourceConfigRefs.find(r => r.pointer === row.pointer);
-          if (!ref || !configAdapterMatches(configSourceRaw, ref, row.originalString)) {
-            add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', `config ${row.pointer}: adapter does not match config-source`);
-            throw Error(`config ${row.pointer}: adapter does not match config-source`);
-          }
-          adaptedConfigPointers.add(row.pointer);
-          adaptConfigReference(expectedConfig, expectedConfigRefs, row.pointer, row.adaptedString);
-        }
-        if (!isPointerAdaptedRecord) {
-          for (const ref of sourceConfigRefs) {
-            if (adaptedConfigPointers.has(ref.pointer)) continue;
-            if (/^assemble\.take\.\d+\.(?:run_dir|st_input)$|^assemble\.editor_receipts\.receipts\.\d+\.file$/.test(ref.dotPath)
-              && !absolute(ref.value)) {
-              setPointerValue(expectedConfig, ref.pointer, `inputs/${ref.dotPath.split('.').join('/')}`);
-            }
-          }
-        }
+        const expectedConfig = replayConfigAdapter(dir, configSourceRaw, sourceConfigRefs, adapterRows, isPointerAdaptedRecord, why => {
+          add('RIG_PATH_ADAPTER_INVALID', 'registration.path_adapter', why);
+          throw Error(why);
+        });
         if (!isDeepStrictEqual(expectedConfig, portable)) {
           throw Error('the retained runtime config differs from config-source outside declared path_adapter substitutions');
         }
@@ -789,7 +785,7 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
         const reqParent = dirname(portable.requirements);
         for (const ref of collectRequirementsAssetRefs(runtimeReqObj, portable.requirements, isPointerAdaptedRecord)) {
           if (!isPointerAdaptedRecord && !ref.pre394) continue;
-          const relInEvidence = posix.normalize(reqParent === '.' ? ref.value : `${reqParent}/${ref.value}`);
+          const relInEvidence = posix.normalize(requirementsAssetTarget(reqParent, ref.value));
           if (absolute(ref.value) || (isPointerAdaptedRecord && !isValidAdaptedTarget(ref.value)) || !isValidAdaptedTarget(relInEvidence)) {
             throw Error(`requirements.${ref.dotPath}: expected literal retained path`);
           }
@@ -840,6 +836,274 @@ export function rigRegistrationFindings(dir: string, project: JsonObject, warnin
   return findings;
 }
 
+function checkPortable(value: Json, document: string, requirementsDocument = false, location: string[] = []): void {
+  if (typeof value === 'string' && absolute(value)) {
+    const field = `${document}#/${location.map(escapePointerToken).join('/')}`;
+    const provenancePointer = requirementsDocument
+      && location.at(-2) === 'x-source' && location.at(-1) === 'json_pointer';
+    if (!provenancePointer) throw Error(`${field}: contains an unresolved absolute path`);
+    // Parts leaves x-* metadata opaque, without declaring a target document to resolve.
+    if (!value.startsWith('/') || /~(?![01])/.test(value)) throw Error(`${field}: expected an RFC 6901 JSON pointer with valid escapes`);
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => checkPortable(entry, document, requirementsDocument, [...location, String(index)]));
+  } else if (isObject(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      checkPortable(entry, document, requirementsDocument, [...location, key]);
+    }
+  }
+}
+
+function replayConfigAdapter(
+  dir: string, config: JsonObject, refs: AssetRefSpec[], adapterRows: NormalizedAdapterRow[],
+  pointerFormat: boolean, invalid: (why: string) => never,
+): JsonObject {
+  const expectedConfig = structuredClone(config);
+  const expectedConfigRefs = collectConfigAssetRefs(dir, expectedConfig, pointerFormat);
+  const adaptedConfigPointers = new Set<string>();
+  for (const row of adapterRows.filter(r => r.doc === 'config')) {
+    if (row.kind === 'legacy-abs') {
+      const currentVal = row.pointer ? pointerValue(config, row.pointer) : undefined;
+      if (row.pointer && typeof currentVal === 'string' && absolute(currentVal) && currentVal === row.originalString) {
+        if (!row.sourcePath || !absolute(row.sourcePath) || !isValidAdaptedTarget(row.adaptedString)) {
+          invalid(`config ${row.pointer}: invalid legacy adapter`);
+        }
+        setPointerValue(expectedConfig, row.pointer, row.adaptedString);
+        adaptedConfigPointers.add(row.pointer);
+      }
+      continue;
+    }
+    const ref = refs.find(r => r.pointer === row.pointer);
+    if (!ref || !configAdapterMatches(config, ref, row.originalString)) {
+      invalid(`config ${row.pointer}: adapter does not match config-source`);
+    }
+    adaptedConfigPointers.add(row.pointer);
+    adaptConfigReference(expectedConfig, expectedConfigRefs, row.pointer, row.adaptedString);
+  }
+  if (!pointerFormat) {
+    for (const ref of refs) {
+      if (adaptedConfigPointers.has(ref.pointer)) continue;
+      if (/^assemble\.take\.\d+\.(?:run_dir|st_input)$|^assemble\.editor_receipts\.receipts\.\d+\.file$/.test(ref.dotPath)
+        && !absolute(ref.value)) {
+        setPointerValue(expectedConfig, ref.pointer, mappedAssetPath(ref));
+      }
+    }
+  }
+  return expectedConfig;
+}
+
+interface RegistrationAssetIO {
+  checkSourceAncestors: (path: string, label: string, allowedRoot?: string) => void;
+  sourceBytes: (path: string) => Buffer;
+  copyTree: (source: string, target: string) => void;
+  retain: (target: string, bytes: Buffer) => JsonObject;
+}
+
+interface SourceFile { source: string; bytes: Buffer }
+
+function registrationSourceReader(dir: string, requestedDir: string, recordSource?: (file: SourceFile) => void) {
+  const systemRoots = [resolve(tmpdir()), '/tmp', '/var', dirname(resolve(requestedDir)), dirname(dir)];
+  const isSystemAncestor = (candidate: string): boolean =>
+    systemRoots.some(root => root === candidate || root.startsWith(`${candidate}${sep}`));
+  const checkSourceAncestors = (absolutePath: string, label: string, allowedRoot?: string): void => {
+    let current = absolutePath;
+    while (dirname(current) !== current && (current === absolutePath || !isSystemAncestor(current))) {
+      if (existsSync(current) && lstatSync(current).isSymbolicLink()) fail('RIG_REGISTRATION_PATH_INVALID', label, 'source symlinks are unsupported');
+      if (allowedRoot && current === allowedRoot) break;
+      current = dirname(current);
+    }
+  };
+  const sourceBytes = (path: string): Buffer => {
+    const source = resolve(dir, path);
+    const stat = lstatSync(source);
+    if (stat.isSymbolicLink()) fail('RIG_REGISTRATION_PATH_INVALID', path, 'source symlinks are unsupported');
+    checkSourceAncestors(source, path);
+    if (!stat.isFile()) fail('RIG_REGISTRATION_FILE_INVALID', path, 'expected a regular source file');
+    const bytes = readFileSync(source);
+    recordSource?.({ source, bytes });
+    return bytes;
+  };
+  return { checkSourceAncestors, sourceBytes };
+}
+
+// Walk the lexical spelling before resolving system temp aliases or input symlinks.
+function canonicalSourcePath(path: string): string {
+  let parent = path;
+  while (!existsSync(parent)) parent = dirname(parent);
+  return resolve(realpathSync(parent), relative(parent, path));
+}
+
+function walkSourceTree(
+  path: string, target: string,
+  directory: (path: string, target: string, names: string[]) => void,
+  file: (path: string, target: string) => void,
+): void {
+  if (lstatSync(path).isDirectory()) {
+    const names = readdirSync(path).sort();
+    directory(path, target, names);
+    for (const name of names) walkSourceTree(join(path, name), `${target}/${name}`, directory, file);
+  } else {
+    file(path, target);
+  }
+}
+
+/** Resolve, verify and lay out the same assets for generation and registration. */
+function mapRegistrationAssets(
+  dir: string, configPath: string, config: JsonObject, evidence: string, adapterLabel: string,
+  reservedTargets: ReadonlySet<string>, io: RegistrationAssetIO, callerAdapter?: NormalizedAdapterRow[],
+) {
+  const generate = callerAdapter === undefined;
+  callerAdapter ??= [];
+  const { checkSourceAncestors, sourceBytes, copyTree, retain } = io;
+  const configDir = dirname(realpathSync(resolve(dir, configPath)));
+  let configRefs: AssetRefSpec[];
+  try { configRefs = collectConfigAssetRefs(dir, config); }
+  catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_REGISTRATION_FILE_INVALID', 'config', String(error)); }
+  for (const row of callerAdapter.filter(r => r.kind === 'pointer' && r.doc === 'config')) {
+    const ref = configRefs.find(r => r.pointer === row.pointer);
+    if (!ref || !configAdapterMatches(config, ref, row.originalString)) {
+      return fail('RIG_PATH_ADAPTER_INVALID', adapterLabel, `config ${row.pointer}: adapter does not match config-source`);
+    }
+  }
+  const configUsesPointers = callerAdapter.some(row => row.kind === 'pointer')
+    || configRefs.some(ref => !absolute(ref.value) && (generate || ref.autoRelocate));
+  const configAllowedRoot = configUsesPointers || insideOrEqual(dir, configDir) ? dir : configDir;
+  const portable = structuredClone(config);
+  const portableRefs = collectConfigAssetRefs(dir, portable);
+  const effectiveAdapter: JsonObject[] = callerAdapter.map(r => r.raw);
+  const conflictsWithReserved = (candidate: string): boolean => {
+    for (const existing of reservedTargets) {
+      if (existing === candidate || existing.startsWith(`${candidate}/`) || candidate.startsWith(`${existing}/`)) return true;
+    }
+    return false;
+  };
+  let reqSourcePath: string | undefined;
+  let portableReqRel: string | undefined;
+  for (const ref of configRefs) {
+    const callerRow = generate && absolute(ref.value)
+      ? absoluteConfigAdapter(config, ref)
+      : callerAdapter.find(r => r.doc === 'config' && r.pointer === ref.pointer && (r.kind === 'pointer' || absolute(ref.value) && r.originalString === ref.value));
+    let sourcePath: string;
+    if (absolute(ref.value)) {
+      if (!callerRow || callerRow.kind !== 'legacy-abs' || !callerRow.pointer || !callerRow.sourcePath || !absolute(callerRow.sourcePath) || !isValidAdaptedTarget(callerRow.adaptedString)) {
+        return fail('RIG_RUNTIME_PATH_UNRESOLVED', `config.${ref.dotPath}`, 'absolute input has no exact recorded adapter');
+      }
+      sourcePath = resolve(dir, callerRow.sourcePath);
+    } else {
+      sourcePath = resolve(configDir, ref.value);
+    }
+    checkSourceAncestors(sourcePath, `config.${ref.dotPath}`, !absolute(ref.value) ? configAllowedRoot : undefined);
+    sourcePath = canonicalSourcePath(sourcePath);
+    if (!absolute(ref.value) && !insideOrEqual(configAllowedRoot, sourcePath)) {
+      return fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.dotPath}`, 'relative input escapes the project');
+    }
+    if (!existsSync(sourcePath)) {
+      return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'referenced source asset is missing');
+    }
+    const stat = lstatSync(sourcePath);
+    if (stat.isSymbolicLink()) return fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.dotPath}`, 'source symlinks are unsupported');
+    if (ref.kind === 'dir' && !stat.isDirectory()) return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'expected a source directory');
+    if (ref.kind === 'file' && !stat.isFile()) return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'expected a regular source file');
+    if (ref.declaredSha256 !== undefined) {
+      const bytes = sourceBytes(sourcePath);
+      if (sha(bytes) !== ref.declaredSha256) {
+        return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'source bytes differ from declared sha256');
+      }
+    }
+    const adaptedValue = mappedAssetPath(ref, callerRow);
+    const addRow = generate || (!callerRow && ref.autoRelocate);
+    if (addRow) {
+      effectiveAdapter.push(callerRow?.raw ?? pointerAdapterRow(ref, adaptedValue));
+    }
+    if (!isValidAdaptedTarget(adaptedValue) || conflictsWithReserved(adaptedValue)) {
+      return fail('RIG_REGISTRATION_PATH_INVALID', `${evidence}/${adaptedValue}`, 'two distinct inputs collide or target is invalid');
+    }
+    // A pointer row also runs the producer setter for equal paths. Edited
+    // receipts can still need rebasing after a sibling changed their shared dir.
+    if (adaptedValue !== ref.value || callerRow?.kind === 'pointer' || (addRow && !callerRow)) {
+      adaptConfigReference(portable, portableRefs, ref.pointer, adaptedValue);
+    }
+    if (ref.pointer === '/requirements') {
+      reqSourcePath = sourcePath;
+      portableReqRel = adaptedValue;
+    } else {
+      copyTree(sourcePath, `${evidence}/${adaptedValue}`);
+    }
+  }
+  let runtimeRequirements: JsonObject | undefined;
+  let requirementsSourceBinding: JsonObject | undefined;
+  let requirementsRuntimeBinding: JsonObject | undefined;
+  if (typeof config.requirements !== 'string') {
+    if (callerAdapter.some(r => r.doc === 'requirements')) {
+      return fail('RIG_PATH_ADAPTER_INVALID', adapterLabel, 'requirements adapter supplied without config.requirements');
+    }
+  } else if (reqSourcePath && portableReqRel) {
+    const reqOriginalBytes = sourceBytes(reqSourcePath);
+    let originalReq: Json;
+    try { originalReq = JSON.parse(reqOriginalBytes.toString('utf8')); }
+    catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', String(error)); }
+    if (!isObject(originalReq)) return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', 'expected a JSON object');
+    let reqRefs: AssetRefSpec[];
+    try { reqRefs = collectRequirementsAssetRefs(originalReq, portableReqRel); }
+    catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', String(error)); }
+    for (const row of callerAdapter.filter(r => r.doc === 'requirements')) {
+      const ref = reqRefs.find(r => r.pointer === row.pointer);
+      if (!ref || ref.value !== row.originalString) {
+        return fail('RIG_PATH_ADAPTER_INVALID', adapterLabel, `requirements ${row.pointer}: adapter does not match requirements-source`);
+      }
+    }
+    const portableReq = structuredClone(originalReq);
+    const reqDir = dirname(reqSourcePath);
+    const reqUsesPointers = effectiveAdapter.some(row => row.pointer !== undefined)
+      || reqRefs.some(ref => generate || ref.autoRelocate);
+    const reqAllowedRoot = reqUsesPointers || insideOrEqual(dir, reqDir) ? dir : configDir;
+    const reqParent = dirname(portableReqRel);
+    for (const ref of reqRefs) {
+      const callerRow = callerAdapter.find(r => r.doc === 'requirements' && r.pointer === ref.pointer);
+      if (absolute(ref.value)) {
+        return fail('RIG_RUNTIME_PATH_UNRESOLVED', `requirements.${ref.dotPath}`, 'requirements setup_painting path must be relative');
+      }
+      const lexicalSource = resolve(reqDir, ref.value);
+      checkSourceAncestors(lexicalSource, `requirements.${ref.dotPath}`, reqAllowedRoot);
+      const assetSource = canonicalSourcePath(lexicalSource);
+      if (!insideOrEqual(reqAllowedRoot, assetSource)) {
+        return fail('RIG_REGISTRATION_PATH_INVALID', `requirements.${ref.dotPath}`, 'relative input escapes the project');
+      }
+      if (!existsSync(assetSource)) {
+        return fail('RIG_REGISTRATION_FILE_INVALID', `requirements.${ref.dotPath}`, 'referenced source asset is missing');
+      }
+      const assetBytes = sourceBytes(assetSource);
+      if (ref.declaredSha256 !== undefined && sha(assetBytes) !== ref.declaredSha256) {
+        return fail('RIG_REGISTRATION_FILE_INVALID', `requirements.${ref.dotPath}`, 'source bytes differ from declared sha256');
+      }
+      const adaptedValue = mappedAssetPath(ref, callerRow, reqParent);
+      if (generate || !callerRow && ref.autoRelocate) effectiveAdapter.push(pointerAdapterRow(ref, adaptedValue));
+      const relInEvidence = requirementsAssetTarget(reqParent, adaptedValue);
+      if (!isValidAdaptedTarget(adaptedValue) || !isValidAdaptedTarget(relInEvidence) || conflictsWithReserved(relInEvidence)) {
+        return fail('RIG_REGISTRATION_PATH_INVALID', `${evidence}/${relInEvidence}`, 'two distinct inputs collide or target is invalid');
+      }
+      retain(`${evidence}/${relInEvidence}`, assetBytes);
+      if (adaptedValue !== ref.value) setPointerValue(portableReq, ref.pointer, adaptedValue);
+    }
+    runtimeRequirements = portableReq;
+    if (effectiveAdapter.some(row => row.pointer !== undefined)) {
+      const reqSourceRel = insideOrEqual(dir, reqSourcePath) ? relative(dir, reqSourcePath).split(sep).join('/') : undefined;
+      requirementsSourceBinding = {
+        ...retain(`${evidence}/requirements-source.json`, reqOriginalBytes),
+        ...(reqSourceRel && literal(reqSourceRel) ? { source_path: reqSourceRel } : {}),
+      };
+      const runtimeReqBytes = isDeepStrictEqual(originalReq, portableReq)
+        ? reqOriginalBytes : Buffer.from(`${JSON.stringify(portableReq, null, 2)}\n`);
+      requirementsRuntimeBinding = retain(`${evidence}/${portableReqRel}`, runtimeReqBytes);
+    } else {
+      retain(`${evidence}/${portableReqRel}`, reqOriginalBytes);
+    }
+  }
+  return { portable, effectiveAdapter, runtimeRequirements, requirementsSourceBinding, requirementsRuntimeBinding };
+}
+
+const RIG_VERSION_ADAPTER_USAGE = 'rig-version adapter [<dir>] --config <file> --out <file>';
+
 export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <dir> --build <dir> --idle <render dir>
   --config <file> --path-adapter <file> --compile-report <file> --toolchain-lock <bun.lock|package-lock.json>
   --at-source <dated JSON file> --at-pointer </pointer> --by <registrant> [--run-record <run.json>]... [--citations <sections JSON>] [--depth-manifest <prepare manifest>] [--depth-map-binding <map.binding.json>]... [--json]
@@ -849,11 +1113,127 @@ export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <di
   Acceptance requires --check-accepted-by <owner> --owner-chat <words file> --said-at <ISO date> --relayed-by <operator>.
   Idle requires rigc render's frames.json. No build, acceptance or stage advance runs.
   Repeat --answers <version>:<verdict> to answer earlier human bounced feedback.
-  Source arguments resolve against the project directory; external frozen sources are permitted.`;
+  Source arguments resolve against the project directory; external frozen sources are permitted.
 
-interface SourceFile { source: string; bytes: Buffer }
+${RIG_VERSION_ADAPTER_USAGE}
+  Write and print the path adapter JSON for the frozen config and its requirements.`;
+
+function generatePathAdapter(dir: string, requestedDir: string, configPath: string): JsonObject[] {
+  const { checkSourceAncestors, sourceBytes } = registrationSourceReader(dir, requestedDir);
+  const config = JSON.parse(sourceBytes(configPath).toString()) as Json;
+  if (!isObject(config)) fail('RIG_REGISTRATION_FILE_INVALID', configPath, 'expected a JSON object');
+
+  // Dry-run the copier into an in-memory inventory. No project destination is
+  // created before all source and target conflicts have been checked.
+  const entries = new Map<string, Buffer | null>();
+  const directory = (target: string): void => {
+    for (let path = target; path !== '.'; path = dirname(path)) {
+      if (entries.get(path)) fail('RIG_REGISTRATION_PATH_INVALID', path, 'destination must have real directory parents');
+      entries.set(path, null);
+    }
+  };
+  const retain = (target: string, bytes: Buffer): JsonObject => {
+    if (!literal(target)) fail('RIG_REGISTRATION_PATH_INVALID', target, 'expected a literal retained path');
+    directory(dirname(target));
+    const prior = entries.get(target);
+    if (prior === null) fail('RIG_REGISTRATION_PATH_INVALID', target, 'retained file target must be a regular file');
+    if (prior && !prior.equals(bytes)) fail('RIG_REGISTRATION_PATH_INVALID', target, 'two distinct inputs collide');
+    entries.set(target, bytes);
+    return { path: target, sha256: sha(bytes), bytes: bytes.length };
+  };
+  const evidence = 'registration';
+  const { portable, effectiveAdapter, runtimeRequirements } = mapRegistrationAssets(
+    dir, configPath, config, evidence, configPath, registrationReservedTargets(true, RUN_SPECS), {
+      checkSourceAncestors, sourceBytes, retain,
+      copyTree: (source, target) => walkSourceTree(source, target, (_, path) => directory(path),
+        (path, destination) => retain(destination, sourceBytes(path))),
+    },
+  );
+  const rows = parsePathAdapter(effectiveAdapter);
+  const pointerFormat = rows.some(row => row.kind === 'pointer');
+  const refs = collectConfigAssetRefs(dir, config, pointerFormat);
+  const expected = replayConfigAdapter(dir, config, refs, rows, pointerFormat, why =>
+    fail('RIG_PATH_ADAPTER_INVALID', configPath, why));
+  if (!isDeepStrictEqual(expected, portable)) {
+    fail('RIG_PATH_ADAPTER_INVALID', configPath, 'generated adapter does not replay the copier substitutions');
+  }
+  checkPortable(portable, configPath);
+  if (typeof portable.requirements === 'string' && !runtimeRequirements) {
+    fail('RIG_REGISTRATION_FILE_INVALID', 'config.requirements', 'expected a referenced requirements document');
+  }
+  if (pointerFormat && runtimeRequirements) checkPortable(runtimeRequirements, 'requirements', true);
+  for (const ref of collectConfigAssetRefs(dir, portable, pointerFormat)) {
+    const target = `${evidence}/${ref.value}`;
+    const file = entries.get(target);
+    const hasFiles = ref.kind === 'file-or-dir' && !file
+      && [...entries].some(([path, bytes]) => bytes !== null && path.startsWith(`${target}/`));
+    if (ref.kind === 'dir' ? !entries.has(target) || file !== null : !file && !hasFiles) {
+      fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'adapted path does not name a retained asset');
+    }
+  }
+  return effectiveAdapter;
+}
+
+function writePathAdapter(out: string, json: string): void {
+  const parent = dirname(out);
+  mkdirSync(parent, { recursive: true });
+  const scratch = mkdtempSync(join(parent, '.rig-version-adapter-'));
+  try {
+    const pending = join(scratch, 'adapter.json');
+    const bytes = Buffer.from(`${json}\n`);
+    writeFileSync(pending, bytes);
+    try {
+      // A concurrent writer or an existing input must never be overwritten.
+      linkSync(pending, out);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (!lstatSync(out).isFile() || !readFileSync(out).equals(bytes)) {
+        refuse('RIG_PATH_ADAPTER_OUT_INVALID', `${out}: output already exists with different contents or is not a regular file. Choose a fresh --out path`);
+      }
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+function rigVersionAdapterCommand(args: string[]): { stdout: string; exit: number } {
+  const positional: string[] = [];
+  const options: Record<string, string> = {};
+  const usage = (): never => refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_ADAPTER_USAGE, USAGE_EXIT);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === '--config' || arg === '--out') {
+      const value = args[++i];
+      if (!value || value.startsWith('--') || options[arg] !== undefined) return usage();
+      options[arg] = value;
+    } else if (arg.startsWith('-')) return usage();
+    else positional.push(arg);
+  }
+  const config = options['--config'];
+  const out = options['--out'];
+  if (positional.length > 1 || !config || !out) return usage();
+
+  let dir: string;
+  let json: string;
+  try {
+    const requestedDir = positional[0] ?? process.cwd();
+    dir = realpathSync(resolve(requestedDir));
+    json = JSON.stringify(generatePathAdapter(dir, requestedDir, config), null, 2);
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    return fail('RIG_REGISTRATION_FILE_INVALID', config, String(error));
+  }
+  try {
+    writePathAdapter(resolve(dir, out), json);
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    return refuse('RIG_PATH_ADAPTER_OUT_INVALID', `${out}: ${String(error)}. Choose a writable --out path`);
+  }
+  return { stdout: json, exit: 0 };
+}
 
 export function rigVersionCommand(args: string[], now: number): { stdout: string; exit: number } {
+  if (args[0] === 'adapter') return rigVersionAdapterCommand(args.slice(1));
   const positional: string[] = [];
   const options: Record<string, string> = {};
   const runRecords: string[] = [];
@@ -947,22 +1327,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
       if (!destinations.length) fail('RIG_REGISTRATION_INVALID', 'versions', `v${k} has no existing unregistered destination to skip`);
       skipped.push({ n: k, destinations });
     }
-    const systemRoots = [resolve(tmpdir()), '/tmp', '/var', dirname(resolve(positional[1] ?? process.cwd())), dirname(dir)];
-    const isSystemAncestor = (candidate: string): boolean =>
-      systemRoots.some(root => root === candidate || root.startsWith(`${candidate}${sep}`));
-    const sourceBytes = (path: string): Buffer => {
-      const absolutePath = resolve(dir, path);
-      // Check every ancestor inside the source tree, excluding system ancestors above it.
-      let current = absolutePath;
-      while (dirname(current) !== current && (current === absolutePath || !isSystemAncestor(current))) {
-        if (lstatSync(current).isSymbolicLink()) fail('RIG_REGISTRATION_PATH_INVALID', path, 'source symlinks are unsupported');
-        current = dirname(current);
-      }
-      if (!lstatSync(absolutePath).isFile()) fail('RIG_REGISTRATION_FILE_INVALID', path, 'expected a regular source file');
-      const bytes = readFileSync(absolutePath);
-      sources.push({ source: absolutePath, bytes });
-      return bytes;
-    };
+    const { checkSourceAncestors, sourceBytes } = registrationSourceReader(dir, positional[1] ?? process.cwd(), source => sources.push(source));
     const retain = (target: string, bytes: Buffer, outputs = false): JsonObject => {
       destinationExists(dir, dirname(target), invalidDestination);
       if (existsSync(join(dir, target)) && !lstatSync(join(dir, target)).isFile()) fail('RIG_REGISTRATION_PATH_INVALID', target, 'retained file target must be a regular file');
@@ -1047,188 +1412,24 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const configSource = input('--config', 'config-source.json');
     const config = JSON.parse(bytesAt(dir, configSource).toString()) as Json;
     if (!isObject(config)) fail('RIG_REGISTRATION_FILE_INVALID', 'config', 'expected a JSON object');
-    const copiedSources = new Map<string, string>();
+    const copiedSources = new Set<string>();
     const copyTree = (source: string, target: string, outputs: boolean): void => {
-      const path = resolve(dir, source);
-      const info = lstatSync(path);
-      if (info.isDirectory()) {
-        if (info.isSymbolicLink()) fail('RIG_REGISTRATION_PATH_INVALID', source, 'source symlinks are unsupported');
-        const names = readdirSync(path).sort();
+      walkSourceTree(resolve(dir, source), target, (path, destination, names) => {
         sourceDirectories.set(path, names);
-        destinationExists(dir, target, invalidDestination);
-        mkdirSync(join(dir, target), { recursive: true });
-        for (const name of names) copyTree(join(path, name), `${target}/${name}`, outputs);
-      } else {
-        retain(target, sourceBytes(path), outputs);
-        copiedSources.set(target, path);
-      }
+        destinationExists(dir, destination, invalidDestination);
+        mkdirSync(join(dir, destination), { recursive: true });
+      }, (path, destination) => {
+        retain(destination, sourceBytes(path), outputs);
+        copiedSources.add(destination);
+      });
     };
-    const checkSourceAncestors = (absolutePath: string, label: string, allowedRoot?: string): void => {
-      let current = absolutePath;
-      while (dirname(current) !== current && (current === absolutePath || !isSystemAncestor(current))) {
-        if (existsSync(current) && lstatSync(current).isSymbolicLink()) fail('RIG_REGISTRATION_PATH_INVALID', label, 'source symlinks are unsupported');
-        if (allowedRoot && current === allowedRoot) break;
-        current = dirname(current);
-      }
-    };
-    // Walk the lexical spelling before resolving system temp aliases or input symlinks.
-    const canonicalSourcePath = (path: string): string => {
-      let parent = path;
-      while (!existsSync(parent)) parent = dirname(parent);
-      return resolve(realpathSync(parent), relative(parent, path));
-    };
-    const configDir = dirname(realpathSync(resolve(dir, options['--config']!)));
-    let configRefs: AssetRefSpec[];
-    try { configRefs = collectConfigAssetRefs(dir, config); }
-    catch (error) { if (error instanceof Refusal) throw error; return fail('RIG_REGISTRATION_FILE_INVALID', 'config', String(error)); }
-    for (const row of callerAdapter.filter(r => r.kind === 'pointer' && r.doc === 'config')) {
-      const ref = configRefs.find(r => r.pointer === row.pointer);
-      if (!ref || !configAdapterMatches(config, ref, row.originalString)) {
-        return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, `config ${row.pointer}: adapter does not match config-source`);
-      }
-    }
-    const configUsesPointers = callerAdapter.some(row => row.kind === 'pointer')
-      || configRefs.some(ref => !absolute(ref.value) && ref.autoRelocate);
-    const configAllowedRoot = configUsesPointers || insideOrEqual(dir, configDir) ? dir : configDir;
-    const portable = structuredClone(config);
-    const portableRefs = collectConfigAssetRefs(dir, portable);
-    const effectiveAdapter: JsonObject[] = callerAdapter.map(r => r.raw);
-    const reservedTargets = new Set<string>(RESERVED_REGISTRATION_NAMES);
-    if (toolchainKind === 'bun-lock') reservedTargets.add('bun.lock');
-    for (const { spec } of validatedRuns) reservedTargets.add(`${spec.replace('/', '-')}.json`);
-    const conflictsWithReserved = (candidate: string): boolean => {
-      for (const existing of reservedTargets) {
-        if (existing === candidate || existing.startsWith(`${candidate}/`) || candidate.startsWith(`${existing}/`)) return true;
-      }
-      return false;
-    };
-    let reqSourcePath: string | undefined;
-    let portableReqRel: string | undefined;
-    for (const ref of configRefs) {
-      const callerRow = callerAdapter.find(r => r.doc === 'config' && r.pointer === ref.pointer && (r.kind === 'pointer' || absolute(ref.value) && r.originalString === ref.value));
-      let sourcePath: string;
-      if (absolute(ref.value)) {
-        if (!callerRow || callerRow.kind !== 'legacy-abs' || !callerRow.pointer || !callerRow.sourcePath || !absolute(callerRow.sourcePath) || !isValidAdaptedTarget(callerRow.adaptedString)) {
-          return fail('RIG_RUNTIME_PATH_UNRESOLVED', `config.${ref.dotPath}`, 'absolute input has no exact recorded adapter');
-        }
-        sourcePath = resolve(dir, callerRow.sourcePath);
-      } else {
-        sourcePath = resolve(configDir, ref.value);
-      }
-      checkSourceAncestors(sourcePath, `config.${ref.dotPath}`, !absolute(ref.value) ? configAllowedRoot : undefined);
-      sourcePath = canonicalSourcePath(sourcePath);
-      if (!absolute(ref.value) && !insideOrEqual(configAllowedRoot, sourcePath)) {
-        return fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.dotPath}`, 'relative input escapes the project');
-      }
-      if (!existsSync(sourcePath)) {
-        return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'referenced source asset is missing');
-      }
-      const stat = lstatSync(sourcePath);
-      if (stat.isSymbolicLink()) return fail('RIG_REGISTRATION_PATH_INVALID', `config.${ref.dotPath}`, 'source symlinks are unsupported');
-      if (ref.kind === 'dir' && !stat.isDirectory()) return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'expected a source directory');
-      if (ref.kind === 'file' && !stat.isFile()) return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'expected a regular source file');
-      if (ref.declaredSha256 !== undefined) {
-        const bytes = sourceBytes(sourcePath);
-        if (sha(bytes) !== ref.declaredSha256) {
-          return fail('RIG_REGISTRATION_FILE_INVALID', `config.${ref.dotPath}`, 'source bytes differ from declared sha256');
-        }
-      }
-      let adaptedValue: string;
-      if (callerRow) {
-        adaptedValue = callerRow.adaptedString;
-      } else if (ref.autoRelocate) {
-        adaptedValue = `inputs/${ref.dotPath.split('.').join('/')}`;
-        effectiveAdapter.push({ doc: 'config', pointer: ref.pointer, before: ref.value, after: adaptedValue });
-      } else {
-        adaptedValue = ref.value;
-      }
-      if (!isValidAdaptedTarget(adaptedValue) || conflictsWithReserved(adaptedValue)) {
-        return fail('RIG_REGISTRATION_PATH_INVALID', `${evidence}/${adaptedValue}`, 'two distinct inputs collide or target is invalid');
-      }
-      if (adaptedValue !== ref.value) adaptConfigReference(portable, portableRefs, ref.pointer, adaptedValue);
-      if (ref.pointer === '/requirements') {
-        reqSourcePath = sourcePath;
-        portableReqRel = adaptedValue;
-      } else {
-        copyTree(sourcePath, `${evidence}/${adaptedValue}`, false);
-      }
-    }
-    let requirementsSourceBinding: JsonObject | undefined;
-    let requirementsRuntimeBinding: JsonObject | undefined;
-    if (typeof config.requirements !== 'string') {
-      if (callerAdapter.some(r => r.doc === 'requirements')) {
-        return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, 'requirements adapter supplied without config.requirements');
-      }
-    } else if (reqSourcePath && portableReqRel) {
-      const reqOriginalBytes = sourceBytes(reqSourcePath);
-      let originalReq: Json;
-      try { originalReq = JSON.parse(reqOriginalBytes.toString('utf8')); }
-      catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', String(error)); }
-      if (!isObject(originalReq)) return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', 'expected a JSON object');
-      let reqRefs: AssetRefSpec[];
-      try { reqRefs = collectRequirementsAssetRefs(originalReq, portableReqRel); }
-      catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', 'requirements', String(error)); }
-      for (const row of callerAdapter.filter(r => r.doc === 'requirements')) {
-        const ref = reqRefs.find(r => r.pointer === row.pointer);
-        if (!ref || ref.value !== row.originalString) {
-          return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, `requirements ${row.pointer}: adapter does not match requirements-source`);
-        }
-      }
-      const portableReq = structuredClone(originalReq);
-      const reqDir = dirname(reqSourcePath);
-      const reqUsesPointers = effectiveAdapter.some(row => row.pointer !== undefined)
-        || reqRefs.some(ref => ref.autoRelocate);
-      const reqAllowedRoot = reqUsesPointers || insideOrEqual(dir, reqDir) ? dir : configDir;
-      const reqParent = dirname(portableReqRel);
-      for (const ref of reqRefs) {
-        const callerRow = callerAdapter.find(r => r.doc === 'requirements' && r.pointer === ref.pointer);
-        if (absolute(ref.value)) {
-          return fail('RIG_RUNTIME_PATH_UNRESOLVED', `requirements.${ref.dotPath}`, 'requirements setup_painting path must be relative');
-        }
-        const lexicalSource = resolve(reqDir, ref.value);
-        checkSourceAncestors(lexicalSource, `requirements.${ref.dotPath}`, reqAllowedRoot);
-        const assetSource = canonicalSourcePath(lexicalSource);
-        if (!insideOrEqual(reqAllowedRoot, assetSource)) {
-          return fail('RIG_REGISTRATION_PATH_INVALID', `requirements.${ref.dotPath}`, 'relative input escapes the project');
-        }
-        if (!existsSync(assetSource)) {
-          return fail('RIG_REGISTRATION_FILE_INVALID', `requirements.${ref.dotPath}`, 'referenced source asset is missing');
-        }
-        const assetBytes = sourceBytes(assetSource);
-        if (ref.declaredSha256 !== undefined && sha(assetBytes) !== ref.declaredSha256) {
-          return fail('RIG_REGISTRATION_FILE_INVALID', `requirements.${ref.dotPath}`, 'source bytes differ from declared sha256');
-        }
-        let adaptedValue: string;
-        if (callerRow) {
-          adaptedValue = callerRow.adaptedString;
-        } else if (ref.autoRelocate) {
-          adaptedValue = reqParent === '.' ? `inputs/${ref.dotPath.split('.').join('/')}` : `${ref.dotPath.split('.').join('/')}`;
-          effectiveAdapter.push({ doc: 'requirements', pointer: ref.pointer, before: ref.value, after: adaptedValue });
-        } else {
-          adaptedValue = ref.value;
-        }
-        const relInEvidence = reqParent === '.' ? adaptedValue : `${reqParent}/${adaptedValue}`;
-        if (!isValidAdaptedTarget(adaptedValue) || !isValidAdaptedTarget(relInEvidence) || conflictsWithReserved(relInEvidence)) {
-          return fail('RIG_REGISTRATION_PATH_INVALID', `${evidence}/${relInEvidence}`, 'two distinct inputs collide or target is invalid');
-        }
-        retain(`${evidence}/${relInEvidence}`, assetBytes, false);
-        copiedSources.set(`${evidence}/${relInEvidence}`, assetSource);
-        if (adaptedValue !== ref.value) setPointerValue(portableReq, ref.pointer, adaptedValue);
-      }
-      if (effectiveAdapter.some(row => row.pointer !== undefined)) {
-        const reqSourceRel = insideOrEqual(dir, reqSourcePath) ? relative(dir, reqSourcePath).split(sep).join('/') : undefined;
-        requirementsSourceBinding = {
-          ...retain(`${evidence}/requirements-source.json`, reqOriginalBytes),
-          ...(reqSourceRel && literal(reqSourceRel) ? { source_path: reqSourceRel } : {}),
-        };
-        const runtimeReqBytes = isDeepStrictEqual(originalReq, portableReq)
-          ? reqOriginalBytes : Buffer.from(`${JSON.stringify(portableReq, null, 2)}\n`);
-        requirementsRuntimeBinding = retain(`${evidence}/${portableReqRel}`, runtimeReqBytes);
-      } else {
-        retain(`${evidence}/${portableReqRel}`, reqOriginalBytes);
-      }
-      copiedSources.set(`${evidence}/${portableReqRel}`, reqSourcePath);
-    }
+    const {
+      portable, effectiveAdapter, requirementsSourceBinding, requirementsRuntimeBinding,
+    } = mapRegistrationAssets(dir, options['--config']!, config, evidence, `versions[v${n}].registration.path_adapter`,
+      registrationReservedTargets(toolchainKind === 'bun-lock', validatedRuns.map(({ spec }) => spec)), {
+        checkSourceAncestors, sourceBytes, retain,
+        copyTree: (source, target) => copyTree(source, target, false),
+      }, callerAdapter);
     const pointerAdapted = effectiveAdapter.some(row => row.pointer !== undefined);
     const adapterBinding = retain(
       `${evidence}/path-adapter.json`,

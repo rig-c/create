@@ -1345,7 +1345,7 @@ registrations by `registration.at`: before it they WARN under
 
 | Code | Fires when | Remedy |
 | --- | --- | --- |
-| `RIG_REGISTRATION_USAGE` | required arguments are absent, repeated or malformed | supply the next version and the inputs shown by rig-version help |
+| `RIG_REGISTRATION_USAGE` | required arguments are absent, repeated or malformed | supply the next version and registration inputs, or use `rig-version adapter [<dir>] --config <file> --out <file>` to generate the adapter |
 | `RIG_REGISTRATION_BUSY` | another registration holds the project lock | finish that registration before retrying |
 | `RIG_PARTS_APPROVAL_REQUIRED` | a registration at or after `RIG_PARTS_APPROVAL_SINCE` has no live parts approval binding | approve parts-review and register the frozen outputs |
 | `RIG_PARTS_APPROVAL_INVALID` | the recorded parts approval identity does not resolve uniquely at registration | restore the bound parts signoff and evidence |
@@ -1359,6 +1359,7 @@ registrations by `registration.at`: before it they WARN under
 | `RIG_AT_SOURCE_INVALID` | the cited record/pointer lacks a valid UTC instant, differs from at or is later than registration | explicitly cite a retained dated record's UTC timestamp through --at-source and --at-pointer |
 | `RIG_BUILD_BEFORE_REOPEN` | the cited not-after instant is at or before an amendment or historical reopen covering rig-review at registration | register a later frozen build with an explicit retained date citation |
 | `RIG_PATH_ADAPTER_INVALID` | the adapter lacks distinct `{at,before,after}` or `{doc,pointer,before,after}` mappings, names an unknown document or non-asset pointer, or disagrees with `config-source.json` / `requirements-source.json` | retain an exact adapter matching the original `config` and `requirements` asset pointers and `before` values |
+| `RIG_PATH_ADAPTER_OUT_INVALID` | the adapter output cannot be written, is not a regular file, or already holds different bytes | choose a fresh writable `--out` path |
 | `RIG_RUNTIME_PATH_UNRESOLVED` | an absolute config input lacks an exact adapter mapping, or a `requirements` asset path is absolute | retain the recorded runtime mapping and project-relative asset paths |
 | `RIG_IDLE_MANIFEST_MISSING` | idle evidence lacks the public render's frames.json | render through public rigc render and supply its output directory |
 | `RIG_CHECK_REPORT_MISSING` | WARN: a frozen rig has no `registration.check_report` | run `rig-parts check --rig <rig dir> --parts <parts dir> --out <check dir>` with the original check inputs and use `--check-report <check dir>/check.json` and the same run's `--build` at registration |

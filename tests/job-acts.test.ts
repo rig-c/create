@@ -17,7 +17,7 @@ import { listCreateJobActs } from '../src/job-host.ts';
 import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import { startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
-import type { JsonObject } from '../src/templates.ts';
+import type { Json, JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
@@ -458,6 +458,42 @@ test('#737 a second --question refuses JOB_ASK_PENDING while the first ask is op
   const bonesAct = await bonesView.act('interview-picks', 'interview-picks', bones!);
   const after = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts as PendingJobAct[];
   expect(after.map(row => row.actId)).toEqual([String(bonesAct.actId)]);
+}, 60_000);
+
+/** Record the owner's chat answer for the question's registered pending set, as AGENTS.md goal 3 allows. */
+async function ownerChatAnswer(root: string, value: { questionId: string; selections: { itemId: Json; optionId: Json }[] }) {
+  const binding = obj(collectItems(read(root), { collection: null }).find(item => item.id === value.questionId)!.record.pending_options);
+  const words = join(root, `owner-words-${value.questionId}.txt`);
+  writeFileSync(words, 'Synthetic owner chat words.\n');
+  expectExit0(await cli(root, ['interview-answer', value.questionId, root, '--set', String(binding.path), '--sha256', String(binding.sha256),
+    '--by', 'user', '--owner-chat', words, '--said-at', new Date(testClock.now() - 500).toISOString(), '--relayed-by', 'synthetic-operator',
+    ...value.selections.flatMap(row => ['--pick', `${String(row.itemId)}=${String(row.optionId)}`])]));
+}
+
+test('#737 an owner-chat answer for the published set settles its ask, so the next --question publishes', async () => {
+  const { root, value } = await openMotionQuestion(['bones']);
+  await ownerChatAnswer(root, value);
+  const next = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
+  expectExit0(next);
+  expect(next.stdout).toContain('job: option-set bones/pending-acts-bones published');
+}, 60_000);
+
+test('#737 an owner-chat answer bound to a different set leaves the published ask open', async () => {
+  const { root } = await openMotionQuestion(['bones']);
+  // Register a second motion set after the first was published, then answer that one in chat.
+  const project = read(root); const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+  const shown = JSON.parse(readFileSync(join(root, String(obj(item.record.pending_options).path)), 'utf8')) as JsonObject;
+  shown.id = 'pending-acts-motion-chat'; shown.drafted_at = new Date(testClock.now() - 900).toISOString();
+  const path = 'evidence/interview/pending-acts-motion-chat.json';
+  writeFileSync(join(root, path), JSON.stringify(shown, null, 2) + '\n');
+  expectExit0(await cli(root, ['interview-options', 'motion', root, '--file', path]));
+  const selections = (shown.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id }));
+  await ownerChatAnswer(root, { questionId: 'motion', selections });
+  const before = snapshot(root);
+  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'bones']);
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: .*interview-picks motion\/pending-acts-motion on /);
+  expect(snapshot(root)).toEqual(before);
 }, 60_000);
 
 test('#737 next at the rigging interview names the one-question-at-a-time loop with job acts --wait', async () => {

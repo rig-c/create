@@ -18,7 +18,7 @@ import { reviewPackageCommand } from '../src/review-package.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { generateDirectionFixture } from '../scripts/generate-direction-fixture.ts';
 import { directionFixture } from './direction-fixture.ts';
-import { clockedCli, tempDir, ownerChatArgs } from './helpers.ts';
+import { clockedCli, tempDir } from './helpers.ts';
 import { TEST_NOW, checkProject, correctionCommand, checkCorrections, assertDirectionApproval, checkDirections, advanceCommand, directionCommand, recordVerdict, handoff, sceneCommand, signoffCommand, testClock } from './clock.ts';
 
 afterEach(()=>testClock.reset());

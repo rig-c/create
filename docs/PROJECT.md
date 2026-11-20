@@ -283,14 +283,28 @@ rig-create amend parts --kind part --target panel --change inputs/replacement.sv
 
 `amendments[]` retains `{ target, by, at, verbatim, source?, changes }`.
 `target` contains `{ stage, kind, id }`, where `kind` is `part`, `config-field`,
-`motion-track` or `interview-answer`. `id` names the artifact, config pointer,
-track or answer path. Any ordered non-terminal stage may own a target.
+`motion-track`, `interview-answer` or `draft`. `id` names the artifact, config
+pointer, track, answer path or registered draft. A draft target belongs to
+parts-review.
 `changes` contains `{ path, sha256 }` for every repeated `--change` file.
 The writer reads and hashes those files under the project. These are declared
 new inputs retained as historical byte identities. Checking history validates
 their shape and does not require the mutable working files to retain those
 bytes forever. `at` comes from the clock, and UTF-8 words are retained unchanged.
 An agent signer is refused. Optional `--source` records the origin separately.
+
+At parts-review the owner can correct a verdict on the same draft. Retain the
+owner's correction in the project and record it first.
+
+```sh
+rig-create amend parts-review --kind draft --target d1 --change evidence/correction.txt \
+  --by owner --owner-chat evidence/correction.txt --said-at 2026-11-20T00:00:00Z --relayed-by operator
+rig-create job open --draft d1 --reviewer owner --role owner
+```
+
+The amendment lists the previous approval in `amendments[].lapsed`. Review
+asks for a fresh verdict on the registered draft. A new approval signs after
+the amendment, and a changes request leaves parts-review unsigned.
 
 An amendment invalidates every approval at its owning stage or later, using
 the same stage and time cutoff as a historical reopen. The reason for each is exactly

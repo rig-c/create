@@ -138,7 +138,7 @@ function reviewedSource(dir: string, project: JsonObject, id: string, path: stri
     validate: (): void => {
       try {
         // Unrelated historical receipts are not new evidence dependencies of this draft.
-        recordedPartsVerdict(dir, { ...project, review_acts: receipts }, id, undefined, {
+        recordedPartsVerdict(dir, { ...project, review_acts: receipts }, id, { ...(receipts[0]!.evidence as JsonObject), kind: 'parts-verdict' }, {
           requireAvailable: false, requireApproval: false, ...(manifest === undefined ? {} : { retainedManifest: manifest }),
         });
       } catch (error) {

@@ -684,7 +684,7 @@ empty `keep_by_binding` list. The fixed G table and re-signing contract are in
 | Code | Fires when | Clear it by |
 | --- | --- | --- |
 | `AMENDMENT_MALFORMED` | amendments is not a list, or an entry lacks a human name, valid date, verbatim or optional text source | restore the named amendment to the writer's record shape |
-| `AMENDMENT_TARGET_INVALID` | target lacks a supported kind, artifact id or ordered non-terminal stage | supply the artifact and its owning stage to amend |
+| `AMENDMENT_TARGET_INVALID` | target lacks a supported kind, artifact id or ordered non-terminal stage, or a draft amendment fails to name one registered draft at parts-review | supply the artifact and its owning stage to amend |
 | `AMENDMENT_CHANGES_INVALID` | new input bindings are empty, duplicate or lack paths and lowercase SHA-256 hashes | record distinct new input files through amend |
 | `AMENDMENT_INPUT_UNREAD` | a new input cannot be read or escapes the project, including through a symlink | retain readable input bytes under the project and amend again |
 | `AMENDMENT_OPTION_INVALID` | required arguments are absent, option values are empty/repeated or the argument count is invalid (exit 2) | supply stage, kind, target, new input and signer once, repeating only change |
@@ -1804,7 +1804,7 @@ interview is the existing `WAYPOINT_MISSING` refusal.
 | Code | Meaning and remedy |
 | --- | --- |
 | `OWNER_CHAT_INVALID` | The named project.json answer/signoff lacks exact nonblank owner words, a valid explicit ISO said_at, relay identity, or the relayed source, or mixes chat and Review flags. Supply `--owner-chat`, `--said-at`, `--relayed-by` and owner `--by` together; keep at as the write time and omit act ids. |
-| `OWNER_CHAT_REQUIRED` | A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt, or a restart lacks relayed owner chat. Refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For restart, record `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
+| `OWNER_CHAT_REQUIRED` | A draft amendment lacks relayed owner chat. A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt, or a restart lacks relayed owner chat. For reopen and restart, refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For a draft amendment or restart, record `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
 | `OWNER_CHAT_GATE_VISUAL` | The named project.json stage signoff has no accepted live verdict for the current draft, rig or post. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
 
 ## Composed idle direction (direction@3)

@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { JobAct, JobPartOutcome, JobVerdict } from '../node_modules/@rig-c/review/src/job-contract.ts';
 import { loadPartsView, saveVerdict, verdictSource } from '../node_modules/@rig-c/review/src/parts-view.ts';
+import { partsDraftEditable } from '../node_modules/@rig-c/review/src/interview-project.ts';
 import { JOB_COMMENTS_ACT_SCHEMA, PARTS_COMMENTS_VERDICT_SCHEMA, projectComments, type JobComment, type JobOwnerHost } from '@rig-c/review/job-host';
 import { openCreateJob, openDraftPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { draftPublishedContext, partsEnumerator, prepareDraftManifest } from '../src/job-publication.ts';
@@ -19,11 +20,13 @@ import { interviewStageOfGuide } from '../src/stages.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { planCommand } from '../src/plan-writers.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
+import { amendCommand } from '../src/amend.ts';
+import { latestPartsApproval } from '../src/structure.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { assertPartsActSource, partsActDraftHash, partsActFindings } from '../src/parts-act.ts';
-import { partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
+import { latestPartsReceipt, latestPartsVerdictStatus, partsReadFindings, recordedPartsVerdict } from '../src/parts-verdict-record.ts';
 import { decodeReviewAct, partsActIssues, reviewActFindings, type PartsVerdictActV5 } from '../src/review-act.ts';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -604,6 +607,58 @@ test('CLI and act receipts share current-verdict ordering', async () => {
   expect(expectCliOk(await cli(root, ['parts-review', '--from-review', nextRejected.actId])).exit).toBe(0);
   expect(latestPartsVerdictFinding(read(root), 'chain', 'signoffs[0].draft_id')?.code).toBe('PARTS_VERDICT_LATEST_NOT_APPROVED');
   expect(partsActFindings(root, read(root))).toEqual([]);
+}, MULTI_SPAWN_TIMEOUT_MS);
+
+test('#686 owner amendment republishes the parts-verdict ask on the same draft', async () => {
+  const { root, host } = await bound();
+  const approved = await submit(root, host);
+  ingestSyntheticFetch(root, approved);
+  const before = read(root);
+  expect(partsDraftEditable(before)).toBe(false);
+  expect(await openDraftPublication(root, host, Date.now(), 'chain')).not.toContain('job: asked parts-verdict chain');
+
+  const amendmentAt = Date.now();
+  const words = 'Please enter the three synthetic corrections again.\n';
+  writeFileSync(join(root, 'evidence/correction.txt'), words);
+  const args = ['parts-review', root, '--kind', 'draft', '--target', 'chain', '--change', 'evidence/correction.txt', '--by', 'synthetic-owner'];
+  const relay = ['--owner-chat', join(root, 'evidence/correction.txt'), '--said-at', new Date(amendmentAt).toISOString(), '--relayed-by', 'operator'];
+  expectAtomicRefusal(root, 'OWNER_CHAT_REQUIRED', () => amendCommand(args, amendmentAt));
+  expectAtomicRefusal(root, 'AMENDMENT_TARGET_INVALID', () => amendCommand([...args.slice(0, 5), 'missing', ...args.slice(6), ...relay], amendmentAt));
+  expect(amendCommand([...args, ...relay], amendmentAt).exit).toBe(0);
+
+  const amended = read(root);
+  expect(amended.amendments).toEqual([expect.objectContaining({ target: { stage: 'parts-review', kind: 'draft', id: 'chain' },
+    verbatim: words, said_at: new Date(amendmentAt).toISOString(), relayed_by: 'operator' })]);
+  const report = checkProject(root, undefined, { now: Date.now() });
+  expect(report.amendments?.[0]?.lapsed).toContainEqual(expect.objectContaining({ stage: 'parts-review', gap: 'G5' }));
+  expect(partsDraftEditable(amended)).toBe(true);
+  expect(latestPartsReceipt(amended, 'chain')).toBeUndefined();
+  const sameTime = structuredClone(amended);
+  const approval = (sameTime.signoffs as JsonObject[]).find(row => row.stage === 'parts-review')!;
+  approval.at = new Date(amendmentAt).toISOString();
+  expect(latestPartsApproval(sameTime)).toBeUndefined();
+  expect(partsDraftEditable(sameTime)).toBe(true);
+
+  expect(await openDraftPublication(root, host, Date.now(), 'chain')).toContain('job: asked parts-verdict chain');
+  const requested = await submit(root, host, 'changes-requested', 'flagged');
+  expectAtomicRefusal(root, 'REVIEW_ACT_SOURCE_STALE', () =>
+    ingestSyntheticFetch(root, { ...requested, at: new Date(amendmentAt).toISOString() }));
+  expect(ingestSyntheticFetch(root, requested).exit).toBe(0);
+  const after = read(root);
+  expect(after.drafts).toEqual(before.drafts);
+  expect(after.signoffs).toEqual(before.signoffs);
+  expect(after.amendments).toEqual(amended.amendments);
+  expect((after.review_acts as JsonObject[]).filter(row => row.kind === 'parts-verdict').map(row => row.actId)).toEqual([approved.actId, requested.actId]);
+  expect(latestPartsReceipt(after, 'chain')?.actId).toBe(requested.actId);
+  expect(latestPartsVerdictStatus(after, 'chain')).toBe('changes-requested');
+  expect(checkProject(root, undefined, { now: Date.now() }).refusals).toEqual([]);
+  expect(partsDraftEditable(after)).toBe(true);
+  expect(await openDraftPublication(root, host, Date.now(), 'chain')).toContain('job: asked parts-verdict chain');
+  const reapproved = await submit(root, host);
+  expect(ingestSyntheticFetch(root, reapproved).exit).toBe(0);
+  expect(latestPartsReceipt(read(root), 'chain')?.actId).toBe(reapproved.actId);
+  expect(latestPartsApproval(read(root))?.at).toBe(reapproved.at);
+  expect(partsDraftEditable(read(root))).toBe(false);
 }, MULTI_SPAWN_TIMEOUT_MS);
 
 test('act@5 issue-list parts verdict decodes, enforces verdict/issues invariant and checks manifest inclusion and draft panels', () => {

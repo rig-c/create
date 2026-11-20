@@ -5,6 +5,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { asArray, asString, collectSignoffs, isObject, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
+import { OWNER_CHAT_FLAGS, ownerChatAuthorityFinding, ownerChatFinding, readOwnerChat } from './owner-chat.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { newRefusals } from './refusal-baseline.ts';
@@ -76,12 +77,19 @@ export function collectAmendments(project: JsonObject, refusals: Finding[]): Ame
       continue;
     }
     const target = raw.target;
-    if (!isObject(target) || !['part', 'config-field', 'motion-track', 'interview-answer'].includes(String(target.kind))
+    if (!isObject(target) || !['part', 'config-field', 'motion-track', 'interview-answer', 'draft'].includes(String(target.kind))
       || typeof target.id !== 'string' || !target.id.trim() || typeof target.stage !== 'string'
       || target.stage === 'accepted' || !Object.hasOwn(AMENDMENT_APPROVAL_GAPS, target.stage)) {
       invalid('AMENDMENT_TARGET_INVALID', `${path}.target`, 'needs kind, non-empty artifact id and a non-terminal owning stage');
       continue;
     }
+    if (target.kind === 'draft' && (target.stage !== 'parts-review'
+      || asArray(project.drafts).filter(draft => isObject(draft) && draft.id === target.id).length !== 1)) {
+      invalid('AMENDMENT_TARGET_INVALID', `${path}.target`, 'a draft target needs parts-review and one registered draft id');
+      continue;
+    }
+    const authority = target.kind === 'draft' ? ownerChatAuthorityFinding(raw, path, raw.verbatim) : ownerChatFinding(raw, path);
+    if (authority) { refusals.push(authority); continue; }
     if (!Array.isArray(raw.changes) || raw.changes.length === 0 || raw.changes.some(c => !isObject(c)
       || typeof c.path !== 'string' || !c.path.trim() || typeof c.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(c.sha256))
       || new Set(raw.changes.map(c => (c as JsonObject).path)).size !== raw.changes.length) {
@@ -91,6 +99,12 @@ export function collectAmendments(project: JsonObject, refusals: Finding[]): Ame
     out.push({ index, target, stage: target.stage, at: Date.parse(raw.at as string) });
   }
   return out;
+}
+
+export function draftAmendmentTime(project: JsonObject, draftId: string): number {
+  return Math.max(-Infinity, ...collectAmendments(project, [])
+    .filter(amendment => amendment.target.kind === 'draft' && amendment.target.id === draftId)
+    .map(amendment => amendment.at));
 }
 
 /** Name each recorded approval act. Re-signatures remain separate acts in history. */
@@ -125,12 +139,14 @@ export function amendmentSummaries(project: JsonObject, amendments: readonly Ame
 
 export const AMEND_HELP = `amend:
   <stage> [<project dir>]  record a forward amendment, retaining project.stage
-  --kind <kind>           part, config-field, motion-track or interview-answer
-  --target <id>           artifact id, config pointer, track id or answer path
+  --kind <kind>           part, config-field, motion-track, interview-answer or draft
+  --target <id>           artifact id, config pointer, track id, answer path or draft id
   --change <file>         new input under the project, hashed by the writer (repeatable)
   --by <who>              human signer (agent is refused)
   --verbatim-file <file>  unchanged UTF-8 words, or - for stdin (default)
   --source <text>         optional origin, separate from verbatim
+  --owner-chat <file> --said-at <ISO> --relayed-by <who>
+                          required for a registered draft at parts-review
   --json                  print the amendment record
   The clock supplies at. The owning stage and every later approval lapse.
   Upstream steps keep their state. keep-by-binding ships empty.`;
@@ -143,7 +159,7 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--json') json = true;
-    else if (['--kind', '--target', '--change', '--by', '--verbatim-file', '--source'].includes(arg)) {
+    else if (['--kind', '--target', '--change', '--by', '--verbatim-file', '--source', ...OWNER_CHAT_FLAGS].includes(arg)) {
       const value = args[++i];
       if (value === undefined || !value.trim() || (arg !== '--change' && arg in opts)) refuse('AMENDMENT_OPTION_INVALID', `amendments: ${arg} needs one non-empty value; see amend help`, USAGE_EXIT);
       if (arg === '--change') files.push(value);
@@ -165,10 +181,18 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     by: opts['--by'], at: new Date(now).toISOString(), verbatim: '', changes: [],
   };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
-  // Check signer and target before reading stdin or any input file.
+  if (opts['--kind'] === 'draft' && project.stage !== 'parts-review') {
+    refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: review a draft correction at parts-review; use an artifact amendment for later stages');
+  }
+  const chat = readOwnerChat(opts, opts['--by'], now, 'amendments');
+  if (chat) {
+    const { owner_words, ...authority } = chat;
+    Object.assign(entry, authority, { verbatim: owner_words });
+  }
+  // Check the entry before reading change files or legacy verbatim words.
   entry.changes = files.map(path => ({ path, sha256: '0'.repeat(64) }));
   const entryErrors: Finding[] = [];
-  collectAmendments({ amendments: [entry] }, entryErrors);
+  collectAmendments({ drafts: project.drafts, amendments: [entry] }, entryErrors);
   if (entryErrors[0] !== undefined) refuse(entryErrors[0].code, entryErrors[0].message);
   entry.changes = files.map(path => {
     try {
@@ -180,7 +204,7 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
       refuse('AMENDMENT_INPUT_UNREAD', `amendments.changes ${path}: ${error instanceof Error ? error.message : String(error)}; retain the new input under the project and amend again`);
     }
   });
-  entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
+  if (!chat) entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
   project.amendments = [...asArray(project.amendments), entry];
   for (const raw of asArray(isObject(project.plan) ? project.plan.steps : undefined)) {
     if (isObject(raw) && typeof raw.id === 'string' && (raw.phase === 'rig' || raw.phase === 'post')

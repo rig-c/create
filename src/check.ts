@@ -992,10 +992,13 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const provenance = options.recordPublication ? [] : checkProvenance(ctx, parts);
   const feedback = options.recordPublication ? [] : checkFeedback(ctx);
   refusals.push(...reviewActFindings(project, warnings), ...partsActFindings(dir, project), ...(options.recordPublication ? [] : partsReadFindings(dir, project)));
+  const draftAmendments = amendments.filter(amendment => amendment.target.kind === 'draft');
   for (const [index, raw] of asArray(project.signoffs).entries()) {
     if (!isObject(raw) || raw.stage !== 'parts-review' || typeof raw.draft_id !== 'string') continue;
+    const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
+    if (!liveSignoff(draftAmendments, PARTS_REVIEW, at)) continue;
     const finding = latestPartsVerdictFinding(project, raw.draft_id, `signoffs[${index}].draft_id`);
-    if (finding) (typeof raw.at === 'string' && Date.parse(raw.at) < Date.parse(PARTS_VERDICT_LATEST_SINCE) ? warnings : refusals).push(finding);
+    if (finding) (at < Date.parse(PARTS_VERDICT_LATEST_SINCE) ? warnings : refusals).push(finding);
   }
   checkCgGates(ctx, options.recordPublication);
   if (!options.recordPublication) checkSetupPainting(ctx);
@@ -1008,8 +1011,9 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const checkChat = (value: Json | undefined, path: string): void => {
     if (Array.isArray(value)) value.forEach((entry, index) => checkChat(entry, `${path}[${index}]`));
     else if (isObject(value)) {
-      // Reopen, restart and discard receipts validate their own relay fields.
+      // Reopen, restart, amendment and discard records validate their own relay fields.
       const checked = /^project\.json\.(reopens|restarts)\[\d+\]$/.test(path)
+        || /^project\.json\.amendments\[\d+\]$/.test(path)
         || /^project\.json\.review_acts\[\d+\]$/.test(path) && isDiscardReceipt(value);
       const finding = checked ? undefined : ownerChatFinding(value, path);
       if (finding) ctx.refusals.push(finding);

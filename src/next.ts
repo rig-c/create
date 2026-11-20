@@ -1,3 +1,4 @@
+import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
 import { ChoiceError, hasPendingOther, isUndecidedDelegation, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
@@ -1488,8 +1489,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
     }
 
-    const planIds = effectiveStage === 'rigging-interview' ? ['bones', 'meshes', 'constraints', 'motion']
-      : effectiveStage === 'post-interview' ? ['camera', 'timing', 'composition'] : ['seethrough', 'assemble'];
+    const planIds = effectiveStage === 'post-interview' ? ['camera', 'timing', 'composition'] : requiredInterviewSteps(effectiveStage);
     const missingPlanIds = planIds.filter(id => {
       const guide = id === 'camera' ? 'camera_depth' : id === 'timing' ? 'post_timing' : id === 'composition' ? 'post_composition' : id;
       const phase = effectiveStage === 'post-interview' ? 'post' : 'rig';
@@ -1527,7 +1527,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           : undecidedFields.length > 0
             ? undecidedFields.join(', ')
             : undefined;
-      moves.push({
+      const fromPicks = pickSignoffEvidence(dir, project, effectiveStage, now);
+      if (fromPicks && !unansweredSignoff) moves.push({
+        role: 'agent', field: 'signoffs', awaits: signoffAwait,
+        command: `rig-create signoff ${effectiveStage} ${shellWord(dir)} --from-picks`,
+        act: `record ${effectiveStage} approval from the ingested owner picks`,
+      });
+      else moves.push({
         role: 'human',
         field: 'signoffs',
         awaits: signoffAwait,
@@ -1570,7 +1576,18 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const signoffAwait = 'signoffs[stage=plan-approved]';
     if (!hasLiveStageSignoff('plan-approved') && !recordedLapseTargets.has(signoffAwait)) {
       addAwait(signoffAwait);
-      moves.push({
+      const fromPicks = pickSignoffEvidence(dir, project, effectiveStage, now);
+      const missing = fromPicks ? missingPickSignoffSteps(project, effectiveStage) : [];
+      if (missing.length) {
+        addAwait('plan.steps');
+        moves.push({ role: 'agent', field: 'plan.steps', awaits: 'plan.steps', command: null,
+          act: `add the missing plan steps with plan add: ${missing.join(', ')}`, unanswered_by_record: 'plan.steps' });
+      } else if (fromPicks) moves.push({
+        role: 'agent', field: 'signoffs', awaits: signoffAwait,
+        command: `rig-create signoff ${effectiveStage} ${shellWord(dir)} --from-picks`,
+        act: `record ${effectiveStage} approval from the ingested owner picks`,
+      });
+      else moves.push({
         role: 'human',
         field: 'signoffs',
         awaits: signoffAwait,

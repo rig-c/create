@@ -1,3 +1,4 @@
+import { missingPickSignoffSteps, pickSignoffEvidence } from './pick-signoff.ts';
 import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
 import { pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.ts';
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
@@ -32,6 +33,7 @@ export const SIGNOFF_HELP = `signoff:
   --version <n>           reviewed rig or post version (single candidate defaults)
   --from-review <actId>   without --checkpoint: record the person's Review signoff act for <stage>
                           (excludes --by, --verbatim-file and --steps on both routes)
+  --from-picks            derive a stage signature from recorded owner picks
   --by <who>              the person signing (agent is refused)
   --verbatim-file <file>  UTF-8 words unchanged, or - for stdin (default: stdin)
   --owner-chat <file>     relay exact owner words (excludes --verbatim-file / --from-review)
@@ -73,6 +75,10 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') json = true;
+    else if (arg === '--from-picks') {
+      if (arg in opts) refuse('SIGNOFF_OPTION_INVALID', '--from-picks can only be supplied once', USAGE_EXIT);
+      opts[arg] = 'true';
+    }
     else if (arg === '--component' || arg === '--diff-report' || arg === '--triage-file') {
       hasDiffFlag = true;
       i++;
@@ -95,18 +101,21 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
       USAGE_EXIT,
     );
   }
+  if (opts['--from-picks'] && Object.keys(opts).length !== 1) {
+    refuse('SIGNOFF_OPTION_INVALID', '--from-picks supplies the signing evidence and cannot be combined with other signoff options', USAGE_EXIT);
+  }
   const actId = opts['--from-review'];
   if (actId !== undefined) {
     const mixed = ['--by', '--verbatim-file', '--steps', ...OWNER_CHAT_FLAGS].filter(flag => opts[flag] !== undefined);
     if (mixed.length > 0) refuse('SIGNOFF_OPTION_INVALID', `project.json.review_acts: --from-review excludes ${mixed.join(', ')}; the person's identity, words and covered steps come from the review act`, USAGE_EXIT);
   }
-  if (actId === undefined) return recordSignoff(stage, positional, opts, json, now, hooks);
+  if (actId === undefined && !opts['--from-picks']) return recordSignoff(stage, positional, opts, json, now, hooks);
   // One bound write lock per route covers the fetch, validation and the write.
   const root = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(root);
   try {
     // With --checkpoint the passed checkpoint act is fetched inside the writer; without it, the stage signoff act.
-    const review = opts['--checkpoint'] === undefined ? fetchSignoffAct(root, stage, actId, now, hooks) : undefined;
+    const review = actId !== undefined && opts['--checkpoint'] === undefined ? fetchSignoffAct(root, stage, actId, now, hooks) : undefined;
     return recordSignoff(stage, positional, opts, json, now, hooks, review);
   } finally { release(); }
 }
@@ -119,7 +128,7 @@ export function assertPlanSignoffCandidate(dir: string, project: JsonObject, sta
 function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff, preview?: JsonObject): { stdout: string; exit: number; reads?: readonly CheckRead[] } {
   const actId = opts['--from-review'];
   let by = review === undefined ? opts['--by'] ?? '' : String(review.human.by);
-  if (opts['--by'] === undefined && actId === undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
+  if (opts['--by'] === undefined && actId === undefined && !opts['--from-picks']) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
@@ -133,7 +142,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     assertDraftHasRig(draft, 'project.json.signoffs.target');
   }
   if (chat) assertOwnerChatSignoff(dir, project, stage, opts['--draft'], opts['--version']);
-  const original = actId === undefined ? undefined : readFileSync(file);
+  const original = actId === undefined && !opts['--from-picks'] ? undefined : readFileSync(file);
   let ingest: CheckpointIngest | undefined;
   // Recorded checkpoint receipts replay before current eligibility, through the same immutable-byte validator.
   if (actId !== undefined && opts['--checkpoint'] !== undefined && asArray(project.review_acts).some(entry =>
@@ -207,7 +216,16 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   // The record as read: its refusals are the baseline the candidate is judged against below.
   const asRead = checkProject(dir, project, { now, readOnly: preview !== undefined });
-  if (review !== undefined && isRecordInterviewSignoff(review.act)) assertInterviewRecordSignable(project, asRead);
+  const picks = opts['--from-picks'] ? pickSignoffEvidence(dir, project, stage, now) : null;
+  if (opts['--from-picks']) {
+    if (!picks || project.stage !== stage || asRead.effective_stage !== stage) {
+      refuse('SIGNOFF_PICKS_REQUIRED', `project.json.review_acts: ${stage} needs a current ingested owner pick for every interview answer; record the picks before signing`);
+    }
+    by = picks.by;
+    const missing = missingPickSignoffSteps(project, stage);
+    if (missing.length) refuse('SIGNOFF_PICKS_PLAN_INCOMPLETE', `project.json.plan.steps: add the required steps ${missing.join(', ')} before signing ${stage}`);
+  }
+  if ((review !== undefined && isRecordInterviewSignoff(review.act)) || (picks && stage === 'interview')) assertInterviewRecordSignable(project, asRead);
   const existingLag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');
   if (existingLag !== undefined) refuse(existingLag.code, existingLag.message);
   if (!Array.isArray(project.signoffs)) refuse('SIGNOFF_MALFORMED', 'signoffs must be a list');
@@ -250,7 +268,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
     if (typeof value !== 'boolean') refuse('SIGNOFF_CHECKPOINT_INVALID', `${String(step.id)}: checkpoint needs a boolean user answer or a decided boolean delegation`);
   }
-  const verbatim = preview ? 'Publication preflight stand-in.' : review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : chat ? String(chat.owner_words) : readVerbatim(opts['--verbatim-file'] ?? '-');
+  const verbatim = preview ? 'Publication preflight stand-in.' : review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : chat ? String(chat.owner_words) : picks ? picks.verbatim : readVerbatim(opts['--verbatim-file'] ?? '-');
   const at = review !== undefined ? String(review.human.at) : ingest ? ingest.at : new Date(now).toISOString();
   const hashes: JsonObject = Object.create(null) as JsonObject;
   for (const step of covered) {
@@ -260,6 +278,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     hashes[step.id as string] = stepHash(step);
   }
   const signoff: JsonObject = { stage, checkpoint: checkpointId ?? null, by, at, verbatim };
+  if (picks) signoff.evidence = picks.evidence;
   if (chat) { signoff.source = chat.source!; signoff.said_at = chat.said_at!; signoff.relayed_by = chat.relayed_by!; }
   if (review !== undefined) signoff.source = review.human.source!;
   if (phase !== undefined) {
@@ -267,7 +286,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     signoff.step_hashes = hashes;
   }
   const prepare = () => {
-    const answerHashes = selectAnswerHashes(dir, project, signoff);
+    const answerHashes = selectAnswerHashes(dir, project, signoff, picks?.questions);
     if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
     if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) signoff.draft_id = opts['--draft'];
     if (stage === PARTS_REVIEW) bindPartsSignoff(dir, project, signoff, opts['--structure-file']);
@@ -310,7 +329,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (pair) refuse(pair.code, pair.message);
   assertSignoffCandidate(dir, asRead, project, signoff, covered, now);
   if (preview) return { stdout: '', exit: 0, reads: prepared.reads };
-  if (ingest) commitIngestedSignoff(file, original!, project);
+  if (ingest || picks) commitIngestedSignoff(file, original!, project);
   else {
     if (review !== undefined && !readFileSync(file).equals(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during signoff validation; retry against the current live job');
     writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);

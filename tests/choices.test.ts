@@ -9,8 +9,8 @@ import { collectItems, isObject, asArray } from '../src/check.ts';
 import { CHOICE_SPEC, CHOICE_ORDER_SPEC, sha256, optionContext, validateSet, assembleFragments, checkChoiceConstraints, type ChoiceError } from '../src/choices.ts';
 import { FRAMING_IDS } from '../src/waypoints.ts';
 import { GUIDE_INTERVIEW, hasStageOrder, stageIndex } from '../src/stages.ts';
-import { currentJobIdentity } from '../src/job-publication.ts';
-import { JOB_BINDING_FILE, writePrivateJson } from '../src/job-outbox.ts';
+import { currentJobIdentity, readRecordPublished, type RecordPlanContext } from '../src/job-publication.ts';
+import { JOB_BINDING_FILE, jobHash, writePrivateJson } from '../src/job-outbox.ts';
 import { realpathSync } from 'node:fs';
 import { interviewAnswerCommand as rawInterviewAnswer } from '../src/choice-writers.ts';
 import { decodeReviewResponse, fetchReviewAct, reviewActFindings } from '../src/review-act.ts';
@@ -622,4 +622,87 @@ test.each(['--said-at','--relayed-by','agent','--from-review','bad-pick'])('owne
   const before=readFileSync(join(w.dir,'project.json'));
   expect(code(()=>rawInterviewAnswer(args,testClock.now()))).toBe(change==='bad-pick'||change==='agent'?'INTERVIEW_CHOICE_INVALID':'OWNER_CHAT_INVALID');
   expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+});
+
+function syntheticPick(w: ReturnType<typeof working>, recorded = true): void {
+  const raw = obj(current(load(w.dir), String(w.set.question)).raw);
+  const picks = arr(obj(raw.choice).picks).map(value => ({ ask: obj(value).ask, option_id: obj(value).option_id === 'auto' ? 'keep' : obj(value).option_id }));
+  if (recorded) reviewAnswer(w, { set: { path: w.path, sha256: w.hash }, picks, at: new Date(testClock.now()).toISOString() });
+  else answer(w, picks.map(pick => `${pick.ask}=${pick.option_id}`));
+}
+
+test.each([true, false])('#701 source plan with all picks = %s', allPicked => {
+  const first = working('rig_type');
+  const { dir } = first;
+  const questions = ['rig_type', 'reference', 'seethrough', 'assemble'];
+  for (const [index, question] of questions.entries()) {
+    const w = index === 0 ? first : registerReask(dir, question, `test-${question}`, sourceDraftAt + 2_000 * index);
+    syntheticPick(w, allPicked || index !== questions.length - 1);
+  }
+  const lastPickAt = new Date(testClock.now()).toISOString();
+  testClock.set(testClock.now() + 2_000);
+  const record = join(dir, 'project.json');
+  const before = readFileSync(record);
+  const next = () => nextProject(dir, testClock.now());
+  if (!allPicked) {
+    expect(code(() => signoffCommand(['interview', dir, '--from-picks']))).toBe('SIGNOFF_PICKS_REQUIRED');
+    expect(readFileSync(record)).toEqual(before);
+    expect(next().moves.some(move => move.act.includes('job open --plan'))).toBe(true);
+    const publication = readRecordPublished({ root: dir, record: { path: 'project.json', sha256: jobHash(before) },
+      result: { kind: 'plan' }, phase: 'inventory' }, testClock.now()) as RecordPlanContext;
+    expect(publication.subjects).toEqual([{ kind: 'signoff', stage: 'interview' }]);
+    expect(checkProject(dir).refusals).toEqual([]);
+    expect(checkProject(dir).warnings).toEqual([]);
+    return;
+  }
+  const project = load(dir);
+  const plan = obj(project.plan);
+  const steps = plan.steps;
+  plan.steps = arr(steps).filter(step => obj(step).id !== 'assemble');
+  save(dir, project);
+  const incomplete = readFileSync(record);
+  expect(code(() => signoffCommand(['interview', dir, '--from-picks']))).toBe('SIGNOFF_PICKS_PLAN_INCOMPLETE');
+  expect(readFileSync(record)).toEqual(incomplete);
+  plan.steps = steps;
+  plan.drafted_at = new Date(testClock.now() - 1_000).toISOString();
+  save(dir, project);
+  for (const stage of ['interview', 'plan-approved']) {
+    const moves = next().moves;
+    expect(moves.some(move => move.act.includes('job open --plan') || move.command?.includes('job open --plan'))).toBe(false);
+    expect(moves.some(move => move.command?.includes(`signoff ${stage}`) && move.command.endsWith('--from-picks'))).toBe(true);
+    expect(signoffCommand([stage, dir, '--from-picks']).exit).toBe(0);
+    expect(arr(load(dir).signoffs).at(-1)).toMatchObject({
+      stage, by: 'synthetic-owner', at: new Date(testClock.now()).toISOString(),
+      evidence: { from: 'picks', act_id: 'pick-test-assemble', said_at: lastPickAt, picks: expect.any(Array) },
+    });
+    advanceCommand([stage === 'interview' ? 'plan-approved' : 'parts', dir]);
+  }
+  expect(checkProject(dir).refusals).toEqual([]);
+  expect(checkProject(dir).warnings).toEqual([]);
+});
+
+
+test('#701 all rigging picks reach rigging without a plan publication', () => {
+  const first = working('bones');
+  const { dir } = first;
+  for (const [index, question] of ['bones', 'meshes', 'constraints', 'turn', 'motion'].entries()) {
+    syntheticPick(index === 0 ? first : registerReask(dir, question, `rig-${question}`, riggingDraftAt + 2_000 * index));
+  }
+  const lastPickAt = new Date(testClock.now()).toISOString();
+  testClock.set(testClock.now() + 2_000);
+  const moves = nextProject(dir, testClock.now()).moves;
+  expect(moves.some(move => move.command?.endsWith('--from-picks'))).toBe(true);
+  expect(moves.some(move => move.act.includes('job open --plan') || move.command?.includes('job open --plan'))).toBe(false);
+  expect(signoffCommand(['rigging-interview', dir, '--from-picks']).exit).toBe(0);
+  expect(arr(load(dir).signoffs).at(-1)).toMatchObject({
+    stage: 'rigging-interview', by: 'synthetic-owner',
+    evidence: { from: 'picks', act_id: 'pick-rig-motion', said_at: lastPickAt, picks: expect.any(Array) },
+  });
+  const tampered = load(dir);
+  obj(obj(arr(tampered.signoffs).at(-1)).evidence).act_id = 'unrecorded';
+  expect(reviewActFindings(tampered).map(finding => finding.code)).toContain('REVIEW_ACT_LEDGER_INVALID');
+  expect(nextProject(dir, testClock.now()).moves.some(move => move.command?.includes('advance rigging '))).toBe(true);
+  advanceCommand(['rigging', dir]);
+  expect(checkProject(dir).refusals).toEqual([]);
+  expect(checkProject(dir).warnings).toEqual([]);
 });

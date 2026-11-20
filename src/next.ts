@@ -8,6 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { publicationFile } from './job-publication.ts';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import {
+  answered,
   asArray,
   checkProject,
   collectItems,
@@ -331,6 +332,15 @@ function plateInputMoves(dir: string, project: JsonObject, items: Item[], now: n
   });
 }
 
+const OWNER_CHAT_COMMAND_FLAGS = "--by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'";
+
+function ownerChatSignoffCommand(dir: string, project: JsonObject, act: NextReviewAct, writer: string): string | undefined {
+  if (act.kind !== 'signoff' || !ownerChatSignoffAllowed(dir, project, act.stage, act.draft_id, act.version_id?.slice(1))) return;
+  const version = act.stage === 'rig-review' || act.stage === 'direction-review'
+    ? ` --version ${shellWord(act.version_id?.slice(1) ?? '<current-version>')}` : '';
+  return `rig-create ${writer} ${shellWord(dir)}${version} ${OWNER_CHAT_COMMAND_FLAGS}`;
+}
+
 /** The person acts in Review; the agent only hosts and ingests its exported act. */
 function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextMove[] {
   const act = move.review_act;
@@ -366,10 +376,9 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
   });
   const root = shellWord(dir);
   const chatMoves: NextMove[] = [];
-  const chatFlags = "--by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'";
-  if (act.kind === 'signoff' && ownerChatSignoffAllowed(dir, project, act.stage, act.draft_id, act.version_id?.slice(1))) {
-    const version = act.stage === 'rig-review' || act.stage === 'direction-review' ? ` --version ${shellWord(act.version_id?.slice(1) ?? '<current-version>')}` : '';
-    chatMoves.push({...move, command:`rig-create ${writer} ${root}${version} ${chatFlags}`, act:`${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act:undefined});
+  const chatSignoff = ownerChatSignoffCommand(dir, project, act, writer);
+  if (chatSignoff) {
+    chatMoves.push({ ...move, command: chatSignoff, act: `${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act: undefined });
   } else if (act.kind === 'interview-picks' && act.question_id) {
     const item = collectItems(project, {collection:loadCollection(dir)}).find(item => item.id === act.question_id);
     const binding = item?.record.pending_options;
@@ -377,7 +386,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
       try {
         const {set} = optionFile(dir,binding);
         const picks = asArray(set.asks).filter(isObject).map(ask => ` --pick ${shellWord(`${String(ask.id)}=<option-id>`)}`).join('');
-        chatMoves.push({...move, command:`rig-create ${writer} ${root} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${chatFlags}${picks}`, act:`${move.act}; or relay the owner chat answer and explicit option ids from the displayed set`, review_act:undefined});
+        chatMoves.push({...move, command:`rig-create ${writer} ${root} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${OWNER_CHAT_COMMAND_FLAGS}${picks}`, act:`${move.act}; or relay the owner chat answer and explicit option ids from the displayed set`, review_act:undefined});
       } catch { /* The check's named option-file refusal supplies the repair route. */ }
     }
   }
@@ -1076,6 +1085,28 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     report.refusals.some(r => !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
   const registrations = plateInputMoves(dir, project, allItems, now);
   if (hasBlockingRefusal) {
+    const signoffs = asArray(project.signoffs);
+    const readyToResign = new Map<string, boolean>();
+    for (const finding of report.refusals) {
+      if (finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
+      const match = /^signoffs\[(\d+)\]\.answer_hashes\[(.+)\]$/.exec(finding.path);
+      if (!match) continue;
+      const signoff = signoffs[Number(match[1])];
+      if (!isObject(signoff) || typeof signoff.stage !== 'string') continue;
+      const item = allItems.find(item => item.id === match[2]);
+      // A missing or unfinished answer needs repair before the owner can re-sign.
+      const ready = item !== undefined && answered(item.state) && !hasPendingOther(item) && !isUndecidedDelegation(item);
+      readyToResign.set(signoff.stage, readyToResign.get(signoff.stage) !== false && ready);
+    }
+    const moves = [...depthMoves, ...registrations];
+    for (const [stage, ready] of readyToResign) {
+      if (!ready) continue;
+      const command = ownerChatSignoffCommand(dir, project, { kind: 'signoff', stage }, `signoff ${shellWord(stage)}`);
+      if (command) moves.push({
+        role: 'human', field: 'signoffs', awaits: `signoffs[stage=${stage}]`, command,
+        act: `re-sign ${stage} after confirming the intended answers and relay the owner's exact words`,
+      });
+    }
     return {
       schema: NEXT_SCHEMA,
       project_id: String(project.name ?? ''),
@@ -1084,8 +1115,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       accepted: false,
       refusals,
       ...warningFields,
-      awaits: [...depthMoves, ...registrations].map(move => move.awaits),
-      moves: [...depthMoves, ...registrations],
+      awaits: moves.map(move => move.awaits),
+      moves,
     };
   }
 

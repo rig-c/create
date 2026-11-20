@@ -7,7 +7,7 @@ import { acquireBoundJobWrite } from './job-writer.ts';
 import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
-import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
+import { answered, asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, collectionAnswer, type Item } from './check.ts';
 import { approvalStageOfGuide } from './stages.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { readProject } from './feedback.ts';
@@ -69,7 +69,7 @@ function run(action: () => string): string {
   try { return action(); } catch (e) { if (e instanceof ChoiceError) refuse(e.code, `interview: ${e.message}; retain the shown set and explicitly record each ask`); throw e; }
 }
 /** Partial interviews may retain unrelated pre-existing refusals, but a writer cannot add a new one. */
-export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = []): void {
+export function save(file: string, dir: string, original: JsonObject, candidate: JsonObject, now: number, baseline: JsonObject[] = [], correctedAnswer?: string): void {
   const asRead = checkProject(dir,original,{now});
   const counts = baselineOf(asRead);
   // A pending answer's stored baseline widens the record's own; it never stands in for a check that stopped early.
@@ -77,19 +77,31 @@ export function save(file: string, dir: string, original: JsonObject, candidate:
     const k = findingKey({ code: String(f.code), path: String(f.path) });
     counts.set(k,Math.max(counts.get(k) ?? 0,Number(f.count)));
   }
-  const first = newFindings(counts,checkProject(dir,candidate,{now}).refusals)[0];
+  const findings = newFindings(counts,checkProject(dir,candidate,{now}).refusals);
+  const staleBinding = (finding: (typeof findings)[number]): boolean =>
+    correctedAnswer !== undefined && finding.code === 'SIGNOFF_ANSWERS_STALE'
+      && finding.path.endsWith(`.answer_hashes[${correctedAnswer}]`);
+  const affectedSteps = new Set<string>();
+  if (correctedAnswer !== undefined && findings.some(staleBinding) && isObject(candidate.plan)) {
+    for (const step of asArray(candidate.plan.steps).filter(isObject)) {
+      if (asArray(step.rests_on).includes(correctedAnswer)) affectedSteps.add(`plan.steps[${String(step.id)}]`);
+    }
+  }
+  // A guide correction can also require its already-run steps to be re-signed.
+  const first = findings.find(finding => !staleBinding(finding)
+    && !(finding.code === 'GUIDE_CHANGED_UNSIGNED' && affectedSteps.has(finding.path)));
   if (first) refuse(first.code,first.message);
   const tmp = join(dirname(file), `.interview-${process.pid}-${crypto.randomUUID()}.tmp`);
   writeFileSync(tmp,`${JSON.stringify(candidate,null,2)}\n`, { flag: 'wx' }); renameSync(tmp,file);
 }
-function checkNewAnswer(dir: string, project: JsonObject, item: Item): void {
+function checkNewAnswer(dir: string, project: JsonObject, item: Item, correction = false): void {
   if (item.path === 'intake.choice.answer') {
     if (choiceAdoption(project, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED', 'intake.choice: adopt choices before recording a new choice');
     return;
   }
   const stage = approvalStageOfGuide(item.id,item.kind === 'post',true);
   const reopens = collectReopens(project,[]);
-  if (collectSignoffs(project,[]).some(s => s.stage === stage && s.checkpoint === null && liveSignoff(reopens,s.stage,s.at))) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: approval is still live; reopen ${stage === 'plan-approved' ? 'interview' : stage} before changing this answer`);
+  if (!correction && collectSignoffs(project,[]).some(s => s.stage === stage && s.checkpoint === null && liveSignoff(reopens,s.stage,s.at))) refuse('INTERVIEW_CHOICE_INVALID', `${item.path}: approval is still live; reopen ${stage === 'plan-approved' ? 'interview' : stage} before changing this answer`);
   if (choiceAdoption(project, item) === null) refuse('INTERVIEW_CHOICE_REQUIRED', `${item.path}: adopt order@2 with interview-options --adopt before recording new choices`);
   if (isObject(item.raw) && item.raw.basis === 'inherited') {
     // This changes the local member record, never its resolved collection source.
@@ -180,7 +192,8 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
         ...(row.otherText === null ? {} : {other_text:row.otherText}) })), note: act.value.note,
         by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at };
     }
-    checkNewAnswer(dir,next,item);
+    const correction = answered(item.state);
+    checkNewAnswer(dir,next,item,correction);
     const binding = payload ? payload.set as JsonObject : {path:opts.one['--set'] as string,sha256:opts.one['--sha256'] as string};
     const registered = item.record.pending_options;
     if (isObject(registered) && binding.sha256 !== registered.sha256) refuse('INTERVIEW_OPTIONS_STALE',`${item.path}: displayed set sha differs from the registered set; refresh the questionnaire`);
@@ -250,7 +263,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
       jobId:act.jobId,actId:act.actId,question:item.id,bytes:fetched.bytes,sha256:sha256(Buffer.from(fetched.bytes)),
       version_hash:sha256(Buffer.from(JSON.stringify(choice)))}];
     if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview fetch; retry against the current job');
-    save(file,dir,project,next,now); return JSON.stringify(answer);
+    save(file,dir,project,next,now,[],correction ? item.id : undefined); return JSON.stringify(answer);
   } finally { release(); }
 }); }
 

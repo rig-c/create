@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { applyChainSeed, checkExampleChain, validateChainSteps, type ChainStep } from '../scripts/generate-example-chain.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
-import { sha256 } from '../src/choices.ts';
+import { collectItems } from '../src/check.ts';
+import { nextProject } from '../src/next.ts';
+import { optionContext, sha256 } from '../src/choices.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
-import { checkProject, testClock } from './clock.ts';
-import { clockedCli } from './helpers.ts';
+import { checkProject, interviewAnswerCommand, interviewOptionsCommand, signoffCommand, testClock } from './clock.ts';
+import { clockedCli, ownerChatArgs } from './helpers.ts';
 
 const hash = 'a'.repeat(64);
 function receipt(): ChainStep[] {
@@ -488,4 +490,68 @@ test('the parts-review structure snapshot is written by structure-snapshot after
   const config = JSON.parse(readFileSync(join(shipped, 'derived/drafts/chain/config.json'), 'utf8')) as { meshes: Record<string, unknown> };
   const snapshot = JSON.parse(readFileSync(join(shipped, path), 'utf8')) as { entries: { path: string; value: unknown }[] };
   expect(snapshot.entries).toEqual(Object.entries(config.meshes).map(([part, value]) => ({ path: `/meshes/${part}`, value })));
+});
+
+test.each([
+  ['plan-approved', 'rig_type', ['interview']],
+  ['parts', 'rig_type', ['interview']],
+  ['accepted', 'rig_type', ['interview']],
+  ['accepted', 'assemble', ['interview', 'plan-approved']],
+] as const)('correct %s answer %s and re-sign only its bindings', (stage, question, approvals) => {
+  const root = mkdtempSync(join(tmpdir(), 'create-correction-'));
+  const dir = join(root, 'chain');
+  const now = Date.parse('2026-11-21T00:00:00Z');
+  testClock.set(now);
+  try {
+    const source = stage === 'accepted' ? shipped : join(shipped, 'checkpoints',
+      stage === 'parts' ? '1-parts-verdict' : '0b-plan-pending');
+    cpSync(source, dir, { recursive: true });
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const baseline = checkProject(dir);
+    expect(baseline.refusals).toEqual([]);
+    expect(baseline.effective_stage).toBe(stage);
+    const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
+    const binding = ((item.raw as JsonObject).choice as JsonObject).set as JsonObject;
+    const set = JSON.parse(readFileSync(join(dir, String(binding.path)), 'utf8')) as JsonObject;
+    set.id = 'synthetic-correction';
+    set.drafted_at = new Date(now - 1000).toISOString();
+    set.context = optionContext(project, String(set.stage), now - 1000, dir);
+    const path = 'evidence/interview/synthetic-correction.json';
+    const bytes = JSON.stringify(set);
+    writeFileSync(join(dir, path), bytes);
+    interviewOptionsCommand([question, dir, '--file', path]);
+    const words = join(dir, 'approval.txt');
+    writeFileSync(words, 'Keep the shown options in the corrected record.');
+    const picks = (set.asks as JsonObject[]).flatMap(ask => ['--pick', `${String(ask.id)}=keep`]);
+    const args = [question, dir, '--set', path, '--sha256', sha256(Buffer.from(bytes)), '--by', 'user',
+      ...picks, ...ownerChatArgs(words)];
+    const before = readFileSync(join(dir, 'project.json'));
+    const wrongSet = [...args];
+    wrongSet[wrongSet.indexOf('--sha256') + 1] = '0'.repeat(64);
+    expect(() => interviewAnswerCommand(wrongSet)).toThrow(expect.objectContaining({
+      code: 'INTERVIEW_OPTIONS_STALE',
+    }));
+    expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    interviewAnswerCommand(args);
+    const stale = checkProject(dir).refusals.filter(finding => finding.code === 'SIGNOFF_ANSWERS_STALE');
+    expect(stale.map(finding => finding.path)).toEqual(approvals.map(approval =>
+      `signoffs[${(project.signoffs as JsonObject[]).findIndex(s => s.stage === approval)}].answer_hashes[${question}]`));
+    const moves = nextProject(dir, now).moves;
+    const reSign = moves.filter(move => move.command?.startsWith('rig-create signoff '));
+    expect(reSign.map(move => move.command?.split(' ')[2])).toEqual([...approvals]);
+    for (const move of reSign) {
+      expect(move.role).toBe('human');
+      expect(move.command).toContain('--owner-chat');
+    }
+    for (const approval of approvals) {
+      expect(signoffCommand([approval, dir, '--by', 'user', ...ownerChatArgs(words)]).exit).toBe(0);
+    }
+    const result = checkProject(dir);
+    expect(result.refusals).toEqual([]);
+    expect(result.warnings).toEqual(baseline.warnings);
+    expect(result.effective_stage).toBe(baseline.effective_stage);
+  } finally {
+    testClock.reset();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

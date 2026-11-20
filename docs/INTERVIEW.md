@@ -56,8 +56,9 @@ Rules that follow from the table:
 - **A bounce is attributed to the items it is about.** Each verdict lists
   `on_items[]`: the answer ids it concerns and whether each was a user answer,
   delegated, or never asked ([§ Polish feedback](#polish-feedback)).
-- **A changed answer reopens what rests on it.** Every plan step whose
-  `rests_on` names that answer needs the plan signed again before it runs.
+- **A changed answer needs fresh approval where it was signed.** Every plan
+  step whose `rests_on` names that answer needs the plan signed again before
+  it runs.
 
 `rig-create interview --check` is the machine check of these rules — refusing
 by name every waypoint with neither a guide nor a delegation, every step that
@@ -852,10 +853,12 @@ Registration reads an already retained authored file and records its binding
 as `pending_options`; it never rewrites the option file. Answer flags include
 repeatable `--other <ask>=<text file>` and optional
 `--other-fragment <ask>=<JSON file>`, plus `--note-file` and `--source`.
-The decision writer supplies exactly the auto fragments. Changing an approved
-answer first requires the relevant stage to be reopened. Collection members
-write local overrides; inherited source answers remain historical evidence,
-never fabricated member selections.
+The decision writer supplies exactly the auto fragments. To correct a recorded
+answer at a later stage, register a fresh option set and record the owner’s
+selection with `interview-answer`. The stage stays in place. Check reports the
+signoffs whose answer hashes are stale, and `next` offers the corresponding
+re-sign commands. Collection members write local overrides and retain the
+inherited source answers as historical evidence.
 
 Review exposes finalized `interview-picks` acts through the standing job API.
 The writer fetches the act using its private sibling capability, binds the

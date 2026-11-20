@@ -162,6 +162,26 @@ describe('prepared inputs recorded after external work', () => {
     expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(original);
   });
 
+  test('a run whose source sits inside its own folder is refused by the writer and by check', () => {
+    const dir = fixture();
+    mkdirSync(join(dir, 'derived/self-run/parts'), { recursive: true });
+    writeFileSync(join(dir, 'derived/self-run/layers.json'), '{"layers":["a"]}\n');
+    writeFileSync(join(dir, 'derived/self-run/parts/a.png'), 'synthetic-part-a');
+    const original = readFileSync(join(dir, 'project.json'), 'utf8');
+    const r = cli(['derived', 'add', dir, '--source', 'derived/self-run/layers.json', '--file', 'derived/self-run', '--operation', 'synthetic run'], dir, gitEnv());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('DERIVED_PATH_INVALID');
+    expect(readFileSync(join(dir, 'project.json'), 'utf8')).toBe(original);
+
+    const ok = cli(['derived', 'add', dir, '--source', 'inputs/preparation-source.svg', '--file', 'derived/self-run', '--operation', 'synthetic run'], dir, gitEnv());
+    expect(ok.code).toBe(0);
+    const project = read(dir);
+    const entry = project.derived[project.derived.length - 1];
+    entry.source = { path: 'derived/self-run/layers.json', sha256: entry.members.find((m: { path: string }) => m.path === 'layers.json').sha256 };
+    writeFileSync(join(dir, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
+    expect(checkProject(dir).refusals.map(f => f.code)).toContain('DERIVED_MALFORMED');
+  });
+
   test('changing one run member bytes causes check to refuse with DERIVED_FILE_CHANGED and the member path', () => {
     const dir = fixture();
     mkdirSync(join(dir, 'derived/seethrough-run/parts'), { recursive: true });

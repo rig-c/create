@@ -32,6 +32,12 @@ function inside(dir: string, path: string): boolean {
   return !isAbsolute(path) && rel !== '' && rel !== 'project.json' && rel !== '..' && !rel.startsWith(`..${sep}`);
 }
 
+/** Whether a project-relative path names the folder itself or anything under it. */
+function underFolder(dir: string, folder: string, path: string): boolean {
+  const rel = relative(resolve(dir, folder), resolve(dir, path));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
 function readHash(dir: string, path: string): string {
   return hash(readFileSync(resolve(dir, path)));
 }
@@ -95,7 +101,7 @@ function checkRunEntry(ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'>, entry: J
     || !inside(ctx.dir, entry.path)
     || !hex(entry.sha256)
     || sourceFiles.some(({ record }) => !nonempty(record.path) || !inside(ctx.dir, record.path) || !hex(record.sha256))
-    || sourceFiles.some(({ record }) => typeof record.path === 'string' && (resolve(ctx.dir, record.path) === resolve(ctx.dir, entry.path as string) || inside(resolve(ctx.dir, entry.path as string), resolve(ctx.dir, record.path))))
+    || sourceFiles.some(({ record }) => typeof record.path === 'string' && underFolder(ctx.dir, entry.path as string, record.path))
     || !Array.isArray(rawMembers)
     || !rawMembers.every((m): m is JsonObject => isObject(m) && memberPath(m.path) && hex(m.sha256))
   ) {
@@ -236,7 +242,7 @@ export function derivedCommand(args: string[]): { stdout: string; exit: number }
   const project = read.value;
   if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'derived add reads rig-create/project@0');
   if (project.derived !== undefined && !Array.isArray(project.derived)) refuse('DERIVED_MALFORMED', 'derived must be an array');
-  if (![...sources, output].every((p) => inside(dir, p)) || sources.some((p) => resolve(dir, p) === resolve(dir, output) || (isRun && inside(resolve(dir, output), resolve(dir, p))))) refuse('DERIVED_PATH_INVALID', 'source and derived file must be distinct project-relative files other than project.json');
+  if (![...sources, output].every((p) => inside(dir, p)) || sources.some((p) => (isRun ? underFolder(dir, output, p) : resolve(dir, p) === resolve(dir, output)))) refuse('DERIVED_PATH_INVALID', 'source and derived file must be distinct project-relative files other than project.json');
   let receipt: ReturnType<typeof readDerivedReceipt>['binding'] | undefined;
   if (receiptPath !== undefined) {
     try { receipt = readDerivedReceipt(dir, receiptPath).binding; }

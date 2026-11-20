@@ -78,7 +78,7 @@ export async function openCreateJob(
     const found = readWriterBinding(root);
     const existing = found && found.identity.root === root ? found : null;
     const identity = currentJobIdentity({ root, stateDir: existing?.identity.stateDir ?? join(jobHostStateRoot(root), 'host'), fingerprint: 'rig-create/live-review/1', reviewer, ...(existing?.identity.publicationMode || recordMode ? { publicationMode: 'record-and-package' as const } : {}) }, root);
-    if (recordMode && existing && !existing.identity.publicationMode) refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: this job uses a package-only host; close it with job close and reopen with --question or --plan');
+    if (recordMode && existing && !existing.identity.publicationMode) refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: this job uses a package-only host; finish and ingest its pending acts, then run rig-create job close and reopen with --question or --plan');
     if (existing) assertJobIdentity(existing.identity, identity);
     privateDirectory(identity.stateDir);
     let writerGrant: WriterGrant | undefined;
@@ -568,7 +568,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     const release = acquireJobLock(root)!;
     try {
       const binding = readWriterBinding(root);
-      if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no writer-owned binding; run rig-create job close, then rig-create job open');
+      if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no matching writer-owned binding; restore the writer-owned binding and retry rig-create job open to publish into the existing job');
       const current = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
       requireOwnerLanguage(current);
       if (targetSelector.kind === 'draft') draftPublicationContext(root, current, targetSelector.id);

@@ -499,15 +499,15 @@ async function nextReview(root: string, kind: string, value: object, question?: 
   const index = report.moves.findIndex(move => move.role === 'human' && move.review_act?.kind === kind
     && (question === undefined || move.review_act.question_id === question));
   expect(index).toBeGreaterThan(0);
-  const workflow = report.moves.slice(index - 1, index + 4);
-  expect(workflow.map(move => move.role)).toEqual(['agent', 'human', 'agent', 'agent', 'agent']);
+  const workflow = report.moves.slice(index - 1, index + 3);
+  expect(workflow.map(move => move.role)).toEqual(['agent', 'human', 'agent', 'agent']);
   expect(workflow[1]!.command).toBeNull();
   const target = workflow[1]!.review_act!;
   expect(workflow[0]!.command).toContain(question ? `--question ${question}` : target.draft_id ? `--draft ${target.draft_id}`
     : kind === 'review-verdict' || target.stage === 'rig-review' ? `--rig ${target.version_id!.slice(1)}` : '--plan');
   expect(workflow[2]!.command).toBe(`rig-create job acts ${quote(root)} --json`);
   expect(workflow[3]!.command).toContain("--from-review '<actId>'");
-  expect(workflow[4]!.command).toBe(`rig-create job close ${quote(root)}`);
+  expect(report.moves.some(move => move.command?.startsWith('rig-create job close '))).toBe(false);
   receipt({ rendered: scrub(nextCommand([root], testClock.now()).stdout, root) });
   receipt({ workflow: { stage: target.stage, kind, question, draft: target.draft_id,
     printed: workflow.map(move => ({ role: move.role, command: move.command === null ? null : scrub(move.command, root), act: move.act })) } });
@@ -526,7 +526,9 @@ async function nextReview(root: string, kind: string, value: object, question?: 
   }
   await executePrinted(root, workflow[3]!.command!.replace("'<actId>'", quote(String(act.actId))));
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
-  await executePrinted(root, workflow[4]!.command!);
+  expect(readWriterBinding(root)?.origin).toBe(opening.url.origin);
+  // Close the fixture host explicitly so each invocation can start with its selected host mode.
+  expectExit0(await cli(root, ['job', 'close', root]));
   const [stdout, stderr, exit] = await Promise.all([
     opening.remainingOutput, new Response(opening.proc.stderr).text(), opening.proc.exited,
   ]);
@@ -538,7 +540,7 @@ async function nextReview(root: string, kind: string, value: object, question?: 
 test.each([
   { checkpoint: '0a-interview-options', question: 'rig_type' },
   { checkpoint: '2-rigging-answers', question: 'bones' },
-])('#507 head picks $checkpoint/$question execute printed host, acts, ingest and close', async ({ checkpoint, question }) => {
+])('#507 head picks $checkpoint/$question execute printed host, acts and ingest', async ({ checkpoint, question }) => {
   receipt({ test: '#507 head picks', source: `checkpoint ${checkpoint}`, question });
   const root = copy(checkpoint);
   const project = read(root);
@@ -552,14 +554,14 @@ test.each([
   expect(answered.state.state).toBe('user');
 }, 30_000);
 
-test('#507 plan-approved signoff executes printed host, acts, ingest and close', async () => {
+test('#507 plan-approved signoff executes printed host, acts and ingest', async () => {
   receipt({ test: '#507 plan-approved signoff', source: 'checkpoint 0b-plan-pending' });
   const root = copy('0b-plan-pending');
   await nextReview(root, 'signoff', { stage: 'plan-approved', decision: 'approved', words: WORDS });
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'plan-approved')).toBe(true);
 }, 30_000);
 
-test('#507 reachable interview signoff executes printed host, acts, ingest and close', async () => {
+test('#507 reachable interview signoff executes printed host, acts and ingest', async () => {
   receipt({ test: '#507 reachable interview signoff', source: 'synthetic fixture from checkpoint 0b-plan-pending' });
   const root = copy('0b-plan-pending', project => {
     project.stage = 'interview'; project.signoffs = []; project.advances = [];
@@ -599,7 +601,7 @@ function unsignedRiggingInterview(): string {
   });
 }
 
-test('#507 reachable rigging-interview signoff executes printed host, acts, ingest and close', async () => {
+test('#507 reachable rigging-interview signoff executes printed host, acts and ingest', async () => {
   receipt({ test: '#507 reachable rigging-interview signoff', source: 'synthetic fixture from checkpoint 3-rig-review; checkpoint 2-rigging-answers observed separately' });
   const checkpoint = copy('2-rigging-answers');
   const observed = nextProject(checkpoint, testClock.now());
@@ -677,7 +679,7 @@ test('#507 rig-review approval folds signature through printed host, acts, inges
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'rig-review')).toBe(true);
 }, 30_000);
 
-test('#502 all post-interview picks and plan signoff execute next host, exported-act ingest and close commands', async () => {
+test('#502 all post-interview picks and plan signoff execute next host and exported-act ingest commands', async () => {
   testClock.set(Date.now());
   const root = copy('4-direction-post', project => {
     project.stage = 'post-interview';
@@ -711,7 +713,7 @@ test('#502 all post-interview picks and plan signoff execute next host, exported
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'post-interview')).toBe(true);
 }, 30_000);
 
-test('#502 direction verdict then record signoff execute next host, exported-act ingest and close commands', async () => {
+test('#502 direction verdict then record signoff execute next host and exported-act ingest commands', async () => {
   testClock.set(Date.now());
   const root = copy('example-chain', project => {
     project.stage = 'direction-review';
@@ -930,8 +932,7 @@ test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds 
   expect(refusedUnanswered.stderr).toContain('job acts');
   expect(refusedUnanswered.stderr).toContain('review 2 --from-review');
   expect(refusedUnanswered.stderr).toContain('review <n> --from-review');
-  expect(refusedUnanswered.stderr).toContain('job close');
-  expect(refusedUnanswered.stderr).toContain('then re-run');
+  expect(refusedUnanswered.stderr).toContain('publish into the existing job');
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeProject);
   expect(snapshot(root)).toEqual(beforeRoot);
   expect(snapshot(jobPrivateRoot(root))).toEqual(beforePrivate);

@@ -45,13 +45,6 @@ one input, survives restart and checks sibling artwork; optional on older record
    Ingest `review <post> --from-review <actId>`, then `job open --plan` for
    record-page sign-off (source-linked Review).
 
-Ask: `job open --reviewer <id> --role owner --question <id>` or `--plan`;
-ingest `--from-review <actId>`, then advance. With all owner picks ingested,
-complete the plan and follow `next` for `signoff <stage> --from-picks`.
-Keep the plan sign-off page for other answers.
-Keep the host up across bound writes; after a stop, `job open` with reviewer/role,
-then `job reconcile` before writing.
-
 Use `advance <stage>` and `step-status <id>` (`rig-create --help`).
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
 refusing {{PARTS_CHECK_LINK}}.
@@ -61,6 +54,27 @@ In `parts`, record an `intake-report` preflight and offer its choice, both advis
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
 An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig` ({{RETOUCH_HANDOFF_LINK}}).
 Preserve history/dates; adopt choices explicitly.
+
+**Live Review loop**
+
+Run the first `job open <dir> --reviewer <id> --role owner` in the background.
+Add the first selector if ready. Share the private URL once. Publish via bound writers or repeat with the same
+reviewer/role and `--draft`, `--rig`, `--question` or `--plan`. Reused opens exit. The page updates in place.
+Until #698, ask the owner to tell you after submitting. Run `job acts`, ingest
+via `--from-review`, advance as needed and publish again.
+With all owner picks ingested, complete the plan and follow `next` for
+`signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
+After a listener stop, reopen with the same reviewer/role, keep the URL, then `job reconcile`.
+Until #700, ingest pending acts and close a package-only job before opening a question or plan.
+
+Successful closes end the page. Share a new URL after reopening.
+
+- `job close` ends the job or retires it after a pin/hook bump.
+- `job close --retire-refused` archives failed publications.
+- `job close --discard-acts <reason> --by agent` records the discard.
+- `job close --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>` records the owner's discard.
+- `job open` can archive an offline replaced-root job and open a new URL.
+- `job reconcile` can archive an offline replaced-root job.
 
 ## Before you ask, plan or show
 

@@ -1293,7 +1293,7 @@ test('#478 answered rigging guides request plan steps before the publishable sig
   }
   const after = nextProject(dir, CHAIN_NOW);
   expect(after.refusals).toEqual([]);
-  expect(after.moves).toHaveLength(6);
+  expect(after.moves).toHaveLength(5);
   expect(after.moves[0]!.command).toContain('--owner-chat');
   expect(after.moves[2]).toMatchObject({ role: 'human', review_act: { kind: 'signoff', stage: 'rigging-interview' } });
   expect(after.moves[2]!.unanswered_by_record).toBeUndefined();
@@ -2183,7 +2183,6 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     null,
     `rig-create job acts ${dir} --json`,
     `rig-create review 3 ${dir} --from-review '<actId>'`,
-    `rig-create job close ${dir}`,
   ]);
 
   // Post stages after such a reopen (post and direction-review) must not list history rig versions (v1 or v2).
@@ -2385,7 +2384,6 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     null,
     `rig-create job acts ${dir} --json`,
     `rig-create review 6 ${dir} --from-review '<actId>'`,
-    `rig-create job close ${dir}`,
     null,
   ]);
   expect(afterSignedPostReopen.moves[1]).toMatchObject({
@@ -2394,13 +2392,13 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
     awaits: 'versions[n=6].verdicts[review=direction-review]',
     review_act: { kind: 'review-verdict', stage: 'direction-review', version_id: 'v6', review: 'direction-review' },
   });
-  expect(afterSignedPostReopen.moves[5]).toMatchObject({
+  expect(afterSignedPostReopen.moves[4]).toMatchObject({
     role: 'human',
     field: 'signoffs',
     awaits: 'signoffs[stage=direction-review]',
     review_act: { kind: 'signoff', stage: 'direction-review', version_id: 'v6' },
   });
-  expect(afterSignedPostReopen.moves[5]!.act).toContain('after ingesting the accepted direction-review verdict for v6');
+  expect(afterSignedPostReopen.moves[4]!.act).toContain('after ingesting the accepted direction-review verdict for v6');
 }, 30_000);
 
 test('#587 after a parts-review reopen and a new prepared draft, next awaits the draft parts verdict via job open --draft ahead of any rig-version move', () => {
@@ -2591,7 +2589,6 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
       null,
       `rig-create job acts ${dir} --json`,
       `rig-create parts-review ${dir} --from-review '<actId>'`,
-      `rig-create job close ${dir}`,
     ]);
     expect(report.moves[1]).toMatchObject({
       role: 'human',

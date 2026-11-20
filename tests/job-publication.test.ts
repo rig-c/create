@@ -1,9 +1,11 @@
+import { checkExampleParts } from '../scripts/generate-example-parts.ts';
+import { draftRigCommand } from '../src/drafts.ts';
 import { checkInputs } from '../src/inputs.ts';
 import { planCommand } from '../src/plan-writers.ts';
 import { checkpointProblem, packageSignSubjects } from '../src/signable.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
@@ -274,6 +276,77 @@ test('public job CLI opens and explicitly closes its foreground host', async () 
     if (readWriterBinding(root)) await closeCreateJob(root);
     if (opening.exitCode === null) opening.kill();
   }
+});
+
+test('#676 job open --draft publishes a writer-recorded assemble-only draft and asks for its parts verdict', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-assemble-only-')));
+  roots.push(root);
+  const chain = join(import.meta.dir, '../templates/example-chain');
+  cpSync(join(chain, 'checkpoints/1-parts-verdict'), root, { recursive: true });
+  cpSync(join(chain, 'evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+
+  const draftRoot = 'derived/drafts/chain';
+  const input = `${draftRoot}/input`;
+  const assembled = `${draftRoot}/assembled`;
+  const parts = `${assembled}/rig`;
+  const stack = `${assembled}/render/recomposite_rig.png`;
+  mkdirSync(dirname(join(root, stack)), { recursive: true });
+  renameSync(join(root, input, 'recomposite_rig.png'), join(root, stack));
+  renameSync(join(root, input), join(root, parts));
+  rmSync(join(root, draftRoot, 'out'), { recursive: true });
+
+  // Strip the copied checkpoint's rig draft before recording the assemble output.
+  const recordPath = join(root, 'project.json');
+  const project = JSON.parse(readFileSync(recordPath, 'utf8')) as JsonObject;
+  delete project.drafts;
+  writeFileSync(recordPath, JSON.stringify(project));
+  expect(draftRigCommand(['chain', root, '--config', `${draftRoot}/config.json`, '--from', assembled], now).exit).toBe(0);
+  expect(JSON.parse(readFileSync(recordPath, 'utf8'))).toMatchObject({ drafts: [
+    { id: 'chain', layout: 'assemble-only', parts: { path: parts } },
+  ] });
+
+  const partsCheck = 'evidence/parts-check.json';
+  writeFileSync(join(root, partsCheck), checkExampleParts(join(root, parts), join(root, 'derived/parts-check')));
+  structureSnapshotCommand([root, '--draft', 'chain']);
+  advanceCommand(['parts-review', root, '--parts-check', partsCheck, '--parts', parts], now);
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], now);
+
+  // Reuse a real host so the public CLI exits after publishing and asking.
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const record = readFileSync(recordPath);
+  const opening = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), new Date(now).toISOString(),
+    'job', 'open', root, '--draft', 'chain', '--reviewer', 'reviewer', '--role', 'owner'], { stdout: 'pipe', stderr: 'pipe' });
+  const [stdout, stderr, exit] = await Promise.all([
+    new Response(opening.stdout).text(), new Response(opening.stderr).text(), opening.exited,
+  ]);
+  expect({ exit, stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(stdout).toContain('job: draft chain published');
+  expect(stdout).toContain('job: asked parts-verdict chain');
+
+  const status = host.session.status();
+  const publication = status.publication!;
+  const selector = { kind: 'draft', id: 'chain' } as const;
+  const subject = { kind: 'parts-verdict', draftId: 'chain' } as const;
+  expect(publication.source.selector).toEqual(selector);
+  expect(publication.source.projectHash).toBe(jobHash(record));
+  expect(publication.source.model).toBeNull();
+  const partsManifest = `${parts}/parts.json`;
+  expect(publication.source.parts?.manifest).toEqual({ path: partsManifest, sha256: jobHash(readFileSync(join(root, partsManifest))) });
+  expect(status.pending).toEqual([expect.objectContaining({ publicationId: publication.publicationId, subject, status: 'pending' })]);
+  const result = { path: 'review-draft-chain.json', selector };
+  expect(readAcknowledgedPublication(root, host.session.jobId, publication.publicationId)).toMatchObject({ result, subjects: [subject] });
+  expect(pendingPublications(root)).toEqual([]);
+  expect(readFileSync(recordPath)).toEqual(record);
+
+  const context = await readPublished({ root, record: { path: 'project.json', sha256: jobHash(record) }, result });
+  expect(context.files).toContainEqual({ path: stack, sha256: jobHash(readFileSync(join(root, stack))) });
+  const manifest = JSON.parse(readFileSync(join(root, result.path), 'utf8'));
+  expect(manifest).not.toHaveProperty('model');
+  const entry = host.session.displayPublication(publication.publicationId).routes.entry;
+  const response = await fetch(`${host.origin}${entry}api/stage-parts`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ differenceAvailable: true });
 });
 
 test('durable ignored outbox survives a restart with another TMPDIR and preserves tracked ignore bytes', async () => {

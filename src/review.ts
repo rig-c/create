@@ -25,6 +25,7 @@ import { existsSync, readFileSync } from './check-reads.ts';
 import { join, resolve } from 'node:path';
 
 import { draftVersionFindings } from './drafts.ts';
+import { assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { checkPreInterview } from './pre-interview.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { collectReopens, liveSignoff, reopenIndex, reopenTime, type Reopen } from './reopen.ts';
@@ -344,6 +345,7 @@ export function handoff(projectDirArg: string, rig: number | null, now: number):
   }
   if (!isObject(project as Json)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
   const record = project as JsonObject;
+  assertDraftHasRig(assembleOnlyDraftTarget(record, rig), 'project.json.versions');
   assertCorrectionApproval(dir, record, RIG_REVIEW, now);
   const historyRefusals: ReviewCtx['refusals'] = draftVersionFindings(dir, record);
   checkPreInterview({ dir, project: record, refusals: historyRefusals, warnings: [] });
@@ -403,21 +405,26 @@ export const HANDOFF_HELP = `handoff:
 
 export function handoffCommand(args: string[], now: number): { stdout: string; exit: number } {
   let json = false;
-  let rig: number | null = null;
+  let requested: string | undefined;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
     if (arg === '--json') json = true;
     else if (arg === '--rig') {
       const value = args[++i];
-      const n = value === undefined ? Number.NaN : Number(value.replace(/^v/, ''));
-      if (!Number.isInteger(n) || n < 1) refuse('HANDOFF_RIG_INVALID', `--rig takes a rig version number, got ${value ?? 'nothing'}`, USAGE_EXIT);
-      rig = n;
+      if (value === undefined) refuse('HANDOFF_RIG_INVALID', '--rig takes a rig version number, got nothing', USAGE_EXIT);
+      requested = value;
     } else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `handoff does not take ${arg}`, USAGE_EXIT);
     else positional.push(arg);
   }
   if (positional.length > 1) refuse('HANDOFF_TOO_MANY_ARGUMENTS', `handoff takes one folder, got ${positional.join(' ')}`, USAGE_EXIT);
-  const h = handoff(positional[0] ?? process.cwd(), rig, now);
+  const dir = positional[0] ?? process.cwd();
+  const rig = requested === undefined ? null : Number(requested.replace(/^v/, ''));
+  if (rig !== null && (!Number.isInteger(rig) || rig < 1)) {
+    assertDraftHasRig(readAssembleOnlyDraftTarget(dir, requested), 'project.json.versions');
+    refuse('HANDOFF_RIG_INVALID', `--rig takes a rig version number, got ${requested}`, USAGE_EXIT);
+  }
+  const h = handoff(dir, rig, now);
   if (json) return { stdout: JSON.stringify(h, null, 2), exit: 0 };
   return {
     stdout: [

@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from './check-reads.ts';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
+import { draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { collectReopens, liveSignoff, reopenTime } from './reopen.ts';
 import { collectAmendments } from './amend.ts';
@@ -158,6 +159,10 @@ export function validateCorrectionIdentity(dir: string, project: JsonObject, val
     const draft = draftRecord(project, value.id);
     if (!sameHash(value.config, draft.config) || !isObject(value.parts) || !isObject(draft.parts)) fail('CORRECTION_SOURCE', 'draft config/parts do not match inventory');
     const modelless = partImage && value.model === null;
+    if (!modelless && isAssembleOnlyDraft(draft)) {
+      const finding = draftRigRequired(`drafts[${String(draft.id)}]`, draft.id);
+      fail(finding.code, finding.message);
+    }
     correctionJson(correctionFile(dir, value.config)); if (!modelless) correctionFile(dir, value.model);
     partsIdentity(dir, value.parts);
     const wanted = bindings(draft.parts.files).map(f => f.sha256).sort();

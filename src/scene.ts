@@ -4,6 +4,7 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Ctx, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { closed, directionHash, hex, objects } from './direction.ts';
+import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, draftRigRequired } from './draft-layout.ts';
 import { answersOf, checkEntry } from './provenance.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
@@ -162,7 +163,15 @@ export function sceneCurrentAt(dir: string, project: JsonObject, at: number): Js
   }
   return entry;
 }
+function requireSceneRigTarget(project: JsonObject, n: number): void {
+  const draft = assembleOnlyDraftTarget(project, n);
+  if (draft) {
+    const finding = draftRigRequired('scene.rig.version', draft.id);
+    sceneFail(finding.code, finding.path, finding.message);
+  }
+}
 function rigVersion(project: JsonObject, n: number): { version: JsonObject; index: number } {
+  requireSceneRigTarget(project, n);
   const matches = asArray(project.versions).map((version, index) => ({ version, index })).filter(value => isObject(value.version) && value.version.kind === 'rig' && value.version.n === n);
   if (matches.length !== 1) sceneFail('SCENE_RIG_STALE', 'scene.rig.version', 'select a uniquely recorded rig version');
   return matches[0] as { version: JsonObject; index: number };
@@ -187,6 +196,8 @@ function validateSceneAnimation(model: JsonObject, animation: JsonObject, regist
 }
 export function sceneRig(dir: string, project: JsonObject, n: number, snapshots?: Map<string, Buffer>, animation = 'idle'): { rig: JsonObject; stage: JsonObject } {
   const { version } = rigVersion(project, n);
+  const finding = assembleOnlyVersionFinding(dir, project, version, 'scene.rig.version');
+  if (finding) sceneFail(finding.code, finding.path, finding.message);
   const reopens = collectReopens(project, []);
   const signature = collectSignoffs(project, []).filter(value => value.stage === 'rig-review' && value.checkpoint === null && liveSignoff(reopens, value.stage, value.at)
     && isObject(value.record.target) && value.record.target.version === n).sort((a, b) => b.at - a.at)[0];
@@ -203,6 +214,7 @@ export function sceneRig(dir: string, project: JsonObject, n: number, snapshots?
 }
 /** The acceptance seal alone; composed posts do not consume the character model's stage or frames. */
 export function sceneRigAcceptance(project: JsonObject, n: number): JsonObject {
+  requireSceneRigTarget(project, n);
   const reopens = collectReopens(project, []);
   const signature = collectSignoffs(project, []).filter(value => value.stage === 'rig-review' && value.checkpoint === null && liveSignoff(reopens, value.stage, value.at)
     && isObject(value.record.target) && value.record.target.version === n).sort((a, b) => b.at - a.at)[0];
@@ -237,6 +249,10 @@ export function validateScene(dir: string, project: JsonObject, doc: JsonObject,
   validateSceneShape(doc);
   const rig = doc.rig as JsonObject;
   const version = validateSceneAcceptance(project, rig);
+  const draft = assembleOnlyDraftPath(dir, project, (rig.model as JsonObject).path);
+  const finding = draft ? draftRigRequired('scene.rig.model', draft.id)
+    : assembleOnlyVersionFinding(dir, project, version, 'scene.rig.version');
+  if (finding) sceneFail(finding.code, finding.path, finding.message);
   validateSceneCurrent(project, rig, current);
   const { binding, model } = modelForRig(dir, version, snapshots);
   if (!equal(rig.model, binding)) sceneFail('SCENE_MODEL_MISMATCH', 'scene.rig.model', 'use the accepted package model path and hash');

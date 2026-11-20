@@ -11,6 +11,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { asArray, checkProject, collectItems, isObject, type Finding } from './check.ts';
 import { literalFile } from './choices.ts';
 import { configInputReferences } from './config-inputs.ts';
+import { assembleOnlyDraftPath, assertDraftHasRig } from './draft-layout.ts';
 import { parseFeedbackAnswers, readProject } from './feedback.ts';
 import { OWNER_CHAT_FLAGS, readOwnerChat } from './owner-chat.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
@@ -901,6 +902,9 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     ({ file, project } = readProject(dir));
     original = readFileSync(file);
     if (project.schema !== 'rig-create/project@0') fail('SCHEMA_UNKNOWN', 'schema', 'rig-version reads rig-create/project@0');
+    for (const flag of ['--rig', '--build', '--idle']) {
+      assertDraftHasRig(assembleOnlyDraftPath(dir, project, options[flag]), `versions[v${n}].registration ${flag}`);
+    }
     if (!Array.isArray(project.versions) || asArray(project.versions).some(v => !isObject(v) || typeof v.n !== 'number')) fail('RIG_REGISTRATION_INVALID', 'versions', 'restore the version list');
     const registeredNumbers = new Set(project.versions.map(v => (v as JsonObject).n as number));
     const maxRegistered = Math.max(0, ...registeredNumbers);

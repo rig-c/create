@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { directionBinding } from './direction.ts';
+import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { refuse } from './refusal.ts';
@@ -56,6 +57,12 @@ function targetFor(dir: string, project: JsonObject, stage: string, version: Jso
 export function checkSignoffTarget(dir: string, project: JsonObject, signoff: JsonObject, path: string, refusals: Finding[], warnings: Finding[]): void {
   const stage = String(signoff.stage);
   if (!(stage in SIGNOFF_TARGET_KINDS)) return;
+  const draft = asArray(project.drafts).filter(isObject).find(d => d.id === signoff.draft_id)
+    ?? assembleOnlyDraftTarget(project, isObject(signoff.target) ? signoff.target.version : undefined);
+  if (isAssembleOnlyDraft(draft)) {
+    refusals.push(draftRigRequired(`${path}.target`, draft?.id));
+    return;
+  }
   const missing = signoff.target === undefined || signoff.target === null;
   let reason = missing ? 'target missing' : '';
   if (!missing) {
@@ -66,6 +73,11 @@ export function checkSignoffTarget(dir: string, project: JsonObject, signoff: Js
       const matches = versions.map((v, i) => ({ v, i })).filter(({ v }) => isObject(v) && v.n === target.version);
       if (matches.length !== 1) throw Error('target version does not exist uniquely');
       const { v, i } = matches[0] as { v: JsonObject; i: number };
+      const draftProblem = assembleOnlyVersionFinding(dir, project, v, `${path}.target`);
+      if (draftProblem) {
+        refusals.push(draftProblem);
+        return;
+      }
       if (v.kind !== SIGNOFF_TARGET_KINDS[stage]) throw Error('target version belongs to another stage kind');
       const match = typeof target.verdict === 'string' ? /^versions\[(\d+)\]\.verdicts\[(\d+)\]$/.exec(target.verdict) : null;
       if (!match || Number(match[1]) !== i) throw Error('verdict path does not resolve to the target version');
@@ -92,6 +104,7 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     if (requested !== undefined) refuse('SIGNOFF_OPTION_INVALID', 'signoffs.target: --version requires rig-review or direction-review; remove --version');
     return undefined;
   }
+  assertDraftHasRig(assembleOnlyDraftTarget(project, requested), 'project.json.signoffs.target');
   const reopens = collectReopens(project, []);
   const signed = collectSignoffs(project, []).filter(s => s.stage === stage && liveSignoff(reopens, stage, s.at));
   const versions = asArray(project.versions);
@@ -110,6 +123,8 @@ export function selectSignoffTarget(dir: string, project: JsonObject, stage: str
     if (!/^[1-9][0-9]*$/.test(requested) || matches.length !== 1 || matches[0]?.kind !== SIGNOFF_TARGET_KINDS[stage]) fail('requested version does not exist uniquely with this stage kind');
     version = matches[0]!;
   }
+  const draftProblem = assembleOnlyVersionFinding(dir, project, version, 'project.json.signoffs.target');
+  if (draftProblem) refuse(draftProblem.code, draftProblem.message);
   if (history.has(version.n as number)) fail('rig version is history since a reopen or amendment of rig-review or an earlier stage');
   const verdictIndex = acceptedReviewVerdict(version, stage);
   if (verdictIndex < 0) fail('version has no accepted verdict');

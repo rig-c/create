@@ -11,6 +11,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { asArray, isObject, readJsonObject, type Ctx } from './check.ts';
 import { draftFileUnavailable, draftVersionFindings } from './drafts.ts';
+import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
 import { registeredDepthPartsMatch } from './rig-version.ts';
@@ -311,6 +312,7 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
     if (!read.ok) refuse('PROJECT_JSON_INVALID', read.error);
     const project = candidate ?? read.value;
     if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'review-package reads rig-create/project@0');
+    assertDraftHasRig(assembleOnlyDraftTarget(project, positional[0]) ?? assembleOnlyDraftPath(dir, project, options['--from']), 'project.json.versions');
     const version = asArray(project.versions).find((v) => isObject(v) && v.n === n);
     if (!isObject(version)) refuse('REVIEW_PACKAGE_VERSION_UNKNOWN', `no version ${n}`);
     assertRigVersionDate(version);

@@ -9,6 +9,7 @@ import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { readFileSync, realpathSync, statSync } from './check-reads.ts';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
+import { assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
 import { REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding } from './owner-chat.ts';
@@ -157,7 +158,7 @@ export const hasPartsReceipt = (project: JsonObject, id: string): boolean => asA
  * parts-review receipt (any verdict), else the previous draft, else none.
  */
 export function fixesAgainst(project: JsonObject, index: number): string | null {
-  const earlier = asArray(project.drafts).slice(0, index).filter(isObject);
+  const earlier = asArray(project.drafts).slice(0, index).filter(isObject).filter(draft => !isAssembleOnlyDraft(draft));
   const seen = [...earlier].reverse().find(d => typeof d.id === 'string' && hasPartsReceipt(project, d.id));
   const chosen = seen ?? earlier.at(-1);
   return typeof chosen?.id === 'string' ? chosen.id : null;
@@ -172,6 +173,7 @@ export function draftFixes(dir: string, project: JsonObject, index: number, agai
   const rows = ledgerRows(project, [], now) ?? [];
   const drafts = asArray(project.drafts);
   const draft = drafts[index] as JsonObject;
+  assertDraftHasRig(draft, `drafts[${index}].ledger_report`);
   const report = draftReport(dir, draft, `drafts[${index}]`);
   if (report === null || 'code' in report) return [];
   const refIndex = drafts.findIndex(d => isObject(d) && d.id === against);
@@ -189,15 +191,24 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
   checkRestarts(project, refusals, warnings);
   const rows = ledgerRows(project, refusals, now);
   const drafts = asArray(project.drafts);
-  if (rows === null && drafts.length > 0) {
+  if (rows === null && drafts.some(draft => !isObject(draft) || !isAssembleOnlyDraft(draft))) {
     warnings.push(finding('FIX_LEDGER_MISSING', 'fix_ledger', 'the project has drafts but no fix ledger, so no draft is checked against earlier accepted fixes; record each accepted owner fix with ledger add'));
   }
   const reports: (LedgerReport | null)[] = [];
   const owed: string[][] = [];
   const summaries: LedgerSummary[] = [];
+  let previousRig = -1;
   drafts.forEach((raw, index) => {
     const path = `drafts[${index}]`;
     reports[index] = null;
+    if (isObject(raw) && isAssembleOnlyDraft(raw)) {
+      if (['ledger_report', 'fixes', 'fixes_against', 'known_regressions'].some(key => raw[key] !== undefined)) {
+        refusals.push(draftRigRequired(`${path}.ledger_report`, raw.id));
+      }
+      return;
+    }
+    const previousIndex = previousRig;
+    previousRig = index;
     if (!isObject(raw) || typeof raw.id !== 'string') return; // DRAFT_RIG_MALFORMED reports it.
     const at = time(raw.at);
     const live = liveRows(rows ?? [], at);
@@ -231,20 +242,20 @@ export function checkFixLedger(dir: string, project: JsonObject, refusals: Findi
     owed[index] = knownIds;
     // The predecessor is the previous recorded draft; a restart clears drafts, so its first draft has none.
     // What it owes is every row it passed and every row it recorded as a known regression: a known regression stays owed.
-    const predecessor = index > 0 ? reports[index - 1] : null;
-    const debt = new Set(index > 0 ? owed[index - 1] ?? [] : []);
+    const predecessor = reports[previousIndex];
+    const debt = new Set(owed[previousIndex] ?? []);
     const regressed = predecessor ? live.filter(r => (predecessor.results.get(r.id) === 'pass' || debt.has(r.id)) && report.results.get(r.id) !== 'pass').map(r => r.id) : [];
     const unnamed = regressed.filter(id => !knownIds.includes(id));
     if (unnamed.length) {
-      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.results.get(id) ?? 'absent'})`).join(', ')} passed in ${String((drafts[index - 1] as JsonObject).id)}, or are known regressions it still owes, and do not pass here; fix the build, or record it with --known-regression <row id>=<reason file> for each row`));
+      refusals.push(finding('DRAFT_LEDGER_REGRESSION', `${path}.ledger_report`, `${unnamed.map(id => `${id} (${report.results.get(id) ?? 'absent'})`).join(', ')} passed in ${String((drafts[previousIndex] as JsonObject).id)}, or are known regressions it still owes, and do not pass here; fix the build, or record it with --known-regression <row id>=<reason file> for each row`));
     }
     const stray = knownIds.filter(id => !regressed.includes(id));
     if (stray.length) malformed(`known_regressions names ${stray.join(', ')}, which the predecessor draft neither passed nor owed`);
     // The writer chose the reference when it recorded the draft; a receipt recorded later for another draft does not move it.
     const against = raw.fixes_against;
-    const previous = index > 0 && isObject(drafts[index - 1]) ? (drafts[index - 1] as JsonObject).id : undefined;
-    const allowed = index === 0 ? against === null : typeof against === 'string' && (against === previous
-      || drafts.slice(0, index).some(d => isObject(d) && d.id === against && hasPartsReceipt(project, against)));
+    const previous = isObject(drafts[previousIndex]) ? (drafts[previousIndex] as JsonObject).id : undefined;
+    const allowed = previousIndex < 0 ? against === null : typeof against === 'string' && (against === previous
+      || drafts.slice(0, index).some(d => isObject(d) && !isAssembleOnlyDraft(d) && d.id === against && hasPartsReceipt(project, against)));
     if (!allowed) {
       malformed(`fixes_against must name an earlier draft with a parts-review receipt, or the previous draft (${fixesAgainst(project, index) ?? 'none'})`);
       return;
@@ -281,6 +292,8 @@ function checkRestarts(project: JsonObject, refusals: Finding[], warnings: Findi
 /** The draft-rig fields for a ledger report, read from the report and the earlier drafts' reports. */
 export function draftLedgerFields(dir: string, project: JsonObject, index: number, reportPath: string, known: [string, string][], now: number): JsonObject {
   const at = `drafts[${index}].ledger_report`;
+  const draft = asArray(project.drafts)[index];
+  assertDraftHasRig(isObject(draft) ? draft : undefined, at);
   const bytes = reportBytes(dir, reportPath, at);
   if (!Buffer.isBuffer(bytes)) refuse(bytes.code, bytes.message);
   const fields: JsonObject = { ledger_report: { path: reportPath, sha256: sha(bytes), spec: FIX_LEDGER_REPORT_SPEC } };

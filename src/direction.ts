@@ -1,6 +1,7 @@
 import { SceneError, committedScene, readScene, validateSceneCurrent } from './scene.ts';
 import { DIRECTION_COMPOSE_SPEC, validateComposeDirection, validateComposeDirectionShape } from './direction-compose.ts';
 import { fixedNotApplicableCamera } from './direction-citation.ts';
+import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, draftRigRequired } from './draft-layout.ts';
 /** Create owns these authored camera/timing bytes. No renderer or external producer runs here. */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from './check-reads.ts';
@@ -85,6 +86,11 @@ export function directionJson(bytes: Uint8Array, path: string): JsonObject {
   catch { return directionFail('DIRECTION_SCHEMA', path, 'JSON object required'); }
 }
 export function directionVersion(project: JsonObject, n: Json | undefined): JsonObject {
+  const draft = assembleOnlyDraftTarget(project, n);
+  if (draft) {
+    const failure = draftRigRequired('project.json.versions', draft.id);
+    directionFail(failure.code, failure.path, failure.message);
+  }
   const found = objects(project.versions).filter(v => v.n === n);
   if (!positiveInt(n) || found.length !== 1) directionFail('DIRECTION_VERSION', 'versions', 'post version must exist uniquely');
   return found[0] as JsonObject;
@@ -172,6 +178,10 @@ export function validateDirectionRig(dir: string, project: JsonObject, doc: Json
   const found = objects(project.versions).filter(v => v.n === binding.version && v.kind === 'rig');
   const v = found[0]; const pkg = v?.review_package;
   const model = binding.model as JsonObject;
+  const draft = assembleOnlyDraftTarget(project, binding.version) ?? assembleOnlyDraftPath(dir, project, model?.path);
+  const failure = draft ? draftRigRequired('direction.rig', draft.id)
+    : v && assembleOnlyVersionFinding(dir, project, v, 'direction.rig');
+  if (failure) directionFail(failure.code, failure.path, failure.message);
   const target = `derived/review/v${String(binding.version)}/out/check/build/skeleton.model.json`;
   if (found.length !== 1 || !isObject(pkg) || !objects(pkg.files).some(f => f.path === 'out/check/build/skeleton.model.json' && f.sha256 === model.sha256) || model.path !== target) directionFail('DIRECTION_RIG_UNKNOWN','direction.rig','unknown review-package compiled model identity');
   boundDirectionBytes(dir,model);

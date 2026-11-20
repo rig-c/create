@@ -831,6 +831,10 @@ for (const [label, execFlags] of [
   try {
     cpSync(join(REPO, 'templates/example-chain/checkpoints/1-parts-verdict'), projectRoot, { recursive: true });
     cpSync(join(projectRoot, 'derived/drafts/chain'), join(projectRoot, 'derived/drafts/chain-2'), { recursive: true });
+    const recordPath = join(projectRoot, 'project.json');
+    const project = JSON.parse(readFileSync(recordPath, 'utf8')) as { signoffs: { checkpoint?: string }[] };
+    project.signoffs = project.signoffs.filter(signoff => signoff.checkpoint !== 'assemble');
+    writeFileSync(recordPath, `${JSON.stringify(project, null, 2)}\n`);
     const spawned = Bun.spawn([process.execPath, ...execFlags, activeCli, 'job', 'open', projectRoot, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
       cwd: projectRoot,
       stdout: 'pipe',
@@ -848,7 +852,7 @@ for (const [label, execFlags] of [
     reader.releaseLock();
     const lines = text.trim().split('\n');
     expect(lines[0]).toStartWith('http://127.0.0.1:');
-    expect(lines.slice(1)).toEqual(['job: draft chain published']);
+    expect(lines.slice(1)).toEqual(['job: draft chain published', 'job: asked checkpoint assemble']);
 
     const drafted = Bun.spawnSync(
       [
@@ -868,9 +872,9 @@ for (const [label, execFlags] of [
       { cwd: projectRoot, stdout: 'pipe', stderr: 'pipe' },
     );
     expect({ exit: drafted.exitCode, stderr: drafted.stderr.toString('utf8') }).toEqual({ exit: 0, stderr: '' });
-    expect(drafted.stdout.toString('utf8').trim().split('\n')).toEqual([
-      'draft-rig: recorded chain-2; no production version created',
-    ]);
+    const draftLines = drafted.stdout.toString('utf8').trim().split('\n');
+    expect(draftLines[0]).toBe('draft-rig: recorded chain-2; no production version created');
+    expect(draftLines.at(-1)).toMatch(/^job: updated the open page: publication [^,]+, ask checkpoint assemble$/);
 
     const reconciled = Bun.spawnSync([process.execPath, ...execFlags, activeCli, 'job', 'reconcile', projectRoot], {
       cwd: projectRoot,

@@ -50,7 +50,7 @@ export async function* jobEvents(host: JobOwnerHost, strict = false, capabilitie
   if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live event stream exceeded the paging bound; retry job acts on a quiescent job');
 }
 
-export async function readHostActsAndAsks(host: JobOwnerHost): Promise<{ asks: PendingAskV3[]; acts: ActV3[] }> {
+export async function readHostActsAndAsks(host: JobOwnerHost): Promise<{ head: string | null; asks: PendingAskV3[]; acts: ActV3[] }> {
   let head: string | null = null;
   const asks: PendingAskV3[] = [];
   const acts: ActV3[] = [];
@@ -59,7 +59,7 @@ export async function readHostActsAndAsks(host: JobOwnerHost): Promise<{ asks: P
     else if (event.type === 'pending') asks.push(event.ask);
     else if (event.type === 'act') acts.push(event.act);
   }
-  return { asks: asks.filter(ask => ask.publicationId === head), acts };
+  return { head, asks: asks.filter(ask => ask.publicationId === head), acts };
 }
 
 export async function readHostActs(host: JobOwnerHost): Promise<ActV3[]> {

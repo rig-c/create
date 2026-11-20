@@ -449,7 +449,8 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect(invalid.stdout).toContain('WARN DIFF_MAP_REPORT:');
   expect(invalid.stdout).not.toContain('signoff parts-review');
   expect(invalid.stdout.trim().split('\n').at(-1)).toBe('job: draft chain published');
-  expect((await page(root, opening.url, 0)).asks.map(ask => ask.subject)).toEqual([]);
+  const inspection = await page(root, opening.url, 0);
+  expect(inspection.asks.map(ask => ask.subject)).toEqual([]);
   expect(readFileSync(join(root, 'project.json'))).toEqual(beforeDrift);
   expect(pendingPublications(root)).toEqual([]);
   const invalidWrite = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']);
@@ -470,11 +471,13 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   const replacement = await cli(root, ['draft-rig', 'next', root, '--config', 'derived/drafts/next/config.json',
     '--from', 'derived/drafts/next/out', '--parts', 'derived/drafts/next/input']);
   expect({ exit: replacement.exit, stderr: replacement.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(replacement.stdout).toContain('WARN DIFF_MAP_STACK_MISMATCH:');
+  expect(replacement.stdout).toContain('open page not updated: structure snapshot missing or invalid');
+  expect(replacement.stdout).toContain('DIFF_MAP_STACK_MISMATCH');
   expect(replacement.stdout).not.toContain('job: asked');
   expect((read(root).drafts as JsonObject[]).at(-1)!.id).toBe('next');
   expect(pendingPublications(root)).toEqual([]);
   const unready = await page(root, opening.url, 0);
+  expect(unready.head.publicationId).toBe(inspection.head.publicationId);
   expect(unready.asks.map(ask => ask.subject)).toEqual([]);
   expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(unready.head.publicationId))!.subjects)
     .toEqual([]);
@@ -483,7 +486,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
   expect(unreadyOpen.stdout).toContain('WARN DIFF_MAP_STACK_MISMATCH:');
   expect(unreadyOpen.stdout).not.toContain('asked parts-verdict next');
   expect(unreadyOpen.stdout).not.toContain('signoff parts-review');
-  expect(unreadyOpen.stdout.trim().split('\n').at(-1)).toBe('job: draft next already published');
+  expect(unreadyOpen.stdout.trim().split('\n').at(-1)).toBe('job: draft next published');
   expect((await cli(root, ['structure-snapshot', root, '--draft', 'next', '--out', 'evidence/structure-next.json'])).exit).toBe(0);
   const mapped = await cli(root, ['diff-classes', root, '--diff-report', 'evidence/next-diff-components.json', '--by', 'agent']);
   expect({ exit: mapped.exit, stderr: mapped.stderr }).toEqual({ exit: 0, stderr: '' });

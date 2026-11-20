@@ -89,7 +89,7 @@ HOLE visible.
 
 | Writer | Published result | Review subject |
 | --- | --- | --- |
-| `draft-rig` | The labelled draft, C4 input inventory and retained output | `draft` selector; `parts-verdict` is deferred until parts-review and prepared evidence for that draft; eligible sign subjects |
+| `draft-rig` | The labelled draft, C4 input inventory and retained output when its owner ask is ready | `draft` selector with the prepared `parts-verdict` at parts-review, or eligible checkpoint asks at parts |
 | `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
 | `direction write` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
 | `advance rig-review` | The current live rig at the entered review stage | `rig` selector and one `review-verdict`; approval also signs rig-review |
@@ -118,6 +118,16 @@ position. The enumerator version is read from the installed package metadata.
 Review re-enumerates and validates the supplied identity under API@2/act@2.
 
 ## Commit and recovery
+
+When a bound draft is missing evidence for its owner ask, `draft-rig` records it
+and leaves the open page and outbox unchanged. Its text output identifies the
+missing evidence. Run the preparation moves shown by `next` and then
+`job open --draft <id>` to show the prepared draft in the same job.
+
+A bound version writer refuses with `JOB_PUBLICATION_ASK_REQUIRED` before
+committing if its candidate would replace an open page without an owner ask.
+When a writer updates an open page, its text output names the new publication
+ID and the asks Review accepted.
 
 Participating bound writers hold a shared write lock as well as their existing
 writer lock until publication acknowledgment. Before replacing the project,
@@ -355,14 +365,12 @@ events), so a retry or re-open shows no second control. A new publication
 supersedes the previous one's pending asks, as Review defines.
 
 An ask Review refuses never makes the acknowledged publication pending again.
-`job open` and `job reconcile` name it `JOB_ASK_REFUSED`, with each subject and
-Review's code. A writer's own publish step reports only publication failures,
-so after a writer run whose page lacks a control, run `job open` to ask
-again.
+The publishing command reports `JOB_ASK_REFUSED` with each refused subject and
+Review's code. Run `job open` to retry the ask.
 
 | Sign-off | Carried by | When |
 | --- | --- | --- |
-| `parts` checkpoints | draft | `draft-rig` commits while the record is in `parts` and the checkpoint is enabled |
+| `parts` checkpoints | draft | `draft-rig` commits or `job open --draft <id>` runs while the record is in `parts` and the checkpoint is enabled |
 | `rigging` checkpoints | rig version | `rig-version` commits in `rigging` |
 | `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
 | `parts-review` | draft | advance when the first draft has agent evidence; stay here across retouches, preparing fresh evidence and opening each new draft for one `parts-verdict`; approved UI ingestion also signs. Separate signoff is only for a midflight approved verdict already ingested unsigned |

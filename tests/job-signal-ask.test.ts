@@ -5,11 +5,10 @@
  */
 import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EXAMPLE_NOW } from '../scripts/example-time.ts';
-import { draftRigCommand } from '../src/drafts.ts';
 import { askOutcomeLines, closeCreateJob } from '../src/job-host.ts';
 import { jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
@@ -75,8 +74,8 @@ async function cli(root: string, args: string[]): Promise<{ stdout: string; stde
   return { stdout, stderr, exit };
 }
 
-async function open(root: string): Promise<{ proc: Bun.Subprocess; url: URL; lines: string[] }> {
-  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'], {
+async function open(root: string, args: string[] = []): Promise<{ proc: Bun.Subprocess; url: URL; lines: string[] }> {
+  const proc = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...args], {
     cwd: root,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -172,45 +171,6 @@ test('bound writers surface JOB_ASK_REFUSED by named code when Review refuses a 
     { kind: 'review-verdict', stage: 'rig-review' },
   ]);
 
-  // Parts-stage drafts still declare enabled checkpoints. Refuse that declared ask on
-  // both writer entrypoints, without relying on the now-gated parts-verdict subject.
-  const draftRoot = copyCheckpoint('1-parts-verdict', project => {
-    project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.checkpoint !== 'assemble');
-  });
-  cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-2'), { recursive: true });
-  cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-3'), { recursive: true });
-  const draftOpening = await open(draftRoot);
-  expect(draftOpening.lines).toEqual(['job: draft chain published', 'job: asked checkpoint assemble']);
-  const draftBinding = readWriterBinding(draftRoot)!;
-  const draftDb = new Database(join(draftBinding.identity.stateDir, 'jobs.sqlite'));
-  try {
-    draftDb.exec(`
-      CREATE TRIGGER refuse_checkpoint_ask AFTER UPDATE OF document ON jobs
-      WHEN json_extract(NEW.document, '$.head') IS NOT NULL
-        AND json_extract(OLD.document, '$.head') IS NOT json_extract(NEW.document, '$.head')
-      BEGIN
-        UPDATE jobs
-        SET document = json_remove(NEW.document, '$.publications.' || json_extract(NEW.document, '$.head') || '.retained.subjects[0]')
-        WHERE job_id = NEW.job_id;
-      END;
-    `);
-  } finally {
-    draftDb.close();
-  }
-  expect(() =>
-    draftRigCommand(['chain-2', draftRoot, '--config', 'derived/drafts/chain-2/config.json', '--from', 'derived/drafts/chain-2/out', '--parts', 'derived/drafts/chain-2/input'], EXAMPLE_NOW),
-  ).toThrow(expect.objectContaining({ code: 'JOB_ASK_REFUSED' }));
-  const cliDraft = await cli(draftRoot, [
-    'draft-rig', 'chain-3', draftRoot,
-    '--config', 'derived/drafts/chain-3/config.json',
-    '--from', 'derived/drafts/chain-3/out',
-    '--parts', 'derived/drafts/chain-3/input',
-  ]);
-  expect(cliDraft.exit).toBe(1);
-  expect(cliDraft.stdout.trim()).toBe('');
-  expect(cliDraft.stderr).toContain('JOB_ASK_REFUSED: ');
-  expect(cliDraft.stderr).toContain('checkpoint assemble (JOB_ASK_INVALID)');
-  expect(pendingPublications(draftRoot)).toEqual([]);
 }, 15_000);
 
 test('bound writers print concise asked/already subject lines in text mode and preserve JSON stdout in --json mode', async () => {
@@ -234,32 +194,130 @@ test('bound writers print concise asked/already subject lines in text mode and p
     'job: asked review-verdict rig-review',
   ]);
 
-  const draftRoot = copyCheckpoint('1-parts-verdict', project => {
-    project.signoffs = (project.signoffs as JsonObject[]).filter(signoff => signoff.checkpoint !== 'assemble');
-  });
-  cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-2'), { recursive: true });
-  cpSync(join(draftRoot, 'derived/drafts/chain'), join(draftRoot, 'derived/drafts/chain-3'), { recursive: true });
+  // --json stdout stays one JSON document; a bound draft-rig carries the page update inside it.
+  const draftRoot = await preparedParts();
+  const args = copyDraft(draftRoot, 'chain-2');
+  const snapshot = JSON.parse(readFileSync(join(draftRoot, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
+  snapshot.draft_id = 'chain-2';
+  (snapshot.config as JsonObject).path = 'derived/drafts/chain-2/config.json';
+  writeFileSync(join(draftRoot, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
   await open(draftRoot);
-
-  const drafted = await cli(draftRoot, [
-    'draft-rig', 'chain-2', draftRoot,
-    '--config', 'derived/drafts/chain-2/config.json',
-    '--from', 'derived/drafts/chain-2/out',
-    '--parts', 'derived/drafts/chain-2/input',
-  ]);
-  expect({ exit: drafted.exit, stderr: drafted.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(drafted.stdout.trim().split('\n')).toEqual([
-    'draft-rig: recorded chain-2; no production version created',
-    'job: asked checkpoint assemble',
-  ]);
-
-  const draftedJson = await cli(draftRoot, [
-    'draft-rig', 'chain-3', draftRoot,
-    '--config', 'derived/drafts/chain-3/config.json',
-    '--from', 'derived/drafts/chain-3/out',
-    '--parts', 'derived/drafts/chain-3/input',
-    '--json',
-  ]);
+  const draftedJson = await cli(draftRoot, [...args, '--json']);
   expect({ exit: draftedJson.exit, stderr: draftedJson.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(JSON.parse(draftedJson.stdout)).toMatchObject({ id: 'chain-3' });
-}, 15_000);
+  const printed = JSON.parse(draftedJson.stdout) as JsonObject;
+  expect(printed).toMatchObject({ id: 'chain-2', publication: { status: 'published' } });
+  expect((printed.publication as { lines: string[] }).lines).toContain(`job: updated the open page: publication ${publicationId(draftRoot)}, ask parts-verdict chain-2`);
+}, 30_000);
+
+function publicationId(root: string): string {
+  const binding = readWriterBinding(root)!;
+  const db = new Database(join(binding.identity.stateDir, 'jobs.sqlite'), { readonly: true });
+  try {
+    return db.query<{ head: string }, [string]>("SELECT json_extract(document, '$.head') AS head FROM jobs WHERE job_id = ?").get(binding.jobId)!.head;
+  } finally {
+    db.close();
+  }
+}
+
+function copyDraft(root: string, id: string): string[] {
+  const base = `derived/drafts/${id}`;
+  cpSync(join(root, 'derived/drafts/chain'), join(root, base), { recursive: true });
+  return ['draft-rig', id, root, '--config', `${base}/config.json`, '--from', `${base}/out`, '--parts', `${base}/input`];
+}
+
+async function preparedParts(): Promise<string> {
+  const root = copyCheckpoint('1-parts-verdict');
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  expect(await cli(root, ['structure-snapshot', root, '--draft', 'chain', '--out', 'evidence/structure-chain.json'])).toMatchObject({ exit: 0 });
+  expect(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'])).toMatchObject({ exit: 0 });
+  expect(await cli(root, ['advance', 'parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'])).toMatchObject({ exit: 0 });
+  return root;
+}
+
+test('#690 unready draft records without replacing an asked page and can be shown once prepared', async () => {
+  const root = await preparedParts();
+  const args = copyDraft(root, 'chain-2');
+  expect((await open(root)).lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  const before = publicationId(root);
+  expect(before).toBeTruthy();
+  const recorded = await cli(root, args);
+  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(read(root).drafts).toContainEqual(expect.objectContaining({ id: 'chain-2' }));
+  const head = publicationId(root);
+  const binding = readWriterBinding(root)!;
+  console.log('#690 draft publication ID', before, '->', head, 'subjects', readAcknowledgedPublication(root, binding.jobId, head)?.subjects);
+  expect(head).toBe(before);
+  expect(pendingPublications(root)).toEqual([]);
+  expect(recorded.stdout).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
+  expect(recorded.stdout).toContain(`rig-create structure-snapshot ${root} --draft chain-2 --out evidence/structure-chain-2.json`);
+  expect(recorded.stdout).toContain('Then run rig-create job open');
+  expect(recorded.stdout).toContain('--draft chain-2');
+
+  const next = await cli(root, ['next', root, '--json']);
+  const moves = JSON.parse(next.stdout).moves as { command: string | null }[];
+  expect(moves.some(move => move.command?.includes('structure-snapshot') && move.command.includes('--draft chain-2'))).toBe(true);
+  expect(await cli(root, ['structure-snapshot', root, '--draft', 'chain-2', '--out', 'evidence/structure-chain-2.json'])).toMatchObject({ exit: 0 });
+  mkdirSync(join(root, 'evidence/parts-chain-2'));
+  cpSync(join(root, 'evidence/diff-components.json'), join(root, 'evidence/parts-chain-2/diff-components.json'));
+  expect(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/parts-chain-2/diff-components.json', '--by', 'agent'])).toMatchObject({ exit: 0 });
+  const afterNext = await cli(root, ['next', root, '--json']);
+  expect((JSON.parse(afterNext.stdout).moves as { command: string | null }[])
+    .some(move => move.command?.includes('job open') && move.command.includes('--draft chain-2'))).toBe(true);
+  const shown = await cli(root, ['job', 'open', root, '--draft', 'chain-2', '--reviewer', 'synthetic-owner', '--role', 'owner']);
+  expect(shown).toMatchObject({ exit: 0, stderr: '' });
+  expect(shown.stdout).toContain('job: asked parts-verdict chain-2');
+  expect(publicationId(root)).not.toBe(before);
+}, 30_000);
+
+test('#690 prepared draft updates an open page with its parts-verdict ask', async () => {
+  const root = await preparedParts();
+  const args = copyDraft(root, 'chain-2');
+  // An independent prepared snapshot binds the prospective synthetic draft's exact config.
+  const snapshot = JSON.parse(readFileSync(join(root, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
+  snapshot.draft_id = 'chain-2';
+  (snapshot.config as JsonObject).path = 'derived/drafts/chain-2/config.json';
+  writeFileSync(join(root, 'evidence/structure-chain-2.json'), JSON.stringify(snapshot));
+  await open(root);
+  const before = publicationId(root);
+  const recorded = await cli(root, args);
+  const after = publicationId(root);
+  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(after).not.toBe(before);
+  expect(recorded.stdout).toContain(`updated the open page: publication ${after}, ask parts-verdict chain-2`);
+  const binding = readWriterBinding(root)!;
+  expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'parts-verdict', draftId: 'chain-2' }]);
+  expect(pendingPublications(root)).toEqual([]);
+}, 30_000);
+
+test('#690 draft-rig --json reports a deferred update of the open page', async () => {
+  const root = await preparedParts();
+  const args = copyDraft(root, 'chain-2');
+  await open(root);
+  const before = publicationId(root);
+  const recorded = await cli(root, [...args, '--json']);
+  expect({ exit: recorded.exit, stderr: recorded.stderr }).toEqual({ exit: 0, stderr: '' });
+  const printed = JSON.parse(recorded.stdout) as JsonObject;
+  expect(printed.id).toBe('chain-2');
+  const notice = printed.publication as { status: string; lines: string[] };
+  expect(notice.status).toBe('deferred');
+  expect(notice.lines.join('\n')).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
+  expect(publicationId(root)).toBe(before);
+  expect(read(root).drafts).toContainEqual(expect.not.objectContaining({ publication: expect.anything() }));
+}, 30_000);
+
+test('#690 advance updates the same rig with its review verdict ask', async () => {
+  const root = copyCheckpoint('3-rig-review', project => {
+    project.stage = 'rigging';
+    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
+  });
+  const opening = await open(root, ['--rig', '1']);
+  expect(opening.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review']);
+  const before = publicationId(root);
+  const advanced = await cli(root, ['advance', 'rig-review', root]);
+  const after = publicationId(root);
+  expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(after).not.toBe(before);
+  expect(advanced.stdout).toContain(`updated the open page: publication ${after}, ask review-verdict rig-review`);
+  const binding = readWriterBinding(root)!;
+  expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
+}, 30_000);

@@ -548,7 +548,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
       files.push({ path: directionPath, sha256: jobHash(publicationFile(root, directionPath)) }, { path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
       const steps = isObject(project.plan) ? asArray(project.plan.steps).filter(isObject) : [];
       return { selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, parts: null,
-        subjects: reviewVerdictSignable(project, selector.version, 'direction-review') ? [{ kind: 'review-verdict', stage: 'direction-review' }] : [], partIds: [], files };
+        subjects: livePublicationSubjects(root, project, selector), partIds: [], files };
     }
   }
   const rig = selector.kind === 'post' ? selector.rigVersion : selector.version;
@@ -597,15 +597,7 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   }
   const plan = project.plan as JsonObject | undefined;
   const steps = Array.isArray(plan?.steps) ? plan.steps as JsonObject[] : [];
-  const reviewStage = selector.kind === 'post' ? 'direction-review' as const : 'rig-review' as const;
-  const needsVerdict = reviewVerdictSignable(project, selector.version, reviewStage);
-  const stage = effectiveStage(root, project);
-  const subjects: JobPublishedContext['subjects'] = [
-    ...(needsVerdict ? [{ kind: 'review-verdict' as const, stage: reviewStage }] : []),
-    // The legacy direction panel accepts only the verdict on a post publication.
-    ...(selector.kind === 'post' ? [] : packageSignSubjects(project, stage, selector, steps.length)
-      .filter(subject => !(needsVerdict && stage === 'rig-review' && subject.kind === 'signoff' && subject.stage === 'rig-review'))),
-  ];
+  const subjects = livePublicationSubjects(root, project, selector);
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
@@ -613,6 +605,23 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files,
   };
 };
+
+/** The same rig/post asks are used for writer preflight and the sealed publication. */
+export function livePublicationSubjects(
+  root: string, project: JsonObject, selector: Exclude<JobSelector, { kind: 'draft' }>,
+): JobPublishedContext['subjects'] {
+  if (selector.kind === 'post') {
+    return reviewVerdictSignable(project, selector.version, 'direction-review') ? [{ kind: 'review-verdict', stage: 'direction-review' }] : [];
+  }
+  const needsVerdict = reviewVerdictSignable(project, selector.version, 'rig-review');
+  const stage = effectiveStage(root, project);
+  const planSteps = isObject(project.plan) ? asArray(project.plan.steps).length : 0;
+  return [
+    ...(needsVerdict ? [{ kind: 'review-verdict' as const, stage: 'rig-review' as const }] : []),
+    ...packageSignSubjects(project, stage, selector, planSteps)
+      .filter(subject => !(needsVerdict && stage === 'rig-review' && subject.kind === 'signoff' && subject.stage === 'rig-review')),
+  ];
+}
 
 export function publishedDraft(project: JsonObject, id: string): JsonObject {
   const drafts = Array.isArray(project.drafts) ? project.drafts as JsonObject[] : [];
@@ -818,18 +827,25 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
 
 /** Register inventory early; ask for approval only after agent evidence and the advance. */
 export function draftPublicationContext(root: string, project: JsonObject, id: string, warnings: Finding[] = []): JobPublishedContext {
+  return inspectDraftPublication(root, project, id, warnings).context;
+}
+
+export function inspectDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[] = [], stage = effectiveStage(root, project)): {
+  context: JobPublishedContext;
+  missingStructure: string | undefined;
+  diffFinding: Finding | undefined;
+} {
   // Validate the mandatory closure before looking for optional comparison evidence.
   const context = draftPublishedContext(root, project, id);
   // Fresh approvals sign the stage during verdict ingestion. Preserve a separate
   // signoff ask only for an approval already ingested by an earlier writer.
   let legacyApproval = false;
   try { recordedPartsVerdict(root, project, id); legacyApproval = true; } catch { /* No accepted legacy receipt. */ }
-  const stage = effectiveStage(root, project);
   const signatures = packageSignSubjects(project, stage, context.selector!, context.plan?.steps.length ?? 0)
     .filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review' || legacyApproval);
   let subjects = [...context.subjects, ...signatures];
+  const errors: Finding[] = [];
   if (stage === 'parts-review') {
-    const errors: Finding[] = [];
     checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
       resolve(root, context.parts!.manifest.path), errors, [], project);
     if (errors.length) {
@@ -837,15 +853,14 @@ export function draftPublicationContext(root: string, project: JsonObject, id: s
       subjects = subjects.filter(subject => subject.kind !== 'parts-verdict' && (subject.kind !== 'signoff' || subject.stage !== 'parts-review'));
     }
   }
-  // Draft registration can precede the evidence moves. Publish the inventory,
-  // but do not ask for a verdict over a record that still needs agent writes.
-  if (stage !== 'parts-review' || !partsStructureSnapshot(root, project, id).valid) {
-    subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
-  }
+  const structure = stage === 'parts-review' ? partsStructureSnapshot(root, project, id) : undefined;
+  const missingStructure = structure && !structure.valid && context.subjects.some(subject => subject.kind === 'parts-verdict')
+    ? structure.path : undefined;
+  if (stage !== 'parts-review' || missingStructure !== undefined) subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
   const files = [...context.files];
   const checkpoints = checkpointEvidenceContext(root, project, subjects, files);
   const comparison = previousDraftContext(root, project, id, context.parts!.manifest, files, warnings);
-  return { ...context, subjects, files, ...checkpoints, ...comparison };
+  return { context: { ...context, subjects, files, ...checkpoints, ...comparison }, missingStructure, diffFinding: errors[0] };
 }
 
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {

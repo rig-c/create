@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion } from './job-writer.ts';
-import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
+import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
+import { cancelUncommittedIntent, readWriterBinding, type PendingPublication } from './job-outbox.ts';
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
 import { ConfigInputsUnavailable, configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, DRAFT_CONFIG_INPUTS_SINCE, draftUnboundInputs, inputsUndeclaredByInstall, receiptSpec, releaseAfter } from './config-inputs.ts';
 import { createHash } from 'node:crypto';
@@ -300,6 +300,9 @@ export function draftVersionFindings(dir: string, project: JsonObject): Finding[
 export const DRAFT_RIG_HELP = `draft-rig:
   <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--reuse <draft id> [--reuse-record <sha256>]] [--ledger-report <file>] [--known-regression <row id>=<reason file>]... [--json]
   Record existing labelled draft artifacts under derived/drafts/<id>/; run no producer.
+  A bound draft updates the open Review page when its owner ask is ready.
+  Prepare any missing evidence, then show the draft with job open --draft <id>.
+  With --json on a bound project, the record carries publication { status: published|deferred, lines }.
   Standalone rig output requires --parts; only an unambiguous build root supplies it implicitly.
   Config/output association is declared, not measured reproducibility or producer provenance.
   --reuse binds a reviewed draft's exact parts inventory and inherits its recorded producer.
@@ -427,13 +430,23 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     if (first !== undefined) refuse(first.code, first.message);
     const bytes = Buffer.from(`${JSON.stringify(project, null, 2)}\n`);
     if (!readFileSync(file).equals(original)) refuse('DRAFT_RIG_FILE', 'project.json: draft source changed during registration; retry with frozen inputs');
-    intent = prepareDraftIntent(dir, bytes, id);
+    const publication = prepareDraftIntent(dir, bytes, id);
+    intent = publication.intent;
     const fd = openSync(temporary, 'wx');
     try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(temporary, file);
     const directory = openSync(dir, 'r');
     try { fsyncSync(directory); } finally { closeSync(directory); }
-    publishCommittedVersion(dir, id);
-    return { stdout: json ? JSON.stringify(record, null, 2) : `draft-rig: recorded ${id}; no production version created`, exit: 0 };
+    if (intent) publishCommittedVersion(dir, id);
+    if (json) {
+      // A bound project reports whether the open page was updated or the update was deferred; the record itself is unchanged.
+      const notice = !readWriterBinding(dir) ? undefined
+        : publication.deferred ? { status: 'deferred', lines: [publication.deferred] }
+        : { status: 'published', lines: takePublishedLines() };
+      return { stdout: JSON.stringify(notice ? { ...record, publication: notice } : record, null, 2), exit: 0 };
+    }
+    const lines = [`draft-rig: recorded ${id}; no production version created`];
+    if (publication.deferred) lines.push(publication.deferred);
+    return { stdout: lines.join('\n'), exit: 0 };
   } finally { cancelUncommittedIntent(dir, intent); rmSync(temporary, { force: true }); release(); }
 }

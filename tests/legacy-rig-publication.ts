@@ -14,9 +14,12 @@ export function legacyRigPublicationCli(runtime: string): string {
   cpSync(join(import.meta.dir, 'cli-at.ts'), join(runtime, 'tests/cli-at.ts'));
   const file = join(runtime, 'src/job-publication.ts');
   const source = readFileSync(file, 'utf8');
-  const start = source.indexOf("  const subjects: JobPublishedContext['subjects'] = [", source.indexOf('const reviewStage ='));
-  const end = source.indexOf('\n  return {', start);
-  if (start < 0 || end < 0) throw Error('retained 1.7.2 publication producer insertion point moved');
-  writeFileSync(file, source.slice(0, start) + retained.subjectsSource + source.slice(end));
+  const current = '  const subjects = livePublicationSubjects(root, project, selector);';
+  const [before, after, duplicate] = source.split(current);
+  if (before === undefined || after === undefined || duplicate !== undefined) {
+    throw Error('retained 1.7.2 publication producer insertion point moved');
+  }
+  const reviewStage = "  const reviewStage = selector.kind === 'post' ? 'direction-review' as const : 'rig-review' as const;";
+  writeFileSync(file, before + reviewStage + '\n' + retained.subjectsSource + after);
   return join(runtime, 'tests/cli-at.ts');
 }

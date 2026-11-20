@@ -112,6 +112,7 @@ async function bound(ready = true) {
   hosts.push(host);
   const result = expectCliOk(await cli(root, draftArgs()));
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+  await openDraftPublication(root, host, Date.now(), 'chain');
   expect(host.session.status().publication?.source.selector).toEqual({ kind: 'draft', id: 'chain' });
   expect(host.session.status().publication!.source.parts!.images.map(({ path, role }) => ({ path, role })))
     .toEqual(partsEnumerator.enumerate(join(root, 'derived/drafts/chain/input')));
@@ -411,6 +412,10 @@ for (const source of ['parts', 'config'] as const) test(`changed ${source} refus
 test('a new-id rebuild with failed publication retries through job reconcile', async () => {
   const { root, host } = await bound();
   cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/rebuilt'), { recursive: true });
+  const snapshot = JSON.parse(readFileSync(join(root, 'evidence/structure-chain.json'), 'utf8')) as JsonObject;
+  snapshot.draft_id = 'rebuilt';
+  (snapshot.config as JsonObject).path = 'derived/drafts/rebuilt/config.json';
+  writeFileSync(join(root, 'evidence/structure-rebuilt.json'), JSON.stringify(snapshot));
   writeFileSync(join(root, 'review-draft-rebuilt.json'), '{}\n');
   const failed = expectCliRefused(await cli(root, draftArgs('rebuilt')), 'JOB_PUBLISH_PENDING');
   expect(failed.exit).toBe(1); expect(failed.stderr).toContain('JOB_PUBLISH_PENDING:');
@@ -486,6 +491,7 @@ test('standalone draft without a compiled model publishes through image referenc
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
   hosts.push(host);
   expect(expectCliOk(await cli(root, draftArgs())).exit).toBe(0);
+  await openDraftPublication(root, host, Date.now(), 'chain');
   expect(host.session.status().publication!.source.model).toBeNull();
   await readyForVerdict(root, host);
   const act = await submit(root, host);
@@ -503,6 +509,7 @@ test('build-root draft binds its own parts inventory and compiled output', async
   hosts.push(host);
   const result = expectCliOk(await cli(root, ['draft-rig', 'chain', '--config', 'derived/drafts/chain/config.json', '--from', 'derived/drafts/chain/build']));
   expect(result.stderr).toBe(''); expect(result.exit).toBe(0);
+  await openDraftPublication(root, host, Date.now(), 'chain');
   expect(host.session.status().publication!.source.parts!.manifest.path).toBe('derived/drafts/chain/build/parts.json');
   expect(host.session.status().publication!.source.model!.path).toBe('derived/drafts/chain/build/check/build/skeleton.model.json');
   await readyForVerdict(root, host);

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
 import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
-import { jobRuntimeExecArgv, prepareDraftIntent, prepareVersionIntent } from '../src/job-writer.ts';
+import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { draftPublicationContext, draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
@@ -975,7 +975,7 @@ test('#389 parts-review drafts publish without unready approval and recover thro
     root, record: { path: 'project.json', sha256: jobHash(unsignedRecordBytes) }, result,
   });
   expect(published.subjects).toEqual(unready.subjects);
-  expect(prepareDraftIntent(root, unsignedRecordBytes, 'chain')).not.toBeNull();
+  enqueuePublication(root, binding, result, unsignedRecordBytes);
   expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined,
     async opts => makeHost(true, opts.reuseOnly!.expected)))).toBe(1);
   expect(apiCalls).toEqual([
@@ -993,7 +993,7 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   expect(draftPublicationContext(root, brokenProject, 'chain', brokenWarnings).subjects).toEqual(unready.subjects);
   expect(brokenWarnings.map(finding => finding.code)).toEqual(['DIFF_MAP_NOT_AGENT']);
 
-  // Acknowledged draft registration leaves the public repair writer usable.
+  // Acknowledged inventory publication leaves the public repair writer usable.
   diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], now);
   const readyBytes = readFileSync(join(root, 'project.json'));
   const readyProject = JSON.parse(readyBytes.toString('utf8')) as JsonObject;
@@ -1007,7 +1007,7 @@ test('#389 parts-review drafts publish without unready approval and recover thro
     { kind: 'parts-verdict', draftId: 'chain' },
   ]);
 
-  expect(prepareDraftIntent(root, readyBytes, 'chain')).not.toBeNull();
+  enqueuePublication(root, binding, { path: readyManifest, selector: result.selector }, readyBytes);
   expect(
     await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, async opts => makeHost(true, opts.reuseOnly!.expected))),
   ).toBe(1);
@@ -1398,6 +1398,82 @@ for (const [defect, code] of [
     expect(readFileSync(join(f.root, 'review-live-v2.json'))).toEqual(manifest);
   });
 }
+
+test('#690 republish requires stage asks when updating the open page', async () => {
+  const ask = { kind: 'review-verdict', stage: 'rig-review' } as const;
+  const open = async (root: string) => {
+    const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+    hosts.push(host);
+    await openDraftPublication(root, host, now, undefined, '1');
+    return host;
+  };
+
+  // The separate writer process must consult the live host over the bound API.
+  const republish = async (root: string, n: number) => {
+    const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'),
+      'republish', String(n), root, '--reason', 'Publish retained evidence.'], { stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { exit, stdout, code: /^rig-create: ([A-Z_]+):/.exec(stderr)?.[1] };
+  };
+
+  const refused = async (root: string, host: JobOwnerHost, n: number, paths: string[]) => {
+    const before = paths.map(path => readFileSync(join(root, path)));
+    const opened = host.session.status();
+    const result = await republish(root, n);
+    const status = host.session.status();
+    return { ...result,
+      recordAndLegacyUnchanged: paths.every((path, i) => readFileSync(join(root, path)).equals(before[i]!)),
+      g2Exists: existsSync(join(root, `review-live-v${n}-g2.json`)),
+      outbox: pendingPublications(root, true),
+      publicationUnchanged: status.publication?.publicationId === opened.publication?.publicationId,
+      generation: status.generation,
+      pending: status.pending,
+    };
+  };
+
+  const { root, project } = scenePostSetup('painting', true);
+  const rigPath = prepareLiveManifest(root, { ...project, inputs: [] }, 1);
+  const postPath = prepareLiveManifest(root, project, 2);
+  const postManifest = JSON.parse(readFileSync(join(root, postPath), 'utf8'));
+  delete postManifest.scene;
+  writeFileSync(join(root, postPath), `${JSON.stringify(postManifest, null, 2)}\n`);
+  const host = await open(root);
+  const rigOpened = host.session.status();
+  expect(rigOpened.publication?.source.selector).toEqual({ kind: 'rig', version: 1 });
+  expect(rigOpened.pending.map(item => item.subject)).toEqual([ask]);
+  expect(await refused(root, host, 2, ['project.json', rigPath, postPath])).toEqual({ exit: 1, stdout: '', code: 'JOB_ASK_PENDING',
+    recordAndLegacyUnchanged: true, g2Exists: false, outbox: [], publicationUnchanged: true,
+    generation: rigOpened.generation, pending: rigOpened.pending,
+  });
+
+  const updated = await republish(root, 1);
+  const status = host.session.status();
+  const publication = status.publication!;
+  expect(updated).toMatchObject({ exit: 0, code: undefined });
+  expect(publication.publicationId).not.toBe(rigOpened.publication?.publicationId);
+  expect(publication.generation).toBeGreaterThan(rigOpened.publication!.generation);
+  expect(publication.source.selector).toEqual({ kind: 'rig', version: 1 });
+  expect(existsSync(join(root, 'review-live-v1-g2.json'))).toBe(true);
+  expect(status.pending).toContainEqual(expect.objectContaining({ publicationId: publication.publicationId, subject: ask }));
+
+  // The signed post-stage checkpoint has a retained rig and no remaining rig asks.
+  const signedRoot = realpathSync(mkdtempSync(join(tmpdir(), 'create-askless-republish-')));
+  roots.push(signedRoot);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), signedRoot, { recursive: true });
+  const signedProject = JSON.parse(readFileSync(join(signedRoot, 'project.json'), 'utf8')) as JsonObject;
+  const signedPath = prepareLiveManifest(signedRoot, { ...signedProject, inputs: [] }, 1);
+  const signedHost = await open(signedRoot);
+  const signedOpened = signedHost.session.status();
+  expect(signedOpened.publication?.source.selector).toEqual({ kind: 'rig', version: 1 });
+  expect(signedOpened.pending).toEqual([]);
+  expect(await refused(signedRoot, signedHost, 1, ['project.json', signedPath])).toEqual({
+    exit: 1, stdout: '', code: 'JOB_PUBLICATION_ASK_REQUIRED',
+    recordAndLegacyUnchanged: true, g2Exists: false, outbox: [], publicationUnchanged: true,
+    generation: signedOpened.generation, pending: [],
+  });
+  expect(updated.stdout).toContain(publication.publicationId);
+  expect(updated.stdout).toContain('review-verdict rig-review');
+}, 25_000);
 
 test.each(['empty', 'painting'] as const)('post republish adds only scene and revision, preserving %s references and g1 identity', async references => {
   const { republishCommand } = await import('../src/republish.ts');

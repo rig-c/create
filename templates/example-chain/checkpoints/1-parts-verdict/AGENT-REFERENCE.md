@@ -2,6 +2,8 @@
 
 ## Before you ask, plan or show
 
+- Use the owner's declared `owner.language` for authored text shown in Review.
+  Get the preference from the owner and follow the field list in the agent guide.
 - **Projection.** Ask and record it per [CHECKS.md § Projection and ground](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#projection-and-ground).
 - **Head turn is a rig decision.** Ask `turn` at rigging-interview: fixed view
   or head turn with depth. Record the chosen route and reason in the `turn`

@@ -8,6 +8,8 @@ import { failPublication, pendingPublications, reconcilePublication } from './jo
 import { jobActsText } from './job-acts.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { replacedRootRefusal } from './job-host-state.ts';
+import { requireOwnerLanguage } from './owner-language.ts';
+import type { JsonObject } from './templates.ts';
 
 /** Preserve this known producer refusal without printing an uncontrolled producer message. */
 export function publicationFailure(error: unknown, root: string): Refusal | undefined {
@@ -64,8 +66,9 @@ async function run(): Promise<void> {
     case 'open': {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       requestedRecordResult(root, input.question, input.plan, input.now);
-      assertRequestedRig(root, input.rig, input.draft);
-      assertRequestedDraft(root, input.draft, input.now);
+      const rig = assertRequestedRig(root, input.rig, input.draft);
+      const { bytes, draftId } = assertRequestedDraft(root, input.draft, input.now);
+      if (rig || draftId !== undefined) requireOwnerLanguage(JSON.parse(bytes.toString('utf8')) as JsonObject);
       let stopping = false;
       let stopHost: (() => void) | null = null;
       const onSignal = () => {

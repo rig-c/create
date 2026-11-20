@@ -4,16 +4,15 @@
  * project's own check script wrote by its sha256 and spec, and compares only the report's rows with
  * the ledger: coverage, build identity, the rows the predecessor draft passed, and what a draft fixes.
  */
-import { createHash, randomUUID } from 'node:crypto';
-import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, statSync } from './check-reads.ts';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { asArray, isObject, type Finding } from './check.ts';
 import { assertDraftHasRig, draftRigRequired, isAssembleOnlyDraft } from './draft-layout.ts';
 import { readProject } from './feedback.ts';
 import { IGNORED_DIRS } from './init.ts';
 import { REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding } from './owner-chat.ts';
-import { readVerbatim } from './record-input.ts';
+import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -364,16 +363,6 @@ export function ledgerCommand(args: string[], now: number): { stdout: string; ex
   if (own !== undefined) refuse(own.code, own.message);
   const rejected = newRefusals(dir, before, project, { now })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
-  writeRecord(file, original, project, 'ledger');
+  writeRecord(file, original, project, 'ledger', 'LEDGER_SOURCE_CHANGED');
   return { stdout: json ? JSON.stringify(row, null, 2) : `ledger: ${action === 'add' ? 'added' : 'retired'} ${id}`, exit: 0 };
-}
-
-/** Replace project.json in one rename, refusing if it changed since it was read; a refusal writes nothing. */
-export function writeRecord(file: string, original: Buffer, project: JsonObject, label: 'ledger' | 'restart'): void {
-  const tmp = join(dirname(file), `.${label}-${process.pid}-${randomUUID()}.tmp`);
-  try {
-    writeFileSync(tmp, `${JSON.stringify(project, null, 2)}\n`, { flag: 'wx' });
-    if (!readFileSync(file).equals(original)) refuse(label === 'ledger' ? 'LEDGER_SOURCE_CHANGED' : 'RESTART_SOURCE_CHANGED', `project.json: changed while ${label} was validating; retry against the current record`);
-    renameSync(tmp, file);
-  } finally { rmSync(tmp, { force: true }); }
 }

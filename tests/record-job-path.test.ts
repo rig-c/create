@@ -137,9 +137,10 @@ async function page(root: string, url: URL, expectedAsks = 2) {
 }
 
 
-function synthetic(stage: string, legacy = false): string {
+function synthetic(stage: string, legacy = false, ownerLanguage?: string): string {
   const root = realpathSync(fixture(project => {
     project.stage = stage;
+    if (ownerLanguage !== undefined) project.owner = { language: ownerLanguage };
     retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex(stage));
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex(stage));
     if (stage !== 'post-interview') {
@@ -178,7 +179,7 @@ async function unchanged(root: string, args: string[], code: string) {
 }
 
 test('record question public path, API@2 fetch, retry, stale source and wrong subject', async () => {
-  const root = synthetic('rigging-interview');
+  const root = synthetic('rigging-interview', false, 'ko');
   const project = read(root);
   const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
   const old = obj(obj(item.raw).choice).set as JsonObject;
@@ -186,6 +187,11 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   set.id = 'pending-motion';
   set.drafted_at = new Date(Date.now() - 1000).toISOString();
   set.context = optionContext(project, 'rigging-interview', Date.now() - 1000, root);
+  const ask = obj(arr(set.asks)[0]);
+  ask.prompt = 'Spine 움직임을 골라 주세요.';
+  const option = obj(arr(ask.options)[0]);
+  option.label = 'Spine';
+  option.effect = '24';
   const path = 'evidence/interview/pending-motion.json';
   writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
   const registered = await cli(root, ['interview-options', 'motion', root, '--file', path]);
@@ -258,6 +264,9 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   const resolvedAct = await resolvedOwner.act('interview-picks', 'interview-picks', { questionId: 'motion', selections, note: WORDS });
   const ingested = await cli(root, ['interview-answer', 'motion', root, '--from-review', String(resolvedAct.actId)]);
   expect(ingested.exit, ingested.stderr).toBe(0);
+  const resolvedAnswer = collectItems(read(root), { collection: null }).find(item => item.id === 'motion')!.raw;
+  const resolvedPick = obj(arr(obj(obj(resolvedAnswer).choice).picks)[0]);
+  expect(resolvedPick.shown).toEqual({ label: 'Spine', effect: '24' });
   await checked(root);
 }, 30_000);
 

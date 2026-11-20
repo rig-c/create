@@ -184,6 +184,7 @@ test('legacy records WARN: no ledger beside drafts, and a draft recorded before 
 test('restart keeps inputs and every ledger row, appends restarts[], and checks clean', () => {
   const dir = example();
   const declared = load(dir); declared.painting = 'inputs/painting.png';
+  declared.owner = { language: 'ko' };
   declared.same_artwork = { reason: 'A different synthetic rig kind.', at: testClock.iso(), projects: ['first'] };
   save(dir, declared); commit(dir);
   const before = readFileSync(join(dir, 'project.json'));
@@ -194,14 +195,14 @@ test('restart keeps inputs and every ledger row, appends restarts[], and checks 
   const saidAt = testClock.iso();
   restartCommand(restartArgs(dir, reason), step());
   const restarted = load(dir);
-  expect(restarted).toMatchObject({ stage: 'interview', versions: [], signoffs: [], name: old.name!, painting: old.painting!, same_artwork: old.same_artwork!, inputs: old.inputs!, fix_ledger: old.fix_ledger! });
+  expect(restarted).toMatchObject({ stage: 'interview', versions: [], signoffs: [], name: old.name!, owner: old.owner!, painting: old.painting!, same_artwork: old.same_artwork!, inputs: old.inputs!, fix_ledger: old.fix_ledger! });
   for (const key of ['drafts', 'review_acts', 'advances', 'scenes']) expect(restarted[key]).toBeUndefined();
   expect(obj(restarted.plan).steps).toEqual([]);
   expect(arr(restarted.restarts)).toEqual([{ at: testClock.iso(), by: 'owner', reason, previous_record_sha256: sha(before),
     source: OWNER_CHAT_SOURCE, said_at: saidAt, relayed_by: 'synthetic-relay' }]);
   // A restarted record checks the same as a fresh init record: the same codes (its open interview) and 0 warnings.
   const checked = checkProject(dir);
-  const fresh = checkProject(dir, freshProjectRecord(String(old.name), testClock.now()));
+  const fresh = checkProject(dir, { ...freshProjectRecord(String(old.name), testClock.now()), owner: old.owner! });
   expect(checked.refusals.map(f => [f.code, f.path])).toEqual(fresh.refusals.map(f => [f.code, f.path]));
   expect(fresh.refusals.map(f => f.code)).toContain('INTERVIEW_INCOMPLETE');
   expect(checked.warnings).toEqual([]);

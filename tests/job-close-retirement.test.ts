@@ -48,6 +48,7 @@ function setupProject(): { root: string; project: JsonObject } {
   roots.push(root);
   const project: JsonObject = {
     schema: 'rig-create/project@0',
+    owner: { language: 'en' },
     stage: 'interview',
     stage_values: [],
     interview: {},

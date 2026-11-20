@@ -26,6 +26,7 @@ interview-answer <question> [<dir>] --set <path> --sha256 <shown sha> --by <huma
 interview-decision <question> [<dir>] --by <agent> --reasoning-file <file>
   --fragment <ask>=<JSON file>...
 Retain the shown set first. Each ask is picked explicitly; no recommended option is preselected.
+Write ask prompts, option labels and effects, and recommendation reasons in the owner's declared language.
 To ask an answered question again, retain and register a new set id/path with
 interview-options <question> --file <path>, then job open --question <question>
 and ingest interview-answer <question> --from-review <actId>; history is kept.

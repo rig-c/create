@@ -299,7 +299,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     tick();
     // init's temporary Git repository is excluded from all generated template bytes.
     process.chdir(scratch);
-    writer(['init', 'project', '--no-install']);
+    writer(['init', 'project', '--no-install', '--owner-language', 'en']);
     process.chdir(dir);
     materialize('agent-prepared approval words', ['agent', 'draft', 'evidence/approval.txt'],
       { 'evidence/approval.txt': Buffer.from('Approve this synthetic geometric example.\n') }, 'agent');

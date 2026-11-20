@@ -10,12 +10,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { asArray, checkProject, isObject, PROJECT_SCHEMA, type Finding } from './check.ts';
-import { ledgerRows, writeRecord } from './fix-ledger.ts';
+import { ledgerRows } from './fix-ledger.ts';
 import { freshProjectRecord, run } from './init.ts';
 import { checkInputs } from './inputs.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { OWNER_CHAT_FLAGS, REOPEN_RESTART_OWNER_CHAT_SINCE, ownerChatAuthorityFinding, readOwnerChat } from './owner-chat.ts';
-import { readVerbatim } from './record-input.ts';
+import { readVerbatim, writeRecord } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import type { Json, JsonObject } from './templates.ts';
@@ -23,7 +23,7 @@ import type { Json, JsonObject } from './templates.ts';
 export const RESTART_HELP = `restart:
   [<dir>] --by <human> --owner-chat <file> --said-at <ISO> --relayed-by <operator> [--json]
   Replace project.json with the record init writes: the template's stage, no versions, drafts,
-  signoffs, plan, answers or review acts. Keeps name, title, painting, same_artwork, inputs[] (each file must
+  signoffs, plan, answers or review acts. Keeps name, title, owner, painting, same_artwork, inputs[] (each file must
   still match its sha256) and fix_ledger with every row, and appends restarts[] with the owner's exact
   words as reason, the relay and write times, and previous_record_sha256. git history holds the earlier record, so restart refuses unless
   project.json is committed: tracked and byte-identical to HEAD. A kept part set (inputs under
@@ -145,6 +145,7 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     const candidate = freshProjectRecord(typeof project.name === 'string' ? project.name : '', now);
     if (project.name !== undefined) candidate.name = project.name;
     if (project.title !== undefined) candidate.title = project.title;
+    if (project.owner !== undefined) candidate.owner = project.owner;
     if (painting !== undefined) candidate.painting = painting;
     if (project.same_artwork !== undefined) candidate.same_artwork = project.same_artwork;
     candidate.inputs = keptInputs;
@@ -163,7 +164,7 @@ export function restartCommand(args: string[], now: number): { stdout: string; e
     const fresh = checkProject(dir, freshProjectRecord(String(candidate.name ?? ''), now), { now });
     const rejected = newFindings(baselineOf(fresh), checkProject(dir, structuredClone(candidate), { now }).refusals)[0];
     if (rejected !== undefined) refuse(rejected.code, rejected.message);
-    writeRecord(file, original, candidate, 'restart');
+    writeRecord(file, original, candidate, 'restart', 'RESTART_SOURCE_CHANGED');
     const rows = asArray(candidate.fix_ledger).length;
     const leftOutText = leftOut.length
       ? `; left out legacy input(s) ${leftOut.map(({ index, entry: item }) => typeof item.path === 'string' && item.path.trim() !== '' ? `inputs[${index}] (${item.path})` : `inputs[${index}]`).join(', ')}`

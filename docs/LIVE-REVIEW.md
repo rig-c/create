@@ -349,6 +349,13 @@ the list, or no receipt at all (a clone), leaves only Review's ask binding.
 
 ### Asks
 
+Declare [owner language](PROJECT.md#owner-language) before starting a new
+live publication. Record-backed asks display the authored plan and option
+set copy verbatim. Create submits subject identifiers to Review, which
+supplies the control labels and other interface copy in its own language.
+Review uses the option set's question ID as the heading and the authored
+`asks[].prompt` as the question wording.
+
 Every publication create acknowledges is followed, in the same process, by an
 ask for each subject it declares. Review's `next` response advertises
 `capabilities.askBatch: true` for the host. Create batches only record

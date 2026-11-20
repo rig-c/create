@@ -1232,6 +1232,26 @@ perform the following migration on its own decision record.
    work. The synthetic [migration fixture](../tests/data/pre-interview.json)
    contains one bounced rig and one accepted rig carrying a timing item.
 
+## Owner language
+
+Ask the owner for their language and declare it with
+`rig-create init <dir> --owner-language <tag>` or
+`rig-create owner-language set <tag> [<dir>]` on an existing project. For a
+collection member, pass the flag to `init --member` or set it in the member.
+Create stores the canonical tag, for example `ko` or `en-US`, in
+`project.json.owner.language`. A restart carries it forward.
+
+Drafting can proceed while the language is undeclared. A new live publication
+requires a valid declaration. `interview --check` reports a missing or invalid
+declaration as a warning, including on old records. Already queued
+publications can reconcile under their existing record bindings.
+
+Use the declaration for authored prose on Review pages. Keep proper names,
+measurements, machine identifiers and owner quotations intact. A character
+test would reject names such as `Spine` and readings such as `0/16` in Korean
+copy, so Create checks the declaration and leaves wording to the author.
+Review's interface language is selected separately.
+
 ## The record, field by field
 
 Top-level fields of `project.json`:
@@ -1241,6 +1261,7 @@ Top-level fields of `project.json`:
 | `schema` | `rig-create/project@0` |
 | `name` | the folder name; a short identifier |
 | `title` | the human title of the painting or rig |
+| `owner.language` | explicit owner language tag for authored Review text |
 | `stage`, `stage_values` | the current stage and the list it comes from |
 | `signoffs[]` | every human signature: `stage`, `checkpoint` (step id or `null`), `by`, `at`, `verbatim`; plan signatures add `steps[]` naming covered steps and `step_hashes` binding their approval fields. `by` names whose decision is recorded, including their delegated instruction written by an agent, and `by: "agent"` remains refused (`SIGNOFF_NOT_HUMAN`). |
 | `interview` | `question_set` (the prompt set and package version the waypoints were read from), `held`, `date`, `interviewer`, `respondent`, `framing[]` (`id`, `text`, `source`, `required_for`, `answer`, `history[]`), `waypoints[]` (`id`, `config[]`, `prompts[]` of `id`/`text`/`source`/`required_for`, `guide`, `history[]`), `post` (`held`, `date`, `items[]` shaped like waypoints with `guide`) — answer shapes in [INTERVIEW.md](INTERVIEW.md) |
@@ -2514,7 +2535,7 @@ words, the time they said them and the operator relaying them. The legacy
 `--reason-file` option conflicts with `--owner-chat`.
 Restart writes the record `init` writes, with
 no versions, drafts, signoffs, plan, answers or review acts. It keeps the name,
-title, `painting`, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
+title, `owner`, `painting`, `same_artwork`, `inputs[]` and `fix_ledger` with every row, and appends
 `restarts[] { at, by, reason, previous_record_sha256, source, said_at, relayed_by }`.
 The owner's exact words populate `reason`. create does not keep
 the earlier `project.json`; git history holds it, so restart refuses before it

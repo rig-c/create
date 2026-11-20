@@ -1,5 +1,18 @@
 # Checking the interview
 
+## Owner language
+
+The check reports declaration problems as warnings at every record date.
+Starting a new live publication uses the same findings as refusals before
+queuing it. See [Owner language](PROJECT.md#owner-language).
+
+| Code | Finding and remedy |
+| --- | --- |
+| `OWNER_LANGUAGE_MISSING` | `project.json.owner.language` is absent. Declare the owner's preference with `rig-create owner-language set <tag> [<dir>]`. |
+| `OWNER_LANGUAGE_INVALID` | `project.json.owner.language` or its containing object is malformed, or a language argument is invalid. Give a language tag such as `ko` or `en-US` to `owner-language set` or `init --owner-language`. |
+| `OWNER_LANGUAGE_USAGE` | The set command or init option is misused. Run `rig-create owner-language set <tag> [<dir>]` or give `init` one `--owner-language <tag>` for a project. |
+| `OWNER_LANGUAGE_SOURCE_CHANGED` | The decision record changed during the language write. Retry against the current project. |
+
 ## Sealed checkpoint presentation
 
 These additive checks apply when `plan.checkpoint_evidence` is present. Historical

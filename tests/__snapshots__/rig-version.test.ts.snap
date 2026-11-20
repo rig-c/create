@@ -5,7 +5,7 @@ exports[`#454 no-bounce rig writer and next preserve previous bytes and output 1
   "exit": 0,
   "nextJson": "32e162cd23b80af0022127343218ef8dc4c22c60ba2279723697e2487f001ccf",
   "nextText": "40592c24f36703e14d084cf97fe44faf93ada092633349c8d7aba8474aeb0489",
-  "record": "bc18b7a5ce2561ac9d6c6d2ae478d1740fc44d80f3e5fe836d06d84eb667e709",
+  "record": "e8525d6c0faa5d5adee79417fc809cee340e1fdd76d4b29484cebac907b4f3d2",
   "stdout": "c234a55d1a5dfb59f658697ec19ce4e7e854dfe0d49254fb50f94c2de4019f05",
 }
 `;

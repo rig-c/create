@@ -34,6 +34,7 @@ import { PINNED_PACKAGES } from './pins.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { CHOICE_ORDER_SPEC } from './choices.ts';
 import { readTemplate, TEMPLATES_DIR, type Json, type JsonObject } from './templates.ts';
+import { parseOwnerLanguage, withOwnerLanguage } from './owner-language.ts';
 
 /** The collection's stages, in order (COLLECTIONS.md § Collection stages); `closed_by` as in src/stages.ts. */
 export const COLLECTION_STAGES = [
@@ -204,7 +205,7 @@ function startingAnswer(collection: JsonObject, collectionName: string, id: stri
  * collection.json has uncommitted changes, so that commit never carries
  * someone else's edit.
  */
-export function initMember(collectionArg: string, name: string, now: Date): MemberInitResult {
+export function initMember(collectionArg: string, name: string, now: Date, ownerLanguage?: string): MemberInitResult {
   const collectionDir = resolve(collectionArg);
   if (!MEMBER_NAME_RE.test(name)) {
     refuse('INIT_MEMBER_NAME_INVALID', `member name ${JSON.stringify(name)} is not one folder name (letters, digits, '.', '_', '-'; not starting with '.', '_' or '-')`);
@@ -228,7 +229,8 @@ export function initMember(collectionArg: string, name: string, now: Date): Memb
   }
 
   const at = now.toISOString();
-  const project = readTemplate('project.json');
+  const template = readTemplate('project.json');
+  const project = ownerLanguage === undefined ? template : withOwnerLanguage(template, parseOwnerLanguage(ownerLanguage));
   project.name = name;
   project.corrections_contract = { schema: 'rig-create/corrections@1', adopted_at: at };
   project.corrections = [];
@@ -327,22 +329,29 @@ export function collectionInitCommand(args: string[], now: number): { stdout: st
   let collection = false;
   let member = false;
   let install = true;
+  let ownerLanguage: string | undefined;
   const positional: string[] = [];
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
     if (arg === '--collection') collection = true;
     else if (arg === '--member') member = true;
     else if (arg === '--no-install') install = false;
+    else if (arg === '--owner-language') {
+      if (ownerLanguage !== undefined) refuse('OWNER_LANGUAGE_USAGE', 'project.json.owner.language: pass --owner-language once', USAGE_EXIT);
+      ownerLanguage = parseOwnerLanguage(args[++i]);
+    }
     else if (arg.startsWith('-')) refuse('UNKNOWN_OPTION', `init does not take ${arg}`, USAGE_EXIT);
     else positional.push(arg);
   }
   if (collection && member) refuse('INIT_TOO_MANY_ARGUMENTS', 'init takes --collection or --member, not both', USAGE_EXIT);
   if (collection) {
+    if (ownerLanguage !== undefined) refuse('OWNER_LANGUAGE_USAGE', 'project.json.owner.language: declare --owner-language on each member project', USAGE_EXIT);
     if (positional.length !== 1) refuse('INIT_DIR_MISSING', 'init --collection takes one folder: rig-create init --collection <dir>', USAGE_EXIT);
     const result = initCollection(positional[0] as string, { install });
     return { stdout: describeCollectionInit(result), installError: result.installError, dir: result.dir };
   }
   if (!install) refuse('UNKNOWN_OPTION', 'init --member does not take --no-install: a member installs nothing (the collection pins the packages)', USAGE_EXIT);
   if (positional.length !== 2) refuse('INIT_DIR_MISSING', 'init --member takes the collection folder and a member name: rig-create init --member <collection dir> <name>', USAGE_EXIT);
-  const result = initMember(positional[0] as string, positional[1] as string, new Date(now));
+  const result = initMember(positional[0] as string, positional[1] as string, new Date(now), ownerLanguage);
   return { stdout: describeMemberInit(result), installError: null, dir: result.dir };
 }

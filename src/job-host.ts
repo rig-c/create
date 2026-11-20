@@ -15,6 +15,7 @@ import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
+import { requireOwnerLanguage } from './owner-language.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -381,7 +382,7 @@ async function reconcileLocked(root: string, publish: (entry: PendingPublication
 /** The stages whose record consumes a draft: `job open` publishes the latest one there. */
 const DRAFT_OPEN_STAGES = ['parts', 'parts-review'];
 
-export function assertRequestedDraft(root: string, requested?: string, now = Date.now()): { bytes: Buffer; ids: string[] } {
+export function assertRequestedDraft(root: string, requested?: string, now = Date.now()): { bytes: Buffer; ids: string[]; stage: string | null; draftId?: string } {
   root = realpathSync(root);
   const bytes = readFileSync(join(root, 'project.json'));
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
@@ -397,7 +398,8 @@ export function assertRequestedDraft(root: string, requested?: string, now = Dat
       refuse('JOB_PARTS_VERDICT_UNASKABLE', `drafts[${requested}]: stage parts-review requires a valid structure snapshot at ${missingStructure} before publishing a draft for its parts-verdict; run ${command} and retry job open --draft ${shellWord(requested)}`);
     }
   }
-  return { bytes, ids };
+  const draftId = requested ?? (DRAFT_OPEN_STAGES.includes(String(stage)) ? ids.at(-1) : undefined);
+  return { bytes, ids, stage, ...(draftId === undefined ? {} : { draftId }) };
 }
 
 /** Validate an explicit registered rig or post before job open installs a binding or starts a host. */
@@ -470,6 +472,7 @@ function requestedRecordPublication(root: string, question: string | undefined, 
   if (question !== undefined && plan) refuse('JOB_BINDING_INVALID', 'project.json: choose --question or --plan, not both');
   const bytes = readFileSync(join(root, 'project.json'));
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  requireOwnerLanguage(project);
   let result: RecordPublicationRequestResult = { kind: 'plan' };
   if (question !== undefined) {
     const items = collectItems(project, { collection: loadCollection(root, project) }).filter(item => item.id === question);
@@ -522,9 +525,7 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
 export async function openDraftPublication(root: string, host: JobOwnerHost, now: number, requested?: string, requestedRig?: string): Promise<string[]> {
   root = realpathSync(root);
   const rigSelector = assertRequestedRig(root, requestedRig, requested);
-  const { bytes, ids } = assertRequestedDraft(root, requested, now);
-  const stage = checkProject(root, JSON.parse(bytes.toString('utf8')), { now, readOnly: true }).effective_stage;
-  const draftId = requested ?? (DRAFT_OPEN_STAGES.includes(String(stage)) ? ids.at(-1) : undefined);
+  const { bytes, ids, stage, draftId } = assertRequestedDraft(root, requested, now);
   const head = host.session.status().publication;
   const source = head?.source as { selector?: JobSelector; projectHash?: unknown } | undefined;
   const acknowledged = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
@@ -568,8 +569,10 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
     try {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no writer-owned binding; run rig-create job close, then rig-create job open');
-      if (targetSelector.kind === 'draft') draftPublicationContext(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), targetSelector.id);
-      if (rigSelector) prepareLiveManifest(root, JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')), rigSelector.version, warnings);
+      const current = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+      requireOwnerLanguage(current);
+      if (targetSelector.kind === 'draft') draftPublicationContext(root, current, targetSelector.id);
+      if (rigSelector) prepareLiveManifest(root, current, rigSelector.version, warnings);
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     } finally { release(); }

@@ -762,6 +762,9 @@
   "versions": [],
   "archive": null,
   "notes": [],
+  "owner": {
+    "language": "en"
+  },
   "advances": [
     {
       "stage": "plan-approved",

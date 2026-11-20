@@ -31,7 +31,7 @@ export async function agentCall(host: JobOwnerHost, body: object): Promise<Agent
 }
 
 /** The shared agent-next traversal; listing is strict while existing ask retries retain their contract. */
-export async function* jobEvents(host: JobOwnerHost, strict = false, capabilities?: { askBatch?: boolean }): AsyncGenerator<JobEventV3> {
+export async function* jobEvents(host: JobOwnerHost, strict = false, observed?: { askBatch?: boolean; cursor?: string | null }): AsyncGenerator<JobEventV3> {
   let after: unknown = null;
   for (let page = 0; page < 10_000; page++) {
     let reply: AgentReply;
@@ -40,14 +40,16 @@ export async function* jobEvents(host: JobOwnerHost, strict = false, capabilitie
       if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job event read failed; restore the bound host and retry job acts');
       throw error;
     }
-    if (capabilities && reply.ok && reply.value?.capabilities !== null && typeof reply.value?.capabilities === 'object') {
-      capabilities.askBatch = reply.value.capabilities.askBatch === true;
+    if (observed && reply.ok && reply.value?.capabilities !== null && typeof reply.value?.capabilities === 'object') {
+      observed.askBatch = reply.value.capabilities.askBatch === true;
     }
     const events = reply.ok ? reply.value?.events : undefined;
     if (!Array.isArray(events)) {
       if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job refused its event stream; restore the bound host and retry job acts');
       return;
     }
+    const cursor = reply.value?.cursor;
+    if (observed && (typeof cursor === 'string' || cursor === null)) observed.cursor = cursor;
     for (const event of events as JobEventV3[]) yield event;
     if (reply.value?.status !== 'events' || reply.value.cursor === after) return;
     after = reply.value.cursor;
@@ -55,16 +57,17 @@ export async function* jobEvents(host: JobOwnerHost, strict = false, capabilitie
   if (strict) refuse('JOB_ACTS_READ_REFUSED', 'project.json: live event stream exceeded the paging bound; retry job acts on a quiescent job');
 }
 
-export async function readHostActsAndAsks(host: JobOwnerHost): Promise<{ head: string | null; asks: PendingAskV3[]; acts: ActV3[] }> {
+export async function readHostActsAndAsks(host: JobOwnerHost): Promise<{ head: string | null; asks: PendingAskV3[]; acts: ActV3[]; cursor: string | null }> {
   let head: string | null = null;
   const asks: PendingAskV3[] = [];
   const acts: ActV3[] = [];
-  for await (const event of jobEvents(host, true)) {
+  const observed: { cursor?: string | null } = {};
+  for await (const event of jobEvents(host, true, observed)) {
     if (event.type === 'published') head = event.publication.publicationId;
     else if (event.type === 'pending') asks.push(event.ask);
     else if (event.type === 'act') acts.push(event.act);
   }
-  return { head, asks: asks.filter(ask => ask.publicationId === head), acts };
+  return { head, asks: asks.filter(ask => ask.publicationId === head), acts, cursor: observed.cursor ?? null };
 }
 
 export async function readHostActs(host: JobOwnerHost): Promise<ActV3[]> {

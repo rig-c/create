@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector } from '@rig-c/review/job-host';
+import { startJobHost, waitForJobAct, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector } from '@rig-c/review/job-host';
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
@@ -10,7 +10,7 @@ import { liveManifestPath, draftPackageIdentity, inspectDraftPublication, curren
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose } from './job-close.ts';
-import { agentCall, jobEvents, pendingJobActs, readHostActs, shellWord, type AgentReply, type PendingJobAct } from './job-acts.ts';
+import { agentCall, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import type { JsonObject } from './templates.ts';
@@ -266,6 +266,7 @@ async function askedSubjects(host: JobOwnerHost, publicationId: string): Promise
 export async function listCreateJobActs(
   root: string,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+  wait?: { timeoutMs: number; signal?: AbortSignal },
 ): Promise<{ jobId: string; acts: PendingJobAct[] }> {
   try { root = realpathSync(root); }
   catch { refuse('JOB_HOST_ATTACH_REFUSED', 'project.json: project has no bound live host; open it with job open before job acts'); }
@@ -273,8 +274,31 @@ export async function listCreateJobActs(
   if (!binding) refuse('JOB_HOST_ATTACH_REFUSED', 'project.json: no bound live host; open it with job open before job acts');
   const host = await attachCreateJobForClose(root, binding, startHost);
   try {
-    const project: JsonObject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
-    return { jobId: binding.jobId, acts: pendingJobActs(project, await readHostActs(host), root) };
+    const list = async () => {
+      const { acts, cursor } = await readHostActsAndAsks(host);
+      const project: JsonObject = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
+      return { acts: pendingJobActs(project, acts, root), cursor };
+    };
+    let listed = await list();
+    if (!wait || listed.acts.length) return { jobId: binding.jobId, acts: listed.acts };
+
+    const deadline = performance.now() + wait.timeoutMs;
+    for (;;) {
+      const remaining = Math.min(wait.timeoutMs, Math.ceil(deadline - performance.now()));
+      if (remaining <= 0) break;
+      const outcome = await waitForJobAct(host, { after: listed.cursor, deadlineMs: remaining, signal: wait.signal }).catch((error: unknown) => {
+        if (wait.signal?.aborted) throw error;
+        refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job act wait failed; restore the bound host and retry job acts');
+      });
+      if (outcome.kind === 'timeout') break;
+      listed = await list();
+      if (listed.acts.length) return { jobId: binding.jobId, acts: listed.acts };
+      if (outcome.kind === 'closed') {
+        refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job closed during the act wait; reopen it with job open before retrying job acts');
+      }
+      // Another writer may already have ingested the act that woke the waiter.
+    }
+    refuse('JOB_NEXT_TIMEOUT', 'project.json: no finalized un-ingested act arrived before the deadline; retry job acts --wait', 3);
   } finally { host.stop(); }
 }
 

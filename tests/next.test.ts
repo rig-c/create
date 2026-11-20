@@ -2182,7 +2182,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(afterPostReopenRig.moves.map(m => m.command)).toEqual([
     `rig-create job open ${dir} --rig 3 --reviewer '<reviewer>' --role owner`,
     null,
-    `rig-create job acts ${dir} --json`,
+    `rig-create job acts ${dir} --json --wait`,
     `rig-create review 3 ${dir} --from-review '<actId>'`,
   ]);
 
@@ -2383,7 +2383,7 @@ test('#579 after a rig-review reopen, next omits history rig versions and lapsed
   expect(afterSignedPostReopen.moves.map(m => m.command)).toEqual([
     `rig-create job open ${dir} --rig 6 --reviewer '<reviewer>' --role owner`,
     null,
-    `rig-create job acts ${dir} --json`,
+    `rig-create job acts ${dir} --json --wait`,
     `rig-create review 6 ${dir} --from-review '<actId>'`,
     null,
   ]);
@@ -2588,7 +2588,7 @@ test('#587 after a parts-review reopen and a new prepared draft, next awaits the
     expect(report.moves.map(m => m.command)).toEqual([
       `rig-create job open ${dir} --draft ${draftId} --reviewer '<reviewer>' --role owner`,
       null,
-      `rig-create job acts ${dir} --json`,
+      `rig-create job acts ${dir} --json --wait`,
       `rig-create parts-review ${dir} --from-review '<actId>'`,
     ]);
     expect(report.moves[1]).toMatchObject({

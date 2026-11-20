@@ -2372,7 +2372,7 @@ review record-id domain of 1–128 ASCII letters, digits, dots, underscores
 and hyphens, starting with a letter or digit. The reader identity is
 `rig-create/publication-reader/2`. Create opens the live host in `package-only`
 mode by default. Record publications opt into the V3 symbols and types
-exported by the release-pinned Review 4.8.0.
+exported by the release-pinned Review 4.9.0.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.
 Its effective stage must match the requested option set's stage. Plan
@@ -2566,8 +2566,8 @@ the project's next moves and whose they are from `project.json`:
     with `command: null` and never a `--by user` writer.
 - **Host and ingest human acts.** Start the first `job open` in the background
   and share its private URL once. Later opens with a question, plan, draft or
-  rig selector publish into the running host and exit. Ask the owner to tell
-  you after submitting in Review until #698 lands. Run `job acts --json` and
+  rig selector publish into the running host and exit. Run
+  `rig-create job acts --wait --json` in the background and
   follow the matching act's preconditions, including the structure snapshot
   guidance for legacy parts-review sign-off. Fill the reviewer and exported act
   placeholders and ingest with the printed `--from-review '<actId>'` command.
@@ -2823,5 +2823,5 @@ The rest of the frozen compose inventory (`scene.json`, `check/check.json`,
 published. Each published build file must match its recorded hash, and a
 declared build path that Review's `jobPath` rule refuses is
 `JOB_PUBLICATION_INVALID` before anything is written. It does not substitute
-the accepted character package. The release-pinned Review 4.8.0 reads
+the accepted character package. The release-pinned Review 4.9.0 reads
 direction@3.

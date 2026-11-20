@@ -52,7 +52,9 @@ const HELP = `rig-create — create and run a rig project
 Usage:
   rig-create republish <rig> [<dir>] --reason <words>
   rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --question <question> | --plan]
-  rig-create job acts [<dir>] [--json]          list finalized acts and their ingest commands
+  rig-create job acts [<dir>] [--json] [--wait [--timeout-ms N]]
+                                              list finalized acts and their ingest commands
+                                              wait 1–600000 ms (default 600000), timeout exit 3
   rig-create job reconcile [<dir>]
   rig-create job close [<dir>] [--retire-refused]
   rig-create job close [<dir>] --discard-acts <reason> --by agent
@@ -341,10 +343,21 @@ export function main(argv: string[], now: number): number {
           if (!value || value.startsWith('-') || !value.trim()) refuse('JOB_BINDING_INVALID', 'project.json: job close --discard-acts requires a non-empty reason', USAGE_EXIT);
           options[arg] = value;
         }
-        else if (action === 'acts' && arg === '--json' && !options[arg]) options[arg] = 'true';
+        else if (action === 'acts' && ['--json', '--wait'].includes(arg) && !options[arg]) options[arg] = 'true';
+        else if (action === 'acts' && arg === '--timeout-ms' && options[arg] === undefined) {
+          const value = args[++index] ?? '';
+          if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 600_000) {
+            refuse('JOB_BINDING_INVALID', 'project.json: job acts --timeout-ms requires an integer from 1 to 600000', USAGE_EXIT);
+          }
+          options[arg] = value;
+        }
         else if (arg.startsWith('-')) refuse('JOB_BINDING_INVALID', 'project.json: unsupported job option; see help', USAGE_EXIT);
         else positional.push(arg);
       }
+      if (options['--timeout-ms'] !== undefined && !options['--wait']) {
+        refuse('JOB_BINDING_INVALID', 'project.json: --timeout-ms requires job acts --wait', USAGE_EXIT);
+      }
+      const timeoutMs = options['--wait'] ? Number(options['--timeout-ms'] ?? '600000') : undefined;
       if (options['--reason'] !== undefined) {
         if (options['--discard-acts'] !== '') refuse('JOB_BINDING_INVALID', 'project.json: --reason goes with job close --discard-acts', USAGE_EXIT);
         options['--discard-acts'] = options['--reason'];
@@ -361,9 +374,9 @@ export function main(argv: string[], now: number): number {
       if (['--draft', '--rig', '--question', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --question or --plan; choose one recorded result', USAGE_EXIT);
       }
-      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', retireRefused: options['--retire-refused'] === 'true', discardActs: options['--discard-acts'] === undefined ? undefined : options, now }));
+      const stdin = Buffer.from(JSON.stringify({ root: positional[0] ?? process.cwd(), reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', timeoutMs, retireRefused: options['--retire-refused'] === 'true', discardActs: options['--discard-acts'] === undefined ? undefined : options, now }));
       const runtime = join(import.meta.dir, 'job-runtime.ts');
-      if (action === 'open') {
+      if (action === 'open' || timeoutMs !== undefined) {
         const child = Bun.spawn(jobRuntimeCommand(action, runtime), {
           stdin, stdout: 'inherit', stderr: 'inherit',
         });

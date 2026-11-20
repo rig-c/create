@@ -188,7 +188,7 @@ function checkCitationAsks(ctx: Ctx, item: Item, raw: JsonObject, path: string):
   }
 }
 
-function needsCitation(kind: 'rig' | 'post', section: string): boolean {
+export function needsCitation(kind: 'rig' | 'post', section: string): boolean {
   if (kind === 'post') return true;
   return SECTION_PLACEMENT[section]?.kind !== 'none';
 }

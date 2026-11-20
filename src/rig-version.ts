@@ -24,6 +24,7 @@ import { rigVersionDateFinding } from './rig-version-date.ts';
 import { checkRegisteredRuns, RUN_RECORD_SINCE, RUN_SPECS, RunRecordError, validateRunRecord, type RunSpec } from './run-record.ts';
 import { approvedStructureDelta, latestPartsApproval, partsApprovalIdentity, rigPartsApproval, structurePathIsIgnored } from './structure.ts';
 import { stageOfStep } from './stages.ts';
+import { checkVersionDeclarations, formatDeclarations } from './version-declarations.ts';
 import { HEAD_TURN_SINCE } from './waypoints.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -1116,6 +1117,9 @@ export const RIG_VERSION_HELP = `rig-version <n> [<dir>] --parts <dir> --rig <di
   Repeat --answers <version>:<verdict> to answer earlier human bounced feedback.
   Source arguments resolve against the project directory; external frozen sources are permitted.
 
+rig-version <n> [<dir>] --preflight --config <file> [--citations <sections JSON>] [--at-source <file> --at-pointer </pointer>] [--json]
+  Name every declaration registration reads from the config, its requirements and the citations, in one run. Writes nothing; other flags are ignored.
+
 ${RIG_VERSION_ADAPTER_USAGE}
   Write and print the path adapter JSON for the frozen config and its requirements.`;
 
@@ -1233,6 +1237,63 @@ function rigVersionAdapterCommand(args: string[]): { stdout: string; exit: numbe
   return { stdout: json, exit: 0 };
 }
 
+/** The frozen config as registration reads it; the preflight refuses an unreadable one with the same code and remedy. */
+function registrationConfig(bytes: Buffer, n: number): JsonObject {
+  let config: Json;
+  try { config = JSON.parse(bytes.toString()) as Json; }
+  catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', `versions[v${n}].registration`, error instanceof Error ? error.message : String(error)); }
+  if (!isObject(config)) fail('RIG_REGISTRATION_FILE_INVALID', 'config', 'expected a JSON object');
+  return config;
+}
+
+function citationMap(sections: Json): JsonObject {
+  if (!isObject(sections)) fail('RIG_REGISTRATION_FILE_INVALID', 'provenance.sections', 'citations must be a section map');
+  return sections;
+}
+
+/**
+ * `rig-version <n> --preflight --config <file>`: every declaration the
+ * registration's record check reads from this config, in one run (create#750).
+ * It reads the config and its requirements in place and writes nothing.
+ */
+function rigVersionPreflight(n: number, requestedDir: string, options: Record<string, string>, json: boolean, now: number): { stdout: string; exit: number } {
+  const dir = realpathSync(resolve(requestedDir));
+  const { project } = readProject(dir);
+  if (project.schema !== 'rig-create/project@0') fail('SCHEMA_UNKNOWN', 'schema', 'rig-version reads rig-create/project@0');
+  const configFile = resolve(dir, options['--config']!);
+  const configPath = relative(dir, configFile).split(sep).join('/');
+  if (!literal(configPath) || !existsSync(configFile) || !lstatSync(configFile).isFile()) {
+    refuse('RIG_PREFLIGHT_CONFIG_OUTSIDE', `${options['--config']!}: the preflight reads the config and its requirements in place, so the config must be a file under the project; copy the frozen config and its requirements under the project and pass that path`);
+  }
+  let sections: JsonObject = {};
+  if (options['--citations']) {
+    let raw: Json;
+    try { raw = JSON.parse(readFileSync(resolve(dir, options['--citations'])).toString()) as Json; }
+    catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', 'provenance.sections', `--citations: ${String(error)}`); }
+    sections = citationMap(raw);
+  }
+  let at = new Date(now).toISOString();
+  if (options['--at-source'] && options['--at-pointer']) {
+    let cited: Json | undefined;
+    try { cited = pointerValue(JSON.parse(readFileSync(resolve(dir, options['--at-source'])).toString()) as Json, options['--at-pointer']); }
+    catch (error) { return fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, String(error)); }
+    if (!utcDate(cited)) fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, 'the cited pointer needs a valid UTC timestamp');
+    at = cited;
+  }
+  const configBytes = readFileSync(configFile);
+  const unreadable: Finding[] = [];
+  try { registrationConfig(configBytes, n); }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    // Held at the config, so every declaration read from it is unread, never carried.
+    unreadable.push({ code: error.code, path: `versions[v${n}].provenance.config`, message: error.message });
+  }
+  const version: JsonObject = { n, kind: 'rig', at, provenance: { config: { path: configPath, sha256: sha(configBytes) }, sections } };
+  const report = checkVersionDeclarations(dir, project, version, unreadable);
+  const exit = report.refusals.length ? 1 : 0;
+  return { stdout: json ? JSON.stringify({ preflight: true, config: configPath, ...report }, null, 2) : formatDeclarations(report, configPath).join('\n'), exit };
+}
+
 export function rigVersionCommand(args: string[], now: number): { stdout: string; exit: number } {
   if (args[0] === 'adapter') return rigVersionAdapterCommand(args.slice(1));
   const positional: string[] = [];
@@ -1245,9 +1306,11 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const checkAuthorityFlags = ['--check-accepted-by', ...OWNER_CHAT_FLAGS];
   const flags = [...requiredFlags, '--citations', '--depth-manifest', '--check-report', ...checkAuthorityFlags];
   let json = false;
+  let preflight = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') json = true;
+    else if (arg === '--preflight') preflight = true;
     else if (arg === '--answers') {
       const value = args[++i];
       if (!value || value.startsWith('--')) fail('RIG_REGISTRATION_USAGE', 'versions', '--answers needs version:verdict');
@@ -1272,6 +1335,9 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     else positional.push(arg);
   }
   const n = Number(positional[0]?.replace(/^v/, ''));
+  if (preflight && Number.isSafeInteger(n) && n >= 1 && positional.length <= 2 && options['--config']) {
+    return rigVersionPreflight(n, positional[1] ?? process.cwd(), options, json, now);
+  }
   if (!Number.isSafeInteger(n) || n < 1 || positional.length > 2 || requiredFlags.some(f => !options[f])) refuse('RIG_REGISTRATION_USAGE', RIG_VERSION_HELP, USAGE_EXIT);
   if (depthMapBindings.length && !options['--depth-manifest']) fail('RIG_REGISTRATION_USAGE', 'versions', '--depth-map-binding requires --depth-manifest');
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
@@ -1411,8 +1477,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     try { callerAdapter = parsePathAdapter(JSON.parse(rawAdapterBytes.toString())); }
     catch (error) { return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, String(error)); }
     const configSource = input('--config', 'config-source.json');
-    const config = JSON.parse(bytesAt(dir, configSource).toString()) as Json;
-    if (!isObject(config)) fail('RIG_REGISTRATION_FILE_INVALID', 'config', 'expected a JSON object');
+    const config = registrationConfig(bytesAt(dir, configSource), n);
     const copiedSources = new Set<string>();
     const copyTree = (source: string, target: string, outputs: boolean): void => {
       walkSourceTree(resolve(dir, source), target, (path, destination, names) => {
@@ -1509,8 +1574,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     if (options['--citations']) {
       const binding = input('--citations', 'citations.json');
       retained.push(binding);
-      sections = JSON.parse(bytesAt(dir, binding).toString()) as Json;
-      if (!isObject(sections)) fail('RIG_REGISTRATION_FILE_INVALID', 'provenance.sections', 'citations must be a section map');
+      sections = citationMap(JSON.parse(bytesAt(dir, binding).toString()) as Json);
     }
     const structureChanges = approvedStructureDelta(dir, project, { ...approvalBasis, at }, portable);
     const version: JsonObject = { n, kind: 'rig', rig_version: null, at, at_basis: 'not-after', at_source: atSource,
@@ -1535,8 +1599,9 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     created.push(join(dir, pkg));
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate, partReferences.map(reference => reference.path));
     // The record must pass the same check as every other writer's before it is renamed into place.
-    const fresh = newFindings(baseline, checkProject(dir, candidate, { now }).refusals)[0];
-    if (fresh) refuse(fresh.code, fresh.message);
+    // Every new finding is named in one refusal (create#750); the first keeps the code, so a single finding reads as before.
+    const [fresh, ...more] = newFindings(baseline, checkProject(dir, candidate, { now }).refusals);
+    if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
     for (const entry of skipped) {
       const currentDestinations = versionDestinations(entry.n).filter(target => destinationExists(dir, target, invalidDestination));
       if (!isDeepStrictEqual(currentDestinations, entry.destinations)) fail('RIG_REGISTRATION_SOURCE_CHANGED', `versions[v${n}].registration.skipped`, `v${entry.n} occupying destinations changed during registration`);

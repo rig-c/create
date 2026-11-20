@@ -50,6 +50,19 @@ export const CG_BEHIND_SEAMS_SINCE = '2026-11-19T00:00:00Z';
 /** The first `@rig-c/parts` with all three gates (issues #969, #975, #976). A version built with an earlier one could not declare them. */
 export const CG_GATES_FROM_PARTS = '2.4.0';
 
+/**
+ * The fields the gates below read, each after `<version>.provenance.config`,
+ * in the order they are checked. tests/version-declarations.test.ts holds
+ * this list to the findings of an empty config.
+ */
+export const CG_DECLARATIONS: readonly string[] = [
+  'assemble.editor_receipts.trace_parts',
+  'requirements',
+  'requirements seam_over_motion.required',
+  'requirements boundary_colour.max_step_excess',
+  'requirements behind_seams.threshold',
+];
+
 function versionLabel(v: JsonObject, index: number): string {
   return typeof v.n === 'number' ? `versions[v${v.n}]` : `versions[${index}]`;
 }
@@ -77,6 +90,12 @@ function rigTypeValue(ctx: Ctx): { value: Json | undefined; path: string } | nul
   if (s.state === 'user') return { value: s.answer.value, path: item.path };
   if (s.state === 'delegated' && s.decided && isObject(s.answer.agent_decision)) return { value: s.answer.agent_decision.value, path: item.path };
   return null;
+}
+
+/** True when the answered `rig_type` is a documented full-screen (CG) type, the projects the gates hold. */
+export function isCgBuild(ctx: Ctx): boolean {
+  const value = rigTypeValue(ctx)?.value;
+  return typeof value === 'string' && RIG_TYPES.includes(value) && value.startsWith(CG_RIG_TYPE_PREFIX);
 }
 
 type Read = { ok: true; value: JsonObject; file: string } | { ok: false; why: string };

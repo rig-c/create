@@ -62,7 +62,9 @@ Add the first selector if ready. Share the private URL once. Publish via bound w
 reviewer/role and `--draft`, `--rig`, `--question` or `--plan`. Reused opens exit. The page updates in place.
 Until #698, ask the owner to tell you after submitting. Run `job acts`, ingest
 via `--from-review`, advance as needed and publish again.
-After a listener stop, reopen with the same reviewer/role and URL, then `job reconcile`.
+With all owner picks ingested, complete the plan and follow `next` for
+`signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
+After a listener stop, reopen with the same reviewer/role, keep the URL, then `job reconcile`.
 Until #700, ingest pending acts and close a package-only job before opening a question or plan.
 
 Successful closes end the page. Share a new URL after reopening.

@@ -11,14 +11,14 @@
       "signoff_at": "2026-11-06T01:00:37.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f.json",
-        "sha256": "a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f",
+        "path": "evidence/review-reads/1c5b95f31f49b919ef604320824e09e95cc921d168ce771a2b47b5bc22fbd0f7.json",
+        "sha256": "1c5b95f31f49b919ef604320824e09e95cc921d168ce771a2b47b5bc22fbd0f7",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },
     "structure": {
       "path": "evidence/structure-chain.json",
-      "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
+      "sha256": "1d16fcca5df28d353f44dd4645be1a8ab2f886ed95caa846444085339824d720"
     },
     "draft_id": "chain",
     "parts": {
@@ -54,7 +54,7 @@
         },
         {
           "path": "derived/drafts/chain/input/parts.json",
-          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
         }
       ]
     }

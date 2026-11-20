@@ -64,7 +64,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.45.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.46.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -859,11 +859,11 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.45.0"
+        "version": "2.46.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
-        "sha256": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3"
+        "sha256": "f3aee86617f5078472f146908e1ccf96fcea3d7d5e11b6dbfa05c648b6914b0d"
       },
       "parts": {
         "path": "derived/drafts/chain/input",
@@ -898,7 +898,7 @@
           },
           {
             "path": "derived/drafts/chain/input/parts.json",
-            "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+            "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
           }
         ]
       },
@@ -961,7 +961,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "085de2c54ea3b1cd3953efeaa21370292ed8e14064a777a95b82a2bc13bec885"
+          "sha256": "69f20652f4e37f2e6f11af8d9195a6b9315f5d452e9c9a14ea28437262339a63"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",

@@ -11,14 +11,14 @@
       "signoff_at": "2026-11-20T00:00:33.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/dbbb74d779f0ea464f7479894bc7f68fb8cbe397f5062100f1b05f6e0cb2a241.json",
-        "sha256": "dbbb74d779f0ea464f7479894bc7f68fb8cbe397f5062100f1b05f6e0cb2a241",
+        "path": "evidence/review-reads/245cf7d7a3482a7b3866babc311727afef949b48fa7adb012432f457aef3b98a.json",
+        "sha256": "245cf7d7a3482a7b3866babc311727afef949b48fa7adb012432f457aef3b98a",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },
     "structure": {
       "path": "evidence/structure-remesh.json",
-      "sha256": "1bf096d7e3c14575c2436d67e751d54a2f67e056e6b9179888531f8445976434"
+      "sha256": "ab085b15e37661a1f7be94ed0f0ae05e2ae4071faa3b460ba1bc650a213a1407"
     },
     "draft_id": "remesh",
     "parts": {
@@ -54,7 +54,7 @@
         },
         {
           "path": "derived/drafts/remesh/input/parts.json",
-          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
         }
       ]
     }

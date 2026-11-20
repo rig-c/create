@@ -11,7 +11,7 @@
     "signoff_at": "2026-11-06T01:01:00.000Z",
     "config": {
       "path": "evidence/v1/config.json",
-      "sha256": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3"
+      "sha256": "f3aee86617f5078472f146908e1ccf96fcea3d7d5e11b6dbfa05c648b6914b0d"
     },
     "parts": {
       "path": "derived/drafts/chain/input",
@@ -46,7 +46,7 @@
         },
         {
           "path": "derived/drafts/chain/input/parts.json",
-          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
         }
       ]
     }

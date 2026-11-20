@@ -3,7 +3,7 @@ import { generatorArgs } from './generator-args.ts';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { EXAMPLE_SOURCE_DATE_EPOCH } from './example-time.ts';
-import { generateExampleParts } from './generate-example-parts.ts';
+import { EXAMPLE_SEETHROUGH, generateExampleParts } from './generate-example-parts.ts';
 
 /**
  * The synthetic drafts' one breath track: `body` translatey, period 4, amplitude in rig px.
@@ -34,6 +34,7 @@ export function generateExampleDraft(dir: string, parts: Record<string, Uint8Arr
   };
   const config = {
     key: 'synthetic',
+    seethrough: EXAMPLE_SEETHROUGH,
     requirements: 'interview-requirements.json',
     assemble: { rig_scale: 1, plan: manifest.parts.map(part => [part.name, part.from.slice(0, part.from.indexOf(':')), part.from.slice(part.from.indexOf(':') + 1)]) },
     bones: [{ name: 'body', parent: 'root', at: [64, 64] }],
@@ -77,6 +78,7 @@ export function generateExampleMeshDraft(dir: string, parts: Record<string, Uint
   };
   const config = {
     key: 'synthetic',
+    seethrough: EXAMPLE_SEETHROUGH,
     requirements: 'interview-requirements.json',
     assemble: { rig_scale: 1, plan: manifest.parts.map(part => [part.name, part.from.slice(0, part.from.indexOf(':')), part.from.slice(part.from.indexOf(':') + 1)]) },
     bones: [{ name: 'body', parent: 'root', at: [64, 64] }],

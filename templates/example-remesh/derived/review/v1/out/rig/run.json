@@ -2,14 +2,14 @@
  "spec": "rig-run/1",
  "package": {
   "name": "@rig-c/parts",
-  "version": "2.45.0"
+  "version": "2.46.0"
  },
  "command": "rig",
  "started_at": "2026-11-20T00:01:09.000Z",
  "finished_at": "2026-11-20T00:01:09.000Z",
  "config": {
   "path": "../config.json",
-  "sha256": "41f706d1820e1399ca6fd1f872fe0fd1a8712c5dc0f61f8c974ab77e0395948a"
+  "sha256": "15ec0f9ea23fe88e76d7960e075951dbb010d97148962209712daf8c86e0a28f"
  },
  "outputs": [
   {

@@ -1620,6 +1620,17 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     );
     const openPartsSteps = partsSteps.filter(s => s.status !== 'done');
 
+    if (effectiveStage === 'parts' && asArray(project.drafts).length === 0) {
+      addAwait('drafts');
+      moves.push({
+        role: 'agent',
+        field: 'drafts',
+        awaits: 'drafts',
+        command: null,
+        act: 'Run rig-parts assemble, then rig-parts propose --write-config, then rig-parts assemble again with the written config. Register the second output and its config with draft-rig before job open --draft.',
+      });
+    }
+
     if (effectiveStage === 'parts' && openPartsSteps.length > 0) {
       for (const step of openPartsSteps) {
         const stepId = String(step.id);

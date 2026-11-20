@@ -70,19 +70,19 @@
       "verbatim": "Approve this synthetic geometric example.\n",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f.json",
-        "sha256": "a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f",
+        "path": "evidence/review-reads/1c5b95f31f49b919ef604320824e09e95cc921d168ce771a2b47b5bc22fbd0f7.json",
+        "sha256": "1c5b95f31f49b919ef604320824e09e95cc921d168ce771a2b47b5bc22fbd0f7",
         "spec": "rig-create/parts-verdict-cli@1"
       },
       "draft_id": "chain",
       "structure": {
         "path": "evidence/structure-chain.json",
-        "sha256": "41b532a263a8f40997a9c5d3c155e2fa943b26c2b3e61ed03ddcf29ee0d8011d"
+        "sha256": "1d16fcca5df28d353f44dd4645be1a8ab2f886ed95caa846444085339824d720"
       }
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.45.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.46.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -418,7 +418,7 @@
         "history": [],
         "pending_options": {
           "path": "evidence/interview/bones.json",
-          "sha256": "bfe14ab33a8289bb917a303f05180f210bc2a4aa1a7dd7dc610e7ffd9244e312"
+          "sha256": "5c18203574f470de16c06882a3f63b507e864de7d75d8f1bde0b18bb86db7f78"
         }
       },
       {
@@ -935,7 +935,7 @@
       ],
       "parts_check": {
         "path": "evidence/parts-check.json",
-        "sha256": "9b1527d1426c313c2ca1322f92530972e3fd0b109aba25f18877171af35b2ba1",
+        "sha256": "752d75a2ffd3a7757c255c8691e44d49ccbdc8a602d5b3b4e0f0d173eb822d84",
         "spec": "rig-parts-parts-check/1",
         "parts": "derived/drafts/chain/input",
         "exit_code": 0,
@@ -1066,11 +1066,11 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.45.0"
+        "version": "2.46.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
-        "sha256": "740f7d38e7f4242cea692602f501a69fec4ed8c11adb048607054d795c12c4e3"
+        "sha256": "f3aee86617f5078472f146908e1ccf96fcea3d7d5e11b6dbfa05c648b6914b0d"
       },
       "parts": {
         "path": "derived/drafts/chain/input",
@@ -1105,7 +1105,7 @@
           },
           {
             "path": "derived/drafts/chain/input/parts.json",
-            "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+            "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
           }
         ]
       },
@@ -1168,7 +1168,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "085de2c54ea3b1cd3953efeaa21370292ed8e14064a777a95b82a2bc13bec885"
+          "sha256": "69f20652f4e37f2e6f11af8d9195a6b9315f5d452e9c9a14ea28437262339a63"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",
@@ -1190,8 +1190,8 @@
       "draft_id": "chain",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f.json",
-        "sha256": "a12dea02d32508acc99386f894af76a14f1c85f45f804db2aa6b4dea5297973f"
+        "path": "evidence/review-reads/1c5b95f31f49b919ef604320824e09e95cc921d168ce771a2b47b5bc22fbd0f7.json",
+        "sha256": "1c5b95f31f49b919ef604320824e09e95cc921d168ce771a2b47b5bc22fbd0f7"
       },
       "route": "cli",
       "argv": [

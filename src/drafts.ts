@@ -1,3 +1,6 @@
+import { assemblyChangeDetail, assemblyConfigChanges } from '@rig-c/parts/assembly-reading';
+import { readPartsManifest } from '@rig-c/parts/src/parts.ts';
+import { latestPartsVerdictStatus } from './parts-verdict-record.ts';
 import { randomUUID } from 'node:crypto';
 import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
 import { cancelUncommittedIntent, readWriterBinding, type PendingPublication } from './job-outbox.ts';
@@ -255,6 +258,11 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         if (sha(bytes) === manifestBinding.sha256) {
           const manifest: Json = JSON.parse(bytes.toString('utf8'));
           if (isObject(manifest)) {
+            if (manifest.assembly_config === undefined && latestPartsVerdictStatus(project, raw.id) === 'approved') {
+              const manifestField = `${path}.parts.files`;
+              warnings.push({ code: 'DRAFT_ASSEMBLY_CONFIG_UNRECORDED', path: manifestField,
+                message: `${manifestField}: ${manifestPath} has no assembly_config; retain the accepted draft and use a new assemble output for future review` });
+            }
             const result = editedPartInputFindings(dir, raw, manifest, path);
             editedInputs = result.paths;
             (Date.parse(raw.at) < Date.parse(EDITED_PART_INPUTS_SINCE) ? warnings : refusals).push(...result.findings);
@@ -481,6 +489,19 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     const index = asArray(project.drafts).length - 1;
     const first = errors[0] ?? ledger.find(f => f.path === `drafts[${index}]` || f.path.startsWith(`drafts[${index}].`)) ?? newRefusals(dir, before, project, { now })[0];
     if (first !== undefined) refuse(first.code, first.message);
+    try {
+      const manifestFile = fileAt(dir, `${String((record.parts as JsonObject).path)}/parts.json`, root);
+      const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as Json;
+      if (isObject(manifest) && Object.hasOwn(manifest, 'assembly_config')) {
+        const changes = assemblyConfigChanges(fileAt(dir, opts['--config'], root), readPartsManifest(manifestFile));
+        if (changes.length > 0) {
+          refuse('ASSEMBLY_CONFIG_STALE', `drafts[${id}].config: ${assemblyChangeDetail(changes)} as the second assemble before draft-rig`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Refusal) throw error;
+      refuse('DRAFT_RIG_MALFORMED', `drafts[${id}]: ${error instanceof Error ? error.message : String(error)}; retain an unambiguous labelled output and its --parts inputs`);
+    }
     const bytes = Buffer.from(`${JSON.stringify(project, null, 2)}\n`);
     if (!readFileSync(file).equals(original)) refuse('DRAFT_RIG_FILE', 'project.json: draft source changed during registration; retry with frozen inputs');
     const publication = prepareDraftIntent(dir, bytes, id);

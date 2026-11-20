@@ -7,7 +7,7 @@
 - **Projection.** Ask and record it per [CHECKS.md § Projection and ground](https://github.com/rig-c/create/blob/main/docs/CHECKS.md#projection-and-ground).
 - **Head turn is a rig decision.** Ask `turn` at rigging-interview: fixed view
   or head turn with depth. Record the chosen route and reason in the `turn`
-  plan step text. Default to per-part depth: parts 2.45.0's `docs/DEPTH.md`
+  plan step text. Default to per-part depth: parts 2.46.0's `docs/DEPTH.md`
   describes it as better by eye. Run `depth-prepare`, the supplied model,
   then `rig-parts depth-bind --map <numeric-map.json> --input <prepared.png>
   --part <name>` immediately after each inference, then `depth-apply` and `rig`.

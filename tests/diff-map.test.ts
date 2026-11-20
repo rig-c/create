@@ -120,7 +120,7 @@ describe('B0 normal writer and both producer layouts', () => {
     advanceCommand(['rigging', dir]);
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
-    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'FIX_LEDGER_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+    expect(report.warnings.map(f => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'DRAFT_ASSEMBLY_CONFIG_UNRECORDED', 'FIX_LEDGER_MISSING', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
   });
   test('a zero-component producer report needs no component flags', () => {
     const dir = project(() => {}, 'empty');
@@ -235,13 +235,13 @@ test('both stack candidates are ambiguous', () => {
 test('a directory not named rig has only the build candidate', () => {
   expect(diffStackCandidates('/synthetic/build/parts.json')).toEqual(['/synthetic/build/recomposite_rig.png']);
 });
-test('legacy B4 without a map gets only DIFF_MAP_PREDATES', () => {
+test('legacy B4 without a map adds DIFF_MAP_PREDATES without refusing', () => {
   const dir = project((s, p) => { s.at = '2026-11-05T00:00:00Z'; delete s.diff_map; delete p.diff_map; p.stage = 'parts-review'; p.advances = []; });
   writeFileSync(join(dir, 'words.txt'), 'Advance the historical synthetic approval.');
   advanceCommand(['rigging', dir]);
   const report = checkProject(dir);
   expect(report.refusals).toEqual([]);
-  expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'FIX_LEDGER_MISSING', 'DIFF_MAP_PREDATES', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
+  expect(report.warnings.map((f) => f.code)).toEqual(['QUESTION_SET_STALE', 'DRAFT_PRODUCER_ASSUMED', 'DRAFT_ASSEMBLY_CONFIG_UNRECORDED', 'FIX_LEDGER_MISSING', 'DIFF_MAP_PREDATES', 'STAGE_MOVE_UNLINKED', 'STAGE_ORDER_LEGACY', 'INPUT_WRITER_MISSING', 'CHOICE_ANSWERS_LEGACY', 'CORRECTION_PATH_LEGACY']);
 });
 test('an old sign-off with a map emits DIFF_MAP_ON_SIGNOFF_LEGACY and is checked fully', () => {
   const dir = project((s, p) => {

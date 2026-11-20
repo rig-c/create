@@ -2,6 +2,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { asArray, isObject, type Finding } from './check.ts';
 import { refuse } from './refusal.ts';
+import { DRAFT_ID } from './draft-reuse.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const ASSEMBLE_ONLY = 'assemble-only';
@@ -44,7 +45,7 @@ export function assembleOnlyDraftPath(dir: string, project: JsonObject, source: 
   const paths = [resolve(rootDir, source)];
   try { paths.push(realpathSync(paths[0]!)); } catch { /* The draft may only exist in the record. */ }
   return drafts.find(d => {
-    if (typeof d.id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(d.id)) return false;
+    if (typeof d.id !== 'string' || !DRAFT_ID.test(d.id)) return false;
     const root = resolve(rootDir, 'derived/drafts', d.id);
     return paths.some(path => {
       const rel = relative(root, path);

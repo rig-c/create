@@ -107,6 +107,25 @@ describe('rig-version --preflight names every missing declaration in one run', (
     ]);
   });
 
+  test.each([
+    ['invalid JSON', '{ not json', 'character'], ['invalid JSON', '{ not json', 'CG'],
+    ['a non-object', '[]\n', 'character'], ['a non-object', '[]\n', 'CG'],
+  ])('%s as the config of a %s rig is refused as registration refuses it, with no carried config declaration', (_kind, bytes, rig) => {
+    const dir = project(REQUIREMENTS, COMPLETE_CITATIONS, CONFIG, rig === 'CG' ? asScene : () => {});
+    writeFileSync(join(dir, 'work/config.json'), bytes);
+    const before = readFileSync(join(dir, 'project.json'));
+    const result = preflight(dir, ['--json']);
+    expect(result.exit).toBe(1);
+    const report = JSON.parse(result.stdout) as DeclarationReport;
+    expect(report.refusals[0]).toMatchObject({ code: 'RIG_REGISTRATION_FILE_INVALID', path: 'versions[v3].provenance.config' });
+    expect(report.refusals[0]?.message).toContain('retain the cited frozen inputs and register a new rig version');
+    const config = report.declarations.filter(d => d.path.startsWith('versions[v3].provenance.config '));
+    expect(config.length).toBe(rig === 'CG' ? CG_DECLARATIONS.length + 1 : 1);
+    expect(config.every(d => d.status === 'unread')).toBe(true);
+    expect(preflight(dir).exit).toBe(1);
+    expect(readFileSync(join(dir, 'project.json')).equals(before)).toBe(true);
+  });
+
   test('a character rig is held to citations and setup painting, not the CG gates', () => {
     const { requirements, citations } = missingAllThree();
     const report = JSON.parse(preflight(project(requirements, citations, CONFIG, () => {}), ['--json']).stdout) as DeclarationReport;

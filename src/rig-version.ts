@@ -1237,6 +1237,15 @@ function rigVersionAdapterCommand(args: string[]): { stdout: string; exit: numbe
   return { stdout: json, exit: 0 };
 }
 
+/** The frozen config as registration reads it; the preflight refuses an unreadable one with the same code and remedy. */
+function registrationConfig(bytes: Buffer, n: number): JsonObject {
+  let config: Json;
+  try { config = JSON.parse(bytes.toString()) as Json; }
+  catch (error) { return fail('RIG_REGISTRATION_FILE_INVALID', `versions[v${n}].registration`, error instanceof Error ? error.message : String(error)); }
+  if (!isObject(config)) fail('RIG_REGISTRATION_FILE_INVALID', 'config', 'expected a JSON object');
+  return config;
+}
+
 function citationMap(sections: Json): JsonObject {
   if (!isObject(sections)) fail('RIG_REGISTRATION_FILE_INVALID', 'provenance.sections', 'citations must be a section map');
   return sections;
@@ -1271,8 +1280,16 @@ function rigVersionPreflight(n: number, requestedDir: string, options: Record<st
     if (!utcDate(cited)) fail('RIG_AT_SOURCE_INVALID', `versions[v${n}].at_source`, 'the cited pointer needs a valid UTC timestamp');
     at = cited;
   }
-  const version: JsonObject = { n, kind: 'rig', at, provenance: { config: { path: configPath, sha256: sha(readFileSync(configFile)) }, sections } };
-  const report = checkVersionDeclarations(dir, project, version);
+  const configBytes = readFileSync(configFile);
+  const unreadable: Finding[] = [];
+  try { registrationConfig(configBytes, n); }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    // Held at the config, so every declaration read from it is unread, never carried.
+    unreadable.push({ code: error.code, path: `versions[v${n}].provenance.config`, message: error.message });
+  }
+  const version: JsonObject = { n, kind: 'rig', at, provenance: { config: { path: configPath, sha256: sha(configBytes) }, sections } };
+  const report = checkVersionDeclarations(dir, project, version, unreadable);
   const exit = report.refusals.length ? 1 : 0;
   return { stdout: json ? JSON.stringify({ preflight: true, config: configPath, ...report }, null, 2) : formatDeclarations(report, configPath).join('\n'), exit };
 }
@@ -1460,8 +1477,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     try { callerAdapter = parsePathAdapter(JSON.parse(rawAdapterBytes.toString())); }
     catch (error) { return fail('RIG_PATH_ADAPTER_INVALID', `versions[v${n}].registration.path_adapter`, String(error)); }
     const configSource = input('--config', 'config-source.json');
-    const config = JSON.parse(bytesAt(dir, configSource).toString()) as Json;
-    if (!isObject(config)) fail('RIG_REGISTRATION_FILE_INVALID', 'config', 'expected a JSON object');
+    const config = registrationConfig(bytesAt(dir, configSource), n);
     const copiedSources = new Set<string>();
     const copyTree = (source: string, target: string, outputs: boolean): void => {
       walkSourceTree(resolve(dir, source), target, (path, destination, names) => {

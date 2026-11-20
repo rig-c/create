@@ -46,9 +46,10 @@ export interface DeclarationReport {
 }
 
 /** Runs the declaration checks over `version` alone, the candidate `rig-version` would append. */
-export function checkVersionDeclarations(projectDir: string, project: JsonObject, version: JsonObject): DeclarationReport {
+/** `held` are refusals the caller already found (an unreadable config); a declaration under one is `unread`. */
+export function checkVersionDeclarations(projectDir: string, project: JsonObject, version: JsonObject, held: readonly Finding[] = []): DeclarationReport {
   const dir = resolve(projectDir);
-  const refusals: Finding[] = [];
+  const refusals: Finding[] = [...held];
   const warnings: Finding[] = [];
   const candidate: JsonObject = { ...project, versions: [version] };
   const collection = loadCollection(dir, candidate);

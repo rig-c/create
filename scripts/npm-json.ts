@@ -6,6 +6,8 @@ export interface NpmPack {
   entryCount: number;
   size: number;
   unpackedSize: number;
+  /** Packed paths, when npm listed them (pack --json always does; minimal fixtures may not). */
+  files?: string[];
 }
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -46,7 +48,13 @@ export function readNpmJson(text: string, command: string, kind: 'pack' | 'versi
         return fail(field, 'a nonnegative safe integer', entry[field]);
       }
     }
-    return { filename: entry.filename, entryCount: entry.entryCount as number, size: entry.size as number, unpackedSize: entry.unpackedSize as number };
+    const pack: NpmPack = { filename: entry.filename, entryCount: entry.entryCount as number, size: entry.size as number, unpackedSize: entry.unpackedSize as number };
+    if (entry.files === undefined) return pack;
+    const files = entry.files;
+    if (!Array.isArray(files) || !files.every(file => object(file) && typeof file.path === 'string')) {
+      return fail('files', 'an array of objects with a string path', files);
+    }
+    return { ...pack, files: files.map(file => (file as { path: string }).path) };
   }
   if (kind === 'version') {
     const version = Array.isArray(value) && value.length === 1 ? value[0] : value;

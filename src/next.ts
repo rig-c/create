@@ -1086,9 +1086,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const stage = signoff.stage;
       const target = `signoffs[stage=${stage}]`;
       resignMoves.set(stage, {
-        role: 'agent', field: 'signoffs', awaits: target,
-        command: `rig-create signoff ${shellWord(stage)} ${shellWord(dir)} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`,
-        act: `ask the owner to re-sign ${stage} after confirming the intended answers, then relay the owner's exact words`,
+        role: 'human', field: 'signoffs', awaits: target, command: null,
+        review_act: { kind: 'signoff', stage },
+        act: `re-sign ${stage} after confirming the intended answers`,
       });
     }
     const moves = [...depthMoves, ...registrations, ...resignMoves.values()];
@@ -1101,7 +1101,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       refusals,
       ...warningFields,
       awaits: moves.map(move => move.awaits),
-      moves,
+      moves: moves.flatMap(move => reviewCommands(dir, project, move)),
     };
   }
 

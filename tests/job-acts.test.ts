@@ -904,4 +904,5 @@ test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds 
   expect(registered.stdout).toContain('job: asked review-verdict rig-review');
   const thirdView = await page(root, opening.url, 1, 'review-verdict');
   expect(obj(thirdView.head.source).selector).toEqual({ kind: 'rig', version: 3 });
+  expect(registered.stdout).toContain(`updated the open page: publication ${String(thirdView.head.publicationId)}, ask review-verdict rig-review`);
 }, 30_000);

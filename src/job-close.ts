@@ -190,22 +190,22 @@ export async function assertNoPendingJobAsk(
   root: string,
   target: JobSelector,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
-): Promise<void> {
+): Promise<string | null> {
   root = realpathSync(root);
   const binding = readWriterBinding(root);
-  if (!binding || binding.identity.root !== root) return;
+  if (!binding || binding.identity.root !== root) return null;
   let host: JobOwnerHost;
   try {
     host = await attachCreateJobForClose(root, binding, startHost);
   } catch (error) {
     if (error instanceof Error && 'code' in error && (error.code === 'JOB_HOST_ATTACH_REFUSED' || error.code === 'JOB_HOST_REUSE_MISMATCH')) {
-      return;
+      return null;
     }
     throw error;
   }
   try {
     const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
-    const { asks, acts } = await readHostActsAndAsks(host);
+    const { head, asks, acts } = await readHostActsAndAsks(host);
     const pending = pendingJobAsksForTarget(project, asks, acts, root, target);
     if (pending.length > 0) {
       const listed = pending.map(item => item.label).join('; ');
@@ -218,6 +218,7 @@ export async function assertNoPendingJobAsk(
         `project.json: bound job ${binding.jobId} holds pending owner ask(s) ${listed} with no ingested act; ${ingest}, run rig-create job close, then re-run`,
       );
     }
+    return head;
   } finally {
     host.stop();
   }

@@ -180,6 +180,7 @@ export async function publishPending(
   requested?: JobIdentity,
   beforeAttach?: () => void | Promise<void>,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+  onPublished?: (publication: { publicationId: string; replaced: boolean }) => void,
 ): Promise<AskOutcome[]> {
   const host = await attachCreateJob(entry, requested, beforeAttach, startHost);
   try {
@@ -197,7 +198,8 @@ export async function publishPending(
       else prepareLiveManifest(entry.root, project, entry.result.selector.version);
       subjects = (await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result })).subjects;
     }
-    entry.generation ??= host.session.status().generation;
+    const status = host.session.status();
+    entry.generation ??= status.generation;
     entry.phase = 'pending';
     failPublication(entry.root, entry, entry.failure);
     // Draft readiness can change when producer bytes drift without a record write.
@@ -222,6 +224,7 @@ export async function publishPending(
     }
     if (!result.value) refuse('JOB_OUTBOX_INVALID', 'project.json: publication response lacks its identity; reconcile the pending publication');
     acknowledgePublication(entry, result.value.publicationId, result.value.generation, attempt, subjects);
+    onPublished?.({ publicationId: result.value.publicationId, replaced: Boolean(status.publication && status.publication.publicationId !== result.value.publicationId) });
     // The person answers on the page, so every declared subject is asked here, with the
     // agent authority this process already holds in memory. An ask Review refuses never
     // makes the acknowledged publication pending again; the caller names it afterwards.

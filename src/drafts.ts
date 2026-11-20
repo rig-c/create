@@ -300,6 +300,8 @@ export function draftVersionFindings(dir: string, project: JsonObject): Finding[
 export const DRAFT_RIG_HELP = `draft-rig:
   <id> [<dir>] --config <path> --from <output dir> [--parts <dir>] [--reuse <draft id> [--reuse-record <sha256>]] [--ledger-report <file>] [--known-regression <row id>=<reason file>]... [--json]
   Record existing labelled draft artifacts under derived/drafts/<id>/; run no producer.
+  A bound draft updates the open Review page when its owner ask is ready.
+  Prepare any missing evidence, then show the draft with job open --draft <id>.
   Standalone rig output requires --parts; only an unambiguous build root supplies it implicitly.
   Config/output association is declared, not measured reproducibility or producer provenance.
   --reuse binds a reviewed draft's exact parts inventory and inherits its recorded producer.
@@ -427,13 +429,16 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     if (first !== undefined) refuse(first.code, first.message);
     const bytes = Buffer.from(`${JSON.stringify(project, null, 2)}\n`);
     if (!readFileSync(file).equals(original)) refuse('DRAFT_RIG_FILE', 'project.json: draft source changed during registration; retry with frozen inputs');
-    intent = prepareDraftIntent(dir, bytes, id);
+    const publication = prepareDraftIntent(dir, bytes, id);
+    intent = publication.intent;
     const fd = openSync(temporary, 'wx');
     try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(temporary, file);
     const directory = openSync(dir, 'r');
     try { fsyncSync(directory); } finally { closeSync(directory); }
-    publishCommittedVersion(dir, id);
-    return { stdout: json ? JSON.stringify(record, null, 2) : `draft-rig: recorded ${id}; no production version created`, exit: 0 };
+    if (intent) publishCommittedVersion(dir, id);
+    const lines = [`draft-rig: recorded ${id}; no production version created`];
+    if (publication.deferred) lines.push(publication.deferred);
+    return { stdout: json ? JSON.stringify(record, null, 2) : lines.join('\n'), exit: 0 };
   } finally { cancelUncommittedIntent(dir, intent); rmSync(temporary, { force: true }); release(); }
 }

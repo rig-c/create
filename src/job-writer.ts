@@ -4,12 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import type { JobSelector } from '@rig-c/review/job-host';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication, type WriterBinding } from './job-outbox.ts';
-import { liveManifestPath, draftPublicationContext, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
+import { liveManifestPath, livePublicationSubjects, draftPublicationContext, inspectDraftPublication, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
 import type { Finding } from './check.ts';
-import { refuse } from './refusal.ts';
+import { Refusal, refuse } from './refusal.ts';
+import { shellWord } from './job-acts.ts';
 import type { JsonObject } from './templates.ts';
 
-let checkedBoundTarget: { root: string; jobId: string; selector: JobSelector } | null = null;
+let checkedBoundTarget: { target: { root: string; jobId: string; selector: JobSelector }; head: string | null } | null = null;
 
 function isSameProcessHost(binding: WriterBinding): boolean {
   try {
@@ -20,23 +21,27 @@ function isSameProcessHost(binding: WriterBinding): boolean {
   }
 }
 
-function assertBoundJobAskReady(root: string, binding: WriterBinding, selector: JobSelector): void {
+function assertBoundJobAskReady(root: string, binding: WriterBinding, selector: JobSelector): string | null {
   const canonicalRoot = realpathSync(root);
-  if (checkedBoundTarget && isDeepStrictEqual(checkedBoundTarget, { root: canonicalRoot, jobId: binding.jobId, selector })) return;
-  if (isSameProcessHost(binding) || !existsSync(join(jobPrivateRoot(canonicalRoot), 'acknowledged-publications'))) return;
+  const target = { root: canonicalRoot, jobId: binding.jobId, selector };
+  if (checkedBoundTarget && isDeepStrictEqual(checkedBoundTarget.target, target)) return checkedBoundTarget.head;
+  if (isSameProcessHost(binding) || !existsSync(join(jobPrivateRoot(canonicalRoot), 'acknowledged-publications'))) return null;
   let child: ReturnType<typeof Bun.spawnSync<'pipe', 'pipe'>>;
   try {
     child = Bun.spawnSync(jobRuntimeCommand('check-ask'), {
       stdin: Buffer.from(JSON.stringify({ root: canonicalRoot, selector })), stdout: 'pipe', stderr: 'pipe',
     });
   } catch {
-    return;
+    return null;
   }
   if (child.exitCode !== 0) {
     const match = /^([A-Z][A-Z0-9_]*): ([\s\S]+)$/.exec(child.stderr.toString('utf8').trim());
     if (match) refuse(match[1]!, match[2]!);
+    return null;
   }
-  checkedBoundTarget = { root: canonicalRoot, jobId: binding.jobId, selector };
+  const head = child.stdout.toString('utf8').trim() || null;
+  checkedBoundTarget = { target, head };
+  return head;
 }
 
 export function acquireBoundJobWrite(root: string, target?: JobSelector): () => void {
@@ -58,7 +63,10 @@ export function prepareVersionIntent(root: string, bytes: Buffer, n: number): Pe
   if (!binding) return null;
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const selector = publicationSelector(project, n);
-  assertBoundJobAskReady(root, binding, selector);
+  const head = assertBoundJobAskReady(root, binding, selector);
+  if (head !== null && livePublicationSubjects(root, project, selector).length === 0) {
+    refuse('JOB_PUBLICATION_ASK_REQUIRED', `project.json: replacing open publication ${head} requires an owner ask; keep the open page or use job open when the next review is ready`);
+  }
   return enqueuePublication(root, binding, { path: liveManifestPath(root, project, n), selector }, bytes);
 }
 
@@ -154,11 +162,32 @@ export function draftPublicationResult(id: string): { path: string; selector: { 
   return { path: `review-draft-${id}.json`, selector: { kind: 'draft', id } };
 }
 
-export function prepareDraftIntent(root: string, bytes: Buffer, id: string): PendingPublication | null {
+export function prepareDraftIntent(
+  root: string, bytes: Buffer, id: string,
+): { intent: PendingPublication | null; deferred?: string } {
   const binding = readWriterBinding(root);
-  if (!binding) return null;
-  draftPublicationContext(root, JSON.parse(bytes.toString('utf8')) as JsonObject, id);
+  if (!binding) return { intent: null };
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  const { context, missingStructure, diffFinding } = inspectDraftPublication(root, project, id);
+  const dir = shellWord(root);
+  const draft = shellWord(id);
+  const open = `rig-create job open ${dir} --draft ${draft} --reviewer '<reviewer>' --role owner`;
+  let reason: string | undefined;
+  if (missingStructure !== undefined) {
+    reason = `structure snapshot missing or invalid at ${missingStructure}; run rig-create structure-snapshot ${dir} --draft ${draft}`;
+  } else if (diffFinding !== undefined) {
+    reason = `${diffFinding.code}: ${diffFinding.message}; run rig-create next ${dir} to prepare the diff map`;
+  } else if (context.subjects.length === 0) {
+    reason = `no owner ask is ready; run rig-create next ${dir} to prepare the next review`;
+  }
   const result = draftPublicationResult(id);
-  assertBoundJobAskReady(root, binding, result.selector);
-  return enqueuePublication(root, binding, result, bytes);
+  if (!reason) {
+    try { assertBoundJobAskReady(root, binding, result.selector); }
+    catch (error) {
+      if (!(error instanceof Refusal) || error.code !== 'JOB_ASK_PENDING') throw error;
+      reason = `an owner ask for another result is still open; run rig-create job acts ${dir} and ingest the owner's answer`;
+    }
+  }
+  if (reason) return { intent: null, deferred: `job: open page not updated: ${reason}, then ${open}` };
+  return { intent: enqueuePublication(root, binding, result, bytes) };
 }

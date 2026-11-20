@@ -474,7 +474,7 @@ Exit `1`. Each names its object in `path`.
 | `PARTS_VERDICT_SCHEMA_UNKNOWN` | the verdict's `schema` is neither `rig-review-parts-verdict/1` nor `rig-review-parts-verdict/2` (including unknown `/3`) | sign with a verdict written by rig-review's parts view |
 | `PARTS_VERDICT_ATLAS` | the verdict's `mode` is `atlas`: a built rig's atlas was reviewed, which is informational and never gates `parts-review` | review the assembled parts (`rig-review parts` on the parts package) and sign with that verdict |
 | `PARTS_VERDICT_MALFORMED` | `mode` is neither `parts` nor `atlas`, `source.files[]` is empty or has an entry without `path`, `bytes` and `sha256`, an entry is not a POSIX path relative to the verdict's directory or leaves the project, or `parts.json` is not the first entry | sign with a verdict written by rig-review's parts view |
-| `PARTS_VERDICT_NOT_APPROVED` | the verdict's `status` is `pending` or `changes-requested` | fix the flagged parts in `parts`, review again until every part is clean, and sign with the approved verdict |
+| `PARTS_VERDICT_NOT_APPROVED` | the verdict's `status` is `pending` or `changes-requested`, or a carried approval comes from a delegate | fix flagged parts and record the owner's approval before signing an amendment |
 | `PARTS_VERDICT_SOURCE_CHANGED` | a `source.files[]` entry, resolved against the verdict file's directory, is not on disk, or its byte count or sha256 is not the one reviewed: a part added, removed or repainted after the sign-off | review the parts as they now are and sign again; a parts change after sign-off is a new review |
 | `PARTS_VERDICT_SOURCE_MISMATCH` | `source.sha256` is not the sha256 of the UTF-8 lines `<path>\t<sha256>\n` over `source.files[]`, sorted by path bytewise; the check recomputes it and never trusts the field | sign with a verdict written by rig-review's parts view, unedited |
 | `STAGE_UNSIGNED` | the project's `stage` is past a stage that ends on a sign-off, and no `{ "stage": <it>, "checkpoint": null }` entry exists | the person signs it, or the stage goes back to where the signatures reach |
@@ -1581,7 +1581,7 @@ gets its own rig-review verdict.
 | Code | Meaning and remedy |
 | --- | --- |
 | `PARTS_VERDICT_FILE_ROUTE_REMOVED` | `signoff --evidence` and `structure-snapshot --verdict` are removed and exit 2 before writing. Query the draft with `parts-review`, then select its receipt with `--draft`. |
-| `PARTS_VERDICT_RECEIPT_REQUIRED` | `signoffs[].evidence` has no recorded parts-review API receipt for `draft_id`. Record the response with parts-review before signing. |
+| `PARTS_VERDICT_RECEIPT_REQUIRED` | `signoffs[].evidence` has no recorded parts-review API receipt for `draft_id`, or an amended parts signoff names an act that was never ingested. Record the response with parts-review before signing. |
 | `PARTS_VERDICT_FILE_LEGACY` | A parts-review signature predates `PARTS_VERDICT_RECEIPT_SINCE = 2026-11-08T00:00:00Z` and binds a review-saved file. Preserve the binding. Check WARNs without opening that file. Query the reviewed draft through parts-review before signing again. |
 
 ## Fix ledger, ledger reports and restarts (create#285)

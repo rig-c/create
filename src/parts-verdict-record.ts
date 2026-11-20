@@ -320,6 +320,9 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
     if (evidence !== undefined && (!object(evidence) || evidence.kind !== 'parts-verdict'
       || (evidence.spec !== undefined && evidence.spec !== spec))) return fail('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence has an invalid receipt spec');
     if (options.carry) {
+      if (act.authority.reviewer.role !== 'owner') {
+        fail('PARTS_VERDICT_NOT_APPROVED', `act ${act.actId} needs an owner approval to sign the amendment`);
+      }
       carry = { act, amendment: partsCarryAmendment(project, draftId, act, receipt, options.carry.now) };
     }
     const carried = carry !== undefined || receipt.signoff_amendment !== undefined;

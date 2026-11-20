@@ -160,7 +160,8 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       return { stdout: json ? JSON.stringify(recorded, null, 2) : `signoff: replayed ${stage} by ${by} at ${String(recorded.at)}; stage unchanged`, exit: 0 };
     }
   }
-  if (opts['--checkpoint'] === undefined && isOpenInterviewStage(stage)) {
+  // A plan publication may still display the record while its questions are pending.
+  if (preview === undefined && opts['--checkpoint'] === undefined && isOpenInterviewStage(stage)) {
     const split = hasStageOrder(project);
     const pending = collectItems(project, { collection: loadCollection(dir) }).find(item =>
       interviewStageOfGuide(item.id, item.kind === 'post', split) === stage && pendingInterviewOptions(item));

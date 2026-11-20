@@ -146,13 +146,16 @@ test('#670 an earlier-stage set does not block the current rigging interview sig
   const w = working('motion');
   registerReask(w.dir, 'reference', 'test-reference-earlier-stage', testClock.now());
   const next = () => nextProject(w.dir, testClock.now());
+  const wordsFile = join(w.dir, 'approval.txt');
+  writeFileSync(wordsFile, 'I approve the rigging interview.');
+  const sign = () => signoffCommand(['rigging-interview', w.dir, '--by', 'user', ...ownerChatArgs(wordsFile)]);
   expect(next().moves.filter(move => move.review_act?.kind === 'interview-picks').map(move => move.review_act?.question_id)).toEqual(['motion']);
-  expect(code(() => assertPlanSignoffCandidate(w.dir, load(w.dir), 'rigging-interview', testClock.now()))).toBe('SIGNOFF_REASK_PENDING');
+  expect(code(sign)).toBe('SIGNOFF_REASK_PENDING');
 
   answer(w);
   expect(current(load(w.dir), 'reference').record.pending_options).toBeDefined();
   expect(next().moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rigging-interview')).toBe(true);
-  expect(() => assertPlanSignoffCandidate(w.dir, load(w.dir), 'rigging-interview', testClock.now())).not.toThrow();
+  expect(sign().exit).toBe(0);
 });
 
 test.each(['review', 'owner-chat'] as const)('#670 %s signoff refuses with identical bytes and succeeds after picks', route => {
@@ -179,7 +182,8 @@ test.each(['review', 'owner-chat'] as const)('#670 %s signoff refuses with ident
   const before = readFileSync(file);
   const refusal = code(sign);
   expect({ code: refusal, unchanged: readFileSync(file).equals(before) }).toEqual({ code: 'SIGNOFF_REASK_PENDING', unchanged: true });
-  expect(code(() => assertPlanSignoffCandidate(w.dir, load(w.dir), 'interview', testClock.now()))).toBe('SIGNOFF_REASK_PENDING');
+  expect(() => assertPlanSignoffCandidate(w.dir, load(w.dir), 'interview', testClock.now())).not.toThrow();
+  expect(readFileSync(file)).toEqual(before);
 
   testClock.set(testClock.now() + 1_000);
   reviewAnswer(w, { set: { path: w.path, sha256: w.hash }, picks: [{ ask: 'reference', option_id: 'keep' }], at: testClock.iso() });

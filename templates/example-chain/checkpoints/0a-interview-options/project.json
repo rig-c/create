@@ -308,5 +308,8 @@
   "derived": [],
   "versions": [],
   "archive": null,
-  "notes": []
+  "notes": [],
+  "owner": {
+    "language": "en"
+  }
 }

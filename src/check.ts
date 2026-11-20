@@ -1,4 +1,5 @@
 import { ownerChatFinding } from './owner-chat.ts';
+import { ownerLanguageFinding } from './owner-language.ts';
 import { packageUpgradeFindings } from './package-upgrades.ts';
 import { checkPublicationGenerations } from './job-publication.ts';
 import { collectBarAmendments, effectiveBar } from './plan-bar-amendments.ts';
@@ -892,7 +893,6 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
     refusals.push({ code: 'SCHEMA_UNKNOWN', path: 'schema', message: `schema is ${JSON.stringify(project.schema ?? null)}; this check reads ${PROJECT_SCHEMA}` });
     return fail();
   }
-
   const stage = asString(project.stage);
   if (stage === null || !STAGE_VALUES.includes(stage)) {
     refusals.push({ code: 'STAGE_UNKNOWN', path: 'stage', message: `stage is ${JSON.stringify(project.stage ?? null)}; the stages are ${STAGE_VALUES.join(', ')}` });
@@ -1022,6 +1022,8 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   if (!options.recordPublication) checkDirections(ctx, options.now);
   if (!options.recordPublication) warnings.push(...intakeWarnings(dir, project));
   warnings.push(...reopenLapseWarnings(project));
+  const language = ownerLanguageFinding(project);
+  if (language) warnings.push(language);
 
   return {
     ok: refusals.length === 0 && holes.length === 0,

@@ -1,4 +1,5 @@
 import { partsReviewCommand } from '../src/parts-review.ts';
+import { ownerLanguageCommand } from '../src/owner-language-writer.ts';
 import { inputCommand } from '../src/inputs.ts';
 import { directionCommand } from '../src/direction-writers.ts';
 import { DIRECTION_SCENE_SPEC } from '../src/direction.ts';
@@ -104,7 +105,9 @@ export function generateExampleOrder(dir: string): { project: JsonObject; files:
     }
   };
   p.stage = 'plan-approved'; p.stage_values = [...STAGE_VALUES]; p.versions = [];
-  save(); clock.now = Date.parse(exampleTime('2026-11-05T00:00:00Z')); correctionCommand(['--adopt', dir], clock.now); reload();
+  save();
+  ownerLanguageCommand(['set', 'en', dir]);
+  clock.now = Date.parse(exampleTime('2026-11-05T00:00:00Z')); correctionCommand(['--adopt', dir], clock.now); reload();
   const painting = readFileSync(join(dir, 'producer/painting.png'));
   files['inputs/painting.png'] = painting;
   write('inputs/painting.png', painting);
@@ -270,6 +273,7 @@ if (import.meta.main) {
   for (const key of ['stage_values', 'interview', 'plan', 'signoffs', 'diff_map', 'drafts', 'inputs', 'derived', 'versions', 'review_acts', 'advances', 'scenes', 'direction_contract', 'fix_ledger']) text = replaceValue(text, key, generated.project[key] as Json);
   text = text.replace(/("proposed_at":\s*)"([^"]+)"/, (_match, prefix: string, at: string) => `${prefix}${JSON.stringify(exampleTime(at))}`);
   text = text.replace('  "schema": "rig-create/project@0",', '  "schema": "rig-create/project@0",' + `\n  "corrections_contract": ${JSON.stringify(generated.project.corrections_contract)},\n  "corrections": [],`);
+  text = text.replace('  "stage":', `  "owner": ${JSON.stringify(generated.project.owner)},\n  "stage":`);
   const outputs: Record<string, string | Uint8Array> = { 'example-project.json': text };
   for (const [path, bytes] of Object.entries(generated.files)) {
     const rel = path.startsWith('evidence/interview/') ? `example-interview-options/${path.slice('evidence/interview/'.length)}` : path.startsWith(EXAMPLE_DRAFT) ? `example-draft/${path.slice(EXAMPLE_DRAFT.length + 1)}` : `example-draft/${path}`;

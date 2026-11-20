@@ -22,6 +22,7 @@ export const PLAN_HELP = `plan add|revise|remove <id> [<project dir>] --by <draf
   Amend one execution bar without changing the signed step.
   Withdraw one enabled execution checkpoint without changing the signed step.
   Add requires all fields. Revise accepts any of these fields and preserves the id.
+  Write --does, --produces and --bar in the owner's declared language.
   Revise/remove retain the full previous step in plan.replaced[].
   Amend at the step's approval stage or earlier to lapse its live signature. A same-id replacement of completed work requires removal and an amendment after completion.
   Dates follow approval ownership: parts/legacy rig update drafted_at and drafted_by,

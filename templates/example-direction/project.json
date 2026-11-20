@@ -288,6 +288,9 @@
       }
     }
   ],
+  "owner": {
+    "language": "en"
+  },
   "direction_contract": {
     "schema": "rig-create/direction-contract@1",
     "adopted_at": "2026-11-04T09:00:00.000Z",

@@ -76,6 +76,9 @@ export function materializeFixture(dir: string, mutate: Mutate = () => {}, templ
   if (template === 'example-project.json') files = { ...preparedExampleFiles(), ...newOrderExampleFiles(), ...files };
   mkdirSync(dir);
   const project = readTemplate(template);
+  if (!rawLegacy && template !== 'example-project.json' && project.owner === undefined) {
+    project.owner = { language: 'en' };
+  }
   // Keep the synthetic legacy cohort before scene adoption. Preserve the sealed raw template.
   if (template === 'legacy-example-project.json' && !rawLegacy) retimeFixture(project, Date.parse(DIRECTION_SCENE_SINCE), false);
   if (['legacy-example-project.json', 'example-project.json'].includes(template) && !rawLegacy && bindAnswers) bindFixtureAnswers(project, dir);

@@ -62,6 +62,15 @@ Preserve history/dates; adopt choices explicitly.
 
 ## Before you ask, plan or show
 
+- **Owner language.** Use `owner.language` for the text you write. Set it from
+  the owner's preference with `init --owner-language <tag>` or
+  `owner-language set <tag>` before publishing.
+  In `plan add|revise`, write `does`, `produces` and `bar` in that language.
+  In `interview-options --file`, write the question wording (`asks[].prompt`)
+  and options' `label`, `effect` and recommendation `reason` in it.
+  For `checkpoint-evidence` and `checkpoint-table`, use it for tile/table
+  labels, routes, recommendations and authored table headings and text cells.
+  Keep question/step IDs, proper names, producer data and quoted owner words as supplied.
 - **Prior words.** Offer adopted projects verbatim prior words as a tailored option
   with source/date; require a pick. Legacy: {{DERIVED_LINK}}.
 - **Bars before sign-off.** Each reading names a command verified against

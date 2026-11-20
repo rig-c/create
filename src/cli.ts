@@ -37,6 +37,8 @@ import { SPLIT_CAPTIONS_HELP, splitCaptionsCommand } from './split-captions.ts';
 import { VERSION_HELP, versionCommand } from './config-lost.ts';
 import { jobRuntimeCommand, takePublishedLines } from './job-writer.ts';
 import { NEXT_HELP, nextCommand } from './next.ts';
+import { parseOwnerLanguage } from './owner-language.ts';
+import { ownerLanguageCommand } from './owner-language-writer.ts';
 
 // Input registration is kept in its own CLI block.
 import { INPUT_HELP, inputCommand } from './inputs.ts';
@@ -56,6 +58,7 @@ Usage:
   rig-create job close [<dir>] --discard-acts <reason> --by agent
   rig-create job close [<dir>] --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
 ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project folder, its repository and pinned packages
+  rig-create owner-language set <tag> [<dir>]       declare the owner's language before live publication
   rig-create init <dir> --painting <file> --origin <words> [--projects-root <dir>] [--same-artwork-reason <file>]
                                                     also register the painting; refuse a second project for one artwork
   rig-create restart [<dir>] --by <human> --owner-chat <file> --said-at <ISO> --relayed-by <operator>
@@ -63,7 +66,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create ledger add|retire <id> [<dir>] --by <who> …
                                                     record or retire an owner fix every version inherits
   rig-create init --collection <dir> [--no-install] create a collection folder, its repository and pinned packages
-  rig-create init --member <collection dir> <name>  create members/<name>/ in a collection, inheriting its answers
+  rig-create init --member <collection dir> <name> [--owner-language <tag>]
+                                                    create members/<name>/ in a collection, inheriting its answers
   rig-create collection answer|pin|--check [<dir>]         pin member builds (--member name=version); refuse stale pins
   rig-create collection-binding [<member dir>] [--out <path>]
                                                     write and bind the member's collection interview snapshot
@@ -124,6 +128,8 @@ job open / job reconcile / bound writers:
 init:
   <dir>          an empty or missing folder; a non-empty one is refused
   --no-install   do not run bun install (offline, tests); run it yourself afterwards
+  --owner-language <tag>
+                 record the owner's declared language (e.g. ko or en-US)
   --painting <file> --origin <words>
                  copy the painting into inputs/, register it and declare project.painting; refused (INIT_ARTWORK_EXISTS) when a
                  project directly under --projects-root (default: the parent folder) binds the same sha256.
@@ -212,11 +218,16 @@ function initCommand(args: string[], now: number): string {
     return made.stdout;
   }
   let install = true;
+  let ownerLanguage: string | undefined;
   const positional: string[] = [];
   const artwork: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--no-install') install = false;
+    else if (arg === '--owner-language') {
+      if (ownerLanguage !== undefined) refuse('OWNER_LANGUAGE_USAGE', 'project.json.owner.language: pass --owner-language once', USAGE_EXIT);
+      ownerLanguage = parseOwnerLanguage(args[++i]);
+    }
     else if (['--painting', '--origin', '--projects-root', '--same-artwork-reason'].includes(arg)) {
       const value = args[++i];
       if (value === undefined || value.startsWith('--') || value.trim() === '' || artwork[arg] !== undefined) refuse('INIT_ARTWORK_USAGE', `init: ${arg} needs one value`, USAGE_EXIT);
@@ -234,7 +245,8 @@ function initCommand(args: string[], now: number): string {
   const painting = artwork['--painting'] === undefined ? undefined : {
     file: artwork['--painting'], origin: artwork['--origin']!, projectsRoot: artwork['--projects-root'], sameArtworkReason: artwork['--same-artwork-reason'],
   };
-  const result = initProject(positional[0] as string, { install, now, ...(painting === undefined ? {} : { painting }) });
+  const result = initProject(positional[0] as string, { install, now,
+    ...(ownerLanguage === undefined ? {} : { ownerLanguage }), ...(painting === undefined ? {} : { painting }) });
   if (result.installError !== null) {
     process.stdout.write(`${describeInit(result)}\n`);
     refuse(
@@ -251,6 +263,7 @@ const COMMANDS: Record<string, Command> = {
   republish: republishCommand,
   input: inputCommand,
   init: initCommand,
+  'owner-language': ownerLanguageCommand,
   intake: intakeCommand,
   'intake-report': intakeReportCommand,
   interview: interviewCommand,

@@ -2,6 +2,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DIRECTION_SPEC, directionHash } from '../src/direction.ts';
+import { ownerLanguageCommand } from '../src/owner-language-writer.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { correctionCommand, directionCommand, signoffCommand, testClock } from './clock.ts';
 
@@ -17,7 +18,7 @@ export function directionFixture(dir:string, built?:{model:Buffer;config:Buffer;
   const still=built?file('evidence/still.png',built.still):{path:'evidence/still.png',sha256:'a'.repeat(64)};
   const template=readTemplate('project.json');
   const p:JsonObject={schema:template.schema as string,name:built?'direction-probe':'synthetic-direction',stage:'post',stage_values:template.stage_values as string[],inputs:{},interview:{held:true,post:{held:true,items:[['camera_depth',CAMERA_WORDS,{camera:'push_in',depth:false}],['post_timing',TIMING_WORDS,{duration:4,loop:false}]].map(([id,words,value])=>({id:id as string,config:[],text:built?'Probe question':'Synthetic question',guide:{delegated:false,by:'user',at:'2026-11-04T08:00:00Z',verbatim:words as string,value:value as JsonObject,asks:[{id:id as string,state:'user'}]}}))}},plan:{steps:['camera','timing'].map((id,i)=>({id,phase:'post',order:i+1,does:'Author direction',produces:'direction document',rests_on:[id==='camera'?'camera_depth':'post_timing'],bar:'typed direction keys validate',checkpoint_proposed:false,checkpoint:{delegated:false,by:'user',at:'2026-11-04T08:00:00Z',verbatim:'No checkpoint',value:false}}))},signoffs:[{stage:'rig-review',checkpoint:null,by:'user',at:'2026-11-04T08:30:00Z',verbatim:built?'Accept the probe rig':'Accept the synthetic rig'}],versions:[{n:1,kind:'rig',rig_version:null,at:'2026-11-04T08:00:00Z',provenance:{config,sections:{}},review_package:{config,files:[{path:'out/check/build/skeleton.model.json',sha256:model.sha256 as string}]},evidence:[{kind:'still',...still,camera:'fixed',frame:'setup'}],verdicts:[{review:'rig-review',verdict:'accepted',by:'user',at:'2026-11-04T08:30:00Z',verbatim:built?'Accept the probe rig':'Accept the synthetic rig'}]}]};
-  save(p);file('approval.txt','Approve the camera and timing steps.\n');file('words.txt','Tighten the final framing.\n');file('reasoning.txt','Validated the authored direction patch against its exact base.\n');
+  save(p);ownerLanguageCommand(['set','en',dir]);file('approval.txt','Approve the camera and timing steps.\n');file('words.txt','Tighten the final framing.\n');file('reasoning.txt','Validated the authored direction patch against its exact base.\n');
   testClock.set(new Date('2026-11-04T09:00:00Z'));
   signoffCommand(['post-interview',dir,'--by','user','--steps','camera,timing','--verbatim-file',join(dir,'approval.txt')]);
   directionCommand(['--adopt',dir]);correctionCommand(['--adopt',dir]);

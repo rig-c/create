@@ -9,6 +9,8 @@ work follows is drafted from these answers ([PROJECT.md § The plan](PROJECT.md#
 a worked example is in [../templates/example-interview.md](../templates/example-interview.md),
 with its record in [../templates/example-project.json](../templates/example-project.json).
 
+Write the questions and option copy in the [owner's language](PROJECT.md#owner-language).
+
 Why this exists: an agent rigging a painting makes direction calls at every
 waypoint — which parts move on physics, where the torso is cut, what stays
 rigid, whether the hands move. Made alone, each of those calls is only found out

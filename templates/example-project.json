@@ -4,6 +4,7 @@
   "corrections": [],
   "name": "lantern-keeper",
   "title": "The lantern keeper (a made-up painting, for the shape only)",
+  "owner": {"language":"en"},
   "stage": "accepted",
   "stage_values": [
     "interview",

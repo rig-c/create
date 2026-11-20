@@ -8,6 +8,8 @@ import type { JobPublishRequest, JobReviewerBinding, JobSubject, RecordSubject, 
 
 export type PublicationSubject = JobSubject | RecordSubject;
 import { refuse } from './refusal.ts';
+import { requireOwnerLanguage } from './owner-language.ts';
+import type { JsonObject } from './templates.ts';
 
 export const JOB_BINDING_FILE = '.rig-create-review-binding.json';
 export const JOB_OUTBOX_DIRECTORY = JOB_PRIVATE_DIRECTORY;
@@ -208,6 +210,7 @@ export function assertJobIdentity(expected: JobIdentity, found: JobIdentity): vo
 
 export function enqueuePublication<R extends PublicationResult>(root: string, binding: WriterBinding, result: R, intentBytes?: Buffer): PendingPublication & { result: R } {
   const bytes = intentBytes ?? readFileSync(join(root, 'project.json'));
+  requireOwnerLanguage(JSON.parse(bytes.toString('utf8')) as JsonObject);
   const recordHash = jobHash(bytes);
   const versionHash = publicationVersionHash(bytes, result);
   if (versionHash === null) refuse('JOB_PUBLICATION_INVALID', 'project.json: publication version is absent; restore the recorded rig/post before publishing');

@@ -252,7 +252,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
   try {
     tick();
     process.chdir(scratch);
-    writer(['init', 'project', '--no-install']);
+    writer(['init', 'project', '--no-install', '--owner-language', 'en']);
     process.chdir(dir);
     write('evidence/approval.txt', 'Approve this synthetic geometric example.\n');
     const input = generateExampleParts(join(scratch, 'parts-producer'));

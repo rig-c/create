@@ -10,6 +10,7 @@ import { refuse, USAGE_EXIT } from './refusal.ts';
 import { CHOICE_ORDER_SPEC } from './stages.ts';
 import { readTemplate, type JsonObject } from './templates.ts';
 import { JOB_BINDING_FILE, JOB_OUTBOX_DIRECTORY } from './job-outbox.ts';
+import { parseOwnerLanguage, withOwnerLanguage } from './owner-language.ts';
 
 export const INTERVIEW_DOC_URL = 'https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md';
 
@@ -25,6 +26,7 @@ export const FALLBACK_IDENTITY = { name: 'rig-create', email: 'rig-create@localh
 
 export interface InitOptions {
   install: boolean;
+  ownerLanguage?: string;
   /** The instant the record's adoption dates carry (ms since the epoch). */
   now: number;
   /** The painting the project is for, registered as its first input; with it init refuses a second project for the same artwork. */
@@ -167,11 +169,12 @@ export function initProject(target: string, options: InitOptions): InitResult {
   checkTarget(dir);
   const name = basename(dir);
   const artwork = options.painting === undefined ? null : artworkFor(dir, options.painting, options.now);
+  const fresh = freshProjectRecord(name, options.now);
+  const record = options.ownerLanguage === undefined ? fresh : withOwnerLanguage(fresh, parseOwnerLanguage(options.ownerLanguage));
 
   mkdirSync(dir, { recursive: true });
   const written: string[] = [];
 
-  const record = freshProjectRecord(name, options.now);
   if (artwork !== null) {
     mkdirSync(join(dir, 'inputs'), { recursive: true });
     writeFileSync(join(dir, artwork.path), artwork.bytes);

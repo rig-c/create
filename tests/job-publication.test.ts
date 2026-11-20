@@ -34,7 +34,7 @@ afterEach(() => {
 function setup(): { root: string; project: JsonObject } {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-test-')));
   roots.push(root);
-  const project: JsonObject = { schema: 'rig-create/project@0', stage: 'interview', stage_values: [],
+  const project: JsonObject = { schema: 'rig-create/project@0', owner: { language: 'en' }, stage: 'interview', stage_values: [],
     interview: {}, plan: { steps: [] }, versions: [{ n: 1, kind: 'rig' }] };
   const put = (path: string, bytes: string | Buffer): void => {
     mkdirSync(dirname(join(root, path)), { recursive: true });

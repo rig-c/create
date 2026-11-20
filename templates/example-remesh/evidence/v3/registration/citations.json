@@ -1,4 +1,17 @@
 {
+  "seethrough": [
+    {
+      "entry": "seethrough",
+      "guide": "seethrough",
+      "quote": "Use the synthetic layers\nKeep the declared geometric example.\n\nUse the synthetic resolution\nKeep the declared geometric example.\n\nUse the synthetic head_crop\nKeep the declared geometric example.\n\nUse the synthetic seed\nKeep the declared geometric example.",
+      "asks": [
+        "layers",
+        "resolution",
+        "head_crop",
+        "seed"
+      ]
+    }
+  ],
   "assemble": [
     {
       "entry": "assemble",

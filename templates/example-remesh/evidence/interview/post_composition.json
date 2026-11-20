@@ -11,8 +11,8 @@
     "signoff_at": "2026-11-20T00:01:17.000Z",
     "config": {
       "path": "evidence/v3/registration/config.json",
-      "sha256": "b4d5c9dd7d65a303c8b97abf257a6797aaf2350021fa5f817d79ef45b7ea2b99",
-      "bytes": 1275
+      "sha256": "f4b233cc6127000ce2efb826b158a04dde69223d98e8ab815d5772d31ea162cc",
+      "bytes": 1373
     },
     "parts": {
       "path": "derived/drafts/remesh/input",
@@ -47,7 +47,7 @@
         },
         {
           "path": "derived/drafts/remesh/input/parts.json",
-          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
         }
       ]
     }

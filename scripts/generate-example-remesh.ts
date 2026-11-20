@@ -13,7 +13,7 @@ import { partsPackage } from '../tests/parts-package.ts';
 import { EXAMPLE_ANCHOR } from './example-time.ts';
 import { generatorArgs } from './generator-args.ts';
 import { EXAMPLE_BREATH_AMP, generateExampleMeshDraft } from './generate-example-draft.ts';
-import { checkExampleParts, generateExampleParts } from './generate-example-parts.ts';
+import { checkExampleParts, EXAMPLE_SEETHROUGH, generateExampleParts } from './generate-example-parts.ts';
 
 export function remeshFiles(dir: string, prefix = ''): Record<string, Buffer> {
   const files: Record<string, Buffer> = {};
@@ -58,6 +58,7 @@ function buildMeshRigCandidate(
   };
   const config = {
     key: 'synthetic',
+    seethrough: EXAMPLE_SEETHROUGH,
     requirements: 'interview-requirements.json',
     assemble: {
       rig_scale: 1,
@@ -337,7 +338,7 @@ export function generateExampleRemesh(destination: string): Record<string, Buffe
 
     write('evidence/setup.png', readFileSync(join(scratch, 'parts-producer/assembled/render/recomposite_rig.png')));
     const sections: JsonObject = {};
-    for (const name of ['assemble', 'bones', 'meshes', 'regions', 'motion']) {
+    for (const name of ['seethrough', 'assemble', 'bones', 'meshes', 'regions', 'motion']) {
       const guide = name === 'regions' ? 'meshes' : name;
       const item = collectItems(load(), { collection: null }).find(i => i.id === guide)!;
       const answer = item.raw as JsonObject;

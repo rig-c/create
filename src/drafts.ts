@@ -1,3 +1,6 @@
+import { assemblyChangeDetail, assemblyConfigChanges } from '@rig-c/parts/assembly-reading';
+import { readPartsManifest } from '@rig-c/parts/src/parts.ts';
+import { latestPartsVerdictStatus } from './parts-verdict-record.ts';
 import { randomUUID } from 'node:crypto';
 import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
 import { cancelUncommittedIntent, readWriterBinding, type PendingPublication } from './job-outbox.ts';
@@ -255,6 +258,11 @@ export function checkDrafts(dir: string, project: JsonObject, refusals: Finding[
         if (sha(bytes) === manifestBinding.sha256) {
           const manifest: Json = JSON.parse(bytes.toString('utf8'));
           if (isObject(manifest)) {
+            if (manifest.assembly_config === undefined && latestPartsVerdictStatus(project, raw.id) === 'approved') {
+              const manifestField = `${path}.parts.files`;
+              warnings.push({ code: 'DRAFT_ASSEMBLY_CONFIG_UNRECORDED', path: manifestField,
+                message: `${manifestField}: ${manifestPath} has no assembly_config; retain the accepted draft and use a new assemble output for future review` });
+            }
             const result = editedPartInputFindings(dir, raw, manifest, path);
             editedInputs = result.paths;
             (Date.parse(raw.at) < Date.parse(EDITED_PART_INPUTS_SINCE) ? warnings : refusals).push(...result.findings);
@@ -431,6 +439,14 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
       const configFile = fileAt(dir, opts['--config'], root);
       const config = JSON.parse(readFileSync(configFile, 'utf8')) as Json;
       if (!isObject(config)) throw new Error('config must be an object');
+      const manifestFile = fileAt(dir, `${parts}/parts.json`, root);
+      const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as Json;
+      if (isObject(manifest) && Object.hasOwn(manifest, 'assembly_config')) {
+        const changes = assemblyConfigChanges(configFile, readPartsManifest(manifestFile));
+        if (changes.length > 0) {
+          refuse('ASSEMBLY_CONFIG_STALE', `drafts[${id}].config: ${assemblyChangeDetail(changes)} as the second assemble before draft-rig`);
+        }
+      }
       const installed = locateParts(dir);
       if (installed === null) throw new Error('install @rig-c/parts before recording a draft');
       const pkgFile = join(installed, 'package.json');

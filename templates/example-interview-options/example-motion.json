@@ -11,14 +11,14 @@
       "signoff_at": "2026-11-20T00:00:37.000Z",
       "evidence": {
         "kind": "parts-verdict",
-        "path": "evidence/review-reads/45c13e818c73ef812044a87241199b2363073caf271df1ac9823703f2e61389f.json",
-        "sha256": "45c13e818c73ef812044a87241199b2363073caf271df1ac9823703f2e61389f",
+        "path": "evidence/review-reads/cf072d7f7534cd03f4c8069aadf4e72d4d1b0889a3d9a2af479cb088c5d2aaac.json",
+        "sha256": "cf072d7f7534cd03f4c8069aadf4e72d4d1b0889a3d9a2af479cb088c5d2aaac",
         "spec": "rig-create/parts-verdict-cli@1"
       }
     },
     "structure": {
       "path": "evidence/structure-example.json",
-      "sha256": "48a6bf6a09973f5c87cfcd1ca60173bef88ff53fcaed1989e2d70e21c67c0989"
+      "sha256": "a561a54753e0f33d63da412f0652f18c2a85255a33f59a00703a4d24e89856a9"
     },
     "draft_id": "example",
     "parts": {
@@ -54,7 +54,7 @@
         },
         {
           "path": "derived/drafts/example/input/parts.json",
-          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
         }
       ]
     }

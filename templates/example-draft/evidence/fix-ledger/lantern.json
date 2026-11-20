@@ -2,7 +2,7 @@
   "schema": "rig-create/fix-ledger-report@1",
   "build": {
     "dir": "derived/drafts/lantern/out",
-    "manifest_sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+    "manifest_sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
   },
   "script_sha256": "df0994c4c995ef5cb4020c4e3eeb3baadeaf2bacf8058b1942b96ce90fbfdf30",
   "rows": [

@@ -11,7 +11,7 @@
     "signoff_at": "2026-11-20T00:00:51.000Z",
     "config": {
       "path": "evidence/v2/interview-config.json",
-      "sha256": "9989ec352840dae4e539f454bbf80fcd7d742c6c6b5208c4c63f82d09e8ccd2c"
+      "sha256": "3e8fb71028acdc1203d25d477da653283181c61dc86c180a5c8a9c60785bbd56"
     },
     "parts": {
       "path": "derived/drafts/example/input",
@@ -46,7 +46,7 @@
         },
         {
           "path": "derived/drafts/example/input/parts.json",
-          "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+          "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
         }
       ]
     }

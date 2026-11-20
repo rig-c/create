@@ -383,7 +383,7 @@ export function generateExampleChain(destination: string): Record<string, Buffer
     materialize('retain production inputs, outputs and setup evidence', ['copy', 'production rig and assembled setup', 'outputs/v1/out and evidence'], productionFiles);
     const sections: JsonObject = {};
     const config = JSON.parse(built['config.json']!.toString()) as JsonObject;
-    for (const name of Object.keys(config).filter(name => ['assemble', 'bones', 'meshes', 'regions', 'motion'].includes(name))) {
+    for (const name of Object.keys(config).filter(name => ['seethrough', 'assemble', 'bones', 'meshes', 'regions', 'motion'].includes(name))) {
       const guide = name === 'regions' ? 'meshes' : name;
       const item = collectItems(load(), { collection: null }).find(item => item.id === guide)!;
       const answer = item.raw as JsonObject;

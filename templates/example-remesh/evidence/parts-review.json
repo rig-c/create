@@ -6,12 +6,12 @@
     "version": "0.0.0-synthetic"
   },
   "source": {
-    "sha256": "682fe155d2df3b3f9986cd3380051c6d08ca078c04fe26603b5a31c8d17cff1f",
+    "sha256": "5838ea639fd43bae9c93ae9f913ac2f542da110a07c1f38faac7f8782c744659",
     "files": [
       {
         "path": "../derived/drafts/remesh/input/parts.json",
-        "bytes": 4162,
-        "sha256": "fb0b74d03b7e71d1c2bb2a6fe0ca1ef7415239863ea8eb95fc271b6eee38a0b7"
+        "bytes": 5121,
+        "sha256": "d93e07d90bb34132c296265585160cb37009cfac3c4eda0c19114636ddb41dca"
       },
       {
         "path": "../derived/drafts/remesh/input/parts/background.png",

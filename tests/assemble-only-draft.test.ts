@@ -2,6 +2,8 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { generateExampleParts } from '../scripts/generate-example-parts.ts';
+import { nextProject } from '../src/next.ts';
 import { checkProject, type Finding } from '../src/check.ts';
 import { validateCorrectionIdentity } from '../src/corrections.ts';
 import { directionCommand } from '../src/direction-writers.ts';
@@ -20,7 +22,7 @@ import { checkSignoffTarget } from '../src/signoff-target.ts';
 import { signoffCommand } from '../src/signoff.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import type { JsonObject } from '../src/templates.ts';
-import { arr, fixture, obj } from './fixtures.ts';
+import { arr, fixture, obj, retimeFixture } from './fixtures.ts';
 import { reviewStdout } from './review-read-fixture.ts';
 
 const now = Date.parse('2026-11-20T12:00:00Z');
@@ -108,6 +110,52 @@ test('records stamped assemble output and binds a parts-review CLI receipt witho
     now, { runCli: reviewStdout(Buffer.from(JSON.stringify(verdict))) });
   expect(reviewed.exit).toBe(0);
   expect(recordedPartsVerdict(dir, read(dir), 'assemble')).toBeDefined();
+  const after = read(dir);
+  const legacyRefusals: Finding[] = [], legacyWarnings: Finding[] = [];
+  checkDrafts(dir, after, legacyRefusals, legacyWarnings);
+  expect(legacyRefusals).toEqual([]);
+  expect(legacyWarnings.map(finding => finding.code)).toEqual(['DRAFT_ASSEMBLY_CONFIG_UNRECORDED']);
+  expect(read(dir).stage).toBe(before.stage);
+});
+
+test('requires the second assemble after propose changes turn', () => {
+  const dir = fixture();
+  const id = 'turn-draft';
+  const root = `derived/drafts/${id}`;
+  mkdirSync(join(dir, root), { recursive: true });
+  const first = generateExampleParts(join(dir, root), true);
+  const run = (...args: string[]) => {
+    const result = Bun.spawnSync([process.execPath, join(import.meta.dir, '../node_modules/@rig-c/parts/bin/rig-parts.cjs'), ...args],
+      { cwd: join(dir, root), stdout: 'pipe', stderr: 'pipe' });
+    expect(result.exitCode, String(result.stderr)).toBe(0);
+    return String(result.stdout);
+  };
+  expect(run('propose', '--parts', 'assembled/rig', '--source', 'painting.png', '--full', 'layers', '--out', 'proposal',
+    '--write-config', 'config.json')).toContain('config.turn');
+  const args = [id, dir, '--config', `${root}/config.json`, '--from'];
+  refuses(dir, 'ASSEMBLY_CONFIG_STALE', () => draftRigCommand([...args, `${root}/assembled`], now));
+
+  const assemble = (out: string) => run('assemble', '--source', 'painting.png', '--full', 'layers', '--config', 'config.json', '--out', out);
+  assemble('fresh');
+  const recorded = JSON.parse(draftRigCommand([...args, `${root}/fresh`, '--json'], now).stdout);
+  expect(recorded.config.sha256).toBe(sha(readFileSync(join(dir, root, 'config.json'))));
+  assemble('replay');
+  expect(readFileSync(join(dir, root, 'fresh/rig/parts.json'))).not.toEqual(first['parts.json']!);
+  for (const file of Object.keys(first)) {
+    expect(readFileSync(join(dir, root, 'fresh/rig', file))).toEqual(readFileSync(join(dir, root, 'replay/rig', file)));
+  }
+});
+
+test('next names reassembly before draft registration and publication', () => {
+  const dir = fixture(project => {
+    project.stage = 'parts';
+    project.versions = [];
+    project.signoffs = arr(project.signoffs).slice(0, 2);
+    retimeFixture(project, Date.parse('2026-11-16T00:00:00Z'));
+    for (const raw of arr(obj(project.plan).steps)) obj(raw).status = 'pending';
+  });
+  const move = nextProject(dir, now).moves.find(move => move.field === 'drafts');
+  expect(move?.act).toMatch(/assemble.*propose --write-config.*assemble again.*draft-rig.*job open --draft/);
 });
 
 test.each(['rig.json', 'motion.json', 'mesh_report.json', 'skeleton.model.json'])('partial output with %s cannot silently become assemble-only', name => {

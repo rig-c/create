@@ -6,7 +6,6 @@ import { applyChainSeed, checkExampleChain, validateChainSteps, type ChainStep }
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { collectItems } from '../src/check.ts';
 import { nextProject } from '../src/next.ts';
-import { Refusal } from '../src/refusal.ts';
 import { optionContext, sha256 } from '../src/choices.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
@@ -529,7 +528,7 @@ test.each([
     const before = readFileSync(join(dir, 'project.json'));
     const wrongSet = [...args];
     wrongSet[wrongSet.indexOf('--sha256') + 1] = '0'.repeat(64);
-    expect(() => interviewAnswerCommand(wrongSet)).toThrow(expect.objectContaining<Partial<Refusal>>({
+    expect(() => interviewAnswerCommand(wrongSet)).toThrow(expect.objectContaining({
       code: 'INTERVIEW_OPTIONS_STALE',
     }));
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);

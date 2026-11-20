@@ -618,6 +618,8 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: the open job has no matching writer-owned binding; restore the writer-owned binding and retry rig-create job open to publish into the existing job');
       const current = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
       requireOwnerLanguage(current);
+      // A new publication supersedes the job's pending asks: one ask at a time (#737, #740).
+      await refusePendingJobAsks(root, binding.jobId, host, targetSelector);
       const rigging = targetSelector.kind === 'draft' && inspectDraftPublication(root, current, targetSelector.id).rigging;
       const result = selectorResult(root, targetSelector, rigging);
       if (rigSelector) prepareLiveManifest(root, current, rigSelector.version, warnings);

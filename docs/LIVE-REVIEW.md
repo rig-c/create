@@ -155,7 +155,7 @@ and leaves the open page and outbox unchanged. Its text output identifies the
 missing evidence. Run the preparation moves shown by `next` and then
 `job open --draft <id>` to show the prepared draft in the same job.
 
-A bound writer or `job open --question`/`--plan` that reports
+A bound writer or `job open` that reports
 `JOB_ASK_PENDING` needs the owner to finish the current asks. Run
 `job acts --wait`, ingest with the printed commands, then retry the command
 to publish into the existing job.

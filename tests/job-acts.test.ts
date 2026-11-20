@@ -506,6 +506,88 @@ test('#737 next at the rigging interview names the one-question-at-a-time loop w
   expect(opens[1]!.act).toContain('JOB_ASK_PENDING');
 });
 
+test.each([
+  { label: '--draft', selector: ['--draft', 'chain'], expected: 'job: draft chain published' },
+  { label: '--rig', selector: ['--rig', '1'], expected: 'job: rig v1 published' },
+])('#740 job open $label refuses JOB_ASK_PENDING while an interview ask is open, keeps its answer, and publishes after ingest', async ({ selector, expected }) => {
+  testClock.set(Date.now());
+  const root = copy('3-rig-review', project => {
+    project.stage = 'rigging-interview';
+    retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('rigging-interview'));
+    project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('rigging-interview'));
+    for (const step of arr(obj(project.plan).steps).map(obj).filter(step => ['bones', 'meshes', 'constraints', 'motion'].includes(String(step.id)))) {
+      step.status = 'pending'; delete step.status_history;
+    }
+  });
+  const value = await registerQuestion(root, 'motion');
+  const opening = await open(root, ['--question', 'motion']);
+  const view = await page(root, opening.url, 1);
+  const before = snapshot(root);
+  const beforePrivate = snapshot(jobPrivateRoot(root));
+  const beforeJobState = snapshot(jobHostStateRoot(root));
+
+  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...selector]);
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: /);
+  expect(refused.stderr).toContain('interview-picks motion/pending-acts-motion on option-set motion/pending-acts-motion');
+  expect(refused.stderr).toContain(`rig-create job acts ${shellWord(root)} --wait`);
+  expect(snapshot(root)).toEqual(before);
+  expect(snapshot(jobPrivateRoot(root))).toEqual(beforePrivate);
+  expect(snapshot(jobHostStateRoot(root))).toEqual(beforeJobState);
+
+  const act = await view.act('interview-picks', 'interview-picks', value);
+  const beforeUnIngestedJobState = snapshot(jobHostStateRoot(root));
+  const unIngested = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...selector]);
+  expect(unIngested.exit).toBe(1);
+  expect(unIngested.stderr).toMatch(/^JOB_ASK_PENDING: /);
+  expect(snapshot(root)).toEqual(before);
+  expect(snapshot(jobPrivateRoot(root))).toEqual(beforePrivate);
+  expect(snapshot(jobHostStateRoot(root))).toEqual(beforeUnIngestedJobState);
+
+  const listed = await cli(root, ['job', 'acts', root, '--json', '--wait']);
+  expectExit0(listed);
+  const row = JSON.parse(listed.stdout).acts[0] as PendingJobAct;
+  expect(row).toMatchObject({ actId: act.actId, kind: 'interview-picks' });
+  await executePrinted(root, row.command!);
+
+  const published = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...selector]);
+  expectExit0(published);
+  expect(published.stdout).toContain(expected);
+}, 60_000);
+
+test('#740 a draft republished over an unanswered earlier-draft ask publishes while an un-ingested earlier-draft act refuses JOB_ASK_PENDING', async () => {
+  testClock.set(EXAMPLE_REOPEN_AT);
+  const root = copy('1-parts-verdict');
+  const first = nextProject(root, testClock.now());
+  await executePrinted(root, first.moves.find(move => move.command?.startsWith('rig-create structure-snapshot'))!.command!);
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  expectExit0(await cli(root, ['diff-classes', root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent']));
+  await executePrinted(root, nextProject(root, testClock.now()).moves.find(move => move.command?.startsWith('rig-create advance parts-review'))!.command!);
+
+  cpSync(join(root, 'derived/drafts/chain'), join(root, 'derived/drafts/next'), { recursive: true });
+  expectExit0(await cli(root, ['draft-rig', 'next', root, '--config', 'derived/drafts/next/config.json', '--from', 'derived/drafts/next/out', '--parts', 'derived/drafts/next/input']));
+  expectExit0(await cli(root, ['structure-snapshot', root, '--draft', 'next']));
+
+  const opening = await open(root, ['--draft', 'chain']);
+  expect(opening.lines).toEqual(['job: draft chain published', 'job: asked parts-verdict chain']);
+  await page(root, opening.url, 1, 'parts-verdict');
+
+  // Unanswered earlier-draft ask allows the replacement draft to publish over it.
+  const republished = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'next']);
+  expectExit0(republished);
+  expect(republished.stdout).toContain('job: draft next published');
+  expect(republished.stdout).toContain('job: asked parts-verdict next');
+
+  // Once the owner answers a draft ask, an un-ingested act refuses another draft publication.
+  const nextView = await page(root, opening.url, 1, 'parts-verdict');
+  await nextView.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: WORDS });
+  const before = snapshot(root);
+  const refused = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--draft', 'chain']);
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: .*parts-verdict next on draft next/);
+  expect(snapshot(root)).toEqual(before);
+}, 60_000);
+
 test('#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing', async () => {
   const { root, url, view, value } = await openMotionQuestion();
   const before = readFileSync(join(root, 'project.json'));

@@ -32,15 +32,19 @@ export function isRiggingDraftAct(act: { source: { selector?: { kind: string; id
     && act.source.package?.id === draftPackageIdentity(selector.id, true).id;
 }
 
+export function currentPartsAmendment(project: JsonObject, at: number) {
+  return collectAmendments(project, [])
+    .filter(row => row.at <= at && stageIndex(row.stage) <= stageIndex(PARTS_REVIEW))
+    .sort((left, right) => right.at - left.at || right.index - left.index)[0];
+}
+
 /** Bind a carried approval even when a historical check has only the retained record and act. */
 export function partsCarryAmendment(project: JsonObject, draftId: string, act: PartsVerdictAct, receipt: JsonObject, signedAt: number): number {
   const path = 'project.json.signoffs.parts-review';
   if (act.value.verdict !== 'approved') {
     refuse('PARTS_VERDICT_NOT_APPROVED', `${path}.evidence: act ${act.actId} requests changes or is pending; record an approval of the corrected draft in Review`);
   }
-  const amendment = collectAmendments(project, [])
-    .filter(row => row.at <= signedAt && stageIndex(row.stage) <= stageIndex(PARTS_REVIEW))
-    .sort((left, right) => right.at - left.at || right.index - left.index)[0];
+  const amendment = currentPartsAmendment(project, signedAt);
   if (!amendment || amendment.target.kind !== 'draft' || amendment.target.id !== draftId || amendment.at >= signedAt) {
     refuse('AMENDMENT_TARGET_INVALID', `${path}.draft_id: signoff must follow the current owner amendment for draft ${draftId}; record amend parts-review --kind draft --target ${draftId} with the new parts manifest first`);
   }

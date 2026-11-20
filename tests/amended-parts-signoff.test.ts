@@ -243,6 +243,31 @@ test('an ordinary Review signoff still uses its fetch transport', () => {
   refuses(root, 'REVIEW_ACT_INVALID', () => signoffCommand(['parts-review', root, '--draft', draft, '--from-review', actId], signedAt, { fetch }));
 });
 
+test.each([false, true])('carries the retained verdict after retirement with replacement job = %s', async replacement => {
+  const { root, binding } = fixture();
+  const { act, actBytes } = await retainVerdict(root, binding);
+  rmSync(join(root, JOB_BINDING_FILE));
+  expect(amendCommand(amendmentArgs(root), amendedAt).exit).toBe(0);
+  if (replacement) writePrivateJson(join(root, JOB_BINDING_FILE), { ...binding, jobId: 'replacement-job' });
+  const args = ['parts-review', root, '--from-review', act.actId];
+  const fetch = () => { throw new Error('A retained verdict must not be fetched'); };
+  refuses(root, 'PARTS_VERDICT_RECEIPT_REQUIRED', () =>
+    signoffCommand(['parts-review', root, '--from-review', 'never-ingested'], signedAt, { fetch }));
+  const project = read(root);
+  const receipt = (project.review_acts as JsonObject[]).at(-1)!;
+  const evidence = receipt.evidence as JsonObject;
+  const path = join(root, String(evidence.path));
+  writeFileSync(path, actBytes + '\n');
+  refuses(root, 'REVIEW_ACT_LEDGER_INVALID', () => signoffCommand(args, signedAt, { fetch }));
+  writeFileSync(path, actBytes);
+  const result = signoffCommand(args, signedAt, { fetch });
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain(`review act ${act.jobId}/${act.actId} (sha256 ${jobHash(actBytes)})`);
+  const saved = readFileSync(file(root));
+  expect(signoffCommand(args, signedAt, { fetch }).exit).toBe(0);
+  expect(readFileSync(file(root))).toEqual(saved);
+});
+
 test.each([
   ['changes-requested', reviewedAt, 'PARTS_VERDICT_NOT_APPROVED'],
   ['approved', builtAt - 1, 'REVIEW_ACT_SOURCE_STALE'],

@@ -2,7 +2,8 @@ import { missingPickSignoffSteps, pickSignoffEvidence } from './pick-signoff.ts'
 import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
 import { pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.ts';
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
-import { latestPartsVerdictFinding, recordedPartsActReceipt, recordedPartsVerdict } from './parts-verdict-record.ts';
+import { currentPartsAmendment } from './parts-act.ts';
+import { latestPartsVerdictFinding, partsReceiptDraftId, recordedPartsActReceipt, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
@@ -116,12 +117,22 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   const root = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(root);
   try {
-    if (stage === PARTS_REVIEW && actId !== undefined && opts['--draft'] !== undefined && opts['--checkpoint'] === undefined) {
+    if (stage === PARTS_REVIEW && actId !== undefined && opts['--checkpoint'] === undefined) {
       const { file } = readProject(root);
       const original = readFileSync(file);
       const project = JSON.parse(original.toString('utf8')) as JsonObject;
       const receipt = recordedPartsActReceipt(project, actId);
-      if (receipt) return recordSignoff(stage, positional, opts, json, now, hooks, undefined, undefined, { file, project, original, receipt });
+      const amendment = currentPartsAmendment(project, now);
+      const amendedDraft = amendment?.target.kind === 'draft' ? String(amendment.target.id) : undefined;
+      if (receipt) {
+        const recordedDraft = partsReceiptDraftId(receipt);
+        const target = receipt.signoff === undefined ? amendedDraft ?? recordedDraft : recordedDraft;
+        if (target !== undefined) opts['--draft'] ??= target;
+        return recordSignoff(stage, positional, opts, json, now, hooks, undefined, undefined, { file, project, original, receipt });
+      }
+      if (amendedDraft !== undefined && checkProject(root, project, { now }).effective_stage === PARTS_REVIEW) {
+        refuse('PARTS_VERDICT_RECEIPT_REQUIRED', `project.json.review_acts: parts verdict act ${actId} was not ingested; record it with parts-review --from-review before signing the amendment`);
+      }
     }
     // With --checkpoint the passed checkpoint act is fetched inside the writer; without it, the stage signoff act.
     const review = actId !== undefined && opts['--checkpoint'] === undefined ? fetchSignoffAct(root, stage, actId, now, hooks) : undefined;
@@ -365,5 +376,6 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     if (review !== undefined && !readFileSync(file).equals(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during signoff validation; retry against the current live job');
     writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);
   }
-  return { stdout: json ? JSON.stringify(signoff, null, 2) : `signoff: recorded ${stage} by ${by} at ${at}; stage unchanged`, exit: 0 };
+  const source = carried ? ` from ${String(signoff.source)} (sha256 ${String(carried.evidence.sha256)})` : '';
+  return { stdout: json ? JSON.stringify(signoff, null, 2) : `signoff: recorded ${stage} by ${by} at ${at}${source}; stage unchanged`, exit: 0 };
 }

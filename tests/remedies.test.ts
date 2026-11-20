@@ -62,7 +62,7 @@ test('unreadable verbatim input explains working-directory resolution without ch
 test('rendered guide fits its byte bar and scopes camera choices to the direction format', () => {
   const guide = renderAgentGuide();
   expect(Buffer.byteLength(guide)).toBeLessThan(10_000);
-  expect(guide).toContain('Keep the host up across bound writes');
+  expect(guide).toContain('Reused opens exit. The page updates in place.');
   expect(guide).toContain('then `job reconcile`');
   expect(guide).toContain('](AGENT-REFERENCE.md)');
   expect(readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8')).toMatch(/already retained in the accepted\s+assembled parts/);

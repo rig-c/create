@@ -69,6 +69,7 @@ import {
 import type { Json, JsonObject } from './templates.ts';
 import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
 import { depthPlanMoves, nextRigRegistrationNumber } from './rig-version.ts';
+import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
 import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
@@ -353,7 +354,32 @@ function latestCheckedRigBuild(dir: string, versions: JsonObject[], approvedAt: 
     .sort((a, b) => b.finished - a.finished || Number(b.source.slice('outputs/v'.length)) - Number(a.source.slice('outputs/v'.length)))[0];
 }
 
-function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild): NextMove {
+/**
+ * The declarations the registration's record check reads from the checked
+ * build's config (create#750), so all of them are seen before a rebuild.
+ * Sections are cited by --citations, which next does not know; it lists them.
+ */
+function registrationDeclarations(dir: string, project: JsonObject, n: number, checked: CheckedRigBuild): string {
+  if (checked.config === undefined) return '';
+  const path = relative(dir, resolve(dir, checked.config)).split(sep).join('/');
+  let bytes: Buffer;
+  try { bytes = readFileSync(literalFile(dir, path)); } catch { return ''; }
+  const version: JsonObject = { n, kind: 'rig', at: new Date(checked.finished).toISOString(),
+    provenance: { config: { path, sha256: createHash('sha256').update(bytes).digest('hex') }, sections: {} } };
+  const { declarations } = checkVersionDeclarations(dir, project, version);
+  const field = (d: VersionDeclaration): string => d.path.replace(/^versions\[v\d+\]\.provenance\.(config |sections\[)/, '').replace(/\]$/, '');
+  const sections = declarations.filter(d => d.path.includes('.provenance.sections['));
+  const fields = declarations.filter(d => !sections.includes(d));
+  const list = (status: VersionDeclaration['status']): string => fields.filter(d => d.status === status)
+    .map(d => `${field(d)}${d.codes.length ? ` (${d.codes.join(', ')})` : ''}`).join(', ') || 'none';
+  return [
+    ` Registration reads these declarations: cite ${sections.map(field).join(', ') || 'no section'} in --citations;`,
+    `${checked.config} with its requirements carries ${list('carried')}; missing ${list('missing')}; unread ${list('unread')}.`,
+    `Before any rebuild, see every remedy in one run: rig-create rig-version ${n} ${shellWord(dir)} --preflight --config ${shellWord(checked.config)} --citations '<sections JSON>'.`,
+  ].join(' ');
+}
+
+function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild, declarations = ''): NextMove {
   const bound: Record<string, string | undefined> = checked ? {
     '--parts': '<checked parts dir>', '--rig': checked.rig ?? '<checked rig dir>', '--idle': checked.idle ?? '<idle render dir>',
     '--build': checked.build, '--check-report': checked.check, '--run-record': checked.run, '--at-source': checked.run,
@@ -372,7 +398,7 @@ function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild):
       `Generate --path-adapter with rig-create rig-version adapter ${shellWord(dir)} --config ${shellWord(checked.config ?? '<config.json>')} --out '<path-adapter.json>'.`,
       `Supply --compile-report from ${checked.source}/check/build-report.json, the build-report/1 rig-parts check writes beside --build (from Parts 2.47.0; an earlier check needs a rigc build --report of the same build), and --toolchain-lock from the build's bun.lock (bun install) or package-lock.json (npm install).`,
       'Supply your identity with --by and include --citations for applicable config sections.',
-    ].join(' ')
+    ].join(' ') + declarations
     : `register a new rig version built after the reopen or amendment with rig-version ${n}, then publish it for one verdict`;
   return { role: 'agent', field: 'versions', awaits: `versions[n=${n}]`, command: `rig-create rig-version ${n} ${shellWord(dir)} ${args}`, act };
 }
@@ -1937,7 +1963,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     }
 
     if (checked && checkedRigN !== undefined) {
-      const move = rigRegistrationMove(dir, checkedRigN, checked);
+      const move = rigRegistrationMove(dir, checkedRigN, checked, registrationDeclarations(dir, project, checkedRigN, checked));
       addAwait(move.awaits);
       moves.push(move);
     } else if (!checked && !hasOpenRigSteps) {

@@ -1991,8 +1991,10 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
   });
 });
 
+const isObjectWith = (value: unknown, key: string): boolean => typeof value === 'object' && value !== null && Object.hasOwn(value, key);
+
 describe('#720 next offers the frozen checked build', () => {
-  function checkedBuild(dir: string, root: string, finished: number) {
+  function checkedBuild(dir: string, root: string, finished: number, configValue: JsonObject = { key: 'synthetic' }) {
     const config = 'evidence/frozen config.json';
     const check = `${root}/check/check.json`;
     const build = `${root}/check/build`;
@@ -2008,7 +2010,7 @@ describe('#720 next offers the frozen checked build', () => {
     const modelHash = put(model, { spec: 'rigc-compiled/3' });
     const report: JsonObject = {
       spec: 'rig-parts-check/1', PASS: true, bar_outcomes: { gate: { status: 'PASS' } },
-      build: { model_sha256: modelHash }, config: { path: config, sha256: put(config, { key: 'synthetic' }) },
+      build: { model_sha256: modelHash }, config: { path: config, sha256: put(config, configValue) },
     };
     const runRecord: JsonObject = {
       spec: 'rigc-run/1', package: { name: '@rig-c/core', version: '3.8.0' }, command: 'build', started_at: at, finished_at: at,
@@ -2077,6 +2079,44 @@ describe('#720 next offers the frozen checked build', () => {
     expect(control.refusals).toEqual([]);
     expect(control.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
     expect(control.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
+  });
+
+  test('#750 lists the declarations registration reads from the checked config, carried and missing, in one move', () => {
+    const dir = join(tempDir(), 'checked-declarations');
+    cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+    const file = join(dir, 'project.json');
+    const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+    project.stage = 'rigging';
+    project.advances = arr(project.advances).filter(entry => obj(entry).stage !== 'rig-review');
+    project.versions = [];
+    // The same project as a full-screen (CG) scene: the synthetic choice set offers that value, and the signature re-binds it.
+    const setFile = join(dir, 'evidence/interview/rig_type.json');
+    const set = JSON.parse(readFileSync(setFile, 'utf8')) as JsonObject;
+    for (const option of arr(obj(arr(set.asks)[0]).options).map(obj)) if (option.kind === 'value') option.fragment = 'fullscreen.minimal';
+    writeFileSync(setFile, `${JSON.stringify(set, null, 2)}\n`);
+    const answer = obj(arr(obj(project.interview).framing).map(obj).find(q => q.id === 'rig_type')?.answer);
+    answer.value = 'fullscreen.minimal';
+    obj(obj(answer.choice).set).sha256 = sha256(readFileSync(setFile));
+    for (const signoff of arr(project.signoffs).map(obj)) {
+      if (isObjectWith(signoff.answer_hashes, 'rig_type')) signoff.answer_hashes = selectAnswerHashes(dir, project, signoff)!;
+    }
+    writeFileSync(file, JSON.stringify(project));
+    const approvedAt = Date.parse(String(arr(project.signoffs).map(obj).find(signoff => signoff.stage === 'parts-review')?.at));
+    const requirements = { spec: 'spine-parts-requirements/1', fps: 12, requirements: [], seam_over_motion: { required: true }, boundary_colour: { max_step_excess: 12 } };
+    mkdirSync(join(dir, 'evidence'), { recursive: true });
+    writeFileSync(join(dir, 'evidence/requirements.json'), JSON.stringify(requirements));
+    const { config } = checkedBuild(dir, 'outputs/v2', approvedAt, {
+      key: 'synthetic', assemble: { editor_receipts: { trace_parts: true, receipts: [] } }, limbs: { cut: 'joints' }, requirements: 'requirements.json',
+    });
+    const tree = treeDigest(dir);
+    const report = nextProject(dir, CHAIN_NOW);
+    expect(treeDigest(dir)).toEqual(tree);
+    expect(report.refusals).toEqual([]);
+    const move = report.moves.find(m => m.command?.startsWith('rig-create rig-version '))!;
+    expect(move.act).toContain(' Registration reads these declarations: cite assemble, limbs in --citations;');
+    expect(move.act).toContain(`${config} with its requirements carries assemble.editor_receipts.trace_parts, requirements, requirements seam_over_motion.required, requirements boundary_colour.max_step_excess;`);
+    expect(move.act).toContain('missing requirements behind_seams.threshold (CG_GATE_UNDECLARED), requirements setup_painting.required (SETUP_PAINTING_REQUIRED_MISSING); unread none.');
+    expect(move.act).toContain(`rig-create rig-version 3 ${dir} --preflight --config '${config}' --citations '<sections JSON>'`);
   });
 
   test('keeps the legacy reopen move until the producer claims identify a passing post-reopen build', () => {

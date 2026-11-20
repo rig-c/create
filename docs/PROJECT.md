@@ -1012,6 +1012,15 @@ command uses the registration writer's source and target mapping, including
 unchanged relative paths, and leaves an existing adapter with identical bytes
 in place. Give it a fresh output path to save different bytes.
 
+Before building for registration, list every declaration registration reads
+from the config, its requirements and the citations in one run. The preflight
+writes nothing and exits 1 while any is missing:
+
+```sh
+rig-create rig-version 3 . --preflight --config frozen/config.json \
+  --citations frozen/section-citations.json
+```
+
 ```sh
 rig-create rig-version 3 . \
   --parts frozen/assembly/rig --rig frozen/out/rig --build frozen/out/build \

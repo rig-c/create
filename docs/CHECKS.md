@@ -923,6 +923,8 @@ unread config is reported by provenance, not here. Config-relative
 An absent or unread requirements file already refused by `CG_GATE_UNDECLARED`
 or `CG_GATES_UNREAD` keeps that single CG finding. The setup check adds no
 second finding for the same path. Parts owns limit validation and measurement.
+`rig-version --preflight` shows both codes, so a config learns every missing
+declaration in one run (§ Frozen rig registration).
 Limits come from parts' own `pixel_count` per region on the accepted split
 build, recorded with their source as a "no worse than the accepted split" bar.
 The filled example retains its historical config references. Synthetic tests
@@ -1348,6 +1350,7 @@ registrations by `registration.at`: before it they WARN under
 | --- | --- | --- |
 | `RIG_REGISTRATION_USAGE` | required arguments are absent, repeated or malformed | supply the next version and registration inputs, or use `rig-version adapter [<dir>] --config <file> --out <file>` to generate the adapter |
 | `RIG_REGISTRATION_BUSY` | another registration holds the project lock | finish that registration before retrying |
+| `RIG_PREFLIGHT_CONFIG_OUTSIDE` | `rig-version --preflight` names a `--config` that is not a regular file under the project, so its requirements cannot be read in place | copy the frozen config and its requirements under the project and pass that path |
 | `RIG_PARTS_APPROVAL_REQUIRED` | a registration at or after `RIG_PARTS_APPROVAL_SINCE` has no live parts approval binding | approve parts-review and register the frozen outputs |
 | `RIG_PARTS_APPROVAL_INVALID` | the recorded parts approval identity does not resolve uniquely at registration | restore the bound parts signoff and evidence |
 | `RIG_REGISTRATION_INVALID` | the version number or registration/source-kind record is malformed | restore the retained record and register the next numbered rig |
@@ -1376,6 +1379,14 @@ registrations by `registration.at`: before it they WARN under
 | `RUN_RECORD_HASH_MISMATCH` | a bound run record is missing, unreadable, absent from `registration.files`, or its bytes differ from its recorded `sha256` | restore the retained run record bytes or register a new rig version |
 | `RUN_RECORD_ROLE_INVALID` | a `rigc-run/1` record omits a required input role (`rig` or `motion`), names an unknown role, or sorts roles outside `rig`, `motion`, `manifest`, `cuts` | retain the unedited `rigc-run/1` `run.json` with required `rig` and `motion` inputs |
 | `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes, unsorted outputs, or duplicate specs. The assemble-only reader accepts the published optional assemble `inputs` field in its declared key and role order. Draft registration refuses malformed stamps. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | retain at most one unedited producer `run.json` per spec in its published key order |
+
+`rig-version <n> [<dir>] --preflight --config <file> [--citations <file>]
+[--at-source <file> --at-pointer </pointer>]` writes nothing. It runs the
+provenance, CG-gate and setup-painting checks registration applies, over that
+config, its requirements and the citations, and lists every declaration as
+`carried`, `missing` or `unread` with its code. It keeps no finding behind
+another at the same path, and exits 1 while any refusal remains. `next` lists
+the same declarations on the move that registers a checked build.
 
 The date citation declares a completion bound, the toolchain lock declares the
 toolchain, and `registration.runs` binds the producer run stamps (`rig-run/1`

@@ -74,7 +74,13 @@ describe('rig-version --preflight names every missing declaration in one run', (
     expect(report.refusals.at(-1)?.message).toContain("parts' own pixel_count per region");
     expect(readFileSync(join(dir, 'project.json')).equals(before)).toBe(true);
 
+    expect(report.registration_only).toEqual([{
+      path: 'versions[v3].provenance.config requirements setup_painting.figure_mask', code: 'FIGURE_MASK_MISSING',
+      applies: 'busy grounds (assemble.ground busy)', reason: 'it reads the review package registration builds', tracked: 'rig-c/create#752',
+    }]);
+
     const human = preflight(dir);
+    expect(human.stdout).toContain('  not checked here: versions[v3].provenance.config requirements setup_painting.figure_mask (FIGURE_MASK_MISSING) on busy grounds (assemble.ground busy); only registration checks it, because it reads the review package registration builds (rig-c/create#752)');
     expect(human.stdout).toContain('missing versions[v3].provenance.config requirements behind_seams.threshold (CG_GATE_UNDECLARED)');
     expect(human.stdout).toContain('3 refusals, 0 warnings');
 

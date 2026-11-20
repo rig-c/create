@@ -12,6 +12,9 @@ import type { JsonObject } from './templates.ts';
 
 export const FIGURE_MASK_SINCE = '2026-11-06T00:00:00Z';
 
+/** The busy-ground declaration's place after `<version>.provenance.config`; read from the review package registration builds. */
+export const FIGURE_MASK_DECLARATION = 'requirements setup_painting.figure_mask';
+
 export const FIGURE_MASK_INPUTS_SINCE = '2026-11-06T00:00:00Z';
 
 export const FIGURE_MASK_MATTE_RECEIPT_SINCE = '2026-11-19T00:00:00Z';
@@ -40,7 +43,7 @@ export function checkFigureMask(ctx: MaskContext): void {
     const assemble = isObject(cfg.value.assemble) ? cfg.value.assemble : {};
     if (assemble.project !== 'visible' || assemble.ground !== 'busy') return;
     const label = typeof version.n === 'number' ? `versions[v${version.n}]` : `versions[${index}]`;
-    const path = `${label}.provenance.config requirements setup_painting.figure_mask`;
+    const path = `${label}.provenance.config ${FIGURE_MASK_DECLARATION}`;
     const at = typeof version.at === 'string' ? Date.parse(version.at) : Number.NaN;
     const legacy = !Number.isFinite(at) || at < Date.parse(FIGURE_MASK_SINCE);
     const finding = (code: string, detail: string): void => {

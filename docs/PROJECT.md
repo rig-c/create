@@ -1014,7 +1014,10 @@ in place. Give it a fresh output path to save different bytes.
 
 Before building for registration, list every declaration registration reads
 from the config, its requirements and the citations in one run. The preflight
-writes nothing and exits 1 while any is missing:
+writes nothing and exits 1 while any is missing. It names
+`setup_painting.figure_mask` on busy grounds as checked only by registration,
+which reads it from the review package it builds. A refused registration also
+names every new finding, each with its code:
 
 ```sh
 rig-create rig-version 3 . --preflight --config frozen/config.json \

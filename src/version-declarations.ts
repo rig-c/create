@@ -13,6 +13,7 @@ import { resolve } from 'node:path';
 
 import { checkCgGates, CG_DECLARATIONS, isCgBuild } from './cg-gates.ts';
 import { collectItems, loadCollection, type Ctx, type Finding } from './check.ts';
+import { FIGURE_MASK_DECLARATION } from './figure-mask.ts';
 import { PartsUnreadable, readPartsSections, type PartsSections } from './parts-sections.ts';
 import { checkProvenance, needsCitation } from './provenance.ts';
 import { checkSetupPainting, SETUP_PAINTING_DECLARATION } from './setup-painting.ts';
@@ -26,10 +27,20 @@ export interface VersionDeclaration {
   readonly codes: string[];
 }
 
+/** A declaration only the registration itself checks, so the preflight names it instead of judging it. */
+export interface RegistrationOnlyDeclaration {
+  readonly path: string;
+  readonly code: string;
+  readonly applies: string;
+  readonly reason: string;
+  readonly tracked: string;
+}
+
 export interface DeclarationReport {
   readonly version: string;
   readonly cg: boolean;
   readonly declarations: VersionDeclaration[];
+  readonly registration_only: RegistrationOnlyDeclaration[];
   readonly refusals: Finding[];
   readonly warnings: Finding[];
 }
@@ -72,13 +83,18 @@ export function checkVersionDeclarations(projectDir: string, project: JsonObject
     if (holder.length) return { path, status: 'unread', codes: [...new Set(holder.map(f => f.code))] };
     return { path, status: 'carried', codes: [] };
   });
-  return { version: label, cg, declarations, refusals, warnings };
+  const registrationOnly: RegistrationOnlyDeclaration[] = [{
+    path: `${config} ${FIGURE_MASK_DECLARATION}`, code: 'FIGURE_MASK_MISSING', applies: 'busy grounds (assemble.ground busy)',
+    reason: 'it reads the review package registration builds', tracked: 'rig-c/create#752',
+  }];
+  return { version: label, cg, declarations, registration_only: registrationOnly, refusals, warnings };
 }
 
 /** One line per declaration and finding, for the preflight's human report. */
 export function formatDeclarations(report: DeclarationReport, config: string): string[] {
   const lines = [`rig-version ${report.version.replace(/^versions\[(.*)\]$/, '$1')} preflight: ${config}${report.cg ? ' (CG build)' : ''}; nothing is written`];
   for (const d of report.declarations) lines.push(`  ${d.status.padEnd(7)} ${d.path}${d.codes.length ? ` (${d.codes.join(', ')})` : ''}`);
+  for (const d of report.registration_only) lines.push(`  not checked here: ${d.path} (${d.code}) on ${d.applies}; only registration checks it, because ${d.reason} (${d.tracked})`);
   for (const r of report.refusals) lines.push(`  REFUSED ${r.code}: ${r.message}`);
   for (const w of report.warnings) lines.push(`  warning ${w.code}: ${w.message}`);
   const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;

@@ -1385,8 +1385,14 @@ registrations by `registration.at`: before it they WARN under
 provenance, CG-gate and setup-painting checks registration applies, over that
 config, its requirements and the citations, and lists every declaration as
 `carried`, `missing` or `unread` with its code. It keeps no finding behind
-another at the same path, and exits 1 while any refusal remains. `next` lists
-the same declarations on the move that registers a checked build.
+another at the same path, and exits 1 while any refusal remains. It also names,
+without judging it, the one declaration only registration checks:
+`setup_painting.figure_mask` on busy grounds (`FIGURE_MASK_MISSING`), because
+that check reads the review package registration builds (tracked in
+rig-c/create#752). `next` lists the same declarations on the move that
+registers a checked build. A refused registration names every new finding: the
+first finding's code is the refusal's, and each further finding follows on its
+own line as `<code>: <message>`, in the order the preflight prints them.
 
 The date citation declares a completion bound, the toolchain lock declares the
 toolchain, and `registration.runs` binds the producer run stamps (`rig-run/1`

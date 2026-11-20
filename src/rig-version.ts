@@ -1583,8 +1583,9 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     created.push(join(dir, pkg));
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate, partReferences.map(reference => reference.path));
     // The record must pass the same check as every other writer's before it is renamed into place.
-    const fresh = newFindings(baseline, checkProject(dir, candidate, { now }).refusals)[0];
-    if (fresh) refuse(fresh.code, fresh.message);
+    // Every new finding is named in one refusal (create#750); the first keeps the code, so a single finding reads as before.
+    const [fresh, ...more] = newFindings(baseline, checkProject(dir, candidate, { now }).refusals);
+    if (fresh) refuse(fresh.code, [fresh.message, ...more.map(f => `${f.code}: ${f.message}`)].join('\n  '));
     for (const entry of skipped) {
       const currentDestinations = versionDestinations(entry.n).filter(target => destinationExists(dir, target, invalidDestination));
       if (!isDeepStrictEqual(currentDestinations, entry.destinations)) fail('RIG_REGISTRATION_SOURCE_CHANGED', `versions[v${n}].registration.skipped`, `v${entry.n} occupying destinations changed during registration`);

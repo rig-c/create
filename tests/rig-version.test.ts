@@ -126,6 +126,34 @@ function approveFrozenParts(dir: string, project: JsonObject, args: string[]): J
   return { signoff_at: at, evidence };
 }
 
+describe('#750 a refused registration names every new finding', () => {
+  test('a config missing all three declarations is refused once with each code, in preflight order, and writes nothing', () => {
+    const f = setup();
+    put(f.dir, 'source/config.json', { key: 'synthetic', assemble: { editor_receipts: { trace_parts: true, receipts: [] } }, limbs: { cut: 'joints' }, requirements: 'requirements.json' });
+    put(f.dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], seam_over_motion: { required: true }, boundary_colour: { max_step_excess: 12 } });
+    put(f.dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    const project = f.load();
+    obj(arr(obj(project.interview).framing).map(obj).find(q => q.id === 'rig_type')?.answer).value = 'fullscreen.minimal';
+    approveFrozenParts(f.dir, project, f.args);
+    testClock.set(new Date(RIG_CHECK_REPORT_SINCE));
+    put(f.dir, 'source/at-source.json', { finished_at: RIG_CHECK_REPORT_SINCE });
+    const args = [...f.args, '--citations', 'source/citations.json'];
+    const tree = (): string[] => ['outputs', 'evidence', 'derived'].flatMap(root => existsSync(join(f.dir, root))
+      ? readdirSync(join(f.dir, root), { recursive: true }).map(path => `${root}/${String(path)}`) : []).sort();
+    const before = tree();
+    const error = refused(args, 'SECTION_UNCITED');
+    const lines = error.message.split('\n  ');
+    expect([error.code, ...lines.slice(1).map(line => line.split(':')[0])]).toEqual(['SECTION_UNCITED', 'CG_GATE_UNDECLARED', 'SETUP_PAINTING_REQUIRED_MISSING']);
+    expect(lines[0]).toStartWith('versions[v1].provenance.sections[limbs]: ');
+    expect(lines[1]).toContain('behind_seams.threshold');
+    expect(lines[2]).toContain("parts' own pixel_count per region");
+    expect(tree()).toEqual(before);
+
+    const preflight = rigVersionCommand([...args.filter(arg => arg !== '--json'), '--preflight', '--json']);
+    expect((JSON.parse(preflight.stdout) as { refusals: { code: string }[] }).refusals.map(r => r.code)).toEqual(['SECTION_UNCITED', 'CG_GATE_UNDECLARED', 'SETUP_PAINTING_REQUIRED_MISSING']);
+  });
+});
+
 describe('#573 frozen Parts check report', () => {
   const path = 'versions[v1].registration.check_report';
   const source = 'source/check.json';

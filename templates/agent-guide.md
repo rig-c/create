@@ -76,6 +76,16 @@ close it and reopen with `--question <id>` or `--plan` to switch to record
 asks. Share a new URL after close.
 See [the live Review loop](https://github.com/rig-c/create/blob/main/docs/LIVE-REVIEW.md#the-live-review-loop).
 
+Successful Create close commands end the live page. Open a new job and share its new URL.
+
+- `job close` ends the page, including retirement after a pin or hook bump.
+- `job close --retire-refused` archives failed publications and ends the page.
+- `job close --discard-acts <reason> --by agent` records the discard and ends the page.
+- `job close --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>` records the owner-authorized discard and ends the page.
+
+- `job open` on a replaced root can archive an already-offline job and opens a new URL.
+- `job reconcile` on a replaced root can archive an already-offline job. Start the replacement with `job open`.
+
 ## Before you ask, plan or show
 
 - **Owner language.** Use `owner.language` for the text you write. Set it from

@@ -4,10 +4,10 @@ import { readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { assertDirectionApproval } from './direction.ts';
-import { jobHash, readAcknowledgedPublication } from './job-outbox.ts';
+import { readAcknowledgedPublication } from './job-outbox.ts';
 import { assertSignoffCandidate } from './parts-signoff.ts';
 import { refuse } from './refusal.ts';
-import { rigVerdictSignoff, type ReviewVerdictAct } from './review-act.ts';
+import { matchesActProjectSource, rigVerdictSignoff, type ReviewVerdictAct } from './review-act.ts';
 import { assertRigReviewSignable } from './review.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
@@ -19,7 +19,7 @@ export function foldsRigVerdict(root: string, project: JsonObject, act: ReviewVe
   const publication = readAcknowledgedPublication(root, act.jobId, act.publicationId);
   if (!publication?.subjects?.some(subject => subject.kind === 'review-verdict' && subject.stage === 'rig-review')
     || publication.subjects.some(subject => subject.kind === 'signoff' && subject.stage === 'rig-review')) return null;
-  if (act.source.projectHash !== jobHash(readFileSync(join(root, 'project.json')))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: rig approval predates the current record; publish the current rig-review record and ask again');
+  if (!matchesActProjectSource(act, readFileSync(join(root, 'project.json')))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: rig approval predates the current record; publish the current rig-review record and ask again');
   const asRead = checkProject(root, project, { now });
   if (asRead.effective_stage !== 'rig-review') refuse('REVIEW_ACT_TARGET_MISMATCH', 'project.json.stage: this rig approval requires effective rig-review; restore the ready rig-review stage, publish its current record and ask again');
   return asRead;
@@ -27,7 +27,7 @@ export function foldsRigVerdict(root: string, project: JsonObject, act: ReviewVe
 
 /** Reuse the separate writer's gates before its candidate check, against the pre-write baseline. */
 export function foldRigSignoff(root: string, candidate: JsonObject, act: ReviewVerdictAct, original: Buffer, asRead: CheckReport, now: number): void {
-  if (act.source.projectHash !== jobHash(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: rig approval predates the current record; publish the current rig-review record and ask again');
+  if (!matchesActProjectSource(act, original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: rig approval predates the current record; publish the current rig-review record and ask again');
   const lag = asRead.refusals.find(f => f.code === 'STAGE_LAGGING');
   if (lag) refuse(lag.code, lag.message);
   if (!Array.isArray(candidate.signoffs)) refuse('SIGNOFF_MALFORMED', 'project.json.signoffs: expected a list; restore recorded signatures before ingesting the verdict');

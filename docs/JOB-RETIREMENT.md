@@ -32,3 +32,18 @@ rig-create job open <project> --reviewer <id> --role <owner|delegate> [--draft <
   enumerator version (within Review's supported `>=2.25.0 <3.0.0` range), with
   reader and enumerator callbacks fail-closed so an older binding never serves
   new producer logic.
+
+## Withdrawing an act while keeping the live page
+
+`job withdraw-act <actId> [<project>] --by <owner> --owner-chat <file>
+--said-at <ISO> --relayed-by <operator>` records one owner-authorized discard
+and keeps the job and its URL. Other pending acts can still bind the record
+they displayed when only withdrawal receipts have been appended.
+
+| Command or condition | Does the current Review page survive? |
+| --- | --- |
+| `job withdraw-act` | Yes. |
+| Successful `job close`, including `--discard-acts` and `--retire-refused` | No. The next open serves a new job. |
+| `job open` with the existing live binding and the same reviewer and role | Yes. It publishes into the existing job when a new source is ready. |
+| `job reconcile` with the existing live binding | Yes. It publishes pending work into the bound job. |
+| `job open` or `job reconcile` archives an offline job bound to a replaced project root | No. `job open` serves a new job; `job reconcile` requires a subsequent open. |

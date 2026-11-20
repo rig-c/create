@@ -9,7 +9,7 @@ import { readProject } from './feedback.ts';
 import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
 import { acquireBoundJobWrite } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { decodeReviewAct, fetchReviewActBytes, reviewActFindings, reviewActTransport, reviewActVerbatim, type ReviewActTransport } from './review-act.ts';
+import { decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActFindings, reviewActTransport, reviewActVerbatim, type ReviewActTransport } from './review-act.ts';
 import { assertPartsActSource, isRiggingDraftAct, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
 import { draftPackageIdentity } from './job-publication.ts';
 import { newRefusals } from './refusal-baseline.ts';
@@ -96,7 +96,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
       if (existing.version_hash !== hash) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed draft entry changed; review a new draft id');
     } else {
       const amendedAt = draftAmendmentTime(project, act.source.selector.id);
-      if (amendedAt !== -Infinity && (Date.parse(act.at) <= amendedAt || act.source.projectHash !== jobHash(original))) {
+      if (amendedAt !== -Infinity && (Date.parse(act.at) <= amendedAt || !matchesActProjectSource(act, original))) {
         refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: parts verdict must follow the draft amendment and bind the current record; publish the amended draft and ask again');
       }
       if (!publication) warnings.push('REVIEW_ACT_VERSION_UNVERIFIED: project.json.review_acts: publication receipt is absent, so the first-ingest draft-entry check was skipped; retain acknowledged receipts');

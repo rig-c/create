@@ -236,14 +236,27 @@ test('record question public path, API@2 fetch, retry, stale source and wrong su
   await unchanged(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)], 'REVIEW_ACT_SUBJECT_UNDECLARED');
   writeFileSync(ackPath, ackBytes, { mode: 0o600 });
   await unchanged(root, ['interview-answer', 'bones', root, '--from-review', String(act.actId)], 'REVIEW_ACT_INVALID');
-  // A new valid record edit makes the displayed source stale, before an answer is written.
+  // Republish the same question on a noncanonical record while an earlier pick is still pending.
   writeFileSync(join(root, 'project.json'), Buffer.concat([before, Buffer.from(' ')]));
   await unchanged(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)], 'REVIEW_ACT_SOURCE_STALE');
-  writeFileSync(join(root, 'project.json'), before);
-  const result = await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]);
+  const republished = await open(root, ['--question', 'motion']);
+  expect(republished.url.href).toBe(opened.url.href);
+  const latest = await page(root, republished.url, 1);
+  const kept = await latest.act('interview-picks', 'interview-picks', { questionId: 'motion', selections: otherSelections, note: WORDS });
+  expect(kept.actId).not.toBe(act.actId);
+  const words = join(root, 'withdraw-words.txt');
+  writeFileSync(words, 'Withdraw my earlier pick.\n');
+  const binding = readWriterBinding(root);
+  const withdrew = await cli(root, ['job', 'withdraw-act', String(act.actId), root, '--by', 'synthetic-owner',
+    '--owner-chat', words, '--said-at', new Date(Date.now() - 1000).toISOString(), '--relayed-by', 'synthetic-operator']);
+  expect(withdrew.exit, withdrew.stderr).toBe(0);
+  expect(readWriterBinding(root)).toEqual(binding);
+  expect(arr(read(root).review_acts).at(-1)).toMatchObject({ kind: 'discarded', actId: act.actId });
+  const answerArgs = ['interview-answer', 'motion', root, '--from-review', String(kept.actId)];
+  const result = await cli(root, answerArgs);
   expect(result.exit, result.stderr).toBe(0);
   const saved = readFileSync(join(root, 'project.json'));
-  const retry = await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]);
+  const retry = await cli(root, answerArgs);
   expect(retry.exit, retry.stderr).toBe(0);
   expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
   expect(read(root).stage).toBe('rigging-interview');

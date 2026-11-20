@@ -16,6 +16,7 @@ test('--help lists init', () => {
   const result = cli(['--help'], tempDir(), gitEnv());
   expect(result.code).toBe(0);
   expect(result.stdout).toContain('rig-create init <dir> [--no-install]');
+  expect(result.stdout).toContain('rig-create job withdraw-act <actId> [<dir>] --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>');
   expect(result.stdout).toContain(PLAN_HELP);
 });
 

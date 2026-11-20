@@ -57,17 +57,19 @@ Preserve history/dates; adopt choices explicitly.
 
 **Live Review loop**
 
-Run the first `job open <dir> --reviewer <id> --role owner` in the background.
-Add the first selector if ready. Share the private URL once. Publish via bound writers or repeat with the same
-reviewer/role and `--draft`, `--rig`, `--question` or `--plan`. Reused opens exit. The page updates in place.
-After publishing an ask, run `rig-create job acts --wait` in the background. Ingest with its
+Start `job open <dir> --reviewer <id> --role owner` in the background.
+Add a selector when ready. Share the private URL once. Publish via bound writers or
+reuse the same reviewer/role with `--draft`, `--rig`, `--question` or `--plan`.
+Reused opens exit and the page updates in place.
+After asking, run `rig-create job acts --wait` in the background. Ingest with its
 printed command, advance as needed and publish again.
-With all owner picks ingested, complete the plan and follow `next` for
+When all picks are ingested, complete the plan and follow `next` for
 `signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
-After a listener stop, reopen with the same reviewer/role, keep the URL, then `job reconcile`.
-Until #700, ingest pending acts and close a package-only job before opening a question or plan.
+After a listener stop, reopen with the same reviewer/role and URL, then `job reconcile`.
+Until #700, ingest pending acts and close a package-only job before asking a question or plan.
 
-Successful closes end the page. Share a new URL after reopening.
+Use `job withdraw-act <actId>` with owner-chat flags to keep the page. Successful
+closes end it. Share a new URL after reopening.
 
 - `job close` ends the job or retires it after a pin/hook bump.
 - `job close --retire-refused` archives failed publications.

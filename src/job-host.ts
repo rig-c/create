@@ -9,7 +9,7 @@ import { Refusal, refuse } from './refusal.ts';
 import { liveManifestPath, draftPackageIdentity, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, riggingDraftPartsChange } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
-import { attachCreateJobForClose } from './job-close.ts';
+import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
 import { agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
@@ -503,7 +503,7 @@ function selectorLabel(selector: JobSelector): string {
 }
 
 /** Resolve only an explicitly requested current record subject, before opening a host. */
-export function requestedRecordResult(root: string, question?: string, plan = false, now = Date.now()): PublicationResult | undefined {
+export function requestedRecordResult(root: string, question?: string, plan = false, now = Date.now()): RecordPublicationRequestResult | undefined {
   return requestedRecordPublication(root, question, plan, now)?.result;
 }
 
@@ -550,6 +550,8 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
     } else {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: open the writer-owned job before publishing');
+      // A new publication supersedes the job's pending asks: one question at a time (#737).
+      await refusePendingJobAsks(root, binding.jobId, host, result);
       enqueuePublication(root, binding, result);
       ({ outcomes } = await reconcileLocked(root, publishPending));
     }

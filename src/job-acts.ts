@@ -1,5 +1,5 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
-import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, SourceV3 } from '@rig-c/review/job-host';
+import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, RecordResult, SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
@@ -278,6 +278,15 @@ function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
   }
 }
 
+/** A publication target: a package selector, or a record result (`--question` option set or `--plan`). */
+export type JobAskTarget = JobSelector | RecordResult;
+
+function sameTarget(source: SourceV3, target: JobAskTarget): boolean {
+  if ('selector' in source && source.selector) return isDeepStrictEqual(source.selector, target);
+  if ('selection' in source && source.selection) return isDeepStrictEqual(source.selection, target);
+  return false;
+}
+
 function sourceTargetInfo(source: SourceV3): { label: string; selector: JobSelector | null; version: number | null } {
   if ('selector' in source && source.selector) {
     const selector = source.selector;
@@ -333,7 +342,7 @@ export function pendingJobAsksForTarget(
   asks: readonly PendingAskV3[],
   acts: readonly ActV3[],
   root: string,
-  target: JobSelector,
+  target: JobAskTarget,
 ): PendingTargetAsk[] {
   // Retired reopens stay visible in job acts and job close, but cannot gate a new target.
   const actionableAsks = asks.filter(ask => ask.subject.kind !== 'reopen');
@@ -345,7 +354,7 @@ export function pendingJobAsksForTarget(
   for (const ask of actionableAsks) {
     if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(ask.source);
-    if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
+    if (sameTarget(ask.source, target)) continue;
     const hasUnIngestedAct = actionableActs.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
     if (!hasUnIngestedAct && signoffSettlesAsk(project, ask)) continue;
     if (!hasUnIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
@@ -354,7 +363,7 @@ export function pendingJobAsksForTarget(
   for (const act of actionableActs) {
     if (!unIngestedIds.has(act.actId) || actionableAsks.some(ask => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(act.source);
-    if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
+    if (sameTarget(act.source, target)) continue;
     pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version });
   }
   return pending;

@@ -454,8 +454,9 @@ function ownerChatSignoffCommand(dir: string, project: JsonObject, act: NextRevi
   return `rig-create ${writer} ${shellWord(dir)}${version} ${OWNER_CHAT_COMMAND_FLAGS}`;
 }
 
-/** The person acts in Review; the agent only hosts and ingests its exported act. */
-function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextMove[] {
+/** The person acts in Review; the agent only hosts and ingests its exported act.
+ * A job holds one open interview question: `asked` names the earlier question in this report. */
+function reviewCommands(dir: string, project: JsonObject, move: NextMove, asked: { question?: string } = {}): NextMove[] {
   const act = move.review_act;
   if (move.role !== 'human' || move.unanswered_by_record || move.field === 'pauses' || !act) return [move];
   let selector: string;
@@ -500,9 +501,17 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
       } catch { /* The check's named option-file refusal supplies the repair route. */ }
     }
   }
+  let publish = 'publish this Review page; run the first open in the background and share its URL once; later opens publish into the running host and exit';
+  if (act.kind === 'interview-picks' && act.question_id) {
+    const earlier = asked.question;
+    asked.question ??= act.question_id;
+    publish = earlier === undefined
+      ? `${publish}; one question at a time: publish it, wait with job acts --json --wait, ingest, then publish the next question`
+      : `only after the ${earlier} act is ingested: one question at a time, so publish this one next, wait with job acts --json --wait and ingest (an open earlier question refuses JOB_ASK_PENDING)`;
+  }
   return [
     ...chatMoves,
-    agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'publish this Review page; run the first open in the background and share its URL once; later opens publish into the running host and exit'),
+    agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, publish),
     move,
     agent(`rig-create job acts ${root} --json --wait`, `wait in the background for the person to submit in Review, then use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : act.stage === 'parts-review' ? '; run its reported legacy signoff preconditions before ingestion' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
@@ -2231,11 +2240,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     });
   }
 
+  const asked: { question?: string } = {};
   const runnableMoves = moves.flatMap(move => {
     if (move.review_act && move.review_act.stage !== effectiveStage) return [move];
     if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
       && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
-    return reviewCommands(dir, project, move);
+    return reviewCommands(dir, project, move, asked);
   });
 
   return {

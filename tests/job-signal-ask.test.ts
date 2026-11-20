@@ -236,7 +236,7 @@ test('#690 unready draft records without replacing an asked page and can be show
   expect(head).toBe(before);
   expect(pendingPublications(root)).toEqual([]);
   expect(recorded.stdout).toContain('open page not updated: structure snapshot missing or invalid at evidence/structure-chain-2.json');
-  expect(recorded.stdout).toContain('then rig-create job open');
+  expect(recorded.stdout).toContain('Then run rig-create job open');
   expect(recorded.stdout).toContain('--draft chain-2');
 
   const next = await cli(root, ['next', root, '--json']);

@@ -472,6 +472,7 @@ test('job open publishes the recorded draft, asks its subjects, and the page act
     '--from', 'derived/drafts/next/out', '--parts', 'derived/drafts/next/input']);
   expect({ exit: replacement.exit, stderr: replacement.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(replacement.stdout).toContain('open page not updated: structure snapshot missing or invalid');
+  expect(replacement.stdout).toContain('DIFF_MAP_STACK_MISMATCH');
   expect(replacement.stdout).not.toContain('job: asked');
   expect((read(root).drafts as JsonObject[]).at(-1)!.id).toBe('next');
   expect(pendingPublications(root)).toEqual([]);

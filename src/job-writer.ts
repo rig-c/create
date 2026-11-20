@@ -168,26 +168,34 @@ export function prepareDraftIntent(
   const binding = readWriterBinding(root);
   if (!binding) return { intent: null };
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
-  const { context, missingStructure, diffFinding } = inspectDraftPublication(root, project, id);
   const dir = shellWord(root);
   const draft = shellWord(id);
   const open = `rig-create job open ${dir} --draft ${draft} --reviewer '<reviewer>' --role owner`;
-  let reason: string | undefined;
+  const defer = (reason: string) => ({ intent: null, deferred: `job: open page not updated: ${reason} Then run ${open}` });
+  let readiness: ReturnType<typeof inspectDraftPublication>;
+  try { readiness = inspectDraftPublication(root, project, id); }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    return defer(`${error.code}: ${error.message}. Run rig-create next ${dir} to prepare the next review.`);
+  }
+  const { context, missingStructure, diffFinding } = readiness;
+  const repairs: string[] = [];
   if (missingStructure !== undefined) {
-    reason = `structure snapshot missing or invalid at ${missingStructure}; run rig-create structure-snapshot ${dir} --draft ${draft}`;
-  } else if (diffFinding !== undefined) {
-    reason = `${diffFinding.code}: ${diffFinding.message}; run rig-create next ${dir} to prepare the diff map`;
-  } else if (context.subjects.length === 0) {
-    reason = `no owner ask is ready; run rig-create next ${dir} to prepare the next review`;
+    repairs.push(`structure snapshot missing or invalid at ${missingStructure}. Run rig-create structure-snapshot ${dir} --draft ${draft}.`);
   }
+  if (diffFinding !== undefined) {
+    repairs.push(`${diffFinding.code}. Run the diff report and diff-classes moves from rig-create next ${dir}.`);
+  }
+  if (repairs.length > 0) return defer(repairs.join(' '));
+  if (context.subjects.length === 0) return defer(`no owner ask is ready. Run rig-create next ${dir} to prepare the next review.`);
   const result = draftPublicationResult(id);
-  if (!reason) {
-    try { assertBoundJobAskReady(root, binding, result.selector); }
-    catch (error) {
-      if (!(error instanceof Refusal) || error.code !== 'JOB_ASK_PENDING') throw error;
-      reason = `an owner ask for another result is still open; run rig-create job acts ${dir} and ingest the owner's answer`;
+  try { assertBoundJobAskReady(root, binding, result.selector); }
+  catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    if (error.code === 'JOB_ASK_PENDING') {
+      return defer(`an owner ask for another result is still open. Run rig-create job acts ${dir} and ingest the owner's answer.`);
     }
+    return defer(`${error.code}: ${error.message}.`);
   }
-  if (reason) return { intent: null, deferred: `job: open page not updated: ${reason}, then ${open}` };
   return { intent: enqueuePublication(root, binding, result, bytes) };
 }

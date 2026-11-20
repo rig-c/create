@@ -8,6 +8,7 @@ import { lstatSync } from './check-reads.ts';
 import { asArray, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
 import { CORRECTIONS_SPEC, CORRECTION_SPEC, CORRECTION_STAGES, CorrectionError, checkCorrections, correctionApplied, correctionCheckCoverage, correctionApprovalFindings, feedbackPackageInput, correctionBinding, correctionBytes, correctionFinding, correctionHash, correctionIsLive, correctionJson, correctionsAdopted, draftPartBinding, meshDeltaKey, validatePartImageArtifact, validateCorrectionIdentity, versionRecord } from './corrections.ts';
 import { readProject } from './feedback.ts';
+import { assertDraftHasRig } from './draft-layout.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewActVerdict, type MeshReviewVerdictAct } from './review-act.ts';
 import { readVerbatim } from './record-input.ts';
@@ -41,6 +42,7 @@ function identity(dir: string, project: JsonObject, opts: Record<string, string>
     if (opts['--model-file']) usage('--model-file is post-only');
     const draft = objects(project.drafts).find(d => d.id === opts['--draft']);
     if (!draft || !isObject(draft.parts)) throw new CorrectionError('CORRECTION_SOURCE', 'unknown draft');
+    if (!partImage) assertDraftHasRig(draft, `drafts[${String(draft.id)}]`);
     const draftParts = draft.parts;
     const model = objects(draft.files).filter(f => String(f.path).endsWith('/skeleton.model.json'));
     const manifest = objects(draftParts.files).find(f => f.path === `${String(draftParts.path)}/parts.json`);

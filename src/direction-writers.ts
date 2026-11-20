@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { DIRECTION_CONTRACT, DirectionError, checkDirections, directionBytes, directionContract, directionFail, directionHash, directionIdleBytes, directionIdlePath, directionJson, directionPath, directionVersion, objects, readDirection, requireDirectionScene, validateDirectionCitations, validateDirectionRig, validateDirectionScene, validateDirectionShape } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC, validateComposeDirection } from './direction-compose.ts';
+import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { freezeCompose, rollbackComposeDirectories } from './direction-compose-writer.ts';
 import { sceneBytes, SceneError } from './scene.ts';
 import { directionReviewClosed } from './reopen.ts';
@@ -39,15 +40,24 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
   const action=args[0];const positional:string[]=[];const opts:Record<string,string>={};const answerValues:string[]=[];let json=false;
   for(let i=1;i<args.length;i++){const arg=args[i] as string;if(arg==='--answers'){const value=args[++i];if(!value||value.startsWith('--'))usage('--answers needs version:verdict');answerValues.push(value);}else if(arg==='--json'){if(json)usage('duplicate json');json=true;}else if(['--file','--rig','--compose-out','--compose-scene'].includes(arg)){const value=args[++i];if(!value||value.startsWith('--')||opts[arg]!==undefined)usage(`invalid ${arg}`);opts[arg]=value;}else if(arg.startsWith('-'))usage(`unknown ${arg}`);else positional.push(arg);}
   if(!['--adopt','write','check'].includes(action??'')||positional.length>(action==='--adopt'?1:2))usage('unknown action/directory count');
-  const n=Number(positional[0]);if(action!=='--adopt'&&(!Number.isSafeInteger(n)||n<1))usage('N must be positive integer');
+  const dir=resolve(positional[action==='--adopt'?0:1]??process.cwd());
+  const n=Number(positional[0]);
+  if(action!=='--adopt'&&(!Number.isSafeInteger(n)||n<1)){
+    if(action==='check') assertDraftHasRig(readAssembleOnlyDraftTarget(dir, positional[0]), 'project.json.versions');
+    usage('N must be positive integer');
+  }
   if(action==='write' ? !opts['--file']||!opts['--rig'] : Object.keys(opts).length>0)usage('flags do not match action');
   if(answerValues.length && action!=='write')usage('--answers is write-only');
   if(json&&action!=='check')usage('json is check-only');
-  const dir=resolve(positional[action==='--adopt'?0:1]??process.cwd());
   // Root selected by the caller; record itself is still a literal regular file.
   const rollbackCompose: string[] = []; let verifyCompose: (() => void) | undefined; let composeInventory: JsonObject[] = [];
   const file=join(dir,'project.json');const original=directionBytes(dir,'project.json');const project=directionJson(original,'project.json');
   if(project.schema!=='rig-create/project@0')directionFail('DIRECTION_SCHEMA','project.json.schema','expected rig-create/project@0');
+  if (action === 'write') {
+    const source = assembleOnlyDraftTarget(project, opts['--rig']) ?? assembleOnlyDraftPath(dir, project, opts['--rig'])
+      ?? assembleOnlyDraftPath(dir, project, opts['--compose-out']);
+    assertDraftHasRig(source, 'direction.rig');
+  }
   const collectionRoot=basename(dirname(dir))==='members'?dirname(dirname(dir)):null;
   const collectionBytes=collectionRoot&&existsSync(join(collectionRoot,'collection.json'))?directionBytes(collectionRoot,'collection.json'):null;
   if(action==='check'){

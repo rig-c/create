@@ -18,6 +18,8 @@ const TOP_KEYS: Record<RunSpec, readonly string[]> = {
   'rig-run/1': ['spec', 'package', 'command', 'started_at', 'finished_at', 'config', 'outputs'],
   'rigc-run/1': ['spec', 'package', 'command', 'started_at', 'finished_at', 'inputs', 'outputs'],
 };
+const ASSEMBLE_RUN_KEYS = ['spec', 'package', 'command', 'started_at', 'finished_at', 'config', 'inputs', 'outputs'];
+const ASSEMBLE_INPUT_ROLES = ['source', 'full', 'head'];
 
 const sha = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 const absolute = (path: string): boolean => isAbsolute(path) || win32.isAbsolute(path);
@@ -44,7 +46,7 @@ export function isRunSpec(value: Json | undefined): value is RunSpec {
   return value === 'rig-run/1' || value === 'rigc-run/1';
 }
 
-export function validateRunRecord(bytes: Buffer, path: string): { spec: RunSpec; record: JsonObject } {
+export function validateRunRecord(bytes: Buffer, path: string, options: { allowAssembleInputs?: boolean } = {}): { spec: RunSpec; record: JsonObject } {
   let parsed: Json;
   try { parsed = JSON.parse(bytes.toString('utf8')) as Json; }
   catch { fail('RUN_RECORD_MALFORMED', path, 'expected valid UTF-8 JSON'); }
@@ -53,8 +55,10 @@ export function validateRunRecord(bytes: Buffer, path: string): { spec: RunSpec;
     fail('RUN_RECORD_SPEC_UNKNOWN', `${path}.spec`, `unknown producer run spec ${JSON.stringify(parsed.spec ?? null)}; expected rig-run/1 or rigc-run/1`);
   }
   const spec = parsed.spec;
-  if (!isDeepStrictEqual(Object.keys(parsed), [...TOP_KEYS[spec]])) {
-    fail('RUN_RECORD_MALFORMED', path, `keys must be in published ${spec} order (${TOP_KEYS[spec].join(', ')})`);
+  const assembleInputs = options.allowAssembleInputs && spec === 'rig-run/1' && parsed.command === 'assemble' && Object.hasOwn(parsed, 'inputs');
+  const keys = assembleInputs ? ASSEMBLE_RUN_KEYS : TOP_KEYS[spec];
+  if (!isDeepStrictEqual(Object.keys(parsed), [...keys])) {
+    fail('RUN_RECORD_MALFORMED', path, `keys must be in published ${spec} order (${keys.join(', ')})`);
   }
   const pkg = parsed.package;
   if (!isObject(pkg) || !isDeepStrictEqual(Object.keys(pkg), ['name', 'version'])) {
@@ -74,6 +78,18 @@ export function validateRunRecord(bytes: Buffer, path: string): { spec: RunSpec;
     const config = parsed.config;
     if (!isObject(config) || !isDeepStrictEqual(Object.keys(config), ['path', 'sha256']) || !relativeRunPath(config.path) || !hex64(config.sha256)) {
       fail('RUN_RECORD_MALFORMED', `${path}.config`, 'config must have relative path and 64-hex sha256 in that order');
+    }
+    if (assembleInputs) {
+      const inputs = parsed.inputs;
+      if (!Array.isArray(inputs) || inputs.length < 2 || inputs.length > ASSEMBLE_INPUT_ROLES.length) {
+        fail('RUN_RECORD_MALFORMED', `${path}.inputs`, 'expected source, full and optional head inputs');
+      }
+      for (const [index, input] of inputs.entries()) {
+        if (!isObject(input) || !isDeepStrictEqual(Object.keys(input), ['role', 'path', 'sha256']) || input.role !== ASSEMBLE_INPUT_ROLES[index]
+          || !(input.path === '.' || relativeRunPath(input.path)) || !hex64(input.sha256)) {
+          fail('RUN_RECORD_MALFORMED', `${path}.inputs[${index}]`, `expected role ${ASSEMBLE_INPUT_ROLES[index]}, a working-directory-relative path and 64-hex sha256 in that order`);
+        }
+      }
     }
   } else {
     const inputs = parsed.inputs;

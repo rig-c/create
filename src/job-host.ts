@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector } from '@rig-c/review/job-host';
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
+import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { liveManifestPath, draftPublicationContext, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished, readRecordPublished } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
@@ -405,18 +406,29 @@ export function assertRequestedRig(root: string, requested?: string, draft?: str
   if (draft !== undefined) refuse('JOB_BINDING_INVALID', 'project.json: job open takes either --draft <id> or --rig <n>; choose one recorded result');
   const n = Number(requested.replace(/^v/, ''));
   if (!Number.isSafeInteger(n) || n < 1) {
+    assertDraftHasRig(readAssembleOnlyDraftTarget(root, requested), 'project.json.versions');
     refuse('JOB_PUBLICATION_INVALID', 'project.json.versions: --rig needs a positive registered rig or post version (1 or v1); choose its recorded number');
   }
   const project = JSON.parse(readFileSync(join(realpathSync(root), 'project.json'), 'utf8')) as JsonObject;
+  assertDraftHasRig(assembleOnlyDraftTarget(project, requested), 'project.json.versions');
   const matches = asArray(project.versions).filter(version => isObject(version) && version.n === n);
+  if (matches.length === 1 && isObject(matches[0])) {
+    const finding = assembleOnlyVersionFinding(root, project, matches[0], `versions[v${n}]`);
+    if (finding) refuse(finding.code, finding.message);
+  }
   if (matches.length !== 1 || !isObject(matches[0]) || !['rig', 'post'].includes(String(matches[0].kind))) {
     refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: --rig needs one recorded rig or post version; choose an existing result number`);
   }
   const selector = publicationSelector(project, n);
   const rig = selector.kind === 'post' ? selector.rigVersion : n;
+  if (selector.kind === 'post') assertDraftHasRig(assembleOnlyDraftTarget(project, rig), `versions[v${n}].rig_version`);
   const parents = asArray(project.versions).filter(version => isObject(version) && version.n === rig && version.kind === 'rig');
   if (parents.length !== 1 || !isObject(parents[0])) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}].rig_version: restore the one recorded parent rig before job open`);
   const rigVersion = parents[0];
+  if (selector.kind === 'post') {
+    const finding = assembleOnlyVersionFinding(root, project, rigVersion, `versions[v${rig}]`);
+    if (finding) refuse(finding.code, finding.message);
+  }
   const pkg = rigVersion.review_package;
   if (!isObject(pkg) || !Array.isArray(pkg.files) || pkg.files.length === 0) {
     refuse('JOB_PUBLICATION_INVALID', `versions[v${rig}].review_package: retained package identity is missing; restore the recorded package before job open`);

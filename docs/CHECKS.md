@@ -951,23 +951,31 @@ parts-only plan approval followed by a post-parts rigging interview. It is not
 a date inference. Existing signatures keep their original scope. Draft inventory
 is create-owned artifact identity, not producer provenance or reproducibility.
 
+`draft-rig --from <out>` records assemble output as `layout: "assemble-only"`.
+It retains the parts manifest, part images, recomposite and other bound output
+under the draft root. It reads the producer from a bound assemble `run.json`
+when present. `job open --draft` and `parts-review --draft` use the same draft
+identity as for a full draft. Existing standalone and build drafts have no
+`layout` field and retain their rig output requirements.
+
 | Code | Fires when | Remedy |
 | --- | --- | --- |
 | `STAGE_ORDER_LEGACY` | WARN: order metadata is absent or the old contract is used | preserve historical answers; adopt explicitly with fresh rigging answers after parts review |
 | `RIGGING_INTERVIEW_UNSIGNED` | a new-order project reaches or runs production rigging without its human rigging-interview sign-off | leave rig steps pending and sign the later interview plan |
 | `RIGGING_INTERVIEW_CONTEXT` | adoption/context lacks its date or current accepted parts and structure binding | retain the reviewed structure and sign the rigging interview |
 | `RIG_GUIDE_BEFORE_PARTS` | claimed new rigging answers are undated, earlier than the accepted parts, or later than approval | preserve old answers in history and ask fresh against approved parts |
-| `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout, missing standalone parts inputs, or a config-named input `draft-rig` cannot bind because it leaves the project, is not a regular file, or is a directory without a regular-file `receipt.json` declaring the installed parts' `PLATE_RECEIPT_SPEC` (or the installed parts exports none), or a `config_inputs` directory binding does not bind `<directory>/receipt.json` with a string `spec` | retain one labelled output with explicit parts inputs |
+| `DRAFT_RIG_MALFORMED` | malformed/duplicate draft identity, ambiguous layout, missing standalone parts inputs, an assemble-only inventory missing its parts bindings or carrying rig output, or a config-named input `draft-rig` cannot bind because it leaves the project, is not a regular file, or is a directory without a regular-file `receipt.json` declaring the installed parts' `PLATE_RECEIPT_SPEC` (or the installed parts exports none), or a `config_inputs` directory binding does not bind `<directory>/receipt.json` with a string `spec` | retain one labelled output with explicit parts inputs |
+| `DRAFT_RIG_REQUIRED` | an assemble-only draft is supplied as a rig source or target for a version, rig review, signoff, handoff, direction, a correction requiring a model, or a rig fix-ledger report | register a new draft with a rig output using `draft-rig`; use an independently registered rig or post version for production review and direction |
 | `DRAFT_RIG_STACK` | new draft registration has missing or ambiguous stack candidates beside its parts.json or, for a rig/ directory, in ../render/ | re-run `rig-parts build` into the draft output, or keep assemble's `render/` beside `rig/` |
-| `DRAFT_RIG_STACK_UNBOUND` | a standalone draft's `files` has no SHA-256 binding for the recomposite beside its `parts.json` or, for a `rig/` directory, in `../render/`. Refuses from `DRAFT_STACK_BINDING_SINCE = 2026-11-19T00:00:00Z` by `drafts[].at`; earlier drafts WARN. The stack is optional with `--reuse` | preserve the old record and register a new draft with `draft-rig --parts` and the retained recomposite |
+| `DRAFT_RIG_STACK_UNBOUND` | a standalone or assemble-only draft's `files` has no SHA-256 binding for the recomposite beside its `parts.json` or, for a `rig/` directory, in `../render/`. For standalone drafts, refuses from `DRAFT_STACK_BINDING_SINCE = 2026-11-19T00:00:00Z` by `drafts[].at`; earlier standalone drafts WARN. The stack is optional with `--reuse` | preserve the old record and register a new draft with the retained recomposite |
 | `DRAFT_RIG_FILE` | a config-named input lacks a config_inputs binding (WARN before CONFIG_INPUTS_SINCE; an absent key before DRAFT_CONFIG_INPUTS_SINCE is `DRAFT_CONFIG_INPUTS_UNRECORDED` instead), a config_inputs binding outside the draft root is missing, changed or leaves the project (a directory input, such as an occluder plate, by its `receipt.json`, whose declared spec must equal the binding's `spec`), or a present draft artifact is unreadable, changed, unexpected or escapes its root | restore its frozen config, parts and output files |
 | `DRAFT_EDITED_PART_UNBOUND` | a draft's hash-bound `parts.json` declares `parts[i].provenance.edited_part`, but `config_inputs` has no regular-file binding (no `directory`) whose `sha256` equals the receipt's `sha256` (including an absent key, empty list, directory binding or wrong hash; `/<receipt.file>` is only a tie-break for naming which binding the finding reports). Refuses from `EDITED_PART_INPUTS_SINCE = 2026-11-15T00:00:00Z` by `draft.at`; earlier drafts WARN with this same code. `draft-rig` runs the same check before writing, including when its parts install silently omits the reference | preserve the old draft; install parts that declares the edited receipt files and record a new draft with `draft-rig` |
 | `DRAFT_CONFIG_INPUTS_UNRECORDED` | WARN: a draft recorded from CONFIG_INPUTS_SINCE and before DRAFT_CONFIG_INPUTS_SINCE has no `config_inputs` key while its sha256-bound config names inputs (by the installed parts' declarations, or by the pinned ones when the install has no `configFileReferences`). An install that could not declare them recorded nothing; `draft-rig` refuses that from DRAFT_CONFIG_INPUTS_SINCE (`DRAFT_PARTS_INSTALL_BEHIND`), and a later absent key refuses `DRAFT_RIG_FILE`. A present key that misses a named input or binds a changed hash refuses `DRAFT_RIG_FILE` on both sides of the date | keep the record; record a new draft with `draft-rig` under a new id to bind the named inputs |
 | `DRAFT_PARTS_INSTALL_BEHIND` | `draft-rig`, before it writes: the draft's `rig-run/1` `run.json` names a `@rig-c/parts` release later than the project's install, and the install cannot declare config-named inputs that the pinned parts declares for the draft's config (it has no `configFileReferences`, or declares fewer). The pinned declaration stands in for the producer's, which create cannot load; `project.json` is left byte-identical | install the `@rig-c/parts` version the message names (the draft's producer) in the project, then record the draft again |
 | `DRAFT_DECLARED_FILE_UNBOUND` | WARN at any date: a present file that the draft's `parts.json` declares under `painting_in_rig` is not bound in `drafts[].parts.files` | rebuild the draft and record it again with `draft-rig`; the old record is kept |
 | `DRAFT_RIG_UNAVAILABLE` | WARN: declared regenerable draft artifacts are absent under the ignored draft root | restore the named recorded bytes before inspecting or rebuilding the draft; retained structure snapshots still verify |
-| `DRAFT_PRODUCER_ASSUMED` | WARN at any date: no `run.json` is bound in `drafts[].files` beside the draft's `rig.json` (`<out>/run.json` of `rig --out`, `<root>/rig/run.json` in a build root), so `drafts[].producer` is the installed `@rig-c/parts` assumed when `draft-rig` recorded it, not read from the run | rebuild the draft with parts `rig`, which writes `run.json` beside `rig.json`, and record it with `draft-rig`; the old record is kept |
-| `DRAFT_PRODUCER_MISMATCH` | WARN at any date: `drafts[].producer` differs from the `package` of the `rig-run/1` `run.json` bound beside the draft's `rig.json`; `draft-rig` records that `package`, so only a record made before it did, or edited by hand, disagrees | record the draft again with `draft-rig` under a new id; the old record is kept |
+| `DRAFT_PRODUCER_ASSUMED` | WARN at any date: no `run.json` is bound beside the draft's `rig.json` or at the assemble output root, so `drafts[].producer` is the installed `@rig-c/parts` assumed when `draft-rig` recorded it | regenerate the output with `rig-parts rig` or `rig-parts assemble` and register a new draft with its `run.json` |
+| `DRAFT_PRODUCER_MISMATCH` | WARN at any date: `drafts[].producer` differs from the `package` in the bound `rig-run/1` stamp | record the draft again with `draft-rig` under a new id |
 | `DRAFT_RIG_AS_VERSION` | draft role/identity/reserved paths are offered as a numbered version, review, package or handoff | build an independently authorised production rig |
 | `STRUCTURE_DECISIONS_MISSING` | new-order parts approval lacks its draft or explicit structure snapshot | supply --draft and --structure-file, including entries:[] when unchanged |
 | `STRUCTURE_DECISIONS_INVALID` | snapshot schema/declarations/config binding are malformed or changed | retain the exact human-approved structure file |
@@ -1345,10 +1353,10 @@ registrations by `registration.at`: before it they WARN under
 | `RIG_CHECK_LINE_UNMET` | an unaccepted `requirements.lines` entry is `FAIL` or `NOT MEASURABLE`. WARN before `RIG_CHECK_REPORT_SINCE` by `registration.at`, refusal from that date onward | fix the line and rerun `rig-parts check`, or relay the owner's exact words accepting this line with `--accept-check-line <name> --check-accepted-by <owner> --owner-chat <file> --said-at <ISO date> --relayed-by <operator>` |
 | `RIG_CHECK_ACCEPTANCE_INVALID` | the registration has acceptance flags without a report or target, or an acceptance is duplicated, selects no failed bar or unmet line, or has a write time different from registration | select each exact failed bar ID or unmet line name once from the explicit report and relay the owner's words at registration |
 | `RUN_RECORD_REQUIRED` | a `frozen-rig/1` version has no `registration.runs` (WARN before `RUN_RECORD_SINCE` by `registration.at`, refusal from `RUN_RECORD_SINCE` onward) | retain producer `run.json` records with `--run-record` and register a new rig version |
-| `RUN_RECORD_SPEC_UNKNOWN` | a run record or `registration.runs[]` entry names a `spec` other than `rig-run/1` or `rigc-run/1`, or the `run.json` beside a draft's `rig.json` is not `rig-run/1` (`draft-rig` refuses; the check WARNs a recorded draft) | supply a producer `rig-run/1` or `rigc-run/1` `run.json` and register a new rig version |
+| `RUN_RECORD_SPEC_UNKNOWN` | a run record or `registration.runs[]` entry names a `spec` other than `rig-run/1` or `rigc-run/1`, or a draft's bound run stamp is not `rig-run/1`. Draft registration refuses. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | supply the unedited producer run record and register a new draft or rig version |
 | `RUN_RECORD_HASH_MISMATCH` | a bound run record is missing, unreadable, absent from `registration.files`, or its bytes differ from its recorded `sha256` | restore the retained run record bytes or register a new rig version |
 | `RUN_RECORD_ROLE_INVALID` | a `rigc-run/1` record omits a required input role (`rig` or `motion`), names an unknown role, or sorts roles outside `rig`, `motion`, `manifest`, `cuts` | retain the unedited `rigc-run/1` `run.json` with required `rig` and `motion` inputs |
-| `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes, unsorted outputs, or duplicate specs; for the `run.json` beside a draft's `rig.json`, `draft-rig` refuses and the check WARNs a recorded draft | retain at most one unedited producer `run.json` per spec in its published key order |
+| `RUN_RECORD_MALFORMED` | a run record has invalid JSON, wrong keys or published key order, invalid package/command/timestamps/paths/hashes, unsorted outputs, or duplicate specs. The assemble-only reader accepts the published optional assemble `inputs` field in its declared key and role order. Draft registration refuses malformed stamps. The check refuses an assemble-only stamp and retains the existing WARN for a full draft without reuse | retain at most one unedited producer `run.json` per spec in its published key order |
 
 The date citation declares a completion bound, the npm lock declares the
 toolchain, and `registration.runs` binds the producer run stamps (`rig-run/1`
@@ -1562,17 +1570,17 @@ create never runs a ledger check. `draft-rig --ledger-report <file>` binds the
 project's own `rig-create/fix-ledger-report@1` report by sha256 and spec. Check
 then compares the report's rows with the ledger. It does not recompute a row.
 A row is live for a draft when it was written by the draft's `at` and not
-retired by then. The predecessor is the previous entry in `drafts[]`; a restart
-clears `drafts[]`, so the first draft after a restart has none. `fixes` counts
-the live rows the report passes that the `fixes_against` draft did not pass.
-That draft is the latest earlier one with a parts-review receipt (any verdict),
-else the previous draft. `FIX_LEDGER_SINCE = 2026-11-09T00:00:00Z` dates the
+retired by then. Assemble-only drafts carry no rig ledger report. The predecessor
+is the previous draft with a rig output. A restart clears `drafts[]`.
+`fixes` counts the live rows the report passes that the `fixes_against` draft did not pass.
+That draft is the latest earlier one with a rig output and a parts-review receipt
+(any verdict), else the predecessor. `FIX_LEDGER_SINCE = 2026-11-09T00:00:00Z` dates the
 report requirement by `drafts[].at`. `check` lists each bound draft's `fixes`
 and known regressions under `ledger`.
 
 | Code | When | Remedy |
 | --- | --- | --- |
-| `FIX_LEDGER_MISSING` | WARN: the project has drafts and no `fix_ledger` | record each accepted owner fix with `ledger add` |
+| `FIX_LEDGER_MISSING` | WARN: the project has a draft with a rig output and no `fix_ledger` | record each accepted owner fix with `ledger add` |
 | `FIX_LEDGER_MALFORMED` | `fix_ledger` is not a list, or a row has an unknown key, a duplicate or invalid id, a future or unreadable `at`, empty `by`, `check` or `bar`, an invalid `note`, or a `retired` without `{ at, by, reason }` dated after the row | restore the row `ledger add` wrote, or retire it with `ledger retire` |
 | `FIX_LEDGER_NOTE_UNKNOWN` | `ledger add`: `--note` names no recorded correction or verdict | quote an owner note the record holds |
 | `FIX_LEDGER_NOTE_MISMATCH` | `ledger add`: the `--verbatim-file` words are not in the note `--note` names | quote the owner's words verbatim |
@@ -1580,7 +1588,7 @@ and known regressions under `ledger`.
 | `LEDGER_ROW_UNKNOWN` | `ledger retire` names no row | name a row `ledger add` wrote |
 | `LEDGER_ROW_RETIRED` | `ledger retire` names a row already retired | keep the retirement |
 | `LEDGER_SOURCE_CHANGED` | `project.json` changed while `ledger` was validating | retry against the current record |
-| `DRAFT_LEDGER_REPORT_MISSING` | a draft binds no report while the ledger had a live row; a refusal from `FIX_LEDGER_SINCE` or without a readable `at`, a WARN for an earlier draft | run the project's check script on the build and record the draft with `draft-rig --ledger-report <file>` |
+| `DRAFT_LEDGER_REPORT_MISSING` | a draft with a rig output binds no report while the ledger had a live row; a refusal from `FIX_LEDGER_SINCE` or without a readable `at`, a WARN for an earlier draft | run the project's check script on the build and record the draft with `draft-rig --ledger-report <file>` |
 | `DRAFT_LEDGER_REPORT_INVALID` | the binding is not `{ path, sha256, spec }`, or the report is not a literal project path, is under an ignored root, leaves the project, is missing, changed, not JSON, has another `schema`, lacks `build.manifest_sha256` or `script_sha256`, or has a row without a unique id and a result of `pass`, `fail` or `unmeasurable` | retain the report the check script wrote under the project (for example `evidence/`) and record the draft with it |
 | `DRAFT_LEDGER_BUILD_MISMATCH` | the report's `build.manifest_sha256` is not the sha256 of the draft's bound `parts.json` | run the check script on this draft's build and record the draft with that report |
 | `DRAFT_LEDGER_INCOMPLETE` | the report has no row for a live ledger row | run the check script over every non-retired row |

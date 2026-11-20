@@ -4,6 +4,7 @@ import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
 import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
+import { assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
 import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
@@ -123,6 +124,14 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const dir = resolve(positional[1] ?? process.cwd());
   const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
   const { file, project } = preview ? { file: resolve(dir, 'project.json'), project: preview } : readProject(dir);
+  if (stage in SIGNOFF_TARGET_KINDS) {
+    const selector = review?.act.source.selector;
+    const draftId = selector?.kind === 'draft' ? selector.id : opts['--draft'];
+    const draft = draftId === undefined
+      ? assembleOnlyDraftTarget(project, opts['--version'])
+      : asArray(project.drafts).filter(isObject).find(d => d.id === draftId);
+    assertDraftHasRig(draft, 'project.json.signoffs.target');
+  }
   if (chat) assertOwnerChatSignoff(dir, project, stage, opts['--draft'], opts['--version']);
   const original = actId === undefined ? undefined : readFileSync(file);
   let ingest: CheckpointIngest | undefined;

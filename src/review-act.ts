@@ -12,6 +12,7 @@ import { JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS
   type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobContextCommentsAct, type JobMeshEditsAct,
   type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
+import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { composedPublishedBuildFiles, liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -450,10 +451,19 @@ export function assertReviewActSource(root: string, project: JsonObject, act: Re
   const stale = (detail: string): never => failure('REVIEW_ACT_SOURCE_STALE', detail);
   const source = act.source;
   const selector = source.selector!;
+  if ('version' in selector) {
+    assertDraftHasRig(assembleOnlyDraftTarget(project, selector.version), 'project.json.review_acts');
+  }
+  assertDraftHasRig(assembleOnlyDraftPath(root, project, source.model?.path), 'project.json.review_acts.source.model');
   const version = (project.versions as JsonObject[] | undefined)?.find(v => v.n === ('version' in selector ? selector.version : -1));
   if (!version || version.kind !== selector.kind || selector.kind === 'post' && version.rig_version !== selector.rigVersion) stale('reviewed version selection changed');
   const rig = selector.kind === 'post' ? selector.rigVersion : selector.kind === 'rig' ? selector.version : -1;
   const rigVersion = (project.versions as JsonObject[]).find(v => v.n === rig);
+  for (const candidate of [version, rigVersion]) {
+    if (!candidate) continue;
+    const finding = assembleOnlyVersionFinding(root, project, candidate, 'project.json.review_acts');
+    if (finding) refuse(finding.code, finding.message);
+  }
   const retained = object(rigVersion?.review_package) ? rigVersion.review_package : null;
   const boundFile = (identity: { readonly path: string; readonly sha256: string }): void => {
     try { if (jobHash(publicationFile(root, identity.path)) !== identity.sha256) stale(`${identity.path} changed`); }

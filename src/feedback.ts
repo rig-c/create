@@ -34,6 +34,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { asArray, asString, collectItems, isObject, itemFor, loadCollection, type Ctx, type Item } from './check.ts';
 import { draftVersionFindings } from './drafts.ts';
+import { assembleOnlyDraftTarget, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { answersOf, askAnswers } from './provenance.ts';
 import { readVerbatim } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
@@ -389,6 +390,7 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   const { file, project } = readProject(dir);
   const originalBytes = readFileSync(file);
   const original = structuredClone(project);
+  assertDraftHasRig(assembleOnlyDraftTarget(project, input.version), 'project.json.versions');
   const foldBaseline = fetched ? foldsRigVerdict(dir, original, fetched.act, now) : null;
   const version = asArray(project.versions).find((v): v is JsonObject => isObject(v) && v.n === input.version);
   if (version === undefined) refuse('REVIEW_VERSION_UNKNOWN', `versions[] has no version ${input.version}; a verdict is on a version that was shown`);
@@ -706,6 +708,8 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
     else positional.push(arg);
   }
   if (positional.length > 2) refuse('REVIEW_TOO_MANY_ARGUMENTS', `review takes a version and one folder, got ${positional.join(' ')}`, USAGE_EXIT);
+  const dir = positional[1] ?? process.cwd();
+  assertDraftHasRig(readAssembleOnlyDraftTarget(dir, positional[0]), 'project.json.versions');
   const version = parseVersion(positional[0]);
   if (opts['--from-review'] !== undefined) {
     if (Object.keys(opts).length !== 1 || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {

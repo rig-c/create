@@ -181,7 +181,7 @@ export function prepareDraftIntent(
   const { context, missingStructure, diffFinding } = readiness;
   const repairs: string[] = [];
   if (missingStructure !== undefined) {
-    repairs.push(`structure snapshot missing or invalid at ${missingStructure}. Run rig-create structure-snapshot ${dir} --draft ${draft}.`);
+    repairs.push(`structure snapshot missing or invalid at ${missingStructure}. Run rig-create structure-snapshot ${dir} --draft ${draft} --out ${shellWord(missingStructure)}.`);
   }
   if (diffFinding !== undefined) {
     repairs.push(`${diffFinding.code}. Run the diff report and diff-classes moves from rig-create next ${dir}.`);

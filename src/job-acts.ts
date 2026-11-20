@@ -1,7 +1,7 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
 import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
-import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
+import { asArray, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
@@ -195,9 +195,69 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
   });
 }
 
-export function jobActsText(result: { acts: readonly PendingJobAct[] }): string {
-  if (!result.acts.length) return 'job: no finalized acts awaiting ingestion';
-  return result.acts.map(act => `${act.actId} ${act.kind} ${act.subject} at ${act.at}\n${(act.preconditions ?? []).map(step => `  first: ${step.command ?? step.act}\n`).join('')}  ${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`}`).join('\n');
+/** An act on a current ask that project.json already holds; it needs no ingest. */
+export interface IngestedJobAct {
+  askId: string;
+  actId: string;
+  kind: ActV3['kind'];
+  question?: string;
+  stage?: string;
+  subject: string;
+  at: string;
+  /** Where the act's value sits in project.json now (a superseded answer points at its history row). */
+  recorded: string;
+}
+
+/** Acts already ingested for the asks on the current publication head, so an empty pending list is never read as unanswered. */
+export function ingestedJobActs(project: JsonObject, asks: readonly PendingAskV3[], acts: readonly ActV3[], root: string): IngestedJobAct[] {
+  const receipts = asArray(project.review_acts);
+  const signoffs = asArray(project.signoffs);
+  let items: ReturnType<typeof collectItems> | undefined;
+  const seen = new Set<string>();
+  const rows: IngestedJobAct[] = [];
+  for (const ask of asks) {
+    for (const act of acts) {
+      const key = JSON.stringify([act.jobId, act.actId]);
+      if (seen.has(key) || !actMatchesAsk(act, ask)) continue;
+      const receipt = receipts.findIndex(row => isObject(row) && row.jobId === act.jobId && row.actId === act.actId);
+      const signature = signoffs.findIndex(row => isObject(row) && row.source === `review act ${act.jobId}/${act.actId}`);
+      if (receipt < 0 && signature < 0) continue;
+      seen.add(key);
+      let recorded = signature >= 0 ? `signoffs[${signature}]` : `review_acts[${receipt}]`;
+      const value = act.value as { questionId?: string; stage?: string; planStepId?: string };
+      if (receipt >= 0 && isObject(receipts[receipt]) && (receipts[receipt] as JsonObject).kind === 'discarded') recorded += ' (discarded)';
+      else if (act.kind === 'interview-picks') {
+        items ??= collectItems(project, { collection: loadCollection(root, project) });
+        const item = items.find(item => item.id === value.questionId);
+        if (item && isObject(item.raw) && item.raw.at === act.at) recorded = item.path;
+        else if (item) {
+          const history = asArray(item.record.history).findIndex(row => isObject(row) && row.at === act.at);
+          if (history >= 0) recorded = `${item.path.replace(/\.(answer|guide)$/, '')}.history[${history}]`;
+        }
+      }
+      rows.push({ askId: ask.askId, actId: act.actId, kind: act.kind,
+        ...(value.questionId !== undefined ? { question: value.questionId } : {}),
+        ...(value.stage !== undefined ? { stage: value.stage } : {}),
+        subject: value.questionId !== undefined ? `question ${value.questionId}` : value.stage !== undefined ? `stage ${value.stage}`
+          : value.planStepId !== undefined ? `checkpoint ${value.planStepId}` : act.kind,
+        at: act.at, recorded });
+    }
+  }
+  return rows;
+}
+
+/** How many current asks already have an ingested act (and where each is recorded), or that none were asked. */
+export function ingestedSummary(result: { ingested?: readonly IngestedJobAct[]; asked?: number }): string {
+  const ingested = result.ingested ?? [];
+  if (!result.asked) return 'none asked on the current publication';
+  return `${ingested.length} already ingested for ${result.asked} current ask(s)${ingested.length
+    ? ` (${ingested.map(act => `${act.actId} ${act.subject} -> ${act.recorded}`).join('; ')})` : ''}`;
+}
+
+export function jobActsText(result: { acts: readonly PendingJobAct[]; ingested?: readonly IngestedJobAct[]; asked?: number }): string {
+  const already = (result.ingested ?? []).map(act => `${act.actId} ${act.kind} ${act.subject} at ${act.at}\n  already recorded at ${act.recorded}; no ingest needed`);
+  if (!result.acts.length) return [`job: no un-ingested acts; ${ingestedSummary(result)}`, ...already].join('\n');
+  return [...result.acts.map(act => `${act.actId} ${act.kind} ${act.subject} at ${act.at}\n${(act.preconditions ?? []).map(step => `  first: ${step.command ?? step.act}\n`).join('')}  ${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`}`), ...already].join('\n');
 }
 
 export interface PendingTargetAsk {

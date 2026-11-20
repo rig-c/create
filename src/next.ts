@@ -1076,6 +1076,22 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     report.refusals.some(r => !isOpenInterviewTodo(r, effectiveStage) && !isResolvableLagging(r));
   const registrations = plateInputMoves(dir, project, allItems, now);
   if (hasBlockingRefusal) {
+    const signoffs = asArray(project.signoffs);
+    const resignMoves = new Map<string, NextMove>();
+    for (const finding of report.refusals) {
+      if (finding.code !== 'SIGNOFF_ANSWERS_STALE') continue;
+      const match = /^signoffs\[(\d+)\]\.answer_hashes\[/.exec(finding.path);
+      const signoff = match ? signoffs[Number(match[1])] : undefined;
+      if (!isObject(signoff) || typeof signoff.stage !== 'string' || resignMoves.has(signoff.stage)) continue;
+      const stage = signoff.stage;
+      const target = `signoffs[stage=${stage}]`;
+      resignMoves.set(stage, {
+        role: 'agent', field: 'signoffs', awaits: target,
+        command: `rig-create signoff ${shellWord(stage)} ${shellWord(dir)} --by '<owner>' --owner-chat '<words file>' --said-at '<ISO date>' --relayed-by '<operator>'`,
+        act: `ask the owner to re-sign ${stage} after confirming the intended answers, then relay the owner's exact words`,
+      });
+    }
+    const moves = [...depthMoves, ...registrations, ...resignMoves.values()];
     return {
       schema: NEXT_SCHEMA,
       project_id: String(project.name ?? ''),
@@ -1084,8 +1100,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       accepted: false,
       refusals,
       ...warningFields,
-      awaits: [...depthMoves, ...registrations].map(move => move.awaits),
-      moves: [...depthMoves, ...registrations],
+      awaits: moves.map(move => move.awaits),
+      moves,
     };
   }
 

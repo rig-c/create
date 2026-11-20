@@ -7,7 +7,7 @@ import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { liveManifestPath, draftPackageIdentity, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished, readRecordPublished } from './job-publication.ts';
-import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
+import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose } from './job-close.ts';
 import { agentCall, jobEvents, pendingJobActs, readHostActs, shellWord, type AgentReply, type PendingJobAct } from './job-acts.ts';
@@ -163,7 +163,7 @@ export async function attachCreateJob(
       refuse('JOB_HOST_ATTACH_REFUSED', `project.json: live host attach refused (reason=${error.reason}, phase=${error.phase}); reopen or restore the bound live host before rig-create job reconcile`);
     }
     if (isReuseMismatch(error)) {
-      refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.field} expected=${JSON.stringify(error.expected)} found=${JSON.stringify(error.actual)}; restore the bound host configuration, then run rig-create job reconcile`);
+      refuseJobIdentityMismatch(error.field, error.expected, error.actual);
     }
     if (error instanceof Error && (error as Error & { code?: string }).code === 'JOB_HOST_REUSE_MISMATCH') {
       refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${error.message}; restore the bound host options before rig-create job reconcile`);

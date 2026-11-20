@@ -182,7 +182,10 @@ test('closeCreateJob retires a live host bound with an older enumeratorVersion a
   // Normal attach / publish / reconcile must stay strict against the current identity.
   const manifestPath = prepareLiveManifest(root, project, 1);
   const entry = enqueuePublication(root, binding, { path: manifestPath, selector: { kind: 'rig', version: 1 } });
-  await expect(attachCreateJob(entry)).rejects.toMatchObject({ code: 'JOB_HOST_REUSE_MISMATCH' });
+  await expect(attachCreateJob(entry)).rejects.toMatchObject({
+    code: 'JOB_HOST_REUSE_MISMATCH',
+    message: expect.stringMatching(/enumeratorVersion.*unintended.*restore.*intended pin or hook bump.*rig-create job close <project>/),
+  });
   await expect(publishPending(entry)).rejects.toMatchObject({ code: 'JOB_HOST_REUSE_MISMATCH' });
   await expect(reconcileCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
   expect(pendingPublications(root)[0]?.failure?.code).toBe('JOB_HOST_REUSE_MISMATCH');

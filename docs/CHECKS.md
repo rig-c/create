@@ -1796,7 +1796,7 @@ interview is the existing `WAYPOINT_MISSING` refusal.
 | Code | Meaning and remedy |
 | --- | --- |
 | `OWNER_CHAT_INVALID` | The named project.json answer/signoff lacks exact nonblank owner words, a valid explicit ISO said_at, relay identity, or the relayed source, or mixes chat and Review flags. Supply `--owner-chat`, `--said-at`, `--relayed-by` and owner `--by` together; keep at as the write time and omit act ids. |
-| `OWNER_CHAT_REQUIRED` | A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt, or a restart lacks relayed owner chat. Refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For restart, record `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
+| `OWNER_CHAT_REQUIRED` | A draft amendment lacks relayed owner chat. A human reopen lacks relayed owner chat or a valid immutable Review reopen receipt, or a restart lacks relayed owner chat. For reopen and restart, refuses from `REOPEN_RESTART_OWNER_CHAT_SINCE = 2026-11-19T00:00:00Z` by the entry's `at` and WARNs for earlier records. Preserve earlier records. For a draft amendment or restart, record `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. For a historical reopen, restore its original authority evidence. |
 | `OWNER_CHAT_GATE_VISUAL` | The named project.json stage signoff has no accepted live verdict for the current draft, rig or post. Get the verdict first in the review tool with `job open --draft <id>` or `job open --rig <n>`, ingest it, then relay the signoff. |
 
 ## Composed idle direction (direction@3)

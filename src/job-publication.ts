@@ -842,7 +842,9 @@ export function inspectDraftPublication(root: string, project: JsonObject, id: s
   try { recordedPartsVerdict(root, project, id); legacyApproval = true; } catch { /* No accepted legacy receipt. */ }
   const signatures = packageSignSubjects(project, stage, context.selector!, context.plan?.steps.length ?? 0)
     .filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review' || legacyApproval);
-  let subjects = [...context.subjects, ...signatures];
+  const separatePartsSignoff = signatures.some(subject => subject.kind === 'signoff' && subject.stage === 'parts-review');
+  const verdicts = separatePartsSignoff ? context.subjects.filter(subject => subject.kind !== 'parts-verdict') : context.subjects;
+  let subjects = [...verdicts, ...signatures];
   const errors: Finding[] = [];
   if (stage === 'parts-review') {
     checkDiffMap(root, { stage: 'parts-review', checkpoint: null, draft_id: id }, `signoffs[${asArray(project.signoffs).length}]`,
@@ -853,7 +855,7 @@ export function inspectDraftPublication(root: string, project: JsonObject, id: s
     }
   }
   const structure = stage === 'parts-review' ? partsStructureSnapshot(root, project, id) : undefined;
-  const missingStructure = structure && !structure.valid && context.subjects.some(subject => subject.kind === 'parts-verdict')
+  const missingStructure = structure && !structure.valid && verdicts.some(subject => subject.kind === 'parts-verdict')
     ? structure.path : undefined;
   if (stage !== 'parts-review' || missingStructure !== undefined) subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
   const files = [...context.files];

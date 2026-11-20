@@ -57,7 +57,7 @@ In `parts`, record an `intake-report` preflight and offer its choice, both advis
 [PROJECT.md § Advisory intake reports](https://github.com/rig-c/create/blob/main/docs/PROJECT.md#advisory-intake-reports).
 
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
-An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`.
+An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig` ([SOURCE.md § Handing a retouch to an image editor](https://github.com/rig-c/create/blob/main/docs/SOURCE.md#handing-a-retouch-to-an-image-editor)).
 Preserve history/dates; adopt choices explicitly.
 
 ## Before you ask, plan or show

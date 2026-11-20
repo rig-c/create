@@ -9,6 +9,7 @@ import {
   CG_GATES_LINK,
   GATES_LINK,
   PROJECTION_LINK,
+  RETOUCH_HANDOFF_LINK,
   createDocUrl,
   writeAgentGuide,
   CLAUDE_MD,
@@ -47,8 +48,28 @@ const GUIDE_MAX_BYTES = 10_000;
 
 test('#543 the guide records an owner-accepted retouch through the existing draft writer', () => {
   const guide = renderAgentGuide();
-  expect(guide).toContain("An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`.");
+  expect(guide).toContain("An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig`");
+  expect(guide).toContain(createDocUrl(RETOUCH_HANDOFF_LINK.path, RETOUCH_HANDOFF_LINK.anchor));
   expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
+});
+
+test('#691 the editor rung documents the four retouch hand-off points and the guide links its anchor', () => {
+  const source = readFileSync(join(REPO, RETOUCH_HANDOFF_LINK.path), 'utf8');
+  expect(anchorsOf(source).has(RETOUCH_HANDOFF_LINK.anchor)).toBe(true);
+  const heading = '#### Handing a retouch to an image editor';
+  const start = source.indexOf(heading);
+  expect(start).toBeGreaterThan(source.indexOf('### The editor rung'));
+  const section = source.slice(start, source.indexOf('### Feather only continuous skin', start));
+  for (const point of [
+    'input 1 = the original painting crop, input 2 = the current part on a 1:1',
+    'sheet, at its own pixels;',
+    'several runs, picking the best run for each part;',
+    'drift measured outside the fixed region;',
+    'the result recorded with `assemble.edited_parts` receipts (part, file,',
+    'from_sha256, sha256, editor).',
+  ]) {
+    expect(section).toContain(point);
+  }
 });
 
 test('#493 reopen instructions ingest the exported human act', () => {

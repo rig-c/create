@@ -180,6 +180,15 @@ Measured limits:
   fixes it;
 - a fill holds flat colour but does not continue an outline.
 
+#### Handing a retouch to an image editor
+
+- input 1 = the original painting crop, input 2 = the current part on a 1:1
+  sheet, at its own pixels;
+- several runs, picking the best run for each part;
+- drift measured outside the fixed region;
+- the result recorded with `assemble.edited_parts` receipts (part, file,
+  from_sha256, sha256, editor).
+
 - **Why**: an edit with a receipt can be checked and redone; a scripted edit
   cannot be told from a defect ([CRAFT.md G6, G7](CRAFT.md#for-the-gates-not-the-interview)).
 - *Source*: owner ruling, 2026-10-29/31 (editor and receipt, the fill limit);

@@ -1,6 +1,6 @@
 # Synthetic signed fixture
 
-Every pixel is generated. The sign-offs are synthetic fixture records.
+Every pixel is generated. The fixture sign-offs are synthetic.
 The draft build is untouched output of the
 installed `@rig-c/parts` 2.45.0 `rig` command from this fixture's own generated
 config and producer-assembled parts. The compiled files under `out/check/build/`

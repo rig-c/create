@@ -1093,7 +1093,7 @@ Registration leaves stage, signoffs and verdicts intact. The human review uses
 the emitted review package, existing review/signoff writers record the result,
 and `advance` performs the authorized forward move. The synthetic public-render
 fixture and its producer commands are documented in
-[tests/fixtures/rig-registration](../tests/fixtures/rig-registration/README.md).
+[tests/fixtures/rig-registration](https://github.com/rig-c/create/blob/main/tests/fixtures/rig-registration/README.md).
 
 ### Migrating work done before the interview
 
@@ -1226,7 +1226,7 @@ perform the following migration on its own decision record.
    these references. Keep that version's provenance and interview words.
 6. Run `rig-create interview --check <project dir> --json`, resolve the named
    refusals and inspect `rig-create handoff <project dir> --json` before post
-   work. The synthetic [migration fixture](../tests/data/pre-interview.json)
+   work. The synthetic [migration fixture](https://github.com/rig-c/create/blob/main/tests/data/pre-interview.json)
    contains one bounced rig and one accepted rig carrying a timing item.
 
 ## Owner language

@@ -195,7 +195,7 @@ those sentences out; they are not fields to fill.
   sentence excludes; an extent ("down to the knee") bounds what moves. A
   sentence that says "must" is a bar, not a preference. Turning these lines into
   `@rig-c/core` `invariants` starts with the pure translator in
-  [`src/invariants.ts`](../src/invariants.ts), documented in [INVARIANTS.md](INVARIANTS.md).
+  [`src/invariants.ts`](../src/invariants.ts), documented in [INVARIANTS.md](https://github.com/rig-c/create/blob/main/docs/INVARIANTS.md).
   Its sourced entries and explicit gaps are reproduced in
   [`example-invariants/invariants.json`](../templates/example-invariants/invariants.json).
   Project/check/build wiring remains a follow-up; until then these lines are

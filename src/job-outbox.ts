@@ -200,10 +200,17 @@ export function readWriterBinding(root: string): WriterBinding | null {
   return value;
 }
 
+export function refuseJobIdentityMismatch(field: string, expected: unknown, actual: unknown): never {
+  const retirement = ['enumeratorVersion', 'partsEnumeratorVersion', 'partsEnumeratorId', 'readerId', 'bindingId'].includes(field)
+    ? ' For an intended pin or hook bump, follow job retirement (docs/JOB-RETIREMENT.md): run rig-create job close <project>, then reopen at the new configuration.'
+    : '';
+  refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${field} expected=${JSON.stringify(expected)} found=${JSON.stringify(actual)}; if the change was unintended, restore the bound host configuration, then run rig-create job reconcile.${retirement}`);
+}
+
 export function assertJobIdentity(expected: JobIdentity, found: JobIdentity): void {
   for (const field of Object.keys(expected) as (keyof JobIdentity)[]) {
     if (!isDeepStrictEqual(expected[field], found[field])) {
-      refuse('JOB_HOST_REUSE_MISMATCH', `project.json: ${field} expected=${JSON.stringify(expected[field])} found=${JSON.stringify(found[field])}; restore the bound host configuration, then run rig-create job reconcile`);
+      refuseJobIdentityMismatch(field, expected[field], found[field]);
     }
   }
 }

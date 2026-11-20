@@ -1,12 +1,16 @@
 /** Writer routing for finalized acts. No event transport or automatic ingestion. */
 import type { ActV3, JobEventV3, JobOwnerHost, JobSelector, PendingAskV3, SourceV3 } from '@rig-c/review/job-host';
 import { isDeepStrictEqual } from 'node:util';
-import { asArray, isObject, type Finding } from './check.ts';
+import { asArray, collectSignoffs, isObject, type Finding } from './check.ts';
 import { existsSync, readFileSync } from './check-reads.ts';
 import { join } from 'node:path';
 import { recordedPartsVerdict } from './parts-verdict-record.ts';
 import { refuse } from './refusal.ts';
-import { stageOfStep } from './stages.ts';
+import { collectReopens, liveSignoff } from './reopen.ts';
+import { OWNER_CHAT_SOURCE } from './owner-chat.ts';
+import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { stageOfStep, stepCoveredByApproval } from './stages.ts';
+import { stepHash } from './step-hash.ts';
 import { checkStructure } from './structure.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { JsonObject } from './templates.ts';
@@ -232,6 +236,33 @@ function askSubjectText(subject: PendingAskV3['subject']): string {
   }
 }
 
+/** A finalized Review act still needs ingestion even if the record was signed separately. */
+function signoffSettlesAsk(project: JsonObject, ask: PendingAskV3): boolean {
+  if (ask.status !== 'pending' || ask.subject.kind !== 'signoff') return false;
+  const { stage } = ask.subject;
+  const kind = SIGNOFF_TARGET_KINDS[stage];
+  const selector = ask.source.selector;
+  const version = selector && 'version' in selector && selector.kind === kind ? selector.version : null;
+  if (kind !== undefined && version === null) return false;
+  const reopens = collectReopens(project, []);
+  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
+  const covered = steps.filter(step => stepCoveredByApproval(project, step, stage));
+  return collectSignoffs(project, []).some(signature => {
+    const { record } = signature;
+    if (signature.stage !== stage || signature.checkpoint !== null
+      || (record.source !== undefined && record.source !== OWNER_CHAT_SOURCE)
+      || !Number.isFinite(signature.at) || !liveSignoff(reopens, stage, signature.at)) return false;
+    if (version !== null && (!isObject(record.target) || record.target.version !== version)) return false;
+    if (stage === 'parts-review' && selector?.kind === 'draft' && record.draft_id !== selector.id) return false;
+    if (covered.length === 0 && record.step_hashes === undefined) return true;
+    const hashes = record.step_hashes;
+    return isObject(hashes) && covered.every(step => {
+      const id = String(step.id);
+      return hashes[id] === stepHash(step) && (ask.source.plan?.steps.some(shown => shown.id === id) ?? false);
+    }) && Object.keys(hashes).length === covered.length;
+  });
+}
+
 export function pendingJobAsksForTarget(
   project: JsonObject,
   asks: readonly PendingAskV3[],
@@ -251,6 +282,7 @@ export function pendingJobAsksForTarget(
     const info = sourceTargetInfo(ask.source);
     if (info.selector && isDeepStrictEqual(info.selector, target)) continue;
     const hasUnIngestedAct = actionableActs.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
+    if (!hasUnIngestedAct && signoffSettlesAsk(project, ask)) continue;
     if (!hasUnIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
     pending.push({ label: `${askSubjectText(ask.subject)} on ${info.label}`, version: info.version });
   }

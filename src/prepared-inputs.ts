@@ -68,6 +68,100 @@ export function hashRunFolder(dir: string, folder: string): { members: FileBindi
   return { members, sha256: sourceSha256(members) };
 }
 
+type CheckedFile = { record: JsonObject; at: string; optional: boolean };
+
+function verifySourceFiles(ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'>, files: CheckedFile[], entry: JsonObject): void {
+  for (const { record, at, optional } of files) {
+    const name = record.path as string;
+    let actual: string;
+    try { actual = readHash(ctx.dir, name); } catch (error) {
+      if (optional && error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        ctx.warnings.push({ code: 'DERIVED_RESULT_MISSING', path: `${at}.path`, message: `${at}: '${name}' is absent; regenerate with the recorded operation: ${entry.operation as string}` });
+        continue;
+      }
+      ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${name}'; restore the recorded file` });
+      continue;
+    }
+    if (actual !== (record.sha256 as string).toLowerCase()) ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${at}.sha256`, message: `${at}: '${name}' no longer matches its recorded sha256` });
+  }
+}
+
+function checkRunEntry(ctx: Pick<Ctx, 'dir' | 'refusals' | 'warnings'>, entry: JsonObject, path: string, sourceFiles: CheckedFile[]): void {
+  const rawMembers = entry.members;
+  if (
+    sourceFiles.length === 0
+    || (entry.operation !== undefined && !nonempty(entry.operation))
+    || !nonempty(entry.path)
+    || !inside(ctx.dir, entry.path)
+    || !hex(entry.sha256)
+    || sourceFiles.some(({ record }) => !nonempty(record.path) || !inside(ctx.dir, record.path) || !hex(record.sha256))
+    || sourceFiles.some(({ record }) => typeof record.path === 'string' && (resolve(ctx.dir, record.path) === resolve(ctx.dir, entry.path as string) || inside(resolve(ctx.dir, entry.path as string), resolve(ctx.dir, record.path))))
+    || !Array.isArray(rawMembers)
+    || !rawMembers.every((m): m is JsonObject => isObject(m) && memberPath(m.path) && hex(m.sha256))
+  ) {
+    ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: run needs source or sources { path, sha256 }, sorted members [{ path, sha256 }], and run folder path and sha256; paths are distinct project-relative paths other than project.json` });
+    return;
+  }
+  const members = rawMembers.map((m) => ({ path: m.path as string, sha256: (m.sha256 as string).toLowerCase() }));
+  if (!members.every((m, idx) => idx === 0 || Buffer.compare(Buffer.from(members[idx - 1]!.path, 'utf8'), Buffer.from(m.path, 'utf8')) < 0)) {
+    ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: run members must be sorted by unique path` });
+    return;
+  }
+  if (!members.some((m) => m.path === 'layers.json')) {
+    ctx.refusals.push({ code: 'DERIVED_RUN_MISSING_LAYERS', path, message: `${path}: run folder '${entry.path}' must contain 'layers.json'` });
+    return;
+  }
+  verifySourceFiles(ctx, sourceFiles, entry);
+  const folder = entry.path;
+  let actualRun: { members: FileBinding[]; sha256: string };
+  try {
+    actualRun = hashRunFolder(ctx.dir, folder);
+  } catch (error) {
+    if (error instanceof RunMemberUnreadable) {
+      const idx = members.findIndex((m) => m.path === error.rel);
+      const at = idx >= 0 ? `${path}.members[${idx}]` : path;
+      ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${error.memberPath}'; restore the recorded file` });
+      return;
+    }
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      if (sourceSha256(members) !== entry.sha256.toLowerCase()) {
+        ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: run sha256 does not match the digest of its recorded members` });
+        return;
+      }
+      const regen = nonempty(entry.operation) ? `regenerate with the recorded operation: ${entry.operation}` : 'regenerate the recorded run';
+      ctx.warnings.push({ code: 'DERIVED_RESULT_MISSING', path: `${path}.path`, message: `${path}: '${folder}' is absent; ${regen}` });
+      return;
+    }
+    ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${path}.path`, message: `${path}: cannot read '${folder}'; restore the recorded run folder` });
+    return;
+  }
+  const actualByPath = new Map(actualRun.members.map((m) => [m.path, m.sha256]));
+  const recordedPaths = new Set(members.map((m) => m.path));
+  let memberMismatch = false;
+  members.forEach((m, idx) => {
+    const at = `${path}.members[${idx}]`;
+    const name = joinMember(folder, m.path);
+    const actualSha = actualByPath.get(m.path);
+    if (actualSha === undefined) {
+      memberMismatch = true;
+      ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${name}'; restore the recorded file` });
+    } else if (actualSha !== m.sha256) {
+      memberMismatch = true;
+      ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${at}.sha256`, message: `${at}: '${name}' no longer matches its recorded sha256` });
+    }
+  });
+  for (const actualMember of actualRun.members) {
+    if (!recordedPaths.has(actualMember.path)) {
+      memberMismatch = true;
+      const name = joinMember(folder, actualMember.path);
+      ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${path}.sha256`, message: `${path}: '${name}' no longer matches its recorded sha256` });
+    }
+  }
+  if (!memberMismatch && actualRun.sha256 !== entry.sha256.toLowerCase()) {
+    ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${path}.sha256`, message: `${path}: '${folder}' no longer matches its recorded sha256` });
+  }
+}
+
 /** Only the tagged prepared-input and run records carry this file/hash contract; legacy intermediates are unchanged. */
 export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>): void {
   asArray(ctx.project.derived).forEach((entry, i) => {
@@ -89,87 +183,7 @@ export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
       optional: false,
     }));
     if (entry.kind === 'run') {
-      const rawMembers = entry.members;
-      if (
-        sources.length === 0
-        || (entry.operation !== undefined && !nonempty(entry.operation))
-        || !nonempty(entry.path)
-        || !inside(ctx.dir, entry.path)
-        || !hex(entry.sha256)
-        || sourceFiles.some(({ record }) => !nonempty(record.path) || !inside(ctx.dir, record.path) || !hex(record.sha256))
-        || sources.some((source) => isObject(source) && typeof source.path === 'string' && (resolve(ctx.dir, source.path) === resolve(ctx.dir, entry.path as string) || inside(resolve(ctx.dir, entry.path as string), resolve(ctx.dir, source.path))))
-        || !Array.isArray(rawMembers)
-        || !rawMembers.every((m): m is JsonObject => isObject(m) && memberPath(m.path) && hex(m.sha256))
-      ) {
-        ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: run needs source or sources { path, sha256 }, sorted members [{ path, sha256 }], and run folder path and sha256; paths are distinct project-relative paths other than project.json` });
-        return;
-      }
-      const members = rawMembers.map((m) => ({ path: m.path as string, sha256: (m.sha256 as string).toLowerCase() }));
-      if (!members.every((m, idx) => idx === 0 || Buffer.compare(Buffer.from(members[idx - 1]!.path, 'utf8'), Buffer.from(m.path, 'utf8')) < 0)) {
-        ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: run members must be sorted by unique path` });
-        return;
-      }
-      if (!members.some((m) => m.path === 'layers.json')) {
-        ctx.refusals.push({ code: 'DERIVED_RUN_MISSING_LAYERS', path, message: `${path}: run folder '${entry.path}' must contain 'layers.json'` });
-        return;
-      }
-      for (const { record, at } of sourceFiles) {
-        const name = record.path as string;
-        let actual: string;
-        try { actual = readHash(ctx.dir, name); } catch {
-          ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${name}'; restore the recorded file` });
-          continue;
-        }
-        if (actual !== (record.sha256 as string).toLowerCase()) ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${at}.sha256`, message: `${at}: '${name}' no longer matches its recorded sha256` });
-      }
-      const folder = entry.path;
-      let actualRun: { members: FileBinding[]; sha256: string };
-      try {
-        actualRun = hashRunFolder(ctx.dir, folder);
-      } catch (error) {
-        if (error instanceof RunMemberUnreadable) {
-          const idx = members.findIndex((m) => m.path === error.rel);
-          const at = idx >= 0 ? `${path}.members[${idx}]` : path;
-          ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${error.memberPath}'; restore the recorded file` });
-          return;
-        }
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-          if (sourceSha256(members) !== entry.sha256.toLowerCase()) {
-            ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: run sha256 does not match the digest of its recorded members` });
-            return;
-          }
-          const regen = nonempty(entry.operation) ? `regenerate with the recorded operation: ${entry.operation}` : 'regenerate the recorded run';
-          ctx.warnings.push({ code: 'DERIVED_RESULT_MISSING', path: `${path}.path`, message: `${path}: '${folder}' is absent; ${regen}` });
-          return;
-        }
-        ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${path}.path`, message: `${path}: cannot read '${folder}'; restore the recorded run folder` });
-        return;
-      }
-      const actualByPath = new Map(actualRun.members.map((m) => [m.path, m.sha256]));
-      const recordedPaths = new Set(members.map((m) => m.path));
-      let memberMismatch = false;
-      members.forEach((m, idx) => {
-        const at = `${path}.members[${idx}]`;
-        const name = joinMember(folder, m.path);
-        const actualSha = actualByPath.get(m.path);
-        if (actualSha === undefined) {
-          memberMismatch = true;
-          ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${name}'; restore the recorded file` });
-        } else if (actualSha !== m.sha256) {
-          memberMismatch = true;
-          ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${at}.sha256`, message: `${at}: '${name}' no longer matches its recorded sha256` });
-        }
-      });
-      for (const actualMember of actualRun.members) {
-        if (!recordedPaths.has(actualMember.path)) {
-          memberMismatch = true;
-          const name = joinMember(folder, actualMember.path);
-          ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${path}.sha256`, message: `${path}: '${name}' no longer matches its recorded sha256` });
-        }
-      }
-      if (!memberMismatch && actualRun.sha256 !== entry.sha256.toLowerCase()) {
-        ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${path}.sha256`, message: `${path}: '${folder}' no longer matches its recorded sha256` });
-      }
+      checkRunEntry(ctx, entry, path, sourceFiles);
       return;
     }
     const files = [
@@ -180,19 +194,7 @@ export function checkPreparedInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals
       ctx.refusals.push({ code: 'DERIVED_MALFORMED', path, message: `${path}: prepared-input needs operation, source or sources { path, sha256 }, and derived path and sha256; paths are distinct project-relative files other than project.json` });
       return;
     }
-    for (const { record, at, optional } of files) {
-      const name = record.path as string;
-      let actual: string;
-      try { actual = readHash(ctx.dir, name); } catch (error) {
-        if (optional && error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-          ctx.warnings.push({ code: 'DERIVED_RESULT_MISSING', path: `${at}.path`, message: `${at}: '${name}' is absent; regenerate with the recorded operation: ${entry.operation as string}` });
-          continue;
-        }
-        ctx.refusals.push({ code: 'DERIVED_FILE_UNREADABLE', path: `${at}.path`, message: `${at}: cannot read '${name}'; restore the recorded file` });
-        continue;
-      }
-      if (actual !== (record.sha256 as string).toLowerCase()) ctx.refusals.push({ code: 'DERIVED_FILE_CHANGED', path: `${at}.sha256`, message: `${at}: '${name}' no longer matches its recorded sha256` });
-    }
+    verifySourceFiles(ctx, files, entry);
   });
   checkPlateRegistrations(ctx);
 }

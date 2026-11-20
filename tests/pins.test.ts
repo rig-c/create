@@ -911,4 +911,4 @@ for (const [label, execFlags] of [
     rmSync(jobHostStateRoot(projectRoot), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
-});
+}, 60_000);

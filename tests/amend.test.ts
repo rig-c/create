@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { AMENDMENT_APPROVAL_GAPS, collectAmendments, keepByBinding } from '../src/amend.ts';
 import { collectSignoffs, formatReport } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
@@ -37,7 +38,7 @@ const nonLive = (p: JsonObject): number[] => {
 };
 
 describe('forward human amendments', () => {
-  beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
+  beforeEach(() => testClock.set(EXAMPLE_NOW));
   afterEach(() => testClock.reset());
 
   test('writer-built synthetic example names every lapsed approval and the live upstream list', () => {
@@ -52,7 +53,7 @@ describe('forward human amendments', () => {
     expect(after.signoffs).toEqual(before.signoffs);
     expect(after.versions).toEqual(before.versions);
     const record = obj(arr(after.amendments)[0]);
-    expect(record).toEqual({ target: { stage: 'parts', kind: 'part', id: 'panel' }, by: 'owner', at: '2026-11-20T00:00:00.000Z', verbatim: '\uFEFFReplace the synthetic panel.\r\n', source: 'synthetic relay', changes: [{ path: 'replacement.svg', sha256: createHash('sha256').update(readFileSync(join(dir, 'replacement.svg'))).digest('hex') }] });
+    expect(record).toEqual({ target: { stage: 'parts', kind: 'part', id: 'panel' }, by: 'owner', at: new Date(EXAMPLE_NOW).toISOString(), verbatim: '\uFEFFReplace the synthetic panel.\r\n', source: 'synthetic relay', changes: [{ path: 'replacement.svg', sha256: createHash('sha256').update(readFileSync(join(dir, 'replacement.svg'))).digest('hex') }] });
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
     expect(report.effective_stage).toBe('parts');
@@ -147,7 +148,7 @@ describe('forward human amendments', () => {
     expect(formatReport(checkProject(dir))).toBe(formatReport(control));
     amend(dir, stage);
     if (resign) {
-      testClock.set(new Date('2026-11-21T00:00:00Z'));
+      testClock.set(EXAMPLE_NOW + 86_400_000);
       signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]);
     }
     const report = checkProject(dir);
@@ -163,7 +164,7 @@ describe('forward human amendments', () => {
     const dir = fixture();
     const before = read(dir);
     amend(dir, 'post-interview');
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
     expect(checkProject(dir).effective_stage).toBe('post');
     // The reset post steps are redone through step-status at the effective stage.
@@ -186,7 +187,7 @@ describe('forward human amendments', () => {
     const dir = fixture();
     amend(dir);
     const first = nonLive(read(dir));
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     amend(dir, 'post');
     expect(nonLive(read(dir))).toEqual(first);
     reopenCommand(['rig-review', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
@@ -196,7 +197,7 @@ describe('forward human amendments', () => {
   test('re-sign cannot revive an old rig or bypass candidate validation on an amended legacy project', () => {
     const dir = fixture();
     amend(dir, 'rig-review');
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     const before = readFileSync(join(dir, 'project.json'));
     refusal(() => signoffCommand(['rig-review', dir, '--by', 'owner', '--verbatim-file', words(dir)]), 'RIG_VERSION_UNACCEPTED');
     expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
@@ -226,7 +227,7 @@ describe('forward human amendments', () => {
   test('the retained stage permits a new pending correction while its approval is lapsed', () => {
     const dir = fixture(() => {}, 'example-project.json');
     amend(dir, 'rig-review');
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     correctionCommand(['--adopt', dir]);
     correctionCommand(['record', dir, '--id', 'panel-fix', '--path', 'described', '--stage', 'rig-review', '--version', '2', '--by', 'owner', '--verbatim-file', words(dir)]);
     expect(checkProject(dir).refusals).toEqual([]);

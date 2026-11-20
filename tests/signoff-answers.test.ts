@@ -3,6 +3,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { answered, collectItems, type Ctx, type Item } from '../src/check.ts';
 import { Refusal } from '../src/refusal.ts';
 import { answerRevisionHash, checkSignoffAnswers, selectAnswerHashes, SIGNOFF_ANSWERS_SINCE } from '../src/signoff-answers.ts';
@@ -31,7 +32,7 @@ function expected(item: Item, stage: string): string {
 }
 
 test.each(['interview', 'plan-approved', 'rigging-interview', 'post-interview'])('%s writer binds independently computed answer envelopes', stage => {
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
   const before = load(dir);
   signoffCommand([stage, dir, '--by', 'user', '--verbatim-file', words(dir)]);
@@ -97,7 +98,7 @@ test('later first answers are not missing from the earlier interview', () => {
 
 test('lapsed approvals never report changed answer bindings', () => {
   const dir = fixture(() => {}, 'example-project.json');
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(EXAMPLE_NOW);
   reopenCommand(['interview', dir, '--by', 'user', ...ownerChatArgs(words(dir))]);
   const p = load(dir); obj(waypoint(p, 'assemble').guide).verbatim = 'DISTINCT lapsed answer';
   expect(findings(dir, p)).toEqual([]);
@@ -159,7 +160,7 @@ test('empty imported interview has an honestly complete empty binding', () => {
 
 test('amendment liveness suppresses stale downstream bindings and keeps no approvals by binding', () => {
   const dir = fixture(() => {}, 'example-project.json');
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(EXAMPLE_NOW);
   writeFileSync(join(dir, 'replacement.json'), '{"synthetic":"DISTINCT amendment"}');
   amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', 'bones', '--change', 'replacement.json', '--by', 'user', '--verbatim-file', words(dir)]);
   const p = load(dir); obj(waypoint(p, 'bones').guide).verbatim = 'DISTINCT lapsed rigging answer';

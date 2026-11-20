@@ -30,6 +30,7 @@ function project(setup: JsonObject = { figure_mask: { path: 'figure.png', sha256
   const config = json({ assemble: { project: 'visible', ground }, requirements: 'requirements.json' });
   return repackageFixtureVersion(fixture((p) => {
     const guide = obj(waypoint(p, 'assemble').guide);
+    obj(guide.value).project = 'visible';
     obj(guide.value).ground = ground;
     arr(guide.asks).push({ id: 'ground', state: 'user' });
     const v = version(p, 1);

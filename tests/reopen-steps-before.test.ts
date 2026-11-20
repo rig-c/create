@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
 import { PROGRESS_HISTORY_SINCE } from '../src/stage-progress.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -70,7 +71,7 @@ test('writer-only round trip on the generated example: reopen, step-status chain
   expect(read(dir).stage).toBe('accepted');
   expect(findings(dir, 'refusals')).toEqual([]);
   expect(findings(dir, 'warnings')).toEqual([]);
-  at(NOW); reopen(dir, 'post');
+  at(EXAMPLE_NOW); reopen(dir, 'post');
   expect(before(read(dir), 'camera').status).toBe('done');
   expect(findings(dir, 'refusals')).toEqual([]);
   expect(findings(dir, 'warnings')).toEqual(POST_LAPSES);
@@ -84,7 +85,7 @@ test('writer-only round trip on the generated example: reopen, step-status chain
 });
 
 test('a planted steps_before status on an example-chain prefix is refused at its record path', () => {
-  const dir = rigReview(NOW);
+  const dir = rigReview(EXAMPLE_NOW);
   reopen(dir, 'rigging');
   expect(findings(dir, 'refusals')).toEqual([]);
   expect(findings(dir, 'warnings')).toEqual([]);

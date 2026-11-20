@@ -16,11 +16,12 @@ import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
 import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
-import type { ActV3, JobOwnerHost, JobHostOptions } from '@rig-c/review/job-host';
+import { startJobHost, type ActV3, type JobOwnerHost, type JobHostOptions } from '@rig-c/review/job-host';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock } from './clock.ts';
 import { EXAMPLE_NOW, EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 import { clockedCli } from './helpers.ts';
+import { sourceOnlyTest } from './source-only.ts';
 const receipt = (row: object) => { if (process.env.JOB_ACTS_RECEIPT) appendFileSync(process.env.JOB_ACTS_RECEIPT, JSON.stringify(row) + '\n'); };
 const scrub = (text: string, root: string) => text.replaceAll(root, '<synthetic>').replaceAll(join(import.meta.dir, '..'), '<create-checkout>').replace(/http:\/\/127\.0\.0\.1:\d+[^\s]*/g, '<owner-url>');
 const WORDS = '  Synthetic owner review words.\r\n';
@@ -358,7 +359,7 @@ test.each([false, true])('agent next pagination is shared and read failures rema
 });
 
 
-test('merged record-mode host lists finalized picks and its printed writer command ingests them', async () => {
+async function openMotionQuestion() {
   testClock.set(Date.now());
   const root = realpathSync(fixture(project => {
     project.stage = 'rigging-interview'; project.versions = []; project.scenes = []; delete project.direction_contract;
@@ -378,7 +379,12 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expectExit0(await cli(root, ['interview-options', 'motion', root, '--file', path]));
   const opening = await open(root, ['--question', 'motion']); const view = await page(root, opening.url, 1);
   const selections = (set.asks as JsonObject[]).map(ask => ({ itemId: ask.id, optionId: obj((ask.options as JsonObject[])[0]).id, otherText: null }));
-  const act = await view.act('interview-picks', 'interview-picks', { questionId: 'motion', selections, note: WORDS });
+  return { root, url: opening.url, view, value: { questionId: 'motion', selections, note: WORDS } };
+}
+
+test('merged record-mode host lists finalized picks and its printed writer command ingests them', async () => {
+  const { root, view, value } = await openMotionQuestion();
+  const act = await view.act('interview-picks', 'interview-picks', value);
   expect(act.schema).toBe('rig-review/act@4');
   const before = snapshot(root); const listed = await cli(root, ['job', 'acts', root, '--json']); expectExit0(listed);
   expect(snapshot(root)).toEqual(before);
@@ -388,6 +394,74 @@ test('merged record-mode host lists finalized picks and its printed writer comma
   expect(JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts).toEqual([]);
   expectExit0(await cli(root, ['interview', '--check', root]));
 }, 30_000);
+
+sourceOnlyTest('#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing', async () => {
+  const { root, url, view, value } = await openMotionQuestion();
+  const before = readFileSync(join(root, 'project.json'));
+  const requests: { after: string | null; waitMs: number }[] = [];
+  const entered = Promise.withResolvers<void>();
+  const controller = new AbortController();
+  const start = async (options: JobHostOptions): Promise<JobOwnerHost> => {
+    expect(options.reuseOnly).toBeDefined();
+    const attached = await startJobHost(options);
+    return { ...attached, ports: { ...attached.ports, async handleJobApi(request) {
+      const body = await request.clone().json() as { verb: string; after: string | null; waitMs: number };
+      expect(body.verb).toBe('next');
+      expect(request.headers.get('authorization')).toBe(`Bearer ${attached.session.hostCredentials().agent}`);
+      requests.push({ after: body.after, waitMs: body.waitMs });
+      if (body.waitMs > 0) entered.resolve();
+      return attached.ports.handleJobApi(request);
+    } } };
+  };
+  const waiting = listCreateJobActs(root, start, { timeoutMs: 5_000, signal: controller.signal });
+  try {
+    await Promise.race([entered.promise, waiting]);
+    const beforeWait = requests.slice();
+    expect(beforeWait.map(request => request.waitMs === 0)).toEqual([true, true, false]);
+    expect(beforeWait[2]!.after).toBe(beforeWait[1]!.after);
+    expect(beforeWait[2]!.after).not.toBeNull();
+
+    const refused = await view.tryAct('interview-picks', 'interview-picks', value, { displayedNonce: '0'.repeat(64) });
+    expect(obj(refused.error).code).toBe('JOB_DISPLAY_MISMATCH');
+    await page(root, url, 1);
+    await Bun.sleep(600);
+    expect(requests).toEqual(beforeWait);
+
+    const act = await view.act('interview-picks', 'interview-picks', value);
+    const result = await waiting;
+    expect(result.acts).toHaveLength(1);
+    expect(result.acts[0]).toMatchObject({ actId: act.actId, kind: 'interview-picks' });
+    expect(requests.slice(beforeWait.length).map(request => request.waitMs)).toEqual([0, 0]);
+
+    const pending = await cli(root, ['job', 'acts', '--wait', '--timeout-ms', '1', '--json']);
+    expectExit0(pending);
+    expect(JSON.parse(pending.stdout)).toEqual(result);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    await executePrinted(root, result.acts[0]!.command!);
+
+    const ingested = readFileSync(join(root, 'project.json'));
+    const timeout = await cli(root, ['job', 'acts', '--wait', '--timeout-ms', '300', '--json']);
+    expect(timeout.exit).toBe(3);
+    expect(timeout.stderr).toContain('JOB_NEXT_TIMEOUT');
+    expect(timeout.stdout).toBe('');
+    expect(readFileSync(join(root, 'project.json'))).toEqual(ingested);
+  } finally {
+    controller.abort();
+    await waiting.catch(() => {});
+  }
+}, 30_000);
+
+test('#698 timeout options require a bounded integer and --wait', async () => {
+  const root = copy('0b-plan-pending');
+  for (const options of [
+    ['--timeout-ms', '1'], ['--wait', '--timeout-ms'], ['--wait', '--timeout-ms', '0'],
+    ['--wait', '--timeout-ms', '600001'], ['--wait', '--timeout-ms', '1.5'],
+  ]) {
+    const result = await cli(root, ['job', 'acts', ...options]);
+    expect(result.exit).toBe(2);
+    expect(result.stderr).toContain('JOB_BINDING_INVALID');
+  }
+});
 
 test('#633 post composition Other leads to a cited scene through two Review picks', async () => {
   testClock.set(Date.now());

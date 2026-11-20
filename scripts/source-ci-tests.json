@@ -244,5 +244,10 @@
     "file": "tests/advance-publication.test.ts",
     "name": "advance rig-review on a bound job publishes the current rig and folds the approved UI verdict into its signature via CLI",
     "reason": "Exercises published Review fresh rig approval/signature behavior under sibling source resolution."
+  },
+  {
+    "file": "tests/job-acts.test.ts",
+    "name": "#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing",
+    "reason": "Requires Review's source-pinned waitForJobAct export"
   }
 ]

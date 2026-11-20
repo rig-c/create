@@ -1,1 +1,7 @@
-[]
+[
+  {
+    "file": "tests/job-acts.test.ts",
+    "name": "#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing",
+    "reason": "Requires Review's source-pinned waitForJobAct export"
+  }
+]

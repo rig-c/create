@@ -21,7 +21,7 @@ export function publicationFailure(error: unknown, root: string): Refusal | unde
 }
 
 async function run(): Promise<void> {
-  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; selector?: JobSelector; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: Record<string, string>; json?: boolean };
+  const input = JSON.parse(readFileSync(0, 'utf8')) as { root: string; id?: string; selector?: JobSelector; reviewer?: string; role?: 'owner' | 'delegate'; draft?: string; rig?: string; question?: string; plan?: boolean; now: number; retireRefused?: boolean; discardActs?: Record<string, string>; json?: boolean; timeoutMs?: number };
   const root = resolve(input.root);
   switch (process.argv[2]) {
     case 'check-ask': {
@@ -57,8 +57,21 @@ async function run(): Promise<void> {
       break;
     }
     case 'acts': {
-      const result = await listCreateJobActs(root);
-      console.log(input.json ? JSON.stringify(result) : jobActsText(result));
+      const controller = new AbortController();
+      const interrupt = () => controller.abort();
+      process.on('SIGINT', interrupt);
+      process.on('SIGTERM', interrupt);
+      try {
+        const wait = input.timeoutMs === undefined ? undefined : { timeoutMs: input.timeoutMs, signal: controller.signal };
+        const result = await listCreateJobActs(root, undefined, wait);
+        console.log(input.json ? JSON.stringify(result) : jobActsText(result));
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+        process.exitCode = 1;
+      } finally {
+        process.off('SIGINT', interrupt);
+        process.off('SIGTERM', interrupt);
+      }
       break;
     }
     case 'reconcile': console.log(`job: reconciled ${await reconcileCreateJob(root, undefined, input.now)} publication(s)`); break;
@@ -131,6 +144,6 @@ if (import.meta.main) {
     // Unexpected errors may embed producer input. Only controlled refusals leave this process.
     const named = publicationFailure(error, 'the requested project directory');
     console.error(named ? `${named.code}: ${named.message}` : 'JOB_PUBLISH_PENDING: project.json: publication operation failed; run rig-create job reconcile');
-    process.exitCode = 1;
+    process.exitCode = named?.exitCode ?? 1;
   }
 }

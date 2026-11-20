@@ -182,10 +182,7 @@ test('closeCreateJob retires a live host bound with an older enumeratorVersion a
   // Normal attach / publish / reconcile must stay strict against the current identity.
   const manifestPath = prepareLiveManifest(root, project, 1);
   const entry = enqueuePublication(root, binding, { path: manifestPath, selector: { kind: 'rig', version: 1 } });
-  await expect(attachCreateJob(entry)).rejects.toMatchObject({
-    code: 'JOB_HOST_REUSE_MISMATCH',
-    message: expect.stringMatching(/enumeratorVersion.*unintended.*restore.*intended pin or hook bump.*rig-create job close <project>/),
-  });
+  await expect(attachCreateJob(entry)).rejects.toMatchObject({ code: 'JOB_HOST_REUSE_MISMATCH' });
   await expect(publishPending(entry)).rejects.toMatchObject({ code: 'JOB_HOST_REUSE_MISMATCH' });
   await expect(reconcileCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
   expect(pendingPublications(root)[0]?.failure?.code).toBe('JOB_HOST_REUSE_MISMATCH');
@@ -234,9 +231,22 @@ test('closeCreateJob retires a live host bound with an older enumeratorVersion a
 
 test('CLI job close retires a live host bound with an older enumeratorVersion and keeps project.json byte-identical', async () => {
   const { root } = setupProject();
-  const { host, binding } = await openLegacyBoundHost(root, { enumeratorVersion: OLD_ENUMERATOR_VERSION });
+  const { host, binding } = await openLegacyBoundHost(root, { enumeratorVersion: '2.45.0' });
   const beforeProjectBytes = readFileSync(join(root, 'project.json'));
   const beforeProjectSha256 = jobHash(beforeProjectBytes);
+
+  expect(host.session.status().generation).toBe(0);
+  const reuse = Bun.spawnSync([
+    process.execPath, CLI, 'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner',
+  ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  expect(reuse.exitCode).toBe(1);
+  const detail = reuse.stderr.toString();
+  expect(detail).toContain('JOB_HOST_REUSE_MISMATCH');
+  expect(detail).toContain('enumeratorVersion expected="2.45.0" found=' + JSON.stringify(partsEnumerator.version));
+  expect(detail).toContain('if the change was unintended, restore the bound host configuration');
+  expect(detail).toContain('For an intended pin or hook bump, follow job retirement (docs/JOB-RETIREMENT.md): run rig-create job close <project>');
+  expect(host.session.writerGrant()).toEqual({ jobId: binding.jobId, fetchCapability: binding.fetchCapability });
+  expect(readFileSync(join(root, 'project.json'))).toEqual(beforeProjectBytes);
 
   const child = Bun.spawn([process.execPath, CLI, 'job', 'close', root], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([

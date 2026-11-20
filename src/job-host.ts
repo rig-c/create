@@ -78,8 +78,14 @@ export async function openCreateJob(
     // state or connects to that port: it starts this root's own job and replaces the copy.
     const found = readWriterBinding(root);
     const existing = found && found.identity.root === root ? found : null;
-    const identity = currentJobIdentity({ root, stateDir: existing?.identity.stateDir ?? join(jobHostStateRoot(root), 'host'), fingerprint: 'rig-create/live-review/1', reviewer, ...(existing?.identity.publicationMode || recordMode ? { publicationMode: 'record-and-package' as const } : {}) }, root);
-    if (recordMode && existing && !existing.identity.publicationMode) refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: this job uses a package-only host; finish and ingest its pending acts, then run rig-create job close and reopen with --question or --plan');
+    if (recordMode && existing && !existing.identity.publicationMode) {
+      refuse('JOB_HOST_REUSE_MISMATCH', 'project.json: publicationMode expected=record-and-package found=package-only; finish and ingest pending acts, then run job close once and retry job open');
+    }
+    const publicationMode = existing ? existing.identity.publicationMode : 'record-and-package';
+    const identity = currentJobIdentity({
+      root, stateDir: existing?.identity.stateDir ?? join(jobHostStateRoot(root), 'host'),
+      fingerprint: 'rig-create/live-review/1', reviewer, ...(publicationMode ? { publicationMode } : {}),
+    }, root);
     if (existing) assertJobIdentity(existing.identity, identity);
     privateDirectory(identity.stateDir);
     let writerGrant: WriterGrant | undefined;

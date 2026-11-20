@@ -91,56 +91,33 @@ test('installed Review 4.9.1 exports the act and previous-draft contracts and re
   expect(identity.readerId).toBe('rig-create/publication-reader/2');
   expect(identity.bindingId).toBe(JOB_BINDING_ID);
   expect(identity.partsEnumeratorId).toBe(JOB_ENUMERATOR_ID);
+  expect(identity.publicationMode).toBeUndefined();
   expect(identity.apiSchema).toBe('rig-review/job-api@2');
   expect(identity.actSchema).toBe('rig-review/act@2');
 });
 
-test('openCreateJob defaults to package-only mode and refuses V3 record publish requests', async () => {
+test('openCreateJob enables record publication while retaining the package attachment schemas', async () => {
   const root = makeProject();
   const host = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now());
   hosts.push(host);
 
-  expect(host.session.publicationMode).toBe('package-only');
-  expect(host.session.apiSchema).toBe('rig-review/job-api@2');
+  expect(host.session.publicationMode).toBe('record-and-package');
+  expect(host.session.apiSchema).toBe(JOB_API_V3_SCHEMA);
 
   const binding = readWriterBinding(root);
   expect(binding).not.toBeNull();
+  expect(binding?.identity).toMatchObject({
+    publicationMode: 'record-and-package',
+    apiSchema: JOB_API_SCHEMA,
+    actSchema: JOB_ACT_SCHEMA,
+  });
   const hostDescriptor = JSON.parse(
     readFileSync(join(binding!.identity.stateDir, 'job-ui', `${host.session.jobId}.json`), 'utf8'),
   ) as Record<string, unknown>;
   expect(hostDescriptor.apiSchema).toBe('rig-review/job-api@2');
   expect(hostDescriptor.actSchema).toBe('rig-review/act@2');
-  expect(hostDescriptor.publicationMode).toBeUndefined();
-  expect(hostDescriptor.recordReaderId).toBeUndefined();
-
-  const v3Response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${host.session.hostCredentials().agent}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      schema: 'rig-review/job-api@3',
-      verb: 'publish',
-      jobId: host.session.jobId,
-      requestId: 'req-v3-record',
-      idempotencyKey: 'idem-v3-record',
-      expectedGeneration: host.session.status().generation,
-      result: { kind: 'plan' },
-      freeze: {
-        kind: 'producer-held',
-        holdId: 'hold-v3',
-        record: { path: 'project.json', sha256: 'a'.repeat(64) },
-      },
-    }),
-  }));
-  expect(v3Response.status).toBe(400);
-  const body = await v3Response.json() as { schema: string; ok: boolean; error?: { code: string } };
-  expect(body.schema).toBe('rig-review/job-api@2');
-  expect(body.ok).toBe(false);
-  expect(body.error?.code).toBe('JOB_REQUEST_INVALID');
-  expect(host.session.status().generation).toBe(0);
-  expect(host.session.status().publication).toBeNull();
+  expect(hostDescriptor.publicationMode).toBe('record-and-package');
+  expect(hostDescriptor.recordReaderId).toBe(JOB_READER_ID);
 
   await closeCreateJob(root);
 });

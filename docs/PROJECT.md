@@ -2433,8 +2433,9 @@ ordered `{id, hash}` step identities and eligible
 Subject key order follows these declarations. Identifiers must fit the
 review record-id domain of 1–128 ASCII letters, digits, dots, underscores
 and hyphens, starting with a letter or digit. The reader identity is
-`rig-create/publication-reader/2`. Create opens the live host in `package-only`
-mode by default. Record publications opt into the V3 symbols and types
+`rig-create/publication-reader/2`. Create opens new hosts in
+`record-and-package` mode. Package and record publications share the host
+identity and owner link. Record publications use the V3 symbols and types
 exported by the release-pinned Review 4.9.1.
 
 Eligibility comes from the one `checkProject` call with `readOnly: true`.

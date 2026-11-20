@@ -24,11 +24,11 @@
    same project, reviewer and role. It restores the same port and URL, then
    run `job reconcile` before more writes. Share a new URL only after a close.
 
-Until [#700](https://github.com/rig-c/create/issues/700) lands, an existing
-package-only host refuses a switch to a question or plan with
-`JOB_HOST_REUSE_MISMATCH`. Finish and ingest its pending acts, close it
-explicitly, then reopen in the background with `--question <id>` or `--plan`
-and share the new job's URL.
+A draft and a question share the same host and URL. If a legacy host
+reports `JOB_HOST_REUSE_MISMATCH` with
+`publicationMode expected=record-and-package found=package-only`, finish and
+ingest its pending acts and run `job close` once. Reopen in the background
+with `--question <id>` or `--plan` and share the new job's URL.
 
 ## Job commands
 

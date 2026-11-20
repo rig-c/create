@@ -60,8 +60,8 @@ Preserve history/dates; adopt choices explicitly.
 Run the first `job open <dir> --reviewer <id> --role owner` in the background.
 Add the first selector if ready. Share the private URL once. Publish via bound writers or repeat with the same
 reviewer/role and `--draft`, `--rig`, `--question` or `--plan`. Reused opens exit. The page updates in place.
-Until #698, ask the owner to tell you after submitting. Run `job acts`, ingest
-via `--from-review`, advance as needed and publish again.
+After publishing an ask, run `rig-create job acts --wait` in the background. Ingest with its
+printed command, advance as needed and publish again.
 With all owner picks ingested, complete the plan and follow `next` for
 `signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
 After a listener stop, reopen with the same reviewer/role, keep the URL, then `job reconcile`.

@@ -13,10 +13,8 @@
    `job open` selector or a bound writer. Repeat the project, reviewer and role
    on each open. A reused open publishes and exits while the original host
    keeps serving. Have the owner leave the page open for live updates.
-4. Ask the owner to tell you after they submit in Review. Until
-   [#698](https://github.com/rig-c/create/issues/698) lands, `job acts` lists
-   finalized acts on demand and the owner has to tell the agent.
-5. Run `job acts` and ingest the matching act with its printed
+4. After publishing, run `rig-create job acts --wait` in the background.
+5. Ingest the matching act with its printed
    `--from-review` command. Ingest the current owner asks before sending a new
    target. Run `advance` if the stage requires it, then publish the next ask
    into the same host.
@@ -62,7 +60,7 @@ the record request refuses `JOB_DIRECTION_VERDICT_REQUIRED` without writing.
 After verdict ingest, `job open --plan` asks `signoff direction-review` on the
 record page. Ingest `signoff direction-review --from-review <actId>`, then
 `advance accepted`. This route is supported by release-pinned
-[Review 4.8.0](https://github.com/rig-c/review/tree/v4.8.0), including the
+[Review 4.9.0](https://github.com/rig-c/review/tree/v4.9.0), including the
 record direction-review sign-off from
 [Review #795](https://github.com/rig-c/review/pull/795).
 
@@ -419,14 +417,14 @@ Review's code. Run `job open` to retry the ask.
 | `post` checkpoints | record plan | `job open --plan` in `post` when the checkpoint is enabled and at-checkpoint |
 | `parts-review` | draft | advance when the first draft has agent evidence; stay here across retouches, preparing fresh evidence and opening each new draft for one `parts-verdict`; approved UI ingestion also signs. Separate signoff is only for a midflight approved verdict already ingested unsigned |
 | `rig-review` | rig version | a fresh publication asks only `review-verdict`; approved ingestion records its rig-review signature atomically. Already-ingested unsigned verdicts and retained old two-subject publications keep separate-signoff recovery through `job open` |
-| `direction-review` | record plan, using release-pinned Review 4.8.0 | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
+| `direction-review` | record plan, using release-pinned Review 4.9.0 | `job open --plan` after the current post's accepted live verdict is ingested; ingest the real signature, then `advance accepted` |
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
-| `interview` | record plan, using release-pinned Review 4.8.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
+| `interview` | record plan, using release-pinned Review 4.9.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
 
 Interview picks use `job open --question <id>`. After ingesting every pick,
 run `interview --check`, then `job open --plan` for the interview signature.
 This record route is supported by release-pinned
-[Review 4.8.0](https://github.com/rig-c/review/tree/v4.8.0), including the
+[Review 4.9.0](https://github.com/rig-c/review/tree/v4.9.0), including the
 [Review #803](https://github.com/rig-c/review/pull/803) carrier (issue #800).
 The record subject is `plan`, with non-empty
 displayed steps, even though the signature approves the interview answers
@@ -513,8 +511,7 @@ Prepare the first draft before asking for a verdict:
    `parts-review`. Do not wait for owner approval to enter the review stage.
 3. Publish the prepared draft with `job open --draft <id>`. The one owner ask
    is `parts-verdict`, and it is asked only at `parts-review`.
-4. Ask the owner to tell you after submitting the verdict. Run `job acts`
-   and ingest its printed `parts-review --from-review <actId>` writer command.
+4. Run `rig-create job acts --wait` in the background and ingest its printed `parts-review --from-review <actId>` writer command.
 
 Stay at `parts-review` throughout retouch rounds. A changes-requested verdict
 leaves the stage unsigned. The agent makes an `edited_parts` correction,

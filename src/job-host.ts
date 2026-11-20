@@ -1,7 +1,7 @@
 import { readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector } from '@rig-c/review/job-host';
+import { startJobHost, waitForJobAct, type JobHostAttachFailure, type JobHostOptions, type JobHostReuseBinding, type JobOwnerHost, type JobReviewerBinding, type JobSelector } from '@rig-c/review/job-host';
 import { asArray, checkProject, collectItems, loadCollection, isObject, type Finding } from './check.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
@@ -282,11 +282,6 @@ export async function listCreateJobActs(
     let listed = await list();
     if (!wait || listed.acts.length) return { jobId: binding.jobId, acts: listed.acts };
 
-    // Keep ordinary listing usable with the registry release while the source pin leads it.
-    const { waitForJobAct } = await import('@rig-c/review/job-host');
-    if (typeof waitForJobAct !== 'function') {
-      refuse('JOB_ACTS_READ_REFUSED', 'project.json: installed Review does not export the act waiter; install a compatible Review before retrying job acts --wait');
-    }
     const deadline = performance.now() + wait.timeoutMs;
     for (;;) {
       const remaining = Math.min(wait.timeoutMs, Math.ceil(deadline - performance.now()));

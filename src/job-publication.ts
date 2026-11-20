@@ -44,6 +44,22 @@ export const JOB_BINDING_ID = 'rig-create/writer-binding/1';
 export const JOB_ENUMERATOR_ID = 'rig-create/parts-file-references/1';
 export const partsEnumerator = { version: partsPackage.version, enumerate: partsFileReferences };
 
+const DRAFT_PACKAGE_ID_PREFIX = 'create-draft-';
+const RIGGING_DRAFT_PACKAGE_ID_PREFIX = 'create-rigging-draft-';
+
+export function draftPackageIdentity(id: string, rigging = false): { id: string; path: string } {
+  return rigging
+    ? { id: `${RIGGING_DRAFT_PACKAGE_ID_PREFIX}${id}`, path: `review-rigging-draft-${id}.json` }
+    : { id: `${DRAFT_PACKAGE_ID_PREFIX}${id}`, path: `review-draft-${id}.json` };
+}
+
+export function isModelLessRiggingDraft(draft: JsonObject): boolean {
+  const paths = asArray(draft.files).filter(isObject).map(file => String(file.path));
+  const rigs = paths.filter(path => path.endsWith('/rig.json'));
+  return rigs.length === 1 && paths.includes(rigs[0].replace(/rig\.json$/, 'mesh_report.json'))
+    && !paths.some(path => path.endsWith('/skeleton.model.json'));
+}
+
 function reviewPackageIdentity(version: number, row: JsonObject) {
   return { path: `derived/review/v${version}/${String(row.path)}`, sha256: row.sha256 };
 }
@@ -771,25 +787,37 @@ export function draftPublishedContext(root: string, project: JsonObject, id: str
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files };
 }
 
-export function prepareDraftManifest(root: string, project: JsonObject, id: string): string {
-  const context = draftPublishedContext(root, project, id);
-  const draft = publishedDraft(project, id);
+function draftManifest(root: string, project: JsonObject, draft: JsonObject, parts: NonNullable<JobPublishedContext['parts']>, rigging: boolean) {
+  const id = String(draft.id);
   const painting = publishedSourcePainting(root, project, `drafts[${id}]`);
   const files = draft.files as JsonObject[];
   const models = files.filter(file => String(file.path).endsWith('/skeleton.model.json'));
   if (models.length > 1) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: multiple compiled models are ambiguous; retain one draft output`);
   const revision = jobHash(`${JSON.stringify(draft, null, 2)}\n`);
-  const legacyManifest = { schema: 'rig-review/1', id: `create-draft-${id}`, revision, title: `draft ${id}`,
+  const identity = draftPackageIdentity(id, rigging);
+  const legacyManifest = { schema: 'rig-review/1', id: identity.id, revision, title: `draft ${id}`,
     ...(models.length ? { model: models[0].path } : {}),
-    references: context.parts!.images.map((image, index) => ({ id: `image-${index}`, label: `${image.role} ${image.path}`, type: 'image',
-      path: relative(root, resolve(root, dirname(context.parts!.manifest.path), image.path)).split('\\').join('/') })),
+    references: parts.images.map((image, index) => ({ id: `image-${index}`, label: `${image.role} ${image.path}`, type: 'image',
+      path: relative(root, resolve(root, dirname(parts.manifest.path), image.path)).split('\\').join('/') })),
     animations: [], checkpoints: [], authoring: files.filter(file => /\/(rig|motion|mesh_report)\.json$/.test(String(file.path)))
       .map(file => ({ label: String(file.path).split('/').at(-1), path: file.path })) };
   const producer = { config: String((draft.config as JsonObject).path), parts: String((draft.parts as JsonObject).path), source: painting.path };
   const panels = { schema: 'rig-review/panels@1', left: ['parts.list'], stage: ['parts.canvas'], toolbar: ['parts.layers'], side: ['parts.issues', 'act.submit'] };
   const manifest = { ...legacyManifest, producer, panels };
-  const path = `review-draft-${id}.json`;
-  const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+  return { identity, legacyManifest, panels, bytes: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`) };
+}
+
+export function prepareDraftManifest(root: string, project: JsonObject, id: string, path?: string): string {
+  const context = draftPublishedContext(root, project, id);
+  const draft = publishedDraft(project, id);
+  const rigging = path === undefined
+    ? isModelLessRiggingDraft(draft) && effectiveStage(root, project) === 'rigging'
+    : path === draftPackageIdentity(id, true).path;
+  const { identity, legacyManifest, panels, bytes } = draftManifest(root, project, draft, context.parts!, rigging);
+  if ((path !== undefined && path !== identity.path) || (rigging && !isModelLessRiggingDraft(draft))) {
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its draft publication; restore the writer manifest`);
+  }
+  path = identity.path;
   const legacyPanelsBytes = Buffer.from(`${JSON.stringify({ ...legacyManifest, panels }, null, 2)}\n`);
   const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
   if (existsSync(join(root, path))) {
@@ -801,14 +829,14 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
         if (isObject(retained as Json)) {
           const prior = retained as JsonObject;
           const revisions = asArray(project.drafts).filter(isObject).map(item => jobHash(`${JSON.stringify(item, null, 2)}\n`));
-          orphaned = prior.schema === 'rig-review/1' && prior.id === `create-draft-${id}`
+          orphaned = prior.schema === 'rig-review/1' && prior.id === identity.id
             && typeof prior.revision === 'string' && /^[a-f0-9]{64}$/.test(prior.revision)
             && !revisions.includes(prior.revision)
             && !pendingPublications(root).some(entry => !isRecordResult(entry.result)
               && entry.result.path === path && entry.versionHash === prior.revision);
         }
       } catch { /* An unreadable manifest is never evidence of an orphaned revision. */ }
-      if (!existing.equals(legacyPanelsBytes) && !existing.equals(legacyBytes) && !orphaned) {
+      if (!orphaned && (rigging || !existing.equals(legacyPanelsBytes) && !existing.equals(legacyBytes))) {
         refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: retained publication manifest differs; restore it before reconciling, or run rig-create job close --retire-refused to retire a refused publication`);
       }
       const target = join(root, path);
@@ -824,18 +852,30 @@ export function prepareDraftManifest(root: string, project: JsonObject, id: stri
   return path;
 }
 
+/** The rigging manifest has one canonical form, including its authoring and image paths. */
+export function riggingDraftManifestBytes(root: string, project: JsonObject, draft: JsonObject, parts: NonNullable<JobPublishedContext['parts']>): Buffer {
+  const { identity, bytes } = draftManifest(root, project, draft, parts, true);
+  const retained = publicationFile(root, identity.path);
+  if (!isModelLessRiggingDraft(draft) || !retained.equals(bytes)) {
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${String(draft.id)}]: rigging draft manifest or mesh inventory differs; restore the writer manifest and its recorded rig files`);
+  }
+  return retained;
+}
+
 /** Register inventory early; ask for approval only after agent evidence and the advance. */
 export function draftPublicationContext(root: string, project: JsonObject, id: string, warnings: Finding[] = []): JobPublishedContext {
   return inspectDraftPublication(root, project, id, warnings).context;
 }
 
-export function inspectDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[] = [], stage = effectiveStage(root, project)): {
+export function inspectDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[] = [], stage = effectiveStage(root, project), allowRigging = true): {
   context: JobPublishedContext;
   missingStructure: string | undefined;
   diffFinding: Finding | undefined;
+  rigging: boolean;
 } {
   // Validate the mandatory closure before looking for optional comparison evidence.
   const context = draftPublishedContext(root, project, id);
+  const rigging = allowRigging && stage === 'rigging' && isModelLessRiggingDraft(publishedDraft(project, id));
   // Fresh approvals sign the stage during verdict ingestion. Preserve a separate
   // signoff ask only for an approval already ingested by an earlier writer.
   let legacyApproval = false;
@@ -858,16 +898,24 @@ export function inspectDraftPublication(root: string, project: JsonObject, id: s
   const missingStructure = structure && !structure.valid && verdicts.some(subject => subject.kind === 'parts-verdict')
     ? structure.path : undefined;
   if (stage !== 'parts-review' || missingStructure !== undefined) subjects = subjects.filter(subject => subject.kind !== 'parts-verdict');
+  if (rigging) subjects.unshift({ kind: 'parts-verdict', draftId: id });
   const files = [...context.files];
   const checkpoints = checkpointEvidenceContext(root, project, subjects, files);
   const comparison = previousDraftContext(root, project, id, context.parts!.manifest, files, warnings);
-  return { context: { ...context, subjects, files, ...checkpoints, ...comparison }, missingStructure, diffFinding: errors[0] };
+  return { context: { ...context, subjects, files, ...checkpoints, ...comparison }, missingStructure, diffFinding: errors[0], rigging };
 }
 
 function readDraftPublished(root: string, project: JsonObject, id: string, path: string): JobPublishedContext {
-  if (path !== `review-draft-${id}.json`) refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its publication; restore the writer manifest`);
-  const context = draftPublicationContext(root, project, id);
-  return { ...context, files: [...context.files, { path, sha256: jobHash(publicationFile(root, path)) }] };
+  const rigging = path === draftPackageIdentity(id, true).path;
+  if (!rigging && path !== draftPackageIdentity(id).path) {
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its publication; restore the writer manifest`);
+  }
+  const { context, rigging: eligible } = inspectDraftPublication(root, project, id, [], undefined, rigging);
+  if (rigging && !eligible) {
+    refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: rigging mesh feedback needs the current model-less rigging draft; publish it at rigging or open the current review`);
+  }
+  const manifest = rigging ? riggingDraftManifestBytes(root, project, publishedDraft(project, id), context.parts!) : publicationFile(root, path);
+  return { ...context, files: [...context.files, { path, sha256: jobHash(manifest) }] };
 }
 
 /** The stage the check reads the published record in: the stage its `signoff` and `checkpoint` subjects sign. */

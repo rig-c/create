@@ -3,7 +3,7 @@ import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 import { dirname, join } from 'node:path';
 import { readFileSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { publicationFile, publishedDraft } from './job-publication.ts';
+import { draftPackageIdentity, publicationFile, publishedDraft, riggingDraftManifestBytes } from './job-publication.ts';
 import { jobHash, publicationVersionHash } from './job-outbox.ts';
 import { decodeReviewAct, partsActIssues, type PartsVerdictAct } from './review-act.ts';
 import { stepHash } from './step-hash.ts';
@@ -22,7 +22,13 @@ export function partsActReceipt(project: JsonObject, act: PartsVerdictAct): Json
   return Array.isArray(project.review_acts) ? project.review_acts.find(entry => object(entry) && entry.jobId === act.jobId && entry.actId === act.actId) as JsonObject | undefined : undefined;
 }
 
-/** File hashes are checked as declared. No enumeration or producer measurement. */
+export function isRiggingDraftAct(act: { source: { selector?: { kind: string; id?: string } | null; package?: { id: string } } }): boolean {
+  const selector = act.source.selector;
+  return selector?.kind === 'draft' && typeof selector.id === 'string'
+    && act.source.package?.id === draftPackageIdentity(selector.id, true).id;
+}
+
+/** Verify the declared files and the publication manifest without re-enumerating producer output. */
 export function assertPartsActSource(root: string, project: JsonObject, act: PartsVerdictAct, options: { comparePlan?: boolean } = {}): void {
   let draft: JsonObject;
   try { draft = publishedDraft(project, act.source.selector.id); }
@@ -58,7 +64,27 @@ export function assertPartsActSource(root: string, project: JsonObject, act: Par
     const steps = object(project.plan) && Array.isArray(project.plan.steps) ? project.plan.steps : [];
     if (!isDeepStrictEqual(act.source.plan.steps, steps.map(step => ({ id: object(step) ? step.id : null, hash: object(step) ? stepHash(step) : null })))) fail('displayed plan changed');
   }
-  const publication = JSON.parse(publicationFile(root, `review-draft-${draft.id}.json`).toString('utf8')) as JsonObject;
+  const rigging = isRiggingDraftAct(act);
+  const identity = draftPackageIdentity(act.source.selector.id, rigging);
+  if (act.source.package.id !== identity.id) fail('published package identity does not match the selected draft');
+  let manifestBytes: Buffer;
+  if (rigging) {
+    if (act.source.model !== null || act.source.direction !== null) fail('a rigging mesh verdict must bind its model-less draft');
+    try { manifestBytes = riggingDraftManifestBytes(root, project, draft, act.source.parts); }
+    catch { return fail(`${identity.path} or its retained source painting is absent or changed`); }
+    for (const packet of act.source.checkpointEvidence ?? []) {
+      for (const file of [...packet.tiles, packet.table]) check(file);
+    }
+    const previous = act.source.previousDraft;
+    if (previous) {
+      check(previous.composites.current);
+      check(previous.composites.previous);
+      if (previous.diff) check(previous.diff);
+    }
+  } else {
+    manifestBytes = publicationFile(root, identity.path);
+  }
+  const publication = JSON.parse(manifestBytes.toString('utf8')) as JsonObject;
   if (publication.id !== act.source.package.id || publication.revision !== act.source.package.revision
     || act.source.package.revision !== partsActDraftHash(project, act)
     || (publication.model ?? null) !== (act.source.model?.path ?? null)) fail('published package identity changed');
@@ -75,7 +101,8 @@ export function partsActFindings(root: string, project: JsonObject): { code: str
         || entry.evidence.sha256 !== entry.sha256) throw Error();
       const bytes = publicationFile(root, entry.evidence.path);
       if (jobHash(bytes) !== entry.sha256 || bytes.toString('utf8') !== entry.bytes) throw Error();
-      decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
+      const act = decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
+      if (isRiggingDraftAct(act) && act.source.package.revision !== entry.version_hash) throw Error();
       return [];
     } catch { return [{ code: 'REVIEW_ACT_LEDGER_INVALID', path, message: `${path}: retained evidence differs from its act receipt; restore the original evidence and ledger together` }]; }
   });
@@ -83,6 +110,9 @@ export function partsActFindings(root: string, project: JsonObject): { code: str
 
 export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash: string, candidate?: JsonObject, options: { requireApproval?: boolean } = {}): string {
   const act = decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
+  if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id) {
+    refuse('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence: act does not bind the parts-review package; review the draft at parts-review');
+  }
   const project = candidate ?? JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
   const receipt = partsActReceipt(project, act);
   if (!receipt || receipt.kind !== 'parts-verdict' || receipt.sha256 !== evidenceHash || receipt.bytes !== bytes.toString('utf8')) {

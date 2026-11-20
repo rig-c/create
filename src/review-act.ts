@@ -15,7 +15,7 @@ import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
 import { PICK_SIGNOFF_STAGES } from './stages.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
-import { composedPublishedBuildFiles, liveManifestPath, publicationFile } from './job-publication.ts';
+import { composedPublishedBuildFiles, draftPackageIdentity, liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { INTAKE_QUESTION, intakeItem } from './intake.ts';
 import { collectItems, asArray, isObject, type Finding } from './check.ts';
@@ -670,6 +670,9 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         const expected = partsVerdictSignoff(act);
         const named = asArray(project.signoffs).filter(object).filter(row => row.source === expected.source);
         if (entry.signoff !== undefined || named.length > 0) {
+          if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id) {
+            failure('REVIEW_ACT_LEDGER_INVALID', 'a parts signature must bind the parts-review package');
+          }
           const signoff = Number.isSafeInteger(entry.signoff) && Number(entry.signoff) >= 0 ? asArray(project.signoffs)[Number(entry.signoff)] : null;
           if (act.value.verdict !== 'approved' || !object(signoff) || named.length !== 1 || named[0] !== signoff
             || Object.entries(expected).some(([key, value]) => signoff[key] !== value)

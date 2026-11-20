@@ -1,13 +1,13 @@
 import { draftFileUnavailable, draftInputUnavailable } from './drafts.ts';
-import { checkPartsActEvidence, partsActDraftHash, partsActFindings } from './parts-act.ts';
+import { checkPartsActEvidence, isRiggingDraftAct, partsActDraftHash, partsActFindings } from './parts-act.ts';
 import { realpathSync } from './check-reads.ts';
 import { isAbsolute, posix, resolve } from 'node:path';
 import { comparePartsVerdictBindings, type FileBinding } from './parts-verdict.ts';
 /** Review CLI stdout is retained separately from Review's private saved verdict. */
 import { isDeepStrictEqual } from 'node:util';
-import { publicationFile } from './job-publication.ts';
+import { draftPackageIdentity, publicationFile } from './job-publication.ts';
 import { jobHash } from './job-outbox.ts';
-import { decodeReviewAct, reviewActFindings } from './review-act.ts';
+import { decodeReviewAct, reviewActFindings, type PartsVerdictAct } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { ReviewReadError, storedReviewRead } from './review-read.ts';
 import type { Finding } from './check.ts';
@@ -201,7 +201,7 @@ export function latestPartsReceipt(project: JsonObject, draftId: string): JsonOb
   if (!Array.isArray(project.review_acts)) return;
   const amendedAt = draftAmendmentTime(project, draftId);
   return project.review_acts.filter(object).findLast(receipt => {
-    if (receipt.kind !== 'parts-verdict' || receipt.draft_id !== draftId) return false;
+    if (receipt.draft_id !== draftId || !isPartsReviewReceipt(receipt)) return false;
     if (amendedAt === -Infinity) return true;
     try {
       const at = receipt.schema === PARTS_CLI_RECEIPT ? String(receipt.at)
@@ -211,13 +211,39 @@ export function latestPartsReceipt(project: JsonObject, draftId: string): JsonOb
   });
 }
 
+function retainedPartsAct(receipt: JsonObject): PartsVerdictAct | undefined {
+  if (receipt.kind !== 'parts-verdict' || receipt.schema !== 'rig-create/review-act@1' || typeof receipt.bytes !== 'string') return;
+  try { return decodeReviewAct(receipt.bytes, 'parts-verdict'); }
+  catch { return; } // The ledger validator reports malformed evidence.
+}
+
+export function isPartsReviewReceipt(receipt: JsonObject): boolean {
+  if (receipt.kind !== 'parts-verdict') return false;
+  if (receipt.schema === PARTS_CLI_RECEIPT) return true;
+  const act = retainedPartsAct(receipt);
+  return act !== undefined && receipt.draft_id === act.source.selector.id
+    && act.source.package.id === draftPackageIdentity(act.source.selector.id).id;
+}
+
+export function latestRiggingDraftFeedback(project: JsonObject, draftId: string): { act: PartsVerdictAct; evidence: JsonObject } | undefined {
+  if (!Array.isArray(project.review_acts)) return;
+  const amendedAt = draftAmendmentTime(project, draftId);
+  for (const receipt of project.review_acts.slice().reverse()) {
+    if (!object(receipt) || receipt.draft_id !== draftId || !object(receipt.evidence)) continue;
+    const act = retainedPartsAct(receipt);
+    if (act && isRiggingDraftAct(act) && act.source.selector.id === draftId && Date.parse(act.at) > amendedAt) {
+      return { act, evidence: receipt.evidence };
+    }
+  }
+}
+
 /** Shared by both writers and check. Reads only the response retained by parts-review. */
 export function recordedPartsVerdict(root: string, project: JsonObject, draftId: unknown, evidence?: unknown, options: { requireAvailable?: boolean; requireApproval?: boolean; retainedManifest?: Buffer } = {}): { evidence: JsonObject; partsFile: string } {
   if (typeof draftId !== 'string' || !draftId) return fail('PARTS_VERDICT_RECEIPT_REQUIRED', 'signoffs.parts-review.draft_id needs a recorded draft id');
   const entries = Array.isArray(project.review_acts) ? project.review_acts : [];
   const receipt = evidence === undefined ? latestPartsReceipt(project, draftId) : entries.find(entry => object(entry)
-    && entry.kind === 'parts-verdict' && entry.draft_id === draftId && object(entry.evidence) && object(evidence)
-    && entry.evidence.path === evidence.path && entry.evidence.sha256 === evidence.sha256);
+    && entry.draft_id === draftId && object(entry.evidence) && object(evidence)
+    && entry.evidence.path === evidence.path && entry.evidence.sha256 === evidence.sha256 && isPartsReviewReceipt(entry));
   if (!object(receipt) || !object(receipt.evidence)) {
     const boundPath = object(evidence) && entries.some(entry => object(entry) && entry.kind === 'parts-verdict'
       && entry.draft_id === draftId && object(entry.evidence) && entry.evidence.path === evidence.path);

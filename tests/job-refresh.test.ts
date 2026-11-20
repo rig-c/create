@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { checkProject as rawCheckProject } from '../src/check.ts';
-import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { testClock, interviewOptionsCommand, interviewAnswerCommand } from './clock.ts';
@@ -338,6 +339,213 @@ test.each(['approved', 'changes-requested'] as const)('#557 one parts %s act ing
     expect(signatures).toEqual([]);
     expect(nextProject(root, testClock.now()).moves.some(move => move.command?.startsWith('rig-create advance rigging-interview'))).toBe(false);
   }
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+const MESH_DRAFT = 'mesh-preview';
+const MESH_WORDS = '  Keep the silhouette.\r\nAdjust the synthetic mesh edge.  \r\n';
+
+async function recordMeshPreview(root: string, id: string, model: boolean): Promise<void> {
+  const path = `derived/drafts/${id}`;
+  cpSync(join(root, 'derived/drafts/chain'), join(root, path), { recursive: true });
+  if (!model) rmSync(join(root, path, 'out/check'), { recursive: true });
+  expectExit0(await cli(root, ['draft-rig', id, root, '--config', `${path}/config.json`, '--from', `${path}/out`, '--parts', `${path}/input`]));
+}
+
+async function riggingPreview(model = false) {
+  const root = copy('3-rig-review', project => {
+    project.stage = 'rigging';
+    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
+  });
+  await recordMeshPreview(root, MESH_DRAFT, model);
+  expect(checkProject(root).effective_stage).toBe('rigging');
+  const opening = await open(root, ['--draft', MESH_DRAFT]);
+  return { root, opening };
+}
+
+test('#712A model-backed rigging draft still publishes without a verdict ask', async () => {
+  const { root, opening } = await riggingPreview(true);
+  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published`]);
+  const view = await page(root, opening.url, 0);
+  expect(view.head.source).toMatchObject({ selector: { kind: 'draft', id: MESH_DRAFT }, model: {
+    path: `derived/drafts/${MESH_DRAFT}/out/check/build/skeleton.model.json`,
+  } });
+  expect(readAcknowledgedPublication(root, readWriterBinding(root)!.jobId, String(view.head.publicationId))?.subjects).toEqual([]);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+async function reviewedMeshPreview(verdict: 'approved' | 'changes-requested') {
+  const { root, opening } = await riggingPreview();
+  const subject = { kind: 'parts-verdict', draftId: MESH_DRAFT };
+  expect(opening.lines).toEqual([`job: draft ${MESH_DRAFT} published`, `job: asked parts-verdict ${MESH_DRAFT}`]);
+  const view = await page(root, opening.url, 1);
+  expect(view.asks.map(ask => ask.subject)).toEqual([subject]);
+  const source = view.head.source as JsonObject;
+  const record = { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) };
+  const selector = { kind: 'draft', id: MESH_DRAFT } as const;
+  expect(source).toMatchObject({ selector, model: null, projectHash: record.sha256 });
+  const jobId = readWriterBinding(root)!.jobId;
+  const publication = readAcknowledgedPublication(root, jobId, String(view.head.publicationId))!;
+  expect(publication.subjects).toEqual([subject]);
+  expect(publication.result.path).toBe(`review-rigging-draft-${MESH_DRAFT}.json`);
+  const manifest = JSON.parse(readFileSync(join(root, publication.result.path), 'utf8')) as JsonObject;
+  expect(manifest.id).toBe(`create-rigging-draft-${MESH_DRAFT}`);
+  expect(source.package).toEqual({ id: manifest.id, revision: manifest.revision });
+  expect(manifest.model).toBeUndefined();
+  expect(publication.draftSource).toEqual({ sourceHash: source.sourceHash, projectHash: record.sha256 });
+  const closure = await readPublished({ root, record, result: { path: publication.result.path, selector } });
+  for (const file of ['rig.json', 'mesh_report.json']) {
+    const path = `derived/drafts/${MESH_DRAFT}/out/${file}`;
+    expect(closure.files).toContainEqual({ path, sha256: jobHash(readFileSync(join(root, path))) });
+  }
+
+  const before = read(root);
+  const issue = verdict === 'changes-requested' ? await partsIssue(root, opening.url, view.head) : undefined;
+  const act = await view.act('parts-verdict', 'parts-verdict', { verdict, issues: issue ? [issue] : [], words: MESH_WORDS });
+  const result = await cli(root, ['parts-review', root, '--from-review', String(act.actId), '--json']);
+  expectExit0(result);
+  expect(JSON.parse(result.stdout)).toMatchObject({ draft_id: MESH_DRAFT, verdict });
+  const after = read(root);
+  expect(after.stage).toBe('rigging');
+  expect(after.advances).toEqual(before.advances);
+  expect(after.signoffs).toEqual(before.signoffs);
+  expect(after.versions).toEqual(before.versions);
+  const receipts = after.review_acts as JsonObject[];
+  expect(receipts.slice(0, -1)).toEqual(before.review_acts);
+  const receipt = receipts.at(-1)!;
+  expect(receipt).toMatchObject({ schema: 'rig-create/review-act@1', kind: 'parts-verdict', actId: act.actId, jobId, draft_id: MESH_DRAFT });
+  expect(receipt.signoff).toBeUndefined();
+  const evidence = receipt.evidence as JsonObject;
+  const bytes = readFileSync(join(root, String(evidence.path)), 'utf8');
+  expect(receipt.bytes).toBe(bytes);
+  expect(evidence.sha256).toBe(jobHash(bytes));
+  expect(JSON.parse(bytes)).toEqual(act);
+  const decoded = decodeReviewAct(bytes, 'parts-verdict');
+  expect(decoded.source.sourceHash).toBe(source.sourceHash);
+  expect(decoded.source.selector).toEqual(selector);
+  if (!('comments' in decoded.value)) throw new Error('Review did not retain a comments act');
+  expect(decoded.value.comments).toContainEqual({ text: MESH_WORDS });
+  if (issue) expect(decoded.value.comments.map(comment => comment.text)).toContain('Synthetic edge needs correction.');
+  expect(checkProject(root).effective_stage).toBe('rigging');
+  return { root, opening, act, evidence, publication };
+}
+
+test('#712A model-less rigging changes-requested feeds the next draft', async () => {
+  const { root, opening, act, evidence } = await reviewedMeshPreview('changes-requested');
+  const next = nextProject(root, testClock.now());
+  const feedback = next.moves.find(move => move.field === `drafts[${MESH_DRAFT}]` && move.role === 'agent');
+  expect(feedback?.command).toMatch(/^rig-create draft-rig /);
+  expect(feedback?.act).toContain(String(evidence.path));
+  expect(feedback?.act).toContain(String(evidence.sha256));
+
+  const id = 'mesh-revision';
+  const before = read(root);
+  await recordMeshPreview(root, id, false);
+  expect(read(root)).toMatchObject({ stage: 'rigging', signoffs: before.signoffs, review_acts: before.review_acts });
+  expect(nextProject(root, testClock.now()).moves.some(move => move.act.includes(String(act.actId))
+    || move.act.includes(String(evidence.path)))).toBe(false);
+  expectExit0(await cli(root, ['job', 'open', root, '--draft', id, '--reviewer', 'synthetic-owner', '--role', 'owner']));
+  const revised = await page(root, opening.url, 1);
+  expect(revised.asks.map(ask => ask.subject)).toEqual([{ kind: 'parts-verdict', draftId: id }]);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+test('#712A rigging approval requires a separate version rig-review verdict', async () => {
+  const { root, opening } = await reviewedMeshPreview('approved');
+  const draftPath = `derived/drafts/${MESH_DRAFT}`;
+  for (const file of ['rig.json', 'mesh_report.json', 'motion.json']) {
+    expect(readFileSync(join(root, `outputs/v1/out/rig/${file}`)))
+      .toEqual(readFileSync(join(root, draftPath, 'out', file)));
+  }
+  expect(readFileSync(join(root, 'evidence/v1/config.json'))).toEqual(readFileSync(join(root, draftPath, 'config.json')));
+  const draft = (read(root).drafts as JsonObject[]).find(row => row.id === MESH_DRAFT)!;
+  for (const file of (draft.parts as JsonObject).files as JsonObject[]) {
+    const part = String(file.path).slice(`${draftPath}/input/`.length);
+    expect(jobHash(readFileSync(join(root, 'outputs/v1/out', part)))).toBe(file.sha256);
+  }
+  expectExit0(await cli(root, ['advance', 'rig-review', root, '--json']));
+  const view = await page(root, opening.url, 1);
+  expect(view.head.source).toMatchObject({ selector: { kind: 'rig', version: 1 } });
+  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
+  expect((read(root).versions as JsonObject[])[0]!.verdicts).toEqual([]);
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+test('#712A cloned rigging approval cannot sign or authorize a parts-review advance', async () => {
+  const { root, act, evidence, publication } = await reviewedMeshPreview('approved');
+  const recorded = (read(root).review_acts as JsonObject[]).at(-1)!;
+  const clone = copy('1-parts-verdict', project => {
+    const draft = (read(root).drafts as JsonObject[]).find(row => row.id === MESH_DRAFT)!;
+    project.drafts = [...(project.drafts as JsonObject[]), draft];
+    project.review_acts = [recorded];
+  });
+  const draftPath = `derived/drafts/${MESH_DRAFT}`;
+  cpSync(join(root, draftPath), join(clone, draftPath), { recursive: true });
+  cpSync(join(root, publication.result.path), join(clone, publication.result.path));
+  mkdirSync(join(clone, dirname(String(evidence.path))), { recursive: true });
+  cpSync(join(root, String(evidence.path)), join(clone, String(evidence.path)));
+
+  const advance = ['advance', 'parts-review', clone, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'];
+  const recordPath = join(clone, 'project.json');
+  async function refuses(args: string[], code: string): Promise<void> {
+    const before = readFileSync(recordPath);
+    const result = await cli(clone, args);
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toStartWith(`rig-create: ${code}:`);
+    expect(readFileSync(recordPath)).toEqual(before);
+  }
+  // A copied rigging receipt cannot replace the parts-stage report needed to enter parts-review.
+  await refuses(advance.slice(0, 3), 'PARTS_CHECK_MISSING');
+  const beforeAdvance = readFileSync(recordPath);
+  expectExit0(await cli(clone, advance));
+  const words = join(clone, 'parts-signoff-words.txt');
+  writeFileSync(words, 'Approve the synthetic parts.\n');
+  await refuses(['signoff', 'parts-review', clone, '--draft', MESH_DRAFT, '--by', 'user', '--verbatim-file', words], 'PARTS_VERDICT_RECEIPT_REQUIRED');
+  await refuses(['advance', 'rigging-interview', clone], 'ADVANCE_UNAUTHORIZED');
+
+  // A copied record can also point explicitly at the wrong receipt. The public
+  // advance must verify the evidence even when the ledger contains a signoff row.
+  const structure = `evidence/structure-${MESH_DRAFT}.json`;
+  expectExit0(await cli(clone, ['structure-snapshot', clone, '--draft', MESH_DRAFT, '--out', structure]));
+  const forged = JSON.parse(beforeAdvance.toString('utf8')) as JsonObject;
+  forged.signoffs = [...(forged.signoffs as JsonObject[]), {
+    stage: 'parts-review', checkpoint: null, by: 'user', at: act.at, verbatim: MESH_WORDS,
+    draft_id: MESH_DRAFT, evidence: { ...evidence, kind: 'parts-verdict', spec: act.schema },
+    structure: { path: structure, sha256: jobHash(readFileSync(join(clone, structure))) },
+  }];
+  write(clone, forged);
+  // A clone may have dropped regenerable rig artifacts. Exercise the explicit
+  // evidence lookup before the fallback that cannot reopen the full closure.
+  rmSync(join(clone, draftPath, 'out/mesh_report.json'));
+  await refuses(advance, 'PARTS_VERDICT_RECEIPT_INVALID');
+}, REFRESH_FLOW_TIMEOUT_MS);
+
+test.each(['missing source binding', 'mismatched source hash'] as const)('#712A rigging ack with %s refuses before recording the act', async fault => {
+  const { root, opening } = await riggingPreview();
+  const view = await page(root, opening.url, 1);
+  const act = await view.act('parts-verdict', 'parts-verdict', { verdict: 'approved', issues: [], words: MESH_WORDS });
+  const jobId = String(act.jobId), publicationId = String(act.publicationId);
+  const ack = readAcknowledgedPublication(root, jobId, publicationId)!;
+  const source = act.source as JsonObject;
+  expect(ack.draftSource).toEqual({ sourceHash: source.sourceHash, projectHash: source.projectHash });
+  const path = join(jobPrivateRoot(root), 'acknowledged-publications', `${jobHash(JSON.stringify([jobId, publicationId]))}.json`);
+  const originalAck = readFileSync(path);
+  if (fault === 'missing source binding') delete ack.draftSource;
+  else ack.draftSource!.sourceHash = jobHash('another synthetic publication');
+
+  const recordPath = join(root, 'project.json');
+  const before = readFileSync(recordPath);
+  const evidence = join(root, 'evidence/review-acts', `${jobHash(JSON.stringify([jobId, act.actId]))}.json`);
+  expect(existsSync(evidence)).toBe(false);
+  const args = ['parts-review', root, '--from-review', String(act.actId), '--json'];
+  writeFileSync(path, JSON.stringify(ack));
+  try {
+    const refused = await cli(root, args);
+    expect(refused.exit).toBe(1);
+    expect(refused.stderr).toStartWith('rig-create: REVIEW_ACT_SOURCE_STALE:');
+    expect(readFileSync(recordPath)).toEqual(before);
+    expect(existsSync(evidence)).toBe(false);
+  } finally {
+    writeFileSync(path, originalAck);
+  }
+  expectExit0(await cli(root, args));
+  expect(existsSync(evidence)).toBe(true);
 }, REFRESH_FLOW_TIMEOUT_MS);
 
 test('#557 a stale projectHash refuses parts verdict ingestion before either receipt or signature is written', async () => {

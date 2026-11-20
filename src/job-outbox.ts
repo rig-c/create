@@ -360,6 +360,8 @@ export interface AcknowledgedPublication {
   versionHash: string;
   /** The subjects the published context declared. Receipts written before they were retained omit it. */
   subjects?: readonly PublicationSubject[];
+  /** Review's joined source and record hashes for a rigging draft publication. */
+  draftSource?: { sourceHash: string; projectHash: string };
 }
 
 function acknowledgedPath(root: string, jobId: string, publicationId: string): string {
@@ -367,12 +369,13 @@ function acknowledgedPath(root: string, jobId: string, publicationId: string): s
 }
 
 /** Persist the version identity before the pending publication is removed. */
-export function acknowledgePublication(entry: PendingPublication, publicationId: string, generation: number, requestId: string, subjects?: readonly PublicationSubject[]): void {
+export function acknowledgePublication(entry: PendingPublication, publicationId: string, generation: number, requestId: string, subjects?: readonly PublicationSubject[], draftSource?: AcknowledgedPublication['draftSource']): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(publicationId) || !Number.isSafeInteger(generation) || generation < 0 || !entry.versionHash) {
     refuse('JOB_OUTBOX_INVALID', 'project.json: publication acknowledgment lacks its identity; reconcile the original pending publication');
   }
   const receipt: AcknowledgedPublication = { schema: 'rig-create/job-acknowledged@1', jobId: entry.jobId,
-    publicationId, generation, requestId, result: entry.result, versionHash: entry.versionHash, ...(subjects === undefined ? {} : { subjects }) };
+    publicationId, generation, requestId, result: entry.result, versionHash: entry.versionHash,
+    ...(subjects === undefined ? {} : { subjects }), ...(draftSource === undefined ? {} : { draftSource }) };
   const path = acknowledgedPath(entry.root, entry.jobId, publicationId);
   let existing: unknown;
   try { existing = privateJson(path); }
@@ -393,7 +396,9 @@ export function readAcknowledgedPublication(root: string, jobId: string, publica
   if (value?.schema !== 'rig-create/job-acknowledged@1' || value.jobId !== jobId || value.publicationId !== publicationId
     || !/^[a-f0-9]{64}$/.test(value.versionHash) || !Number.isSafeInteger(value.generation) || value.generation < 0
     || typeof value.requestId !== 'string' || !value.result || (!isRecordResult(value.result) && !value.result.selector)
-    || value.subjects !== undefined && (!Array.isArray(value.subjects) || value.subjects.some(subject => subject === null || typeof subject !== 'object' || typeof subject.kind !== 'string'))) {
+    || value.subjects !== undefined && (!Array.isArray(value.subjects) || value.subjects.some(subject => subject === null || typeof subject !== 'object' || typeof subject.kind !== 'string'))
+    || value.draftSource !== undefined && (value.result.selector?.kind !== 'draft'
+      || !/^[a-f0-9]{64}$/.test(value.draftSource?.sourceHash) || !/^[a-f0-9]{64}$/.test(value.draftSource?.projectHash))) {
     refuse('JOB_OUTBOX_INVALID', 'project.json: acknowledged publication receipt is malformed; restore its owner-only original');
   }
   return value;

@@ -9,6 +9,7 @@ import { checkProject as checkRecordProject } from '../src/check.ts';
 import { checkProject, rigVersionCommand, testClock } from './clock.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { plateReceiptSpec } from '../src/config-inputs.ts';
+import { PINNED_PACKAGES } from '../src/pins.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj, waypoint } from './fixtures.ts';
@@ -579,6 +580,73 @@ describe('frozen rig registration', () => {
     expect(review.code).toBe(0);
     rmSync(join(dir, 'source'), { recursive: true });
     expect(rigRegistrationFindings(dir, load())).toEqual([]);
+  });
+
+  function registerWithBunLock(dir: string, args: string[]): JsonObject {
+    args[args.indexOf('--toolchain-lock') + 1] = 'bun.lock';
+    const result = rigVersionCommand(args);
+    expect(result.exit).toBe(0);
+    const project = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
+    const version = obj(arr(project.versions)[0]);
+    const lock = obj(obj(version.registration).toolchain);
+    expect(lock.kind).toBe('bun-lock');
+    const source = obj(lock.source);
+    const bytes = readFileSync(join(dir, 'bun.lock'));
+    expect(source.sha256).toBe(jobHash(bytes));
+    expect(readFileSync(join(dir, String(source.path)))).toEqual(bytes);
+    expect(rigRegistrationFindings(dir, project)).toEqual([]);
+    return version;
+  }
+
+  test('registers and reads a Bun text lock with trailing commas', () => {
+    const { dir, args } = setup();
+    put(dir, 'bun.lock', `{
+      "lockfileVersion": 2,
+      "workspaces": { "": {}, },
+      "packages": {
+        "@rig-c/parts": ["@rig-c/parts@2.23.4", "", {}, "sha512-YQ=="],
+        "@rig-c/core": ["@rig-c/core@3.4.1", "", {}, "sha512-Yg=="],
+      },
+    }`);
+    const version = registerWithBunLock(dir, args);
+    expect(version.built_with).toEqual({ '@rig-c/parts': '2.23.4', '@rig-c/core': '3.4.1' });
+    rmSync(join(dir, 'derived/review/v1'), { recursive: true });
+    expect(reviewPackageCommand(['1', dir, '--config', 'evidence/v1/registration/config.json', '--from', 'outputs/v1/out']).exit).toBe(0);
+    const regenerated = obj(arr(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).versions)[0]);
+    expect(regenerated.review_package).toEqual(version.review_package);
+  });
+
+  test.skipIf(process.env.RIG_CREATE_NETWORK !== '1')('registers a planted run with the unmodified lock from init', () => {
+    const planted = setup();
+    const dir = join(dirname(planted.dir), 'initialized');
+    const init = run([process.execPath, join(import.meta.dir, '../src/cli.ts'), 'init', dir], dirname(dir), process.env as Record<string, string>);
+    expect(init.code).toBe(0);
+    expect(existsSync(join(dir, 'package-lock.json'))).toBe(false);
+    // Plant the synthetic pre-registration state and producer artifacts in the initialized project.
+    put(dir, 'project.json', planted.load());
+    cpSync(join(planted.dir, 'source'), join(dir, 'source'), { recursive: true });
+    const runRecord = JSON.parse(readFileSync(join(dir, 'source/run.json'), 'utf8')) as JsonObject;
+    obj(runRecord.package).version = PINNED_PACKAGES['@rig-c/core'];
+    put(dir, 'source/run.json', runRecord);
+    planted.args[1] = dir;
+    expect(registerWithBunLock(dir, planted.args).built_with).toEqual({
+      '@rig-c/parts': PINNED_PACKAGES['@rig-c/parts'],
+      '@rig-c/core': PINNED_PACKAGES['@rig-c/core'],
+    });
+  }, 30000);
+
+  test.each([
+    ['missing', null, 'found no lock'],
+    ['unparseable', '{ broken', 'found bun.lock'],
+    ['missing integrity', '{"lockfileVersion":2,"workspaces":{},"packages":{"@rig-c/parts":["@rig-c/parts@2.23.4","",{}]}}', 'found bun.lock'],
+  ])('%s Bun lock identifies the accepted kinds', (_case, content, found) => {
+    const { dir, args } = setup();
+    args[args.indexOf('--toolchain-lock') + 1] = 'bun.lock';
+    if (content !== null) put(dir, 'bun.lock', content);
+    const error = refused(args, 'RIG_TOOLCHAIN_LOCK_INVALID');
+    expect(error.message).toContain(found);
+    expect(error.message).toContain('npm-lock-v3 (package-lock.json) or bun-lock (bun.lock)');
+    expect(existsSync(join(dir, 'evidence/v1/registration'))).toBe(false);
   });
 
   test.each([

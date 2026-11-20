@@ -36,6 +36,7 @@ import { latestPartsApproval, previousPartsApproval, retainedJson } from './stru
 import { partsStructureSnapshot } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
+import { lockedPackage } from './toolchain-lock.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 export const JOB_READER_ID = 'rig-create/publication-reader/2';
@@ -88,16 +89,15 @@ function lockedParts(base: string): { file: string; version: unknown; integrity:
   const entries: { file: string; version: unknown; integrity: unknown }[] = [];
   const bun = join(base, 'bun.lock');
   if (existsSync(bun)) {
-    let entry: unknown;
-    try { entry = (Bun.JSONC.parse(readFileSync(bun, 'utf8')) as { packages?: Record<string, unknown> }).packages?.[PARTS_PACKAGE]; } catch { entry = undefined; }
-    const spec = Array.isArray(entry) && typeof entry[0] === 'string' && entry[0].startsWith(`${PARTS_PACKAGE}@`) ? entry[0].slice(PARTS_PACKAGE.length + 1) : undefined;
-    entries.push({ file: 'bun.lock', version: spec, integrity: Array.isArray(entry) ? entry.at(-1) : undefined });
+    let raw: unknown;
+    try { raw = Bun.JSONC.parse(readFileSync(bun, 'utf8')); } catch { raw = undefined; }
+    entries.push({ file: 'bun.lock', ...lockedPackage(raw, 'bun-lock', PARTS_PACKAGE) });
   }
   const npm = join(base, 'package-lock.json');
   if (existsSync(npm)) {
-    let entry: unknown;
-    try { entry = (JSON.parse(readFileSync(npm, 'utf8')) as { packages?: Record<string, unknown> }).packages?.[`node_modules/${PARTS_PACKAGE}`]; } catch { entry = undefined; }
-    entries.push({ file: 'package-lock.json', version: isObject(entry as Json) ? (entry as JsonObject).version : undefined, integrity: isObject(entry as Json) ? (entry as JsonObject).integrity : undefined });
+    let raw: unknown;
+    try { raw = JSON.parse(readFileSync(npm, 'utf8')); } catch { raw = undefined; }
+    entries.push({ file: 'package-lock.json', ...lockedPackage(raw, 'npm-lock-v3', PARTS_PACKAGE) });
   }
   return entries;
 }

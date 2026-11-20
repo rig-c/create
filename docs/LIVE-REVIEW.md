@@ -90,7 +90,7 @@ HOLE visible.
 | Writer | Published result | Review subject |
 | --- | --- | --- |
 | `draft-rig` | The labelled draft, C4 input inventory and retained output when its owner ask is ready | `draft` selector with the prepared `parts-verdict` at parts-review, or eligible checkpoint asks at parts |
-| `rig-version` | The recorded rig and retained review package | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
+| `rig-version` | The recorded rig and retained review package. Supply the build’s `bun.lock` or npm v3 `package-lock.json` with `--toolchain-lock`. | `rig` selector and `review-verdict` for `rig-review`, plus sign subjects |
 | `direction write` | The recorded post, direction document and retained rig package | `post` selector and only `review-verdict` for `direction-review` |
 | `advance rig-review` | The current live rig at the entered review stage | `rig` selector and one `review-verdict`; approval also signs rig-review |
 | `advance direction-review` | The current live post at the entered review stage | `post` selector and only `review-verdict direction-review` |

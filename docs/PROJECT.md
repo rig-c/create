@@ -974,7 +974,7 @@ rig-create rig-version 3 . \
   --parts frozen/assembly/rig --rig frozen/out/rig --build frozen/out/build \
   --idle frozen/render --config frozen/config.json \
   --path-adapter frozen/path-adapter.json --compile-report frozen/build-report.json \
-  --toolchain-lock frozen/package-lock.json \
+  --toolchain-lock bun.lock \
   --at-source frozen/dated-record.json --at-pointer /finished_at --by agent \
   --citations frozen/section-citations.json
 ```
@@ -984,16 +984,13 @@ name external frozen inputs. The writer retains copies under
 `evidence/v<N>/registration/` and binds their exact bytes by SHA-256. The project
 record refers to those retained paths, including the lock and cited date record.
 
-`built_with` comes from the declared npm v3 lock's
-`packages["node_modules/@rig-c/parts"].version` and corresponding core entry.
-`registration.toolchain` is `{kind:"npm-lock-v3",source:{path,sha256,bytes}}`.
-The `--toolchain-lock` argument explicitly declares the run-to-toolchain
-association. This declaration establishes which frozen lock the registrant
-selected. Producer-owned run attestation, including versions, start/finish and
-output hashes, is tracked in parts#1165 and core#1718. A future source kind can
-be added when that producer interface lands. Current readers support
-`npm-lock-v3` only. Wrapper receipts and toolchain summary files supply no
-registration contract.
+`rig-version` accepts the `bun.lock` written by `rig-create init` or an npm
+v3 `package-lock.json`. It reads the exact resolved Parts and Core versions into
+`built_with`. Bun registry entries for both packages must include integrity.
+`registration.toolchain` records the kind (`bun-lock` or `npm-lock-v3`) and
+the retained source (`{path,sha256,bytes}`). The explicit `--toolchain-lock`
+argument declares which lock was used for the build. Producer-owned run
+attestation is tracked in parts#1165 and core#1718.
 
 Repeatable `--run-record <file>` binds at most one producer `run.json` per
 spec beside `--toolchain-lock`, recorded in the order given as

@@ -1,5 +1,5 @@
 import { OWNER_CHAT_SOURCE, ownerChatFinding } from './owner-chat.ts';
-import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
+import { PARTS_CLI_RECEIPT, partsReceiptDraftId } from './parts-verdict-record.ts';
 /** Finalized semantic acts. This reader never opens Review's private state. */
 import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from './check-reads.ts';
@@ -14,6 +14,7 @@ import { JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
 import { PICK_SIGNOFF_STAGES } from './stages.ts';
+import { isRiggingDraftAct, partsCarryAmendment } from './parts-act.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { composedPublishedBuildFiles, draftPackageIdentity, liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -555,9 +556,9 @@ export function reviewActSignoff(act: SignoffAct): JsonObject {
 }
 
 /** An approved parts verdict carries the same person's authority for its stage signature. */
-export function partsVerdictSignoff(act: PartsVerdictAct): JsonObject {
-  return { stage: 'parts-review', checkpoint: null, draft_id: act.source.selector.id,
-    by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at,
+export function partsVerdictSignoff(act: PartsVerdictAct, at = act.at, draftId = act.source.selector.id): JsonObject {
+  return { stage: 'parts-review', checkpoint: null, draft_id: draftId,
+    by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at,
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}` };
 }
 
@@ -667,19 +668,30 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       if (act.kind === 'parts-verdict') {
         if (entry.draft_id !== act.source.selector.id || !file(entry.evidence) || entry.evidence.sha256 !== entry.sha256) failure('REVIEW_ACT_LEDGER_INVALID', 'parts receipt target differs from its act');
         // Older separate approvals have no folded mapping and keep their original route.
-        const expected = partsVerdictSignoff(act);
-        const named = asArray(project.signoffs).filter(object).filter(row => row.source === expected.source);
-        if (entry.signoff !== undefined || named.length > 0) {
-          if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id) {
+        const source = `review act ${act.jobId}/${act.actId}`;
+        const named = asArray(project.signoffs).filter(object).filter(row => row.source === source);
+        const amendment = entry.signoff_amendment;
+        if (amendment !== undefined || entry.signoff !== undefined || named.length > 0) {
+          if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id && !(amendment !== undefined && isRiggingDraftAct(act))) {
             failure('REVIEW_ACT_LEDGER_INVALID', 'a parts signature must bind the parts-review package');
           }
           const signoff = Number.isSafeInteger(entry.signoff) && Number(entry.signoff) >= 0 ? asArray(project.signoffs)[Number(entry.signoff)] : null;
+          if (amendment !== undefined && (!object(amendment) || typeof amendment.signed_at !== 'string'
+            || (amendment.draft_id !== undefined && !id(amendment.draft_id)))) {
+            failure('REVIEW_ACT_LEDGER_INVALID', 'carried parts signature has an invalid amendment, target draft or write clock');
+          }
+          const at = amendment === undefined ? act.at : String(amendment.signed_at);
+          const draftId = partsReceiptDraftId(entry)!;
+          const expected = partsVerdictSignoff(act, at, draftId);
           if (act.value.verdict !== 'approved' || !object(signoff) || named.length !== 1 || named[0] !== signoff
             || Object.entries(expected).some(([key, value]) => signoff[key] !== value)
             || !object(signoff.evidence) || signoff.evidence.kind !== 'parts-verdict'
             || signoff.evidence.path !== entry.evidence.path || signoff.evidence.sha256 !== entry.sha256
             || signoff.evidence.spec !== act.schema) {
-            failure('REVIEW_ACT_LEDGER_INVALID', 'folded parts signature differs from its approved verdict');
+            failure('REVIEW_ACT_LEDGER_INVALID', 'parts signature differs from its approved verdict');
+          }
+          if (amendment !== undefined && amendment.index !== partsCarryAmendment(project, draftId, act, entry, Date.parse(at))) {
+            failure('REVIEW_ACT_LEDGER_INVALID', 'carried parts signature differs from its owner amendment');
           }
         }
         return;

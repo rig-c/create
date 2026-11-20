@@ -2,16 +2,20 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
-import { asArray, asString, collectSignoffs, isObject, type Finding } from './check.ts';
+import { asArray, asString, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
+import { relativeInventory } from './draft-reuse.ts';
 import { readProject } from './feedback.ts';
+import { publicationFile } from './job-publication.ts';
 import { OWNER_CHAT_FLAGS, ownerChatAuthorityFinding, ownerChatFinding, readOwnerChat } from './owner-chat.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { liveSignoff, type Reopen } from './reopen.ts';
 import { stageIndex, stageOfStep } from './stages.ts';
-import type { JsonObject } from './templates.ts';
+import { latestPartsApproval } from './structure.ts';
+import type { Json, JsonObject } from './templates.ts';
 
 /** Fixed approval-kind → step-0 gap mapping. These are missing proofs, not inferred dependencies. */
 export const AMENDMENT_APPROVAL_GAPS: Readonly<Record<string, string>> = {
@@ -107,6 +111,35 @@ export function draftAmendmentTime(project: JsonObject, draftId: string): number
     .map(amendment => amendment.at));
 }
 
+/** The changes must name the actual new parts inputs, including the target's manifest. */
+export function assertDraftAmendmentChanges(draft: JsonObject, changes: Json | undefined, path: string): { path: string; sha256: string } {
+  const parts = draft.parts;
+  if (!isObject(parts)) refuse('AMENDMENT_TARGET_INVALID', `${path}: target draft must retain its parts inventory; register the corrected draft`);
+  const inventory = new Map(relativeInventory(parts, path).map(file => [`${parts.path}/${file.path}`, file.sha256]));
+  const manifest = `${parts.path}/parts.json`;
+  if (!Array.isArray(changes) || !changes.some(change => isObject(change) && change.path === manifest)
+    || changes.some(change => !isObject(change) || typeof change.path !== 'string' || typeof change.sha256 !== 'string'
+      || inventory.get(change.path) !== change.sha256)) {
+    refuse('AMENDMENT_CHANGES_INVALID', `${path}: changes must bind the target draft's recorded parts bytes; use --change ${manifest} with the registered draft`);
+  }
+  return { path: manifest, sha256: inventory.get(manifest)! };
+}
+
+/** A draft amendment changes the inventory bound by the parts approval it lapses. */
+export function changedDraftInventory(project: JsonObject, draft: JsonObject, at: number): ReturnType<typeof relativeInventory> {
+  const approvedId = latestPartsApproval(project, at)?.draft_id;
+  const approved = asArray(project.drafts).filter(isObject).filter(row => row.id === approvedId);
+  const approvedParts = approved[0]?.parts;
+  if (!(Date.parse(String(draft.at)) <= at) || !isObject(draft.parts) || approved.length !== 1 || !isObject(approvedParts)) {
+    refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: a registered draft and a live prior parts-review signoff are required; restore their records before amending');
+  }
+  const inventory = relativeInventory(draft.parts, 'amendments.target');
+  if (isDeepStrictEqual(relativeInventory(approvedParts, 'amendments.target'), inventory)) {
+    refuse('AMENDMENT_CHANGES_INVALID', 'amendments.changes: the target parts match the live parts-review signoff; amend a draft with changed parts bytes');
+  }
+  return inventory;
+}
+
 /** Name each recorded approval act. Re-signatures remain separate acts in history. */
 export function amendmentSummaries(project: JsonObject, amendments: readonly Amendment[], events: readonly Reopen[]): AmendmentSummary[] {
   const approvals = collectSignoffs(project, []).map(s => ({
@@ -146,7 +179,7 @@ export const AMEND_HELP = `amend:
   --verbatim-file <file>  unchanged UTF-8 words, or - for stdin (default)
   --source <text>         optional origin, separate from verbatim
   --owner-chat <file> --said-at <ISO> --relayed-by <who>
-                          required for a registered draft at parts-review
+                          required for a registered draft at parts-review or changed parts at rigging
   --json                  print the amendment record
   The clock supplies at. The owning stage and every later approval lapse.
   Upstream steps keep their state. keep-by-binding ships empty.`;
@@ -181,8 +214,9 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
     by: opts['--by'], at: new Date(now).toISOString(), verbatim: '', changes: [],
   };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
-  if (opts['--kind'] === 'draft' && project.stage !== 'parts-review') {
-    refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: review a draft correction at parts-review; use an artifact amendment for later stages');
+  const riggingDraft = opts['--kind'] === 'draft' && project.stage === 'rigging';
+  if (opts['--kind'] === 'draft' && project.stage !== 'parts-review' && !riggingDraft) {
+    refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: review a draft correction at parts-review or amend changed parts at rigging');
   }
   const chat = readOwnerChat(opts, opts['--by'], now, 'amendments');
   if (chat) {
@@ -204,6 +238,25 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
       refuse('AMENDMENT_INPUT_UNREAD', `amendments.changes ${path}: ${error instanceof Error ? error.message : String(error)}; retain the new input under the project and amend again`);
     }
   });
+  if (riggingDraft) {
+    if (checkProject(dir, project, { now, readOnly: true }).effective_stage !== 'rigging') {
+      refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: a rigging draft amendment needs effective rigging; resume the current review stage before amending');
+    }
+    const draft = asArray(project.drafts).filter(isObject).find(draft => draft.id === opts['--target'])!;
+    assertDraftAmendmentChanges(draft, entry.changes, 'amendments.changes');
+    const parts = draft.parts as JsonObject;
+    const inventory = changedDraftInventory(project, draft, now);
+    const root = realpathSync(dir);
+    for (const binding of inventory) {
+      const path = `${parts.path}/${binding.path}`;
+      let bytes: Buffer;
+      try { bytes = publicationFile(root, path); }
+      catch { refuse('AMENDMENT_INPUT_UNREAD', `amendments.changes ${path}: restore the target draft's registered parts file before amending`); }
+      if (createHash('sha256').update(bytes).digest('hex') !== binding.sha256) {
+        refuse('AMENDMENT_CHANGES_INVALID', `amendments.changes ${path}: bytes differ from the registered target draft; restore them or register a new draft`);
+      }
+    }
+  }
   if (!chat) entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
   project.amendments = [...asArray(project.amendments), entry];
   for (const raw of asArray(isObject(project.plan) ? project.plan.steps : undefined)) {

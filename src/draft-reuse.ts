@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { asArray, isObject, PROJECT_SCHEMA, type Finding } from './check.ts';
 import { publicationFile } from './job-publication.ts';
-import { latestPartsReceipt, recordedPartsVerdict } from './parts-verdict-record.ts';
+import { latestPartsReceipt, partsReceiptDraftId, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { Refusal, refuse } from './refusal.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -56,7 +56,7 @@ function historicalRecord(dir: string, digest: string, path: string): Buffer {
 
 type PartFile = { path: string; sha256: string };
 
-function relativeInventory(parts: JsonObject, path: string): PartFile[] {
+export function relativeInventory(parts: JsonObject, path: string): PartFile[] {
   if (typeof parts.path !== 'string' || !literal(parts.path) || !Array.isArray(parts.files)) {
     fail('DRAFT_REUSE_MISMATCH', path, 'the parts root or inventory is malformed');
   }
@@ -129,7 +129,7 @@ function reviewedSource(dir: string, project: JsonObject, id: string, path: stri
   const latest = latestPartsReceipt(project, id);
   const digest = reviewSha ?? (isObject(latest?.evidence) ? latest.evidence.sha256 : undefined);
   const receipts = asArray(project.review_acts).filter(isObject).filter(entry =>
-    entry.kind === 'parts-verdict' && entry.draft_id === id && isObject(entry.evidence) && entry.evidence.sha256 === digest);
+    entry.kind === 'parts-verdict' && partsReceiptDraftId(entry) === id && isObject(entry.evidence) && entry.evidence.sha256 === digest);
   if (!hex(digest) || receipts.length !== 1) fail('DRAFT_REUSE_SOURCE', path, `draft ${id} has no unique retained parts verdict for this reuse`);
   return {
     producer: { name: source.producer.name, version: source.producer.version },

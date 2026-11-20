@@ -3,9 +3,13 @@ import { PARTS_CLI_RECEIPT } from './parts-verdict-record.ts';
 import { dirname, join } from 'node:path';
 import { readFileSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
+import { assertDraftAmendmentChanges, changedDraftInventory, collectAmendments } from './amend.ts';
+import { asArray } from './check.ts';
+import { relativeInventory } from './draft-reuse.ts';
 import { draftPackageIdentity, publicationFile, publishedDraft, riggingDraftManifestBytes } from './job-publication.ts';
 import { jobHash, publicationVersionHash } from './job-outbox.ts';
 import { decodeReviewAct, partsActIssues, type PartsVerdictAct } from './review-act.ts';
+import { PARTS_REVIEW, stageIndex } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import { refuse } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
@@ -26,6 +30,45 @@ export function isRiggingDraftAct(act: { source: { selector?: { kind: string; id
   const selector = act.source.selector;
   return selector?.kind === 'draft' && typeof selector.id === 'string'
     && act.source.package?.id === draftPackageIdentity(selector.id, true).id;
+}
+
+/** Bind a carried approval even when a historical check has only the retained record and act. */
+export function partsCarryAmendment(project: JsonObject, draftId: string, act: PartsVerdictAct, receipt: JsonObject, signedAt: number): number {
+  const path = 'project.json.signoffs.parts-review';
+  if (act.value.verdict !== 'approved') {
+    refuse('PARTS_VERDICT_NOT_APPROVED', `${path}.evidence: act ${act.actId} requests changes or is pending; record an approval of the corrected draft in Review`);
+  }
+  const amendment = collectAmendments(project, [])
+    .filter(row => row.at <= signedAt && stageIndex(row.stage) <= stageIndex(PARTS_REVIEW))
+    .sort((left, right) => right.at - left.at || right.index - left.index)[0];
+  if (!amendment || amendment.target.kind !== 'draft' || amendment.target.id !== draftId || amendment.at >= signedAt) {
+    refuse('AMENDMENT_TARGET_INVALID', `${path}.draft_id: signoff must follow the current owner amendment for draft ${draftId}; record amend parts-review --kind draft --target ${draftId} with the new parts manifest first`);
+  }
+  const draft = publishedDraft(project, draftId);
+  const sourceId = act.source.selector.id;
+  const source = publishedDraft(project, sourceId);
+  const sourceParts = source.parts;
+  const amendments = asArray(project.amendments);
+  const raw = amendments[amendment.index] as JsonObject;
+  assertDraftAmendmentChanges(draft, raw.changes, `amendments[${amendment.index}].changes`);
+  const targetFiles = changedDraftInventory({ ...project, amendments: amendments.slice(0, amendment.index) }, draft, amendment.at);
+  const reviewedAt = Date.parse(act.at);
+  if (!(Date.parse(String(source.at)) <= reviewedAt && reviewedAt <= signedAt)) {
+    fail('the parts verdict must date from its registered source draft and precede signoff');
+  }
+  if (!object(sourceParts)) return fail(`draft ${sourceId} has no reviewed parts inventory`);
+  const sourceFiles = relativeInventory(sourceParts, `drafts[${sourceId}].parts.files`);
+  const sourceManifest = sourceFiles.find(file => file.path === 'parts.json')!;
+  if (act.source.parts.manifest.path !== `${sourceParts.path}/parts.json`
+    || act.source.parts.manifest.sha256 !== sourceManifest.sha256 || receipt.version_hash !== act.source.package.revision
+    || receipt.version_hash !== partsActDraftHash(project, act)) {
+    refuse('PARTS_VERDICT_DRAFT_MISMATCH', `${path}.evidence: act ${act.actId} differs from source draft ${sourceId}; restore the reviewed draft's retained inputs`);
+  }
+  // The source date establishes when the reviewed bytes existed. The target only needs to predate its amendment.
+  if (!isDeepStrictEqual(sourceFiles, targetFiles)) {
+    refuse('PARTS_VERDICT_DRAFT_MISMATCH', `${path}.evidence: draft ${draftId}'s parts paths or SHA-256 hashes differ from draft ${sourceId} reviewed by act ${act.actId}; review the amended draft's retained inputs`);
+  }
+  return amendment.index;
 }
 
 /** Verify the declared files and the publication manifest without re-enumerating producer output. */
@@ -108,9 +151,9 @@ export function partsActFindings(root: string, project: JsonObject): { code: str
   });
 }
 
-export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash: string, candidate?: JsonObject, options: { requireApproval?: boolean } = {}): string {
+export function checkPartsActEvidence(root: string, bytes: Buffer, evidenceHash: string, candidate?: JsonObject, options: { requireApproval?: boolean; carry?: boolean } = {}): string {
   const act = decodeReviewAct(bytes.toString('utf8'), 'parts-verdict');
-  if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id) {
+  if (act.source.package.id !== draftPackageIdentity(act.source.selector.id).id && !(options.carry && isRiggingDraftAct(act))) {
     refuse('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence: act does not bind the parts-review package; review the draft at parts-review');
   }
   const project = candidate ?? JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;

@@ -16,6 +16,7 @@ import { checkpointEvidenceContext, type CheckpointEvidence } from './checkpoint
 import { locateParts, PARTS_PACKAGE } from './parts-sections.ts';
 import { asArray, checkProject, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { checkDiffMap, diffStackCandidates, reportShape } from './diff-map.ts';
+import { relativeInventory } from './draft-reuse.ts';
 import { PARTS_CHECK_SPEC, partsCheckFindings } from './parts-check.ts';
 import {
   COLLECTION_BINDING_SPEC,
@@ -33,7 +34,7 @@ import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts'
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
 import { latestPartsApproval, previousPartsApproval, retainedJson } from './structure.ts';
-import { partsStructureSnapshot } from './job-acts.ts';
+import { partsStructureSnapshot, shellWord } from './job-acts.ts';
 import { jobHash, pendingPublications, isRecordResult, type JobIdentity } from './job-outbox.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { lockedPackage } from './toolchain-lock.ts';
@@ -58,6 +59,31 @@ export function isModelLessRiggingDraft(draft: JsonObject): boolean {
   const rigs = paths.filter(path => path.endsWith('/rig.json'));
   return rigs.length === 1 && paths.includes(rigs[0].replace(/rig\.json$/, 'mesh_report.json'))
     && !paths.some(path => path.endsWith('/skeleton.model.json'));
+}
+
+/** Compare the two recorded inventories in their own parts roots. */
+export function riggingDraftPartsChange(root: string, project: JsonObject, draft: JsonObject, stage: string | null): (Finding & { command: string }) | undefined {
+  // Draft amendments at rigging require that stage in the writer's record.
+  if (stage !== 'rigging' || project.stage !== 'rigging') return undefined;
+  if (typeof draft.id !== 'string' || !isModelLessRiggingDraft(draft)) return undefined;
+  const approvedId = latestPartsApproval(project)?.draft_id;
+  if (typeof approvedId !== 'string' || approvedId === draft.id) return undefined;
+  const approved = asArray(project.drafts).filter((row): row is JsonObject => isObject(row) && row.id === approvedId);
+  const approvedParts = approved[0]?.parts;
+  if (approved.length !== 1 || !isObject(approvedParts) || !isObject(draft.parts)) return undefined;
+  const approvedPath = `drafts[${approvedId}].parts.files`;
+  const path = `drafts[${draft.id}].parts.files`;
+  try {
+    if (isDeepStrictEqual(relativeInventory(approvedParts, approvedPath), relativeInventory(draft.parts, path))) return undefined;
+  } catch (error) {
+    // The existing record and publication checks report malformed inventories.
+    if (error instanceof Refusal && error.code === 'DRAFT_REUSE_MISMATCH') return undefined;
+    throw error;
+  }
+  const manifest = `${draft.parts.path}/parts.json`;
+  const command = `rig-create amend parts-review ${shellWord(root)} --kind draft --target ${shellWord(draft.id)} --change ${shellWord(manifest)} --by '<owner>' --owner-chat '<file>' --said-at '<ISO>' --relayed-by '<operator>'`;
+  return { code: 'RIGGING_DRAFT_PARTS_CHANGED', path, command,
+    message: `${path}: recorded parts differ from parts-review approval for drafts[${approvedId}]; run ${command}` };
 }
 
 function reviewPackageIdentity(version: number, row: JsonObject) {
@@ -867,7 +893,15 @@ export function draftPublicationContext(root: string, project: JsonObject, id: s
   return inspectDraftPublication(root, project, id, warnings).context;
 }
 
-export function inspectDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[] = [], stage = effectiveStage(root, project), allowRigging = true): {
+export function inspectDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[] = [], stage = effectiveStage(root, project)) {
+  const draft = publishedDraft(project, id);
+  const change = riggingDraftPartsChange(root, project, draft, stage);
+  if (change) refuse(change.code, change.message);
+  const rigging = stage === 'rigging' && isModelLessRiggingDraft(draft);
+  return describeDraftPublication(root, project, id, warnings, stage, rigging);
+}
+
+function describeDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[], stage: string | null, rigging: boolean): {
   context: JobPublishedContext;
   missingStructure: string | undefined;
   diffFinding: Finding | undefined;
@@ -875,7 +909,6 @@ export function inspectDraftPublication(root: string, project: JsonObject, id: s
 } {
   // Validate the mandatory closure before looking for optional comparison evidence.
   const context = draftPublishedContext(root, project, id);
-  const rigging = allowRigging && stage === 'rigging' && isModelLessRiggingDraft(publishedDraft(project, id));
   // Fresh approvals sign the stage during verdict ingestion. Preserve a separate
   // signoff ask only for an approval already ingested by an earlier writer.
   let legacyApproval = false;
@@ -910,7 +943,10 @@ function readDraftPublished(root: string, project: JsonObject, id: string, path:
   if (!rigging && path !== draftPackageIdentity(id).path) {
     refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: result path differs from its publication; restore the writer manifest`);
   }
-  const { context, rigging: eligible } = inspectDraftPublication(root, project, id, [], undefined, rigging);
+  // Retain the reader for already-issued publications and their acknowledged acts.
+  const stage = effectiveStage(root, project);
+  const eligible = rigging && stage === 'rigging' && isModelLessRiggingDraft(publishedDraft(project, id));
+  const { context } = describeDraftPublication(root, project, id, [], stage, eligible);
   if (rigging && !eligible) {
     refuse('JOB_PUBLICATION_INVALID', `drafts[${id}]: rigging mesh feedback needs the current model-less rigging draft; publish it at rigging or open the current review`);
   }

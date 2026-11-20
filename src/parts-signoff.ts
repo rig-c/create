@@ -5,7 +5,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { asArray, checkProject, collectSignoffs, isObject, type CheckReport, type Finding } from './check.ts';
 import { isPartsCheckMove, partsCheckFindings } from './parts-check.ts';
 import { checkDiffMap } from './diff-map.ts';
-import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
+import { latestPartsVerdictFinding, recordedPartsVerdict, type RecordedPartsVerdict } from './parts-verdict-record.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { refuse } from './refusal.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
@@ -18,11 +18,11 @@ import { jobHash } from './job-outbox.ts';
 import { partsVerdictSignoff, type PartsVerdictAct } from './review-act.ts';
 import type { JsonObject } from './templates.ts';
 
-export function bindPartsSignoff(dir: string, project: JsonObject, signoff: JsonObject, structureFile?: string): void {
+export function bindPartsSignoff(dir: string, project: JsonObject, signoff: JsonObject, structureFile?: string, recorded?: RecordedPartsVerdict): void {
   const path = `signoffs[${(project.signoffs as JsonObject[]).length}]`;
   const latest = latestPartsVerdictFinding(project, String(signoff.draft_id), `${path}.draft_id`);
   if (latest) refuse(latest.code, latest.message);
-  const recorded = recordedPartsVerdict(dir, project, signoff.draft_id);
+  recorded ??= recordedPartsVerdict(dir, project, signoff.draft_id);
   // Preserve the existing signature's property order as well as its values:
   // generated examples and captions bind the serialized project bytes.
   const draftId = signoff.draft_id!;
@@ -35,6 +35,10 @@ export function bindPartsSignoff(dir: string, project: JsonObject, signoff: Json
     if (errors[0]) refuse(errors[0].code, errors[0].message);
   }
   if (hasStageOrder(project) || structureFile !== undefined) {
+    if (recorded.carry && structureFile === undefined) {
+      const snapshot = partsStructureSnapshot(dir, project, String(draftId));
+      if (snapshot.valid) structureFile = snapshot.path;
+    }
     if (structureFile !== undefined) {
       try {
         if (structurePathIsIgnored(dir, structureFile)) throw new Error('structure snapshots must survive a clone; retain the file outside ignored roots, for example evidence/');

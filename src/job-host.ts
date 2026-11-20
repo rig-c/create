@@ -6,7 +6,7 @@ import { asArray, checkProject, collectItems, loadCollection, isObject, type Fin
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, draftPackageIdentity, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, readPublished, readRecordPublished } from './job-publication.ts';
+import { liveManifestPath, draftPackageIdentity, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, readPublished, readRecordPublished, riggingDraftPartsChange } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose } from './job-close.ts';
@@ -430,6 +430,10 @@ export function assertRequestedDraft(root: string, requested?: string, now = Dat
     refuse('JOB_DRAFT_UNKNOWN', `project.json.drafts: no recorded draft has id ${requested}; record it with rig-create draft-rig or name a recorded draft`);
   }
   const stage = checkProject(root, project, { now, readOnly: true }).effective_stage;
+  if (requested !== undefined && stage === 'rigging') {
+    const change = riggingDraftPartsChange(root, project, publishedDraft(project, requested), stage);
+    if (change) refuse(change.code, change.message);
+  }
   if (requested !== undefined && stage === 'parts-review') {
     const { missingStructure } = inspectDraftPublication(root, project, requested, [], stage);
     if (missingStructure !== undefined) {

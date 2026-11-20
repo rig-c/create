@@ -24,7 +24,8 @@ export const SCENE_CONTEXT_SINCE = '2026-11-08T00:00:00Z';
 export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 const text = (v: Json | undefined): v is string => typeof v === 'string' && v.trim() !== '';
 const date = (v: Json | undefined): number => typeof v === 'string' ? Date.parse(v) : NaN;
-const id = (v: Json | undefined): v is string => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(v);
+const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
+const id = (v: Json | undefined): v is string => typeof v === 'string' && ID_PATTERN.test(v);
 const objects = (v: Json | undefined): JsonObject[] => asArray(v).filter(isObject);
 export class ChoiceError extends Error {
   constructor(readonly code: string, message: string) { super(message); }
@@ -117,8 +118,16 @@ export function validateSet(project: JsonObject, item: Item, set: JsonObject, co
     const options = objects(ask.options);
     if (!text(ask.prompt) || !Array.isArray(ask.options) || options.length !== ask.options.length || new Set(options.map(o => o.id)).size !== options.length) invalid('each ask needs prompt and unique option ids');
     let recommended = 0;
-    for (const option of options) {
-      if (!id(option.id) || !text(option.label) || !text(option.effect) || typeof option.recommended !== 'boolean' || !['value', 'other', 'auto'].includes(String(option.kind))) invalid('option needs id, kind, label, effect and explicit recommended boolean');
+    for (const [i, option] of options.entries()) {
+      const missing = [
+        ...(option.id === undefined ? ['id'] : []),
+        ...(!['value', 'other', 'auto'].includes(String(option.kind)) ? ['kind'] : []),
+        ...(!text(option.label) ? ['label'] : []),
+        ...(!text(option.effect) ? ['effect'] : []),
+        ...(typeof option.recommended !== 'boolean' ? ['explicit recommended boolean'] : []),
+      ];
+      if (missing.length) invalid(`options[${i}] needs ${missing.join(', ')}`);
+      if (!id(option.id)) fail('INTERVIEW_OPTION_ID_INVALID', `options[${i}].id (${JSON.stringify(option.id)}) must match ${ID_PATTERN}`);
       if (option.kind === 'value') {
         if (!('fragment' in option)) invalid('value options require fragment');
         if ((set.assembly.rule === 'concat' && !Array.isArray(option.fragment)) || (set.assembly.rule === 'merge' && !isObject(option.fragment))) invalid('fragment type does not match assembly rule');

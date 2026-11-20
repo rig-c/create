@@ -1015,7 +1015,8 @@ answers remain unchanged. See INTERVIEW.md for the frozen shapes and writers.
 | Code | Trigger | Remedy |
 | --- | --- | --- |
 | `INTERVIEW_OPTIONS_USAGE` | malformed writer flags or unreadable CLI argument files (exit 2) | supply documented question, file and per-ask arguments |
-| `INTERVIEW_OPTIONS_INVALID` | malformed set, recommendation/cardinality/ask/fragment/assembly/constraint schema | draft a complete set using the closed schema and applicable asks |
+| `INTERVIEW_OPTION_ID_INVALID` | `options[i].id` does not match `/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/` | rename the option id to match `/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/` |
+| `INTERVIEW_OPTIONS_INVALID` | malformed set, missing or ill-typed option field (`id`, `kind`, `label`, `effect`, explicit `recommended` boolean), recommendation/cardinality/ask/fragment/assembly/constraint schema | draft a complete set using the closed schema and applicable asks |
 | `INTERVIEW_OPTIONS_FILE` | missing, changed, nonretained, escaping, symlinked or nonregular option file, reused id/path | restore original bytes and retain a new id/path for redrafts |
 | `INTERVIEW_OPTIONS_STALE` | changed displayed sha, source/parts/structure/rig/scene context, a relevant amendment or historical reopen, unavailable fresh viewed bytes; from `SCENE_CONTEXT_SINCE` a scene-kind set on a scene that is not current | refresh and redraft against the live accepted context |
 | `INTERVIEW_CHOICE_REQUIRED` | newly answered adopted question lacks a choice, or Other is still pending at approval | explicitly pick each ask; resolve Other through a new tailored option and pick |

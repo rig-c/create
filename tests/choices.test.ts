@@ -211,6 +211,41 @@ test('per-ask cardinality, recommendation, special options, applicable asks and 
   const mutations:((s:JsonObject)=>void)[]=[s=>{s.assembly={rule:'single'};},s=>{arr(s.asks).pop();},s=>{obj(arr(s.asks)[0]).id='unknown';},s=>{obj(arr(obj(arr(s.asks)[0]).options)[1]).recommended=true;},s=>{obj(arr(obj(arr(s.asks)[0]).options)[0]).reason='';},s=>{arr(obj(arr(s.asks)[0]).options).pop();},s=>{obj(arr(obj(arr(s.asks)[0]).options)[1]).id='keep';}];
   for(const mutate of mutations){const s=structuredClone(w.set);mutate(s);expect(code(()=>validateSet(p,item,s))).toBe('INTERVIEW_OPTIONS_INVALID');}
 });
+test('#699 option id format refuses with INTERVIEW_OPTION_ID_INVALID and missing fields name only missing fields',()=>{
+  const w=working('reference');const p=load(w.dir);const item=current(p,'reference');const before=readFileSync(join(w.dir,'project.json'));
+  const badId=structuredClone(w.set);obj(arr(obj(arr(badId.asks)[0]).options)[1]).id='3.3s';
+  expect(()=>validateSet(p,item,badId)).toThrow(expect.objectContaining({
+    code:'INTERVIEW_OPTION_ID_INVALID',
+    message:'options[1].id ("3.3s") must match /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/',
+  }));
+  const badIdPath=join(w.dir,'evidence/interview/bad-id.json');writeFileSync(badIdPath,JSON.stringify(badId,null,2)+'\n');
+  expect(()=>interviewOptionsCommand(['reference',w.dir,'--file','evidence/interview/bad-id.json'])).toThrow(expect.objectContaining({
+    code:'INTERVIEW_OPTION_ID_INVALID',
+    message:expect.stringContaining('options[1].id ("3.3s") must match /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/'),
+  }));
+  expect(readFileSync(join(w.dir,'project.json'))).toEqual(before);
+
+  const missingRecommended=structuredClone(w.set);delete obj(arr(obj(arr(missingRecommended.asks)[0]).options)[0]).recommended;
+  expect(()=>validateSet(p,item,missingRecommended)).toThrow(expect.objectContaining({
+    code:'INTERVIEW_OPTIONS_INVALID',
+    message:'options[0] needs explicit recommended boolean',
+  }));
+  const missingTwo=structuredClone(w.set);delete obj(arr(obj(arr(missingTwo.asks)[0]).options)[1]).id;obj(arr(obj(arr(missingTwo.asks)[0]).options)[1]).label='   ';
+  expect(()=>validateSet(p,item,missingTwo)).toThrow(expect.objectContaining({
+    code:'INTERVIEW_OPTIONS_INVALID',
+    message:'options[1] needs id, label',
+  }));
+
+  const valid4s=structuredClone(w.set);valid4s.id='test-reference-4s';valid4s.drafted_at=new Date(sourceDraftAt+2_000).toISOString();
+  obj(arr(obj(arr(valid4s.asks)[0]).options)[1]).id='4s';
+  expect(code(()=>validateSet(p,item,valid4s))).toBe('NO_REFUSAL');
+  const validPath='evidence/interview/test-reference-4s.json';const validBytes=JSON.stringify(valid4s,null,2)+'\n';
+  writeFileSync(join(w.dir,validPath),validBytes);testClock.set(sourceDraftAt+3_000);
+  expect(code(()=>interviewOptionsCommand(['reference',w.dir,'--file',validPath]))).toBe('NO_REFUSAL');
+  const picked=JSON.parse(interviewAnswerCommand(['reference',w.dir,'--set',validPath,'--sha256',sha256(Buffer.from(validBytes)),'--by','user','--pick','reference=4s']));
+  expect(obj(arr(obj(picked.choice).picks)[0]).option_id).toBe('4s');
+  expect(checkProject(w.dir).refusals).toEqual([]);
+});
 test('missing/duplicate picks and unknown options refuse without changing project bytes',()=>{
   const w=working();const before=readFileSync(join(w.dir,'project.json'));
   expect(code(()=>answer(w,['tracks=keep']))).toBe('INTERVIEW_CHOICE_INVALID');

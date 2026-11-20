@@ -125,7 +125,9 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
       const amendment = currentPartsAmendment(project, now);
       const amendedDraft = amendment?.target.kind === 'draft' ? String(amendment.target.id) : undefined;
       if (receipt) {
-        opts['--draft'] ??= receipt.signoff === undefined ? amendedDraft ?? partsReceiptDraftId(receipt) : partsReceiptDraftId(receipt);
+        const recordedDraft = partsReceiptDraftId(receipt);
+        const target = receipt.signoff === undefined ? amendedDraft ?? recordedDraft : recordedDraft;
+        if (target !== undefined) opts['--draft'] ??= target;
         return recordSignoff(stage, positional, opts, json, now, hooks, undefined, undefined, { file, project, original, receipt });
       }
       if (amendedDraft !== undefined && checkProject(root, project, { now }).effective_stage === PARTS_REVIEW) {

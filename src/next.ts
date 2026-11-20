@@ -394,7 +394,7 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextM
     ...chatMoves,
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, 'publish this Review page; run the first open in the background and share its URL once; later opens publish into the running host and exit'),
     move,
-    agent(`rig-create job acts ${root} --json`, `ask the person to tell you when they submit in Review, then list exported acts and use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : act.stage === 'parts-review' ? '; run its reported legacy signoff preconditions before ingestion' : ''}`),
+    agent(`rig-create job acts ${root} --json --wait`, `wait in the background for the person to submit in Review, then use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : act.stage === 'parts-review' ? '; run its reported legacy signoff preconditions before ingestion' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
   ];
 }

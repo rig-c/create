@@ -578,7 +578,7 @@ async function nextReview(root: string, kind: string, value: object, question?: 
   const target = workflow[1]!.review_act!;
   expect(workflow[0]!.command).toContain(question ? `--question ${question}` : target.draft_id ? `--draft ${target.draft_id}`
     : kind === 'review-verdict' || target.stage === 'rig-review' ? `--rig ${target.version_id!.slice(1)}` : '--plan');
-  expect(workflow[2]!.command).toBe(`rig-create job acts ${quote(root)} --json`);
+  expect(workflow[2]!.command).toBe(`rig-create job acts ${quote(root)} --json --wait`);
   expect(workflow[3]!.command).toContain("--from-review '<actId>'");
   expect(report.moves.some(move => move.command?.startsWith('rig-create job close '))).toBe(false);
   receipt({ rendered: scrub(nextCommand([root], testClock.now()).stdout, root) });

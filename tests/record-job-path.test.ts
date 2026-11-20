@@ -430,7 +430,7 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     const commands = arr(obj(JSON.parse(next.stdout)).moves).map(move => obj(move).command);
     const flags = id === undefined ? [selector] : [selector, id];
     expect(commands).toContain(`rig-create job open ${root} ${flags.join(' ')} --reviewer '<reviewer>' --role owner`);
-    expect(commands).toContain(`rig-create job acts ${root} --json`);
+    expect(commands).toContain(`rig-create job acts ${root} --json --wait`);
     expect(commands).not.toContain(`rig-create job close ${root}`);
     if (!ownerUrl) {
       ownerUrl = (await open(root, flags)).url;

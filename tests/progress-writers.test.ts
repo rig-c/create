@@ -69,9 +69,17 @@ beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
 afterEach(() => testClock.reset());
 
 test.each([
-  ['rigging-interview', ['bones', 'meshes', 'constraints', 'turn', 'motion'].map(id => `interview.waypoints[${id}].guide`)],
-  ['post-interview', ['camera_depth', 'post_timing', 'post_composition'].map(id => `interview.post.items[${id}].guide`)],
-] as const)('advance admits only target-owned silent items on arrival at %s', (stage, paths) => {
+  [
+    'rigging-interview',
+    ['bones', 'meshes', 'constraints', 'turn', 'motion'].map(id => `interview.waypoints[${id}].guide`),
+    'SIGNOFF_REASK_PENDING',
+  ],
+  [
+    'post-interview',
+    ['camera_depth', 'post_timing', 'post_composition'].map(id => `interview.post.items[${id}].guide`),
+    'SIGNOFF_ANSWERS_UNANSWERED',
+  ],
+] as const)('advance admits only target-owned silent items on arrival at %s', (stage, paths, signoffCode) => {
   const dir = interviewArrival(stage);
   const before = read(dir);
   advance(dir, stage);
@@ -82,7 +90,7 @@ test.each([
   expect(arr(after.advances)).toHaveLength(arr(before.advances ?? []).length + 1);
   expect(checkProject(dir).refusals.map(f => [f.code, f.path])).toEqual(paths.map(path => ['INTERVIEW_INCOMPLETE', path]));
   expect(checkProject(dir).warnings).toEqual([]);
-  refused(dir, 'SIGNOFF_ANSWERS_UNANSWERED', () => signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]));
+  refused(dir, signoffCode, () => signoffCommand([stage, dir, '--by', 'owner', '--verbatim-file', words(dir)]));
 });
 
 test.each(['rigging-interview', 'post-interview'])('arrival at %s preserves unrelated candidate refusals', stage => {

@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { isObject } from '../src/check.ts';
 import { closeCreateJob, openCreateJob, openRecordPublication } from '../src/job-host.ts';
 import { JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, writePrivateJson } from '../src/job-outbox.ts';
@@ -172,7 +173,7 @@ test('the existing global drafted_at check still refuses a newly introduced stal
 });
 
 test.each(['legacy-example-project.json', 'example-project.json'])('post re-plan after post-interview reopen preserves both plan dates in %s', template => {
-  testClock.set('2026-11-20T00:00:00Z');
+  testClock.set(EXAMPLE_NOW);
   const dir = fixture(project => {
     step(project, 'camera').status = 'pending';
     step(project, 'camera').status_history = [];
@@ -258,7 +259,7 @@ test('done work cannot be revised after reopen, can be removed with checkpoint h
 });
 
 function rigReplacement(): { dir: string; original: JsonObject; flags: string[] } {
-  testClock.set('2026-11-20T00:00:00Z');
+  testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
   const original = structuredClone(step(read(dir), 'seethrough'));
   reopen(dir);
@@ -281,12 +282,12 @@ test('a removed done rig step accepts its waypoint id after a later plan-approve
   expect(obj(after.plan).replaced).toEqual(history);
   expect(obj(obj(arr(history)[0]).step).status_history).toBeDefined();
   expect(codes(dir)).toEqual([]);
-  testClock.set('2026-11-20T00:00:01Z');
+  testClock.set(EXAMPLE_NOW + 1_000);
   write(dir, 'revise', 'seethrough', ['--bar', 'A refined replacement bar.']);
   expect(step(read(dir), 'seethrough').status).toBe('pending');
-  testClock.set('2026-11-20T00:00:02Z');
+  testClock.set(EXAMPLE_NOW + 2_000);
   write(dir, 'remove', 'seethrough');
-  testClock.set('2026-11-20T00:00:03Z');
+  testClock.set(EXAMPLE_NOW + 3_000);
   write(dir, 'add', 'seethrough', flags);
   expect(codes(dir)).toEqual([]);
 });
@@ -302,13 +303,13 @@ test.each(['absent', 'earlier', 'equal', 'later-stage', 'rig-review', 'post-inte
   if (mode === 'later-stage') entry.stage = 'parts';
   if (mode === 'rig-review' || mode === 'post-interview') entry.stage = mode;
   if (mode === 'malformed') entry.by = 'agent';
-  if (mode === 'future') entry.at = '2026-11-21T00:00:00Z';
+  if (mode === 'future') entry.at = new Date(EXAMPLE_NOW + 86_400_000).toISOString();
   save(dir, project);
   unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'seethrough', flags));
 });
 
 function postReplacement(stage = 'rig-review'): { dir: string; original: JsonObject; flags: string[] } {
-  testClock.set('2026-11-20T00:00:00Z');
+  testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
   const original = structuredClone(step(read(dir), 'camera'));
   reopen(dir, stage);
@@ -397,7 +398,7 @@ test.each(['absent', 'earlier', 'equal', 'post', 'direction-review', 'amendment'
     project.amendments = [{ by: 'user', at: '2026-11-20T00:00:00.000Z', reason: 'Amend.', target: { stage: 'rig-review' } }];
   }
   if (mode === 'malformed') entry.by = 'agent';
-  if (mode === 'future') entry.at = '2026-11-21T00:00:00Z';
+  if (mode === 'future') entry.at = new Date(EXAMPLE_NOW + 86_400_000).toISOString();
   save(dir, project);
   const addFlags = mode === 'wrong-phase' ? flags.map(value => value === 'post' ? 'rig' : value) : flags;
   unchanged(dir, 'PLAN_STEP_DONE', () => write(dir, 'add', 'camera', addFlags));
@@ -559,7 +560,7 @@ test.each([
 });
 
 function postInterviewDraft(): string {
-  testClock.set('2026-11-20T00:00:00Z');
+  testClock.set(EXAMPLE_NOW);
   return realpathSync(fixture(project => {
     project.stage = 'post-interview';
     retainSignoffs(project, signature => !['post-interview', 'direction-review'].includes(String(obj(signature).stage)));
@@ -611,7 +612,7 @@ test('after revise --order, the published plan text lists steps in plan order', 
   write(dir, 'add', 'camera', ['--order', '10', '--does', 'First post step.', ...base]);
   write(dir, 'add', 'timing', ['--order', '20', '--does', 'Second post step.', ...base]);
   write(dir, 'add', 'composition', ['--order', '30', '--does', 'Third post step.', ...base]);
-  testClock.set('2026-11-20T00:00:01Z');
+  testClock.set(EXAMPLE_NOW + 1_000);
   write(dir, 'revise', 'composition', ['--order', '5']);
   const bytes = readFileSync(join(dir, 'project.json'));
   const recordPublished = readRecordPublished({
@@ -751,7 +752,7 @@ test('a pending act made before the reorder is refused as stale with REVIEW_ACT_
       parts: { enumeratorVersion: '2.34.0' },
     },
   };
-  testClock.set('2026-11-20T00:00:01Z');
+  testClock.set(EXAMPLE_NOW + 1_000);
   write(dir, 'revise', 'composition', ['--order', '5']);
   unchanged(dir, 'REVIEW_ACT_SOURCE_STALE', () =>
     rawSignoff(['post-interview', dir, '--from-review', 'sign-before-reorder'], testClock.now(), {
@@ -774,7 +775,7 @@ test('signoff step_hashes still match after the array moves', () => {
   const rigHashesBefore = Object.fromEntries(
     arr(obj(before.plan).steps).map(obj).filter(s => s.phase === 'rig').map(s => [String(s.id), stepHash(s)]),
   );
-  testClock.set('2026-11-20T00:00:01Z');
+  testClock.set(EXAMPLE_NOW + 1_000);
   // Reordering an unsigned post step to order 0 moves all signed rig steps (orders 1..6) in plan.steps[].
   write(dir, 'revise', 'composition', ['--order', '0']);
   const afterMove = read(dir);
@@ -785,7 +786,7 @@ test('signoff step_hashes still match after the array moves', () => {
   expect(codes(dir)).toEqual([]);
   const words = join(dir, 'approve-post.txt');
   writeFileSync(words, 'Approve the reordered post plan.\n');
-  testClock.set('2026-11-20T00:00:02Z');
+  testClock.set(EXAMPLE_NOW + 2_000);
   const signed = JSON.parse(signoffCommand(['post-interview', dir, '--by', 'user', '--verbatim-file', words, '--json']).stdout) as JsonObject;
   expect(advanceCommand(['post', dir], testClock.now()).exit).toBe(0);
   const afterSign = read(dir);
@@ -796,7 +797,7 @@ test('signoff step_hashes still match after the array moves', () => {
 });
 
 test.each(['checkpoint-withdraw', 'bar-amend'] as const)('a %s journal write on a record with an out-of-order array leaves the array bytes and a pending act untouched', action => {
-  testClock.set('2026-11-20T00:00:00Z');
+  testClock.set(EXAMPLE_NOW);
   const dir = realpathSync(fixture(project => {
     project.stage = 'parts';
     project.versions = [];

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
 import { STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import type { JsonObject } from '../src/templates.ts';
@@ -15,7 +16,7 @@ function amend(dir: string, stage: string): void {
   amendCommand([stage, dir, '--kind', 'part', '--target', 'panel', '--change', 'replacement.svg', '--by', 'owner', '--verbatim-file', join(dir, 'words.txt')]);
 }
 
-beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
+beforeEach(() => testClock.set(EXAMPLE_NOW));
 afterEach(() => testClock.reset());
 
 // An amended record keeps the latest-move check while its signature window is exempt (PROJECT.md, Forward amendments).

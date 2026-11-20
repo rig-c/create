@@ -455,10 +455,11 @@ test('an inherited game-logic rig_type chooses state asks instead of character t
 
 test.each(['plain','busy'])('visible config accepts pending auto ground, blocks approval, and validates landed %s or missing ground',ground=>{
   const w=working('assemble');rewriteSet(w,s=>{delete s.constraints;});
-  writeFileSync(join(w.dir,'config.json'),JSON.stringify({assemble:{project:'visible'}}));
   expect(checkProject(w.dir).refusals).toEqual([]);
   const picks=arr(w.set.asks).map(a=>`${String(obj(a).id)}=${obj(a).id==='projection'?'alternative':obj(a).id==='ground'?'auto':'keep'}`);
-  const selected=JSON.parse(answer(w,picks));expect(selected.asks).toContainEqual({id:'ground',state:'delegated'});expect(checkProject(w.dir).refusals).toEqual([]);
+  const selected=JSON.parse(answer(w,picks));expect(selected.asks).toContainEqual({id:'ground',state:'delegated'});
+  writeFileSync(join(w.dir,'config.json'),JSON.stringify({assemble:{project:'visible',ground}}));
+  expect(checkProject(w.dir).refusals).toEqual([]);
   writeFileSync(join(w.dir,'words.txt'),'Approve this direction.');testClock.set(sourceDraftAt+30_000);
   signoffCommand(['interview',w.dir,'--by','user','--verbatim-file',join(w.dir,'words.txt')]);
   expect(checkProject(w.dir).refusals.map(f => f.code)).toContain('STAGE_LAGGING');

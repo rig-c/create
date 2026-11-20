@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
 import type { JsonObject } from '../src/templates.ts';
 import { arr, fixture, obj } from './fixtures.ts';
@@ -36,7 +37,7 @@ function refused(dir: string, code: string, action: () => unknown): string {
 
 // Amend retains project.stage; step-status follows the check's effective stage, so the cycle closes on writers alone.
 describe('redoing the steps an amendment reset', () => {
-  beforeEach(() => testClock.set(new Date('2026-11-20T00:00:00Z')));
+  beforeEach(() => testClock.set(EXAMPLE_NOW));
   afterEach(() => testClock.reset());
 
   test.each(['example-project.json', 'legacy-example-project.json'])('%s: amend post, redo the reset steps, sign again, check exits 0', template => {
@@ -48,7 +49,7 @@ describe('redoing the steps an amendment reset', () => {
     const post = stepsOf(dir, 'post');
     expect(post.length).toBeGreaterThan(0);
     for (const id of post) expect(obj(arr(obj(read(dir).plan).steps).map(obj).find(s => s.id === id)).status).toBe('pending');
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     for (const id of post) redo(dir, id);
     expect(checkProject(dir).refusals).toEqual([]);
     expect(checkProject(dir).effective_stage).toBe('direction-review');
@@ -65,7 +66,7 @@ describe('redoing the steps an amendment reset', () => {
     expect(checkProject(dir).effective_stage).toBe('post-interview');
     const message = refused(dir, 'STEP_STATUS_TRANSITION', () => stepStatusCommand(['camera', 'in-progress', dir, '--by', 'agent']));
     expect(message).toContain('resumes at post-interview');
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
     expect(checkProject(dir).effective_stage).toBe('post');
     for (const id of stepsOf(dir, 'post')) redo(dir, id);
@@ -82,7 +83,7 @@ describe('redoing the steps an amendment reset', () => {
     expect(refused(dir, 'STEP_STATUS_TRANSITION', () => stepStatusCommand(['camera', 'in-progress', dir, '--by', 'agent']))).toContain('runs in post; the amended project resumes at rigging');
     // An upstream parts step is outside the resumed stage; the amendment does not reopen it.
     expect(refused(dir, 'STEP_STATUS_TRANSITION', () => stepStatusCommand(['seethrough', 'in-progress', dir, '--by', 'agent']))).toContain('runs in parts; the amended project resumes at rigging');
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     stepStatusCommand(['bones', 'in-progress', dir, '--by', 'agent']);
     const report = checkProject(dir);
     expect(report.refusals).toEqual([]);
@@ -92,7 +93,7 @@ describe('redoing the steps an amendment reset', () => {
   test('a reset checkpointed step is done again only with a new live checkpoint signature', () => {
     const dir = fixture(() => {}, 'example-project.json');
     amend(dir, 'rigging');
-    testClock.set(new Date('2026-11-21T00:00:00Z'));
+    testClock.set(EXAMPLE_NOW + 86_400_000);
     const rig = arr(obj(read(dir).plan).steps).map(obj).filter(s => s.phase === 'rig' && s.status === 'pending').map(s => String(s.id));
     expect(rig).toEqual(['bones', 'meshes', 'constraints', 'motion']);
     for (const id of rig) {

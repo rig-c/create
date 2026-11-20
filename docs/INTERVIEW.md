@@ -657,7 +657,8 @@ and time with the guide. For example, a user guide can contain
 beside its other asks.
 
 The agent writes these answers as `assemble.project` and, for visible,
-`assemble.ground` in the project config. Create has no config-writing command.
+`assemble.ground` in the project config. Create checks decided values against
+the current and retained configs (see [CHECKS.md](CHECKS.md#waypoint-asks)).
 Parts' `ASSEMBLE_GROUND_PLAIN` WARN reports a plain-declared border that is not
 mostly one colour. A busy ground and a figure crossing the border can both
 cause it, so keep the warning for the author to judge. A measured interview
@@ -665,7 +666,7 @@ proposal awaits parts#1023's public CLI reading.
 
 Guides predating `PROJECTION_ASKS_SINCE` (2026-11-06T00:00:00Z) retain the old
 contract and receive `GUIDE_ASKS_LEGACY` when a new applicable ask is absent.
-Core has no ground ask or ground refusal.
+Core does not require a ground answer.
 
 
 ## Rigging questions follow the approved parts

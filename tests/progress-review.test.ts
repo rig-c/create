@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { Refusal } from '../src/refusal.ts';
 import { DIRECTION_REVIEW_ADVANCE_SINCE, STAGE_PROGRESS_SINCE } from '../src/stage-progress.ts';
 import { tempDir, ownerChatArgs } from './helpers.ts';
@@ -149,7 +150,7 @@ test('review a fresh project remains green at the initial stage', () => {
 });
 
 test('review latest reopen is green and a different hand-set stage is refused', () => {
-  testClock.set(new Date('2026-11-20T00:00:00Z'));
+  testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');
   reopenCommand(['post-interview', dir, '--by', 'owner', ...ownerChatArgs(words(dir))]);
   expect(codes(dir)).toEqual([]);

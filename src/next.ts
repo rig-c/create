@@ -37,6 +37,7 @@ import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
 import { isPartsCheckMove, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { latestPartsVerdictStatus, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { pausedFrom } from './pause.ts';
+import { checkCollection, collectionDirOf } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
@@ -83,6 +84,27 @@ export interface NextRefusal {
   field: string;
   message: string;
   fix: string;
+}
+
+export interface NextCollectionRefusal {
+  code: string;
+  path: string;
+  message: string;
+  remedy: string;
+}
+
+export interface NextCollectionMember {
+  name: string;
+  command: string;
+}
+
+export interface NextCollectionReport {
+  kind: 'collection';
+  collection_dir: string;
+  stage: string | null;
+  effective_stage: string | null;
+  refusals: NextCollectionRefusal[];
+  members: NextCollectionMember[];
 }
 
 export interface NextReviewAct {
@@ -993,6 +1015,26 @@ function partsDraftEvidenceMoves(
     structure,
     retouching: false,
     moves,
+  };
+}
+
+export function nextCollection(collectionDirArg: string): NextCollectionReport {
+  const checked = checkCollection(collectionDirArg);
+  return {
+    kind: 'collection',
+    collection_dir: checked.collection_dir,
+    stage: checked.stage,
+    effective_stage: checked.effective_stage,
+    refusals: checked.refusals.map(r => ({
+      code: r.code,
+      path: r.path,
+      message: r.message,
+      remedy: remedyForFinding(r.code, r.message),
+    })),
+    members: checked.members.map(name => ({
+      name,
+      command: `rig-create next ${shellWord(join(checked.collection_dir, 'members', name))}`,
+    })),
   };
 }
 
@@ -2030,7 +2072,30 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   };
 }
 
-export function formatNext(report: NextReport): string {
+export function formatNext(report: NextReport | NextCollectionReport): string {
+  if ('kind' in report) {
+    const lines: string[] = [
+      `next (collection): ${report.collection_dir} — stage: ${report.stage ?? '(unknown)'}${
+        report.effective_stage !== report.stage ? ` (effective: ${report.effective_stage})` : ''
+      }`,
+    ];
+    if (report.refusals.length > 0) {
+      lines.push(`refusals (${report.refusals.length}):`);
+      for (const r of report.refusals) {
+        lines.push(`  [${r.code}] ${r.path}: ${r.message}`);
+        lines.push(`    remedy: ${r.remedy}`);
+      }
+    }
+    if (report.members.length === 0) {
+      lines.push('members (0): none');
+    } else {
+      lines.push(`members (${report.members.length}):`);
+      for (const member of report.members) {
+        lines.push(`  ${member.name}: ${member.command}`);
+      }
+    }
+    return lines.join('\n');
+  }
   const lines: string[] = [];
   lines.push(
     `next: ${report.project_id || '(unnamed)'} — stage: ${report.stage}${
@@ -2072,7 +2137,8 @@ export function formatNext(report: NextReport): string {
 
 export function nextCommand(args: string[], now: number = Date.now()): { stdout: string; exit: number } {
   const { dir, json } = parseArgs(args);
-  const report = nextProject(dir, now);
+  const collectionDir = collectionDirOf(dir);
+  const report = collectionDir !== null ? nextCollection(collectionDir) : nextProject(dir, now);
   return {
     stdout: json ? JSON.stringify(report, null, 2) : formatNext(report),
     exit: 0,

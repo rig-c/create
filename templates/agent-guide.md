@@ -57,34 +57,22 @@ Preserve history/dates; adopt choices explicitly.
 
 **Live Review loop**
 
-1. Run the first `job open <dir> --reviewer <id> --role owner` in the
-   background. Include the first ask's selector if ready and give the owner
-   the private URL once.
-2. Keep the host up across bound writes. Publish with a bound writer or
-   repeat `job open` with the same reviewer/role and `--draft <id>`,
-   `--rig <n>`, `--question <id>` or `--plan`. Reuse prints the same URL
-   and exits. The open page updates in place.
-3. Until #698 lands, have the owner tell you after submitting in Review.
-   Run `job acts`, ingest with its printed `--from-review` command, advance
-   if needed and publish the next ask.
-4. Close at the end, for an explicit discard or for pin/hook retirement.
-   After a stop, run `job open` in the background with the same reviewer/role,
-   then `job reconcile`. Use the same link.
+Run the first `job open <dir> --reviewer <id> --role owner` in the background.
+Add the first selector if ready. Share the private URL once. Publish via bound writers or repeat with the same
+reviewer/role and `--draft`, `--rig`, `--question` or `--plan`. Reused opens exit. The page updates in place.
+Until #698, ask the owner to tell you after submitting. Run `job acts`, ingest
+via `--from-review`, advance as needed and publish again.
+After a listener stop, reopen with the same reviewer/role and URL, then `job reconcile`.
+Until #700, ingest pending acts and close a package-only job before opening a question or plan.
 
-Until #700, finish and ingest pending acts on a package-only job, explicitly
-close it and reopen with `--question <id>` or `--plan` to switch to record
-asks. Share a new URL after close.
-See [the live Review loop](https://github.com/rig-c/create/blob/main/docs/LIVE-REVIEW.md#the-live-review-loop).
+Successful closes end the page. Share a new URL after reopening.
 
-Successful Create close commands end the live page. Open a new job and share its new URL.
-
-- `job close` ends the page, including retirement after a pin or hook bump.
-- `job close --retire-refused` archives failed publications and ends the page.
-- `job close --discard-acts <reason> --by agent` records the discard and ends the page.
-- `job close --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>` records the owner-authorized discard and ends the page.
-
-- `job open` on a replaced root can archive an already-offline job and opens a new URL.
-- `job reconcile` on a replaced root can archive an already-offline job. Start the replacement with `job open`.
+- `job close` ends the job or retires it after a pin/hook bump.
+- `job close --retire-refused` archives failed publications.
+- `job close --discard-acts <reason> --by agent` records the discard.
+- `job close --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>` records the owner's discard.
+- `job open` can archive an offline replaced-root job and open a new URL.
+- `job reconcile` can archive an offline replaced-root job.
 
 ## Before you ask, plan or show
 

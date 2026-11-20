@@ -3,8 +3,8 @@
 exports[`#454 no-bounce direction write and next preserve previous bytes and output 1`] = `
 {
   "exit": 0,
-  "nextJson": "97a012d9b829abaf6a0897272de816f256804afb67033ba389933d2ab919f7c7",
-  "nextText": "4b7870684ffc27dabd2c163577d1c63ef471656666332869e87d52ce1966bd05",
+  "nextJson": "e5eeff7a0080a9c0c07f222120af0fdd500161e3b9207a85b0a3f1e0129cbff9",
+  "nextText": "2b9605b0ae30814a8f94e213a668bba20b82814f40821c1f143ca8e5905cb704",
   "record": "08806d92fb8c73a71845ebf4a8314c3c0da02bf0885e3b216d9c1ba75128e608",
   "stdout": "4c4c2cb5d2ed4ae18a58a9b30da2f9706fb47b430349b411044e9ad8e1507f99",
 }

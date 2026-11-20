@@ -969,6 +969,19 @@ Use `rig-version` to bring separately located frozen producer outputs into one
 numbered version. This is a registration operation. Build, registration and
 acceptance have separate dates and writers.
 
+Generate the adapter from the frozen config and its referenced requirements
+before registering the build.
+
+```sh
+rig-create rig-version adapter . --config frozen/config.json --out frozen/path-adapter.json
+```
+
+The adapter command writes the JSON to `--out` and prints the same bytes.
+Paths passed to the command resolve against the project directory. The
+command uses the registration writer's source and target mapping, including
+unchanged relative paths, and leaves an existing adapter with identical bytes
+in place. Give it a fresh output path to save different bytes.
+
 ```sh
 rig-create rig-version 3 . \
   --parts frozen/assembly/rig --rig frozen/out/rig --build frozen/out/build \
@@ -1041,11 +1054,16 @@ and `registration.path_adapter`. Registrations using pointer adaptation declare
 keeps that contract active. These registrations also bind the original
 and runtime requirements as `registration.requirements_source` and
 `registration.requirements`. Each absolute config value requires an exact
-adapter row `{at:".section.field",before,after}` matching its runtime `after`
-value, and relative `config` or `requirements` asset references use explicit
+adapter row `{at:".section.field",before,after}`. In that row, `before`
+names the frozen source and `after` matches the literal value in the source
+config. The adapter command can generate this row when the absolute value
+itself names the frozen source. Relative `config` or `requirements` asset
+references use explicit
 `{doc:"config"|"requirements",pointer,before,after}` rows (recorded in the
-retained `path-adapter.json`). The writer retains the original `config` and
-`requirements` byte-identical, copies every referenced asset (`assemble.take`,
+retained `path-adapter.json`). Requirements asset paths must be relative to
+the requirements document. If the adapter command encounters an unmappable
+input, it refuses before writing the output. The writer retains the original
+`config` and `requirements` byte-identical, copies every referenced asset (`assemble.take`,
 `assemble.editor_receipts`, `assemble.cuts`, `limbs`, `depth`,
 `setup_painting.figure_mask` and `setup_painting.backdrop`) to literal
 in-package paths (`no ..`, `no :`), verifies declared `sha256` digests before

@@ -384,6 +384,113 @@ describe('frozen rig registration', () => {
     }
   }
 
+  test('#720 adapter CLI prints the hand-written rows and registration retains those exact bytes', () => {
+    const f = setupEditedParts();
+    const projectPath = join(f.dir, 'project.json');
+    const projectBytes = readFileSync(projectPath);
+    const config = JSON.parse(readFileSync(join(f.dir, f.configPath), 'utf8'));
+    config.assemble.editor_receipts = { receipts: [{ file: '../../rig/images/rectangle.png' }] };
+    put(f.dir, f.configPath, config);
+    const imageSha = jobHash(f.imageBytes[0]!);
+    put(f.dir, 'source/requirements.json', { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: {
+      required: true,
+      figure_mask: { path: 'rig/images/rectangle.png', sha256: imageSha },
+      backdrop: { path: 'rig/images/rectangle.png', sha256: imageSha },
+    } });
+    const configBytes = readFileSync(join(f.dir, f.configPath));
+    const reqBytes = readFileSync(join(f.dir, 'source/requirements.json'));
+    const expected = [
+      { doc: 'config', pointer: '/requirements', before: '../../requirements.json', after: 'inputs/requirements' },
+      { doc: 'config', pointer: '/assemble/edited_parts/receipts/0/file', before: '../../../inputs/edited/rectangle.png', after: 'inputs/assemble/edited_parts/receipts/0/file' },
+      { doc: 'config', pointer: '/assemble/edited_parts/receipts/1/file', before: '../../../inputs/edited/accent.png', after: 'inputs/assemble/edited_parts/receipts/1/file' },
+      { doc: 'config', pointer: '/assemble/editor_receipts/receipts/0/file', before: '../../rig/images/rectangle.png', after: 'inputs/assemble/editor_receipts/receipts/0/file' },
+      { doc: 'requirements', pointer: '/setup_painting/figure_mask/path', before: 'rig/images/rectangle.png', after: 'rig/images/rectangle.png' },
+      { doc: 'requirements', pointer: '/setup_painting/backdrop/path', before: 'rig/images/rectangle.png', after: 'setup_painting/backdrop/path' },
+    ];
+    const out = 'source/generated-adapter.json';
+    const cliArgs = [process.execPath, ...clockedCli(), 'rig-version', 'adapter', f.dir, '--config', f.configPath, '--out', out];
+    const result = run(cliArgs, f.dir, process.env as Record<string, string>);
+    const handWritten = `${JSON.stringify(expected, null, 2)}\n`;
+    expect(result).toEqual({ code: 0, stderr: '', stdout: handWritten });
+    expect(readFileSync(join(f.dir, out), 'utf8')).toBe(handWritten);
+    expect(readFileSync(projectPath)).toEqual(projectBytes);
+    expect(readFileSync(join(f.dir, f.configPath))).toEqual(configBytes);
+    expect(readFileSync(join(f.dir, 'source/requirements.json'))).toEqual(reqBytes);
+    expect(existsSync(join(f.dir, 'evidence/v1/registration'))).toBe(false);
+
+    f.args[f.args.indexOf('--path-adapter') + 1] = out;
+    assertEditedPartsAccepted(f);
+    expect(readFileSync(join(f.dir, 'evidence/v1/registration/path-adapter.json'), 'utf8')).toBe(handWritten);
+  });
+
+  test('#720 an absolute config reference uses the existing legacy row', () => {
+    const { dir, args, load } = setup();
+    const asset = join(dir, 'source/rig/images/rectangle.png');
+    put(dir, 'source/config.json', { key: 'synthetic', requirements: 'requirements.json', assemble: {
+      editor_receipts: { receipts: [{ file: asset, sha256: jobHash(readFileSync(asset)) }] },
+    } });
+    put(dir, 'source/citations.json', { assemble: [{ entry: 'plan[lantern]', guide: 'assemble', quote: 'The lantern is its own part.', asks: ['emphasis'] }] });
+    const out = 'source/generated-adapter.json';
+    expect(rigVersionCommand(['adapter', dir, '--config', 'source/config.json', '--out', out]).exit).toBe(0);
+    const bytes = readFileSync(join(dir, out));
+    expect(JSON.parse(bytes.toString())).toEqual([
+      { doc: 'config', pointer: '/requirements', before: 'requirements.json', after: 'requirements.json' },
+      { at: '.assemble.editor_receipts.receipts.0.file', before: asset, after: asset },
+    ]);
+    args[args.indexOf('--path-adapter') + 1] = out;
+    expect(rigVersionCommand([...args, '--citations', 'source/citations.json']).exit).toBe(0);
+    expect(readFileSync(join(dir, 'evidence/v1/registration/path-adapter.json'))).toEqual(bytes);
+    expect(rigRegistrationFindings(dir, load())).toEqual([]);
+    expect(checkProject(dir).refusals).toEqual([]);
+  });
+
+  test('#720 equal adapter paths replay edited-parts receipt setters', () => {
+    const f = setupEditedParts(false, 'inputs/edited');
+    const config = JSON.parse(readFileSync(join(f.dir, f.configPath), 'utf8'));
+    config.assemble.edited_parts.receipts[0].file = './rectangle.png';
+    put(f.dir, f.configPath, config);
+    const out = 'source/generated-adapter.json';
+    expect(rigVersionCommand(['adapter', f.dir, '--config', f.configPath, '--out', out]).exit).toBe(0);
+    f.args[f.args.indexOf('--path-adapter') + 1] = out;
+    assertEditedPartsAccepted(f);
+    const retained = readFileSync(join(f.dir, 'evidence/v1/registration/path-adapter.json'));
+    expect(retained).toEqual(readFileSync(join(f.dir, out)));
+  });
+
+  test('#720 an unmappable requirements path leaves both a fresh and an existing output untouched', () => {
+    const { dir } = setup();
+    const asset = join(dir, 'source/rig/images/rectangle.png');
+    const configPath = 'source/config.json';
+    const reqPath = 'source/requirements.json';
+    put(dir, reqPath, { spec: 'spine-parts-requirements/1', fps: 4, requirements: [], setup_painting: {
+      required: true, backdrop: { path: asset, sha256: jobHash(readFileSync(asset)) },
+    } });
+    const before = ['project.json', configPath, reqPath, 'source/adapter.json'].map(path => [path, readFileSync(join(dir, path))] as const);
+    for (const out of ['new-dir/adapter.json', 'source/adapter.json']) {
+      const result = run([process.execPath, ...clockedCli(), 'rig-version', 'adapter', dir, '--config', configPath, '--out', out],
+        dir, process.env as Record<string, string>);
+      expect(result.code).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('RIG_RUNTIME_PATH_UNRESOLVED');
+      expect(result.stderr).toContain('requirements.setup_painting.backdrop.path');
+    }
+    expect(existsSync(join(dir, 'new-dir'))).toBe(false);
+    for (const [path, bytes] of before) expect(readFileSync(join(dir, path))).toEqual(bytes);
+  });
+
+  test('#720 adapter output accepts identical bytes and refuses to replace different bytes', () => {
+    const { dir } = setup();
+    const args = ['adapter', dir, '--config', 'source/config.json', '--out', 'source/adapter.json'];
+    const out = join(dir, 'source/adapter.json');
+    const original = readFileSync(out);
+    refused(args, 'RIG_PATH_ADAPTER_OUT_INVALID');
+    expect(readFileSync(out)).toEqual(original);
+    const fresh = [...args.slice(0, -1), 'source/generated-adapter.json'];
+    const created = rigVersionCommand(fresh);
+    expect(created.exit).toBe(0);
+    expect(rigVersionCommand(fresh)).toEqual(created);
+  });
+
   test.each([false, true])('#570 edited_parts relative dir and bare receipts register and check (nested=%s)', nested => {
     assertEditedPartsAccepted(setupEditedParts(nested));
   });

@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import type { ActV3, JobOwnerHost } from '@rig-c/review/job-host';
 import { main } from '../src/cli.ts';
 import { checkProject } from '../src/check.ts';
@@ -1988,6 +1988,135 @@ test('#596 post stage with in-progress step offers direction --adopt then direct
     field: 'versions',
     awaits: 'versions[n=3]',
     command: `rig-create direction write 3 ${dir} --file '<direction.json>' --rig 2`,
+  });
+});
+
+describe('#720 next offers the frozen checked build', () => {
+  function checkedBuild(dir: string, root: string, finished: number) {
+    const config = 'evidence/frozen config.json';
+    const check = `${root}/check/check.json`;
+    const build = `${root}/check/build`;
+    const run = `${build}/run.json`;
+    const model = `${build}/skeleton.model.json`;
+    const put = (path: string, value: JsonObject): string => {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      const bytes = JSON.stringify(value);
+      writeFileSync(join(dir, path), bytes);
+      return sha256(bytes);
+    };
+    const at = new Date(finished).toISOString();
+    const modelHash = put(model, { spec: 'rigc-compiled/3' });
+    const report: JsonObject = {
+      spec: 'rig-parts-check/1', PASS: true, bar_outcomes: { gate: { status: 'PASS' } },
+      build: { model_sha256: modelHash }, config: { path: config, sha256: put(config, { key: 'synthetic' }) },
+    };
+    const runRecord: JsonObject = {
+      spec: 'rigc-run/1', package: { name: '@rig-c/core', version: '3.8.0' }, command: 'build', started_at: at, finished_at: at,
+      inputs: [
+        { role: 'rig', path: '../../rig/rig.json', sha256: put(`${root}/rig/rig.json`, { spec: 'rigc-rig/1' }) },
+        { role: 'motion', path: '../../rig/motion.json', sha256: put(`${root}/rig/motion.json`, { spec: 'rigc-motion/1' }) },
+      ],
+      outputs: [{ path: 'skeleton.model.json', sha256: modelHash }],
+    };
+    put(`${root}/check/idle_frames/frames.json`, { spec: 'rigc-frames/1', sets: [{ animation: 'idle', fps: 12 }] });
+    const store = (): void => { put(check, report); put(run, runRecord); };
+    store();
+    return { config, check, build, run, model, report, runRecord, store };
+  }
+
+  test('names producer inputs and a free number alongside open steps, with a registered control', () => {
+    const dir = join(tempDir(), 'checked-rig');
+    cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+    const file = join(dir, 'project.json');
+    const registered = readFileSync(file);
+    const project = JSON.parse(registered.toString()) as JsonObject;
+    project.stage = 'rigging';
+    project.advances = arr(project.advances).filter(entry => obj(entry).stage !== 'rig-review');
+    project.versions = [];
+    for (const step of arr(obj(project.plan).steps).map(obj)) {
+      if (['bones', 'meshes', 'constraints', 'motion'].includes(String(step.id))) step.status = 'at-checkpoint';
+    }
+    writeFileSync(file, JSON.stringify(project));
+    const before = nextProject(dir, CHAIN_NOW);
+    expect(before.refusals).toEqual([]);
+    expect(before.moves.filter(move => move.field.startsWith('plan.steps['))).toHaveLength(4);
+    expect(before.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
+
+    const source = 'outputs/v2';
+    const approvedAt = Date.parse(String(arr(project.signoffs).map(obj).find(signoff => signoff.stage === 'parts-review')?.at));
+    checkedBuild(dir, source, approvedAt - 1);
+    expect(nextProject(dir, CHAIN_NOW).moves).toEqual(before.moves);
+    const { check, run, build, config } = checkedBuild(dir, source, approvedAt);
+    // Existing v1 is an unregistered destination in this state. v3 and v4 are occupied by other writer destinations.
+    mkdirSync(join(dir, 'evidence/v3/registration'), { recursive: true });
+    mkdirSync(join(dir, 'derived/review/v4'), { recursive: true });
+    mkdirSync(join(dir, 'evidence/v5'), { recursive: true });
+    const tree = treeDigest(dir);
+    const after = nextProject(dir, CHAIN_NOW);
+    expect(treeDigest(dir)).toEqual(tree);
+    expect(after.refusals).toEqual([]);
+    expect(after.moves.slice(0, -1)).toEqual(before.moves);
+    expect(after.awaits).toEqual([...before.awaits, 'versions[n=5]']);
+    const move = after.moves.at(-1)!;
+    expect(move).toMatchObject({ role: 'agent', field: 'versions', awaits: 'versions[n=5]' });
+    const argv = printedArgs(move.command!);
+    expect(argv.slice(0, 4)).toEqual(['rig-create', 'rig-version', '5', dir]);
+    for (const [flag, value] of Object.entries({
+      '--parts': '<checked parts dir>', '--rig': `${source}/rig`, '--idle': `${source}/check/idle_frames`, '--config': config,
+      '--path-adapter': '<path-adapter.json>', '--compile-report': '<build-report.json>', '--toolchain-lock': '<build toolchain lock>',
+      '--build': build, '--check-report': check, '--run-record': run, '--at-source': run, '--at-pointer': '/finished_at', '--by': '<agent>',
+    })) expect(argv[argv.indexOf(flag) + 1]).toBe(value);
+    expect(move.act).toContain(`from ${source} as v5`);
+    expect(move.act).toContain(`rig-create rig-version adapter ${dir} --config '${config}' --out '<path-adapter.json>'`);
+    for (const producer of ['rig-parts assemble', 'rig-parts rig', 'rig-parts check', 'rigc render', 'rigc build --report', 'bun install', 'npm install']) {
+      expect(move.act).toContain(producer);
+    }
+
+    writeFileSync(file, registered);
+    const control = nextProject(dir, CHAIN_NOW);
+    expect(control.refusals).toEqual([]);
+    expect(control.moves.some(move => move.command?.startsWith('rig-create rig-version '))).toBe(false);
+    expect(control.awaits).toEqual(['versions[n=1].verdicts[review=rig-review]']);
+  });
+
+  test('keeps the legacy reopen move until the producer claims identify a passing post-reopen build', () => {
+    const dir = join(tempDir(), 'checked-reopen');
+    cpSync(join(CHECKPOINTS_DIR, '3-rig-review'), dir, { recursive: true });
+    plantLegacyReopen(dir, 'rig-review', { at: new Date(CHAIN_NOW).toISOString() });
+    const now = CHAIN_NOW + 2000;
+    const before = nextProject(dir, now);
+    expect(before.refusals).toEqual([]);
+    expect(before.moves[0]?.command).toContain("--check-report '<check.json>'");
+
+    checkedBuild(dir, 'scratch/v4', CHAIN_NOW + 1000);
+    checkedBuild(dir, 'outputs/v3/out', CHAIN_NOW + 1000);
+    const candidate = checkedBuild(dir, 'outputs/v2', CHAIN_NOW);
+    const moves = () => nextProject(dir, now).moves;
+    expect(moves()).toEqual(before.moves);
+    candidate.runRecord.finished_at = new Date(CHAIN_NOW + 1000).toISOString();
+    candidate.report.PASS = false;
+    candidate.store();
+    expect(moves()).toEqual(before.moves);
+    candidate.report.PASS = true;
+    obj(obj(candidate.report.bar_outcomes).gate).status = 'FAIL';
+    candidate.store();
+    expect(moves()).toEqual(before.moves);
+    obj(obj(candidate.report.bar_outcomes).gate).status = 'PASS';
+    obj(candidate.report.build).model_sha256 = 'a'.repeat(64);
+    candidate.store();
+    expect(moves()).toEqual(before.moves);
+    obj(candidate.report.build).model_sha256 = sha256(readFileSync(join(dir, candidate.model)));
+    obj(candidate.report.config).sha256 = 'b'.repeat(64);
+    candidate.store();
+    expect(moves()).toEqual(before.moves);
+    obj(candidate.report.config).sha256 = sha256(readFileSync(join(dir, candidate.config)));
+    obj(arr(candidate.runRecord.outputs)[0]).sha256 = 'c'.repeat(64);
+    candidate.store();
+    expect(moves()).toEqual(before.moves);
+    obj(arr(candidate.runRecord.outputs)[0]).sha256 = obj(candidate.report.build).model_sha256;
+    candidate.store();
+    expect(moves().map(move => move.command)).toEqual([expect.stringContaining(`rig-create rig-version 4 ${dir} `)]);
+    expect(moves()[0]?.command).toContain(`--check-report ${candidate.check}`);
   });
 });
 

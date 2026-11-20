@@ -1,13 +1,13 @@
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
-import { ChoiceError, hasPendingOther, isUndecidedDelegation, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
+import { ChoiceError, hasPendingOther, isUndecidedDelegation, literalFile, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { publicationFile } from './job-publication.ts';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   answered,
   asArray,
@@ -43,7 +43,7 @@ import { checkCollection, collectionDirOf } from './pins-check.ts';
 import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
-import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
+import { collectReopens, directionReviewClosed, liveSignoff, type Reopen } from './reopen.ts';
 import { acceptedReviewVerdict, latestAccepted, readVersions } from './review.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
 import {
@@ -68,7 +68,10 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
-import { depthPlanMoves } from './rig-version.ts';
+import { depthPlanMoves, nextRigRegistrationNumber } from './rig-version.ts';
+import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
+import { validateRunRecord } from './run-record.ts';
+import { latestPartsApproval, partsApprovalIdentity } from './structure.ts';
 import { resolveAgentCitationSpec } from './scene-authority.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 
@@ -265,6 +268,113 @@ function decisionCommand(dir: string, item: Item): string {
 
 function shellWord(value: string): string {
   return /^[A-Za-z0-9_./:-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+interface CheckedRigBuild {
+  source: string;
+  check: string;
+  build: string;
+  run: string;
+  finished: number;
+  config?: string;
+  rig?: string;
+  idle?: string;
+}
+
+function producerHashMatches(dir: string, path: string, sha256: Json | undefined): boolean {
+  if (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(sha256)) return false;
+  try { return createHash('sha256').update(readFileSync(literalFile(dir, path))).digest('hex') === sha256; }
+  catch { return false; }
+}
+
+function checkedRigBuild(dir: string, source: string, approvedAt: number, reopens: readonly Reopen[], now: number): CheckedRigBuild | undefined {
+  const checkDir = `${source}/check`;
+  const check = `${checkDir}/${RIG_CHECK_REPORT_FILE}`;
+  const build = `${checkDir}/build`;
+  const run = `${build}/run.json`;
+  try {
+    const bytes = readFileSync(literalFile(dir, check));
+    const report = parseRigCheckReport(bytes);
+    if (report.PASS !== true) return;
+    const model = createHash('sha256').update(readFileSync(literalFile(dir, `${build}/skeleton.model.json`))).digest('hex');
+    const warnings: Finding[] = [];
+    if (checkRigReport({ at: new Date(now).toISOString(), check_report: { path: check, spec: report.spec ?? null } },
+      check, check, model, () => bytes, warnings).length || warnings.length) return;
+
+    const stamp = validateRunRecord(readFileSync(literalFile(dir, run)), run);
+    if (stamp.spec !== 'rigc-run/1' || !asArray(stamp.record.outputs).some(row =>
+      isObject(row) && row.path === 'skeleton.model.json' && row.sha256 === model)) return;
+    const finished = Date.parse(String(stamp.record.finished_at));
+    if (finished < approvedAt || finished > now || finished < Date.parse(String(stamp.record.started_at))
+      || !liveSignoff(reopens, 'rig-review', finished)) return;
+
+    let config: string | undefined;
+    if (report.config !== undefined) {
+      // Parts records the argument as typed. Resolve only project-local claims with matching bytes.
+      if (!isObject(report.config) || typeof report.config.path !== 'string' || !report.config.path
+        || report.config.path.includes('\\') || report.config.path.split('/').includes('..')) return;
+      const path = relative(dir, resolve(dir, report.config.path)).split(sep).join('/');
+      if (isAbsolute(path) || !producerHashMatches(dir, path, report.config.sha256)) return;
+      config = path.startsWith('-') ? `./${path}` : path;
+    }
+
+    const rigDir = `${source}/rig`;
+    const inputs = asArray(stamp.record.inputs).filter(isObject);
+    const rig = ['rig', 'motion'].every(role => {
+      const path = `${rigDir}/${role}.json`;
+      return inputs.some(input => input.role === role && input.path === relative(build, path).split(sep).join('/')
+        && producerHashMatches(dir, path, input.sha256));
+    }) ? rigDir : undefined;
+
+    const idleDir = `${checkDir}/idle_frames`;
+    let idle: string | undefined;
+    try {
+      const frames: Json = JSON.parse(readFileSync(literalFile(dir, `${idleDir}/frames.json`), 'utf8'));
+      if (isObject(frames) && frames.spec === 'rigc-frames/1' && asArray(frames.sets).some(set =>
+        isObject(set) && set.animation === 'idle' && typeof set.fps === 'number' && set.fps > 0)) idle = idleDir;
+    } catch { /* Keep --idle as an explicit input when the check did not retain the render. */ }
+    return { source, check, build, run, finished, config, rig, idle };
+  } catch { return undefined; /* Unbound producer output is optional evidence for next. */ }
+}
+
+function latestCheckedRigBuild(dir: string, versions: JsonObject[], approvedAt: number, reopens: readonly Reopen[], now: number): CheckedRigBuild | undefined {
+  let entries: string[];
+  try {
+    const outputs = join(dir, 'outputs');
+    if (!lstatSync(outputs).isDirectory()) return;
+    entries = readdirSync(outputs, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name);
+  } catch { return; }
+  const registered = new Set(versions.map(v => `v${String(v.n)}`));
+  // rig-parts build's numbered output root has check/ directly below it.
+  // Registered copies under out/check and arbitrary project directories are outside discovery.
+  return entries.filter(entry => /^v[1-9][0-9]*$/.test(entry) && Number.isSafeInteger(Number(entry.slice(1))) && !registered.has(entry))
+    .map(entry => checkedRigBuild(dir, `outputs/${entry}`, approvedAt, reopens, now))
+    .filter(build => build !== undefined)
+    .sort((a, b) => b.finished - a.finished || Number(b.source.slice('outputs/v'.length)) - Number(a.source.slice('outputs/v'.length)))[0];
+}
+
+function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild): NextMove {
+  const bound: Record<string, string | undefined> = checked ? {
+    '--parts': '<checked parts dir>', '--rig': checked.rig ?? '<checked rig dir>', '--idle': checked.idle ?? '<idle render dir>',
+    '--build': checked.build, '--check-report': checked.check, '--run-record': checked.run, '--at-source': checked.run,
+    '--at-pointer': '/finished_at', '--config': checked.config ?? '<config.json>', '--path-adapter': '<path-adapter.json>',
+    '--compile-report': '<build-report.json>', '--toolchain-lock': '<build toolchain lock>',
+  } : {};
+  const args = RIG_VERSION_INPUTS.replace(/(--[a-z-]+) (<[^>]+>)/g, (_, flag: string, placeholder: string) =>
+    `${flag} ${shellWord(bound[flag] ?? placeholder)}`);
+  const act = checked
+    ? [
+      `Register the checked build from ${checked.source} as v${n}.`,
+      "Use --parts from rig-parts assemble or rig-parts build and --rig from rig-parts rig or rig-parts build, both from the checked build's inputs.",
+      'Use the --config supplied to Parts (prepared from the interview or rig-parts propose).',
+      "Use --check-report and --build from rig-parts check and --idle from its rigc render.",
+      "Use the rigc build's run.json for --run-record and --at-source, with --at-pointer /finished_at.",
+      `Generate --path-adapter with rig-create rig-version adapter ${shellWord(dir)} --config ${shellWord(checked.config ?? '<config.json>')} --out '<path-adapter.json>'.`,
+      `Supply --compile-report from the same rigc build --report and --toolchain-lock from the build's bun.lock (bun install) or package-lock.json (npm install).`,
+      'Supply your identity with --by and include --citations for applicable config sections.',
+    ].join(' ')
+    : `register a new rig version built after the reopen or amendment with rig-version ${n}, then publish it for one verdict`;
+  return { role: 'agent', field: 'versions', awaits: `versions[n=${n}]`, command: `rig-create rig-version ${n} ${shellWord(dir)} ${args}`, act };
 }
 
 function optionCommand(id: string, dir: string): string {
@@ -1755,8 +1865,16 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       s => (s.phase === 'rig' || s.phase === 'post') && stageOfStep(s.phase, String(s.id)) === 'rigging',
     );
     const openRigSteps = rigSteps.filter(s => s.status !== 'done');
+    const hasOpenRigSteps = effectiveStage === 'rigging' && openRigSteps.length > 0;
+    const rigN = parsedVersions.rigs.filter(r => r.live).at(-1)?.n ?? null;
+    const hasHistoryRig = parsedVersions.rigs.some(r => !r.live) || !liveSignoff(reopens, 'rig-review', -Infinity);
+    const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
+    const approval = rigN === null ? latestPartsApproval(project, now) : undefined;
+    const approvalIdentity = approval && partsApprovalIdentity(approval);
+    const checked = approvalIdentity ? latestCheckedRigBuild(dir, versions, Date.parse(approvalIdentity.signoff_at), reopens, now) : undefined;
+    const checkedRigN = checked ? nextRigRegistrationNumber(dir, nextRigN) : undefined;
 
-    if (effectiveStage === 'rigging' && openRigSteps.length > 0) {
+    if (hasOpenRigSteps) {
       for (const step of openRigSteps) {
         const stepId = String(step.id);
         const currentStatus = String(step.status ?? 'pending');
@@ -1797,12 +1915,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           });
         }
       }
-    } else {
-      const liveRigs = parsedVersions.rigs.filter(r => r.live);
-      const latestLiveRig = liveRigs[liveRigs.length - 1];
-      const rigN = latestLiveRig?.n ?? null;
-      const hasHistoryRig = parsedVersions.rigs.some(r => !r.live) || !liveSignoff(reopens, 'rig-review', -Infinity);
+    }
 
+    if (checked && checkedRigN !== undefined) {
+      const move = rigRegistrationMove(dir, checkedRigN, checked);
+      addAwait(move.awaits);
+      moves.push(move);
+    } else if (!checked && !hasOpenRigSteps) {
       if (effectiveStage === 'rigging' && rigN !== null) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);
         if (advCmd !== null) {
@@ -1818,16 +1937,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       }
 
       if (rigN === null && hasHistoryRig) {
-        const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
-        const nextRigField = `versions[n=${nextRigN}]`;
-        addAwait(nextRigField);
-        moves.push({
-          role: 'agent',
-          field: 'versions',
-          awaits: nextRigField,
-          command: `rig-create rig-version ${nextRigN} ${shellWord(dir)} ${RIG_VERSION_INPUTS.replace(/<[^>]+>/g, shellWord)}`,
-          act: `register a new rig version built after the reopen or amendment with rig-version ${nextRigN}, then publish it for one verdict`,
-        });
+        const move = rigRegistrationMove(dir, nextRigN);
+        addAwait(move.awaits);
+        moves.push(move);
       } else if (rigN === null) {
         const verdictAwait = 'versions[kind=rig].verdicts[review=rig-review]';
         addAwait(verdictAwait);

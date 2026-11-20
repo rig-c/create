@@ -82,10 +82,8 @@ export type NextRole = 'agent' | 'producer' | 'human';
 export interface NextRefusal {
   code: string;
   field: string;
-  path?: string;
   message: string;
   fix: string;
-  remedy?: string;
 }
 
 export interface NextCollectionRefusal {
@@ -142,15 +140,12 @@ export interface NextMove {
 }
 
 export interface NextReport {
-  kind?: 'collection';
-  collection_dir?: string;
   schema: typeof NEXT_SCHEMA;
   project_id: string;
   stage: string;
   effective_stage: string;
   accepted: boolean;
   refusals: NextRefusal[];
-  members?: NextCollectionMember[];
   warnings?: Finding[];
   /** A view of existing answers, never a new project record. */
   answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
@@ -1045,10 +1040,6 @@ export function nextCollection(collectionDirArg: string): NextCollectionReport {
 
 export function nextProject(projectDirArg: string, now: number = Date.now()): NextReport {
   const dir = resolve(projectDirArg);
-  const collectionDir = collectionDirOf(dir);
-  if (collectionDir !== null) {
-    return nextCollection(collectionDir) as unknown as NextReport;
-  }
   const report: CheckReport = checkProject(dir, undefined, { now, readOnly: true });
   const fatal = report.refusals.find(r => FATAL_CODES.has(r.code));
   if (fatal !== undefined) refuse(fatal.code, fatal.message);
@@ -2082,25 +2073,24 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
 }
 
 export function formatNext(report: NextReport | NextCollectionReport): string {
-  if (report.kind === 'collection') {
-    const collection = report as NextCollectionReport;
+  if ('kind' in report) {
     const lines: string[] = [
-      `next (collection): ${collection.collection_dir} — stage: ${collection.stage ?? '(unknown)'}${
-        collection.effective_stage !== collection.stage ? ` (effective: ${collection.effective_stage})` : ''
+      `next (collection): ${report.collection_dir} — stage: ${report.stage ?? '(unknown)'}${
+        report.effective_stage !== report.stage ? ` (effective: ${report.effective_stage})` : ''
       }`,
     ];
-    if (collection.refusals.length > 0) {
-      lines.push(`refusals (${collection.refusals.length}):`);
-      for (const r of collection.refusals) {
+    if (report.refusals.length > 0) {
+      lines.push(`refusals (${report.refusals.length}):`);
+      for (const r of report.refusals) {
         lines.push(`  [${r.code}] ${r.path}: ${r.message}`);
         lines.push(`    remedy: ${r.remedy}`);
       }
     }
-    if (collection.members.length === 0) {
+    if (report.members.length === 0) {
       lines.push('members (0): none');
     } else {
-      lines.push(`members (${collection.members.length}):`);
-      for (const member of collection.members) {
+      lines.push(`members (${report.members.length}):`);
+      for (const member of report.members) {
         lines.push(`  ${member.name}: ${member.command}`);
       }
     }
@@ -2147,7 +2137,8 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
 
 export function nextCommand(args: string[], now: number = Date.now()): { stdout: string; exit: number } {
   const { dir, json } = parseArgs(args);
-  const report = nextProject(dir, now);
+  const collectionDir = collectionDirOf(dir);
+  const report = collectionDir !== null ? nextCollection(collectionDir) : nextProject(dir, now);
   return {
     stdout: json ? JSON.stringify(report, null, 2) : formatNext(report),
     exit: 0,

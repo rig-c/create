@@ -2,10 +2,9 @@ import { asArray, collectItems, isObject, loadCollection } from './check.ts';
 import { jobHash } from './job-outbox.ts';
 import { decodeReviewAct, reviewActFindings } from './review-act.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
-import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, PICK_SIGNOFF_STAGES } from './stages.ts';
 import type { JsonObject } from './templates.ts';
 
-const pickSignoffStages = ['interview', 'plan-approved', 'rigging-interview'];
 
 export function requiredInterviewSteps(stage: string): string[] {
   return stage === 'rigging-interview' ? ['bones', 'meshes', 'constraints', 'motion'] : ['seethrough', 'assemble'];
@@ -17,7 +16,7 @@ export function missingPickSignoffSteps(project: JsonObject, stage: string): str
 }
 
 export function pickSignoffEvidence(dir: string, project: JsonObject, stage: string, now: number) {
-  if (!pickSignoffStages.includes(stage) || reviewActFindings(project).length) return null;
+  if (!PICK_SIGNOFF_STAGES.includes(stage) || reviewActFindings(project).length) return null;
   const interview = stage === 'plan-approved' ? 'interview' : stage;
   const split = hasStageOrder(project);
   const allItems = collectItems(project, { collection: loadCollection(dir) });

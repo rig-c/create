@@ -13,6 +13,7 @@ import { JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS
   type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
+import { PICK_SIGNOFF_STAGES } from './stages.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { composedPublishedBuildFiles, liveManifestPath, publicationFile } from './job-publication.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -784,7 +785,7 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       object(ref) ? ownerPickActs.get(JSON.stringify([ref.job_id, ref.act_id])) : undefined);
     const last = ownerPickActs.get(JSON.stringify([evidence.job_id, evidence.act_id]));
     if (!last || !sources.includes(last) || row.checkpoint !== null
-        || !['interview', 'plan-approved', 'rigging-interview'].includes(String(row.stage))
+        || !PICK_SIGNOFF_STAGES.includes(String(row.stage))
         || evidence.said_at !== last.at || !(Date.parse(String(row.at)) >= Date.parse(last.at))
         || new Set(sources.map(act => act?.value.questionId)).size !== sources.length
         || sources.some(act => !act || act.authority.reviewer.role !== 'owner'

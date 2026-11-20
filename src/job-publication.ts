@@ -830,7 +830,7 @@ export function draftPublicationContext(root: string, project: JsonObject, id: s
   return inspectDraftPublication(root, project, id, warnings).context;
 }
 
-export function inspectDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[] = []): {
+export function inspectDraftPublication(root: string, project: JsonObject, id: string, warnings: Finding[] = [], stage = effectiveStage(root, project)): {
   context: JobPublishedContext;
   missingStructure: string | undefined;
   diffFinding: Finding | undefined;
@@ -841,7 +841,6 @@ export function inspectDraftPublication(root: string, project: JsonObject, id: s
   // signoff ask only for an approval already ingested by an earlier writer.
   let legacyApproval = false;
   try { recordedPartsVerdict(root, project, id); legacyApproval = true; } catch { /* No accepted legacy receipt. */ }
-  const stage = effectiveStage(root, project);
   const signatures = packageSignSubjects(project, stage, context.selector!, context.plan?.steps.length ?? 0)
     .filter(subject => subject.kind !== 'signoff' || subject.stage !== 'parts-review' || legacyApproval);
   let subjects = [...context.subjects, ...signatures];

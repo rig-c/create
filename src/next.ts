@@ -370,7 +370,7 @@ function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild):
       "Use --check-report and --build from rig-parts check and --idle from its rigc render.",
       "Use the rigc build's run.json for --run-record and --at-source, with --at-pointer /finished_at.",
       `Generate --path-adapter with rig-create rig-version adapter ${shellWord(dir)} --config ${shellWord(checked.config ?? '<config.json>')} --out '<path-adapter.json>'.`,
-      `Supply --compile-report from the same rigc build --report and --toolchain-lock from the build's bun.lock (bun install) or package-lock.json (npm install).`,
+      `Supply --compile-report from ${checked.source}/check/build-report.json, the build-report/1 rig-parts check writes beside --build (from Parts 2.47.0; an earlier check needs a rigc build --report of the same build), and --toolchain-lock from the build's bun.lock (bun install) or package-lock.json (npm install).`,
       'Supply your identity with --by and include --citations for applicable config sections.',
     ].join(' ')
     : `register a new rig version built after the reopen or amendment with rig-version ${n}, then publish it for one verdict`;

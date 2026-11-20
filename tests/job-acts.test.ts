@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +14,7 @@ import { pendingJobActs, jobActsText, type PendingJobAct } from '../src/job-acts
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
+import { assertNoPendingJobAsk } from '../src/job-close.ts';
 import { currentJobIdentity } from '../src/job-publication.ts';
 import type { ActV3, JobOwnerHost, JobHostOptions } from '@rig-c/review/job-host';
 import type { JsonObject } from '../src/templates.ts';
@@ -586,14 +588,8 @@ test('#557 fresh parts verdict executes printed commands and atomically signs wi
   expect(after.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'parts-review')).toBe(false);
 }, 30_000);
 
-test('#507 reachable rigging-interview signoff executes printed host, acts, ingest and close', async () => {
-  receipt({ test: '#507 reachable rigging-interview signoff', source: 'synthetic fixture from checkpoint 3-rig-review; checkpoint 2-rigging-answers observed separately' });
-  const checkpoint = copy('2-rigging-answers');
-  const observed = nextProject(checkpoint, testClock.now());
-  const signoff = observed.moves.find(move => move.review_act?.kind === 'signoff')!;
-  receipt({ checkpoint: '2-rigging-answers', stage: 'rigging-interview',
-    prints_commands: observed.moves.some(move => move.command?.includes('signoff rigging-interview') && move.command.includes('--from-review')), move: signoff });
-  const root = copy('3-rig-review', project => {
+function unsignedRiggingInterview(): string {
+  return copy('3-rig-review', project => {
     project.stage = 'rigging-interview'; project.versions = [];
     retainSignoffs(project, row => stageIndex(String(row.stage)) < stageIndex('rigging-interview'));
     project.advances = arr(project.advances).filter(row => stageIndex(String(obj(row).stage)) <= stageIndex('rigging-interview'));
@@ -601,8 +597,77 @@ test('#507 reachable rigging-interview signoff executes printed host, acts, inge
       step.status = 'pending'; delete step.status_history;
     }
   });
+}
+
+test('#507 reachable rigging-interview signoff executes printed host, acts, ingest and close', async () => {
+  receipt({ test: '#507 reachable rigging-interview signoff', source: 'synthetic fixture from checkpoint 3-rig-review; checkpoint 2-rigging-answers observed separately' });
+  const checkpoint = copy('2-rigging-answers');
+  const observed = nextProject(checkpoint, testClock.now());
+  const signoff = observed.moves.find(move => move.review_act?.kind === 'signoff')!;
+  receipt({ checkpoint: '2-rigging-answers', stage: 'rigging-interview',
+    prints_commands: observed.moves.some(move => move.command?.includes('signoff rigging-interview') && move.command.includes('--from-review')), move: signoff });
+  const root = unsignedRiggingInterview();
   await nextReview(root, 'signoff', { stage: 'rigging-interview', decision: 'approved', words: WORDS });
   expect(arr(read(root).signoffs).map(obj).some(row => row.stage === 'rigging-interview')).toBe(true);
+}, 30_000);
+
+test('#711 relayed rigging-interview signoff unblocks draft publication on the same Review host', async () => {
+  const root = unsignedRiggingInterview();
+  const fixture = read(root);
+  const bones = arr(obj(fixture.plan).steps).map(obj).find(step => step.id === 'bones')!;
+  bones.checkpoint_proposed = true;
+  obj(bones.checkpoint).value = true;
+  write(root, fixture);
+  const opening = await open(root, ['--plan']);
+  const plan = await page(root, opening.url, 1, 'signoff');
+  expect(plan.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
+  const binding = readWriterBinding(root)!;
+  const descriptor = join(binding.identity.stateDir, 'job-ui', `${binding.jobId}.json`);
+  const pid = () => obj(JSON.parse(readFileSync(descriptor, 'utf8'))).pid;
+  const originalPid = pid();
+  expect(typeof originalPid).toBe('number');
+  const signoff = read(root).signoffs;
+  expect(arr(signoff).map(obj).some(row => row.stage === 'plan-approved')).toBe(true);
+  const draft = { kind: 'draft', id: 'next' } as const;
+  await expect(assertNoPendingJobAsk(root, draft)).rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
+
+  const words = join(root, 'signoff-words.txt');
+  writeFileSync(words, WORDS);
+  expectExit0(await cli(root, ['signoff', 'rigging-interview', root, '--by', 'synthetic-owner',
+    '--owner-chat', words, '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']));
+  const project = read(root);
+  const lapsed = structuredClone(project);
+  const approval = arr(lapsed.signoffs).map(obj).at(-1)!;
+  const hashes = obj(approval.step_hashes);
+  hashes[Object.keys(hashes)[0]!] = '0'.repeat(64);
+  write(root, lapsed);
+  try {
+    await expect(assertNoPendingJobAsk(root, draft)).rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
+  } finally {
+    write(root, project);
+  }
+
+  expectExit0(await cli(root, ['advance', 'rigging', root]));
+  const base = 'derived/drafts/next';
+  cpSync(join(root, 'derived/drafts/chain'), join(root, base), { recursive: true });
+  const recorded = await cli(root, ['draft-rig', 'next', root, '--config', `${base}/config.json`,
+    '--from', `${base}/out`, '--parts', `${base}/input`, '--json']);
+  expectExit0(recorded);
+  const draftResult = JSON.parse(recorded.stdout) as { id: string; publication: { status: string; lines: string[] } };
+  expect(draftResult.id).toBe('next');
+  expect(draftResult.publication, draftResult.publication.lines.join('\n')).toMatchObject({ status: 'published' });
+  const next = await page(root, opening.url, 1, 'checkpoint');
+  expect(next.head.publicationId).not.toBe(plan.head.publicationId);
+  expect(next.asks.map(ask => ask.subject)).toEqual([{ kind: 'checkpoint', checkpointId: 'bones' }]);
+  expect(readWriterBinding(root)).toEqual(binding);
+  expect(pid()).toBe(originalPid);
+  const db = new Database(join(binding.identity.stateDir, 'jobs.sqlite'), { readonly: true });
+  try {
+    const row = db.query<{ status: string }, [string, string]>(
+      "SELECT value ->> '$.status' AS status FROM jobs, json_each(document, '$.asks') WHERE job_id = ? AND key = ?",
+    ).get(binding.jobId, String(plan.asks[0]!.askId));
+    expect(row?.status).toBe('superseded');
+  } finally { db.close(); }
 }, 30_000);
 
 test('#507 rig-review approval folds signature through printed host, acts, ingest and close', async () => {

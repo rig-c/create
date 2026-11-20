@@ -305,6 +305,8 @@ rig-create job open --draft d1 --reviewer owner --role owner
 The amendment lists the previous approval in `amendments[].lapsed`. Review
 asks for a fresh verdict on the registered draft. A new approval signs after
 the amendment, and a changes request leaves parts-review unsigned.
+For changed parts at `rigging`, see the
+[recorded approval exception](#signing-amended-parts-at-rigging).
 
 An amendment invalidates every approval at its owning stage or later, using
 the same stage and time cutoff as a historical reopen. The reason for each is exactly
@@ -399,9 +401,35 @@ record changes before publishing; missing preparation requires completing it,
 republishing and asking for a new verdict, not modifying the record after the
 act and ingesting that stale act.
 
-The separate signoff route is only for a midflight approved verdict already
-ingested unsigned. Existing separate signoffs remain valid. This additive
-flow introduces no SINCE date and changes no rig, direction or interview acts.
+<a id="signing-amended-parts-at-rigging"></a>
+When both the recorded and effective stages are `rigging`, a draft whose
+parts differ from the signed-off parts requires an owner-authorized draft
+amendment at `parts-review`. Use the changed draft's inventoried,
+project-relative `parts.json` and the owner's exact words. Each
+`--change` must match the registered inventory by path and SHA-256. Then
+record the new parts-review signature from the existing approved Review act.
+
+```sh
+rig-create amend parts-review <dir> --kind draft --target <id> \
+  --change <draft project-relative parts.json> --by <owner> \
+  --owner-chat <file> --said-at <ISO> --relayed-by <operator>
+rig-create signoff parts-review <dir> --draft <id> \
+  --from-review <recorded-act-id> [--structure-file <path>]
+```
+
+This exception to the fresh-act rule uses an already recorded, approved
+`parts-verdict` act. The approved producer parts and the amended draft's
+producer parts must have exactly the same file paths relative to their
+respective parts roots and the same SHA-256 hash at each path. The act may
+name a different retained source draft that meets this identity check.
+The act cannot predate the amended parts bytes.
+When those conditions hold, record the signature after the amendment without
+asking the owner to approve the same parts again. The downstream
+`rigging-interview` approval still lapses under G2 and requires re-signing.
+
+The separate signoff route also handles a midflight approved verdict already
+ingested unsigned. Existing separate signoffs remain valid. Fresh verdict
+folding introduces no SINCE date and changes no rig, direction or interview acts.
 The CLI-read route below still records evidence without folding a signature.
 See [LIVE-REVIEW.md](LIVE-REVIEW.md) for the complete UI sequence.
 
@@ -847,11 +875,13 @@ named stage and its recorded checkpoint is enabled. This records
 with `--steps`.
 
 Fresh parts-review UI approval is recorded by `parts-review --from-review
-<actId>` and also writes the stage signature. Only a midflight approved verdict
+<actId>` and also writes the stage signature. A midflight approved verdict
 already ingested unsigned uses `signoff parts-review --draft <id>
 --structure-file <path> --from-review <actId>`. It selects the draft's latest
 recorded verdict and validates approval, shape and source freshness before
-writing. The removed `--evidence` flag is not an input to this route.
+writing. See the [changed-parts exception at rigging](#signing-amended-parts-at-rigging)
+for signing after an amendment from an already recorded act.
+The removed `--evidence` flag is not an input to this route.
 
 Only `plan-approved`, `rigging-interview` and `post-interview` accept `--steps`. Stage movement
 remains a separate act read by the check.

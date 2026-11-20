@@ -2,7 +2,7 @@ import { missingPickSignoffSteps, pickSignoffEvidence } from './pick-signoff.ts'
 import { OWNER_CHAT_FLAGS, readOwnerChat, assertOwnerChatSignoff } from './owner-chat.ts';
 import { pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.ts';
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
-import { latestPartsVerdictFinding, recordedPartsVerdict } from './parts-verdict-record.ts';
+import { latestPartsVerdictFinding, recordedPartsActReceipt, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { selectAnswerHashes } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
@@ -16,14 +16,14 @@ import { assertInterviewRecordSignable, checkpointProblem } from './signable.ts'
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { resolve } from 'node:path';
 import { jobHash } from './job-outbox.ts';
-import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordDirectionSignoff, isRecordInterviewSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
+import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordDirectionSignoff, isRecordInterviewSignoff, partsVerdictSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
 import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { riggingContext } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
-import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PARTS_REVIEW, RIG_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
+import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PARTS_REVIEW, PAUSED_STAGE, RIG_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
 import { assertRigReviewSignable } from './review.ts';
 import { stepHash } from './step-hash.ts';
 import type { JsonObject } from './templates.ts';
@@ -43,6 +43,7 @@ export const SIGNOFF_HELP = `signoff:
   --checkpoint <id>       sign an enabled checkpoint in this execution stage
   --from-review <actId>   with --checkpoint: record the passed Review checkpoint act (no --by or --verbatim-file)
   --draft <id>            labelled draft with a recorded parts-review API receipt
+                         with --from-review, may carry a retained verdict after its owner amendment
   --structure-file <path> retained structure decisions snapshot
   --json                  print the signature as JSON
   The clock supplies at. With no --steps, signs all steps of the stage's phase.
@@ -50,6 +51,7 @@ export const SIGNOFF_HELP = `signoff:
   Existing checkpoints are preserved. Parts-review validates evidence before recording.`;
 
 interface FetchedSignoff { act: SignoffAct; bytes: string; human: JsonObject }
+interface RetainedPartsSignoff { file: string; project: JsonObject; original: Buffer; receipt: JsonObject }
 
 /** Fetch and decode a finalized signoff act; its stage, words, identity and date are the person's, never flags. */
 function fetchSignoffAct(dir: string, stage: string, actId: string, now: number, hooks: SignoffHooks): FetchedSignoff {
@@ -114,6 +116,13 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   const root = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(root);
   try {
+    if (stage === PARTS_REVIEW && actId !== undefined && opts['--draft'] !== undefined && opts['--checkpoint'] === undefined) {
+      const { file } = readProject(root);
+      const original = readFileSync(file);
+      const project = JSON.parse(original.toString('utf8')) as JsonObject;
+      const receipt = recordedPartsActReceipt(project, actId);
+      if (receipt) return recordSignoff(stage, positional, opts, json, now, hooks, undefined, undefined, { file, project, original, receipt });
+    }
     // With --checkpoint the passed checkpoint act is fetched inside the writer; without it, the stage signoff act.
     const review = actId !== undefined && opts['--checkpoint'] === undefined ? fetchSignoffAct(root, stage, actId, now, hooks) : undefined;
     return recordSignoff(stage, positional, opts, json, now, hooks, review);
@@ -125,14 +134,14 @@ export function assertPlanSignoffCandidate(dir: string, project: JsonObject, sta
   return recordSignoff(stage, [stage, dir], { '--by': 'publication-preflight' }, false, now, {}, undefined, structuredClone(project)).reads ?? [];
 }
 
-function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff, preview?: JsonObject): { stdout: string; exit: number; reads?: readonly CheckRead[] } {
+function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff, preview?: JsonObject, retained?: RetainedPartsSignoff): { stdout: string; exit: number; reads?: readonly CheckRead[] } {
   const actId = opts['--from-review'];
   let by = review === undefined ? opts['--by'] ?? '' : String(review.human.by);
   if (opts['--by'] === undefined && actId === undefined && !opts['--from-picks']) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
-  const { file, project } = preview ? { file: resolve(dir, 'project.json'), project: preview } : readProject(dir);
+  const { file, project } = retained ?? (preview ? { file: resolve(dir, 'project.json'), project: preview } : readProject(dir));
   if (stage in SIGNOFF_TARGET_KINDS) {
     const selector = review?.act.source.selector;
     const draftId = selector?.kind === 'draft' ? selector.id : opts['--draft'];
@@ -142,7 +151,19 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     assertDraftHasRig(draft, 'project.json.signoffs.target');
   }
   if (chat) assertOwnerChatSignoff(dir, project, stage, opts['--draft'], opts['--version']);
-  const original = actId === undefined && !opts['--from-picks'] ? undefined : readFileSync(file);
+  const original = retained?.original ?? (actId === undefined && !opts['--from-picks'] ? undefined : readFileSync(file));
+  if (retained?.receipt.signoff !== undefined) {
+    const recorded = asArray(project.signoffs)[Number(retained.receipt.signoff)];
+    if (!isObject(recorded)) refuse('REVIEW_ACT_LEDGER_INVALID', 'project.json.review_acts: the retained parts act has no mapped signoff; restore its recorded signature');
+    if (recorded.draft_id !== opts['--draft']) {
+      refuse('PARTS_VERDICT_DRAFT_MISMATCH', `project.json.signoffs.draft_id: act ${actId} already signed draft ${String(recorded.draft_id)}; replay that signoff with its recorded draft`);
+    }
+    recordedPartsVerdict(dir, project, opts['--draft'], recorded.evidence, { requireAvailable: false });
+    return { stdout: json ? JSON.stringify(recorded, null, 2) : `signoff: ${stage} already recorded from ${String(recorded.source)}; nothing written`, exit: 0 };
+  }
+  const carried = retained && recordedPartsVerdict(dir, project, opts['--draft'], undefined, { carry: { receipt: retained.receipt, now } });
+  const carriedHuman = carried?.carry && partsVerdictSignoff(carried.carry.act, new Date(now).toISOString(), opts['--draft']);
+  if (carriedHuman) by = String(carriedHuman.by);
   let ingest: CheckpointIngest | undefined;
   // Recorded checkpoint receipts replay before current eligibility, through the same immutable-byte validator.
   if (actId !== undefined && opts['--checkpoint'] !== undefined && asArray(project.review_acts).some(entry =>
@@ -216,6 +237,9 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   // The record as read: its refusals are the baseline the candidate is judged against below.
   const asRead = checkProject(dir, project, { now, readOnly: preview !== undefined });
+  if (carriedHuman && (project.stage === PAUSED_STAGE || asRead.effective_stage !== PARTS_REVIEW)) {
+    refuse('PARTS_REVIEW_FOLD_NOT_READY', 'project.json.stage: carrying an amended verdict needs active parts-review; resume a paused project and amend the current parts before signing');
+  }
   const picks = opts['--from-picks'] ? pickSignoffEvidence(dir, project, stage, now) : null;
   if (opts['--from-picks']) {
     if (!picks || project.stage !== stage || asRead.effective_stage !== stage) {
@@ -243,7 +267,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   if (stage === PARTS_REVIEW && !opts['--draft']) refuse('PARTS_VERDICT_RECEIPT_REQUIRED', 'project.json.signoffs.draft_id: parts-review needs --draft with a recorded API receipt');
   // Preserve refusal-before-words on the separate signing route.
-  if (stage === PARTS_REVIEW) recordedPartsVerdict(dir, project, opts['--draft']);
+  if (stage === PARTS_REVIEW && !carried) recordedPartsVerdict(dir, project, opts['--draft']);
   if ((opts['--draft'] !== undefined || opts['--structure-file'] !== undefined) && stage !== PARTS_REVIEW) refuse('SIGNOFF_OPTION_INVALID', '--draft and --structure-file require parts-review', USAGE_EXIT);
   const phase = stage === 'post-interview' ? 'post' : ['plan-approved', 'rigging-interview'].includes(stage) ? 'rig' : undefined;
   if (phase === undefined && opts['--steps'] !== undefined) refuse('SIGNOFF_OPTION_INVALID', '--steps requires plan-approved, rigging-interview or post-interview', USAGE_EXIT);
@@ -268,7 +292,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
       : checkpoint.state === 'delegated' && checkpoint.decided && isObject(checkpoint.answer.agent_decision) ? checkpoint.answer.agent_decision.value : undefined;
     if (typeof value !== 'boolean') refuse('SIGNOFF_CHECKPOINT_INVALID', `${String(step.id)}: checkpoint needs a boolean user answer or a decided boolean delegation`);
   }
-  const verbatim = preview ? 'Publication preflight stand-in.' : review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : chat ? String(chat.owner_words) : picks ? picks.verbatim : readVerbatim(opts['--verbatim-file'] ?? '-');
+  const verbatim = preview ? 'Publication preflight stand-in.' : carriedHuman ? String(carriedHuman.verbatim) : review !== undefined ? String(review.human.verbatim) : ingest ? ingest.verbatim : chat ? String(chat.owner_words) : picks ? picks.verbatim : readVerbatim(opts['--verbatim-file'] ?? '-');
   const at = review !== undefined ? String(review.human.at) : ingest ? ingest.at : new Date(now).toISOString();
   const hashes: JsonObject = Object.create(null) as JsonObject;
   for (const step of covered) {
@@ -281,6 +305,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (picks) signoff.evidence = picks.evidence;
   if (chat) { signoff.source = chat.source!; signoff.said_at = chat.said_at!; signoff.relayed_by = chat.relayed_by!; }
   if (review !== undefined) signoff.source = review.human.source!;
+  if (carriedHuman) signoff.source = carriedHuman.source!;
   if (phase !== undefined) {
     signoff.steps = ids;
     signoff.step_hashes = hashes;
@@ -289,7 +314,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     const answerHashes = selectAnswerHashes(dir, project, signoff, picks?.questions);
     if (answerHashes !== undefined) signoff.answer_hashes = answerHashes;
     if (stage === PARTS_REVIEW && opts['--draft'] !== undefined) signoff.draft_id = opts['--draft'];
-    if (stage === PARTS_REVIEW) bindPartsSignoff(dir, project, signoff, opts['--structure-file']);
+    if (stage === PARTS_REVIEW) bindPartsSignoff(dir, project, signoff, opts['--structure-file'], carried);
     if (stage === 'rigging-interview') {
       const errors: Finding[] = [];
       const context = riggingContext(dir, project, at, errors);
@@ -312,6 +337,12 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   const target = prepared.value;
   if (ingest) signoff.source = ingest.source;
   project.signoffs.push(signoff);
+  if (retained && carried?.carry) {
+    retained.receipt.signoff = project.signoffs.length - 1;
+    retained.receipt.signoff_amendment = { index: carried.carry.amendment, signed_at: at, draft_id: signoff.draft_id! };
+    const invalid = reviewActFindings(project)[0];
+    if (invalid) refuse(invalid.code, invalid.message);
+  }
   if (review !== undefined) {
     project.review_acts = [...asArray(project.review_acts), { schema: 'rig-create/review-act@1', kind: 'signoff', jobId: review.act.jobId, actId: review.act.actId,
       stage, bytes: review.bytes, sha256: jobHash(review.bytes), version_hash: jobHash(JSON.stringify(signoffActIdentity(review.act))),
@@ -329,7 +360,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   if (pair) refuse(pair.code, pair.message);
   assertSignoffCandidate(dir, asRead, project, signoff, covered, now);
   if (preview) return { stdout: '', exit: 0, reads: prepared.reads };
-  if (ingest || picks) commitIngestedSignoff(file, original!, project);
+  if (ingest || picks || carried) commitIngestedSignoff(file, original!, project);
   else {
     if (review !== undefined && !readFileSync(file).equals(original!)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during signoff validation; retry against the current live job');
     writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);

@@ -6,7 +6,7 @@ import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from './check-reads.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { publicationFile } from './job-publication.ts';
+import { publicationFile, riggingDraftPartsChange } from './job-publication.ts';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   answered,
@@ -1179,6 +1179,17 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     fix: remedyForFinding(r.code, r.message),
   }));
 
+  const riggingDraft = effectiveStage === 'rigging' ? asArray(project.drafts).filter(isObject).at(-1) : undefined;
+  const partsChange = riggingDraft && riggingDraftPartsChange(dir, project, riggingDraft, effectiveStage);
+  if (partsChange) {
+    const { code, path, message, command } = partsChange;
+    const target = 'amendments[target.stage=parts-review]';
+    return { schema: NEXT_SCHEMA, project_id: String(project.name ?? ''), stage, effective_stage: effectiveStage,
+      accepted: false, refusals: [...refusals, { code, field: path, message, fix: command }], ...warningFields,
+      awaits: [target], moves: [{ role: 'human', field: 'amendments', awaits: target, command,
+        act: 'Record the parts change using the owner’s exact words.' }] };
+  }
+
   const laggingAdvance = report.refusals.some(r => r.code === 'STAGE_LAGGING')
     ? resolveLaggingAdvance(dir, project, stage, now)
     : null;
@@ -1267,8 +1278,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     }
   }
   if (effectiveStage === 'rigging') {
-    const draft = asArray(project.drafts).filter(isObject).at(-1);
-    const feedback = typeof draft?.id === 'string' ? latestRiggingDraftFeedback(project, draft.id) : undefined;
+    const feedback = typeof riggingDraft?.id === 'string' ? latestRiggingDraftFeedback(project, riggingDraft.id) : undefined;
     if (feedback?.act.value.verdict === 'changes-requested' && liveSignoff(collectReopens(project, []), 'rigging', Date.parse(feedback.act.at))) {
       const id = feedback.act.source.selector.id;
       const field = `drafts[${id}]`;

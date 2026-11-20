@@ -1,11 +1,12 @@
 import { draftFileUnavailable, draftInputUnavailable } from './drafts.ts';
-import { checkPartsActEvidence, isRiggingDraftAct, partsActDraftHash, partsActFindings } from './parts-act.ts';
+import { relativeInventory } from './draft-reuse.ts';
+import { checkPartsActEvidence, isRiggingDraftAct, partsActDraftHash, partsActFindings, partsCarryAmendment } from './parts-act.ts';
 import { realpathSync } from './check-reads.ts';
 import { isAbsolute, posix, resolve } from 'node:path';
 import { comparePartsVerdictBindings, type FileBinding } from './parts-verdict.ts';
 /** Review CLI stdout is retained separately from Review's private saved verdict. */
 import { isDeepStrictEqual } from 'node:util';
-import { draftPackageIdentity, publicationFile } from './job-publication.ts';
+import { draftPackageIdentity, publicationFile, publishedDraft } from './job-publication.ts';
 import { jobHash } from './job-outbox.ts';
 import { decodeReviewAct, reviewActFindings, type PartsVerdictAct } from './review-act.ts';
 import { Refusal, refuse } from './refusal.ts';
@@ -197,15 +198,23 @@ export function assertPartsCliArgs(args: string[]): void {
 /** Legacy file bindings remain historical records without opening Review's saved files. */
 export const PARTS_VERDICT_RECEIPT_SINCE = '2026-11-08T00:00:00Z';
 
+/** The draft the receipt can sign. The receipt's own draft_id always names the reviewed source. */
+export function partsReceiptDraftId(receipt: JsonObject): string | undefined {
+  const target = receipt.schema === 'rig-create/review-act@1' && object(receipt.signoff_amendment)
+    ? receipt.signoff_amendment.draft_id ?? receipt.draft_id : receipt.draft_id;
+  return typeof target === 'string' ? target : undefined;
+}
+
 export function latestPartsReceipt(project: JsonObject, draftId: string): JsonObject | undefined {
   if (!Array.isArray(project.review_acts)) return;
   const amendedAt = draftAmendmentTime(project, draftId);
   return project.review_acts.filter(object).findLast(receipt => {
-    if (receipt.draft_id !== draftId || !isPartsReviewReceipt(receipt)) return false;
+    if (partsReceiptDraftId(receipt) !== draftId || !isPartsReviewReceipt(receipt)) return false;
     if (amendedAt === -Infinity) return true;
     try {
       const at = receipt.schema === PARTS_CLI_RECEIPT ? String(receipt.at)
-        : decodeReviewAct(String(receipt.bytes), 'parts-verdict').at;
+        : object(receipt.signoff_amendment) ? String(receipt.signoff_amendment.signed_at)
+          : decodeReviewAct(String(receipt.bytes), 'parts-verdict').at;
       return Date.parse(at) > amendedAt;
     } catch { return false; } // The ledger validator reports malformed evidence.
   });
@@ -217,12 +226,22 @@ function retainedPartsAct(receipt: JsonObject): PartsVerdictAct | undefined {
   catch { return; } // The ledger validator reports malformed evidence.
 }
 
+/** Resolve the explicit retained-act route without contacting Review. */
+export function recordedPartsActReceipt(project: JsonObject, actId: string): JsonObject | undefined {
+  if (!Array.isArray(project.review_acts)) return;
+  const matches = project.review_acts.filter(object).filter(receipt => receipt.actId === actId);
+  const receipt = matches.find(entry => entry.kind === 'parts-verdict' && entry.schema !== PARTS_CLI_RECEIPT);
+  if (receipt && matches.length !== 1) fail('REVIEW_ACT_REPLAY_CONFLICT', `act ${actId} has ambiguous retained receipts`);
+  return receipt;
+}
+
 export function isPartsReviewReceipt(receipt: JsonObject): boolean {
   if (receipt.kind !== 'parts-verdict') return false;
   if (receipt.schema === PARTS_CLI_RECEIPT) return true;
   const act = retainedPartsAct(receipt);
   return act !== undefined && receipt.draft_id === act.source.selector.id
-    && act.source.package.id === draftPackageIdentity(act.source.selector.id).id;
+    && (act.source.package.id === draftPackageIdentity(act.source.selector.id).id
+      || (receipt.signoff_amendment !== undefined && isRiggingDraftAct(act)));
 }
 
 export function latestRiggingDraftFeedback(project: JsonObject, draftId: string): { act: PartsVerdictAct; evidence: JsonObject } | undefined {
@@ -237,16 +256,41 @@ export function latestRiggingDraftFeedback(project: JsonObject, draftId: string)
   }
 }
 
+export interface RecordedPartsVerdict {
+  evidence: JsonObject;
+  partsFile: string;
+  carry?: { act: PartsVerdictAct; amendment: number };
+}
+
+/** Verify the target files independently of which draft Review displayed. */
+function carriedPartsFile(root: string, project: JsonObject, draftId: string, requireAvailable: boolean): string {
+  const target = publishedDraft(project, draftId);
+  const parts = target.parts as JsonObject;
+  const path = `drafts[${draftId}].parts.files`;
+  const canonical = realpathSync(root);
+  for (const binding of relativeInventory(parts, path)) {
+    const file = `${parts.path}/${binding.path}`;
+    try {
+      if (!requireAvailable && draftFileUnavailable(canonical, file, `derived/drafts/${draftId}`)) continue;
+      if (jobHash(publicationFile(canonical, file)) === binding.sha256) continue;
+    } catch { /* Report the target binding rather than the file-reader error. */ }
+    refuse('REVIEW_ACT_SOURCE_STALE', `${path}: ${file} is absent or changed; restore the amended draft's registered bytes`);
+  }
+  return resolve(root, String(parts.path), 'parts.json');
+}
+
 /** Shared by both writers and check. Reads only the response retained by parts-review. */
-export function recordedPartsVerdict(root: string, project: JsonObject, draftId: unknown, evidence?: unknown, options: { requireAvailable?: boolean; requireApproval?: boolean; retainedManifest?: Buffer } = {}): { evidence: JsonObject; partsFile: string } {
+export function recordedPartsVerdict(root: string, project: JsonObject, draftId: unknown, evidence?: unknown, options: {
+  requireAvailable?: boolean; requireApproval?: boolean; retainedManifest?: Buffer; carry?: { receipt: JsonObject; now: number };
+} = {}): RecordedPartsVerdict {
   if (typeof draftId !== 'string' || !draftId) return fail('PARTS_VERDICT_RECEIPT_REQUIRED', 'signoffs.parts-review.draft_id needs a recorded draft id');
   const entries = Array.isArray(project.review_acts) ? project.review_acts : [];
-  const receipt = evidence === undefined ? latestPartsReceipt(project, draftId) : entries.find(entry => object(entry)
-    && entry.draft_id === draftId && object(entry.evidence) && object(evidence)
-    && entry.evidence.path === evidence.path && entry.evidence.sha256 === evidence.sha256 && isPartsReviewReceipt(entry));
+  const receipt = options.carry?.receipt ?? (evidence === undefined ? latestPartsReceipt(project, draftId) : entries.find(entry => object(entry)
+    && partsReceiptDraftId(entry) === draftId && object(entry.evidence) && object(evidence)
+    && entry.evidence.path === evidence.path && entry.evidence.sha256 === evidence.sha256 && isPartsReviewReceipt(entry)));
   if (!object(receipt) || !object(receipt.evidence)) {
     const boundPath = object(evidence) && entries.some(entry => object(entry) && entry.kind === 'parts-verdict'
-      && entry.draft_id === draftId && object(entry.evidence) && entry.evidence.path === evidence.path);
+      && partsReceiptDraftId(entry) === draftId && object(entry.evidence) && entry.evidence.path === evidence.path);
     if (object(evidence) && (evidence.spec !== undefined || boundPath)) {
       return fail('PARTS_VERDICT_RECEIPT_INVALID', `signoffs.parts-review.evidence differs from its recorded receipt for draft ${draftId}`);
     }
@@ -259,6 +303,7 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
     : publicationFile(realpathSync(root), String(binding.path));
   let partsFile: string;
   let spec: string;
+  let carry: RecordedPartsVerdict['carry'];
   if (receipt.schema === PARTS_CLI_RECEIPT) {
     spec = PARTS_CLI_RECEIPT;
     if (evidence !== undefined && (!object(evidence) || evidence.kind !== 'parts-verdict'
@@ -274,25 +319,30 @@ export function recordedPartsVerdict(root: string, project: JsonObject, draftId:
     spec = act.schema;
     if (evidence !== undefined && (!object(evidence) || evidence.kind !== 'parts-verdict'
       || (evidence.spec !== undefined && evidence.spec !== spec))) return fail('PARTS_VERDICT_RECEIPT_INVALID', 'signoffs.parts-review.evidence has an invalid receipt spec');
-    if (act.source.selector.id !== draftId) return fail('PARTS_VERDICT_DRAFT_MISMATCH', `signoffs.parts-review.draft_id differs from the retained act for ${draftId}`);
-    const draft = (project.drafts as JsonObject[]).find(draft => draft.id === draftId);
-    const draftRoot = `derived/drafts/${draftId}`;
+    if (options.carry) {
+      carry = { act, amendment: partsCarryAmendment(project, draftId, act, receipt, options.carry.now) };
+    }
+    const carried = carry !== undefined || receipt.signoff_amendment !== undefined;
+    const sourceId = act.source.selector.id;
+    const draft = (project.drafts as JsonObject[]).find(draft => draft.id === sourceId);
+    const draftRoot = `derived/drafts/${sourceId}`;
     const bound = object(draft) && object(draft.parts) ? [draft.config, ...(draft.parts.files as JsonObject[]), ...(draft.files as JsonObject[])] : [];
     const inputs = object(draft) && Array.isArray(draft.config_inputs) ? draft.config_inputs as JsonObject[] : [];
     const unavailable = options.requireAvailable === false && (bound.some(file => object(file)
       && typeof file.path === 'string' && draftFileUnavailable(root, file.path, draftRoot))
       || inputs.some(file => object(file) && typeof file.path === 'string' && draftInputUnavailable(root, file.path, draftRoot)));
     if (unavailable) {
-      if (partsActDraftHash(project, act) !== receipt.version_hash) return fail('PARTS_VERDICT_RECEIPT_INVALID', `draft ${draftId}'s recorded identity changed`);
+      if (partsActDraftHash(project, act) !== receipt.version_hash) return fail('PARTS_VERDICT_RECEIPT_INVALID', `draft ${sourceId}'s recorded identity changed`);
       if (options.retainedManifest !== undefined && (act.source.parts.manifest.path !== `${String((draft?.parts as JsonObject | undefined)?.path)}/parts.json`
         || act.source.parts.manifest.sha256 !== jobHash(options.retainedManifest) || act.source.package.revision !== receipt.version_hash)) {
         return fail('PARTS_VERDICT_DRAFT_MISMATCH', `the retained act does not bind the reused parts manifest of draft ${draftId}`);
       }
       if (options.requireApproval !== false && act.value.verdict !== 'approved') return fail('PARTS_VERDICT_NOT_APPROVED', `signoffs.parts-review.evidence for draft ${draftId} is not approved`);
       partsFile = resolve(root, act.source.parts.manifest.path);
-    } else partsFile = checkPartsActEvidence(root, bytes, String(binding.sha256), project, options);
+    } else partsFile = checkPartsActEvidence(root, bytes, String(binding.sha256), project, { ...options, carry: carried });
+    if (carried) partsFile = carriedPartsFile(root, project, draftId, options.requireAvailable !== false);
   }
-  return { evidence: { kind: 'parts-verdict', path: binding.path, sha256: binding.sha256, spec }, partsFile };
+  return { evidence: { kind: 'parts-verdict', path: binding.path, sha256: binding.sha256, spec }, partsFile, ...(carry ? { carry } : {}) };
 }
 
 export function recordedPartsFinding(root: string, project: JsonObject, signoff: JsonObject, path: string): Finding | undefined {

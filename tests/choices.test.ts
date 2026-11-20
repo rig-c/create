@@ -17,6 +17,8 @@ import { decodeReviewResponse, fetchReviewAct, reviewActFindings } from '../src/
 import { partsReviewCommand } from '../src/parts-review.ts';
 import { PARTS_CLI_RECEIPT, partsReadFindings } from '../src/parts-verdict-record.ts';
 import { Refusal } from '../src/refusal.ts';
+import { nextProject } from '../src/next.ts';
+import { assertPlanSignoffCandidate, signoffCommand as rawSignoff } from '../src/signoff.ts';
 import { fixture, obj, arr, waypoint, framing } from './fixtures.ts';
 import type { Json, JsonObject } from '../src/templates.ts';
 import { EXAMPLE_ANCHOR } from '../scripts/example-time.ts';
@@ -38,12 +40,14 @@ function working(question='motion'): {dir:string;set:JsonObject;path:string;hash
     for(const item of arr(obj(obj(p.interview).post).items).map(obj))item.guide=null;
     if(source)for(const id of ['bones','meshes','constraints','turn','motion'])waypoint(p,id).guide=null;
   },'example-project.json');
+  return registerReask(dir, question, `test-${question}`, source ? sourceDraftAt : riggingDraftAt);
+}
+function registerReask(dir: string, question: string, id: string, draftedAt: number) {
   const p=load(dir);const item=current(p,question);const original=obj(obj(item.raw).choice).set as JsonObject;
   const set=JSON.parse(readFileSync(join(dir,String(original.path)),'utf8')) as JsonObject;
-  const draftedAt=source?sourceDraftAt:riggingDraftAt;
-  set.id=`test-${question}`;set.drafted_at=new Date(draftedAt).toISOString();
+  set.id=id;set.drafted_at=new Date(draftedAt).toISOString();
   set.context=optionContext(p,String(set.stage),Date.parse(set.drafted_at as string));
-  const path=`evidence/interview/test-${question}.json`;const bytes=JSON.stringify(set,null,2)+'\n';writeFileSync(join(dir,path),bytes);
+  const path=`evidence/interview/${id}.json`;const bytes=JSON.stringify(set,null,2)+'\n';writeFileSync(join(dir,path),bytes);
   testClock.set(draftedAt+1_000);
   interviewOptionsCommand([question,dir,'--file',path]);
   return{dir,set,path,hash:sha256(Buffer.from(bytes))};
@@ -84,6 +88,117 @@ test('every framing id explicitly belongs to the source interview',()=>{for(cons
 test('active writer-generated fixture is 0/0, and @1 still has split semantics',()=>{
   const r=checkProject(fixture(()=>{},'example-project.json'));expect(r.refusals).toEqual([]);expect(r.warnings).toEqual([]);
   expect(hasStageOrder({interview:{order:{spec:'rig-create/stage-order@1'}}})).toBe(true);
+});
+
+test('#670 next names every current-stage set and offers its question page before signoff', () => {
+  const w = working('reference');
+  const { dir } = w;
+  const priorValue = obj(current(load(dir), 'reference').raw).value;
+  answer(w, ['reference=auto']);
+  const fragment = join(dir, 'reference-fragment.json');
+  const reasoning = join(dir, 'reference-reasoning.txt');
+  writeFileSync(fragment, JSON.stringify(priorValue));
+  writeFileSync(reasoning, 'Keep the previous source choice.');
+  testClock.set(testClock.now() + 1_000);
+  interviewDecisionCommand(['reference', dir, '--by', 'agent', '--reasoning-file', reasoning, '--fragment', `reference=${fragment}`]);
+  expect(current(load(dir), 'reference').state).toMatchObject({ state: 'delegated', decided: true });
+  registerReask(dir, 'reference', 'test-reference-reask', testClock.now());
+  registerReask(dir, 'seethrough', 'test-seethrough', testClock.now());
+  expect(obj(obj(current(load(dir), 'seethrough').raw).agent_decision).reasoning).toBeTruthy();
+  const report = nextProject(dir, testClock.now());
+  expect(report.moves.filter(move => move.review_act?.kind === 'interview-picks')).toEqual([
+    expect.objectContaining({ role: 'human', command: null, field: 'interview.framing[reference].pending_options',
+      awaits: 'interview.framing[reference].answer', review_act: { kind: 'interview-picks', stage: 'interview', question_id: 'reference', option_set_id: 'test-reference-reask' } }),
+    expect.objectContaining({ role: 'human', command: null, field: 'interview.waypoints[seethrough].pending_options',
+      awaits: 'interview.waypoints[seethrough].guide', review_act: { kind: 'interview-picks', stage: 'interview', question_id: 'seethrough', option_set_id: 'test-seethrough' } }),
+  ]);
+  for (const question of ['reference', 'seethrough']) {
+    expect(report.moves.some(move => move.command?.startsWith('rig-create job open ') && move.command.includes(` --question ${question} `))).toBe(true);
+  }
+  expect(report.awaits).not.toContain('signoffs[stage=interview]');
+  expect(report.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'interview')).toBe(false);
+  expect(report.moves.some(move => move.command?.startsWith('rig-create signoff interview '))).toBe(false);
+});
+
+test('#670 interview check warns on a decided answer and clears after a Review pick of the same option', () => {
+  const w = working('reference');
+  const initial = current(load(w.dir), 'reference');
+  expect(initial.state.state).toBe('user');
+  const result = interviewCommand(['--check', w.dir, '--json']);
+  const { refusals, warnings } = JSON.parse(result.stdout) as ReturnType<typeof checkProject>;
+  expect(result.exit).toBe(0);
+  expect(refusals).toEqual([]);
+  expect(warnings.filter(warning => warning.code === 'INTERVIEW_REASK_PENDING')).toEqual([
+    expect.objectContaining({ path: 'interview.framing[reference].pending_options', message: expect.stringContaining('reference') }),
+  ]);
+  testClock.set(testClock.now() + 1_000);
+  const pick = JSON.parse(reviewAnswer(w, { set: { path: w.path, sha256: w.hash },
+    picks: [{ ask: 'reference', option_id: 'keep' }], at: testClock.iso() }));
+  expect(pick.value).toEqual(obj(initial.raw).value);
+  const cleared = current(load(w.dir), 'reference');
+  expect(cleared.record.pending_options).toBeUndefined();
+  expect(arr(cleared.record.history).at(-1)).toEqual(initial.raw);
+  expect(checkProject(w.dir).warnings.some(warning => warning.code === 'INTERVIEW_REASK_PENDING')).toBe(false);
+  expect(nextProject(w.dir, testClock.now()).moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'interview')).toBe(true);
+});
+
+test('#670 an earlier-stage set does not block the current rigging interview signoff', () => {
+  const w = working('motion');
+  registerReask(w.dir, 'reference', 'test-reference-earlier-stage', testClock.now());
+  const next = () => nextProject(w.dir, testClock.now());
+  const wordsFile = join(w.dir, 'approval.txt');
+  writeFileSync(wordsFile, 'I approve the rigging interview.');
+  const sign = () => signoffCommand(['rigging-interview', w.dir, '--by', 'user', ...ownerChatArgs(wordsFile)]);
+  expect(next().moves.filter(move => move.review_act?.kind === 'interview-picks').map(move => move.review_act?.question_id)).toEqual(['motion']);
+  expect(code(sign)).toBe('SIGNOFF_REASK_PENDING');
+
+  answer(w);
+  expect(current(load(w.dir), 'reference').record.pending_options).toBeDefined();
+  expect(next().moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'rigging-interview')).toBe(true);
+  expect(sign().exit).toBe(0);
+});
+
+test.each(['review', 'owner-chat'] as const)('#670 %s signoff refuses with identical bytes and succeeds after picks', route => {
+  const w = working('reference');
+  const words = 'I approve the interview.';
+  const wordsFile = join(w.dir, 'approval.txt');
+  writeFileSync(wordsFile, words);
+  bindReview(w);
+  const actId = 'sign-reask-interview';
+  let actAt = testClock.iso();
+  const sign = () => route === 'owner-chat'
+    ? signoffCommand(['interview', w.dir, '--by', 'user', ...ownerChatArgs(wordsFile)])
+    : rawSignoff(['interview', realpathSync(w.dir), '--from-review', actId], testClock.now(), { fetch: transport => {
+      expect(transport.kind).toBe('signoff');
+      return { bytes: JSON.stringify({
+        schema: 'rig-review/act@2', kind: 'signoff', jobId: transport.jobId, actId, askId: 'synthetic-ask', publicationId: 'synthetic-publication',
+        at: actAt, authority: { actor: 'human', channel: 'review-ui', reviewer: { id: 'synthetic-owner', role: 'owner' } },
+        source: { sourceHash: '1'.repeat(64), projectHash: '2'.repeat(64), package: { id: 'synthetic-package', revision: 'one' },
+          selector: null, model: null, direction: null, optionSet: null, appliedResult: null, plan: null, parts: { enumeratorVersion: '2.45.0' } },
+        value: { stage: 'interview', decision: 'approved', words },
+      }) };
+    } });
+  const file = join(w.dir, 'project.json');
+  const before = readFileSync(file);
+  const refusal = code(sign);
+  expect({ code: refusal, unchanged: readFileSync(file).equals(before) }).toEqual({ code: 'SIGNOFF_REASK_PENDING', unchanged: true });
+  expect(() => assertPlanSignoffCandidate(w.dir, load(w.dir), 'interview', testClock.now())).not.toThrow();
+  expect(readFileSync(file)).toEqual(before);
+
+  testClock.set(testClock.now() + 1_000);
+  reviewAnswer(w, { set: { path: w.path, sha256: w.hash }, picks: [{ ask: 'reference', option_id: 'keep' }], at: testClock.iso() });
+  expect(current(load(w.dir), 'reference').record.pending_options).toBeUndefined();
+  actAt = testClock.iso();
+  expect(sign().exit).toBe(0);
+  const signed = obj(arr(load(w.dir).signoffs).at(-1));
+  expect(signed).toMatchObject({ stage: 'interview', verbatim: words });
+  expect(obj(signed.answer_hashes).reference).toBeString();
+  if (route === 'review') {
+    registerReask(w.dir, 'reference', 'test-reference-again', testClock.now());
+    const replayRecord = readFileSync(file);
+    expect(sign().exit).toBe(0);
+    expect(readFileSync(file)).toEqual(replayRecord);
+  }
 });
 test('single leaves a framing scalar unchanged; concat and merge are mechanical',()=>{
   const w=working('rig_type');const selected=JSON.parse(answer(w));expect(selected.value).toBe('character.idle');
@@ -302,7 +417,7 @@ test('a mixed decision cannot overwrite a user fragment through merge',()=>{
 
 import { generateExampleChoices } from '../scripts/generate-example-choices.ts';
 import { tempDir, ownerChatArgs } from './helpers.ts';
-import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
+import { advanceCommand, checkProject, interviewAnswerCommand, interviewOptionsCommand, interviewDecisionCommand, interviewCommand, signoffCommand, reopenCommand, testClock } from './clock.ts';
 test('the public-writer consumer fixture and raw option files reproduce exactly',()=>{
   const outputs=generateExampleChoices(join(tempDir(),'choice-generation'));
   for(const[path,bytes]of Object.entries(outputs))expect(readFileSync(join(import.meta.dir,'../templates',path),'utf8')).toBe(bytes);

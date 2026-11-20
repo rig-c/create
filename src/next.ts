@@ -1,4 +1,4 @@
-import { ChoiceError, optionFile, selection } from './choices.ts';
+import { ChoiceError, hasPendingOther, isUndecidedDelegation, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
@@ -12,7 +12,6 @@ import {
   checkProject,
   collectItems,
   collectSignoffs,
-  isDecision,
   isObject,
   loadCollection,
   postNotPassed,
@@ -56,6 +55,7 @@ import {
 import {
   hasStageOrder,
   interviewStageOfGuide,
+  isOpenInterviewStage,
   LEGACY_STAGE_VALUES,
   PARTS_REVIEW_SINCE,
   PAUSED_STAGE,
@@ -223,33 +223,12 @@ function readOptionalJobId(dir: string): string | undefined {
   }
 }
 
-function isOpenInterviewStage(stage: string): boolean {
-  return stage === 'interview' || stage === 'rigging-interview' || stage === 'post-interview';
-}
-
 function isOpenInterviewTodo(finding: Finding, effectiveStage: string): boolean {
   return isOpenInterviewStage(effectiveStage)
     && (finding.code === 'INTERVIEW_INCOMPLETE' || finding.code === 'INTERVIEW_CHOICE_REQUIRED');
 }
 
-function hasPendingOther(item: Item): boolean {
-  const answer = item.state.state === 'user' || item.state.state === 'delegated'
-    ? item.state.answer
-    : isObject(item.raw) ? item.raw : null;
-  return answer !== null && asArray(answer.asks).some(ask => isObject(ask) && ask.state === 'other-pending');
-}
-
 const SCENE_OTHER_FOLLOW_UP = 'use the recorded Other words to draft concrete scene options with fragment.scene. Write each label and effect as one plain 해요체 sentence. Register the new set for a Review pick, then cite that pick in scene write';
-
-function isUndecidedDelegation(item: Item): boolean {
-  if (item.state.state === 'delegated') return !item.state.decided;
-  if (item.state.state === 'user') {
-    return ('agent_decision' in item.state.answer
-      || asArray(item.state.answer.asks).some(a => isObject(a) && a.state === 'delegated'))
-      && !isDecision(item.state.answer.agent_decision);
-  }
-  return false;
-}
 
 function delegatedAsks(dir: string, item: Item): string[] {
   const answer = item.state.state === 'user' || item.state.state === 'delegated' ? item.state.answer : null;
@@ -1048,7 +1027,8 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const stage = String(project.stage ?? '');
   const effectiveStage = String(report.effective_stage ?? stage);
   const structureWarnings = report.warnings.filter(w => w.code === 'STRUCTURE_DELTA_REVIEW');
-  const allItems = collectItems(project, { collection: loadCollection(dir) });
+  const collection = loadCollection(dir);
+  const allItems = collectItems(project, { collection });
   const answers = allItems.flatMap(item => {
     const answer = item.state.state === 'user' || item.state.state === 'delegated' || item.state.state === 'not_applicable'
       ? item.state.answer : isObject(item.raw) ? item.raw : null;
@@ -1199,6 +1179,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   }
   const recordedLapseTargets = new Set<string>();
   const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject);
+  const splitOrder = hasStageOrder(project);
+  const stageItems = allItems.filter(item => interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === effectiveStage);
+  const stageHasPendingOptions = stageItems.some(pendingInterviewOptions);
   const withdrawnCheckpoint = (id: string): boolean => steps.some(step => step.id === id
     && checkpointEnabled(step) && !checkpointRequired(project, step, now));
 
@@ -1241,6 +1224,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const lapsedStage = typeof signoffEntry?.stage === 'string' ? signoffEntry.stage : effectiveStage;
       const checkpoint = typeof signoffEntry?.checkpoint === 'string' ? signoffEntry.checkpoint : null;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
+      if (checkpoint === null && lapsedStage === effectiveStage && stageHasPendingOptions) continue;
       if (checkpoint === null && hasHistorySignoffTarget(lapsedStage, signoffEntry)) continue;
       const awaitTarget = checkpoint
         ? `signoffs[checkpoint=${checkpoint}]`
@@ -1320,6 +1304,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
+      if (checkpoint === null && targetStage === effectiveStage && stageHasPendingOptions) continue;
       const signoffMatch = /^signoffs\[(\d+)\]$/.exec(lapsedApproval.path);
       const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
       if (checkpoint === null && hasHistorySignoffTarget(targetStage, signoffEntry)) continue;
@@ -1381,9 +1366,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const hasLiveCheckpointSignoff = (targetStage: string, stepId: string): boolean =>
     signoffs.some(s => s.stage === targetStage && s.checkpoint === stepId && liveSignoff(reopens, s.stage, s.at));
 
-  const collection = loadCollection(dir);
-  const items = collectItems(project, { collection });
-  const splitOrder = hasStageOrder(project);
   const drafts = asArray(project.drafts).filter(isObject);
   const versions = asArray(project.versions).filter(isObject);
 
@@ -1403,16 +1385,13 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       },
     });
   } else if (isOpenInterviewStage(effectiveStage)) {
-    const stageItems = items.filter(
-      item => interviewStageOfGuide(item.id, item.kind === 'post', splitOrder) === effectiveStage,
-    );
     for (const item of stageItems) {
       const answerField = item.path;
       const questionPath = item.path.replace(/\.(answer|guide)$/, '');
-      if (item.state.state === 'silent' || hasPendingOther(item)) {
+      const pendingOpts = pendingInterviewOptions(item);
+      if (pendingOpts !== undefined || item.state.state === 'silent' || hasPendingOther(item)) {
         addAwait(answerField);
-        const pendingOpts = isObject(item.record.pending_options) ? item.record.pending_options : null;
-        if (pendingOpts !== null) {
+        if (pendingOpts !== undefined) {
           let optSetId = typeof pendingOpts.id === 'string' ? pendingOpts.id : '';
           if (!optSetId && typeof pendingOpts.path === 'string') {
             try {
@@ -1424,7 +1403,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           }
           moves.push({
             role: 'human',
-            field: `${questionPath}.pending_options`,
+            field: pendingInterviewOptionsPath(item),
             awaits: answerField,
             command: null,
             act: `review-tool act interview-picks for ${questionPath} (option set ${optSetId})`,
@@ -1455,7 +1434,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
             awaits: answerField,
             command: optionCommand(item.id, dir),
             act: `draft an option-set file for ${item.id}, then register it for a Review pick`,
-            unanswered_by_record: `${questionPath}.pending_options`,
+            unanswered_by_record: pendingInterviewOptionsPath(item),
           });
         }
       } else if (isUndecidedDelegation(item)) {
@@ -1512,7 +1491,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     const undecidedFields = stageItems.filter(isUndecidedDelegation).map(item => `${item.path}.agent_decision`);
 
     const signoffAwait = `signoffs[stage=${effectiveStage}]`;
-    if (!hasLiveStageSignoff(effectiveStage) && !recordedLapseTargets.has(signoffAwait)) {
+    if (!stageHasPendingOptions && !hasLiveStageSignoff(effectiveStage) && !recordedLapseTargets.has(signoffAwait)) {
       addAwait(signoffAwait);
       const unansweredSignoff = needsPlanSteps
         ? 'plan.steps'

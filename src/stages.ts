@@ -137,6 +137,10 @@ export function interviewStageOfGuide(id: string, post = false, newOrder = false
   return newOrder ? GUIDE_INTERVIEW[id] ?? 'rigging-interview' : 'interview';
 }
 
+export function isOpenInterviewStage(stage: string): boolean {
+  return stage === 'interview' || stage === 'rigging-interview' || stage === 'post-interview';
+}
+
 /** Answers use interview membership, including framing ids that are not executable steps. */
 export function approvalStageOfGuide(id: string, post = false, newOrder = false): string {
   const interview = interviewStageOfGuide(id, post, newOrder);

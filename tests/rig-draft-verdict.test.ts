@@ -63,10 +63,11 @@ function assertSuccess(result: { exit: number; stderr: string }): void {
   expect({ exit: result.exit, stderr: result.stderr }).toEqual({ exit: 0, stderr: '' });
 }
 
-const openArgs = (root: string, id: string) => ['job', 'open', root, '--draft', id, '--reviewer', 'synthetic-owner', '--role', 'owner'];
+const openArgs = (root: string, id: string, kind: 'draft' | 'rig' = 'draft') =>
+  ['job', 'open', root, `--${kind}`, id, '--reviewer', 'synthetic-owner', '--role', 'owner'];
 
-async function open(root: string, id: string) {
-  const proc = spawn(root, openArgs(root, id));
+async function open(root: string, id: string, kind: 'draft' | 'rig' = 'draft') {
+  const proc = spawn(root, openArgs(root, id, kind));
   hosts.push(proc);
   const reader = proc.stdout.getReader();
   const errors = proc.stderr.getReader();
@@ -74,8 +75,9 @@ async function open(root: string, id: string) {
     ? `job open exited ${await proc.exited}` : new TextDecoder().decode(item.value) })).finally(() => errors.releaseLock());
   const decoder = new TextDecoder();
   let output = '';
+  const published = kind === 'draft' ? `job: draft ${id} published` : `job: rig v${id} published`;
   try {
-    while (!/^job: draft .* published$/m.test(output) || !output.endsWith('\n')) {
+    while (!output.split('\n').includes(published) || !output.endsWith('\n')) {
       const item = await Promise.race([reader.read(), failure]);
       if ('error' in item) throw new Error(item.error);
       if (item.done) throw new Error((await failure).error);
@@ -258,30 +260,40 @@ test.each(['identical', 'changed'] as const)('#712 registration with %s bytes de
   const opening = await open(root, draftId);
   expect(opening.lines).toContain('job: asked review-verdict rig-review');
   const approval = await submit(root, opening.url, 'approved');
+  if (variant === 'changed') {
+    const before = readFileSync(join(root, 'project.json'));
+    const refused = await register(root, variant);
+    expect(refused.exit).toBe(1);
+    expect(refused.stderr).toMatch(/\bJOB_RIG_VERDICT_DEFERRED:/);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    assertSuccess(await cli(root, ['job', 'close', root]));
+  }
   const registration = await register(root, variant);
   assertSuccess(registration);
   const version = (read(root).versions as JsonObject[])[0]!;
   expect(version).toMatchObject({ n: 1, kind: 'rig' });
   expect(readFileSync(join(root, 'outputs/v1/out/check/build/skeleton.model.json'))).toEqual(readFileSync(join(root, model)));
+  if (variant === 'changed') {
+    expect(version.verdicts).toEqual([]);
+    assertSuccess(await cli(root, ['advance', 'rig-review', root]));
+    const reopened = await open(root, '1', 'rig');
+    const { ask } = await page(root, reopened.url, subject);
+    expect(ask.source).toMatchObject({ selector: { kind: 'rig', version: 1 } });
+    return;
+  }
   const published = /job: updated the open page: publication ([\w-]+)/.exec(registration.stdout);
   expect(published).not.toBeNull();
   const ack = readAcknowledgedPublication(root, String(approval.jobId), published![1]!);
   expect(ack?.result).toMatchObject({ selector: { kind: 'rig', version: 1 } });
   const verdictAsks = ack?.subjects?.filter(item => item.kind === 'review-verdict');
-  if (variant === 'identical') {
-    expect(version.verdicts).toEqual([expect.objectContaining({ review: subject.stage, verdict: 'accepted', verbatim,
-      carried_from_draft: expect.objectContaining({ draft_id: draftId, job_id: approval.jobId, act_id: approval.actId }) })]);
-    expect(registration.stdout).not.toContain('ask review-verdict rig-review');
-    expect(registration.stdout).not.toContain('asked review-verdict rig-review');
-    expect(verdictAsks).toEqual([]);
-    const project = read(root);
-    const verdict = ((project.versions as JsonObject[])[0]!.verdicts as JsonObject[])[0]!;
-    (verdict.carried_from_draft as JsonObject).act_id = 'different-act';
-    expect(checkProject(root, project, { now: Date.now(), readOnly: true }).refusals).toContainEqual(
-      expect.objectContaining({ code: 'REVIEW_ACT_LEDGER_INVALID', path: 'versions[v1].verdicts[0]' }));
-  } else {
-    expect(version.verdicts).toEqual([]);
-    expect(registration.stdout).toContain('job: asked review-verdict rig-review');
-    expect(verdictAsks).toEqual([subject]);
-  }
+  expect(version.verdicts).toEqual([expect.objectContaining({ review: subject.stage, verdict: 'accepted', verbatim,
+    carried_from_draft: expect.objectContaining({ draft_id: draftId, job_id: approval.jobId, act_id: approval.actId }) })]);
+  expect(registration.stdout).not.toContain('ask review-verdict rig-review');
+  expect(registration.stdout).not.toContain('asked review-verdict rig-review');
+  expect(verdictAsks).toEqual([]);
+  const project = read(root);
+  const verdict = ((project.versions as JsonObject[])[0]!.verdicts as JsonObject[])[0]!;
+  (verdict.carried_from_draft as JsonObject).act_id = 'different-act';
+  expect(checkProject(root, project, { now: Date.now(), readOnly: true }).refusals).toContainEqual(
+    expect.objectContaining({ code: 'REVIEW_ACT_LEDGER_INVALID', path: 'versions[v1].verdicts[0]' }));
 }, testTimeoutMs);

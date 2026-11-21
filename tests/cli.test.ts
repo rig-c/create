@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { BOUND_WRITE_HELP } from '../src/cli.ts';
 import { PLAN_HELP } from '../src/plan-writers.ts';
 
 import { cli, gitEnv, tempDir } from './helpers.ts';
@@ -17,6 +18,9 @@ test('--help lists init', () => {
   expect(result.code).toBe(0);
   expect(result.stdout).toContain('rig-create init <dir> [--no-install]');
   expect(result.stdout).toContain('rig-create job withdraw-act <actId> [<dir>] --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>');
+  expect(result.stdout).toContain(`job open:\n  --rig <n>      selects a registered rig OR post version; the flag name is shared\n  ${BOUND_WRITE_HELP}`);
+  expect(result.stdout).toContain(`job reconcile:\n  ${BOUND_WRITE_HELP}`);
+  expect(result.stdout).toContain(`bound writers:\n  ${BOUND_WRITE_HELP}`);
   expect(result.stdout).toContain(PLAN_HELP);
 });
 

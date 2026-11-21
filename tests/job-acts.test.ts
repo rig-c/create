@@ -346,6 +346,101 @@ test('#756 job acts shows a pending act verdict and comments byte-equal to the h
   expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
 }, 30_000);
 
+test('#789 job acts shows record checkpoint and signoff words labels byte-for-byte in text and JSON', async () => {
+  const root = copy('1-parts-verdict', project => {
+    project.stage = 'parts';
+    retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex('parts'));
+    project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex('parts'));
+    for (const step of arr(obj(project.plan).steps).map(obj)) {
+      step.status = step.id === 'assemble' ? 'at-checkpoint' : step.id === 'seethrough' ? 'done' : 'pending';
+      delete step.status_history;
+    }
+    for (const item of arr(obj(project.interview).waypoints).map(obj)) {
+      if (['bones', 'meshes', 'constraints', 'turn', 'motion'].includes(String(item.id))) item.guide = null;
+    }
+  });
+  const opening = await open(root, ['--plan']);
+  const view = await page(root, opening.url, 1, 'checkpoint');
+  const label = `["rig-review-comment/1","setup","reference","evidence/setup.png","${'a'.repeat(64)}",10,21,8,3]`;
+  const words = `[${label}]\nFix this reference region.\n\n[general]\nApprove assemble checkpoint.`;
+  const checkpoint = await view.act('checkpoint', 'checkpoint', {
+    checkpointId: 'assemble',
+    outcome: 'pass',
+    words,
+  });
+  expect(checkpoint.schema).toBe('rig-review/act@4');
+  const projectBefore = readFileSync(join(root, 'project.json'));
+
+  const listed = await cli(root, ['job', 'acts', root, '--json']);
+  expectExit0(listed);
+  const parsed = JSON.parse(listed.stdout) as { acts: PendingJobAct[] };
+  expect(parsed.acts).toHaveLength(1);
+  expect(parsed.acts[0]!.publicationId).toBe(String(checkpoint.publicationId));
+  expect((parsed.acts[0]!.value as { words?: string }).words).toBe(words);
+  expect(JSON.stringify(parsed.acts[0]!.value)).toBe(JSON.stringify(checkpoint.value));
+
+  const text = await cli(root, ['job', 'acts', root]);
+  expectExit0(text);
+  expect(text.stdout).toContain([
+    `${String(checkpoint.actId)} checkpoint checkpoint assemble / parts at ${String(checkpoint.at)}`,
+    `  words: ${words}`,
+    `  ${parsed.acts[0]!.command!}`,
+  ].join('\n'));
+  expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
+
+  // Record signoff act words also print byte-for-byte in text and JSON.
+  const signoffRoot = copy('0b-plan-pending');
+  const signoffOpening = await open(signoffRoot, ['--plan']);
+  const signoffView = await page(signoffRoot, signoffOpening.url, 1, 'signoff');
+  const pointLabel = `["rig-review-comment/1","setup","reference","evidence/setup.png","${'b'.repeat(64)}",32,4,0,0]`;
+  const signoffWords = `[${pointLabel}]\nApprove the plan picture point.`;
+  const signoff = await signoffView.act('signoff', 'signoff', {
+    stage: 'plan-approved',
+    decision: 'approved',
+    words: signoffWords,
+  });
+  expect(signoff.schema).toBe('rig-review/act@4');
+  const signoffJson = await cli(signoffRoot, ['job', 'acts', signoffRoot, '--json']);
+  expectExit0(signoffJson);
+  const signoffParsed = JSON.parse(signoffJson.stdout) as { acts: PendingJobAct[] };
+  expect(signoffParsed.acts).toHaveLength(1);
+  expect((signoffParsed.acts[0]!.value as { words?: string }).words).toBe(signoffWords);
+  expect(JSON.stringify(signoffParsed.acts[0]!.value)).toBe(JSON.stringify(signoff.value));
+
+  const signoffText = await cli(signoffRoot, ['job', 'acts', signoffRoot]);
+  expectExit0(signoffText);
+  expect(signoffText.stdout).toContain([
+    `${String(signoff.actId)} signoff stage plan-approved at ${String(signoff.at)}`,
+    `  words: ${signoffWords}`,
+    `  ${signoffParsed.acts[0]!.command!}`,
+  ].join('\n'));
+
+  // Record interview-picks act words also print byte-for-byte in text and JSON and ingest cleanly.
+  const { root: picksRoot, view: picksView, value: picksValue } = await openMotionQuestion();
+  const picksLabel = `["rig-review-comment/1","setup","reference","evidence/setup.png","${'c'.repeat(64)}",14,28,40,30]`;
+  const picksWords = `[${picksLabel}]\nPin on the interview question image.`;
+  const picksAct = await picksView.act('interview-picks', 'interview-picks', {
+    ...picksValue,
+    words: picksWords,
+  });
+  expect(picksAct.schema).toBe('rig-review/act@4');
+  const picksJson = await cli(picksRoot, ['job', 'acts', picksRoot, '--json']);
+  expectExit0(picksJson);
+  const picksParsed = JSON.parse(picksJson.stdout) as { acts: PendingJobAct[] };
+  expect(picksParsed.acts).toHaveLength(1);
+  expect((picksParsed.acts[0]!.value as { words?: string }).words).toBe(picksWords);
+  expect(JSON.stringify(picksParsed.acts[0]!.value)).toBe(JSON.stringify(picksAct.value));
+
+  const picksText = await cli(picksRoot, ['job', 'acts', picksRoot]);
+  expectExit0(picksText);
+  expect(picksText.stdout).toContain([
+    `${String(picksAct.actId)} interview-picks question motion at ${String(picksAct.at)}`,
+    `  words: ${picksWords}`,
+    `  ${picksParsed.acts[0]!.command!}`,
+  ].join('\n'));
+  await executePrinted(picksRoot, picksParsed.acts[0]!.command!);
+}, 30_000);
+
 test('#760 a rig verdict ask and its un-ingested act on a rig the amendment superseded no longer hold a new ask', () => {
   testClock.set(EXAMPLE_NOW);
   const dir = fixture(() => {}, 'example-project.json');

@@ -318,6 +318,8 @@ function actContentLines(value: PendingJobAct['value']): string[] {
         lines.push(`  comment: ${comment.text}`);
       }
     }
+  } else if ('words' in value && typeof value.words === 'string') {
+    lines.push(`  words: ${value.words}`);
   }
   return lines;
 }

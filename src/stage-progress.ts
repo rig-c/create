@@ -327,6 +327,26 @@ export function checkDirectionReviewAdvances(ctx: Ctx, forwardWrite = false): vo
 }
 
 export const STEP_STATUSES = ['pending', 'in-progress', 'at-checkpoint', 'done'] as const;
+export type StepStatus = typeof STEP_STATUSES[number];
+
+/**
+ * Whether `to` may follow `from`: one status forward, or in-progress straight to done for a step
+ * that needs no checkpoint (#681). A checkpointed step keeps its at-checkpoint hop.
+ */
+export function stepStatusFollows(from: Json | undefined, to: Json | undefined, checkpointRequired: Json | undefined): boolean {
+  const a = STEP_STATUSES.indexOf(from as StepStatus);
+  const b = STEP_STATUSES.indexOf(to as StepStatus);
+  if (a < 0 || b < 0) return false;
+  return b === a + 1 || (checkpointRequired === false && from === 'in-progress' && to === 'done');
+}
+
+/** The status the writers propose next; a step without a checkpoint skips at-checkpoint. */
+export function nextStepStatus(from: string, checkpointRequired: boolean): StepStatus | undefined {
+  const index = STEP_STATUSES.indexOf(from as StepStatus);
+  if (index < 0) return undefined;
+  if (!checkpointRequired && from === 'in-progress') return 'done';
+  return STEP_STATUSES[index + 1];
+}
 
 /** Shared transition validation for the public writer and retained status history. */
 export function statusTransitionFinding(entry: JsonObject, path: string): Finding | null {
@@ -337,11 +357,9 @@ export function statusTransitionFinding(entry: JsonObject, path: string): Findin
       return { code: 'PROGRESS_OPTION_INVALID', path, message: `${path}: retain both note and its matching note_sha256; record a non-empty UTF-8 note of at most 1,000 bytes with no controls except newline through step-status --note-file` };
     }
   }
-  const from = STEP_STATUSES.indexOf(entry.from_status as typeof STEP_STATUSES[number]);
-  const next = STEP_STATUSES.indexOf(entry.status as typeof STEP_STATUSES[number]);
-  if (from < 0 || next !== from + 1 || typeof entry.checkpoint_required !== 'boolean' || typeof entry.by !== 'string' || entry.by.trim() === ''
+  if (!stepStatusFollows(entry.from_status, entry.status, entry.checkpoint_required) || typeof entry.checkpoint_required !== 'boolean' || typeof entry.by !== 'string' || entry.by.trim() === ''
     || !Number.isFinite(Date.parse(String(entry.at))) || (entry.signoff !== null && !isSignoffIdentity(entry.signoff))) {
-    return { code: 'STEP_STATUS_TRANSITION', path, message: `${path}: record by, at, boolean checkpoint_required and one forward pending → in-progress → at-checkpoint → done transition with a checkpoint signoff identity or null; use step-status` };
+    return { code: 'STEP_STATUS_TRANSITION', path, message: `${path}: record by, at, boolean checkpoint_required and one forward pending → in-progress → at-checkpoint → done transition (in-progress → done when checkpoint_required is false) with a checkpoint signoff identity or null; use step-status` };
   }
   return null;
 }

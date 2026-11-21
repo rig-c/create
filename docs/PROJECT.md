@@ -143,7 +143,11 @@ reports them, and approval or departure requires the answers.
 The move from `parts` to `parts-review` also takes `--parts-check <report>
 --parts <assembled dir>`, both project-relative: the `parts-check.json` that
 `rig-parts check-parts` wrote for the assembled parts, retained in the project
-the way the parts verdict is, and the root it was run on. Both are required on
+the way the parts verdict is, and the root it was run on. Write the report
+straight into `evidence/` (`check-parts --out <project>/evidence`, as `next`
+prints it): the move binds the report's bytes and every later `check` rereads
+them, so a report under `derived/`, `outputs/` or `scratch/`, which a clone
+does not carry, is refused. Both are required on
 that move and refused on any other. The report must pass (`exit_code` 0, no
 `refusals`) and match the parts on disk at the move. Its HOLE rows, defect
 classes parts cannot measure yet, are printed one named line each and stored;
@@ -184,7 +188,9 @@ time, including a permitted bar exit or the declared no-post route.
 
 `step-status` runs in the step's execution stage and records one transition
 through `pending` (also the absent status), `in-progress`, `at-checkpoint`,
-then `done`. On an amended project the execution stage may also be the check's
+then `done`. A step whose checkpoint is off goes from `in-progress` straight
+to `done`; `at-checkpoint` stays allowed for it, and a checkpointed step keeps
+the hop. On an amended project the execution stage may also be the check's
 `effective_stage` (Forward amendments), so the reset steps can be redone while
 the stored stage is retained. On a legacy-order project whose plan was approved before
 `PARTS_REVIEW_SINCE`, rig steps also run in `rigging`. That route grants no
@@ -831,7 +837,7 @@ checkpoints against history. Live approvals bind current steps.
   step runs. A sentence that names a part, effect or extent is a bar line
   ([INTERVIEW.md § Direction is taken in sentences](INTERVIEW.md#direction-is-taken-in-sentences)).
 - **`status`**: `pending` → `in-progress` → `at-checkpoint` (waiting for a
-  sign-off) → `done`.
+  sign-off) → `done`. A step without a checkpoint may skip `at-checkpoint`.
 - A changed guide — including one added from polish feedback — sends every step
   that rests on it back for a new sign-off by its step-specific approval stage before it runs.
 - **Provenance**: each version built from a config records, per config

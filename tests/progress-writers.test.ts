@@ -657,10 +657,28 @@ test('a rig acceptance lapsed by a reopen is named with the reopen, not reported
 test('a skipped or finished step status names the next writer call', () => {
   const dir = partsProject('parts');
   expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create step-status seethrough in-progress next');
-  status(dir, 'seethrough', 'in-progress');
-  expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create step-status seethrough at-checkpoint next');
-  status(dir, 'seethrough', 'at-checkpoint'); status(dir, 'seethrough', 'done');
+  status(dir, 'assemble', 'in-progress');
+  expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'assemble', 'done'))).toContain('rig-create step-status assemble at-checkpoint next');
+  status(dir, 'seethrough', 'in-progress'); status(dir, 'seethrough', 'at-checkpoint'); status(dir, 'seethrough', 'done');
   expect(refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'seethrough', 'done'))).toContain('rig-create amend parts');
+});
+
+test('#681 a step without a checkpoint goes from in-progress straight to done; a checkpointed one keeps the hop', () => {
+  const dir = partsProject('parts');
+  status(dir, 'seethrough', 'in-progress'); status(dir, 'seethrough', 'done');
+  expect(arr(step(read(dir), 'seethrough').status_history).map(raw => [obj(raw).from_status, obj(raw).status, obj(raw).checkpoint_required]))
+    .toEqual([['pending', 'in-progress', false], ['in-progress', 'done', false]]);
+  expect(codes(dir)).toEqual([]);
+  status(dir, 'assemble', 'in-progress');
+  signoffCommand(['parts', dir, '--checkpoint', 'assemble', '--by', 'owner', '--verbatim-file', words(dir)]);
+  refused(dir, 'STEP_STATUS_TRANSITION', () => status(dir, 'assemble', 'done'));
+  // A hand-written skip on a checkpointed step is refused by the check as by the writer.
+  const planted = read(dir);
+  const assemble = step(planted, 'assemble');
+  assemble.status_history = [...arr(assemble.status_history), { from_status: 'in-progress', status: 'done', by: 'agent', at: '2026-11-20T00:00:00.000Z', checkpoint_required: true, signoff: null }];
+  assemble.status = 'done';
+  save(dir, planted);
+  expect(codes(dir)).toContain('STEP_STATUS_TRANSITION');
 });
 
 

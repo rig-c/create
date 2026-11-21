@@ -2874,5 +2874,6 @@ test.each([
   expect(report.effective_stage).toBe('rigging');
   expect(report.moves.some(move => (move.command ?? '').includes('job open') && (move.command ?? '').includes('--rig'))).toBe(false);
   expect(report.moves.some(move => move.command === `rig-create advance rig-review ${dir}`)).toBe(advance);
-  if (!advance) expect(report.moves.map(move => move.command)).toContain(`rig-create step-status motion at-checkpoint ${dir} --by agent`);
+  // #681: motion has no checkpoint, so it goes from in-progress straight to done.
+  if (!advance) expect(report.moves.map(move => move.command)).toContain(`rig-create step-status motion done ${dir} --by agent`);
 });

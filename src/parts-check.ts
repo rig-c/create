@@ -32,7 +32,7 @@ const ROW_KEYS: Record<string, readonly string[]> = {
 const STATUSES = ['read', 'missing', 'unreadable', 'absent'];
 /** The roots a clone does not carry, as the path is written; a link inside the project is followed as for the parts verdict. */
 const isIgnoredRoot = (root: string): boolean => [...IGNORED_DIRS, 'node_modules', '.git'].includes(root);
-const RUN = 'run rig-parts check-parts --parts <assembled dir> --out <dir outside it>, retain parts-check.json under the project (for example evidence/) and advance with --parts-check <report> --parts <assembled dir>';
+const RUN = 'run rig-parts check-parts --parts <assembled dir> --out <project>/evidence and advance with --parts-check evidence/parts-check.json --parts <assembled dir>; a clone does not carry derived/, outputs/ or scratch/, and every later check rereads the bound report';
 
 /** The move whose arrival needs a passing parts-stage check. */
 export function isPartsCheckMove(entry: JsonObject): boolean {

@@ -1,7 +1,7 @@
 import { assertDirectionApproval } from './direction.ts';
 import { assertFigureMaskApproval } from './figure-mask.ts';
 import { assertCorrectionApproval, stageReviewMeshDeltaCorrections } from './correction-writers.ts';
-import { JOB_MESH_EDITS_ACT_SCHEMA } from '@rig-c/review/job-host';
+import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA } from '@rig-c/review/job-host';
 import { foldsRigVerdict, foldRigSignoff } from './rig-signoff.ts';
 /**
  * Polish feedback (rig-c/create#9, docs/INTERVIEW.md § Polish feedback):
@@ -22,15 +22,16 @@ import { foldsRigVerdict, foldRigSignoff } from './rig-signoff.ts';
  *   by name; per bounced verdict, its items are counted by cause.
  */
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { existsSync, lstatSync, readFileSync } from './check-reads.ts';
+import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads.ts';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
-import { assertReviewActSource, decodeReviewAct, fetchReviewActRuntime, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
+import { assertReviewActSource, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActRuntime, meshReviewVerdict, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
 import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, reviewActVerdict, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
 import { DRAFT_ID } from './draft-reuse.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
+import { bustLandmarkCommands, prepareBustConfig } from './review-bust.ts';
 import { newRefusals } from './refusal-baseline.ts';
 import { ingestedVerdictPairFinding } from './signoff-pair.ts';
 import { dirname, join, resolve } from 'node:path';
@@ -370,6 +371,7 @@ export interface Recorded {
   readonly items: RecordedItem[];
   readonly stage: string | null;
   readonly warnings?: string[];
+  readonly bust_landmark_commands?: [string, string];
 }
 
 export function readProject(dir: string): { file: string; project: JsonObject } {
@@ -396,10 +398,12 @@ function fetchVerdictAct<Act extends ReviewVerdictAct>(root: string, actId: stri
   return { act, bytes, stillBytes };
 }
 
-function replayedVerdictAct(receipts: Json[], { act, bytes }: FetchedReviewAct): { index: number; receipt: JsonObject } | undefined {
+function replayedVerdictAct(receipts: Json[], { act, bytes }: FetchedReviewAct,
+  beforeReplay?: () => void): { index: number; receipt: JsonObject } | undefined {
   const index = receipts.findIndex(row => isObject(row) && row.jobId === act.jobId && row.actId === act.actId);
   if (index < 0) return undefined;
   const receipt = receipts[index] as JsonObject;
+  beforeReplay?.();
   const matches = isDraftReviewVerdict(act) || 'comments' in act.value
     ? receipt.bytes === bytes
     : isDeepStrictEqual(JSON.parse(String(receipt.bytes)), act);
@@ -609,7 +613,9 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   if (verdict.verdict === 'accepted') assertDirectionApproval(dir, project, String(verdict.review), now, input.version);
   if (verdict.verdict === 'accepted' && verdict.review === 'rig-review') assertFigureMaskApproval(dir, project, input.version);
   if (verdict.verdict === 'accepted') assertCorrectionApproval(dir, project, String(verdict.review), now);
-  const result = { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage), ...(warnings.length ? { warnings } : {}) };
+  const result = { project_dir: dir, verdict_path: verdictPath, verdict, items: out, stage: asString(project.stage),
+    ...(warnings.length ? { warnings } : {}),
+    ...(fetched?.bustConfig ? { bust_landmark_commands: bustLandmarkCommands(dir, original, version, fetched.bustConfig.path, jobHash(fetched.bytes)) } : {}) };
   const created: string[] = [];
   let discardMeshRevision: (() => void) | undefined;
   let committed = false;
@@ -629,11 +635,13 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
     if (fetched) {
       const receipt = { schema: 'rig-create/review-act@1', jobId: fetched.act.jobId, actId: fetched.act.actId,
         bytes: fetched.bytes, sha256: jobHash(fetched.bytes), version: input.version, verdict: verdicts.length - 1,
-        version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence };
+        version_hash: reviewActVersionHash(original, fetched.act), added_evidence: addedEvidence,
+        ...(fetched.bustConfig ? { bust_config: fetched.bustConfig } : {}) };
       project.review_acts = [...asArray(project.review_acts), receipt];
       if (foldBaseline) foldRigSignoff(dir, project, fetched.act, originalBytes, foldBaseline, now);
-      if (fetched.act.schema === JOB_MESH_EDITS_ACT_SCHEMA && !isDraftReviewVerdict(fetched.act)) {
-        discardMeshRevision = stageReviewMeshDeltaCorrections(dir, original, project, fetched.act, now);
+      const meshAct = meshReviewVerdict(fetched.act);
+      if (meshAct) {
+        discardMeshRevision = stageReviewMeshDeltaCorrections(dir, original, project, meshAct, now);
       }
       const invalid = reviewActFindings(project)[0] ?? ingestedVerdictPairFinding(project, input.version, verdicts.length - 1) ?? (foldBaseline ? undefined : newRefusals(dir, original, project, { now })[0]);
       if (invalid) refuse(invalid.code, invalid.message);
@@ -707,7 +715,7 @@ export function recordDraftReviewAct(root: string, draftId: string, actId: strin
 }
 
 /** The common #184 lock covers fetch, source validation and the atomic write. */
-export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, afterGate?: () => void): Recorded {
+export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, afterGate?: () => void, config?: string): Recorded {
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
@@ -722,22 +730,41 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
     const { project } = readProject(root);
     const invalid = reviewActFindings(project)[0];
     if (invalid) refuse(invalid.code, invalid.message);
-    assertReviewActSource(root, project, act);
-    const existing = replayedVerdictAct(asArray(project.review_acts), fetched)?.receipt;
+    const chest = act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA;
+    if (!chest && config !== undefined) refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --config applies to a live rig verdict with chest landmark edits', USAGE_EXIT);
+    const assertSource = () => assertReviewActSource(root, project, act);
+    if (!chest) assertSource();
+    const existing = replayedVerdictAct(asArray(project.review_acts), fetched, chest ? assertSource : undefined)?.receipt;
     if (existing) {
       const pair = ingestedVerdictPairFinding(project, requestedVersion, Number(existing.verdict));
       if (pair) refuse(pair.code, pair.message);
       if (existing.version_hash !== reviewActVersionHash(project, act, Number(existing.verdict))) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.review_acts: reviewed version changed; request a new review act');
       const version = asArray(project.versions).find(v => isObject(v) && v.n === requestedVersion) as JsonObject;
+      const bustConfig = chest ? existing.bust_config as JsonObject : undefined;
+      if (bustConfig && config !== undefined && config !== bustConfig.path) {
+        refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: replay uses the recorded --config path; omit --config or supply that path', USAGE_EXIT);
+      }
       return { project_dir: root, verdict_path: `versions[v${requestedVersion}].verdicts[${existing.verdict}]`,
-        verdict: (version.verdicts as JsonObject[])[Number(existing.verdict)], items: [], stage: asString(project.stage) };
+        verdict: (version.verdicts as JsonObject[])[Number(existing.verdict)], items: [], stage: asString(project.stage),
+        ...(bustConfig ? {
+          warnings: ['REVIEW_ACT_BUST_REPLAY: project.json.review_acts: chest edit already recorded; the working config SHA-256 was checked only on first ingest'],
+          bust_landmark_commands: bustLandmarkCommands(root, project, version, String(bustConfig.path), String(existing.sha256), true),
+        } : {}) };
+    }
+    let bustConfig;
+    if (chest) {
+      if (!config) refuse('REVIEW_OPTION_MISSING', 'project.json.review_acts: chest landmark edits require --config <project-relative working config>', USAGE_EXIT);
+      const version = asArray(project.versions).filter(isObject).find(v => v.n === requestedVersion && v.kind === 'rig');
+      if (!version) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json.versions: reviewed rig version is absent; publish the current rig and request a new edit');
+      bustConfig = prepareBustConfig(realpathSync(root), version, act, config, fetchBustPublicationSeeds(root, act));
+      assertSource();
     }
     const warning = reviewActPublicationWarning(root, project, act);
     return writeVerdict(root, { version: requestedVersion,
       verdict: { approved: 'accepted', 'changes-requested': 'bounced', pending: 'provisional' }[act.value.verdict] as ReviewInput['verdict'],
       by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', review: act.value.stage as Review,
       verbatim: reviewActVerbatim(act), at: act.at, source: `review act ${act.jobId}/${act.actId}`, items: [], quotes: {}, values: {},
-    }, now, fetched, warning ? [warning] : []);
+    }, now, { ...fetched, bustConfig }, warning ? [warning] : []);
   } finally { release(); }
 }
 
@@ -746,6 +773,7 @@ export const REVIEW_HELP = `review:
   <version>        the version shown (3 or v3)
   [<project dir>]  the project folder (default: the current directory)
   --from-review <actId>  fetch a rig/post verdict through the live job writer binding
+  --config <path>  project-relative working config, required on first ingest of chest landmark edits
   --verdict <v>    accepted | bounced | provisional
   --by <who>       who gave it (the user's name or role)
   --review <r>     rig-review (a rig version) | direction-review (a post version)
@@ -797,7 +825,7 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
     if (arg === '--json') json = true;
     else if (arg === '--from-review-file' || arg.startsWith('--from-review-file=')) {
       refuse('REVIEW_FILE_ROUTE_REMOVED', 'project.json.review_acts: saved act files are unsupported; use --from-review <actId> through the live Review job API', USAGE_EXIT);
-    } else if (['--draft', '--from-review', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
+    } else if (['--draft', '--from-review', '--config', '--verdict', '--by', '--review', '--verbatim', '--verbatim-file', '--at', '--source'].includes(arg)) {
       if (arg in opts) refuse('REVIEW_OPTION_INVALID', `${arg} is given twice`, USAGE_EXIT);
       opts[arg] = value();
     } else if (arg === '--answers-feedback') {
@@ -844,14 +872,19 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
   assertDraftHasRig(readAssembleOnlyDraftTarget(dir, positional[0]), 'project.json.versions');
   const version = parseVersion(positional[0]);
   if (opts['--from-review'] !== undefined) {
-    if (Object.keys(opts).length !== 1 || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
+    if (Object.keys(opts).some(flag => flag !== '--from-review' && flag !== '--config') || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
       refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --from-review excludes human-value and feedback flags; submit those values through Review', USAGE_EXIT);
     }
     let progress: ReturnType<typeof beginJobProgress>;
-    const recorded = recordReviewAct(dir, version, opts['--from-review'], now, () => { progress = beginJobProgress(dir, 'ingest', 'Reading the Review verdict'); });
+    const recorded = recordReviewAct(dir, version, opts['--from-review'], now,
+      () => { progress = beginJobProgress(dir, 'ingest', 'Reading the Review verdict'); }, opts['--config']);
     progress?.('Review verdict recorded');
-    return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []), `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`].join('\n'), exit: 0 };
+    return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []),
+      `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`,
+      ...(recorded.bust_landmark_commands ?? []),
+    ].join('\n'), exit: 0 };
   }
+  if (opts['--config'] !== undefined) refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --config requires --from-review for chest landmark edits', USAGE_EXIT);
   if (opts['--verbatim'] !== undefined && opts['--verbatim-file'] !== undefined) refuse('REVIEW_OPTION_INVALID', 'choose --verbatim or --verbatim-file', USAGE_EXIT);
   if (opts['--verbatim-file'] !== undefined) opts['--verbatim'] = readVerbatim(opts['--verbatim-file']);
   const missing = ['--verdict', '--by', '--review', '--verbatim', '--source'].filter((k) => opts[k] === undefined || opts[k] === '');

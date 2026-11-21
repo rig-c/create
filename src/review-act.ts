@@ -7,10 +7,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jobRuntimeExecArgv } from './job-writer.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA,
-  parseCommentsAct, parseContextCommentsAct, parseMeshEditsAct, parseRecordAct, projectComments,
-  type JobAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobContextCommentsAct, type JobMeshEditsAct,
-  type JobModelSourceBinding, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
+import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENT_CONTEXT_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, JOB_MESH_EDITS_ACT_SCHEMA,
+  parseChestLandmarksAct, parseCommentsAct, parseContextCommentsAct, parseMeshEditsAct, parseRecordAct, projectComments,
+  type JobAct, type JobChestLandmarksAct, type JobCommentPartsAnchor, type JobCommentsAct, type JobContextCommentsAct, type JobMeshEditsAct,
+  type JobModelSourceBinding, type JobPublishedChestLandmark, type JobRigStill, type RecordAct } from '@rig-c/review/job-host';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { assembleOnlyDraftPath, assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig } from './draft-layout.ts';
 import { PICK_SIGNOFF_STAGES } from './stages.ts';
@@ -18,6 +18,7 @@ import { isRiggingDraftAct, partsCarryAmendment } from './parts-act.ts';
 import { jobHash, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from './job-outbox.ts';
 import { compiledDraftManifestBytes, composedPublishedBuildFiles, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, liveManifestPath, publicationFile, publishedSourcePainting } from './job-publication.ts';
 import { DRAFT_ID } from './draft-reuse.ts';
+import { bustConfigPath, frozenBustConfigHash, type BustWorkingConfig } from './review-bust.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { INTAKE_QUESTION, intakeItem } from './intake.ts';
 import { collectItems, asArray, isObject, type Finding } from './check.ts';
@@ -38,7 +39,7 @@ export type PartsIssue = {
   readonly nativeCrop: JsonObject | JobCommentPartsAnchor['nativeCrop'] | null;
 };
 /** The older scalar verdicts retain their original source adapters. */
-type LegacyJobAct = Exclude<JobAct, { schema: CommentAct['schema'] | typeof JOB_MESH_EDITS_ACT_SCHEMA }>;
+type LegacyJobAct = Exclude<JobAct, { schema: CommentAct['schema'] | typeof JOB_MESH_EDITS_ACT_SCHEMA | typeof JOB_CHEST_LANDMARKS_ACT_SCHEMA }>;
 type CommentAct = JobCommentsAct | JobContextCommentsAct;
 export type ReopenAct = Extract<RecordAct, { kind: 'reopen' }>;
 export type ReviewActKind = 'review-verdict' | 'parts-verdict' | 'interview-picks' | 'checkpoint' | 'signoff' | 'reopen';
@@ -61,6 +62,8 @@ type CommentsReviewVerdictAct = Extract<CommentAct, { kind: 'review-verdict' }> 
 };
 export type MeshReviewVerdictAct = Extract<JobAct, { schema: typeof JOB_MESH_EDITS_ACT_SCHEMA }>
   & { source: { readonly parts: NonNullable<JobModelSourceBinding['parts']> } };
+export type ChestReviewVerdictAct = JobChestLandmarksAct
+  & { source: { readonly parts: NonNullable<JobModelSourceBinding['parts']> } };
 type DraftVerdictSource = Omit<JobModelSourceBinding, 'selector' | 'model' | 'parts' | 'direction' | 'projectHash'> & {
   selector: { kind: 'draft'; id: string }; model: NonNullable<JobModelSourceBinding['model']>;
   parts: NonNullable<JobModelSourceBinding['parts']>; direction: null; projectHash: string;
@@ -68,7 +71,7 @@ type DraftVerdictSource = Omit<JobModelSourceBinding, 'selector' | 'model' | 'pa
 type WithDraftSource<Act> = Act extends { source: unknown } ? Omit<Act, 'source'> & { source: DraftVerdictSource } : never;
 export type DraftMeshVerdictAct = WithDraftSource<MeshReviewVerdictAct>;
 export type DraftReviewVerdictAct = WithDraftSource<CommentsReviewVerdictAct> | DraftMeshVerdictAct;
-export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct | MeshReviewVerdictAct | DraftReviewVerdictAct;
+export type ReviewVerdictAct = LegacyReviewVerdictAct | CommentsReviewVerdictAct | MeshReviewVerdictAct | ChestReviewVerdictAct | DraftReviewVerdictAct;
 export const isDraftReviewVerdict = (act: ReviewVerdictAct): act is DraftReviewVerdictAct => act.source.selector?.kind === 'draft';
 type LegacyCheckpointAct = Extract<LegacyJobAct | RecordAct, { kind: 'checkpoint' }>;
 export type CheckpointAct = LegacyCheckpointAct | (Extract<CommentAct, { kind: 'checkpoint' }> & { source: LegacyCheckpointAct['source'] });
@@ -80,7 +83,16 @@ export const PLAN_BOUND_SIGNOFF_STAGES: readonly string[] = ['plan-approved', 'r
 export function isRecordInterviewSignoff(act: SignoffAct): boolean {
   return act.schema === 'rig-review/act@4' && String(act.value.stage) === 'interview';
 }
-export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string }
+export interface FetchedReviewAct { act: ReviewVerdictAct; bytes: string; stillBytes?: string; bustConfig?: BustWorkingConfig }
+
+/** The existing mesh writer consumes act@8's fields. The original act stays intact in the ledger. */
+export function meshReviewVerdict(act: ReviewVerdictAct): MeshReviewVerdictAct | undefined {
+  if (isDraftReviewVerdict(act)) return undefined;
+  if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) return act;
+  if (act.schema !== JOB_CHEST_LANDMARKS_ACT_SCHEMA || !act.value.meshEdits) return undefined;
+  const { chestLandmarks: _, ...value } = act.value;
+  return { ...act, schema: JOB_MESH_EDITS_ACT_SCHEMA, value: { ...value, meshEdits: act.value.meshEdits } };
+}
 
 /** The scalar consumed by the existing feedback writers and immutable replay checks. */
 export function reviewActVerbatim(act: ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct): string {
@@ -91,7 +103,7 @@ export function reviewActVerbatim(act: ReviewVerdictAct | PartsVerdictAct | Chec
 
 /** A still belongs to the recorded rig verdict, independently of its transport. */
 export function reviewActStill(act: ReviewVerdictAct): JobRigStill | null {
-  if (act.schema === 'rig-review/act@3' || act.schema === JOB_MESH_EDITS_ACT_SCHEMA) return act.still;
+  if (act.schema === 'rig-review/act@3' || act.schema === JOB_MESH_EDITS_ACT_SCHEMA || act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA) return act.still;
   if ((act.schema === JOB_COMMENTS_ACT_SCHEMA || act.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA) && act.value.stage === 'rig-review') {
     return act.still ?? failure('REVIEW_ACT_STILL_INVALID', 'comments rig verdict has no recorded still');
   }
@@ -199,9 +211,10 @@ function failure(code: string, detail: string): never {
 /** The shared decoder validates grammar; Create separately admits its existing source adapters. */
 function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVerdictAct | PartsVerdictAct | CheckpointAct | SignoffAct {
   if (kind === 'interview-picks' || raw.kind === 'interview-picks') failure('REVIEW_ACT_KIND_MISMATCH', 'comments acts do not carry interview answers');
-  let act: CommentAct | JobMeshEditsAct;
+  let act: CommentAct | JobMeshEditsAct | JobChestLandmarksAct;
   try {
-    act = raw.schema === JOB_MESH_EDITS_ACT_SCHEMA ? parseMeshEditsAct(raw)
+    act = raw.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA ? parseChestLandmarksAct(raw)
+      : raw.schema === JOB_MESH_EDITS_ACT_SCHEMA ? parseMeshEditsAct(raw)
       : raw.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA ? parseContextCommentsAct(raw) : parseCommentsAct(raw);
   }
   catch { return failure('REVIEW_ACT_INVALID', 'comments act or its declared source binding is malformed'); }
@@ -255,6 +268,7 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     return act as CommentsPartsVerdictAct;
   }
   if (act.kind === 'review-verdict' && object(selector) && selector.kind === 'draft') {
+    if (act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA) failure('REVIEW_ACT_KIND_MISMATCH', 'chest landmark edits require a live rig version');
     if (act.value.stage !== 'rig-review' || typeof selector.id !== 'string' || !DRAFT_ID.test(selector.id)
       || !file(source.model) || source.direction !== null) {
       failure('REVIEW_ACT_KIND_MISMATCH', 'draft comments verdict needs rig-review, one model and no direction');
@@ -268,7 +282,7 @@ function decodeCommentsReviewAct(raw: JsonObject, kind: ReviewActKind): ReviewVe
     || selector.kind === 'post' && (!Number.isSafeInteger(selector.rigVersion) || Number(selector.rigVersion) < 1 || !file(source.direction))) {
     failure('REVIEW_ACT_KIND_MISMATCH', 'comments verdict has no existing rig/post source mapping');
   }
-  return act as CommentsReviewVerdictAct | MeshReviewVerdictAct;
+  return act as CommentsReviewVerdictAct | MeshReviewVerdictAct | ChestReviewVerdictAct;
 }
 
 /** Also used by check on the retained, explicitly encoded act bytes. */
@@ -287,7 +301,8 @@ export function decodeReviewAct(bytes: string, kind: ReviewActKind = 'review-ver
   if (act.schema === 'rig-review/act@4' && act.kind === 'reopen' && kind !== 'reopen') {
     failure('REVIEW_ACT_KIND_MISMATCH', 'record reopen acts are retained for historical ledger validation');
   }
-  if (act.schema === JOB_COMMENTS_ACT_SCHEMA || act.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA || act.schema === JOB_MESH_EDITS_ACT_SCHEMA) {
+  if (act.schema === JOB_COMMENTS_ACT_SCHEMA || act.schema === JOB_COMMENT_CONTEXT_ACT_SCHEMA
+    || act.schema === JOB_MESH_EDITS_ACT_SCHEMA || act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA) {
     return decodeCommentsReviewAct(act, kind);
   }
   if (['checkpoint', 'interview-picks', 'signoff', 'reopen'].includes(kind) && act.schema === 'rig-review/act@4') {
@@ -449,16 +464,35 @@ export interface ReviewActTransport {
   kind?: Exclude<ReviewActKind, 'review-verdict' | 'reopen'>;
 }
 
+export interface BustPublicationQuery {
+  root: string;
+  jobId: string;
+  publicationId: string;
+  sourceHash: string;
+}
+
 /** Synchronous writers use the same authenticated fetch/decoder through the private runtime. */
 export function fetchReviewActRuntime(transport: ReviewActTransport): { bytes: string; stillBytes?: string } {
-  const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url))], {
-    stdin: Buffer.from(JSON.stringify(transport)), stdout: 'pipe', stderr: 'pipe',
-  });
-  let response: { ok: boolean; bytes: string; stillBytes?: string; code: string; message: string };
+  const response = reviewActRuntime<{ bytes: string; stillBytes?: string }>(transport);
+  return { bytes: response.bytes, stillBytes: response.stillBytes };
+}
+
+export function fetchBustPublicationSeeds(root: string, act: ChestReviewVerdictAct): readonly JobPublishedChestLandmark[] {
+  const { jobId, publicationId, source: { sourceHash } } = act;
+  return reviewActRuntime<{ seeds: JobPublishedChestLandmark[] }>(
+    { root: realpathSync(root), jobId, publicationId, sourceHash }, 'bust-publication',
+  ).seeds;
+}
+
+function reviewActRuntime<Result>(input: ReviewActTransport | BustPublicationQuery, action?: 'bust-publication'): Result {
+  const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), fileURLToPath(new URL('./review-act-runtime.ts', import.meta.url)),
+    ...(action ? [action] : [])], { stdin: Buffer.from(JSON.stringify(input)), stdout: 'pipe', stderr: 'pipe' });
+  let response: ({ ok: true } & Result) | { ok: false; code: string; message: string };
   try { response = JSON.parse(child.stdout.toString()); }
   catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'fetch adapter failed'); }
-  if (!response.ok || child.exitCode !== 0) refuse(response.code, response.message);
-  return { bytes: response.bytes, stillBytes: response.stillBytes };
+  if (!response.ok) refuse(response.code, response.message);
+  if (child.exitCode !== 0) failure('REVIEW_ACT_FETCH_REFUSED', 'fetch adapter did not complete');
+  return response;
 }
 
 export function fetchReviewActBytes(transport: ReviewActTransport): string {
@@ -495,9 +529,13 @@ export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter
     } catch { return failure('REVIEW_ACT_FETCH_REFUSED', 'live Review fetch failed'); }
   }
   if (transport.kind === 'parts-verdict' || transport.kind === 'interview-picks' || transport.kind === 'checkpoint' || transport.kind === 'signoff') return decodeReviewResponse(await (await read('application/json')).text(), transport.jobId, transport.actId, requestId, transport.kind);
-  const bytes = await (await read('application/vnd.rig-review.act+json')).text();
+  const raw = Buffer.from(await (await read('application/vnd.rig-review.act+json')).arrayBuffer());
+  const bytes = new TextDecoder().decode(raw);
   const act = decodeReviewAct(bytes);
   if (act.jobId !== transport.jobId || act.actId !== transport.actId) failure('REVIEW_ACT_INVALID', 'fetched act identity differs from the request');
+  if (act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA && !Buffer.from(bytes).equals(raw)) {
+    failure('REVIEW_ACT_INVALID', 'chest act export cannot be retained byte-for-byte as UTF-8 JSON');
+  }
   const still = reviewActStill(act);
   if (still === null) return { act, bytes };
   const png = Buffer.from(await (await read('image/png')).arrayBuffer());
@@ -793,6 +831,9 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
       const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : entry.kind === 'reopen' ? 'reopen' : 'review-verdict');
       if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
+      if (entry.bust_config !== undefined && act.schema !== JOB_CHEST_LANDMARKS_ACT_SCHEMA) {
+        failure('REVIEW_ACT_LEDGER_INVALID', 'only a chest landmark verdict carries a working bust config');
+      }
       const key = JSON.stringify([act.jobId, act.actId]);
       if (seen.has(key)) failure('REVIEW_ACT_REPLAY_CONFLICT', 'duplicate act receipt');
       seen.add(key);
@@ -907,7 +948,14 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
       const version = Array.isArray(project.versions) ? project.versions.find(v => object(v) && v.n === entry.version) : null;
       const verdict = object(version) && Array.isArray(version.verdicts) ? version.verdicts[Number(entry.verdict)] : null;
       if (!isDeepStrictEqual(verdict, reviewActVerdict(act))) failure('REVIEW_ACT_LEDGER_INVALID', 'recorded verdict differs from the immutable act');
-      if (act.schema === JOB_MESH_EDITS_ACT_SCHEMA) assertMeshActCorrections(project, act);
+      if (act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA) {
+        if (!file(entry.bust_config) || !bustConfigPath(entry.bust_config.path)
+          || !object(version) || entry.bust_config.sha256 !== frozenBustConfigHash(version)) {
+          failure('REVIEW_ACT_LEDGER_INVALID', 'working bust config binding differs from the rig registration or does not name an editable path');
+        }
+      }
+      const meshAct = meshReviewVerdict(act);
+      if (meshAct) assertMeshActCorrections(project, meshAct);
       const expectedSignoff = rigVerdictSignoff(act);
       const namedSignoffs = asArray(project.signoffs).filter(object).filter(row => row.source === expectedSignoff.source);
       if (entry.signoff !== undefined || namedSignoffs.length > 0) {

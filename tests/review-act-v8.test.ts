@@ -17,7 +17,7 @@ test('malformed act@8 refuses in raw and enveloped verdict decoding', () => {
 });
 
 test('other unsupported act schemas keep the generic refusal', () => {
-  for (const unsupported of ['rig-review/act@1', 'rig-review/act@9']) {
+  for (const unsupported of ['rig-review/act@1', 'rig-review/act@10']) {
     expect(() => decodeReviewAct(JSON.stringify({ ...act, schema: unsupported })))
       .toThrow(expect.objectContaining({ code: 'REVIEW_ACT_SCHEMA_UNSUPPORTED' }));
   }

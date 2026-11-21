@@ -1,6 +1,6 @@
 import { missingPickSignoffSteps, pickSignoffEvidence, requiredInterviewSteps } from './pick-signoff.ts';
 import { ChoiceError, hasPendingOther, isUndecidedDelegation, literalFile, optionFile, pendingInterviewOptions, pendingInterviewOptionsPath, selection } from './choices.ts';
-import { reviewVerdictSignable } from './signable.ts';
+import { reviewVerdictSignable, rigVerdictIngestible } from './signable.ts';
 import { ownerChatSignoffAllowed } from './owner-chat.ts';
 import { checkpointEnabled, checkpointRequired } from './plan-history.ts';
 import { createHash } from 'node:crypto';
@@ -46,8 +46,9 @@ import { carriedRefusals, findingKey, newFindings } from './refusal-baseline.ts'
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, directionReviewClosed, liveSignoff, type Reopen } from './reopen.ts';
-import { acceptedReviewVerdict, latestAccepted, readVersions } from './review.ts';
+import { acceptedReviewVerdict, humanReviewVerdicts, latestAccepted, readVersions } from './review.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { bustLandmarkCommands } from './review-bust.ts';
 import {
   advanceOrder,
   directionReviewPostState,
@@ -157,6 +158,7 @@ export interface NextReport {
   accepted: boolean;
   refusals: NextRefusal[];
   warnings?: Finding[];
+  bust_landmark_commands?: string[];
   /** A view of existing answers, never a new project record. */
   answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
   awaits: string[];
@@ -1198,7 +1200,36 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       ...(interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === effectiveStage
         ? { command: optionCommand(item.id, dir) } : {}) }];
   });
-  const warningFields = { ...(structureWarnings.length ? { warnings: structureWarnings } : {}), answers };
+  const versions = asArray(project.versions).filter(isObject);
+  const parsedVersions = readVersions(project);
+  const reopens = collectReopens(project, []);
+  const latestRig = parsedVersions.rigs.at(-1);
+  let bustCommands: string[] | undefined;
+  const bustRefusals: Finding[] = [];
+  if (stage !== PAUSED_STAGE && rigVerdictIngestible(effectiveStage) && latestRig?.live) {
+    const version = versions.find(v => v.kind === 'rig' && v.n === latestRig.n)!;
+    const verdict = humanReviewVerdicts(version.verdicts, 'rig-review').at(-1);
+    if (verdict?.record.verdict === 'bounced' && liveSignoff(reopens, 'rig-review', Date.parse(String(verdict.record.at)))) {
+      // Resolve the active verdict's receipt before touching any working files.
+      const receipts = asArray(project.review_acts);
+      const index = receipts.findLastIndex((receipt, i) => isObject(receipt)
+        && receipt.schema === 'rig-create/review-act@1' && receipt.kind === undefined
+        && receipt.version === latestRig.n && receipt.verdict === verdict.index && isObject(receipt.bust_config)
+        && !report.refusals.some(finding => finding.path === `review_acts[${i}]`));
+      const receipt = receipts[index];
+      if (isObject(receipt) && isObject(receipt.bust_config)
+        && typeof receipt.bust_config.path === 'string' && typeof receipt.sha256 === 'string') {
+        try {
+          bustCommands = bustLandmarkCommands(dir, project, version, receipt.bust_config.path, receipt.sha256, true);
+        } catch (error) {
+          if (!(error instanceof Refusal)) throw error;
+          bustRefusals.push({ code: error.code, path: `review_acts[${index}]`, message: error.message });
+        }
+      }
+    }
+  }
+  const warningFields = { ...(structureWarnings.length ? { warnings: structureWarnings } : {}), answers,
+    ...(bustCommands ? { bust_landmark_commands: bustCommands } : {}) };
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
 
@@ -1211,7 +1242,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         ? SCENE_OTHER_FOLLOW_UP
         : 'redraft with a tailored value option and have the person explicitly pick it before approval'}`,
     }));
-  const allRefusalFindings: Finding[] = [...report.refusals, ...pendingOtherFindings, ...holes];
+  const allRefusalFindings: Finding[] = [...report.refusals, ...bustRefusals, ...pendingOtherFindings, ...holes];
   const refusals: NextRefusal[] = allRefusalFindings.map(r => ({
     code: r.code,
     field: r.path,
@@ -1219,7 +1250,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     fix: remedyForFinding(r.code, r.message),
   }));
 
-  const parsedVersions = readVersions(project);
   const riggingDraft = effectiveStage === 'rigging' ? asArray(project.drafts).filter(isObject).at(-1) : undefined;
   const compiledDraftId = riggingDraft && typeof riggingDraft.id === 'string' && eligibleRigDraftModel(riggingDraft)
     ? riggingDraft.id : undefined;
@@ -1321,8 +1351,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       };
     }
   }
-  const versions = asArray(project.versions).filter(isObject);
-  const reopens = collectReopens(project, []);
   const rigN = parsedVersions.rigs.filter(rig => rig.live).at(-1)?.n ?? null;
   const nextRigN = Math.max(0, ...versions.map(v => Number(v.n) || 0)) + 1;
   const approval = stage !== PAUSED_STAGE && rigN === null && (effectiveStage === 'rigging' || effectiveStage === 'rig-review')
@@ -2381,6 +2409,7 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     }`,
   );
   for (const w of report.warnings ?? []) lines.push(`  WARN [${w.code}]: ${w.message}`);
+  for (const command of report.bust_landmark_commands ?? []) lines.push(command);
   if (report.refusals.length > 0) {
     lines.push(`refusals (${report.refusals.length}):`);
     for (const r of report.refusals) {

@@ -180,9 +180,9 @@ function registeredRig(stage = 'rigging', edit: (project: JsonObject) => void = 
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
   const project = read(root);
   project.stage = stage;
-  edit(project);
   const meshes = ((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'meshes')!;
   (meshes.checkpoint as JsonObject).value = true;
+  edit(project);
   writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   return root;
 }
@@ -376,6 +376,46 @@ test('#754 at ready rig-review job open --rig declares the verdict ask and its a
   const version = (read(root).versions as JsonObject[]).find(entry => entry.n === 1)!;
   expect((version.verdicts as JsonObject[]).at(-1)).toMatchObject({ review: 'rig-review', verdict: 'accepted' });
   expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review' });
+}, 30_000);
+
+/** A rigging record with every checkpoint off: before rig-review its rig page has nothing to ask. */
+const noCheckpoints = (project: JsonObject) => {
+  project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
+  (((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'meshes')!.checkpoint as JsonObject).value = false;
+};
+const deferredRoute = (root: string) => `the verdict becomes askable at rig-review: run rig-create advance rig-review ${root} and rig-create job open ${root} --rig 1 again`;
+
+test('#754 case A: job open --rig at rigging with nothing to ask publishes an askless page with the deferred-verdict WARN', async () => {
+  const root = registeredRig('rigging', noCheckpoints);
+  expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([]);
+  const warn = `WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging publishes rig v1 without its review-verdict rig-review ask, which review --from-review could not ingest here; ${deferredRoute(root)}`;
+  const opening = await open(root, ['--rig', '1']);
+  expect(opening.lines).toEqual([warn, 'job: rig v1 published']);
+  expect((await publication(root, opening.url, 0)).asks).toEqual([]);
+  // The open page is reopened as is, with the same named route and no generic ask refusal.
+  const saved = readFileSync(join(root, 'project.json'));
+  const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1']);
+  expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, warn, 'job: rig v1 already published']);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
+}, 30_000);
+
+test('#754 case B: a bound rig writer at rigging with nothing to ask refuses JOB_RIG_VERDICT_DEFERRED byte-identically', async () => {
+  const root = registeredRig('rigging', noCheckpoints);
+  // A reference-less legacy page, so republish reaches its publication step (as in #690).
+  prepareLiveManifest(root, { ...read(root), inputs: [] }, 1);
+  const opening = await open(root, ['--rig', '1']);
+  const head = (await publication(root, opening.url, 0)).head.publicationId as string;
+  const paths = ['project.json', 'review-live-v1.json'];
+  const before = paths.map(path => readFileSync(join(root, path)));
+  const result = await cli(root, ['republish', '1', root, '--reason', 'Publish retained evidence.']);
+  expect(result.exit).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toBe(`rig-create: JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging would replace open publication ${head} with rig v1 and nothing to ask: its review-verdict rig-review ask, which review --from-review could not ingest here; ${deferredRoute(root)}; or keep the open page, or close it with rig-create job close ${root} to record without publishing\n`);
+  expect(paths.map(path => readFileSync(join(root, path)))).toEqual(before);
+  expect(existsSync(join(root, 'review-live-v1-g2.json'))).toBe(false);
+  expect(pendingPublications(root, true)).toEqual([]);
+  expect((await publication(root, opening.url, 0)).head.publicationId).toBe(head);
 }, 30_000);
 
 test.each(['0', 'absent', '1.5', '9007199254740992', '2'])('#412 refuses invalid or absent rig %s before creating a host or binding', async rig => {

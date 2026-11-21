@@ -19,11 +19,12 @@ import { signoffPairFinding } from './signoff-pair.ts';
 import type { JsonObject } from './templates.ts';
 
 /**
- * The WARN `job open --rig <n>` prints when the rig page leaves out its review-verdict
- * ask because the record is not at effective rig-review. It names the stage and the
+ * JOB_RIG_VERDICT_DEFERRED: the rig page leaves out its review-verdict ask because the
+ * record is not at effective rig-review. `job open --rig <n>` prints it as a WARN; a bound
+ * writer whose page would then ask nothing refuses with it. It names the stage and the
  * rigging bars that still block the move. Null when the ask is declared or not needed.
  */
-export function rigVerdictDeferred(root: string, project: JsonObject, effectiveStage: string | null, n: number, now: number): Finding | null {
+export function rigVerdictDeferred(root: string, project: JsonObject, effectiveStage: string | null, n: number, now: number, replacing?: string): Finding | null {
   if (rigVerdictIngestible(effectiveStage) || !reviewVerdictSignable(project, n, 'rig-review')) return null;
   const shown = `stage ${String(project.stage)}${effectiveStage !== project.stage ? ` (effective ${String(effectiveStage)})` : ''}`;
   const open = `rig-create job open ${shellWord(root)} --rig ${n}`;
@@ -37,7 +38,10 @@ export function rigVerdictDeferred(root: string, project: JsonObject, effectiveS
     route = `follow rig-create next ${shellWord(root)} back to rig-review before ${open}`;
   }
   const path = `versions[v${n}]`;
-  return { code: 'JOB_RIG_VERDICT_DEFERRED', path, message: `${path}: ${shown} publishes rig v${n} without its review-verdict rig-review ask, which review --from-review could not ingest here; the verdict becomes askable at rig-review: ${route}` };
+  const lead = replacing === undefined
+    ? `${shown} publishes rig v${n} without its review-verdict rig-review ask`
+    : `${shown} would replace open publication ${replacing} with rig v${n} and nothing to ask: its review-verdict rig-review ask`;
+  return { code: 'JOB_RIG_VERDICT_DEFERRED', path, message: `${path}: ${lead}, which review --from-review could not ingest here; the verdict becomes askable at rig-review: ${route}${replacing === undefined ? '' : `; or keep the open page, or close it with rig-create job close ${shellWord(root)} to record without publishing`}` };
 }
 
 /** Missing retained subjects and the old two-subject publication keep their separate signing contract. */

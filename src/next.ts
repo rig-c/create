@@ -21,7 +21,7 @@ import {
   type Finding,
   type Item,
 } from './check.ts';
-import { collectAmendments } from './amend.ts';
+import { amendmentLapsedSteps, collectAmendments } from './amend.ts';
 import { pendingMeshDeltaRevision } from './corrections.ts';
 import {
   DIFF_MAP_AGENT_SINCE,
@@ -1551,6 +1551,29 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
           target_field: lapsedApproval.path,
           ...(targetId ? { amendment_id: targetId } : {}),
           message: lapsedApproval.reason,
+        },
+      });
+    }
+    // An interview-answer amendment names each step resting on the changed answer until it is done again.
+    if (amendment.target.kind !== 'interview-answer') continue;
+    for (const step of amendmentLapsedSteps(project, amendment.target)) {
+      const stepId = String(step.id);
+      const stepStage = stageOfStep(step.phase as 'rig' | 'post', stepId);
+      if (step.status === 'done' || stepStage === effectiveStage) continue;
+      const awaitTarget = `plan.steps[${stepId}].status`;
+      addAwait(awaitTarget);
+      moves.push({
+        role: 'agent',
+        field: amendField,
+        awaits: awaitTarget,
+        command: null,
+        act: `redo plan.steps[${stepId}] at ${stepStage}; it rests on ${String(amendment.target.id)}, changed by ${amendField}`,
+        lapse: {
+          code: 'AMENDED_STEP',
+          source_field: amendField,
+          target_field: `plan.steps[${stepId}]`,
+          ...(targetId ? { amendment_id: targetId } : {}),
+          message: `rests on ${String(amendment.target.id)}`,
         },
       });
     }

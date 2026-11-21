@@ -4,7 +4,7 @@ import { readFileSync, realpathSync } from './check-reads.ts';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
-import { asArray, asString, checkProject, collectSignoffs, isObject, type Finding } from './check.ts';
+import { asArray, asString, checkProject, collectItems, collectSignoffs, isObject, loadCollection, type Finding } from './check.ts';
 import { relativeInventory } from './draft-reuse.ts';
 import { readProject } from './feedback.ts';
 import { publicationFile } from './job-publication.ts';
@@ -53,9 +53,36 @@ export interface AmendmentSummary {
   readonly keep_by_binding: AmendmentApproval[];
 }
 
-/** Future binding cards may populate this list with independently proved approvals. Ships empty. */
-export function keepByBinding(): AmendmentApproval[] {
-  return [];
+/**
+ * Approvals an amendment leaves live because a binding proves independence. An interview-answer
+ * amendment keeps the checkpoint approval of a step that does not rest on the changed answer.
+ */
+export function keepByBinding(project: JsonObject, target: JsonObject, approval: { stage: string; checkpoint?: string }): boolean {
+  if (target.kind !== 'interview-answer' || approval.checkpoint === undefined) return false;
+  const steps = asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)
+    .filter(step => step.id === approval.checkpoint && stageOfStep(step.phase as 'rig' | 'post', approval.checkpoint) === approval.stage);
+  return steps.length === 1 && !amendmentResetsStep(target, steps[0]!.phase, steps[0]!.id, steps[0]!.rests_on);
+}
+
+/** An amendment resets a rig or post step at or after its owning stage; an interview-answer only one resting on that answer. */
+export function amendmentResetsStep(target: JsonObject, phase: Json | undefined, id: Json | undefined, restsOn: Json | undefined): boolean {
+  return typeof id === 'string' && (phase === 'rig' || phase === 'post')
+    && stageIndex(stageOfStep(phase, id)) >= stageIndex(String(target.stage))
+    && (target.kind !== 'interview-answer' || asArray(restsOn).includes(target.id as Json));
+}
+
+/** The plan steps an amendment resets; the other steps keep their status. */
+export function amendmentLapsedSteps(project: JsonObject, target: JsonObject): JsonObject[] {
+  return asArray(isObject(project.plan) ? project.plan.steps : undefined).filter(isObject)
+    .filter(step => amendmentResetsStep(target, step.phase, step.id, step.rests_on));
+}
+
+/** The reopens and amendments that cut a step's approvals: all but interview-answer amendments of answers it does not rest on. */
+export function stepLapseEvents(events: readonly Reopen[], restsOn: Json | undefined): Reopen[] {
+  return events.filter(event => {
+    const target = (event as Partial<Amendment>).target;
+    return target?.kind !== 'interview-answer' || asArray(restsOn).includes(target.id as Json);
+  });
 }
 
 /** Only well-formed human amendments can invalidate approvals. Historical bindings name recorded bytes. */
@@ -157,23 +184,26 @@ export function amendmentSummaries(project: JsonObject, amendments: readonly Ame
   return amendments.map(a => {
     const lapsed: AmendmentApproval[] = [];
     const upstream: AmendmentApproval[] = [];
+    const kept: AmendmentApproval[] = [];
     for (const approval of approvals) {
       if (approval.at > a.at || stageIndex(approval.stage) < 0) continue;
       const named = { path: approval.path, stage: approval.stage, ...('checkpoint' in approval ? { checkpoint: approval.checkpoint } : {}) };
-      if (stageIndex(approval.stage) >= stageIndex(a.stage)) {
+      if (stageIndex(approval.stage) >= stageIndex(a.stage) && keepByBinding(project, a.target, named)) {
+        kept.push({ ...named, reason: `step does not rest on ${String(a.target.id)}` });
+      } else if (stageIndex(approval.stage) >= stageIndex(a.stage)) {
         lapsed.push({ ...named, reason: 'no binding proves independence', gap: AMENDMENT_APPROVAL_GAPS[approval.stage] });
       } else if (liveSignoff(events, approval.stage, approval.at)) {
         upstream.push({ ...named, reason: 'stage precedes amended stage' });
       }
     }
-    return { path: `amendments[${a.index}]`, target: a.target, lapsed, upstream, keep_by_binding: keepByBinding() };
+    return { path: `amendments[${a.index}]`, target: a.target, lapsed, upstream, keep_by_binding: kept };
   });
 }
 
 export const AMEND_HELP = `amend:
   <stage> [<project dir>]  record a forward amendment, retaining project.stage
   --kind <kind>           part, config-field, motion-track, interview-answer or draft
-  --target <id>           artifact id, config pointer, track id, answer path or draft id
+  --target <id>           artifact id, config pointer, track id, question id or draft id
   --change <file>         new input under the project, hashed by the writer (repeatable)
   --by <who>              human signer (agent is refused)
   --verbatim-file <file>  unchanged UTF-8 words, or - for stdin (default)
@@ -182,7 +212,8 @@ export const AMEND_HELP = `amend:
                           required for a registered draft at parts-review or changed parts at rigging
   --json                  print the amendment record
   The clock supplies at. The owning stage and every later approval lapse.
-  Upstream steps keep their state. keep-by-binding ships empty.`;
+  Upstream steps keep their state. An interview-answer amendment resets only
+  the steps that rest on that answer and keeps the other steps' checkpoints.`;
 
 export function amendCommand(args: string[], now: number): { stdout: string; exit: number } {
   const opts: Record<string, string> = {};
@@ -215,6 +246,10 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
   };
   if (opts['--source'] !== undefined) entry.source = opts['--source'];
   const riggingDraft = opts['--kind'] === 'draft' && project.stage === 'rigging';
+  if (opts['--kind'] === 'interview-answer'
+    && !collectItems(project, { collection: loadCollection(dir, project) }).some(item => item.id === opts['--target'])) {
+    refuse('AMENDMENT_TARGET_INVALID', `amendments.target: interview-answer ${opts['--target']} names no question of this interview; name the changed answer by its question id`);
+  }
   if (opts['--kind'] === 'draft' && project.stage !== 'parts-review' && !riggingDraft) {
     refuse('AMENDMENT_TARGET_INVALID', 'amendments.target: review a draft correction at parts-review or amend changed parts at rigging');
   }
@@ -259,10 +294,7 @@ export function amendCommand(args: string[], now: number): { stdout: string; exi
   }
   if (!chat) entry.verbatim = readVerbatim(opts['--verbatim-file'] ?? '-');
   project.amendments = [...asArray(project.amendments), entry];
-  for (const raw of asArray(isObject(project.plan) ? project.plan.steps : undefined)) {
-    if (isObject(raw) && typeof raw.id === 'string' && (raw.phase === 'rig' || raw.phase === 'post')
-      && stageIndex(stageOfStep(raw.phase, raw.id)) >= stageIndex(positional[0] as string)) raw.status = 'pending';
-  }
+  for (const step of amendmentLapsedSteps(project, entry.target as JsonObject)) step.status = 'pending';
   const rejected = newRefusals(dir, before, project, { now })[0];
   if (rejected !== undefined) refuse(rejected.code, rejected.message);
   writeFileSync(file, `${JSON.stringify(project, null, 2)}\n`);

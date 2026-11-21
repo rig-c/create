@@ -77,11 +77,11 @@ function seedReopenAsk(host: JobOwnerHost, publicationId: string, subject: Recor
 }
 
 /** Store the owner's answered reopen act@4 for a seeded ask; Review's own stored-act decoder builds it. */
-function seedReopenAct(host: JobOwnerHost, askId: string, words: string): JsonObject {
+function seedReopenAct(host: JobOwnerHost, askId: string, words: string, actId: string = crypto.randomUUID()): JsonObject {
   return writeReviewJob(host, (data, append, jobId) => {
     const ask = data.asks[askId] as unknown as { publicationId: string; subject: { stage: string }; source: unknown };
     const act = parseRecordAct({
-      schema: JOB_RECORD_ACT_SCHEMA, actId: crypto.randomUUID(), jobId, askId, publicationId: ask.publicationId,
+      schema: JOB_RECORD_ACT_SCHEMA, actId, jobId, askId, publicationId: ask.publicationId,
       authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
       at: new Date().toISOString(), kind: 'reopen', source: ask.source, value: { stage: ask.subject.stage, words },
     }) as unknown as JsonObject;
@@ -214,7 +214,9 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
       publicationId, askId: signoffAsk.askId, pageId, displayedNonce, expectedGeneration: host.session.status().generation,
       submissionId: crypto.randomUUID(), kind: 'signoff', value: { stage: 'plan-approved', decision: 'approved', words: 'Approve the synthetic plan.\n' },
     });
-    const reopenAct = seedReopenAct(host, reopenAsk.askId, 'Misclicked reopen.\n');
+    const sharedPrefix = String(signoffAct.actId).slice(0, 4);
+    const nextChar = String(signoffAct.actId)[4] === 'a' ? 'b' : 'a';
+    const reopenAct = seedReopenAct(host, reopenAsk.askId, 'Misclicked reopen.\n', `${sharedPrefix}${nextChar}${crypto.randomUUID().slice(5)}`);
 
     const listedBefore = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts as { actId: string }[];
     expect(listedBefore.map(act => act.actId)).toEqual([String(signoffAct.actId), String(reopenAct.actId)]);
@@ -241,7 +243,27 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
     const unknownAct = await cli(root, ['job', 'withdraw-act', 'unknown-act-id', root, ...relay]);
     expect(unknownAct.exit).toBe(1);
     expect(unknownAct.stderr).toStartWith('JOB_ACT_NOT_PENDING:');
-    expect(unknownAct.stderr).toContain('unknown-act-id');
+    expect(unknownAct.stderr).toContain(`act unknown-act-id is not pending on bound job ${host.session.jobId}; run rig-create job acts to list pending finalized acts`);
+    expect(recordBytes(root)).toEqual(beforeProject);
+    expect(readFileSync(bindingPath)).toEqual(beforeBinding);
+
+    // 2b. A short prefix of one pending act refuses with JOB_ACT_NOT_PENDING, names the full pending act id, and leaves project.json byte-identical.
+    const shortReopenId = String(reopenAct.actId).slice(0, 8);
+    expect(String(signoffAct.actId).startsWith(shortReopenId)).toBe(false);
+    const shortAct = await cli(root, ['job', 'withdraw-act', shortReopenId, root, ...relay]);
+    expect(shortAct.exit).toBe(1);
+    expect(shortAct.stderr).toStartWith('JOB_ACT_NOT_PENDING:');
+    expect(shortAct.stderr).toContain(shortReopenId);
+    expect(shortAct.stderr).toContain(String(reopenAct.actId));
+    expect(recordBytes(root)).toEqual(beforeProject);
+    expect(readFileSync(bindingPath)).toEqual(beforeBinding);
+
+    // 2c. An ambiguous prefix shared by two pending acts refuses with JOB_ACT_NOT_PENDING, lists both full pending act ids, and leaves project.json byte-identical.
+    const ambiguousAct = await cli(root, ['job', 'withdraw-act', sharedPrefix, root, ...relay]);
+    expect(ambiguousAct.exit).toBe(1);
+    expect(ambiguousAct.stderr).toStartWith('JOB_ACT_NOT_PENDING:');
+    expect(ambiguousAct.stderr).toContain(String(signoffAct.actId));
+    expect(ambiguousAct.stderr).toContain(String(reopenAct.actId));
     expect(recordBytes(root)).toEqual(beforeProject);
     expect(readFileSync(bindingPath)).toEqual(beforeBinding);
 

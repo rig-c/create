@@ -356,6 +356,13 @@ export async function withdrawCreateJobAct(
     }
     const acts = pendingJobActs(project, await readHostActs(host), root);
     if (!acts.some(act => act.actId === trimmedActId)) {
+      const prefixMatches = acts.filter(act => act.actId.startsWith(trimmedActId)).map(act => act.actId);
+      if (prefixMatches.length === 1) {
+        refuse('JOB_ACT_NOT_PENDING', `project.json.review_acts: act ${trimmedActId} is a prefix of pending act ${prefixMatches[0]} on bound job ${binding.jobId}; pass the full act id ${prefixMatches[0]} to rig-create job withdraw-act`);
+      }
+      if (prefixMatches.length > 1) {
+        refuse('JOB_ACT_NOT_PENDING', `project.json.review_acts: act ${trimmedActId} matches multiple pending acts (${prefixMatches.join(', ')}) on bound job ${binding.jobId}; pass the full act id from rig-create job acts to rig-create job withdraw-act`);
+      }
       refuse('JOB_ACT_NOT_PENDING', `project.json.review_acts: act ${trimmedActId} is not pending on bound job ${binding.jobId}; run rig-create job acts to list pending finalized acts`);
     }
     if (project.review_acts !== undefined && !Array.isArray(project.review_acts)) {

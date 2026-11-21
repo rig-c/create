@@ -60,7 +60,7 @@ Preserve history/dates; adopt choices explicitly.
 Start `job open <dir> --reviewer <id> --role owner` in the background.
 Add a selector when ready. Share the private URL once. Publish via bound writers or
 reuse the same reviewer/role with `--draft`, `--rig`, `--question` or `--plan`.
-Reused opens exit and the page updates in place.
+Reused opens exit. The page updates in place.
 After asking, run `rig-create job acts --wait` in the background. Ingest with its
 printed command, advance as needed and publish again.
 When all picks are ingested, complete the plan and follow `next` for

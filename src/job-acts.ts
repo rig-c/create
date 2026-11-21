@@ -77,9 +77,11 @@ export async function readHostActs(host: JobOwnerHost): Promise<ActV3[]> {
 
 export interface PendingJobAct {
   actId: string;
+  publicationId?: string;
   kind: ActV3['kind'];
   subject: string;
   at: string;
+  value?: ActV3['value'];
   args: string[] | null;
   command: string | null;
   preconditions?: { command: string | null; act: string }[];
@@ -153,7 +155,8 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
         args = ['interview-answer', act.value.questionId, root];
         break;
       case 'reopen':
-        return [{ actId: act.actId, kind: act.kind, subject: `stage ${act.value.stage}`, at: act.at, args: null, command: null,
+        return [{ actId: act.actId, ...(act.publicationId === undefined ? {} : { publicationId: act.publicationId }),
+          kind: act.kind, subject: `stage ${act.value.stage}`, at: act.at, value: act.value, args: null, command: null,
           unavailable: { code: 'REOPEN_ACT_RETIRED',
             message: `project.json.review_acts: reopen act ${act.actId} is retired; correct an earlier answer with rig-create interview-options and interview-answer, then re-sign each stale approval. For an artifact change, use rig-create amend. Withdraw this act with rig-create job withdraw-act ${act.actId} and the owner’s relayed words` } }];
       case 'signoff': {
@@ -188,7 +191,8 @@ export function pendingJobActs(project: JsonObject, acts: readonly ActV3[], root
       }
     }
     if (args) args.push('--from-review', act.actId);
-    return [{ actId: act.actId, kind: act.kind, subject, at: act.at, args,
+    return [{ actId: act.actId, ...(act.publicationId === undefined ? {} : { publicationId: act.publicationId }),
+      kind: act.kind, subject, at: act.at, value: act.value, args,
       ...(preconditions.length ? { preconditions } : {}),
       command: args ? ['rig-create', ...args].map(shellWord).join(' ') : null,
       ...(args ? {} : { unavailable: { code: 'JOB_ACTS_WRITER_UNAVAILABLE' as const,
@@ -255,10 +259,29 @@ export function ingestedSummary(result: { ingested?: readonly IngestedJobAct[]; 
     ? ` (${ingested.map(act => `${act.actId} ${act.subject} -> ${act.recorded}`).join('; ')})` : ''}`;
 }
 
+function actContentLines(value: PendingJobAct['value']): string[] {
+  if (!value || typeof value !== 'object') return [];
+  const lines: string[] = [];
+  if ('verdict' in value && typeof value.verdict === 'string') lines.push(`  verdict: ${value.verdict}`);
+  if ('comments' in value && Array.isArray(value.comments)) {
+    for (const comment of value.comments) {
+      if (comment && typeof comment === 'object' && 'text' in comment && typeof comment.text === 'string') {
+        lines.push(`  comment: ${comment.text}`);
+      }
+    }
+  }
+  return lines;
+}
+
 export function jobActsText(result: { acts: readonly PendingJobAct[]; ingested?: readonly IngestedJobAct[]; asked?: number }): string {
   const already = (result.ingested ?? []).map(act => `${act.actId} ${act.kind} ${act.subject} at ${act.at}\n  already recorded at ${act.recorded}; no ingest needed`);
   if (!result.acts.length) return [`job: no un-ingested acts; ${ingestedSummary(result)}`, ...already].join('\n');
-  return [...result.acts.map(act => `${act.actId} ${act.kind} ${act.subject} at ${act.at}\n${(act.preconditions ?? []).map(step => `  first: ${step.command ?? step.act}\n`).join('')}  ${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`}`), ...already].join('\n');
+  return [...result.acts.map(act => [
+    `${act.actId} ${act.kind} ${act.subject} at ${act.at}`,
+    ...actContentLines(act.value),
+    ...(act.preconditions ?? []).map(step => `  first: ${step.command ?? step.act}`),
+    `  ${act.command ?? `${act.unavailable!.code}: ${act.unavailable!.message}`}`,
+  ].join('\n')), ...already].join('\n');
 }
 
 export interface PendingTargetAsk {

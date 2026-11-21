@@ -48,8 +48,7 @@ one input, survives restart and checks sibling artwork; optional on older record
 Use `advance <stage>` and `step-status <id>` (`rig-create --help`).
 `advance parts-review` needs `--parts-check <report> --parts <assembled dir>`,
 refusing {{PARTS_CHECK_LINK}}.
-In `parts`, record an `intake-report` preflight and offer its choice, both advisory:
-{{INTAKE_LINK}}.
+In `parts`, record an `intake-report` preflight and offer its choice, both advisory: {{INTAKE_LINK}}.
 
 Keep drafts in `derived/drafts/<id>/`, outside versions/handoff.
 An owner-accepted retouch enters through parts' `assemble.edited_parts` block and is recorded by `draft-rig` ({{RETOUCH_HANDOFF_LINK}}).
@@ -63,6 +62,7 @@ reuse the same reviewer/role with `--draft`, `--rig`, `--question` or `--plan`.
 Reused opens exit. The page updates in place.
 After asking, run `rig-create job acts --wait` in the background. Ingest with its
 printed command, advance as needed and publish again.
+`job acts [--json]` lists each pending act's verdict and comments, even when ingest is refused.
 When all picks are ingested, complete the plan and follow `next` for
 `signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
 After a listener stop, reopen with the same reviewer/role and URL, then `job reconcile`.
@@ -71,12 +71,9 @@ Until #700, ingest pending acts and close a package-only job before asking a que
 Use `job withdraw-act <actId>` with owner-chat flags to keep the page. Successful
 closes end it. Share a new URL after reopening.
 
-- `job close` ends the job or retires it after a pin/hook bump.
-- `job close --retire-refused` archives failed publications.
-- `job close --discard-acts <reason> --by agent` records the discard.
-- `job close --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>` records the owner's discard.
-- `job open` can archive an offline replaced-root job and open a new URL.
-- `job reconcile` can archive an offline replaced-root job.
+- `job close` ends the job or retires it after a pin/hook bump (`--retire-refused` archives failed publications).
+- `job close --discard-acts <reason> --by agent` (or `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`) records the discard.
+- `job open`/`job reconcile` can archive an offline replaced-root job (`job open` opens a new URL).
 
 ## Before you ask, plan or show
 

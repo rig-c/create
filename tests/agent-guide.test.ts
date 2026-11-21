@@ -309,5 +309,6 @@ test('rendered guide names both explicit painting declarations and their persist
   expect(guide).toContain('input add <path> --painting --origin <words>');
   expect(guide).toContain('project.json.painting');
   expect(guide).toContain('survives restart');
+  expect(guide).toContain("`job acts [--json]` lists each pending act's verdict and comments, even when ingest is refused.");
   expect(Buffer.byteLength(guide)).toBeLessThan(GUIDE_MAX_BYTES);
 });

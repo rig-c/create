@@ -521,6 +521,26 @@ export function sealedScene(root: string, project: JsonObject, directionPath: st
   return { path: reference.path, sha256: reference.sha256, plates };
 }
 
+/** Validate the retained registration.idle frame record for a rig publication writer and reader. */
+export function sealedIdleFrames(root: string, project: JsonObject, n: number): { path: string; sha256: string } | undefined {
+  const version = asArray(project.versions).filter(isObject).find(v => v.n === n);
+  if (version?.kind !== 'rig') return undefined;
+  const idle = isObject(version.registration) ? version.registration.idle : undefined;
+  if (idle === undefined) return undefined;
+  const recordPath = `versions[v${n}].registration.idle`;
+  if (!isObject(idle) || typeof idle.path !== 'string' || typeof idle.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(idle.sha256)) {
+    refuse('JOB_PUBLICATION_FRAMES_CHANGED', `${recordPath}: idle frames binding is malformed; restore the recorded {path, sha256} binding and retained frames.json bytes before publishing`);
+  }
+  assertPublicationPath(idle.path);
+  let bytes: Buffer;
+  try { bytes = publicationFile(root, idle.path); }
+  catch { refuse('JOB_PUBLICATION_FRAMES_CHANGED', `${recordPath}: ${idle.path} is missing or unreadable; restore the retained frames.json bytes before publishing`); }
+  if (jobHash(bytes) !== idle.sha256) {
+    refuse('JOB_PUBLICATION_FRAMES_CHANGED', `${recordPath}: ${idle.path} differs from its recorded sha256; restore the retained frames.json bytes before publishing`);
+  }
+  return { path: idle.path, sha256: idle.sha256 };
+}
+
 /** A manifest over the existing frozen model/direction, with project-relative paths.
  * Source documents and compiled producer output remain byte-identical.
  */
@@ -530,6 +550,7 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   const selector = publicationSelector(project, n);
   const rig = selector.kind === 'post' ? selector.rigVersion : n;
   let model = `derived/review/v${rig}/out/check/build/skeleton.model.json`;
+  const frames = selector.kind === 'rig' ? sealedIdleFrames(root, project, n)?.path : undefined;
   let scene: string | undefined;
   let composed = false;
   if (selector.kind === 'post') {
@@ -554,9 +575,9 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   const existing = existsSync(join(root, path)) ? publicationFile(root, path) : undefined;
   // Reopening an exact old publication preserves both its bytes and its identity.
   const legacyBytes = Buffer.from(`${JSON.stringify(legacyManifest, null, 2)}\n`);
-  const sceneManifest = { ...legacyManifest, ...(scene ? { scene } : {}) };
-  const sceneBytes = scene ? Buffer.from(`${JSON.stringify(sceneManifest, null, 2)}\n`) : legacyBytes;
-  if (existing?.equals(legacyBytes) || existing?.equals(sceneBytes)) return path;
+  const currentManifest = { ...legacyManifest, ...(frames ? { frames } : {}), ...(scene ? { scene } : {}) };
+  const currentBytes = frames || scene ? Buffer.from(`${JSON.stringify(currentManifest, null, 2)}\n`) : legacyBytes;
+  if (existing?.equals(legacyBytes) || existing?.equals(currentBytes)) return path;
   if (composed) {
     if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; restore the composed manifest`);
     writeFileSync(join(root, path), legacyBytes, { flag: 'wx' });
@@ -565,7 +586,7 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   // init permits projects without an original; publication did not require one.
   if (project.inputs === undefined || (Array.isArray(project.inputs) && project.inputs.length === 0)) {
     if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
-    writeFileSync(join(root, path), sceneBytes, { flag: 'wx' });
+    writeFileSync(join(root, path), currentBytes, { flag: 'wx' });
     return path;
   }
   try { publishedSourcePainting(root, project, `versions[v${n}]`); }
@@ -576,11 +597,11 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
     if (!legacy) throw error;
     if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
     warnings.push(legacy);
-    writeFileSync(join(root, path), sceneBytes, { flag: 'wx' });
+    writeFileSync(join(root, path), currentBytes, { flag: 'wx' });
     return path;
   }
   const reference = originalPaintingReference(root, project, n);
-  const manifest = { ...sceneManifest, references: [reference] };
+  const manifest = { ...currentManifest, references: [reference] };
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
   if (existing) {
     const previous = Buffer.from(`${JSON.stringify({ ...legacyManifest, references: [reference] }, null, 2)}\n`);
@@ -645,6 +666,10 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   });
   if (selector.kind === 'rig' && result.path !== `review-live-v${selector.version}.json`) files.push(publishedSourcePainting(root, project, `versions[v${selector.version}]`));
   files.push({ path: result.path, sha256: jobHash(publicationFile(root, result.path)) });
+  if (selector.kind === 'rig') {
+    const idle = sealedIdleFrames(root, project, selector.version);
+    if (idle) files.push(idle);
+  }
   if (selector.kind === 'post') {
     const direction = `evidence/direction/v${selector.version}.json`;
     const version = (project.versions as JsonObject[]).find(version => version.n === selector.version)!;

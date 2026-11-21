@@ -1780,3 +1780,127 @@ test('#743 retry of an unacknowledged pending draft publish uses the stored gene
     subjects: [{ kind: 'parts-verdict', draftId: 'chain' }],
   });
 });
+function idleFramesSetup(): { root: string; project: JsonObject; framesPath: string; framesBytes: Buffer; idle: { path: string; sha256: string }; save: () => void } {
+  const { root, project } = setup();
+  const framesPath = 'outputs/v1/idle/frames.json';
+  const framesBytes = readFileSync(join(import.meta.dir, 'fixtures/rig-registration/idle/frames.json'));
+  mkdirSync(dirname(join(root, framesPath)), { recursive: true });
+  writeFileSync(join(root, framesPath), framesBytes);
+  const idle = { path: framesPath, sha256: jobHash(framesBytes) };
+  ((project.versions as JsonObject[])[0] as JsonObject).registration = { idle };
+  const save = () => writeFileSync(join(root, 'project.json'), JSON.stringify(project));
+  save();
+  return { root, project, framesPath, framesBytes, idle, save };
+}
+
+test('#734 rig publication with registration.idle writes frames and seals the file, and omits frames when absent or on post', async () => {
+  const { root, project, framesPath, idle, save } = idleFramesSetup();
+  const before = readFileSync(join(root, 'project.json'));
+  const path = prepareLiveManifest(root, project, 1);
+  const manifest = JSON.parse(readFileSync(join(root, path), 'utf8')) as JsonObject;
+  expect(manifest.frames).toBe(framesPath);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+
+  const context = await readPublished({
+    root,
+    record: { path: 'project.json', sha256: jobHash(before) },
+    result: { path, selector: { kind: 'rig', version: 1 } },
+  });
+  expect(context.files).toContainEqual(idle);
+
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const entry = enqueuePublication(root, readWriterBinding(root)!, { path, selector: { kind: 'rig', version: 1 } });
+  await reconcilePublication(root, entry, publishPending);
+  expect(host.session.status().publication?.source.selector).toEqual({ kind: 'rig', version: 1 });
+
+  // A rig version whose registration has no idle record writes no frames field.
+  rmSync(join(root, path));
+  ((project.versions as JsonObject[])[0] as JsonObject).registration = {};
+  save();
+  const noIdleRecord = readFileSync(join(root, 'project.json'));
+  const noIdlePath = prepareLiveManifest(root, project, 1);
+  const noIdleManifest = JSON.parse(readFileSync(join(root, noIdlePath), 'utf8')) as JsonObject;
+  expect('frames' in noIdleManifest).toBe(false);
+  const noIdleContext = await readPublished({
+    root,
+    record: { path: 'project.json', sha256: jobHash(noIdleRecord) },
+    result: { path: noIdlePath, selector: { kind: 'rig', version: 1 } },
+  });
+  expect(noIdleContext.files.some(file => file.path === framesPath)).toBe(false);
+
+  // A post version writes no frames field even when its parent rig has registration.idle.
+  ((project.versions as JsonObject[])[0] as JsonObject).registration = { idle };
+  (project.versions as JsonObject[]).push({ n: 2, kind: 'post', rig_version: 1 });
+  save();
+  const postPath = prepareLiveManifest(root, project, 2);
+  const postManifest = JSON.parse(readFileSync(join(root, postPath), 'utf8')) as JsonObject;
+  expect('frames' in postManifest).toBe(false);
+});
+
+test('#734 reopening an exact old rig publication with or without references stays byte-identical and refuses arbitrary edits', () => {
+  const { root, project, framesPath } = idleFramesSetup();
+  const path = prepareLiveManifest(root, project, 1);
+  const withFramesBytes = readFileSync(join(root, path));
+  expect(prepareLiveManifest(root, project, 1)).toBe(path);
+  expect(readFileSync(join(root, path))).toEqual(withFramesBytes);
+
+  // Reopening an exact pre-#734 manifest (with references, without frames) keeps its bytes.
+  const oldWithRefs = JSON.parse(withFramesBytes.toString('utf8')) as JsonObject;
+  delete oldWithRefs.frames;
+  const oldWithRefsBytes = Buffer.from(`${JSON.stringify(oldWithRefs, null, 2)}\n`);
+  writeFileSync(join(root, path), oldWithRefsBytes);
+  expect(prepareLiveManifest(root, project, 1)).toBe(path);
+  expect(readFileSync(join(root, path))).toEqual(oldWithRefsBytes);
+
+  // Reopening an exact legacy manifest (without references and without frames) keeps its bytes.
+  const oldLegacy = { ...oldWithRefs, references: [] };
+  const oldLegacyBytes = Buffer.from(`${JSON.stringify(oldLegacy, null, 2)}\n`);
+  writeFileSync(join(root, path), oldLegacyBytes);
+  expect(prepareLiveManifest(root, project, 1)).toBe(path);
+  expect(readFileSync(join(root, path))).toEqual(oldLegacyBytes);
+
+  // Input-less new publication writes frames and reopens byte-identically.
+  rmSync(join(root, path));
+  const noInputsProject = { ...project, inputs: [] };
+  expect(prepareLiveManifest(root, noInputsProject, 1)).toBe(path);
+  const noInputsWithFrames = readFileSync(join(root, path));
+  expect(JSON.parse(noInputsWithFrames.toString('utf8'))).toMatchObject({ frames: framesPath, references: [] });
+  expect(prepareLiveManifest(root, noInputsProject, 1)).toBe(path);
+  expect(readFileSync(join(root, path))).toEqual(noInputsWithFrames);
+
+  // Arbitrary edits to frames are refused and leave existing manifest bytes intact.
+  const tamperedManifest = Buffer.from(`${JSON.stringify({ ...oldWithRefs, frames: 'outputs/v1/idle/other.json' }, null, 2)}\n`);
+  writeFileSync(join(root, path), tamperedManifest);
+  expect(() => prepareLiveManifest(root, project, 1)).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(readFileSync(join(root, path))).toEqual(tamperedManifest);
+});
+
+for (const defect of ['tampered-bytes', 'missing-file', 'malformed-binding'] as const) {
+  test(`#734 ${defect} in registration.idle refuses by JOB_PUBLICATION_FRAMES_CHANGED before writing and during readPublished`, async () => {
+    const { root, project, framesPath, save } = idleFramesSetup();
+    const manifestPath = prepareLiveManifest(root, project, 1);
+    const manifestBytes = readFileSync(join(root, manifestPath));
+    rmSync(join(root, manifestPath));
+
+    if (defect === 'tampered-bytes') writeFileSync(join(root, framesPath), '{"spec":"rigc-frames/1","sets":[]}\n');
+    if (defect === 'missing-file') rmSync(join(root, framesPath));
+    if (defect === 'malformed-binding') {
+      ((project.versions as JsonObject[])[0] as JsonObject).registration = { idle: { path: framesPath, sha256: 'not-a-sha256' } };
+      save();
+    }
+    const before = readFileSync(join(root, 'project.json'));
+    expect(() => prepareLiveManifest(root, project, 1)).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_FRAMES_CHANGED' }));
+    expect(existsSync(join(root, manifestPath))).toBe(false);
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+
+    writeFileSync(join(root, manifestPath), manifestBytes);
+    await expect(readPublished({
+      root,
+      record: { path: 'project.json', sha256: jobHash(before) },
+      result: { path: manifestPath, selector: { kind: 'rig', version: 1 } },
+    })).rejects.toMatchObject({ code: 'JOB_PUBLICATION_FRAMES_CHANGED' });
+    expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+    expect(readFileSync(join(root, manifestPath))).toEqual(manifestBytes);
+  });
+}

@@ -1,5 +1,5 @@
 /** Private stdin transport for synchronous writers. Capabilities never enter argv. */
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { JobSelector } from '@rig-c/review/job-host';
 import { assertNoPendingJobAsk, withdrawCreateJobAct } from './job-close.ts';
@@ -8,7 +8,6 @@ import { failPublication, pendingPublications, reconcilePublication } from './jo
 import { jobActsText } from './job-acts.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { replacedRootRefusal } from './job-host-state.ts';
-import { assertRigVerdictAskable } from './rig-signoff.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -86,12 +85,11 @@ async function run(): Promise<void> {
       if (!input.reviewer || !input.role) refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer and --role owner|delegate');
       const record = requestedRecordResult(root, input.question, input.plan, input.now);
       const rig = assertRequestedRig(root, input.rig, input.draft);
-      const { bytes, draftId, stage } = assertRequestedDraft(root, input.draft, input.now);
+      const { bytes, draftId } = assertRequestedDraft(root, input.draft, input.now);
       if (rig || draftId !== undefined) requireOwnerLanguage(JSON.parse(bytes.toString('utf8')) as JsonObject);
       const target = record ?? rig ?? (draftId !== undefined ? { kind: 'draft' as const, id: draftId } : undefined);
       // Refuse before attaching or writing; openRecordPublication/openDraftPublication repeat it under the job lock (#737, #740).
       if (target) await assertNoPendingJobAsk(root, target);
-      if (rig?.kind === 'rig') assertRigVerdictAskable(realpathSync(root), JSON.parse(bytes.toString('utf8')) as JsonObject, stage, rig, input.now);
       let stopping = false;
       let stopHost: (() => void) | null = null;
       const onSignal = () => {

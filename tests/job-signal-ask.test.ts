@@ -305,23 +305,21 @@ test('#690 draft-rig --json reports a deferred update of the open page', async (
   expect(read(root).drafts).toContainEqual(expect.not.objectContaining({ publication: expect.anything() }));
 }, 30_000);
 
-test('#690 #754 advance publishes the rig verdict ask that job open --rig refuses before rig-review', async () => {
+test('#690 advance updates the same rig with its review verdict ask', async () => {
   const root = copyCheckpoint('3-rig-review', project => {
     project.stage = 'rigging';
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
-  const opening = await open(root);
-  expect(opening.lines).toEqual(['job: stage rigging shows no draft; name one with --draft <id>']);
-  const record = read(root);
-  const early = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1']);
-  expect(early.exit).toBe(1);
-  // Every rigging bar is met, so the refusal names only the move.
-  expect(early.stderr).toStartWith(`JOB_RIG_VERDICT_UNASKABLE: project.json.stage: stage rigging cannot ingest a rig-review verdict on rig v1; run rig-create advance rig-review ${root} and retry `);
-  expect(read(root)).toEqual(record);
+  const opening = await open(root, ['--rig', '1']);
+  // At rigging the page carries no verdict ask yet; advance adds it on the same rig (#754).
+  expect(opening.lines.slice(1)).toEqual(['job: rig v1 published']);
+  expect(opening.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
+  const before = publicationId(root);
   const advanced = await cli(root, ['advance', 'rig-review', root]);
   const after = publicationId(root);
   expect({ exit: advanced.exit, stderr: advanced.stderr }).toEqual({ exit: 0, stderr: '' });
-  expect(advanced.stdout).toContain('job: asked review-verdict rig-review');
+  expect(after).not.toBe(before);
+  expect(advanced.stdout).toContain(`updated the open page: publication ${after}, ask review-verdict rig-review`);
   const binding = readWriterBinding(root)!;
   expect(readAcknowledgedPublication(root, binding.jobId, after)?.subjects).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
 }, 30_000);

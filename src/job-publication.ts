@@ -29,7 +29,7 @@ import {
 import { optionContextFiles, optionFile, validateContext } from './choices.ts';
 import { hasStageOrder, interviewStageOfGuide, PAUSED_STAGE, stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { assertPlanSignoffCandidate } from './signoff.ts';
-import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, stageSignable } from './signable.ts';
+import { assertInterviewRecordSignable, checkpointSignable, packageSignSubjects, reviewVerdictSignable, rigVerdictIngestible, stageSignable } from './signable.ts';
 import { collectReopens, directionReviewClosed, liveSignoff } from './reopen.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { recordDirectionTarget, requireRecordDirectionTarget } from './record-direction-target.ts';
@@ -654,13 +654,14 @@ export function livePublicationSubjects(
   if (selector.kind === 'post') {
     return reviewVerdictSignable(project, selector.version, 'direction-review') ? [{ kind: 'review-verdict', stage: 'direction-review' }] : [];
   }
-  const needsVerdict = reviewVerdictSignable(project, selector.version, 'rig-review');
   const stage = effectiveStage(root, project);
+  // Before rig-review the owner's approval could not be ingested, so the page omits that ask (#754).
+  const needsVerdict = rigVerdictIngestible(stage) && reviewVerdictSignable(project, selector.version, 'rig-review');
   const planSteps = isObject(project.plan) ? asArray(project.plan.steps).length : 0;
   return [
     ...(needsVerdict ? [{ kind: 'review-verdict' as const, stage: 'rig-review' as const }] : []),
     ...packageSignSubjects(project, stage, selector, planSteps)
-      .filter(subject => !(needsVerdict && stage === 'rig-review' && subject.kind === 'signoff' && subject.stage === 'rig-review')),
+      .filter(subject => !(needsVerdict && subject.kind === 'signoff' && subject.stage === 'rig-review')),
   ];
 }
 

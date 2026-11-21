@@ -509,7 +509,7 @@ test('#737 next at the rigging interview names the one-question-at-a-time loop w
 test.each([
   { label: '--draft', selector: ['--draft', 'chain'], expected: 'job: draft chain published' },
   { label: '--rig', selector: ['--rig', '1'], expected: 'job: rig v1 published' },
-])('#740 job open $label refuses JOB_ASK_PENDING while an interview ask is open, keeps its answer, and publishes after ingest (a rig refuses its stage, #754)', async ({ selector, expected }) => {
+])('#740 job open $label refuses JOB_ASK_PENDING while an interview ask is open, keeps its answer, and publishes after ingest', async ({ selector, expected }) => {
   testClock.set(Date.now());
   const root = copy('3-rig-review', project => {
     project.stage = 'rigging-interview';
@@ -551,12 +551,6 @@ test.each([
   await executePrinted(root, row.command!);
 
   const published = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...selector]);
-  if (selector[0] === '--rig') {
-    // Before rig-review the rig's verdict ask could never be ingested, so --rig refuses once the ask is settled (#754).
-    expect(published.exit).toBe(1);
-    expect(published.stderr).toStartWith('JOB_RIG_VERDICT_UNASKABLE: project.json.stage: stage rigging-interview ');
-    return;
-  }
   expectExit0(published);
   expect(published.stdout).toContain(expected);
 }, 60_000);

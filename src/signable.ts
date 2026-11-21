@@ -47,6 +47,15 @@ export function checkpointSignable(project: JsonObject, stage: string | null, id
     && liveSignoff(reopens, signature.stage, signature.at));
 }
 
+/**
+ * An approved rig-review verdict act ingests only at effective rig-review, so a rig
+ * page declares that ask only there: `review --from-review`, the live publication
+ * subjects and `job open --rig` share this rule (#754).
+ */
+export function rigVerdictIngestible(effectiveStage: string | null): boolean {
+  return effectiveStage === 'rig-review';
+}
+
 /** Whether the displayed version still needs a live accepted review verdict for `stage`. */
 export function reviewVerdictSignable(project: JsonObject, n: number, stage: 'rig-review' | 'direction-review'): boolean {
   const version = asArray(project.versions).filter(isObject).find(v => v.n === n);

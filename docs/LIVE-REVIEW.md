@@ -611,6 +611,15 @@ extension. Historical absence emits no evidence field. Review's signed extension
 owns full PNG decoding, source/instance hashing, retained delivery and EN/KO owner
 presentation. Runtime publication requires that extension in the served Review.
 
+A rig publication also carries `chestLandmarks` for Review's chest editor
+(act@9) when the rig build's own config gives a part a `contour.bust` spec. Each
+row copies that spec as written, with the config's SHA-256, and binds the part's
+setup mesh attachment (default skin, the slot's `setup` attachment, the hash of
+its stored entry) and the model stage. A bust spec whose part has no setup mesh
+in the retained model refuses `JOB_PUBLICATION_INVALID`. A rig without a bust
+spec, a post and a draft publication carry no field, and Review shows the chest
+editor as read-only. Reviews before act@9 drop the field.
+
 For Create's parts-bound package publications, Review metadata currently requires
 a PNG original painting. An SVG source reaches the PNG-only Parts view loader
 and refuses with `JOB_SOURCE_MISMATCH` from `PARTS_PAINTING_PNG` before projecting

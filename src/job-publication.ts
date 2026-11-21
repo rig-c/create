@@ -642,10 +642,52 @@ export const readPublished: JobPublicationReader = async ({ root, record, result
   return {
     selector, plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) },
     parts: { enumeratorVersion: partsEnumerator.version, manifest: { path: manifestPath, sha256: jobHash(manifest) }, images },
+    ...(selector.kind === 'rig' ? rigChestLandmarks(root, rig, packageFiles) : {}),
     subjects, ...checkpointEvidenceContext(root, project, subjects, files),
     partIds: (JSON.parse(manifest.toString('utf8')).parts as { name: string }[]).map(part => part.name), files,
   };
 };
+
+/** Review's published chest row type where the installed Review declares it; registry releases before act@9 drop the field. */
+type PublishedChestLandmarks = JobPublishedContext extends { readonly chestLandmarks?: infer Rows } ? Rows : never;
+
+/**
+ * The rig build's own `meshes.<part>.contour.bust` specs (rig-c/review act@9), one row per chest part, sorted by
+ * `skin/slot/attachment`. The spec is copied from the config the build read, never derived; the row binds that config's
+ * hash, the part's setup attachment in the retained model (the default skin, the slot's `setup` attachment, the hash of
+ * its stored entry) and the model stage. A config without a bust spec carries no field.
+ */
+function rigChestLandmarks(root: string, rig: number, packageFiles: Json[]): { chestLandmarks?: PublishedChestLandmarks } {
+  const at = `versions[v${rig}].review_package`;
+  const row = (name: string) => packageFiles.find(raw => isObject(raw) && raw.path === name) as JsonObject | undefined;
+  const configRow = row('config.json');
+  if (!configRow) return {};
+  const config = JSON.parse(publicationFile(root, reviewPackageIdentity(rig, configRow).path).toString('utf8')) as Json;
+  const meshes = isObject(config) && isObject(config.meshes) ? config.meshes : {};
+  const chests = Object.entries(meshes).filter(([, entry]) => isObject(entry) && isObject(entry.contour) && Object.hasOwn(entry.contour, 'bust'));
+  if (!chests.length) return {};
+  const modelRow = row('out/check/build/skeleton.model.json');
+  const model = modelRow ? JSON.parse(publicationFile(root, reviewPackageIdentity(rig, modelRow).path).toString('utf8')) as Json : undefined;
+  const stage = isObject(model) && isObject(model.stage) ? model.stage : undefined;
+  const skin = isObject(model) ? asArray(model.skins).filter(isObject).find(value => value.name === 'default') : undefined;
+  const rows = chests.map(([slot, entry]) => {
+    const setup = isObject(model) ? asArray(model.slots).filter(isObject).find(value => value.name === slot)?.setup : undefined;
+    const attachments = isObject(skin?.attachments) ? skin.attachments[slot] : undefined;
+    const attachment = typeof setup === 'string' && isObject(attachments) ? attachments[setup] : undefined;
+    if (!stage || !isObject(attachment) || attachment.kind !== 'mesh') {
+      refuse('JOB_PUBLICATION_INVALID', `${at}: config meshes.${slot}.contour.bust needs a setup mesh attachment for slot ${slot} in the retained model; rebuild the rig version from that config before publishing`);
+    }
+    return {
+      slot, skin: 'default', attachment: setup as string, basis: 'setup',
+      source: { hash: jobHash(JSON.stringify(attachment)), frame: { width: stage.width, height: stage.height }, configHash: String(configRow.sha256) },
+      bust: structuredClone(((entry as JsonObject).contour as JsonObject).bust),
+    };
+  }).sort((a, b) => {
+    const x = `${a.skin}/${a.slot}/${a.attachment}`, y = `${b.skin}/${b.slot}/${b.attachment}`;
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+  return { chestLandmarks: rows as unknown as PublishedChestLandmarks };
+}
 
 /** The same rig/post asks are used for writer preflight and the sealed publication. */
 export function livePublicationSubjects(

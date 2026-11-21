@@ -33,7 +33,11 @@ afterEach(() => {
   }
 });
 
-function setup(): { root: string; project: JsonObject } {
+/** A synthetic setup mesh in place of the fixture's region, and the rig build's config (#679). */
+const chestMesh = { kind: 'mesh', uvs: [0, 0, 1, 0, 1, 1, 0, 1], triangles: [0, 1, 2, 0, 2, 3],
+  vertices: { weighted: false, xy: [-4, 16, 4, 16, 4, 0, -4, 0] }, hull: 4, width: 8, height: 16 };
+
+function setup(build?: { config: JsonObject; mesh?: boolean }): { root: string; project: JsonObject } {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-test-')));
   roots.push(root);
   const project: JsonObject = { schema: 'rig-create/project@0', owner: { language: 'en' }, stage: 'interview', stage_values: [],
@@ -52,15 +56,22 @@ function setup(): { root: string; project: JsonObject } {
       projected_core_px: 128, source_px_taken: 128, refused_drift_px: 0, merged_px: 0, seam_override_px: 0 }] }));
   put('derived/review/v1/out/parts/rectangle.png', png);
   put('derived/review/v1/out/painting_in_rig.png', png);
-  (project.versions as JsonObject[])[0].review_package = { files: ['out/parts.json', 'out/painting_in_rig.png', 'out/parts/rectangle.png',
+  if (build?.mesh) {
+    const modelPath = 'derived/review/v1/out/check/build/skeleton.model.json';
+    const model = JSON.parse(readFileSync(join(root, modelPath), 'utf8')) as JsonObject;
+    ((((model.skins as JsonObject[])[0]!.attachments as JsonObject).rectangle as JsonObject).rectangle) = chestMesh;
+    put(modelPath, JSON.stringify(model));
+  }
+  if (build) put('derived/review/v1/config.json', JSON.stringify(build.config));
+  (project.versions as JsonObject[])[0].review_package = { files: [...(build ? ['config.json'] : []), 'out/parts.json', 'out/painting_in_rig.png', 'out/parts/rectangle.png',
     ...['rectangle.png', 'skeleton.json', 'skeleton.model.json', 'skeleton.atlas'].map(name => `out/check/build/${name}`)]
     .map(path => ({ path, sha256: jobHash(readFileSync(join(root, 'derived/review/v1', path))) })) };
   put('project.json', JSON.stringify(project));
   return { root, project };
 }
 
-async function bound() {
-  const { root, project } = setup();
+async function bound(build?: Parameters<typeof setup>[0]) {
+  const { root, project } = setup(build);
   const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
   hosts.push(host);
   const binding = readWriterBinding(root)!;
@@ -1646,4 +1657,58 @@ test('#535 same-id registration replaces only an orphaned retained draft manifes
   writeFileSync(join(root, 'project.json'), JSON.stringify(project));
   expect(() => prepareDraftManifest(root, project, 'chain')).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
   expect(readFileSync(join(root, path))).toEqual(oldManifest);
+});
+
+test('#679 rig publication carries the build config\'s contour.bust spec and config hash, and Review retains it', async () => {
+  const bust = { apex_r: [2, 6], apex_l: [6, 6], alpha: 0.25 };
+  const config = { meshes: { rectangle: { contour: { bust } }, other: { contour: { regions: [] } } } };
+  const { root, host, entry } = await bound({ config, mesh: true });
+  const recordBytes = readFileSync(join(root, 'project.json'));
+  const manifestBytes = readFileSync(join(root, entry.result.path));
+  const context = await readPublished({ root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result }) as unknown as JsonObject;
+  const rows = context.chestLandmarks as JsonObject[];
+  expect(rows).toEqual([{ slot: 'rectangle', skin: 'default', attachment: 'rectangle', basis: 'setup',
+    source: { hash: jobHash(JSON.stringify(chestMesh)), frame: { width: 8, height: 16 },
+      configHash: jobHash(readFileSync(join(root, 'derived/review/v1/config.json'))) }, bust }]);
+  // Byte-equal to the config the build read; the omitted cleavage stays omitted.
+  expect(JSON.stringify(rows[0]!.bust)).toBe(JSON.stringify(bust));
+  expect(context.files).toContainEqual({ path: 'derived/review/v1/config.json', sha256: (rows[0]!.source as JsonObject).configHash });
+  await reconcilePublication(root, entry, publishPending);
+  // Review checks the spec, attachment hash and frame against its retained config and model before it publishes.
+  expect((host.session.status().publication as unknown as JsonObject).chestLandmarks).toEqual(rows);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(recordBytes);
+  expect(readFileSync(join(root, entry.result.path))).toEqual(manifestBytes);
+});
+
+test('#679 a rig without a bust spec carries no chest field, and a spec without a setup mesh refuses before publication', async () => {
+  const { root: plain, project } = setup();
+  const result = { path: prepareLiveManifest(plain, project, 1), selector: { kind: 'rig', version: 1 } as const };
+  const read = (root: string) => readPublished({ root, record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) }, result });
+  expect('chestLandmarks' in await read(plain)).toBe(false);
+  const { root: noBust } = setup({ config: { meshes: { rectangle: { contour: { regions: [] } } } }, mesh: true });
+  prepareLiveManifest(noBust, project, 1);
+  expect('chestLandmarks' in await read(noBust)).toBe(false);
+  const { root: region } = setup({ config: { meshes: { rectangle: { contour: { bust: { apex_r: [2, 6], apex_l: [6, 6] } } } } } });
+  prepareLiveManifest(region, project, 1);
+  const before = readFileSync(join(region, 'project.json'));
+  await expect(read(region)).rejects.toMatchObject({ code: 'JOB_PUBLICATION_INVALID' });
+  expect(readFileSync(join(region, 'project.json'))).toEqual(before);
+});
+
+test('#679 a draft publication carries no chest field, even when its config has a bust spec', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-chest-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const before = draftPublishedContext(root, project, 'chain');
+  const draftConfig = (project.drafts as JsonObject[])[0]!.config as JsonObject;
+  const configPath = join(root, String(draftConfig.path));
+  const config = JSON.parse(readFileSync(configPath, 'utf8')) as JsonObject;
+  (config.meshes as JsonObject).torso = { contour: { bust: { apex_r: [56, 40], apex_l: [72, 40] } } };
+  writeFileSync(configPath, JSON.stringify(config));
+  draftConfig.sha256 = jobHash(readFileSync(configPath));
+  const after = draftPublishedContext(root, project, 'chain');
+  expect('chestLandmarks' in after).toBe(false);
+  expect<unknown>({ ...after, files: after.files.map(file => file.path === draftConfig.path ? before.files.find(old => old.path === file.path)! : file) })
+    .toEqual(before);
 });

@@ -1,6 +1,5 @@
 import { afterAll, expect, test } from 'bun:test';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkProject, collectItems, loadCollection } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
@@ -21,6 +20,7 @@ import { stageIndex } from '../src/stages.ts';
 import { readTemplate, type JsonObject } from '../src/templates.ts';
 import { TEST_NOW } from './clock.ts';
 import { arr, fixture, obj, retainSignoffs, plantLegacyReopen } from './fixtures.ts';
+import { tempDir } from './helpers.ts';
 import { installStrictReads, uninstallStrictReads } from './strict-reads.ts';
 
 installStrictReads();
@@ -86,7 +86,7 @@ function memberFixture(stage: 'interview' | 'plan-approved' = 'interview'): Memb
     }, 'example-project.json'),
   );
 
-  const container = realpathSync(mkdtempSync(join(tmpdir(), 'rig-create-col-bind-')));
+  const container = realpathSync(tempDir('rig-create-col-bind-'));
   const memberRoot = join(container, 'members', 'hero');
   mkdirSync(dirname(memberRoot), { recursive: true });
   cpSync(baseRoot, memberRoot, { recursive: true });
@@ -214,7 +214,7 @@ function planRequest(root: string): RecordPublicationRequest {
 
 function copyRetainedIsolated(input: RecordPublicationRequest): RecordPublicationRequest {
   const context = readRecordPublished(input, TEST_NOW);
-  const isolatedParent = realpathSync(mkdtempSync(join(tmpdir(), 'rig-create-retained-')));
+  const isolatedParent = realpathSync(tempDir('rig-create-retained-'));
   const root = join(isolatedParent, 'retained');
   mkdirSync(root);
   for (const file of context.files) {

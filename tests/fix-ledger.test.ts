@@ -33,10 +33,9 @@ function refused(dir: string, code: string, action: () => unknown): Refusal {
 }
 
 /** Commit `<dir>/project.json` in the repo at `root` (created when absent): restart needs the record clean at HEAD. */
-let gitIdentity: Record<string, string> | undefined;
 function commit(dir: string, root = dir): void {
-  gitIdentity ??= gitEnv({ name: 'Synthetic Owner', email: 'owner@example.com' });
-  const git = (...args: string[]): void => { const r = run(['git', ...args], root, gitIdentity!); if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.stderr}`); };
+  const identity = gitEnv({ name: 'Synthetic Owner', email: 'owner@example.com' });
+  const git = (...args: string[]): void => { const r = run(['git', ...args], root, identity); if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.stderr}`); };
   if (!existsSync(join(root, '.git'))) git('init', '-q');
   git('add', '--', relative(root, join(dir, 'project.json')));
   git('commit', '-q', '-m', 'record');

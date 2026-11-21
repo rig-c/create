@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JOB_RECORD_ACT_SCHEMA, parseRecordAct, startJobHost, type JobOwnerHost, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { checkProject } from '../src/check.ts';
@@ -21,7 +21,7 @@ const legacyReopen = { kind: 'reopen', stage: 'interview' } as const;
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
-    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
+    if (existsSync(root)) rmSync(jobHostStateRoot(root), { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

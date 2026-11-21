@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkProject, collectItems } from '../src/check.ts';
@@ -32,16 +32,18 @@ const printedBins: string[] = [];
 
 afterEach(async () => {
   for (const { proc, root } of opened.splice(0)) {
-    if (readWriterBinding(root) && pendingPublications(root).length === 0) {
+    if (existsSync(root) && readWriterBinding(root) && pendingPublications(root).length === 0) {
       await cli(root, ['job', 'close', root]);
     }
     if (proc.exitCode === null) proc.kill();
     await proc.exited;
   }
   for (const root of roots.splice(0)) {
-    rmSync(jobPrivateRoot(root), { recursive: true, force: true });
-    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
+    if (existsSync(root)) {
+      rmSync(jobPrivateRoot(root), { recursive: true, force: true });
+      rmSync(jobHostStateRoot(root), { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
   }
   for (const bin of printedBins.splice(0)) rmSync(bin, { recursive: true, force: true });
   testClock.reset();

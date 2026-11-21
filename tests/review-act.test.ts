@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
@@ -29,7 +29,10 @@ const directories: string[] = [];
 const hosts: JobOwnerHost[] = [];
 afterEach(() => {
   for (const host of hosts.splice(0)) host.stop();
-  for (const root of directories.splice(0)) { rmSync(jobHostStateRoot(root), { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); }
+  for (const root of directories.splice(0)) {
+    if (existsSync(root)) rmSync(jobHostStateRoot(root), { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
   testClock.reset();
 });
 function temporary(prefix: string): string {

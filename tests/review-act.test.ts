@@ -1,10 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
-import { readModel, readSetupMesh, underNoSkin } from '@rig-c/core/core';
 import { collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
@@ -21,8 +20,9 @@ import type { JsonObject } from '../src/templates.ts';
 import { advanceCommand, checkProject, directionCommand, inputCommand, reviewCommand, sceneCommand, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
 import { composeFixture, composeRunFixture } from './direction-compose-fixture.ts';
 import { plantLegacyReopen, fixture } from './fixtures.ts';
-import { clockedCli } from './helpers.ts';
+import { clockedCli, staleRecordPlant, treeDigest } from './helpers.ts';
 import { legacyRigPublicationCli } from './legacy-rig-publication.ts';
+import { meshEdits } from './mesh-edit-fixture.ts';
 import { EXAMPLE_REOPEN_AT } from '../scripts/example-time.ts';
 
 const directories: string[] = [];
@@ -147,7 +147,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   return { root, host, act: submitted.value, hidden, n, agent, uiRequest, publication };
 }
 
-async function command(root: string, actId: string, n = 1, guarded = false, flags = ['--json']) {
+async function command(root: string, actId: string, n = 1, guarded = false, flags = ['--json'], preload?: string) {
   const guard = join(root, 'fs-guard.ts');
   if (guarded) writeFileSync(guard, `import {mock} from 'bun:test';
 import fs from 'node:fs';
@@ -168,7 +168,7 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
     const [error, exit] = await Promise.all([new Response(probe.stderr).text(), probe.exited]);
     expect(exit).toBe(1); expect(error).toContain('REVIEW_STATE_ACCESSED');
   }
-  const child = Bun.spawn([process.execPath, ...(guarded ? ['--preload', guard] : []), ...clockedCli(), 'review', String(n), root, '--from-review', actId, ...flags], { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...(guarded ? ['--preload', guard] : []), ...(preload ? ['--preload', preload] : []), ...clockedCli(), 'review', String(n), root, '--from-review', actId, ...flags], { stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
@@ -623,25 +623,6 @@ test('#664 keeps the context Review emits in act@7 while recording the signed sc
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });
 
-function meshEdits(root: string, source: JsonObject): JsonObject[] {
-  const model = readFileSync(join(root, String((source.model as JsonObject).path)), 'utf8');
-  const { stage, skins } = JSON.parse(model);
-  const mesh = readSetupMesh(underNoSkin(readModel(model)), { slot: 'torso', skin: 'default', attachment: 'torso' });
-  const attachment = skins.find((skin: { name: string }) => skin.name === 'default').attachments.torso.torso;
-  const positions = Array.from({ length: mesh.vertices.length / 2 }, (_, i) =>
-    [mesh.vertices[2 * i]! - stage.x, stage.y + stage.height - mesh.vertices[2 * i + 1]!]);
-  const vertex = mesh.hull!;
-  const from = positions[vertex]!;
-  const edit = {
-    attachment: 'torso', basis: 'setup', ops: [{ from, op: 'move', to: [Math.round((from[0]! + 0.5) * 100) / 100, Math.round(from[1]! * 100) / 100], v: vertex }],
-    skin: 'default', slot: 'torso',
-    source: { frame: { height: stage.height, width: stage.width }, hash: jobHash(JSON.stringify(attachment)),
-      hullLength: mesh.hull, positions, triangleCount: mesh.triangles.length / 3, vertexCount: positions.length },
-  };
-  // Keys in this fixture are in the order used for Review's signed digest.
-  return [{ edit, sha256: jobHash(JSON.stringify(edit)) }];
-}
-
 test('#664 ingests Review mesh-only Request changes with a sized provenance config and replays without a second revision', async () => {
   testClock.set(EXAMPLE_REOPEN_AT);
   const root = temporary('create-mesh-act-project-');
@@ -689,6 +670,24 @@ test('#664 ingests Review mesh-only Request changes with a sized provenance conf
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   expect(readdirSync(join(root, 'derived'))).toEqual(dirs);
 }, 90_000);
+
+test('#773 a version ingest refused after its evidence write leaves the project tree as it was', async () => {
+  const { root, act } = await published('3-rig-review', 1, 'owner', 'Request a synthetic change.', 'changes-requested');
+  const record = join(root, 'project.json');
+  const original = readFileSync(record);
+  const before = treeDigest(root);
+  const refused = await command(root, act.actId, 1, false, ['--json'], staleRecordPlant(temporary('create-version-plant-'), record, '.act.json'));
+  expect(refused.exit).toBe(1);
+  expect(refused.stderr).toMatch(/\bREVIEW_ACT_SOURCE_STALE:/);
+  writeFileSync(record, original);
+  expect(treeDigest(root)).toEqual(before);
+  const ingested = await command(root, act.actId);
+  expect({ exit: ingested.exit, stderr: ingested.stderr }).toEqual({ exit: 0, stderr: '' });
+  // The still is new, so the refused call had written it. Its directory is evidence/v1, which
+  // registration made; the draft test covers a refused call that made the directory too.
+  const still = String(((projectAt(root).versions as JsonObject[])[0]!.evidence as JsonObject[])[0]!.path);
+  expect([before.has(still), before.has(`${dirname(still)}/`)]).toEqual([false, true]);
+});
 
 const workingConfig = "working/owner's config.json";
 const frozenConfig = 'evidence/v1/config-source.json';

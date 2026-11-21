@@ -2079,11 +2079,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       moves.push({ role: 'human', field, awaits: field, command: null, act: `review-tool act review-verdict for rigging draft ${compiledDraftId}`,
         review_act: { kind: 'review-verdict', stage: 'rig-review', review: 'rig-review', draft_id: compiledDraftId, ...(jobId ? { job_id: jobId } : {}) } });
     }
-    // Draft review is also available when the producer has a checked build to register.
+    // Draft review is also available when the producer has a checked build to register,
+    // and a reopened project with a history rig can register a plain rig beside it (#773).
     if (checkedRegistration) {
       addAwait(checkedRegistration.awaits);
       moves.push(checkedRegistration);
-    } else if (!checked && !hasOpenRigSteps && !offerDraftReview) {
+    } else if (!checked && !hasOpenRigSteps && (!offerDraftReview || hasHistoryRig)) {
       if (effectiveStage === 'rigging' && rigN !== null) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);
         if (advCmd !== null) {

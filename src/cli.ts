@@ -86,6 +86,8 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
                                                     name the accepted rig version post work runs on, or refuse
   rig-create review <version> --verdict <v> --by <who> --review <r> --verbatim <s> --source <s> [--item <id>[:<answer_was>]]... [<project dir>]
                                                     record what a person said about a shown version, word for word
+  rig-create review <version> --from-review <actId> [<project dir>] [--item <waypoint>:not-asked]
+                                                    ingest the Review verdict and optionally route a page-level comment
   rig-create diff-classes [<dir>] --diff-report <path> [--triage-file <file> | --component '<id>=<status>:<why>'] [--by agent]
                                                     read measured component classes or record agent classification
   rig-create signoff <stage> --from-review <actId> [<project dir>]

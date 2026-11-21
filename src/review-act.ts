@@ -686,6 +686,15 @@ export function reviewActVerdict(act: ReviewVerdictAct): JsonObject {
     verbatim: reviewActVerbatim(act), source: `review act ${act.jobId}/${act.actId}`, on_items: [] };
 }
 
+/** A route can quote the unique unanchored comment in an owner's bounced rig verdict. */
+export function reviewFeedbackComment(act: ReviewVerdictAct): { comment_index: number; verbatim: string } | undefined {
+  if (act.source.selector?.kind !== 'rig' || act.value.stage !== 'rig-review' || act.value.verdict !== 'changes-requested'
+    || act.authority.reviewer.role !== 'owner' || !('comments' in act.value)) return undefined;
+  const general = act.value.comments.flatMap((comment, comment_index) => comment.anchor === undefined
+    ? [{ comment_index, verbatim: comment.text }] : []);
+  return general.length === 1 ? general[0] : undefined;
+}
+
 function assertMeshActCorrections(project: JsonObject, act: MeshReviewVerdictAct | DraftMeshVerdictAct): void {
   const verdict = reviewActVerdict(act);
   const corrections = asArray(project.corrections).filter(object).filter(record => record.source === verdict.source);
@@ -831,6 +840,15 @@ export function reviewActFindings(project: JsonObject, warnings?: Finding[]): Fi
         || !sha(entry.sha256) || jobHash(entry.bytes) !== entry.sha256 || !sha(entry.version_hash)) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt shape or bytes hash is invalid');
       const act = decodeReviewAct(entry.bytes, entry.kind === 'parts-verdict' ? 'parts-verdict' : entry.kind === 'interview-picks' ? 'interview-picks' : entry.kind === 'checkpoint' ? 'checkpoint' : entry.kind === 'signoff' ? 'signoff' : entry.kind === 'reopen' ? 'reopen' : 'review-verdict');
       if (entry.jobId !== act.jobId || entry.actId !== act.actId) failure('REVIEW_ACT_LEDGER_INVALID', 'receipt identity differs from its act');
+      if (entry.feedback_route !== undefined) {
+        const route = entry.feedback_route;
+        const comment = act.kind === 'review-verdict' ? reviewFeedbackComment(act) : undefined;
+        if (!object(route) || !comment || typeof route.item !== 'string' || !route.item || typeof route.at !== 'string'
+          || !Number.isFinite(Date.parse(route.at)) || Date.parse(route.at) < Date.parse(act.at)
+          || !isDeepStrictEqual(route, { by: 'agent', at: route.at, item: route.item, ...comment })) {
+          failure('REVIEW_FEEDBACK_ROUTE_INVALID', 'feedback_route must name the agent, waypoint, routing time and exact page-level comment from the retained owner act');
+        }
+      }
       if (entry.bust_config !== undefined && act.schema !== JOB_CHEST_LANDMARKS_ACT_SCHEMA) {
         failure('REVIEW_ACT_LEDGER_INVALID', 'only a chest landmark verdict carries a working bust config');
       }

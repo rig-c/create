@@ -568,6 +568,31 @@ and `source: "polish feedback, v<N>"`. The original sentence is not edited.
 Because the guide changed, the steps resting on it need the plan re-signed
 before they run again (`GUIDE_CHANGED_UNSIGNED`).
 
+For the latest live rig at `rig-review`, an agent can route an owner's
+changes-requested verdict with exactly one page-level comment to an existing
+rig waypoint. Use the act ID from `job acts` and name the waypoint explicitly.
+
+```sh
+rig-create review <version> --from-review <actId> [<project dir>] --item motion:not-asked
+rig-create next [<project dir>]
+```
+
+The verdict keeps its exact words, owner attribution and date. The guide
+addition contains the exact comment text, including whitespace, and its
+`review_act` field points to the verdict's source. The receipt's
+`feedback_route` records `by: "agent"`, the waypoint in `item`, the zero-based
+`comment_index` in the act's comment array, the comment in `verbatim`, and the
+routing time in `at`. The addition uses that time so the owner can re-sign the
+changed guide even if the previous signature was given after the comment.
+After the owner re-signs as prompted by `next`, the next rig version can cite
+the comment and answer the verdict with `rig-version --answers <version>:<verdict-index>`.
+
+The same command can attach the route to an already-ingested act while its
+live job can still serve it and its verdict remains current. Repeating the
+same route adds no second sentence. A different target is refused. Omit
+`--item` to ingest without routing, including when the verdict has multiple
+page-level comments. The live route takes its words from Review.
+
 An item id that is no framing, waypoint or post item is refused
 (`FEEDBACK_ITEM_UNKNOWN`); `review` does not create an `x_` prompt. A prompt
 is a question with its own text and `required_for`, asked of the user like the

@@ -52,6 +52,7 @@ match their recorded hashes.
 | `JOB_PUBLICATION_SCENE_CHANGED` | An @2 post scene differs from project.scenes, its path, document identity or recorded hash; restore the committed scene reference and bytes before publishing. |
 | `JOB_PUBLICATION_PLATE_MISSING` | An @2 post scene lacks a plate identity or a plate file is missing or unreadable; restore every declared plate before publishing. |
 | `JOB_PUBLICATION_PLATE_CHANGED` | An @2 post plate differs from its scene-recorded sha256; restore the retained plate bytes before publishing. |
+| `JOB_PUBLICATION_FRAMES_CHANGED` | A rig version's `versions[v<N>].registration.idle` binding is malformed or its `frames.json` file is missing, unreadable or differs from its recorded sha256; restore the recorded `registration.idle` binding and retained `frames.json` bytes before publishing. |
 | `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed, unavailable or mismatched, or a job command has invalid arguments. Restore effective private ignores. Restore the matching writer-owned binding through `job open`, then retry publication into the existing job. |
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |

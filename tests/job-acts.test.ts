@@ -1226,6 +1226,8 @@ test('#604 writer auto-publish refuses JOB_ASK_PENDING when the bound job holds 
     writeFileSync(join(root, path), typeof value === 'string' ? value : `${JSON.stringify(value)}\n`);
   };
   cpSync(join(import.meta.dir, 'fixtures/rig-registration'), join(root, 'source'), { recursive: true });
+  rmSync(join(root, 'source/idle'), { recursive: true, force: true });
+  cpSync(join(import.meta.dir, '../templates/example-remesh/outputs/v1/idle'), join(root, 'source/idle'), { recursive: true });
   put('source/adapter.json', []);
   put('source/citations.json', obj(obj(arr(read(root).versions)[0]).provenance).sections);
   put('source/run.json', {

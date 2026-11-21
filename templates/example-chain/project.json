@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "0a8676e7579e2331c73584723864c2bb92d94f3a0a3f5c217fbfd0b77cf46fdc"
+          "sha256": "57dd6de9692d1bf4877bb62cee1855e851b581377e2d22af3d172fd91ad62d9e"
         }
       }
     },
@@ -166,13 +166,13 @@
         "verdict": "versions[1].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "ac33ef897fb03b25b60884589fcdf3e772e909af02cf06c39f98ee8142ab5c47"
+          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
         }
       }
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.52.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.52.1)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -1384,7 +1384,7 @@
       "at": "2026-11-06T01:00:56.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.52.0",
+        "@rig-c/parts": "2.52.1",
         "@rig-c/core": "3.8.1"
       },
       "changed": "Build the synthetic approved parts.",
@@ -1605,7 +1605,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "6d38e9bc10ff44eded7865cf982bbcaf5e0d9a01a8c860aaf1d7ff49fad95294"
+            "sha256": "1653140bb2ea21377ef6b2c309a322bafa2d622e32cc1a89fcc95d42aaac6eb3"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -1624,7 +1624,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v2.json",
-          "sha256": "ac33ef897fb03b25b60884589fcdf3e772e909af02cf06c39f98ee8142ab5c47"
+          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
         }
       ],
       "evidence": [],
@@ -1644,11 +1644,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v2.json",
-          "sha256": "ac33ef897fb03b25b60884589fcdf3e772e909af02cf06c39f98ee8142ab5c47"
+          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
         },
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "ac33ef897fb03b25b60884589fcdf3e772e909af02cf06c39f98ee8142ab5c47"
+          "sha256": "5a914eadab762551e4c34b3d9137bae1991a566514cac5ec771163ac2d329ffd"
         },
         "sections": {
           "camera": [
@@ -2492,7 +2492,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.52.0"
+        "version": "2.52.1"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -2594,7 +2594,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "6d38e9bc10ff44eded7865cf982bbcaf5e0d9a01a8c860aaf1d7ff49fad95294"
+          "sha256": "1653140bb2ea21377ef6b2c309a322bafa2d622e32cc1a89fcc95d42aaac6eb3"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",
@@ -2654,7 +2654,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "373654ccf28dfc219b26677360522edd290e42a83063a373d6ca8782dcf01014",
+      "sha256": "e090096e8e1220d21ea02606c640f309e62cf9876a41d59a16a7db541bd65e3f",
       "at": "2026-11-06T01:01:15.000Z",
       "by": "agent"
     }

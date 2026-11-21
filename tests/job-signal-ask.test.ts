@@ -311,7 +311,9 @@ test('#690 advance updates the same rig with its review verdict ask', async () =
     project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
   });
   const opening = await open(root, ['--rig', '1']);
-  expect(opening.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review']);
+  // At rigging the page carries no verdict ask yet; advance adds it on the same rig (#754).
+  expect(opening.lines.slice(1)).toEqual(['job: rig v1 published']);
+  expect(opening.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
   const before = publicationId(root);
   const advanced = await cli(root, ['advance', 'rig-review', root]);
   const after = publicationId(root);

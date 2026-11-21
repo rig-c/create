@@ -5,7 +5,8 @@ import { isDeepStrictEqual } from 'node:util';
 import type { JobSelector } from '@rig-c/review/job-host';
 import { acquireJobLock, enqueuePublication, failPublication, jobPrivateRoot, pendingPublications, readWriterBinding, type PendingPublication, type WriterBinding } from './job-outbox.ts';
 import { liveManifestPath, livePublicationSubjects, draftPackageIdentity, inspectDraftPublication, prepareDraftManifest, prepareLiveManifest, publicationSelector } from './job-publication.ts';
-import type { Finding } from './check.ts';
+import { checkProject, type Finding } from './check.ts';
+import { rigVerdictDeferred } from './rig-signoff.ts';
 import { Refusal, refuse } from './refusal.ts';
 import { shellWord } from './job-acts.ts';
 import type { JsonObject } from './templates.ts';
@@ -65,6 +66,11 @@ export function prepareVersionIntent(root: string, bytes: Buffer, n: number): Pe
   const selector = publicationSelector(project, n);
   const head = assertBoundJobAskReady(root, binding, selector);
   if (head !== null && livePublicationSubjects(root, project, selector).length === 0) {
+    // Before rig-review the rig verdict is deferred, not missing: name that route (#754).
+    const deferred = selector.kind === 'rig'
+      ? rigVerdictDeferred(root, project, checkProject(root, structuredClone(project), { now: Date.now(), readOnly: true }).effective_stage, selector.version, Date.now(), head)
+      : null;
+    if (deferred) refuse(deferred.code, deferred.message);
     refuse('JOB_PUBLICATION_ASK_REQUIRED', `project.json: replacing open publication ${head} requires an owner ask; keep the open page or use job open when the next review is ready`);
   }
   return enqueuePublication(root, binding, { path: liveManifestPath(root, project, n), selector }, bytes);

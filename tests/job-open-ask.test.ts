@@ -14,7 +14,7 @@ import { directionCommand } from '../src/direction-writers.ts';
 import { inputCommand } from '../src/inputs.ts';
 import { askDeclaredSubjects, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob, refuseAskOutcomes } from '../src/job-host.ts';
 import { acknowledgePublication, enqueuePublication, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readAcknowledgedPublication, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
-import { draftPublicationContext, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
+import { draftPublicationContext, livePublicationSubjects, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { hostPortRefuses } from '../src/job-host-state.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
@@ -174,14 +174,15 @@ test('#523 reconcile recovers a dead same-path host before job open, and live re
 const WORDS = '  Synthetic page words.\n';
 const read = (root: string): JsonObject => JSON.parse(readFileSync(join(root, 'project.json'), 'utf8'));
 
-function registeredRig(): string {
+function registeredRig(stage = 'rigging', edit: (project: JsonObject) => void = () => {}): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-rig-selector-')));
   roots.push(root);
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
   const project = read(root);
-  project.stage = 'rigging';
+  project.stage = stage;
   const meshes = ((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'meshes')!;
   (meshes.checkpoint as JsonObject).value = true;
+  edit(project);
   writeFileSync(join(root, 'project.json'), `${JSON.stringify(project, null, 2)}\n`);
   return root;
 }
@@ -314,20 +315,19 @@ test('#412 public job open selects a registered rig on a new empty head and retr
   const before = read(root);
 
   const selected = await open(root, ['--rig', '1']);
-  expect(selected.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review, checkpoint meshes']);
-  const first = await publication(root, selected.url);
+  // At rigging the page keeps its checkpoint ask and names the deferred rig verdict (#754).
+  expect(selected.lines.slice(1)).toEqual(['job: rig v1 published', 'job: asked checkpoint meshes']);
+  expect(selected.lines[0]).toStartWith('WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: ');
+  const first = await publication(root, selected.url, 1);
   expect((first.head.source as JsonObject).selector).toEqual({ kind: 'rig', version: 1 });
-  expect(first.asks.map(ask => ask.subject)).toEqual([
-    { kind: 'review-verdict', stage: 'rig-review' },
-    { kind: 'checkpoint', checkpointId: 'meshes' },
-  ]);
+  expect(first.asks.map(ask => ask.subject)).toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
   const saved = readFileSync(join(root, 'project.json'));
   const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', 'v1']);
   expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
   expect(again.stdout.trim().split('\n')).toEqual([
-    selected.url.href, 'job: rig v1 already published', 'job: already asked review-verdict rig-review, checkpoint meshes',
+    selected.url.href, selected.lines[0], 'job: rig v1 already published', 'job: already asked checkpoint meshes',
   ]);
-  const repeated = await publication(root, selected.url);
+  const repeated = await publication(root, selected.url, 1);
   expect(repeated.head.publicationId).toBe(first.head.publicationId);
   expect(repeated.asks.map(ask => ask.askId)).toEqual(first.asks.map(ask => ask.askId));
   expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
@@ -337,6 +337,86 @@ test('#412 public job open selects a registered rig on a new empty head and retr
   expect(read(root).plan).toEqual(before.plan);
   expect(pendingPublications(root)).toEqual([]);
 }, 20_000);
+
+/** A rigging record whose motion bar is unmet: `advance rig-review` cannot run yet. */
+const unmetMotion = (project: JsonObject) => {
+  project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
+  ((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'motion')!.status = 'in-progress';
+};
+
+test('#754 before rig-review the rig page declares its checkpoint ask, no review-verdict ask, and names the deferred verdict', async () => {
+  const root = registeredRig('rigging', unmetMotion);
+  const before = readFileSync(join(root, 'project.json'));
+  // Writer preflight and job open read the same live subjects.
+  expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
+  const opening = await open(root, ['--rig', '1']);
+  expect(opening.lines).toEqual([
+    `WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging publishes rig v1 without its review-verdict rig-review ask, which review --from-review could not ingest here; the verdict becomes askable at rig-review: unmet bars before rig-review: plan.steps[motion] is in-progress, bar "The synthetic output matches its declared input."; meet them, then run rig-create advance rig-review ${root} and rig-create job open ${root} --rig 1 again`,
+    'job: rig v1 published', 'job: asked checkpoint meshes',
+  ]);
+  const view = await publication(root, opening.url, 1);
+  expect(view.asks.map(ask => ask.subject)).toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
+  const binding = readWriterBinding(root)!;
+  expect(readAcknowledgedPublication(root, binding.jobId, view.head.publicationId as string)!.subjects)
+    .toEqual([{ kind: 'checkpoint', checkpointId: 'meshes' }]);
+  const { review_job: _job, ...record } = read(root);
+  const { review_job: _old, ...original } = JSON.parse(before.toString('utf8')) as JsonObject;
+  expect(record).toEqual(original);
+}, 30_000);
+
+test('#754 at ready rig-review job open --rig declares the verdict ask and its act ingests through review --from-review', async () => {
+  const root = registeredRig('rig-review');
+  expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([{ kind: 'review-verdict', stage: 'rig-review' }]);
+  const opening = await open(root, ['--rig', '1']);
+  expect(opening.lines).toEqual(['job: rig v1 published', 'job: asked review-verdict rig-review']);
+  const person = await page(root, opening.url, 1);
+  const verdict = await person.act('review-verdict', 'review-verdict', { stage: 'rig-review', verdict: 'approved', words: WORDS });
+  const reviewed = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId)]);
+  expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
+  const version = (read(root).versions as JsonObject[]).find(entry => entry.n === 1)!;
+  expect((version.verdicts as JsonObject[]).at(-1)).toMatchObject({ review: 'rig-review', verdict: 'accepted' });
+  expect((read(root).signoffs as JsonObject[]).at(-1)).toMatchObject({ stage: 'rig-review' });
+}, 30_000);
+
+/** A rigging record with every checkpoint off: before rig-review its rig page has nothing to ask. */
+const noCheckpoints = (project: JsonObject) => {
+  project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
+  (((project.plan as JsonObject).steps as JsonObject[]).find(step => step.id === 'meshes')!.checkpoint as JsonObject).value = false;
+};
+const deferredRoute = (root: string) => `the verdict becomes askable at rig-review: run rig-create advance rig-review ${root} and rig-create job open ${root} --rig 1 again`;
+
+test('#754 case A: job open --rig at rigging with nothing to ask publishes an askless page with the deferred-verdict WARN', async () => {
+  const root = registeredRig('rigging', noCheckpoints);
+  expect(livePublicationSubjects(root, read(root), { kind: 'rig', version: 1 })).toEqual([]);
+  const warn = `WARN JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging publishes rig v1 without its review-verdict rig-review ask, which review --from-review could not ingest here; ${deferredRoute(root)}`;
+  const opening = await open(root, ['--rig', '1']);
+  expect(opening.lines).toEqual([warn, 'job: rig v1 published']);
+  expect((await publication(root, opening.url, 0)).asks).toEqual([]);
+  // The open page is reopened as is, with the same named route and no generic ask refusal.
+  const saved = readFileSync(join(root, 'project.json'));
+  const again = await cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--rig', '1']);
+  expect({ exit: again.exit, stderr: again.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(again.stdout.trim().split('\n')).toEqual([opening.url.href, warn, 'job: rig v1 already published']);
+  expect(readFileSync(join(root, 'project.json'))).toEqual(saved);
+}, 30_000);
+
+test('#754 case B: a bound rig writer at rigging with nothing to ask refuses JOB_RIG_VERDICT_DEFERRED byte-identically', async () => {
+  const root = registeredRig('rigging', noCheckpoints);
+  // A reference-less legacy page, so republish reaches its publication step (as in #690).
+  prepareLiveManifest(root, { ...read(root), inputs: [] }, 1);
+  const opening = await open(root, ['--rig', '1']);
+  const head = (await publication(root, opening.url, 0)).head.publicationId as string;
+  const paths = ['project.json', 'review-live-v1.json'];
+  const before = paths.map(path => readFileSync(join(root, path)));
+  const result = await cli(root, ['republish', '1', root, '--reason', 'Publish retained evidence.']);
+  expect(result.exit).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toBe(`rig-create: JOB_RIG_VERDICT_DEFERRED: versions[v1]: stage rigging would replace open publication ${head} with rig v1 and nothing to ask: its review-verdict rig-review ask, which review --from-review could not ingest here; ${deferredRoute(root)}; or keep the open page, or close it with rig-create job close ${root} to record without publishing\n`);
+  expect(paths.map(path => readFileSync(join(root, path)))).toEqual(before);
+  expect(existsSync(join(root, 'review-live-v1-g2.json'))).toBe(false);
+  expect(pendingPublications(root, true)).toEqual([]);
+  expect((await publication(root, opening.url, 0)).head.publicationId).toBe(head);
+}, 30_000);
 
 test.each(['0', 'absent', '1.5', '9007199254740992', '2'])('#412 refuses invalid or absent rig %s before creating a host or binding', async rig => {
   const root = registeredRig();
@@ -617,7 +697,7 @@ test('job open retries a refused ask on an acknowledged rig head without overwri
   expect(pendingPublications(root)).toEqual([]);
 }, 15_000);
 
-function registeredPost(): string {
+function registeredPost(advance = true): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-open-post-')));
   roots.push(root);
   cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/4-direction-post'), root, { recursive: true });
@@ -628,9 +708,24 @@ function registeredPost(): string {
   inputCommand(['add', 'inputs/background.png', root, '--origin', 'synthetic plate'], EXAMPLE_NOW);
   sceneCommand(['write', '--rig', '1', '--background', 'inputs/background.png', '--citations-file', 'evidence/scene-citations.json', root], EXAMPLE_NOW);
   directionCommand(['write', '2', root, '--file', 'evidence/direction-input.json', '--rig', '1'], EXAMPLE_NOW);
-  advanceCommand(['direction-review', root], EXAMPLE_NOW);
+  if (advance) advanceCommand(['direction-review', root], EXAMPLE_NOW);
   return root;
 }
+
+test('#754 a post page opened before direction-review asks a direction verdict that review --from-review ingests', async () => {
+  // Measured for #754: the direction verdict has no stage fold, so the rig-review mismatch does not occur here.
+  const root = registeredPost(false);
+  expect(read(root).stage).toBe('post');
+  const opening = await open(root, ['--rig', '2']);
+  expect(opening.lines).toEqual(['job: post v2 published', 'job: asked review-verdict direction-review']);
+  const person = await page(root, opening.url, 1);
+  const verdict = await person.act('review-verdict', 'review-verdict', { stage: 'direction-review', verdict: 'approved', words: WORDS });
+  const reviewed = await cli(root, ['review', '2', root, '--from-review', String(verdict.actId)]);
+  expect({ exit: reviewed.exit, stderr: reviewed.stderr }).toEqual({ exit: 0, stderr: '' });
+  expect(read(root).stage).toBe('post');
+  const post = (read(root).versions as JsonObject[]).find(entry => entry.n === 2)!;
+  expect((post.verdicts as JsonObject[]).at(-1)).toMatchObject({ review: 'direction-review', verdict: 'accepted' });
+}, 30_000);
 
 test.each(['signoff', 'checkpoint', 'both'] as const)('#467 replaces an unchanged persisted legacy post head carrying %s asks', async extra => {
   const root = registeredPost();

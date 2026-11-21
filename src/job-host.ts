@@ -13,6 +13,7 @@ import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
 import { agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
+import { rigVerdictDeferred } from './rig-signoff.ts';
 import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
@@ -583,6 +584,8 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       : undefined);
   const warnings: Finding[] = [];
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  const deferred = targetSelector?.kind === 'rig' ? rigVerdictDeferred(root, project, stage, targetSelector.version, now) : null;
+  if (deferred) warnings.push(deferred);
   const draft = targetSelector?.kind === 'draft'
     ? inspectDraftPublication(root, project, targetSelector.id, warnings, stage)
     : undefined;

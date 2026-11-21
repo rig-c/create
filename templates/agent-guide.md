@@ -56,38 +56,29 @@ Preserve history/dates; adopt choices explicitly.
 
 **Live Review loop**
 
-Start `job open <dir> --reviewer <id> --role owner` in the background.
-Add a selector when ready. Share the private URL once. Publish via bound writers or
-reuse the same reviewer/role with `--draft`, `--rig`, `--question` or `--plan`.
+Start `job open <dir> --reviewer <id> --role owner` in the background; add a selector when ready.
+Share the URL once. Publish via bound writers or reuse `--draft|--rig|--question|--plan`.
 Reused opens exit. The page updates in place.
-After asking, run `rig-create job acts --wait` in the background. Ingest with its
-printed command, advance as needed and publish again.
-`job acts [--json]` lists each pending act's verdict and comments, even when ingest is refused.
-When all picks are ingested, complete the plan and follow `next` for
-`signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
+After asking, run `rig-create job acts --wait` in the background, ingest its command, advance and republish.
+`job acts [--json]` lists each pending act's verdict, comments and `words`, even when ingest is refused.
+Plan-picture pin `["rig-review-comment/1", mode, "reference", referenceId, referenceHash, x, y, w, h]` (integer pixels, Y down, `w=h=0` for a point): look up `referenceId` in the publication's `files`, check `referenceHash` equals that entry's `sha256`, then crop `x,y,w,h`.
+With all picks ingested, complete the plan and follow `next` for `signoff <stage> --from-picks`; keep the plan page for other answers.
 Keep the job host up across bound writes; if it stopped, run `job open` again with the same reviewer/role and URL, then `job reconcile`.
-Legacy package-only host: ingest pending acts, run `job close` once, then ask a question or plan.
+Legacy package-only host: ingest pending acts, run `job close` once, then ask a question/plan.
 
-Use `job withdraw-act <actId>` with owner-chat flags to keep the page. Successful
-closes end it. Share a new URL after reopening.
+Use `job withdraw-act <actId>` with owner-chat flags to keep the page.
+Successful closes end it; share a new URL on reopen.
 
-- `job close` ends the job or retires it after a pin/hook bump (`--retire-refused` archives failed publications).
+- `job close` ends/retires the job after a pin/hook bump (`--retire-refused` archives failed publications).
 - `job close --discard-acts <reason> --by agent` (or `--by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`) records the discard.
 - `job open`/`job reconcile` can archive an offline replaced-root job (`job open` opens a new URL).
 
 ## Before you ask, plan or show
 
-- **Owner language.** Use `owner.language` for text you write. Set it from
-  owner preference with `init --owner-language <tag>` or `owner-language set <tag>` before publishing.
-  In `plan add|revise`, write `does`, `produces` and `bar` in it.
-  In `interview-options --file`, write `asks[].prompt`, options' `label` and `effect`, and recommendation `reason` in it.
-  For `checkpoint-evidence` and `checkpoint-table`, use it for tile/table
-  labels, routes, recommendations and authored table headings/text cells.
-  Keep question/step IDs, proper names, producer data and quoted owner words as supplied.
+- **Owner language.** Write in `owner.language` (`init --owner-language <tag>` or `owner-language set <tag>`): `plan add|revise` `does`, `produces`, `bar`; `interview-options --file` `asks[].prompt`, options `label`, `effect`, `reason`; `checkpoint-evidence`/`checkpoint-table` labels, routes, recommendations, headings, text cells. Keep IDs, proper names, producer data and quoted words as supplied.
 - **Prior words.** Offer adopted projects verbatim prior words as a tailored option
   with source/date; require a pick. Legacy: {{DERIVED_LINK}}.
-- **Bars before sign-off.** Each reading names a command verified against
-  installed `--help`; a missing command means STOP before sign-off.
+- **Bars before sign-off.** Each reading names a command verified against installed `--help`; a missing command means STOP before sign-off.
   Loop bars: INTERVIEW.md, "Bars have reading commands".
 
 See: [Before you ask, plan or show](AGENT-REFERENCE.md).

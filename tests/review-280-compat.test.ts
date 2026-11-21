@@ -261,6 +261,42 @@ test('well-formed record picks and signoff decode directly and through legacy AP
   }
 });
 
+test('#789 record interview-picks act@4 decodes optional words, preserves pre-words bytes, and refuses extra keys', () => {
+  const original = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures/record-acts/picks.json'), 'utf8'));
+  const withoutWordsBytes = JSON.stringify(original);
+  const decodedWithoutWords = decodeReviewAct(withoutWordsBytes, 'interview-picks');
+  expect(decodedWithoutWords).toEqual(original);
+  expect('words' in decodedWithoutWords.value).toBe(false);
+  expect(JSON.stringify(decodedWithoutWords)).toBe(withoutWordsBytes);
+
+  const label = `["rig-review-comment/1","setup","reference","evidence/scene-background.png","c180182b6666fb4d90d4f91e210bda103a4081f1ad7c45006db392fa6c4eaf36",10,21,8,3]`;
+  const words = `[${label}]\nQuestion picture pin.\n\n[general]\nGeneral interview comment.`;
+  const withWords = { ...original, value: { ...original.value, words } };
+  const withWordsBytes = JSON.stringify(withWords);
+  const decodedWithWords = decodeReviewAct(withWordsBytes, 'interview-picks');
+  expect(decodedWithWords).toEqual(withWords);
+  expect(decodedWithWords.value.words).toBe(words);
+
+  const response = decodeReviewResponse(JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act',
+    jobId: withWords.jobId, requestId: 'synthetic-picks-words', generation: 1, ok: true, value: withWords }),
+  withWords.jobId, withWords.actId, 'synthetic-picks-words', 'interview-picks');
+  expect(response.act).toEqual(withWords);
+  expect(response.bytes).toBe(withWordsBytes);
+
+  expectRefusalCode(
+    () => decodeReviewAct(JSON.stringify({ ...original, value: { ...original.value, extra: 'unknown' } }), 'interview-picks'),
+    'REVIEW_ACT_INVALID',
+  );
+  expectRefusalCode(
+    () => decodeReviewAct(JSON.stringify({ ...withWords, value: { ...withWords.value, extra: 'unknown' } }), 'interview-picks'),
+    'REVIEW_ACT_INVALID',
+  );
+  expectRefusalCode(
+    () => decodeReviewAct(JSON.stringify({ ...original, value: { ...original.value, words: 123 } }), 'interview-picks'),
+    'REVIEW_ACT_INVALID',
+  );
+});
+
 
 test('#493 a historical producer reopen act@4 retains its reader compatibility', () => {
   const bytes = readFileSync(join(import.meta.dir, 'fixtures/record-acts/reopen.json'), 'utf8').trimEnd();

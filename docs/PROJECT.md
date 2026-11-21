@@ -284,7 +284,7 @@ rig-create amend parts --kind part --target panel --change inputs/replacement.sv
 `amendments[]` retains `{ target, by, at, verbatim, source?, changes }`.
 `target` contains `{ stage, kind, id }`, where `kind` is `part`, `config-field`,
 `motion-track`, `interview-answer` or `draft`. `id` names the artifact, config
-pointer, track, answer path or registered draft. A draft target belongs to
+pointer, track, answer (question id or answer path) or registered draft. A draft target belongs to
 parts-review.
 `changes` contains `{ path, sha256 }` for every repeated `--change` file.
 The writer reads and hashes those files under the project. These are declared
@@ -336,19 +336,27 @@ This table identifies missing proof for the approval kind. It does not assert
 that one gap alone suffices to prove independence.
 
 The extension point is `keepByBinding()` and the report field is
-`keep_by_binding`. It ships as an empty list. Later binding cards may place an
-approval there with the binding that proves its independence. Until then the
-amendment's stage and downstream approvals all lapse.
+`keep_by_binding`. An `interview-answer` amendment names a question of the
+interview by id or answer path. It resets only the plan steps whose `rests_on` names that answer.
+The other steps keep their status, and their own approvals stay live for them.
+Its report moves a checkpoint approval of such a step to `keep_by_binding`.
+Stage signatures and verdicts at or after the amended stage still lapse.
+`next` names each reset step outside the effective stage
+(`AMENDED_STEP`, `plan.steps[<id>]`) until it is done again. A record from the
+earlier writer, which reset every later step, still checks.
+Every other kind keeps the empty list, and its stage and downstream approvals
+all lapse.
 
 `interview --check` adds `amendments[]` only on amended records. Each entry
 names the target, every invalidated signature and accepted verdict by record
 path, its stage/checkpoint, reason and gap, the still-live upstream approvals,
-and the empty keep-by-binding list. A new signature remains a separate act
+and the keep-by-binding list. A new signature remains a separate act
 from the lapsed historical one. Multiple amendments and reopens accumulate
 cutoffs, so a narrower amendment cannot revive an earlier invalidation.
 
 The writer leaves `project.stage` in place, sets plan steps running at or after
-the amended stage to `pending`, and retains all previous approvals and versions.
+the amended stage to `pending` (for `interview-answer`, only those resting on
+the answer), and retains all previous approvals and versions.
 The check's `effective_stage` is the first unfinished stage while re-approval
 is pending, bounded by the stored stage. While it differs from the stored
 stage, the check still refuses a stage that differs from its latest recorded
@@ -922,8 +930,9 @@ as other approvals. A changed or removed bound item refuses
 `SIGNOFF_ANSWERS_STALE`; an absent or incomplete map refuses
 `SIGNOFF_ANSWERS_MISSING` from `SIGNOFF_ANSWERS_SINCE = 2026-11-06T00:00:00Z`,
 and earlier signatures receive one `SIGNOFF_ANSWERS_MISSING_LEGACY` warning.
-These bindings do not preserve approvals during amendments: G2 lapse behavior
-and `keep_by_binding: []` remain unchanged until G8 is implemented.
+These bindings do not preserve stage approvals during amendments: G2 lapse
+behavior remains until G8 is implemented. Only the per-step rule above keeps
+an unrelated step's approval.
 
 
 `review` accepts `--verbatim-file <file>` (or `-` for stdin) instead of

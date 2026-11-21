@@ -14,6 +14,7 @@ import type { JsonObject } from '../src/templates.ts';
 import { plantLegacyReopen, arr, fixture, obj, step } from './fixtures.ts';
 import { CLI, cli, clockedCli, gitEnv, tempDir } from './helpers.ts';
 import { amendCommand, checkProject, correctionCommand, handoff, signoffCommand, stepStatusCommand, testClock } from './clock.ts';
+import { nextProject } from '../src/next.ts';
 
 const read = (dir: string): JsonObject => JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')) as JsonObject;
 const save = (dir: string, p: JsonObject): void => writeFileSync(join(dir, 'project.json'), `${JSON.stringify(p, null, 2)}\n`);
@@ -70,7 +71,7 @@ describe('forward human amendments', () => {
       expect(approval.gap).toBe(AMENDMENT_APPROVAL_GAPS[approval.stage]);
     }
     expect(summary.keep_by_binding).toEqual([]);
-    expect(keepByBinding()).toEqual([]);
+    expect(keepByBinding(after, obj(record.target), { stage: 'rigging', checkpoint: 'constraints' })).toBe(false);
     const printed = formatReport(report);
     for (const approval of [...summary.lapsed, ...summary.upstream]) expect(printed).toContain(approval.path);
     expect(printed).toContain('keep-by-binding (0)');
@@ -280,6 +281,86 @@ describe('forward human amendments', () => {
     amend(dir);
     expect(arr(read(dir).amendments)).toHaveLength(1);
     expect(checkProject(dir).refusals.map(f => f.code)).toContain('STEP_NO_BASIS');
+  });
+
+  describe('#760 an interview-answer amendment lapses only the steps resting on the changed answer', () => {
+    const amendAnswer = (dir: string, answer: string): void => {
+      writeFileSync(join(dir, 'direction.txt'), 'Synthetic new direction for the chains.\n');
+      amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', answer, '--change', 'direction.txt', '--by', 'owner', '--verbatim-file', words(dir)]);
+    };
+    const stepAwaits = (dir: string, now: number): string[] => nextProject(dir, now).awaits.filter(target => target.startsWith('plan.steps['));
+
+    test.each(['bones', 'interview.waypoints[bones].guide'])('target %s: only bones and constraints reset; every other step keeps its record and next names exactly the two', target => {
+      const dir = fixture(() => {}, 'example-project.json');
+      const before = read(dir);
+      amendAnswer(dir, target);
+      const after = read(dir);
+      const bound = arr(obj(after.plan).steps).map(obj).filter(s => arr(s.rests_on).includes('bones')).map(s => String(s.id));
+      expect(bound).toEqual(['bones', 'constraints']);
+      for (const raw of arr(obj(after.plan).steps)) {
+        const s = obj(raw);
+        // Control: an unrelated step's status and history are untouched by the amendment.
+        if (bound.includes(String(s.id))) expect(s.status).toBe('pending');
+        else expect(s).toEqual(step(before, String(s.id)));
+      }
+      const report = checkProject(dir);
+      expect(report.refusals).toEqual([]);
+      expect(report.effective_stage).toBe('rigging-interview');
+      expect(stepAwaits(dir, EXAMPLE_NOW)).toEqual(['plan.steps[bones].status', 'plan.steps[constraints].status']);
+      const moves = nextProject(dir, EXAMPLE_NOW).moves.filter(move => move.lapse?.target_field.startsWith('plan.steps['));
+      expect(moves.map(move => [move.lapse?.code, move.lapse?.target_field])).toEqual([['AMENDED_STEP', 'plan.steps[bones]'], ['AMENDED_STEP', 'plan.steps[constraints]']]);
+    });
+
+    test('after the re-signed rigging-interview, next names the two reset steps and the cycle reaches rig-review', () => {
+      const dir = fixture(() => {}, 'example-project.json');
+      amendAnswer(dir, 'bones');
+      testClock.set(EXAMPLE_NOW + 86_400_000);
+      signoffCommand(['rigging-interview', dir, '--by', 'owner', '--verbatim-file', words(dir)]);
+      const report = checkProject(dir);
+      expect(report.refusals).toEqual([]);
+      expect(report.effective_stage).toBe('rigging');
+      expect(stepAwaits(dir, testClock.now())).toEqual(['plan.steps[bones].status', 'plan.steps[constraints].status']);
+      for (const id of ['bones', 'constraints']) {
+        stepStatusCommand([id, 'in-progress', dir, '--by', 'agent']);
+        stepStatusCommand([id, 'at-checkpoint', dir, '--by', 'agent']);
+        if (id === 'constraints') signoffCommand(['rigging', dir, '--by', 'owner', '--checkpoint', id, '--verbatim-file', words(dir)]);
+        stepStatusCommand([id, 'done', dir, '--by', 'agent']);
+      }
+      const done = checkProject(dir);
+      expect(done.refusals).toEqual([]);
+      expect(done.effective_stage).toBe('rig-review');
+      expect(stepAwaits(dir, testClock.now())).toEqual([]);
+    });
+
+    test('keep-by-binding keeps the checkpoint of a step that does not rest on the changed answer', () => {
+      const dir = fixture(() => {}, 'example-project.json');
+      amendAnswer(dir, 'bones');
+      const p = read(dir);
+      const target = obj(arr(p.amendments)[0]).target as JsonObject;
+      expect(keepByBinding(p, target, { stage: 'rigging', checkpoint: 'meshes' })).toBe(true);
+      expect(keepByBinding(p, target, { stage: 'rigging', checkpoint: 'constraints' })).toBe(false);
+      expect(keepByBinding(p, target, { stage: 'rigging-interview' })).toBe(false);
+      const summary = checkProject(dir).amendments![0]!;
+      expect(summary.lapsed.filter(a => a.checkpoint !== undefined).map(a => a.checkpoint)).toEqual(['constraints', 'constraints']);
+      expect(summary.keep_by_binding).toEqual([]);
+    });
+
+    test('a record from the earlier writer, which reset every later step, still checks without a new refusal', () => {
+      const dir = fixture(() => {}, 'example-project.json');
+      amendAnswer(dir, 'bones');
+      const p = read(dir);
+      for (const raw of arr(obj(p.plan).steps)) if (['meshes', 'motion', 'camera', 'timing', 'composition'].includes(String(obj(raw).id))) obj(raw).status = 'pending';
+      save(dir, p);
+      expect(checkProject(dir).refusals).toEqual([]);
+    });
+
+    test('an interview-answer target that names no question refuses before writing', () => {
+      const dir = fixture(() => {}, 'example-project.json');
+      const before = readFileSync(join(dir, 'project.json'));
+      writeFileSync(join(dir, 'direction.txt'), 'Synthetic new direction.\n');
+      refusal(() => amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', 'interview.waypoints[bones]', '--change', 'direction.txt', '--by', 'owner', '--verbatim-file', words(dir)]), 'AMENDMENT_TARGET_INVALID');
+      expect(readFileSync(join(dir, 'project.json'))).toEqual(before);
+    });
   });
 
   test('CLI exposes the writer and refuses a caller-supplied clock', () => {

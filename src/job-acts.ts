@@ -11,6 +11,8 @@ import { refuse } from './refusal.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { OWNER_CHAT_SOURCE } from './owner-chat.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { readVersions } from './review.ts';
+import { collectAmendments } from './amend.ts';
 import { stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import { checkStructure } from './structure.ts';
@@ -383,6 +385,21 @@ function ownerChatAnswerSettlesAsk(project: JsonObject, root: string, ask: Pendi
   try { return optionFile(root, binding).set.id === setId; } catch { return false; }
 }
 
+/**
+ * A verdict ask or act on a rig or post version that a later amendment made
+ * history is settled by the record: its act stays listed by job acts, and its ingest
+ * still refuses REVIEW_ACT_SOURCE_STALE, but it no longer holds the job for a new ask.
+ */
+function supersededVerdictSource(project: JsonObject, subject: { kind: string; stage?: string }, source: SourceV3): boolean {
+  if (subject.kind !== 'review-verdict' && !(subject.kind === 'signoff' && SIGNOFF_TARGET_KINDS[String(subject.stage)] !== undefined)) return false;
+  const selector = 'selector' in source ? source.selector : null;
+  if (!selector || (selector.kind !== 'rig' && selector.kind !== 'post')) return false;
+  const versions = readVersions(project);
+  const amendments = collectAmendments(project, []);
+  return (selector.kind === 'rig' ? versions.rigs : versions.posts).some(version => version.n === selector.version
+    && !liveSignoff(amendments, selector.kind === 'rig' ? 'rig-review' : 'post', Date.parse(version.at ?? '')));
+}
+
 export function pendingJobAsksForTarget(
   project: JsonObject,
   asks: readonly PendingAskV3[],
@@ -400,7 +417,7 @@ export function pendingJobAsksForTarget(
   for (const ask of actionableAsks) {
     if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(ask.source);
-    if (sameTarget(ask.source, target)) continue;
+    if (sameTarget(ask.source, target) || supersededVerdictSource(project, ask.subject, ask.source)) continue;
     const hasUnIngestedAct = actionableActs.some(act => unIngestedIds.has(act.actId) && actMatchesAsk(act, ask));
     if (!hasUnIngestedAct && (signoffSettlesAsk(project, ask) || ownerChatAnswerSettlesAsk(project, root, ask))) continue;
     if (!hasUnIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
@@ -410,6 +427,7 @@ export function pendingJobAsksForTarget(
     if (!unIngestedIds.has(act.actId) || actionableAsks.some(ask => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(act.source);
     if (sameTarget(act.source, target)) continue;
+    if (supersededVerdictSource(project, { kind: act.kind, stage: 'stage' in act.value ? String(act.value.stage) : undefined }, act.source)) continue;
     pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version });
   }
   return pending;

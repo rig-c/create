@@ -17,7 +17,7 @@ import { intakeWarnings } from './intake.ts';
 import { checkDirections } from './direction.ts';
 import { checkScenes } from './scene.ts';
 import { checkCorrections } from './corrections.ts';
-import { amendmentSummaries, collectAmendments, type AmendmentSummary } from './amend.ts';
+import { amendmentSummaries, collectAmendments, stepLapseEvents, type AmendmentSummary } from './amend.ts';
 /**
  * `interview --check`: reads a project's `project.json` and reports, by name,
  * every place the record breaks the contract in docs/INTERVIEW.md and
@@ -602,8 +602,14 @@ function checkPlan(ctx: Ctx): void {
   }
   const recordWaypointIds = new Set(ctx.items.filter((i) => i.kind === 'waypoint').map((i) => i.id));
   const seen = new Set<string>();
+  const events = collectReopens(ctx.project, []);
+  const history = collectSignoffs(ctx.project, []);
   for (const step of ctx.steps) {
     const { path, record } = step;
+    // An interview-answer amendment cuts only the approvals of steps resting on the changed answer.
+    const stepEvents = stepLapseEvents(events, record.rests_on);
+    const approving: Ctx = stepEvents.length === events.length ? ctx
+      : { ...ctx, signoffs: history.filter(s => STAGE_VALUES.includes(s.stage) && liveSignoff(stepEvents, s.stage, s.at)) };
     if (seen.has(step.id)) ctx.refusals.push({ code: 'STEP_MALFORMED', path, message: `${path}: id '${step.id}' is used by more than one step` });
     seen.add(step.id);
     if (step.phase === 'rig' && !recordWaypointIds.has(step.id)) {
@@ -624,7 +630,7 @@ function checkPlan(ctx: Ctx): void {
       }
     }
     const approvedBy = approvalStageOfStep(step.phase, step.id, hasStageOrder(ctx.project));
-    const approvals = signoffsFor(ctx, approvedBy);
+    const approvals = signoffsFor(approving, approvedBy);
     const status = record.status === undefined ? 'pending' : record.status;
     if (typeof status !== 'string' || !['pending', 'in-progress', 'at-checkpoint', 'done'].includes(status)) {
       ctx.refusals.push({ code: 'STEP_STATUS_UNKNOWN', path: `${path}.status`, message: `${path}.status: unknown status ${JSON.stringify(status)}; use pending before approval, then in-progress, at-checkpoint or done` });
@@ -644,7 +650,7 @@ function checkPlan(ctx: Ctx): void {
     if (checkpoint.state === 'malformed') {
       ctx.refusals.push({ code: 'ANSWER_MALFORMED', path: `${path}.checkpoint`, message: `${path}.checkpoint: ${checkpoint.why}` });
     }
-    const approval = latestSignoff(ctx, approvedBy, step.id);
+    const approval = latestSignoff(approving, approvedBy, step.id);
     if (approval !== undefined) {
       const hashes = approval.record.step_hashes;
       const signoffPath = `signoffs[${approval.index}]`;
@@ -655,7 +661,7 @@ function checkPlan(ctx: Ctx): void {
       }
     }
     if (status === 'pending') continue;
-    if (hasStageOrder(ctx.project) && step.phase === 'rig' && stageOfStep(step.phase, step.id) === 'rigging' && !signed(ctx, 'rigging-interview')) {
+    if (hasStageOrder(ctx.project) && step.phase === 'rig' && stageOfStep(step.phase, step.id) === 'rigging' && !signed(approving, 'rigging-interview')) {
       ctx.refusals.push({ code: 'RIGGING_INTERVIEW_UNSIGNED', path, message: `${path}: production rigging requires rigging-interview approval; leave this step pending until the person signs` });
     }
     // The step has run (or is running): it needs the approving sign-off, given after every answer it rests on last changed.
@@ -680,7 +686,7 @@ function checkPlan(ctx: Ctx): void {
     if (on && status === 'done') {
       const stages = checkpointStages(ctx, step);
       const stage = stages[0] as string;
-      if (!ctx.signoffs.some((s) => stages.includes(s.stage) && s.checkpoint === step.id)) {
+      if (!approving.signoffs.some((s) => stages.includes(s.stage) && s.checkpoint === step.id)) {
         ctx.refusals.push({ code: 'CHECKPOINT_UNSIGNED', path, message: `${path} is done with its checkpoint on, but no { "stage": "${stage}", "checkpoint": "${step.id}" } sign-off exists` });
       }
     }

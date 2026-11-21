@@ -6,7 +6,7 @@ import { DIRECTION_SCENE_SINCE } from './direction.ts';
 import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 import { currentScene as currentSceneEntry, SceneError, sceneCurrentAt } from './scene.ts';
 import { LEGACY_STAGES, PARTS_REVIEW_SINCE, PAUSED_STAGE, SKIPPED_WHEN_NO_POST, STAGES, hasStageOrder, stageIndex, stageOfStep, type StageSpec } from './stages.ts';
-import { collectAmendments } from './amend.ts';
+import { amendmentResetsStep, collectAmendments } from './amend.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import type { Json, JsonObject } from './templates.ts';
 
@@ -441,7 +441,10 @@ export function checkProgressLinkage(ctx: Ctx): void {
       && (Array.isArray(r.steps_before) ? r.steps_before.some(s => isObject(s) && s.id === step.id)
         : stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(String(r.stage))))
       .map(({ r, index }) => ({ index, at: eventTime((r as JsonObject).at) }));
-    const amendResets = amendments.filter(a => stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(a.stage)).map(a => a.at);
+    const amendResets = amendments.filter(a => amendmentResetsStep(a.target, step.phase, step.id, step.record.rests_on)).map(a => a.at);
+    // Before #760 an interview-answer amendment reset every step in its stage suffix; that reset stays allowed, never required.
+    const allowedResets = amendments.filter(a => a.target.kind === 'interview-answer' && !amendmentResetsStep(a.target, step.phase, step.id, step.record.rests_on)
+      && stageIndex(stageOfStep(step.phase, step.id)) >= stageIndex(a.stage)).map(a => a.at);
     const resetsExcept = (reopen: number): number[] =>
       [...reopenResets.filter(r => r.index !== reopen).map(r => r.at), ...amendResets].filter(Number.isFinite);
     const resets = resetsExcept(-1);
@@ -451,7 +454,7 @@ export function checkProgressLinkage(ctx: Ctx): void {
     const reset = (possible: Set<string>, from: number, to: number, events = resets): Set<string> => {
       const between = events.filter(r => r >= from && r <= to);
       if (between.some(r => r > from && r < to)) return new Set(['pending']);
-      return between.length > 0 ? new Set([...possible, 'pending']) : possible;
+      return between.length > 0 || allowedResets.some(r => r >= from && r <= to) ? new Set([...possible, 'pending']) : possible;
     };
     let possible = new Set(['pending']);
     let previous = -Infinity;

@@ -74,8 +74,9 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
   const { positional, opts, json } = options(args, 'advance');
   if (positional.length < 1 || positional.length > 2) refuse('PROGRESS_OPTION_INVALID', 'stage: advance needs a target and optional project directory; see help', USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
-  const progress = beginJobProgress(dir, 'other', 'Preparing to advance the project stage');
   const releaseJob = acquireAdvanceJobWrite(dir, positional[0]!);
+  // The first milestone waits for the job gate: a refused write leaves the project untouched.
+  const progress = beginJobProgress(dir, 'other', 'Preparing to advance the project stage');
   try {
     const { file, project } = readProject(dir);
     const history: Finding[] = [];

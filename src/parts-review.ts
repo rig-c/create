@@ -57,8 +57,9 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
   const root = resolve(positional[0] ?? process.cwd());
   if (fromCli) assertPartsCliArgs(cliArgs);
   if (!actId) return recordCliVerdict(root, options, cliArgs, json, now, hooks);
-  const progress = beginJobProgress(root, 'ingest', 'Reading the Review parts verdict');
   const release = acquireBoundJobWrite(root);
+  // The first milestone waits for the job gate: a refused write leaves the project untouched.
+  const progress = beginJobProgress(root, 'ingest', 'Reading the Review parts verdict');
   let created: string | undefined;
   let committed = false;
   const temporary = join(root, `.parts-review-${randomUUID()}.tmp`);

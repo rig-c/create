@@ -304,10 +304,11 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
   const projectFile = join(dir, 'project.json');
   if (!existsSync(projectFile)) refuse('PROJECT_JSON_MISSING', 'project.json is absent');
-  const progress = candidate === undefined ? beginJobProgress(dir, 'build', 'Preparing the review package') : undefined;
   const lock = `${projectFile}.review-package.lock`;
   let descriptor: number;
   try { descriptor = openSync(lock, 'wx'); } catch { refuse('REVIEW_PACKAGE_BUSY', 'another package writer holds the project lock'); }
+  // The first milestone waits for the package lock: a refused write leaves the project untouched.
+  const progress = candidate === undefined ? beginJobProgress(dir, 'build', 'Preparing the review package') : undefined;
   try {
     const original = readFileSync(projectFile, 'utf8');
     const read = readJsonObject(projectFile);

@@ -115,8 +115,9 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   if (actId === undefined && !opts['--from-picks']) return recordSignoff(stage, positional, opts, json, now, hooks);
   // One bound write lock per route covers the fetch, validation and the write.
   const root = resolve(positional[1] ?? process.cwd());
-  const progress = actId !== undefined ? beginJobProgress(root, 'ingest', 'Reading the Review signoff') : undefined;
   const release = acquireBoundJobWrite(root);
+  // The first milestone waits for the job gate: a refused write leaves the project untouched.
+  const progress = actId !== undefined ? beginJobProgress(root, 'ingest', 'Reading the Review signoff') : undefined;
   try {
     if (stage === PARTS_REVIEW && actId !== undefined && opts['--checkpoint'] === undefined) {
       const { file } = readProject(root);

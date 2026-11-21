@@ -1355,7 +1355,6 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   } else if (checkAuthorityFlags.some(flag => options[flag] !== undefined)) {
     fail('RIG_CHECK_ACCEPTANCE_INVALID', checkPath, 'owner chat requires --accept-check-bar or --accept-check-line with an exact report key');
   }
-  const progress = beginJobProgress(dir, 'build', 'Starting rig registration');
   let { file, project } = readProject(dir);
   let original = readFileSync(file);
   const lock = `${file}.rig-version.lock`;
@@ -1371,8 +1370,11 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const outputFiles: JsonObject[] = [];
   let releasePublication = () => {};
   let publicationIntent: PendingPublication | null = null;
+  let progress: ReturnType<typeof beginJobProgress>;
   try {
     releasePublication = acquireBoundJobWrite(dir, { kind: 'rig', version: n });
+    // The first milestone waits for the job gate: a refused write leaves the project untouched.
+    progress = beginJobProgress(dir, 'build', 'Starting rig registration');
     ({ file, project } = readProject(dir));
     original = readFileSync(file);
     if (project.schema !== 'rig-create/project@0') fail('SCHEMA_UNKNOWN', 'schema', 'rig-version reads rig-create/project@0');

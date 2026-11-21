@@ -707,10 +707,12 @@ export function recordDraftReviewAct(root: string, draftId: string, actId: strin
 }
 
 /** The common #184 lock covers fetch, source validation and the atomic write. */
-export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number): Recorded {
+export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, afterGate?: () => void): Recorded {
   root = resolve(root);
   const release = acquireBoundJobWrite(root);
   try {
+    // Progress starts only once the job gate passed: a refused write leaves the project untouched.
+    afterGate?.();
     const fetched = fetchVerdictAct(root, actId, now, act => {
       const selector = act.source.selector!;
       if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');
@@ -845,8 +847,8 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
     if (Object.keys(opts).length !== 1 || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
       refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --from-review excludes human-value and feedback flags; submit those values through Review', USAGE_EXIT);
     }
-    const progress = beginJobProgress(dir, 'ingest', 'Reading the Review verdict');
-    const recorded = recordReviewAct(dir, version, opts['--from-review'], now);
+    let progress: ReturnType<typeof beginJobProgress>;
+    const recorded = recordReviewAct(dir, version, opts['--from-review'], now, () => { progress = beginJobProgress(dir, 'ingest', 'Reading the Review verdict'); });
     progress?.('Review verdict recorded');
     return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []), `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`].join('\n'), exit: 0 };
   }

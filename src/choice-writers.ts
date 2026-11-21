@@ -159,8 +159,9 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
   if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
   const chat = readOwnerChat(opts.one, opts.one['--by'] ?? '', now, 'project.json.interview');
   const dir = resolve(opts.positional[1] ?? process.cwd());
-  const progress = opts.one['--from-review'] ? beginJobProgress(dir, 'ingest', 'Reading the Review interview answer') : undefined;
   const release = acquireBoundJobWrite(dir);
+  // The first milestone waits for the job gate: a refused write leaves the project untouched.
+  const progress = opts.one['--from-review'] ? beginJobProgress(dir, 'ingest', 'Reading the Review interview answer') : undefined;
   try {
     const {file,project} = readProject(dir); const original = readFileSync(file); const next = structuredClone(project);
     const item = itemAt(next,dir,opts.positional[0]);

@@ -49,7 +49,6 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
   if(action==='write' ? !opts['--file']||!opts['--rig'] : Object.keys(opts).length>0)usage('flags do not match action');
   if(answerValues.length && action!=='write')usage('--answers is write-only');
   if(json&&action!=='check')usage('json is check-only');
-  const progress = action === 'write' ? beginJobProgress(dir, 'build', 'Preparing the direction post') : undefined;
   // Root selected by the caller; record itself is still a literal regular file.
   const rollbackCompose: string[] = []; let verifyCompose: (() => void) | undefined; let composeInventory: JsonObject[] = [];
   const file=join(dir,'project.json');const original=directionBytes(dir,'project.json');const project=directionJson(original,'project.json');
@@ -72,8 +71,11 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
   let published:string|null=null;const staged:string[]=[];
   let releasePublication = () => {};
   let publicationIntent: PendingPublication | null = null;
+  let progress: ReturnType<typeof beginJobProgress>;
   try{
     releasePublication = acquireBoundJobWrite(dir);
+    // The first milestone waits for the job gate: a refused write leaves the project untouched.
+    if (action === 'write') progress = beginJobProgress(dir, 'build', 'Preparing the direction post');
     const next=structuredClone(project);const contract=directionContract(project,now);
     let bytes:Buffer|undefined;let doc:JsonObject|undefined;const snapshots=new Map<string,Buffer>([['project.json',original]]);
     const snapshot=(path:string):Buffer=>{const value=directionBytes(dir,path);snapshots.set(path,value);return value;};

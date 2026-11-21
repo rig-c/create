@@ -8,11 +8,11 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
+import { JOB_API_SCHEMA, JOB_API_V3_SCHEMA, startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
 import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
-import { draftPublicationContext, draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
+import { draftPublicationContext, draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { checkProject, formatReport } from '../src/check.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
@@ -185,7 +185,7 @@ test('host loss after preflight refuses strict attach without starting a replace
   const failure = pendingPublications(root)[0].failure!;
   expect(failure.code).toBe('JOB_HOST_ATTACH_REFUSED');
   expect(failure.message).toContain('reason=probe, phase=probe');
-  const fresh = await startJobHost({ ...entry.identity, readPublished, partsEnumerator,
+  const fresh = await startJobHost({ ...entry.identity, readPublished, readRecordPublished, partsEnumerator,
     installWriterBinding: () => {}, partsEnumeratorId: entry.identity.partsEnumeratorId });
   hosts.push(fresh);
   expect(fresh.reused).toBe(false);
@@ -196,7 +196,7 @@ test('a changed live listener incarnation or reader ID preserves the public mism
   const { root, entry, host, binding } = await bound();
   host.stop();
   const changed = await startJobHost({ ...entry.identity, port: Number(new URL(entry.origin).port),
-    readerId: 'changed-reader', readPublished, partsEnumerator, installWriterBinding: () => {} });
+    readerId: 'changed-reader', readPublished, readRecordPublished, partsEnumerator, installWriterBinding: () => {} });
   hosts.push(changed);
   await expect(reconcileCreateJob(root)).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
   const incarnationFailure = pendingPublications(root)[0].failure!;
@@ -473,7 +473,7 @@ test.each(['drop', 'reorder', 'version'])('review refuses the C4 %s control', as
     return { ...context, parts: { ...identity, images, enumeratorVersion: control === 'version' ? '4.0.0' : identity.enumeratorVersion } };
   };
   host.stop();
-  const corruptedHost = await startJobHost({ ...entry.identity, readPublished: corrupt, partsEnumerator,
+  const corruptedHost = await startJobHost({ ...entry.identity, readPublished: corrupt, readRecordPublished, partsEnumerator,
     installWriterBinding: () => {} });
   hosts.push(corruptedHost);
   const response = await corruptedHost.ports.handleJobApi(new Request(`${corruptedHost.origin}/jobs/${entry.jobId}/api`, {
@@ -564,6 +564,8 @@ function mockedOwnerHost(
   return {
     session: {
       jobId,
+      publicationMode: 'record-and-package',
+      apiSchema: JOB_API_V3_SCHEMA,
       status: () => ({ jobId, generation: 0, status: 'active' as const, publication: null, pending: [], cursor: null, enabledActKinds: [] }),
       hostCredentials: () => ({ agent: 'a'.repeat(64), ui: 'b'.repeat(64) }),
       dispose: () => {},
@@ -970,29 +972,29 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   const jobId = 'job-synthetic-diffmap-389';
   const origin = 'http://127.0.0.1:43189';
   const incarnation = '38938938-3893-4389-8389-389389389389';
-  const apiCalls: { verb: string; subject?: unknown }[] = [];
+  const apiCalls: { schema: string; verb: string; subject?: unknown }[] = [];
   let publicationCount = 0;
   const makeHost = (reused: boolean, expected?: NonNullable<JobHostOptions['reuseOnly']>['expected']): JobOwnerHost => {
     const base = mockedOwnerHost(jobId, origin, reused, expected ?? null);
     base.ports.handleJobApi = async req => {
-      const body = JSON.parse(await req.text()) as { verb: string; subject?: unknown };
+      const body = JSON.parse(await req.text()) as { schema: string; verb: string; subject?: unknown };
       if (body.verb === 'publish' || body.verb === 'ask') {
-        apiCalls.push({ verb: body.verb, ...(body.subject !== undefined ? { subject: body.subject } : {}) });
+        apiCalls.push({ schema: body.schema, verb: body.verb, ...(body.subject !== undefined ? { subject: body.subject } : {}) });
       }
       if (body.verb === 'next') {
         return Response.json({
-          schema: 'rig-review/job-api@2', verb: 'next', jobId, requestId: 'synthetic-next', generation: 1,
+          schema: JOB_API_V3_SCHEMA, verb: 'next', jobId, requestId: 'synthetic-next', generation: 1,
           ok: true, value: { status: 'timeout', events: [], cursor: null },
         });
       }
       if (body.verb === 'ask') {
         return Response.json({
-          schema: 'rig-review/job-api@2', verb: 'ask', jobId, requestId: 'synthetic-ask', generation: 2,
+          schema: JOB_API_V3_SCHEMA, verb: 'ask', jobId, requestId: 'synthetic-ask', generation: 2,
           ok: true, value: { askId: 'ask-1', generation: 2 },
         });
       }
       return Response.json({
-        schema: 'rig-review/job-api@2', verb: 'publish', jobId, requestId: 'synthetic-pub', generation: 1,
+        schema: JOB_API_SCHEMA, verb: 'publish', jobId, requestId: 'synthetic-pub', generation: 1,
         ok: true, value: { publicationId: `pub-synthetic-389-${++publicationCount}`, generation: 1 },
       });
     };
@@ -1052,7 +1054,7 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined,
     async opts => makeHost(true, opts.reuseOnly!.expected)))).toBe(1);
   expect(apiCalls).toEqual([
-    { verb: 'publish' },
+    { schema: JOB_API_SCHEMA, verb: 'publish' },
   ]);
   expect(readAcknowledgedPublication(root, jobId, 'pub-synthetic-389-1')!.subjects).toEqual(unready.subjects);
   expect(readFileSync(join(root, 'project.json'))).toEqual(unsignedRecordBytes);
@@ -1086,8 +1088,8 @@ test('#389 parts-review drafts publish without unready approval and recover thro
   ).toBe(1);
   expect(pendingPublications(root)).toEqual([]);
   expect(apiCalls).toEqual([
-    { verb: 'publish' },
-    { verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
+    { schema: JOB_API_SCHEMA, verb: 'publish' },
+    { schema: JOB_API_V3_SCHEMA, verb: 'ask', subject: { kind: 'parts-verdict', draftId: 'chain' } },
   ]);
   const acknowledged = readAcknowledgedPublication(root, jobId, 'pub-synthetic-389-2')!;
   expect(acknowledged.subjects).toEqual([

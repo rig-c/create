@@ -7,10 +7,12 @@ import { collectItems } from '../src/check.ts';
 import { interviewAnswerCommand } from '../src/choice-writers.ts';
 import { Refusal } from '../src/refusal.ts';
 import { loadedPartsIdentity } from '../src/job-publication.ts';
+import { startJobHost, type JobHostOptions } from '@rig-c/review/job-host';
+import { openCreateJob } from '../src/job-host.ts';
 import reviewPackage from '@rig-c/review/package.json';
 import corePackage from '@rig-c/core/package.json';
 import { optionContext } from '../src/choices.ts';
-import { enqueuePublication, failPublication, pendingPublications, jobHash, jobHostStateRoot, jobPrivateRoot, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
+import { enqueuePublication, failPublication, pendingPublications, jobHash, jobHostStateRoot, jobPrivateRoot, JOB_BINDING_FILE, readWriterBinding, writePrivateJson, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { fixture, retainSignoffs, obj, arr } from './fixtures.ts';
 import { stageIndex } from '../src/stages.ts';
@@ -141,7 +143,8 @@ function synthetic(stage: string, legacy = false, ownerLanguage?: string): strin
   const root = realpathSync(fixture(project => {
     project.stage = stage;
     if (ownerLanguage !== undefined) project.owner = { language: ownerLanguage };
-    retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex(stage));
+    retainSignoffs(project, signature => stageIndex(String(obj(signature).stage)) < stageIndex(stage)
+      || (stage === 'parts-review' && signature.stage === 'parts-review'));
     project.advances = arr(project.advances).filter(value => stageIndex(String(obj(value).stage)) <= stageIndex(stage));
     if (stage !== 'post-interview') {
       project.versions = []; project.scenes = []; delete project.direction_contract;
@@ -178,24 +181,89 @@ async function unchanged(root: string, args: string[], code: string) {
   }
 }
 
-test('record question public path, API@2 fetch, retry, stale source and wrong subject', async () => {
-  const root = synthetic('rigging-interview', false, 'ko');
+async function registerReask(root: string, question: string, id: string, customize?: (set: JsonObject) => void): Promise<JsonObject> {
   const project = read(root);
-  const item = collectItems(project, { collection: null }).find(item => item.id === 'motion')!;
+  const item = collectItems(project, { collection: null }).find(item => item.id === question)!;
   const old = obj(obj(item.raw).choice).set as JsonObject;
   const set = JSON.parse(readFileSync(join(root, String(old.path)), 'utf8')) as JsonObject;
-  set.id = 'pending-motion';
+  set.id = id;
   set.drafted_at = new Date(Date.now() - 1000).toISOString();
   set.context = optionContext(project, 'rigging-interview', Date.now() - 1000, root);
-  const ask = obj(arr(set.asks)[0]);
-  ask.prompt = 'Spine 움직임을 골라 주세요.';
-  const option = obj(arr(ask.options)[0]);
-  option.label = 'Spine';
-  option.effect = '24';
-  const path = 'evidence/interview/pending-motion.json';
+  customize?.(set);
+  const path = `evidence/interview/${id}.json`;
   writeFileSync(join(root, path), JSON.stringify(set, null, 2) + '\n');
-  const registered = await cli(root, ['interview-options', 'motion', root, '--file', path]);
+  const registered = await cli(root, ['interview-options', question, root, '--file', path]);
   expect(registered.exit, registered.stderr).toBe(0);
+  return set;
+}
+
+test('draft, question, then draft publish through the same live owner URL', async () => {
+  // Start on the accepted parts draft, before the rigging-interview signoff can be asked.
+  const root = synthetic('parts-review');
+  const draftId = 'example';
+  const draftArgs = ['--draft', draftId];
+  const draft = await open(root, draftArgs);
+  expect(draft.lines).toContain(`job: draft ${draftId} published`);
+  const initial = await publication(root, draft.url, 0);
+  expect(obj(initial.head.source).selector).toEqual({ kind: 'draft', id: draftId });
+  const bindingFile = join(root, JOB_BINDING_FILE);
+  const binding = readFileSync(bindingFile);
+  const reopen = (flags: string[]) => cli(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', ...flags]);
+
+  const advanced = await cli(root, ['advance', 'rigging-interview', root]);
+  expect(advanced.exit, advanced.stderr).toBe(0);
+  const set = await registerReask(root, 'motion', 'switch-motion');
+  await registerReask(root, 'bones', 'switch-bones');
+  const question = await reopen(['--question', 'motion']);
+  expect(question.exit, question.stderr).toBe(0);
+  expect(question.stdout.trim().split('\n')[0]).toBe(draft.url.href);
+  expect(question.stdout).toContain('job: option-set motion/switch-motion published');
+  const owner = await page(root, draft.url, 1);
+  expect(owner.asks.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'motion', setId: 'switch-motion' }]);
+
+  const before = bytes(root);
+  const refusesSwitch = async () => {
+    for (const flags of [['--question', 'bones'], draftArgs]) {
+      const refused = await reopen(flags);
+      expect(refused.exit).toBe(1);
+      expect(refused.stdout).toBe('');
+      expect(refused.stderr).toMatch(/^JOB_ASK_PENDING: /);
+      expect(refused.stderr).toContain('interview-picks motion/switch-motion on option-set motion/switch-motion');
+    }
+    expect(bytes(root)).toEqual(before);
+    expect(readFileSync(bindingFile)).toEqual(binding);
+    expect(pendingPublications(root)).toEqual([]);
+  };
+  await refusesSwitch();
+  const selections = arr(set.asks).map(raw => {
+    const ask = obj(raw);
+    return { itemId: ask.id, optionId: obj(arr(ask.options)[0]).id, otherText: null };
+  });
+  const act = await owner.act('interview-picks', 'interview-picks', { questionId: 'motion', selections, note: WORDS });
+  await refusesSwitch();
+  const ingested = await cli(root, ['interview-answer', 'motion', root, '--from-review', String(act.actId)]);
+  expect(ingested.exit, ingested.stderr).toBe(0);
+
+  const back = await reopen(draftArgs);
+  expect(back.exit, back.stderr).toBe(0);
+  expect(back.stdout.trim().split('\n')[0]).toBe(draft.url.href);
+  expect(back.stdout).toContain(`job: draft ${draftId} published`);
+  const restored = await publication(root, draft.url, 1);
+  expect(restored.head.publicationId).not.toBe(owner.head.publicationId);
+  expect(obj(restored.head.source).selector).toEqual(obj(initial.head.source).selector);
+  expect(restored.asks.map(ask => ask.subject)).toEqual([{ kind: 'signoff', stage: 'rigging-interview' }]);
+  expect(readFileSync(bindingFile)).toEqual(binding);
+}, 60_000);
+
+test('record question public path, API@2 fetch, retry, stale source and wrong subject', async () => {
+  const root = synthetic('rigging-interview', false, 'ko');
+  const set = await registerReask(root, 'motion', 'pending-motion', set => {
+    const ask = obj(arr(set.asks)[0]);
+    ask.prompt = 'Spine 움직임을 골라 주세요.';
+    const option = obj(arr(ask.options)[0]);
+    option.label = 'Spine';
+    option.effect = '24';
+  });
   const opened = await open(root, ['--question', 'motion']);
   expect(opened.lines).toEqual(['job: option-set motion/pending-motion published', 'job: asked interview-picks motion/pending-motion']);
   const before = readFileSync(join(root, 'project.json'));
@@ -361,13 +429,39 @@ test.each(['rigging-interview', 'post-interview'])('first unanswered %s question
 
 test('record selectors refuse a legacy package-only host byte-identically with the close/reopen remedy', async () => {
   const root = synthetic('rigging-interview');
-  await open(root);
-  const binding = readWriterBinding(root);
-  await unchanged(root, ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--plan'], 'JOB_HOST_REUSE_MISMATCH');
-  expect(readWriterBinding(root)).toEqual(binding);
-  const closed = await cli(root, ['job', 'close', root]);
-  expect(closed.exit, closed.stderr).toBe(0);
-  await opened.at(-1)!.proc.exited;
+  let recordOptions!: JobHostOptions;
+  const legacy = await openCreateJob(root, { id: 'synthetic-owner', role: 'owner' }, Date.now(), options => {
+    recordOptions = options;
+    return startJobHost({ ...options, publicationMode: 'package-only', readRecordPublished: undefined, recordReaderId: undefined });
+  });
+  try {
+    expect(legacy.session.publicationMode).toBe('package-only');
+    const binding = readWriterBinding(root)!;
+    delete binding.identity.publicationMode;
+    const bindingFile = join(root, JOB_BINDING_FILE);
+    writePrivateJson(bindingFile, binding, true);
+    const before = readFileSync(bindingFile);
+    // Ordinary Review reopen probes the fresh options against the running legacy host.
+    expect(recordOptions.reuseOnly).toBeUndefined();
+    expect(recordOptions.publicationMode).toBe('record-and-package');
+    await expect(startJobHost({ ...recordOptions, port: Number(new URL(legacy.origin).port) }))
+      .rejects.toMatchObject({ code: 'JOB_HOST_REUSE_MISMATCH' });
+    const args = ['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner'];
+    const recordBefore = bytes(root);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refused = await cli(root, [...args, '--plan']);
+      expect(refused.exit).toBe(1);
+      expect(refused.stderr).toContain('JOB_HOST_REUSE_MISMATCH');
+      expect(refused.stderr).toContain('publicationMode expected=record-and-package found=package-only');
+      expect(refused.stderr).toContain('finish and ingest pending acts, then run job close once and retry job open');
+      expect(bytes(root)).toEqual(recordBefore);
+      expect(readFileSync(bindingFile)).toEqual(before);
+    }
+    const closed = await cli(root, ['job', 'close', root]);
+    expect(closed.exit, closed.stderr).toBe(0);
+  } finally {
+    legacy.stop();
+  }
   const record = await open(root, ['--plan']);
   expect(record.lines).toContain(
     'job: asked signoff rigging-interview',
@@ -456,7 +550,7 @@ test('legacy post-only adoption reaches all three owner picks and the post move'
     }
     return ownerUrl;
   };
-  // The first page is a question while package-only hosts cannot switch modes (#700).
+  // Open on the first question and keep the same owner URL through the plan signoff.
   for (const question of ['camera_depth', 'post_timing', 'post_composition']) {
     const set = JSON.parse(readFileSync(join(import.meta.dir, '../templates/example-interview-options/example-' + question.replaceAll('_', '-') + '.json'), 'utf8')) as JsonObject;
     set.id = 'legacy-' + question;

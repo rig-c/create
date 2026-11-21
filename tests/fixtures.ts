@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import type { CheckReport } from '../src/check.ts';
 import { stepHash } from '../src/step-hash.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { tempDir } from './helpers.ts';
+import { tempDir, type TempDirScope } from './helpers.ts';
 import { EXAMPLE_VERDICT, partsPackage } from './parts-package.ts';
 import { EXAMPLE_PARTS_CHECK, newOrderExampleFiles } from './draft-fixture.ts';
 import { partsCheckBytes, withPartsCheck } from './parts-check-fixture.ts';
@@ -63,8 +63,8 @@ export const PARTS_REVIEW_LAPSES: string[][] = [
  * also gets the assembled parts and the approved verdict its parts-review
  * sign-off rests on (tests/parts-package.ts), unless `files` replaces them.
  */
-export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false): string {
-  return materializeFixture(join(tempDir(), 'project'), mutate, template, files, rawLegacy);
+export function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', files: Record<string, string | Uint8Array> = {}, rawLegacy = false, options?: { scope?: TempDirScope }): string {
+  return materializeFixture(join(tempDir('rig-create-test-', options), 'project'), mutate, template, files, rawLegacy);
 }
 
 /** Open either example record with the same retained asset bytes. */

@@ -146,7 +146,7 @@ describe('the rig review rests on a still frame', () => {
 });
 
 describe('rig-create handoff', () => {
-  const env = gitEnv();
+  const env = gitEnv(undefined, { scope: 'suite' });
 
   test('the filled example: exit 0, prints the accepted rig version', () => {
     const dir = fixture();

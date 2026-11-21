@@ -15,7 +15,7 @@ const historical = JSON.parse(readFileSync(join(import.meta.dir, 'data/pre-inter
   files: Record<string, string>;
 };
 
-const env = gitEnv();
+const env = gitEnv(undefined, { scope: 'suite' });
 const LOSS = {
   note: 'The historical build config did not survive.',
   source: 'archive log, config inventory',

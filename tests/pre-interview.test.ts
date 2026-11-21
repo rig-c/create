@@ -26,7 +26,7 @@ function migrated(mutate: Mutate = () => {}): string {
 
 const verdict = (p: JsonObject, n = 2, index = 0): JsonObject => obj(arr(version(p, n).verdicts)[index]);
 const original = (p: JsonObject, n = 2, index = 0): JsonObject => obj(arr(version(p, n).original_verdicts)[index]);
-const env = gitEnv();
+const env = gitEnv(undefined, { scope: 'suite' });
 
 describe('pre-interview migration (#39)', () => {
   test('two preserved versions pass without provenance, including recorded words and a carried item', () => {

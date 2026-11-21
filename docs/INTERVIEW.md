@@ -849,6 +849,7 @@ a recommendation. Unadopted projects keep the earlier derived-answer rules.
 rig-create interview-options <question> [dir] --file evidence/interview/<id>.json
 rig-create interview-answer <question> [dir] --set <path> --sha256 <shown sha> --by <human> --pick <ask>=<option>...
 rig-create interview-answer <question> [dir] --from-review <actId>
+rig-create interview-answer --batch [dir] --from-review <actId> --from-review <actId> ...
 rig-create interview-decision <question> [dir] --by <agent> --reasoning-file <file> --fragment <ask>=<JSON file>...
 ```
 
@@ -864,6 +865,18 @@ re-sign commands. Collection members write local overrides and retain the
 inherited source answers as historical evidence.
 
 Review exposes finalized `interview-picks` acts through the standing job API.
+Publish the stage's registered pending sets together with `job open --questions`.
+Collect one act ID per set with `job acts --json --wait` and ingest them
+together after every set has a finalized act from the same publication.
+Use `job open --question <question>` and the single-act writer above when
+publishing one set. Owner chat still uses the per-set writer with the displayed
+set and hash, the owner's exact words and explicit option IDs.
+
+After a partial ingest or owner-chat write, Review requires a fresh record
+publication before the owner can submit any remaining answers. Reopen the
+same job with one `--question` per unresolved question and keep the exact
+previously displayed sets. Unrelated asks still block publication.
+
 The writer fetches the act using its private sibling capability, binds the
 question and displayed option-set ID and SHA-256 to the pending set, and retains
 the semantic act bytes and SHA-256 in `review_acts`. Selections carry item and

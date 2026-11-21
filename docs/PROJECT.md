@@ -2638,8 +2638,11 @@ the project's next moves and whose they are from `project.json`:
   - `human`: a person's act collected through the review tool (`review_act`),
     with `command: null` and never a `--by user` writer.
 - **Host and ingest human acts.** Start the first `job open` in the background
-  and share its private URL once. Later opens with a question, plan, draft or
-  rig selector publish into the running host and exit. Run
+  and share its private URL once. Later opens with a question, group of stage
+  questions, plan, draft or rig selector publish into the running host and exit.
+  For a stage question loop, `next` shows `job open --questions`, the sets the
+  owner answers on one page, and the batch ingest after all acts arrive.
+  For a single act, run
   `rig-create job acts --wait --json` in the background and
   follow the matching act's preconditions, including the structure snapshot
   guidance for legacy parts-review sign-off. Fill the reviewer and exported act

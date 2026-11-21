@@ -579,15 +579,22 @@ test('#737 an owner-chat answer bound to a different set leaves the published as
   expect(snapshot(root)).toEqual(before);
 }, 60_000);
 
-test('#737 next at the rigging interview names the one-question-at-a-time loop with job acts --wait', async () => {
+test('#558 next at the rigging interview groups the question loop and prints one batch ingest', async () => {
   const root = riggingInterviewRoot();
   for (const question of ['motion', 'bones']) await registerQuestion(root, question);
-  const opens = nextProject(root).moves.filter(move => move.role === 'agent' && (move.command ?? '').includes('job open') && (move.command ?? '').includes('--question'));
-  expect(opens.map(move => /--question (\S+)/.exec(move.command ?? '')![1])).toEqual(['bones', 'motion']);
-  expect(opens[0]!.act).toContain('one question at a time: publish it, wait with job acts --json --wait, ingest, then publish the next question');
-  expect(opens[1]!.act).toMatch(/^only after the bones act is ingested: one question at a time/);
-  expect(opens[1]!.act).toContain('JOB_ASK_PENDING');
-});
+  const { moves } = nextProject(root);
+  expect(moves.filter(move => move.review_act?.kind === 'interview-picks').map(move => move.review_act!.question_id)).toEqual(['bones', 'motion']);
+  const commands = moves.filter(move => move.role === 'agent' && move.command);
+  const workflow = commands.filter(move => move.command!.startsWith('rig-create job ') || move.command!.includes('--from-review'));
+  expect(workflow.map(move => move.command)).toEqual([
+    `rig-create job open ${shellWord(root)} --questions --reviewer '<reviewer>' --role owner`,
+    `rig-create job acts ${shellWord(root)} --json --wait`,
+    `rig-create interview-answer --batch ${shellWord(root)} --from-review '<actId for bones>' --from-review '<actId for motion>'`,
+  ]);
+  expect(workflow[0]!.act).toContain('rigging-interview question loop');
+  expect(workflow[1]!.act).toContain('--wait keeps waiting until every set has submitted');
+  expect(workflow[2]!.act).toContain('JOB_ASK_PENDING');
+}, 30_000);
 
 test.each([
   { label: '--draft', selector: ['--draft', 'chain'], expected: 'job: draft chain published' },

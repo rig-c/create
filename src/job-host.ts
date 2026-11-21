@@ -6,11 +6,11 @@ import { asArray, checkProject, collectItems, loadCollection, isObject, type Fin
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { assembleOnlyDraftTarget, assembleOnlyVersionFinding, assertDraftHasRig, readAssembleOnlyDraftTarget } from './draft-layout.ts';
 import { Refusal, refuse } from './refusal.ts';
-import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, riggingDraftPartsChange } from './job-publication.ts';
+import { liveManifestPath, draftPackageIdentity, draftPublishedContext, eligibleRigDraftModel, inspectDraftPublication, currentJobIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, publicationFile, publicationSelector, publishedDraft, publishedSourcePainting, readPublished, readRecordPublished, recordOptionSets, riggingDraftPartsChange, type RecordPublicationResult } from './job-publication.ts';
 import { acknowledgePublication, acquireJobLock, assertJobIdentity, enqueuePublication, ensureJobPrivateIgnores, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, pendingPublications, privateDirectory, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, refuseJobIdentityMismatch, writePrivateJson, isRecordResult, type PublicationResult, type JobIdentity, type PendingPublication, type WriterBinding, type PublicationSubject } from './job-outbox.ts';
 import { draftPublicationResult } from './job-writer.ts';
 import { attachCreateJobForClose, refusePendingJobAsks } from './job-close.ts';
-import { agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
+import { actionablePendingAct, agentCall, ingestedJobActs, ingestedSummary, jobEvents, pendingJobActs, readHostActsAndAsks, shellWord, type AgentReply, type IngestedJobAct, type PendingJobAct } from './job-acts.ts';
 import { checkReviewPackages } from './review-package.ts';
 import { reviewVerdictSignable } from './signable.ts';
 import { rigVerdictDeferred } from './rig-signoff.ts';
@@ -18,6 +18,7 @@ import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
 import { postJobProgress } from './job-progress.ts';
+import { hasStageOrder, interviewStageOfGuide } from './stages.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -210,7 +211,13 @@ export async function publishPending(
       subjects = (await readPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result })).subjects;
     }
     const status = host.session.status();
-    entry.generation ??= status.generation;
+    if (entry.generation === undefined) {
+      if (isRecordResult(entry.result)) {
+        // A recovered outbox entry may not have reached its first guarded attempt.
+        await refusePendingJobAsks(entry.root, entry.jobId, host, entry.result);
+      }
+      entry.generation = status.generation;
+    }
     entry.phase = 'pending';
     failPublication(entry.root, entry, entry.failure);
     // Draft readiness can change when producer bytes drift without a record write.
@@ -236,6 +243,9 @@ export async function publishPending(
     } };
     if (result.schema !== request.schema || !result.ok) {
       const code = result.error?.code ?? 'JOB_PUBLICATION_INVALID';
+      // Review rejected this attempt before publishing. Reconciliation must
+      // scan the refreshed asks before attempting the new generation.
+      if (result.schema === request.schema && code === 'JOB_GENERATION_STALE' && isRecordResult(entry.result)) delete entry.generation;
       const reason = typeof result.error?.message === 'string' && result.error.message.trim() ? `: ${result.error.message}` : '';
       refuse(code, `project.json: publication of record ${entry.recordHash} was refused by review (${code})${reason}; run rig-create job reconcile after restoring the bound sources`);
     }
@@ -306,7 +316,7 @@ export async function listCreateJobActs(
     };
     let listed = await list();
     const result = () => ({ jobId: binding.jobId, acts: listed.acts, ingested: listed.ingested, asked: listed.asked });
-    if (!wait || listed.acts.length) return result();
+    if (!wait || listed.acts.some(actionablePendingAct)) return result();
 
     const deadline = performance.now() + wait.timeoutMs;
     for (;;) {
@@ -318,11 +328,15 @@ export async function listCreateJobActs(
       });
       if (outcome.kind === 'timeout') break;
       listed = await list();
-      if (listed.acts.length) return result();
+      if (listed.acts.some(actionablePendingAct)) return result();
       if (outcome.kind === 'closed') {
         refuse('JOB_ACTS_READ_REFUSED', 'project.json: live job closed during the act wait; reopen it with job open before retrying job acts');
       }
       // Another writer may already have ingested the act that woke the waiter.
+    }
+    const waiting = listed.acts.find(act => act.waiting)?.waiting;
+    if (waiting) {
+      refuse('JOB_NEXT_TIMEOUT', `project.json: a grouped interview page is still waiting for ${waiting.received}/${waiting.total} sets before the deadline; ingest nothing yet, have the owner submit the remaining sets, then retry job acts --wait`, 3);
     }
     refuse('JOB_NEXT_TIMEOUT', `project.json: no finalized un-ingested act arrived before the deadline; ${ingestedSummary(listed)}; an ingested act needs no ingest, otherwise retry job acts --wait`, 3);
   } finally { host.stop(); }
@@ -537,44 +551,60 @@ function selectorLabel(selector: JobSelector): string {
   return selector.kind === 'draft' ? `draft ${selector.id}` : `${selector.kind} v${selector.version}`;
 }
 
-/** Resolve only an explicitly requested current record subject, before opening a host. */
-export function requestedRecordResult(root: string, question?: string, plan = false, now = Date.now()): RecordPublicationRequestResult | undefined {
+/** A single --question, repeated --question values, or --questions for the stage. */
+type QuestionSelection = string | readonly string[] | true;
+
+/** Resolve the requested current record subjects before opening a host. */
+export function requestedRecordResult(root: string, question?: QuestionSelection, plan = false, now = Date.now()): RecordPublicationResult | undefined {
   return requestedRecordPublication(root, question, plan, now)?.result;
 }
 
-function requestedRecordPublication(root: string, question: string | undefined, plan: boolean, now: number): {
-  result: RecordPublicationRequestResult;
+function requestedRecordPublication(root: string, question: QuestionSelection | undefined, plan: boolean, now: number): {
+  result: RecordPublicationResult;
   recordHash: string;
   subjects: readonly PublicationSubject[];
 } | undefined {
   if (question === undefined && !plan) return undefined;
-  if (question !== undefined && plan) refuse('JOB_BINDING_INVALID', 'project.json: choose --question or --plan, not both');
+  if (question !== undefined && plan) refuse('JOB_BINDING_INVALID', 'project.json: choose one of --question, --questions or --plan');
   const bytes = readFileSync(join(root, 'project.json'));
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   requireOwnerLanguage(project);
-  let result: RecordPublicationRequestResult = { kind: 'plan' };
+  let result: RecordPublicationResult = { kind: 'plan' };
   if (question !== undefined) {
-    const items = collectItems(project, { collection: loadCollection(root, project) }).filter(item => item.id === question);
-    const binding = items.length === 1 ? items[0]!.record.pending_options : undefined;
-    if (!isObject(binding) || typeof binding.path !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', `project.json: requested question has no unique pending option set; register it with rig-create interview-options ${question} '${root.replaceAll("'", "'\\''")}' --file '<option-set.json>' first (draft a new option set to re-ask an answered question)`);
-    const set = JSON.parse(publicationFile(root, binding.path).toString('utf8')) as JsonObject;
-    if (typeof set.id !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: pending option set has no id; restore its original identity');
-    result = { kind: 'option-set', questionId: question, setId: set.id };
+    const items = collectItems(project, { collection: loadCollection(root, project) });
+    let questions: readonly string[];
+    if (question === true) {
+      const stage = checkProject(root, project, { now, readOnly: true, recordPublication: true }).effective_stage;
+      questions = items.filter(item => item.record.pending_options !== undefined
+        && interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === stage).map(item => item.id);
+    } else {
+      questions = typeof question === 'string' ? [question] : question;
+    }
+    if (questions.length === 0 || questions.length > 64) {
+      refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: select 1 to 64 pending option sets in the effective stage; register missing sets with rig-create interview-options or select a group with repeated --question');
+    }
+    const sets = questions.map(questionId => {
+      const matches = items.filter(item => item.id === questionId);
+      const binding = matches.length === 1 ? matches[0]!.record.pending_options : undefined;
+      if (!isObject(binding) || typeof binding.path !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', `project.json: requested question has no unique pending option set; register it with rig-create interview-options ${questionId} '${root.replaceAll("'", "'\\''")}' --file '<option-set.json>' first (draft a new option set to re-ask an answered question)`);
+      const set = JSON.parse(publicationFile(root, binding.path).toString('utf8')) as JsonObject;
+      if (typeof set.id !== 'string') refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: pending option set has no id; restore its original identity');
+      return { questionId, setId: set.id };
+    });
+    result = { kind: 'option-set', ...sets[0]!, ...(sets.length > 1 ? { sets } : {}) };
   }
   const recordHash = jobHash(bytes);
   const { subjects } = readRecordPublished({ root, record: { path: 'project.json', sha256: recordHash }, result, phase: 'inventory' }, now);
   return { result, recordHash, subjects };
 }
-type RecordPublicationRequestResult = Parameters<typeof readRecordPublished>[0]['result'];
-
-export async function openRecordPublication(root: string, host: JobOwnerHost, question: string | undefined, plan: boolean, now: number): Promise<string[]> {
+export async function openRecordPublication(root: string, host: JobOwnerHost, question: QuestionSelection | undefined, plan: boolean, now: number): Promise<string[]> {
   const release = acquireJobLock(root)!;
   let outcomes: AskOutcome[];
   let reused = false;
-  let result: RecordPublicationRequestResult;
+  let result: RecordPublicationResult;
   try {
     const publication = requestedRecordPublication(root, question, plan, now);
-    if (!publication) refuse('JOB_PUBLICATION_INVALID', 'project.json: expected an explicit record subject; choose --question or --plan');
+    if (!publication) refuse('JOB_PUBLICATION_INVALID', 'project.json: expected a record subject; choose --question, --questions or --plan');
     result = publication.result;
     const head = host.session.status().publication;
     const ack = head ? readAcknowledgedPublication(root, host.session.jobId, head.publicationId) : null;
@@ -585,13 +615,18 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
     } else {
       const binding = readWriterBinding(root);
       if (!binding || binding.jobId !== host.session.jobId) refuse('JOB_BINDING_INVALID', 'project.json: open the writer-owned job before publishing');
-      // A new publication supersedes the job's pending asks: one question at a time (#737).
+      // A new publication supersedes the job's pending asks (#737).
+      const generation = host.session.status().generation;
       await refusePendingJobAsks(root, binding.jobId, host, result);
-      enqueuePublication(root, binding, result);
+      const pending = enqueuePublication(root, binding, result);
+      if (pending.generation === undefined) {
+        pending.generation = generation;
+        failPublication(root, pending, pending.failure);
+      }
       ({ outcomes } = await reconcileLocked(root, publishPending));
     }
   } finally { release(); }
-  const label = result.kind === 'plan' ? 'plan' : `option-set ${result.questionId}/${result.setId}`;
+  const label = result.kind === 'plan' ? 'plan' : `option-set ${recordOptionSets(result).map(({ questionId, setId }) => `${questionId}/${setId}`).join(', ')}`;
   refuseAskOutcomes(outcomes);
   return [`job: ${label} ${reused ? 'already published' : 'published'}`, ...askOutcomeLines(outcomes)];
 }

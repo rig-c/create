@@ -56,7 +56,7 @@ match their recorded hashes.
 | `JOB_BINDING_INVALID` | The private sibling/outbox is tracked or not effectively ignored, the binding is malformed, unavailable or mismatched, or a job command has invalid arguments. Restore effective private ignores. Restore the matching writer-owned binding through `job open`, then retry publication into the existing job. |
 | `JOB_PRIVATE_STORAGE_INVALID` | Private publication storage has unsafe permissions, type or symlinks. Restore owner-only real directories and regular files. |
 | `JOB_OUTBOX_INVALID` | A private publication receipt is absent, malformed or unreadable. Restore its writer-owned bytes before reconciling. The check reports this as a HOLE. |
-| `JOB_ASK_PENDING` | A bound writer, or `job open`, would publish a different target while the job has an owner ask with no ingested act. Publishing supersedes the open ask, so a second interview question or a draft/rig publication waits for the open ask. The message names the job and pending asks. Have the owner finish those asks, run `job acts <dir> --wait` and ingest the acts with the printed commands, then retry the command to publish into the existing job. A verdict ask or act on a rig or post version that a later amendment made history does not hold the job (a historical reopen still holds it); `job acts` still lists the act, and its ingest still refuses. Refusal preserves `project.json` and the job state byte-identically. |
+| `JOB_ASK_PENDING` | A bound writer, or `job open`, would replace an unresolved owner ask. The message names the job and pending asks. For a current page, collect and ingest its acts before opening a different target. If an interview page needs a refresh, include every remaining unresolved question with its exact option-set binding, and follow the reported remedy for finalized acts that still need handling. A verdict ask or act on a rig or post version that a later amendment made history does not hold the job (a historical reopen still holds it); `job acts` still lists the act, and its ingest still refuses. Refusal preserves `project.json` and the job state byte-identically. |
 | `JOB_PUBLICATION_ASK_REQUIRED` | A bound version writer would replace an open publication with no owner ask or verified carried draft approval. Keep the open page and use `job open` when the next review is ready. The refusal leaves the record and outbox unchanged. |
 | `JOB_ASK_REFUSED` | A publication is acknowledged, but Review refused the ask for one of its declared subjects. The message names each subject and Review's code. The publication is not pending. Restore the published record bytes and run `job open` to ask again. |
 | `JOB_DRAFT_UNKNOWN` | `job open --draft <id>` names a draft the record does not hold. Record the draft with `draft-rig` or name a recorded draft. |
@@ -1596,6 +1596,8 @@ the record unchanged.
 | Code | Finding and remedy |
 | --- | --- |
 | `JOB_RECORD_SUBJECT_INVALID` | `project.json` does not bind the explicitly requested question, option set and effective stage, including a question whose pick is already recorded and so has no pending set, or a subject id cannot be represented by the record publication contract. Publish the exact current pending subject with its original representable id. |
+| `JOB_OPTION_SET_DUPLICATE` | A grouped question publication names the same set twice or has more than one subject for a set, or a batch ingest repeats a question or set. Check the pending option-set bindings in `project.json`, publish each set once with a single subject, and supply one finalized act for each distinct set. |
+| `JOB_GENERATION_STALE` | Review refused a question or plan publication because its job generation moved after Create read it (another publication or act landed first). `project.json` is unchanged; Create drops the retained generation from the pending outbox entry. Run `job reconcile <dir>`, which reads the refreshed asks before it publishes the new generation. |
 | `JOB_DIRECTION_VERDICT_REQUIRED` | `job open --plan` at `direction-review` finds no accepted live direction verdict on the current live post in `project.json.versions`. Open the post with `job open --rig <n>` and ingest `review <n> --from-review <actId>` before requesting direction sign-off. For an accepted-then-bounced post, follow `next` to record the owner's correction with `amend direction-review`. This is a publication precondition, not a new record-check rule. |
 | `INTERVIEW_SIGNOFF_NOT_CLEAN` | An interview record-plan publication or first record-mode sign-off ingest finds a refusal or delivery hole from the full `interview --check` function on `project.json`. Resolve that check, republish with `job open --plan` and ask for the interview signature again. This is a new-route precondition; existing records and CLI `--by` signatures keep their checks. A refused ingest leaves the record byte-identical. |
 | `INTERVIEW_SIGNOFF_PLAN_REQUIRED` | An interview record-plan publication or first record-mode sign-off ingest has no displayed `project.json.plan.steps`. Draft non-empty plan steps through the writers and publish with `job open --plan` before asking for the interview signature. A refused operation leaves the record byte-identical. |
@@ -1737,12 +1739,14 @@ other post generation delta refuses `PUBLICATION_GENERATION_INVALID`.
 ### Record asks on the live screen
 
 Register a retained set with `interview-options <question> <dir> --file <set>`.
-Then run `job open <dir> --reviewer <id> --role owner --question <question>`.
-For an eligible plan use the same command with `--plan` instead. These selectors
-are exclusive with each other, `--draft` and `--rig`; no pending question is
-selected implicitly. Switch selectors on the same port and owner capability.
-For a legacy package-only host, finish and ingest its pending acts, run
-`job close` once, then reopen with `--question <question>` or `--plan`.
+Then run `job open <dir> --reviewer <id> --role owner --questions` for all
+pending sets in the effective interview stage, or use one `--question <question>`
+per set to select specific pending sets. For an eligible plan use the same
+command with `--plan` instead. These selectors are exclusive with each other,
+`--draft` and `--rig`; without one, no pending question is selected. Switch
+selectors on the same port and owner capability. For a legacy package-only
+host, finish and ingest its pending acts, run `job close` once, then reopen
+with a question selector or `--plan`.
 
 Record asks seal `project.json`, their declared inputs and context evidence, and
 all files read by the shared decision-record check, without rechecking or sealing
@@ -1765,13 +1769,20 @@ The record reader discounts only pending transport holes for its own exact
 record hash and result while publishing; unrelated/stale outbox entries still
 block it, and ordinary `check` continues to report pending transport holes.
 
-After the synthetic or real reviewer acts, ingest with `interview-answer
-<question> <dir> --from-review <actId>` or `signoff <stage> <dir> --from-review
-<actId>` (add `--checkpoint <step>` for a checkpoint). Refresh the same explicit
-selector after writes. A record pick or sign-off binds its displayed record;
-changed record bytes require a new publication/ask. Exact retries return the
-retained result before current-source checks. Stage advancement remains a
-separate `advance` command. This adds no historical record refusal or SINCE.
+Collect one finalized act per set from a grouped page before ingesting the
+acts together with `interview-answer --batch <dir>` and one
+`--from-review <actId>` per set. Each act binds the same displayed
+`project.json` bytes.
+For a single-set publication, ingest with `interview-answer <question> <dir>
+--from-review <actId>`. For sign-off, run `signoff <stage> <dir> --from-review
+<actId>` (add `--checkpoint <step>` for a checkpoint). A record pick or sign-off
+binds its displayed record. Review checks those bytes at finalization. If a
+partial ingest or owner-chat write changes them, refresh the remaining open asks
+with one `--question` per question and the exact same option-set bindings
+before the owner can finish. Unrelated asks still block replacement. Exact
+retries return the retained result before current-source checks.
+Stage advancement remains a separate `advance` command. This adds no
+historical record refusal or SINCE.
 
 When publishing an option set in an open interview, the existing reader treats
 only `INTERVIEW_INCOMPLETE` on that effective stage's silent question paths as
@@ -1802,7 +1813,7 @@ A missing or dead host refuses `JOB_HOST_ATTACH_REFUSED`; restore it with
 | Code | Meaning and remedy |
 | --- | --- |
 | `JOB_ACTS_READ_REFUSED` | `project.json`: the live job event read or wait failed, or paging exceeded its bound. Restore or reopen the bound live host as needed, and retry `job acts`. |
-| `JOB_NEXT_TIMEOUT` | `project.json`: no finalized un-ingested act arrived during `job acts --wait`. Exit 3 with the code on stderr. The message names the acts already ingested for the current asks and where each is recorded, or that none were asked; those need no ingest. Otherwise retry the wait, optionally setting `--timeout-ms` (1–600000, default 600000). |
+| `JOB_NEXT_TIMEOUT` | `project.json`: no finalized un-ingested act arrived during `job acts --wait`. Exit 3 with the code on stderr. The message names the acts already ingested for the current asks and where each is recorded, or that none were asked; those need no ingest. When a grouped interview page has acts for only some of its sets, the message says it is waiting for n/K sets; ingest nothing until the owner submits the rest. Otherwise retry the wait, optionally setting `--timeout-ms` (1–600000, default 600000). |
 | `JOB_ACTS_WRITER_UNAVAILABLE` | `project.json`: a listed act has no current writer target (for example a removed checkpoint step or a subject without a Create adapter). Its command is null, not guessed. Restore the named plan step or use a supported Review subject before ingestion. |
 | `JOB_ACTS_PENDING` | `project.json.review_acts`: `job close` found finalized human Review acts that have not been ingested into `project.json`. The message names each act id and its ingest command. Ingest each act before closing, or run `rig-create job close --discard-acts <reason>` with `--by agent` to record the discarded act ids and close. To relay a person’s instruction, use `job close --discard-acts --by <owner> --owner-chat <file> --said-at <ISO> --relayed-by <operator>`. |
 | `JOB_ACT_NOT_PENDING` | `project.json.review_acts`: `job withdraw-act <actId>` named an act id that is not pending on the bound live job, or passed only a prefix of a pending act id (act ids never resolve by prefix; when a prefix matches pending act(s), the refusal names the full pending act id(s)). Pass the full act id from `rig-create job acts`. |

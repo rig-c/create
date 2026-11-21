@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
 import * as reviewJobHost from '@rig-c/review/job-host';
-import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type RecordPlanSubject } from '@rig-c/review/job-host';
+import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type PublishResultV3, type RecordPicksSubject, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts';
 import { readDirection } from './direction.ts';
@@ -110,10 +110,18 @@ function reviewPackageIdentity(version: number, row: JsonObject) {
 /** The parts the check loads: its name and version, and that version's integrity from the lockfile beside its install. */
 export interface RecordPartsIdentity { readonly name: string; readonly version: string; readonly integrity: string }
 
+type OptionSetRef = Pick<RecordPicksSubject, 'questionId' | 'setId'>;
+type RecordOptionResult = Extract<PublishResultV3, { kind: 'option-set' }>;
+export type RecordPublicationResult = RecordOptionResult | Extract<PublishResultV3, { kind: 'plan' }>;
+
+export function recordOptionSets(result: RecordOptionResult): readonly OptionSetRef[] {
+  return result.sets ?? [{ questionId: result.questionId, setId: result.setId }];
+}
+
 export interface RecordPublicationRequest {
   readonly root: string;
   readonly record: { readonly path: 'project.json'; readonly sha256: string };
-  readonly result: { readonly kind: 'option-set'; readonly questionId: string; readonly setId: string } | { readonly kind: 'plan' };
+  readonly result: RecordPublicationResult;
   readonly phase: 'inventory' | 'retained';
   /** Retained phase only: the `parts` identity the inventory phase returned. */
   readonly parts?: RecordPartsIdentity;
@@ -128,7 +136,7 @@ type RecordContextBase = {
 type RecordSignoffStage = JobRecordSignoffStage;
 export type RecordOptionContext = RecordContextBase & {
   readonly plan: null;
-  readonly subjects: readonly [{ readonly kind: 'interview-picks'; readonly questionId: string; readonly setId: string }];
+  readonly subjects: readonly RecordPicksSubject[];
 };
 export type RecordPlanContext = RecordContextBase & {
   readonly checkpointEvidence?: readonly CheckpointEvidence[];
@@ -214,7 +222,7 @@ function postPlanPicture(root: string, project: JsonObject): { path: string; sha
 }
 
 /** Reuse check's eligibility and the exact retained evidence of its subject. No writes or locks. */
-export function readRecordPublished(input: RecordPublicationRequest & { result: Extract<RecordPublicationRequest['result'], { kind: 'option-set' }> }, now?: number): RecordOptionContext;
+export function readRecordPublished(input: RecordPublicationRequest & { result: RecordOptionResult }, now?: number): RecordOptionContext;
 export function readRecordPublished(input: RecordPublicationRequest & { result: { kind: 'plan' } }, now?: number): RecordPlanContext;
 export function readRecordPublished(input: RecordPublicationRequest, now?: number): RecordPublishedContext;
 export function readRecordPublished({ root, record, result, phase, parts: sealedParts }: RecordPublicationRequest, now = Date.now()): RecordPublishedContext {
@@ -316,20 +324,34 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     const items = collectItems(project, { collection });
     const plan = isObject(project.plan) ? project.plan : null;
     const steps = asArray(plan?.steps).filter(isObject);
-    const ids = result.kind === 'option-set' ? [result.questionId, result.setId] : steps.map(step => step.id);
+    const sets = result.kind === 'option-set' ? recordOptionSets(result) : [];
+    if (result.kind === 'option-set' && result.sets && (sets.length < 2 || sets.length > 64
+      || sets[0]?.questionId !== result.questionId || sets[0]?.setId !== result.setId)) {
+      refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: an option-set publication must name 1 to 64 sets and lead with its primary set; select the current sets with --questions or --question');
+    }
+    const ids = result.kind === 'option-set' ? sets.flatMap(set => [set.questionId, set.setId]) : steps.map(step => step.id);
     if (ids.some(id => typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id))) {
       refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: a requested question, set or displayed step id is outside the record publication id domain; retain a representable producer id without aliases');
     }
-    let selectedSet: JsonObject | undefined;
+    let selectedSets: JsonObject[] = [];
     if (result.kind === 'option-set') {
-      const matches = items.filter(item => item.id === result.questionId);
-      if (matches.length !== 1) throw Error('the requested question is absent or ambiguous');
-      const binding = matches[0].record.pending_options;
-      // A question whose pick is already recorded has no pending set to publish.
-      if (!isObject(binding)) refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: the requested question has no pending option set; publish the exact current pending set');
-      seal(binding);
-      selectedSet = optionFile(root, binding).set;
-      sealContext(selectedSet.context as JsonObject);
+      const seen = new Set<string>();
+      for (const { questionId, setId } of sets) {
+        const key = JSON.stringify([questionId, setId]);
+        if (seen.has(key)) refuse('JOB_OPTION_SET_DUPLICATE', `project.json: option set ${questionId}/${setId} is named twice; select each pending set once`);
+        seen.add(key);
+      }
+      selectedSets = sets.map(({ questionId }) => {
+        const matches = items.filter(item => item.id === questionId);
+        if (matches.length !== 1) throw Error('the requested question is absent or ambiguous');
+        const binding = matches[0].record.pending_options;
+        // A question whose pick is already recorded has no pending set to publish.
+        if (!isObject(binding)) refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: the requested question has no pending option set; publish the exact current pending set');
+        seal(binding);
+        const set = optionFile(root, binding).set;
+        sealContext(set.context as JsonObject);
+        return set;
+      });
     } else if (result.kind === 'plan') {
       if (!plan && project.stage === 'interview' && stageSignable(project, 'interview')) {
         refuse('INTERVIEW_SIGNOFF_PLAN_REQUIRED', 'project.json.plan.steps: interview record sign-off needs displayed plan steps; draft the plan through the writers and publish it with job open --plan');
@@ -379,12 +401,16 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     let subjects: RecordPlanSubject[] = [];
     let label: string;
     if (result.kind === 'option-set') {
-      const set = selectedSet!;
-      if (set.id !== result.setId || set.question !== result.questionId || set.stage !== stage) {
-        refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: requested option set does not match its question, set id and effective stage; publish the exact current pending set');
-      }
-      withCandidateProject(root, project, () => validateContext(root, project, set, now, true));
-      label = `option-set ${result.questionId} / ${result.setId}`;
+      withCandidateProject(root, project, () => {
+        for (const [index, { questionId, setId }] of sets.entries()) {
+          const set = selectedSets[index]!;
+          if (set.id !== setId || set.question !== questionId || set.stage !== stage) {
+            refuse('JOB_RECORD_SUBJECT_INVALID', 'project.json: requested option set does not match its question, set id and effective stage; publish the exact current pending set');
+          }
+          validateContext(root, project, set, now, true);
+        }
+      });
+      label = result.sets ? `${sets.length} option sets / ${stage}` : `option-set ${result.questionId} / ${result.setId}`;
     } else if (pausedPlan) {
       label = `plan / ${project.stage}`;
     } else if (result.kind === 'plan') {
@@ -429,13 +455,13 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
     const files = [...seals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, sha256]) => ({ path, sha256 }));
     if (result.kind === 'option-set') {
       return { label, parts, inputs, files, plan: null,
-        subjects: [{ kind: 'interview-picks', questionId: result.questionId, setId: result.setId }] };
+        subjects: sets.map(({ questionId, setId }) => ({ kind: 'interview-picks', questionId, setId })) };
     }
     const evidence = checkpointEvidenceContext(root, project, subjects, files);
     return { label, parts, inputs, files, ...evidence, ...(planPicture ? { planPicture } : {}),
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
-    const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))
+    const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_OPTION_SET_DUPLICATE', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))
       ? error
       : new Refusal('JOB_RECORD_INCOMPLETE', `project.json: ${error instanceof Refusal ? `${error.code}: ` : ''}${error instanceof Error ? error.message : String(error)}; restore the requested record and retained evidence, resolve check refusals and reconcile pending publications before publishing`);
     // Review returns only a safe producer token. Its retained root is private and may

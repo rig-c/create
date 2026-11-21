@@ -1,24 +1,35 @@
 import { expect, spyOn, test } from 'bun:test';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { startJobHost } from '@rig-c/review/job-host';
 import reviewPackage from '@rig-c/review/package.json';
 import { currentJobIdentity, partsEnumerator, readPublished, readRecordPublished } from '../src/job-publication.ts';
-import { JOB_BINDING_FILE, jobPrivateRoot, writePrivateJson } from '../src/job-outbox.ts';
+import { JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv } from '../src/job-writer.ts';
 import { TEST_NOW } from './clock.ts';
 import { materializeFixture } from './fixtures.ts';
 import { tempDir } from './helpers.ts';
 import { isSourceLinkedRun } from './source-only.ts';
 
-async function check(root: string) {
+async function cli(root: string, args: string[]) {
   const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'),
-    new Date(TEST_NOW).toISOString(), 'interview', '--check', root, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+    new Date(TEST_NOW).toISOString(), ...args], { stdout: 'pipe', stderr: 'pipe' });
   const [exit, stdout, stderr] = await Promise.all([
     child.exited, new Response(child.stdout).arrayBuffer(), new Response(child.stderr).arrayBuffer(),
   ]);
   return { exit, stdout: Buffer.from(stdout), stderr: Buffer.from(stderr) };
 }
+
+const check = (root: string) => cli(root, ['interview', '--check', root, '--json']);
+
+function snapshot(root: string): unknown {
+  return readdirSync(root).sort().map(name => {
+    const path = join(root, name); const stat = lstatSync(path);
+    return [name, stat.mode, stat.mtimeMs, stat.isDirectory() ? snapshot(path) : jobHash(readFileSync(path))];
+  });
+}
+
+const progressAdvertised = () => isSourceLinkedRun() || Bun.semver.satisfies(reviewPackage.version, '>=4.10.0');
 
 interface ProgressRequest {
   schema: string;
@@ -31,20 +42,69 @@ interface ProgressRequest {
   step?: { i: number; n: number };
 }
 
+interface ProgressHost {
+  host: Awaited<ReturnType<typeof startJobHost>>;
+  calls: { body: ProgressRequest; bytes: number; authorized: boolean; reply: unknown }[];
+  discovered: unknown[];
+  failPosts: (fail: boolean) => void;
+}
+
+/** A bound record-and-package Review host whose HTTP listener records negotiation and progress. */
+async function startProgressHost(root: string, stateDir: string): Promise<ProgressHost> {
+  const identity = currentJobIdentity({ root, stateDir, fingerprint: 'synthetic-progress',
+    reviewer: { id: 'synthetic-owner', role: 'owner' }, publicationMode: 'record-and-package' }, root);
+  const calls: ProgressHost['calls'] = [];
+  const discovered: unknown[] = [];
+  let failPosts = false;
+  let agent = '';
+  // Observe the actual HTTP listener while forwarding normal negotiation and progress to Review.
+  const serve = Bun.serve;
+  const spy = spyOn(Bun, 'serve').mockImplementation((options) => {
+    if (options.websocket || !options.fetch) return serve(options);
+    const handler = options.fetch;
+    return serve({ ...options, async fetch(request, server) {
+      if (request.method !== 'POST' || !new URL(request.url).pathname.endsWith('/api')) return handler.call(this, request, server);
+      const raw = await request.clone().text();
+      const body = JSON.parse(raw) as ProgressRequest;
+      if (body.verb === 'next') {
+        const response = await handler.call(this, request, server);
+        const result = await response.clone().json() as { value: { capabilities: { progress?: boolean } } };
+        discovered.push(result.value.capabilities.progress);
+        if (!failPosts) return response;
+        result.value.capabilities.progress = true;
+        return Response.json(result);
+      }
+      if (body.verb !== 'progress') return handler.call(this, request, server);
+      const response = failPosts ? Response.json({ ok: false }, { status: 503 }) : await handler.call(this, request, server);
+      calls.push({ body, bytes: Buffer.byteLength(raw), authorized: request.headers.get('authorization') === `Bearer ${agent}`,
+        reply: await response.clone().json() });
+      return response;
+    } });
+  });
+  const grants: { jobId: string; origin: string; fetchCapability: string }[] = [];
+  const host = await (async () => {
+    try {
+      return await startJobHost({ root, stateDir, fingerprint: identity.fingerprint, reviewer: identity.reviewer,
+        readerId: identity.readerId, bindingId: identity.bindingId, partsEnumeratorId: identity.partsEnumeratorId,
+        partsEnumerator, publicationMode: 'record-and-package', readPublished, readRecordPublished,
+        installWriterBinding: async grant => { grants.push(grant); } });
+    } finally { spy.mockRestore(); }
+  })();
+  agent = host.session.hostCredentials().agent;
+  expect(grants).toHaveLength(1);
+  expect(host.attachment?.listenerIncarnation).toBeDefined();
+  writePrivateJson(join(root, JOB_BINDING_FILE), { schema: 'rig-create/job-binding@1', identity, ...grants[0],
+    listenerIncarnation: host.attachment!.listenerIncarnation }, true);
+  return { host, calls, discovered, failPosts: fail => { failPosts = fail; } };
+}
+
 test('#688 filled project CLI progress uses the live Review API and keeps its command result', async () => {
   const scratch = realpathSync(tempDir());
   const root = materializeFixture(join(scratch, 'project'));
   const stateDir = join(scratch, 'review');
   mkdirSync(stateDir, { mode: 0o700 });
-  const identity = currentJobIdentity({ root, stateDir, fingerprint: 'synthetic-progress',
-    reviewer: { id: 'synthetic-owner', role: 'owner' }, publicationMode: 'record-and-package' }, root);
   const project = join(root, 'project.json');
   const original = readFileSync(project);
-  const binding = join(root, JOB_BINDING_FILE);
-  const calls: { body: ProgressRequest; bytes: number; authorized: boolean; reply: unknown }[] = [];
-  const discovered: unknown[] = [];
-  let failPosts = false;
-  let agent = '';
   let stop: (() => void) | undefined;
   try {
     const baseline = await check(root);
@@ -53,48 +113,11 @@ test('#688 filled project CLI progress uses the live Review API and keeps its co
     expect(JSON.parse(baseline.stdout.toString())).toMatchObject({ ok: true, refusals: [], warnings: [] });
     expect(existsSync(jobPrivateRoot(root))).toBe(false);
 
-    // Observe the actual HTTP listener while forwarding normal negotiation and progress to Review.
-    const serve = Bun.serve;
-    const spy = spyOn(Bun, 'serve').mockImplementation((options) => {
-      if (options.websocket || !options.fetch) return serve(options);
-      const handler = options.fetch;
-      return serve({ ...options, async fetch(request, server) {
-        if (request.method !== 'POST' || !new URL(request.url).pathname.endsWith('/api')) return handler.call(this, request, server);
-        const raw = await request.clone().text();
-        const body = JSON.parse(raw) as ProgressRequest;
-        if (body.verb === 'next') {
-          const response = await handler.call(this, request, server);
-          const result = await response.clone().json() as { value: { capabilities: { progress?: boolean } } };
-          discovered.push(result.value.capabilities.progress);
-          if (!failPosts) return response;
-          result.value.capabilities.progress = true;
-          return Response.json(result);
-        }
-        if (body.verb !== 'progress') return handler.call(this, request, server);
-        const response = failPosts ? Response.json({ ok: false }, { status: 503 }) : await handler.call(this, request, server);
-        calls.push({ body, bytes: Buffer.byteLength(raw), authorized: request.headers.get('authorization') === `Bearer ${agent}`,
-          reply: await response.clone().json() });
-        return response;
-      } });
-    });
-    const grants: { jobId: string; origin: string; fetchCapability: string }[] = [];
-    const host = await (async () => {
-      try {
-        return await startJobHost({ root, stateDir, fingerprint: identity.fingerprint, reviewer: identity.reviewer,
-          readerId: identity.readerId, bindingId: identity.bindingId, partsEnumeratorId: identity.partsEnumeratorId,
-          partsEnumerator, publicationMode: 'record-and-package', readPublished, readRecordPublished,
-          installWriterBinding: async grant => { grants.push(grant); } });
-      } finally { spy.mockRestore(); }
-    })();
+    const { host, calls, discovered, failPosts } = await startProgressHost(root, stateDir);
     stop = () => host.stop();
-    agent = host.session.hostCredentials().agent;
-    expect(grants).toHaveLength(1);
-    expect(host.attachment?.listenerIncarnation).toBeDefined();
-    writePrivateJson(binding, { schema: 'rig-create/job-binding@1', identity, ...grants[0],
-      listenerIncarnation: host.attachment!.listenerIncarnation }, true);
 
     expect(await check(root)).toEqual(baseline);
-    if (isSourceLinkedRun() || Bun.semver.satisfies(reviewPackage.version, '>=4.10.0')) {
+    if (progressAdvertised()) {
       expect(discovered).toEqual([true, true, true]);
       expect(calls.map(call => [call.body.text, call.body.step])).toEqual([
         ['Starting project check', undefined],
@@ -113,7 +136,7 @@ test('#688 filled project CLI progress uses the live Review API and keeps its co
     }
 
     const successfulCount = calls.length;
-    failPosts = true;
+    failPosts(true);
     expect(await check(root)).toEqual(baseline);
     const rejected = calls.slice(successfulCount);
     expect(rejected.map(call => call.body.seq)).toEqual([successfulCount + 1, successfulCount + 2, successfulCount + 3]);
@@ -129,6 +152,46 @@ test('#688 filled project CLI progress uses the live Review API and keeps its co
     expect(host.session.status().generation).toBe(0);
   } finally {
     stop?.();
+    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}, 60_000);
+
+
+test('#688 a writer that sends a milestone and then refuses leaves the project byte-identical; the seq lives in host state', async () => {
+  const scratch = realpathSync(tempDir());
+  const root = materializeFixture(join(scratch, 'project'));
+  const stateDir = join(scratch, 'review');
+  mkdirSync(stateDir, { mode: 0o700 });
+  const project = join(root, 'project.json');
+  let stop: (() => void) | undefined;
+  try {
+    const { host, calls } = await startProgressHost(root, stateDir);
+    stop = () => host.stop();
+    const before = readFileSync(project);
+    const beforeRoot = snapshot(root);
+
+    // advance sends its first milestone after the job gate, then refuses on a flag it checks late.
+    const refused = await cli(root, ['advance', 'plan-approved', root, '--parts-check', 'synthetic-check.json']);
+    expect(refused.exit).not.toBe(0);
+    expect(refused.stderr.toString()).toContain('PROGRESS_OPTION_INVALID:');
+    expect(readFileSync(project)).toEqual(before);
+    expect(snapshot(root)).toEqual(beforeRoot);
+
+    const seqFile = join(jobHostStateRoot(root), 'progress', `${jobHash(host.session.jobId)}.json`);
+    expect(seqFile.startsWith(`${root}/`)).toBe(false);
+    if (progressAdvertised()) {
+      expect(calls.map(call => [call.body.seq, call.body.text])).toEqual([[1, 'Preparing to advance the project stage']]);
+      expect(JSON.parse(readFileSync(seqFile, 'utf8'))).toBe(1);
+      expect(lstatSync(seqFile).mode & 0o777).toBe(0o600);
+      expect(lstatSync(join(jobHostStateRoot(root), 'progress')).mode & 0o777).toBe(0o700);
+    } else {
+      expect(calls).toHaveLength(0);
+      expect(existsSync(seqFile)).toBe(false);
+    }
+  } finally {
+    stop?.();
+    rmSync(jobHostStateRoot(root), { recursive: true, force: true });
     rmSync(scratch, { recursive: true, force: true });
   }
 }, 60_000);

@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { JobOwnerHost } from '@rig-c/review/job-host';
 import { agentCall } from './job-acts.ts';
-import { jobHash, jobPrivateRoot, privateDirectory, privateJson, tryJobDirectoryLock, writePrivateJson } from './job-outbox.ts';
+import { jobHash, jobHostStateRoot, privateDirectory, privateJson, tryJobDirectoryLock, writePrivateJson } from './job-outbox.ts';
 
 export interface JobProgressUpdate {
   phase: 'ingest' | 'build' | 'measure' | 'publish' | 'other';
@@ -26,7 +26,9 @@ export async function postJobProgress(root: string, host: JobOwnerHost, update: 
     if (text.length > 120 || /[\r\n\u0085\u2028\u2029]/u.test(text)) return true;
     if (step && (!Number.isSafeInteger(step.i) || !Number.isSafeInteger(step.n) || step.i < 1 || step.i > step.n || step.n > 1000)) return true;
 
-    const directory = join(jobPrivateRoot(root), 'progress');
+    // The seq lives beside Review's managed host state, outside the project root, so a refused
+    // writer leaves the project byte-identical even after it sent a milestone.
+    const directory = join(jobHostStateRoot(root), 'progress');
     privateDirectory(directory);
     const key = jobHash(host.session.jobId);
     // Use a separate lock: the command can already hold the publication write lock.

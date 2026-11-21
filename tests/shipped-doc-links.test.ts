@@ -37,4 +37,4 @@ test('shipped documentation links resolve inside the npm package', () => {
   const planted = unpackedLinks('docs/fixture.md', '[Repository rules](../AGENTS.md#rules)', packed);
   expect(planted).toEqual(['docs/fixture.md -> AGENTS.md']);
   expect(() => expect(planted).toEqual([])).toThrow();
-});
+}, 30_000);

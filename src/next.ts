@@ -71,7 +71,7 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
-import { depthPlanMoves, nextRigRegistrationNumber } from './rig-version.ts';
+import { depthPlanMoves, nextRigRegistrationNumber, turnExtraGroupMoves } from './rig-version.ts';
 import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
@@ -1989,6 +1989,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     }
   } else if (effectiveStage === 'rigging' || effectiveStage === 'rig-review') {
     if (effectiveStage === 'rigging') for (const move of depthPlanMoves(project, collection)) {
+      addAwait(move.awaits);
+      moves.push(move);
+    }
+    if (effectiveStage === 'rigging') for (const move of turnExtraGroupMoves(dir, project, collection)) {
       addAwait(move.awaits);
       moves.push(move);
     }

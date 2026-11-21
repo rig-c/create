@@ -652,6 +652,16 @@ Parts may report `BUST_LANDMARKS_*` from the first command or `PROPOSE_BUST_*`
 and `PROPOSE_NECK_MODE` from the second. The second command refuses
 `--bust-landmarks` with `PROPOSE_NECK_MODE` when the config uses a sampled
 body-turn neck. See [rig-c/parts#1436](https://github.com/rig-c/parts/issues/1436).
+
+On Parts 2.50.0, if the landmarks JSON contains all three points, copy
+`apex_r`, `apex_l` and `cleavage` into `meshes.<carrier>.contour.bust` in
+the working config. Add `boob_r` and `boob_l` bones under `chest` at
+`apex_r` and `apex_l`, respectively. Then rerun command 1
+(`bust-landmarks --write-config`) to apply the shape values. If cleavage is
+missing, stop and leave the working config untouched by this procedure.
+With the Parts fix planned for 2.51.0, run command 2 without `--full` or
+`--head` to apply the landmarks on a sampled body-turn neck config.
+
 Replaying ingestion prints the same chain with `REVIEW_ACT_BUST_REPLAY` and
 uses the receipt's working path, even after Parts has updated that file.
 

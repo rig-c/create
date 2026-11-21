@@ -47,6 +47,8 @@ const INPUT_CLI = `  rig-create input add <path> [<dir>] --origin <words>
                                                     register immutable raw source bytes
 `;
 
+export const BOUND_WRITE_HELP = 'Keep the job host up across bound writes; if it stopped, run job open again, then job reconcile.';
+
 const HELP = `rig-create — create and run a rig project
 
 Usage:
@@ -122,11 +124,16 @@ ${INPUT_CLI}  rig-create init <dir> [--no-install]              create a project
   rig-create --help                                 show this help
   rig-create --version                              show the version
 
-job open / job reconcile / bound writers:
+job open:
   --rig <n>      selects a registered rig OR post version; the flag name is shared
-  Keep the Review host up across bound writes (including advance and republish).
-  If it stopped, job open again with --reviewer <id> --role owner|delegate,
-  then job reconcile; a pending publication blocks later bound writes.
+  ${BOUND_WRITE_HELP}
+
+job reconcile:
+  ${BOUND_WRITE_HELP}
+
+bound writers:
+  ${BOUND_WRITE_HELP}
+  A stopped host leaves a committed publication pending (JOB_PUBLISH_PENDING) and refuses later bound writes until job reconcile runs against the live host.
 
 init:
   <dir>          an empty or missing folder; a non-empty one is refused

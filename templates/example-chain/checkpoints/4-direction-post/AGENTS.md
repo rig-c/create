@@ -65,7 +65,7 @@ printed command, advance as needed and publish again.
 `job acts [--json]` lists each pending act's verdict and comments, even when ingest is refused.
 When all picks are ingested, complete the plan and follow `next` for
 `signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
-After a listener stop, reopen with the same reviewer/role and URL, then `job reconcile`.
+Keep the job host up across bound writes; if it stopped, run `job open` again, then `job reconcile`.
 Legacy package-only host: ingest pending acts, run `job close` once, then ask a question or plan.
 
 Use `job withdraw-act <actId>` with owner-chat flags to keep the page. Successful
@@ -77,14 +77,12 @@ closes end it. Share a new URL after reopening.
 
 ## Before you ask, plan or show
 
-- **Owner language.** Use `owner.language` for the text you write. Set it from
-  the owner's preference with `init --owner-language <tag>` or
-  `owner-language set <tag>` before publishing.
-  In `plan add|revise`, write `does`, `produces` and `bar` in that language.
-  In `interview-options --file`, write the question wording (`asks[].prompt`)
-  and options' `label`, `effect` and recommendation `reason` in it.
+- **Owner language.** Use `owner.language` for text you write. Set it from
+  owner preference with `init --owner-language <tag>` or `owner-language set <tag>` before publishing.
+  In `plan add|revise`, write `does`, `produces` and `bar` in it.
+  In `interview-options --file`, write `asks[].prompt`, options' `label` and `effect`, and recommendation `reason` in it.
   For `checkpoint-evidence` and `checkpoint-table`, use it for tile/table
-  labels, routes, recommendations and authored table headings and text cells.
+  labels, routes, recommendations and authored table headings/text cells.
   Keep question/step IDs, proper names, producer data and quoted owner words as supplied.
 - **Prior words.** Offer adopted projects verbatim prior words as a tailored option
   with source/date; require a pick. Legacy: [INTERVIEW.md § Derived answers](https://github.com/rig-c/create/blob/main/docs/INTERVIEW.md#derived-answers).

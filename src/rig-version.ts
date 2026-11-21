@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
-import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { tmpdir } from 'node:os';
@@ -1355,6 +1355,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   } else if (checkAuthorityFlags.some(flag => options[flag] !== undefined)) {
     fail('RIG_CHECK_ACCEPTANCE_INVALID', checkPath, 'owner chat requires --accept-check-bar or --accept-check-line with an exact report key');
   }
+  const progress = beginJobProgress(dir, 'build', 'Starting rig registration');
   let { file, project } = readProject(dir);
   let original = readFileSync(file);
   const lock = `${file}.rig-version.lock`;
@@ -1605,6 +1606,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const problem = rigRegistrationFindings(dir, candidate)[0];
     if (problem) refuse(problem.code, problem.message);
     created.push(join(dir, pkg));
+    progress?.('Preparing and checking the retained rig package', { i: 1, n: 2 });
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate, partReferences.map(reference => reference.path));
     if (asRead.effective_stage === 'rigging') {
       const carried = carryRigDraftVerdict(dir, project, version, resolve(dir, options['--config']!), configInputSources, now);
@@ -1632,6 +1634,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     writeFileSync(pending, recordBytes);
     renameSync(pending, file);
     created.length = 0;
+    progress?.('Rig registration finished', { i: 2, n: 2 });
     publishCommittedVersion(dir, n);
     return { stdout: json ? JSON.stringify(version, null, 2) : `rig-version: v${n} registered; ${String((version.review_package as JsonObject).open)}`, exit: 0 };
   } catch (error) {

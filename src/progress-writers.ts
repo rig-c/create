@@ -4,7 +4,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { asArray, checkProject, collectItems, collectSignoffs, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
-import { acquireAdvanceJobWrite, commitAdvance } from './job-advance.ts';
+import { acquireAdvanceJobWrite, commitAdvance, isPublishAdvanceStage } from './job-advance.ts';
+import { beginJobProgress } from './job-writer.ts';
 import { collectReopens, liveSignoff } from './reopen.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
@@ -73,6 +74,7 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
   const { positional, opts, json } = options(args, 'advance');
   if (positional.length < 1 || positional.length > 2) refuse('PROGRESS_OPTION_INVALID', 'stage: advance needs a target and optional project directory; see help', USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
+  const progress = beginJobProgress(dir, 'other', 'Preparing to advance the project stage');
   const releaseJob = acquireAdvanceJobWrite(dir, positional[0]!);
   try {
     const { file, project } = readProject(dir);
@@ -115,7 +117,9 @@ export function advanceCommand(args: string[], now: number): { stdout: string; e
     }
     project.advances = [...asArray(project.advances), entry];
     project.stage = entry.stage!;
+    progress?.('Checking the stage boundary');
     save(dir, file, project, now, true);
+    if (!isPublishAdvanceStage(positional[0]!)) progress?.('Project stage advanced');
     const lines = isObject(entry.parts_check) ? partsCheckLines(entry.parts_check, checkPath) : [];
     return { stdout: json ? JSON.stringify(entry, null, 2) : [`advance: ${String(entry.from_stage)} -> ${String(entry.stage)}`, ...lines].join('\n'), exit: 0 };
   } finally {

@@ -12,6 +12,7 @@ import { shellWord } from './job-acts.ts';
 import { acceptedReviewVerdict } from './review.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import type { JsonObject } from './templates.ts';
+import type { JobProgressUpdate } from './job-progress.ts';
 
 let checkedBoundTarget: { target: { root: string; jobId: string; selector: JobSelector }; head: string | null } | null = null;
 
@@ -111,6 +112,33 @@ export function jobRuntimeCommand(
   execArgv: readonly string[] = process.execArgv,
 ): string[] {
   return [process.execPath, ...jobRuntimeExecArgv(execArgv), runtime, action];
+}
+
+/** Synchronous commands send milestones through the private job runtime. */
+export function beginJobProgress(root: string, phase: JobProgressUpdate['phase'], text: string): ((text: string, step?: JobProgressUpdate['step']) => void) | undefined {
+  let binding: WriterBinding | null;
+  try {
+    root = realpathSync(root);
+    binding = readWriterBinding(root);
+    // A synchronous caller cannot service an attachment probe to its own listener.
+    if (!binding || binding.identity.root !== root || binding.identity.publicationMode !== 'record-and-package'
+      || !binding.listenerIncarnation || isSameProcessHost(binding)) return;
+  } catch { return; }
+  const { jobId, listenerIncarnation } = binding;
+  let available = true;
+  const report = (text: string, step?: JobProgressUpdate['step']) => {
+    if (!available) return;
+    try {
+      const update: JobProgressUpdate = { phase, text, ...(step ? { step } : {}) };
+      const child = Bun.spawnSync(jobRuntimeCommand('progress'), {
+        stdin: Buffer.from(JSON.stringify({ root, jobId, listenerIncarnation, update })),
+        stdout: 'ignore', stderr: 'ignore', timeout: 8_000,
+      });
+      available = child.exitCode === 0;
+    } catch { available = false; }
+  };
+  report(text);
+  return available ? report : undefined;
 }
 
 const publishedLines: string[] = [];

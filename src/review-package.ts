@@ -16,6 +16,7 @@ import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import { assertRigVersionDate, rigVersionDateFinding } from './rig-version-date.ts';
 import { registeredDepthPartsMatch } from './rig-version.ts';
 import { rigPartsApproval, retainedJson } from './structure.ts';
+import { beginJobProgress } from './job-writer.ts';
 import type { Json, JsonObject } from './templates.ts';
 
 const hash = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
@@ -303,6 +304,7 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
   const dir = realpathSync(resolve(positional[1] ?? process.cwd()));
   const projectFile = join(dir, 'project.json');
   if (!existsSync(projectFile)) refuse('PROJECT_JSON_MISSING', 'project.json is absent');
+  const progress = candidate === undefined ? beginJobProgress(dir, 'build', 'Preparing the review package') : undefined;
   const lock = `${projectFile}.review-package.lock`;
   let descriptor: number;
   try { descriptor = openSync(lock, 'wx'); } catch { refuse('REVIEW_PACKAGE_BUSY', 'another package writer holds the project lock'); }
@@ -468,6 +470,7 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
     const retainedImages = imagePaths ?? recordedFiles.filter(isObject).flatMap(file =>
       typeof file.path === 'string' && file.path.startsWith('out/') && !namedPaths.has(file.path) ? [file.path.slice(4)] : []);
     const inputs = sourceFiles(from, retainedImages);
+    progress?.('Copying and verifying the package files', { i: 1, n: 2 });
     const pkg = join(dir, packagePath(n));
     makePackageParent(dir);
     const scratch = mkdtempSync(join(dirname(pkg), `.v${n}-`));
@@ -519,6 +522,7 @@ function packageCommand(args: string[], candidate?: JsonObject, imagePaths?: rea
       writeFileSync(pending, `${JSON.stringify(project, null, 2)}\n`);
       renameSync(pending, projectFile);
       published = false;
+      progress?.('Review package ready', { i: 2, n: 2 });
       return { stdout: json ? JSON.stringify(record, null, 2) : `review-package: v${n} copied; ${openCommand(n)}`, exit: 0 };
     } finally {
       if (published) rmSync(pkg, { recursive: true });

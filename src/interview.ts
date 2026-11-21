@@ -7,6 +7,7 @@
 import { checkProject, formatReport } from './check.ts';
 import { checkCollection, collectionDirOf, formatCollectionReport } from './pins-check.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { beginJobProgress } from './job-writer.ts';
 
 export interface CommandResult {
   stdout: string;
@@ -43,11 +44,15 @@ export function interviewCommand(args: string[], now: number): CommandResult {
     const report = checkCollection(collectionDir);
     return { stdout: json ? JSON.stringify(report, null, 2) : formatCollectionReport(report), exit: report.ok ? 0 : 1 };
   }
+  const progress = beginJobProgress(target, 'measure', 'Starting project check');
+  progress?.('Checking the record and retained evidence', { i: 1, n: 2 });
   const report = checkProject(target, undefined, { now, readOnly: true });
-  return {
+  const result = {
     stdout: json ? JSON.stringify(report, null, 2) : [formatReport(report),
       ...(report.invariants === null ? [] : [`invariants: ${report.invariants.entries.length} entries, ${report.invariants.gaps.length} gaps (translated from the guide; not a rig check)`]),
     ].join('\n'),
     exit: report.ok ? 0 : 1,
   };
+  progress?.('Project check finished', { i: 2, n: 2 });
+  return result;
 }

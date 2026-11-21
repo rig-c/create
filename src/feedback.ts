@@ -25,7 +25,7 @@ import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFil
 import { existsSync, lstatSync, readFileSync } from './check-reads.ts';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { jobHash } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, fetchReviewActRuntime, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
 import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, reviewActVerdict, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
@@ -845,7 +845,9 @@ export function reviewCommand(args: string[], now: number): { stdout: string; ex
     if (Object.keys(opts).length !== 1 || items.length || answersFeedback.length || Object.keys(asks).length || Object.keys(quotes).length || Object.keys(values).length) {
       refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --from-review excludes human-value and feedback flags; submit those values through Review', USAGE_EXIT);
     }
-    const recorded = recordReviewAct(positional[1] ?? process.cwd(), version, opts['--from-review'], now);
+    const progress = beginJobProgress(dir, 'ingest', 'Reading the Review verdict');
+    const recorded = recordReviewAct(dir, version, opts['--from-review'], now);
+    progress?.('Review verdict recorded');
     return { stdout: json ? JSON.stringify(recorded, null, 2) : [...(recorded.warnings ?? []), `review: ${recorded.verdict_path} — ${String(recorded.verdict.verdict)} (recorded or replayed)`].join('\n'), exit: 0 };
   }
   if (opts['--verbatim'] !== undefined && opts['--verbatim-file'] !== undefined) refuse('REVIEW_OPTION_INVALID', 'choose --verbatim or --verbatim-file', USAGE_EXIT);

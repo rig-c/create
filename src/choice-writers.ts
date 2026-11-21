@@ -3,7 +3,7 @@ import { overrideFindings } from './overrides.ts';
 import { intakeItem, intakeWarnings, INTAKE_QUESTION } from './intake.ts';
 /** Public record writers; validation precedes every project write. */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActFindings, reviewActTransport, type ReviewActTransport, type InterviewPicksAct } from './review-act.ts';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
@@ -159,6 +159,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
   if (opts.one['--owner-chat'] !== undefined && opts.one['--by']?.toLowerCase() === 'agent') refuse('INTERVIEW_CHOICE_INVALID', 'project.json.interview: --by must name the owner; relay owner words without claiming agent authority');
   const chat = readOwnerChat(opts.one, opts.one['--by'] ?? '', now, 'project.json.interview');
   const dir = resolve(opts.positional[1] ?? process.cwd());
+  const progress = opts.one['--from-review'] ? beginJobProgress(dir, 'ingest', 'Reading the Review interview answer') : undefined;
   const release = acquireBoundJobWrite(dir);
   try {
     const {file,project} = readProject(dir); const original = readFileSync(file); const next = structuredClone(project);
@@ -181,6 +182,7 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
         const retained = [item.raw,...asArray(item.record.history)].filter(isObject).find(answer => answer.at === act!.at
           && sha256(Buffer.from(JSON.stringify(answer.choice))) === existing.version_hash);
         if (!retained) refuse('REVIEW_ACT_LEDGER_INVALID', `${item.path}: original interview answer is absent; restore its history`);
+        progress?.('Review interview answer already recorded');
         return JSON.stringify(retained);
       }
       if (act.schema === 'rig-review/act@4') assertActSubjectDeclared(dir, act, item.path);
@@ -264,7 +266,9 @@ export function interviewAnswerCommand(args: string[], now: number, hooks: Inter
       jobId:act.jobId,actId:act.actId,question:item.id,bytes:fetched.bytes,sha256:sha256(Buffer.from(fetched.bytes)),
       version_hash:sha256(Buffer.from(JSON.stringify(choice)))}];
     if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', 'project.json: record changed during interview fetch; retry against the current job');
-    save(file,dir,project,next,now,[],correction ? item.id : undefined); return JSON.stringify(answer);
+    save(file,dir,project,next,now,[],correction ? item.id : undefined);
+    progress?.('Review interview answer recorded');
+    return JSON.stringify(answer);
   } finally { release(); }
 }); }
 

@@ -62,7 +62,12 @@ export interface PendingPublication {
  * owner's unique token and cannot remove a replacement owner's nonempty lock.
  */
 export function acquireJobLock(root: string, required = true): (() => void) | null {
-  const lock = join(root, '.rig-create-job-write.lock');
+  const release = tryJobDirectoryLock(join(root, '.rig-create-job-write.lock'));
+  if (!release && required) refuse('JOB_WRITE_BUSY', 'project.json: a bound writer holds its publication freeze; wait before retrying');
+  return release;
+}
+
+export function tryJobDirectoryLock(lock: string): (() => void) | null {
   const token = `${process.pid}-${randomUUID()}`;
   const candidate = `${lock}.${token}`;
   mkdirSync(candidate, { mode: 0o700 });
@@ -89,10 +94,7 @@ export function acquireJobLock(root: string, required = true): (() => void) | nu
           if (!['ENOENT', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
         }
       }
-      if (!install()) {
-        if (required) refuse('JOB_WRITE_BUSY', 'project.json: a bound writer holds its publication freeze; wait before retrying');
-        return null;
-      }
+      if (!install()) return null;
     }
     return () => { rmSync(join(lock, token)); rmdirSync(lock); };
   } finally { rmSync(candidate, { recursive: true, force: true }); }

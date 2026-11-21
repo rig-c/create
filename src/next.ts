@@ -36,6 +36,7 @@ import {
 } from './diff-map.ts';
 import { partsStructureSnapshot } from './job-acts.ts';
 import { JOB_BINDING_FILE, type WriterBinding } from './job-outbox.ts';
+import { beginJobProgress } from './job-writer.ts';
 import { isPartsCheckMove, partsCheckFindings, partsCheckRecord } from './parts-check.ts';
 import { isPartsReviewReceipt, latestPartsVerdictStatus, latestRiggingDraftFeedback, recordedPartsVerdict } from './parts-verdict-record.ts';
 import { assertPartsActSource } from './parts-act.ts';
@@ -2415,7 +2416,9 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
 export function nextCommand(args: string[], now: number = Date.now()): { stdout: string; exit: number } {
   const { dir, json } = parseArgs(args);
   const collectionDir = collectionDirOf(dir);
+  const progress = collectionDir === null ? beginJobProgress(dir, 'other', 'Resolving the next project actions') : undefined;
   const report = collectionDir !== null ? nextCollection(collectionDir) : nextProject(dir, now);
+  progress?.('Next project actions ready');
   return {
     stdout: json ? JSON.stringify(report, null, 2) : formatNext(report),
     exit: 0,

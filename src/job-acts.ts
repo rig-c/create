@@ -22,14 +22,15 @@ import type { JsonObject } from './templates.ts';
 export type AgentReply = {
   ok?: boolean;
   error?: { code?: string; message?: string };
-  value?: { events?: unknown; status?: unknown; cursor?: unknown; capabilities?: { askBatch?: unknown }; asks?: unknown };
+  value?: { events?: unknown; status?: unknown; cursor?: unknown; capabilities?: { askBatch?: unknown; progress?: unknown }; asks?: unknown };
 };
 
-export async function agentCall(host: JobOwnerHost, body: object): Promise<AgentReply> {
-  const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
+export async function agentCall(host: JobOwnerHost, body: object, send?: (request: Request) => Promise<Response>): Promise<AgentReply> {
+  const request = new Request(`${host.origin}/jobs/${host.session.jobId}/api`, {
     method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
     body: JSON.stringify({ schema: host.session.publicationMode === 'record-and-package' ? 'rig-review/job-api@3' : 'rig-review/job-api@2', jobId: host.session.jobId, requestId: randomUUID(), ...body }),
-  }));
+  });
+  const response = send ? await send(request) : await host.ports.handleJobApi(request);
   return await response.json() as AgentReply;
 }
 

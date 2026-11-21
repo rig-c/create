@@ -7,7 +7,7 @@ import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, ren
 import { dirname, join, resolve } from 'node:path';
 import { readProject } from './feedback.ts';
 import { readPartsReview, ReviewReadError, storeReviewRead, type ReviewReadRunner } from './review-read.ts';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { acquireJobLock, jobHash, readAcknowledgedPublication, readWriterBinding } from './job-outbox.ts';
 import { decodeReviewAct, fetchReviewActBytes, matchesActProjectSource, reviewActFindings, reviewActTransport, reviewActVerbatim, type ReviewActTransport } from './review-act.ts';
 import { assertPartsActSource, isRiggingDraftAct, partsActDraftHash, partsActFindings, partsActReceipt } from './parts-act.ts';
@@ -57,6 +57,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
   const root = resolve(positional[0] ?? process.cwd());
   if (fromCli) assertPartsCliArgs(cliArgs);
   if (!actId) return recordCliVerdict(root, options, cliArgs, json, now, hooks);
+  const progress = beginJobProgress(root, 'ingest', 'Reading the Review parts verdict');
   const release = acquireBoundJobWrite(root);
   let created: string | undefined;
   let committed = false;
@@ -149,6 +150,7 @@ export function partsReviewCommand(args: string[], now: number, hooks: PartsRevi
     const result = { draft_id: act.source.selector.id, evidence, verdict: act.value.verdict,
       by: act.authority.reviewer.role === 'owner' ? 'user' : 'delegate', at: act.at, verbatim: reviewActVerbatim(act),
       ...(warnings.length ? { warnings } : {}) };
+    progress?.('Review parts verdict recorded');
     return { stdout: json ? JSON.stringify(result, null, 2) : [...warnings, `parts-review: ${result.draft_id} ${result.verdict}, evidence ${evidence.path}`].join('\n'), exit: 0 };
   } finally {
     if (created && !committed) rmSync(created, { force: true });

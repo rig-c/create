@@ -517,7 +517,7 @@ export function checkCollection(dirArg: string): CollectionReport {
   }
   const recordValues = asArray(collection.stage_values).filter((x): x is string => typeof x === 'string');
   if (recordValues.join(',') !== COLLECTION_STAGE_VALUES.join(',')) {
-    warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the collection order is [${COLLECTION_STAGE_VALUES.join(', ')}]` });
+    warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the collection order is [${COLLECTION_STAGE_VALUES.join(', ')}]; no collection writer rewrites this list, and the warning blocks nothing` });
   }
   const effective = checkCollectionRecord(collection, stage, refusals, warnings);
   const members = readMembers(dir, collection, refusals);

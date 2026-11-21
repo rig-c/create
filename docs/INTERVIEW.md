@@ -212,7 +212,8 @@ made there. A new config section is a new place a decision is made, so it joins
 a waypoint (or becomes one) without anyone editing a list. The template's
 waypoint list is a snapshot of the sections at the package version named in
 `interview.question_set`; project creation is expected to regenerate it from the
-installed package.
+installed package. `rig-create packages upgrade` moves that version and each
+waypoint's `config[]` to the installed parts in its validated write.
 
 Not every section is a waypoint. A section is one when writing it is a
 **direction call** — something the user could have an opinion about before

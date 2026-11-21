@@ -600,10 +600,10 @@ Exit `0`. Bookkeeping that names no missing decision.
 | --- | --- | --- |
 | `STEP_SIGNOFF_HASH_MISSING` | a step's latest covering approval has no `step_hashes` field | sign again to record its contents. The historical signature stays readable, with no assumed hash match |
 | `PRE_INTERVIEW_UNMIGRATED` | `x-pre_create.versions` still holds history awaiting migration | follow [PROJECT.md's migration steps](PROJECT.md#migrating-work-done-before-the-interview), preserving originals and outputs before moving the entries. The warning preserves the existing check exit code while migration is pending |
-| `STAGE_VALUES_STALE` | the record's `stage_values` differs from `src/stages.ts` | regenerate the list |
-| `QUESTION_SET_STALE` | `interview.question_set` does not name the installed `@rig-c/parts` version | re-read the waypoints from the installed version and update the string |
+| `STAGE_VALUES_STALE` | the record's `stage_values` differs from `src/stages.ts` | the next `advance` or `step-status` write regenerates it; the warning blocks nothing until then. In a collection, no writer rewrites it yet, and it blocks nothing |
+| `QUESTION_SET_STALE` | `interview.question_set` does not name the installed `@rig-c/parts` version | `rig-create packages upgrade --by <operator>`; it moves the string to the pinned parts in the same validated write and records the move ([PROJECT.md § Updating a project's release pins](PROJECT.md#updating-a-projects-release-pins)) |
 | `SECTION_RETIRED` | the table places a section on a waypoint or post item, but the installed parts no longer has it | drop it from the table and the record's `config[]` |
-| `WAYPOINT_CONFIG_STALE` | a record waypoint's `config[]` is not the set of sections parts places there | regenerate `config[]` |
+| `WAYPOINT_CONFIG_STALE` | a record waypoint's `config[]` is not the set of sections parts places there | `rig-create packages upgrade --by <operator>`; it regenerates `config[]` from the installed parts in the same validated write and records the move |
 | `WAYPOINT_UNKNOWN` | the record has a waypoint no parts section is placed on | remove it, or place a section on it |
 | `FEEDBACK_OPEN` | the latest version has a human bounced verdict and no version is built after it yet | build the next version and list the verdict in its `answers_feedback` |
 | `PROVENANCE_CONFIG_CHANGED` | a version's `provenance.config.path` is present but its sha256 is not the recorded one, so its sections were not read | regenerate the config from the recorded command, or leave it: the sections provenance lists were checked |
@@ -1829,10 +1829,10 @@ optional on older records; present rows are validated by the writer and check.
 
 | Code | Meaning and remedy |
 | --- | --- |
-| `PACKAGE_UPGRADE_MALFORMED` | `project.json.package_upgrades` is not the writer's history: restore its operator, timestamp, three from/to package entries and lock sha256. |
+| `PACKAGE_UPGRADE_MALFORMED` | `project.json.package_upgrades` is not the writer's history: restore its operator, timestamp, three from/to package entries and lock sha256, and any `question_set` or `waypoint_config` move it recorded. |
 | `PACKAGE_UPGRADE_USAGE` | Supply `packages upgrade [dir] --by <operator>`. |
 | `PACKAGE_UPGRADE_INPUT` | Restore the named manifest/record field; pins must be exact versions in dependencies, with no duplicate locations, workspace or local dependencies. |
-| `PACKAGE_UPGRADE_CURRENT` | All three manifest pins already equal Create's release pins; no write is needed. |
+| `PACKAGE_UPGRADE_CURRENT` | All three manifest pins already equal Create's release pins, and `interview.question_set` and every waypoint `config[]` match the installed parts; no write is needed. |
 | `PACKAGE_UPGRADE_DOWNGRADE` | The named package is newer than Create's release pin; use a newer Create release. |
 | `PACKAGE_UPGRADE_INSTALL` | The staged install failed; repair registry access or the package versions and retry. |
 | `PACKAGE_UPGRADE_CHECK_FAILED` | The project check could not complete; repair the record or installed packages and retry. |

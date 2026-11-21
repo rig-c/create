@@ -15,7 +15,7 @@ export function compareVersions(a: string, b: string): number {
 export function packageUpgradeFindings(project: JsonObject): Finding[] {
   const history = project.package_upgrades;
   if (history === undefined) return [];
-  const bad = (path: string): Finding => ({ code: 'PACKAGE_UPGRADE_MALFORMED', path, message: `${path}: invalid package upgrade history; restore the writer's from/to versions, operator, timestamp and lock integrity (rig-create packages upgrade)` });
+  const bad = (path: string): Finding => ({ code: 'PACKAGE_UPGRADE_MALFORMED', path, message: `${path}: invalid package upgrade history; restore the writer's from/to versions, operator, timestamp, lock integrity and any question_set or waypoint_config move (rig-create packages upgrade)` });
   if (!Array.isArray(history)) return [bad('package_upgrades')];
   const out: Finding[] = [];
   for (const [index, row] of history.entries()) {
@@ -27,6 +27,12 @@ export function packageUpgradeFindings(project: JsonObject): Finding[] {
       const pin = row.packages[i];
       if (!isObject(pin) || pin.name !== name || (pin.from !== null && !exactVersion(pin.from)) || !exactVersion(pin.to) || (typeof pin.from === 'string' && compareVersions(pin.from, pin.to) > 0)) out.push(bad(`${path}.packages[${i}]`));
     }
+    // Optional moves the writer records with the pins: absent on older rows.
+    const set = row.question_set;
+    if (set !== undefined && !(isObject(set) && typeof set.from === 'string' && typeof set.to === 'string' && set.to.includes('@rig-c/parts '))) out.push(bad(`${path}.question_set`));
+    const strings = (value: unknown) => Array.isArray(value) && value.every(item => typeof item === 'string');
+    const configs = row.waypoint_config;
+    if (configs !== undefined && !(Array.isArray(configs) && configs.length > 0 && configs.every(move => isObject(move) && typeof move.id === 'string' && strings(move.from) && strings(move.to)))) out.push(bad(`${path}.waypoint_config`));
   }
   return out;
 }

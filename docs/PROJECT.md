@@ -2783,10 +2783,20 @@ with Create's complete release pin set. Missing pins are recorded as `null`.
 
 The writer appends `package_upgrades[]`, with `by`, `at`, `packages` (each entry
 has `name`, `from`, `to`) and `lock_sha256` (the installed lockfile's sha256).
-It preserves literal manifest and record bytes outside those fields. The
+It preserves literal manifest and record bytes outside those fields and the moves below. The
 lockfile and install are regenerated; lifecycle scripts are not executed.
-It never downgrades, and refuses an already-current manifest. Local and
-workspace dependencies are refused because staging would change their base.
+It never downgrades. Local and workspace dependencies are refused because
+staging would change their base.
+
+The same write moves the record's bookkeeping to the installed parts. It
+changes the `@rig-c/parts <version>` in `interview.question_set` to the pinned
+version. It also regenerates each record waypoint's `config[]` whose set differs
+from what the installed parts places there. The row records each move as
+`question_set` (`from`, `to`) and `waypoint_config[]` (`id`, `from`, `to`).
+`config[]` is not part of any answer binding, so no signature goes stale. With
+all three pins already current, the writer still runs when either move is due.
+It refuses `PACKAGE_UPGRADE_CURRENT` only when nothing is left to move. A
+question set that names no parts version is left alone; its warning remains.
 
 The same project check runs in fresh processes before and after the install
 swap, avoiding cached parts modules. Added or changed refusals abort the move;

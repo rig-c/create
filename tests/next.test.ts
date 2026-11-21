@@ -544,6 +544,61 @@ describe('Frozen Bar 5 — Plants (lapsed approval, changed bound input DRAFT_RI
     expect(amendLapses[0]?.command).toBeNull();
   });
 
+  test('#755 later current re-signoffs of the same stage or checkpoint heal an amendment lapse in next', () => {
+    const dir = fixture();
+    const words = join(dir, 'words.txt');
+    writeFileSync(join(dir, 'replacement.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+    writeFileSync(words, 'Re-approve the synthetic stage after the amendment.\n');
+
+    const beforeAmendAt = Date.parse('2026-11-19T00:00:00Z');
+    testClock.set(new Date(beforeAmendAt));
+    signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words]);
+
+    const amendAt = Date.parse('2026-11-20T00:00:00Z');
+    testClock.set(new Date(amendAt));
+    amendCommand([
+      'rigging',
+      dir,
+      '--kind',
+      'part',
+      '--target',
+      'panel',
+      '--change',
+      'replacement.svg',
+      '--by',
+      'owner',
+      '--verbatim-file',
+      words,
+    ]);
+    expect(nextProject(dir, amendAt).moves.filter(m => m.lapse?.code === 'AMENDED_STEP' && m.command === null).map(m => m.awaits)).toEqual([
+      'signoffs[checkpoint=constraints]',
+      'signoffs[stage=post-interview]',
+    ]);
+
+    testClock.set(new Date(amendAt + 60_000));
+    signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words]);
+    testClock.set(new Date(amendAt + 120_000));
+    signoffCommand(['post-interview', dir, '--by', 'owner', '--verbatim-file', words]);
+    expect(nextProject(dir, amendAt + 120_000).moves.filter(m => m.lapse?.code === 'AMENDED_STEP' && m.command === null).map(m => m.awaits)).toEqual([
+      'signoffs[checkpoint=constraints]',
+    ]);
+
+    testClock.set(new Date(amendAt + 180_000));
+    signoffCommand(['rigging', dir, '--checkpoint', 'constraints', '--by', 'owner', '--verbatim-file', words]);
+    testClock.set(new Date(amendAt + 240_000));
+    signoffCommand(['rigging', dir, '--checkpoint', 'constraints', '--by', 'owner', '--verbatim-file', words]);
+
+    const checked = checkProject(dir, undefined, { now: amendAt + 240_000 });
+    expect(checked.refusals).toEqual([]);
+    expect(checked.amendments?.[0]?.lapsed.filter(a => a.stage === 'post-interview')).toHaveLength(2);
+    expect(checked.amendments?.[0]?.lapsed.filter(a => a.checkpoint === 'constraints')).toHaveLength(2);
+
+    const healed = nextProject(dir, amendAt + 240_000);
+    expect(healed.refusals).toEqual([]);
+    expect(healed.moves.filter(m => m.lapse !== undefined)).toEqual([]);
+    expect(healed.moves.some(m => m.act.startsWith('re-approve '))).toBe(false);
+  });
+
   test('plant 2: a changed bound input appears as its DRAFT_RIG_FILE refusal with CHECKS.md fix ahead of every forward move', () => {
     const dir = join(tempDir(), 'tampered-draft');
     cpSync(join(CHECKPOINTS_DIR, '1-parts-verdict'), dir, { recursive: true });

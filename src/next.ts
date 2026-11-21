@@ -1394,6 +1394,12 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   // 1. Derive lapsed approvals from reopens[] and amendments[].
   const rawSignoffs = asArray(project.signoffs).filter(isObject);
   const rawReopens = asArray(project.reopens).filter(isObject);
+  const reopens = collectReopens(project, []);
+  const signoffs = collectSignoffs(project, []);
+  const hasLiveStageSignoff = (targetStage: string): boolean =>
+    signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
+  const hasLiveCheckpointSignoff = (targetStage: string, stepId: string): boolean =>
+    signoffs.some(s => s.stage === targetStage && s.checkpoint === stepId && liveSignoff(reopens, s.stage, s.at));
   const parsedVersions = readVersions(project);
   const isHistoryVersion = (n: number, kind?: 'rig' | 'post'): boolean => {
     const entry = kind === 'rig'
@@ -1510,6 +1516,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       const targetStage = lapsedApproval.stage;
       const checkpoint = lapsedApproval.checkpoint ?? null;
       if (checkpoint !== null && withdrawnCheckpoint(checkpoint)) continue;
+      if (checkpoint !== null ? hasLiveCheckpointSignoff(targetStage, checkpoint) : hasLiveStageSignoff(targetStage)) continue;
       if (checkpoint === null && targetStage === effectiveStage && stageHasPendingOptions) continue;
       const signoffMatch = /^signoffs\[(\d+)\]$/.exec(lapsedApproval.path);
       const signoffEntry = signoffMatch ? rawSignoffs[Number(signoffMatch[1])] : undefined;
@@ -1565,13 +1572,6 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   }
 
   // 3. Stage-specific derivation from project.json.
-  const reopens = collectReopens(project, []);
-  const signoffs = collectSignoffs(project, []);
-  const hasLiveStageSignoff = (targetStage: string): boolean =>
-    signoffs.some(s => s.stage === targetStage && s.checkpoint === null && liveSignoff(reopens, s.stage, s.at));
-  const hasLiveCheckpointSignoff = (targetStage: string, stepId: string): boolean =>
-    signoffs.some(s => s.stage === targetStage && s.checkpoint === stepId && liveSignoff(reopens, s.stage, s.at));
-
   const drafts = asArray(project.drafts).filter(isObject);
   const versions = asArray(project.versions).filter(isObject);
 

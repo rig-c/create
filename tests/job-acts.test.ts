@@ -286,10 +286,10 @@ test('job acts discovers a finalized rig verdict; its exact quoted command also 
 }, 30_000);
 
 test('#756 job acts shows a pending act verdict and comments byte-equal to the host act value, and retains them after a refused review ingest', async () => {
-  const root = copy('3-rig-review', project => {
-    project.stage = 'rigging';
-    project.advances = (project.advances as JsonObject[]).filter(entry => entry.stage !== 'rig-review');
-  });
+  // The verdict is asked where it can be asked (rig-review, #754), and the owner acts on it. An owner-chat
+  // amendment of a rigging-interview answer then moves the effective stage back, which is how a pilot's
+  // pending rig verdict becomes un-ingestable.
+  const root = copy('3-rig-review');
   const opening = await open(root, ['--rig', '1']);
   const view = await page(root, opening.url, 1);
   const ask = view.asks.find(item => (item.subject as JsonObject).kind === 'review-verdict')!;
@@ -299,6 +299,12 @@ test('#756 job acts shows a pending act verdict and comments byte-equal to the h
     words: 'First synthetic owner comment.',
     general: ['Second synthetic owner comment.'],
   }, rigCapture(root, view, String(ask.askId)));
+  const change = join(root, 'amend-bones.json');
+  writeFileSync(change, '{"synthetic":"owner changed the bones answer"}');
+  const amendWords = join(root, 'amend-words.txt');
+  writeFileSync(amendWords, WORDS);
+  expectExit0(await cli(root, ['amend', 'rigging-interview', root, '--kind', 'interview-answer', '--target', 'interview.waypoints[bones].guide',
+    '--change', 'amend-bones.json', '--by', 'synthetic-owner', '--owner-chat', amendWords, '--said-at', testClock.iso(), '--relayed-by', 'synthetic-operator']));
   const projectBefore = readFileSync(join(root, 'project.json'));
 
   const listed = await cli(root, ['job', 'acts', root, '--json']);
@@ -319,10 +325,10 @@ test('#756 job acts shows a pending act verdict and comments byte-equal to the h
   ].join('\n'));
   expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
 
-  // Ingesting at stage rigging refuses REVIEW_ACT_TARGET_MISMATCH; the pending act and its comments remain readable.
+  // After the amendment the ingest refuses; the pending act and its comments remain readable.
   const refused = await cli(root, ['review', '1', root, '--from-review', String(verdict.actId)]);
   expect(refused.exit).toBe(1);
-  expect(refused.stderr).toContain('REVIEW_ACT_TARGET_MISMATCH');
+  expect(refused.stderr).toContain('REVIEW_ACT_SOURCE_STALE');
   expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
 
   const afterRefusalJson = await cli(root, ['job', 'acts', root, '--json']);

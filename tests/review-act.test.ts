@@ -1,19 +1,19 @@
 import { afterEach, expect, test } from 'bun:test';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
+import { JOB_CHEST_LANDMARKS_ACT_SCHEMA, JOB_COMMENTS_ACT_SCHEMA, startJobHost, type JobOwnerHost, type JobVerdict } from '@rig-c/review/job-host';
 import { readModel, readSetupMesh, underNoSkin } from '@rig-c/core/core';
 import { collectItems } from '../src/check.ts';
 import { optionContext } from '../src/choices.ts';
 import { directionHash, objects } from '../src/direction.ts';
-import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson } from '../src/job-outbox.ts';
-import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished } from '../src/job-publication.ts';
+import { acknowledgePublication, enqueuePublication, jobHash, JOB_BINDING_FILE, jobHostStateRoot, readAcknowledgedPublication, readWriterBinding, writePrivateJson, type WriterBinding } from '../src/job-outbox.ts';
+import { currentJobIdentity, partsEnumerator, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
 import { assertReviewActSource, decodeReviewAct, decodeReviewResponse, fetchReviewAct, reviewActFindings, reviewActTransport } from '../src/review-act.ts';
 import { pendingMeshDeltaRevision } from '../src/corrections.ts';
 import { republishCommand } from '../src/republish.ts';
-import { nextProject } from '../src/next.ts';
+import { formatNext, nextProject } from '../src/next.ts';
 import { reviewPackageCommand } from '../src/review-package.ts';
 import { selectSignoffTarget } from '../src/signoff-target.ts';
 import { stepHash } from '../src/step-hash.ts';
@@ -45,8 +45,9 @@ function reviewVerdictReceipts(project: JsonObject): JsonObject[] {
     && typeof entry.bytes === 'string' && JSON.parse(entry.bytes).kind === 'review-verdict');
 }
 
-async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false, existing?: { root: string; rigVersion: number },
-  extraValue?: (root: string, source: JsonObject) => JsonObject) {
+async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'delegate' = 'owner', words = '  Synthetic approval.\r\n', verdict: JobVerdict = 'approved', generation = 1, legacySubjects = false, existing?: { root: string; rigVersion: number; reader?: typeof readPublished },
+  extraValue?: (root: string, source: JsonObject, publication: JsonObject) => JsonObject,
+  attachable?: 'package-only' | 'record-and-package') {
   // Keep authored moves after the fixture and before the live host's receipts.
   if (!existing) testClock.set(EXAMPLE_REOPEN_AT);
   const root = existing?.root ?? temporary('create-act-project-');
@@ -67,20 +68,32 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
     expect(republishCommand([String(n), root, '--reason', 'Include the original painting.'], testClock.now()).exit).toBe(0);
   }
   const hidden = temporary('create-act-hidden-');
-  // The actual host state path is never installed in the consumer binding.
+  // Existing fetch-only fixtures omit the actual host state path.
   const stateDir = join(hidden, 'relocated-state');
-  const identity = currentJobIdentity({ root, stateDir, fingerprint: 'rig-create/live-review/1', reviewer: { id: 'synthetic-reviewer', role } }, root);
-  let reader = readPublished;
+  const identity = currentJobIdentity({ root, stateDir, fingerprint: 'rig-create/live-review/1', reviewer: { id: 'synthetic-reviewer', role },
+    ...(attachable === 'record-and-package' ? { publicationMode: attachable } : {}) }, root);
+  let reader = existing?.reader ?? readPublished;
   if (legacySubjects) {
     const runtime = temporary('create-act-legacy-');
     legacyRigPublicationCli(runtime);
     reader = (await import(join(runtime, 'src/job-publication.ts'))).readPublished;
   }
+  let writerGrant: Pick<WriterBinding, 'jobId' | 'origin' | 'fetchCapability'> | undefined;
   const host = await startJobHost({ ...identity, partsEnumerator, readPublished: reader,
-    installWriterBinding: grant => writePrivateJson(join(root, JOB_BINDING_FILE), {
-      schema: 'rig-create/job-binding@1', identity: { ...identity, stateDir: 'not-given-to-writer' }, ...grant,
-    }, true) });
+    ...(attachable === 'record-and-package' ? { readRecordPublished } : {}),
+    installWriterBinding: grant => {
+      if (attachable) writerGrant = grant;
+      else writePrivateJson(join(root, JOB_BINDING_FILE), {
+        schema: 'rig-create/job-binding@1', identity: { ...identity, stateDir: 'not-given-to-writer' }, ...grant,
+      }, true);
+    } });
   hosts.push(host);
+  if (attachable) {
+    if (!writerGrant || !host.attachment) throw Error('Review did not install an attachable writer grant');
+    writePrivateJson(join(root, JOB_BINDING_FILE), {
+      schema: 'rig-create/job-binding@1', identity, ...writerGrant, listenerIncarnation: host.attachment.listenerIncarnation,
+    }, true);
+  }
   const project = projectAt(root);
   project.review_job = { jobId: host.session.jobId, origin: host.origin };
   putProject(root, project);
@@ -115,7 +128,7 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
   const submitted = await host.ports.commitUIAct(host.session.jobId, uiRequest('acts', {
     publicationId: publication.publicationId, askId: ask.askId, pageId: 'synthetic-page', displayedNonce: displayed.value.displayedNonce,
     expectedGeneration: host.session.status().generation, submissionId: 'synthetic-submission', kind: 'review-verdict',
-    value: { stage, verdict, words, ...extraValue?.(root, publication.source as JsonObject) },
+    value: { stage, verdict, words, ...extraValue?.(root, publication.source as JsonObject, publication) },
     ...(n !== 1 ? {} : (() => {
       const png = readFileSync(join(root, 'evidence/setup.png'));
       return { capture: { png: `data:image/png;base64,${png.toString('base64')}`,
@@ -126,13 +139,12 @@ async function published(checkpoint = '3-rig-review', n = 1, role: 'owner' | 'de
           drawGeneration: 1, playerGeneration: 0 } } };
     })()),
   }));
-  expect(submitted.ok).toBe(true);
-  if (!submitted.ok) throw Error(submitted.error.code);
+  if (!submitted.ok) throw Error(`${submitted.error.code}: ${submitted.error.message}`);
   testClock.set(Math.max(testClock.now(), Date.parse(submitted.value.at)));
   return { root, host, act: submitted.value, hidden, n, agent, uiRequest, publication };
 }
 
-async function command(root: string, actId: string, n = 1, guarded = false) {
+async function command(root: string, actId: string, n = 1, guarded = false, flags = ['--json']) {
   const guard = join(root, 'fs-guard.ts');
   if (guarded) writeFileSync(guard, `import {mock} from 'bun:test';
 import fs from 'node:fs';
@@ -153,7 +165,7 @@ Bun.spawnSync = (args, options) => original([args[0], '--preload', import.meta.p
     const [error, exit] = await Promise.all([new Response(probe.stderr).text(), probe.exited]);
     expect(exit).toBe(1); expect(error).toContain('REVIEW_STATE_ACCESSED');
   }
-  const child = Bun.spawn([process.execPath, ...(guarded ? ['--preload', guard] : []), ...clockedCli(), 'review', String(n), root, '--from-review', actId, '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn([process.execPath, ...(guarded ? ['--preload', guard] : []), ...clockedCli(), 'review', String(n), root, '--from-review', actId, ...flags], { stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, exit };
 }
@@ -608,6 +620,25 @@ test('#664 keeps the context Review emits in act@7 while recording the signed sc
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
 });
 
+function meshEdits(root: string, source: JsonObject): JsonObject[] {
+  const model = readFileSync(join(root, String((source.model as JsonObject).path)), 'utf8');
+  const { stage, skins } = JSON.parse(model);
+  const mesh = readSetupMesh(underNoSkin(readModel(model)), { slot: 'torso', skin: 'default', attachment: 'torso' });
+  const attachment = skins.find((skin: { name: string }) => skin.name === 'default').attachments.torso.torso;
+  const positions = Array.from({ length: mesh.vertices.length / 2 }, (_, i) =>
+    [mesh.vertices[2 * i]! - stage.x, stage.y + stage.height - mesh.vertices[2 * i + 1]!]);
+  const vertex = mesh.hull!;
+  const from = positions[vertex]!;
+  const edit = {
+    attachment: 'torso', basis: 'setup', ops: [{ from, op: 'move', to: [Math.round((from[0]! + 0.5) * 100) / 100, Math.round(from[1]! * 100) / 100], v: vertex }],
+    skin: 'default', slot: 'torso',
+    source: { frame: { height: stage.height, width: stage.width }, hash: jobHash(JSON.stringify(attachment)),
+      hullLength: mesh.hull, positions, triangleCount: mesh.triangles.length / 3, vertexCount: positions.length },
+  };
+  // Keys in this fixture are in the order used for Review's signed digest.
+  return [{ edit, sha256: jobHash(JSON.stringify(edit)) }];
+}
+
 test('#664 ingests Review mesh-only Request changes with a sized provenance config and replays without a second revision', async () => {
   testClock.set(EXAMPLE_REOPEN_AT);
   const root = temporary('create-mesh-act-project-');
@@ -620,22 +651,7 @@ test('#664 ingests Review mesh-only Request changes with a sized provenance conf
   putProject(root, initial);
   let sent: JsonObject[] = [];
   const { host, act } = await published('3-rig-review', 1, 'delegate', '', 'changes-requested', 1, false, { root, rigVersion: 1 }, (root, source) => {
-    const model = readFileSync(join(root, String((source.model as JsonObject).path)), 'utf8');
-    const { stage, skins } = JSON.parse(model);
-    const mesh = readSetupMesh(underNoSkin(readModel(model)), { slot: 'torso', skin: 'default', attachment: 'torso' });
-    const attachment = skins.find((skin: { name: string }) => skin.name === 'default').attachments.torso.torso;
-    const positions = Array.from({ length: mesh.vertices.length / 2 }, (_, i) =>
-      [mesh.vertices[2 * i]! - stage.x, stage.y + stage.height - mesh.vertices[2 * i + 1]!]);
-    const vertex = mesh.hull!;
-    const from = positions[vertex]!;
-    const edit = {
-      attachment: 'torso', basis: 'setup', ops: [{ from, op: 'move', to: [Math.round((from[0]! + 0.5) * 100) / 100, Math.round(from[1]! * 100) / 100], v: vertex }],
-      skin: 'default', slot: 'torso',
-      source: { frame: { height: stage.height, width: stage.width }, hash: jobHash(JSON.stringify(attachment)),
-        hullLength: mesh.hull, positions, triangleCount: mesh.triangles.length / 3, vertexCount: positions.length },
-    };
-    // Keys in this fixture are in the order used for Review's signed digest.
-    sent = [{ edit, sha256: jobHash(JSON.stringify(edit)) }];
+    sent = meshEdits(root, source);
     return { meshEdits: sent };
   });
   expect(act.schema).toBe('rig-review/act@8');
@@ -645,6 +661,7 @@ test('#664 ingests Review mesh-only Request changes with a sized provenance conf
   const result = await command(root, act.actId);
   expect(result.stderr).toBe('');
   expect(result.exit).toBe(0);
+  expect(JSON.parse(result.stdout).bust_landmark_commands).toBeUndefined();
   expect(JSON.parse(result.stdout).verdict).toMatchObject({ verdict: 'bounced', by: 'delegate', verbatim: '' });
   const project = projectAt(root);
   expect(reviewVerdictReceipts(project)[0]?.bytes).toBe(bytes);
@@ -668,7 +685,196 @@ test('#664 ingests Review mesh-only Request changes with a sized provenance conf
   expect((await command(root, act.actId)).exit).toBe(0);
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);
   expect(readdirSync(join(root, 'derived'))).toEqual(dirs);
+}, 90_000);
+
+const workingConfig = "working/owner's config.json";
+const frozenConfig = 'evidence/v1/config-source.json';
+const portableConfig = 'derived/review/v1/config.json';
+
+async function publishedChest(mixed = false, mode: 'package-only' | 'record-and-package' = 'package-only') {
+  testClock.set(EXAMPLE_REOPEN_AT);
+  const root = temporary('create-chest-act-');
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/3-rig-review'), root, { recursive: true });
+  const project = projectAt(root);
+  const version = (project.versions as JsonObject[])[0]!;
+  const pkg = version.review_package as JsonObject;
+  const config = JSON.parse(readFileSync(join(root, portableConfig), 'utf8'));
+  const bust = { alpha: 0.25, apex_l: [74, 44], apex_r: [54, 44], bone_l: 'body', bone_r: 'body', cleavage: [64, 44] };
+  // The existing torso mesh supplies the displayed attachment. Adding a bust spec
+  // to this synthetic config exercises Review's actual seed and act contract.
+  const { r, segments } = config.meshes.torso;
+  config.meshes.torso = { r, segments, contour: { tolerance: 1, margin: 1, spacing: 4, bust } };
+  const portable = JSON.stringify(config, null, 2) + '\n';
+  const working = JSON.stringify(config) + '\n';
+  const sha256 = jobHash(working);
+  mkdirSync(join(root, 'working'));
+  for (const path of [workingConfig, frozenConfig]) writeFileSync(join(root, path), working);
+  for (const path of [portableConfig, 'evidence/v1/config.json']) writeFileSync(join(root, path), portable);
+  version.registration = { config_source: { path: frozenConfig, sha256 } };
+  const configPath = 'evidence/v1/config.json';
+  const configSeal = { path: configPath, sha256: jobHash(portable) };
+  (version.provenance as JsonObject).config = { ...configSeal, bytes: Buffer.byteLength(portable) };
+  pkg.config = configSeal;
+  (pkg.files as JsonObject[]).find(row => row.path === 'config.json')!.sha256 = configSeal.sha256;
+  putProject(root, project);
+
+  let withSeed = true;
+  const reader: typeof readPublished = async input => {
+    const context = await readPublished(input);
+    if (withSeed) return context;
+    const { chestLandmarks: _, ...withoutSeed } = context;
+    return withoutSeed;
+  };
+  const view = await published('3-rig-review', 1, 'owner', '', 'changes-requested', 1, false,
+    { root, rigVersion: 1, reader }, (root, source, publication) => {
+      const seeds = publication.chestLandmarks as JsonObject[];
+      expect(seeds).toHaveLength(1);
+      expect(seeds[0]!.source).toMatchObject({ configHash: configSeal.sha256 });
+      const seed = seeds[0]!;
+      const { frame, hash } = seed.source as JsonObject;
+      const { height, width } = frame as JsonObject;
+      // In canonical key order for Review's own request digest.
+      const edit = { attachment: seed.attachment, basis: 'setup',
+        bust: { ...bust, apex_l: [75, 44] },
+        skin: seed.skin, slot: seed.slot, source: { frame: { height, width }, hash } };
+      return { chestLandmarks: [{ edit, sha256: jobHash(JSON.stringify(edit)) }], ...(mixed ? { meshEdits: meshEdits(root, source) } : {}) };
+    }, mode);
+  expect(view.act.schema).toBe(JOB_CHEST_LANDMARKS_ACT_SCHEMA);
+  async function publishWithoutSeed() {
+    withSeed = false;
+    const path = prepareLiveManifest(root, projectAt(root), 1);
+    return view.agent('publish', { result: { path, selector: { kind: 'rig', version: 1 } },
+      freeze: { kind: 'producer-held', holdId: 'synthetic-later-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) } } });
+  }
+  return { ...view, working, sha256, publishWithoutSeed };
+}
+
+function treeSnapshot(root: string): Record<string, string> {
+  const entries: Record<string, string> = {};
+  function walk(dir: string) {
+    for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        entries[path] = 'directory';
+        walk(path);
+      } else {
+        entries[path] = entry.isSymbolicLink() ? `link:${readlinkSync(join(root, path))}` : jobHash(readFileSync(join(root, path)));
+      }
+    }
+  }
+  walk('');
+  return entries;
+}
+
+test.each(['package-only', 'record-and-package'] as const)('#774 retains act@9 from a %s host and prints the same two commands on replay and next', async mode => {
+  const { root, host, act, working, sha256, publishWithoutSeed } = await publishedChest(false, mode);
+  const later = await publishWithoutSeed();
+  expect(later.publicationId).not.toBe(act.publicationId);
+  expect(later.chestLandmarks).toBeUndefined();
+  expect((later.source as JsonObject).sourceHash).not.toBe(act.source.sourceHash);
+  const exported = host.session.readActExport(act.actId, false);
+  const digest = jobHash(exported);
+  const base = `evidence/v1/${digest}`;
+  const actPath = `${base}.act.json`;
+  const configArg = "'working/owner'\\''s config.json'";
+  const commands = [
+    `rig-parts bust-landmarks --from-act ${actPath} --parts outputs/v1/out --config ${configArg} --out ${base}.bust-landmarks.json --write-config`,
+    `rig-parts propose --parts outputs/v1/out --source inputs/painting.png --out ${base}.bust-proposal --write-config ${configArg} --bust-landmarks ${base}.bust-landmarks.json`,
+  ];
+  const result = await command(root, act.actId, 1, false, ['--config', workingConfig]);
+  expect(result.stderr).toBe('');
+  expect(result.exit).toBe(0);
+  expect(result.stdout.trim().split('\n').slice(-2)).toEqual(commands);
+  const receipt = reviewVerdictReceipts(projectAt(root))[0]!;
+  expect(receipt).toMatchObject({ bytes: exported.toString('utf8'), sha256: digest, bust_config: { path: workingConfig, sha256 } });
+  expect(readFileSync(join(root, actPath))).toEqual(Buffer.from(exported));
+  expect(readFileSync(join(root, workingConfig), 'utf8')).toBe(working);
+  expect(readFileSync(join(root, frozenConfig), 'utf8')).toBe(working);
+  expect(reviewActFindings(projectAt(root))).toEqual([]);
+  expect(nextProject(root, testClock.now()).bust_landmark_commands).toEqual(commands);
+  expect(formatNext(nextProject(root, testClock.now())).split('\n').filter(line => line.startsWith('rig-parts '))).toEqual(commands);
+  writeFileSync(join(root, workingConfig), working.replace('0.25', '0.5'));
+  // The fetch grant still works. A replay that attempts the first-ingest attach
+  // again will fail because this fixture no longer has a listener incarnation.
+  writePrivateJson(join(root, JOB_BINDING_FILE), { ...readWriterBinding(root)!, listenerIncarnation: '' }, true);
+  const before = treeSnapshot(root);
+  const replay = await command(root, act.actId);
+  expect(replay.stderr).toBe('');
+  expect(replay.exit).toBe(0);
+  expect(JSON.parse(replay.stdout).warnings).toEqual([expect.stringContaining('REVIEW_ACT_BUST_REPLAY')]);
+  expect(JSON.parse(replay.stdout).bust_landmark_commands).toEqual(commands);
+  expect(nextProject(root, testClock.now()).bust_landmark_commands).toEqual(commands);
+  expect(treeSnapshot(root)).toEqual(before);
+  writeFileSync(join(root, actPath), Buffer.concat([exported, Buffer.from('\n')]));
+  const next = nextProject(root, testClock.now());
+  expect(next.bust_landmark_commands).toBeUndefined();
+  expect(next.refusals.some(finding => finding.code === 'REVIEW_ACT_LEDGER_INVALID')).toBe(true);
 }, 30_000);
+
+test('#774 rejects either stale hash before output or any project tree change', async () => {
+  const { root, act, working } = await publishedChest();
+  const originalProject = projectAt(root);
+  const project = structuredClone(originalProject);
+  const pkg = (project.versions as JsonObject[])[0]!.review_package as JsonObject;
+  const config = (pkg.files as JsonObject[]).find(row => row.path === 'config.json')!;
+  config.sha256 = 'a'.repeat(64);
+  // The on-disk package still agrees with the original published seed.
+  putProject(root, project);
+  async function expectRefusal(code: string) {
+    const before = treeSnapshot(root);
+    const refusal = await command(root, act.actId, 1, false, ['--config', workingConfig]);
+    expect(refusal.exit).toBe(1);
+    expect(refusal.stderr).toContain(code);
+    expect(refusal.stdout).toBe('');
+    expect(treeSnapshot(root)).toEqual(before);
+  }
+  await expectRefusal('REVIEW_ACT_BUST_CONFIG_STALE');
+  putProject(root, originalProject);
+  writeFileSync(join(root, workingConfig), ` ${working}`);
+  await expectRefusal('REVIEW_ACT_BUST_SOURCE_CHANGED');
+}, 30_000);
+
+test('#774 requires an explicit independent working config and refuses escapes and sealed aliases', async () => {
+  const { root, act, working } = await publishedChest();
+  const external = join(temporary('create-external-config-'), 'config.json');
+  writeFileSync(external, working);
+  symlinkSync(external, join(root, 'outside.json'));
+  symlinkSync('evidence', join(root, 'alias-evidence'));
+  symlinkSync('derived/review/v1', join(root, 'alias-package'));
+  linkSync(join(root, frozenConfig), join(root, 'sealed-hardlink.json'));
+  const before = treeSnapshot(root);
+  const missing = await command(root, act.actId);
+  expect(missing.exit).toBe(2);
+  expect(missing.stderr).toContain('REVIEW_OPTION_MISSING');
+  expect(missing.stderr).toContain('--config');
+  expect(missing.stdout).toBe('');
+  for (const path of [external, 'working/../' + workingConfig, frozenConfig, portableConfig, 'Evidence/v1/config-source.json',
+    'outside.json', 'alias-evidence/v1/config-source.json', 'alias-package/config.json', 'sealed-hardlink.json']) {
+    const result = await command(root, act.actId, 1, false, ['--config', path]);
+    expect(result.exit).toBe(1);
+    expect(result.stderr).toContain('JOB_PUBLICATION_INVALID');
+    expect(result.stdout).toBe('');
+    expect(treeSnapshot(root)).toEqual(before);
+  }
+}, 30_000);
+
+test('#774 mixed act@9 keeps the act@8 mesh correction path and validates both in the receipt', async () => {
+  const { root, act, host } = await publishedChest(true);
+  const result = await command(root, act.actId, 1, false, ['--config', workingConfig, '--json']);
+  expect(result.stderr).toBe('');
+  expect(result.exit).toBe(0);
+  const project = projectAt(root);
+  const receipt = reviewVerdictReceipts(project)[0]!;
+  expect(receipt.bytes).toBe(host.session.readActExport(act.actId, false).toString('utf8'));
+  const revision = pendingMeshDeltaRevision(project)!;
+  expect(revision.sourceVersion).toBe(1);
+  expect(readFileSync(join(root, revision.revision, 'rig.json'))).not.toEqual(readFileSync(join(root, 'derived/review/v1/out/rig/rig.json')));
+  expect(reviewActFindings(project)).toEqual([]);
+  expect(reviewActFindings({ ...project, corrections: [] }).map(finding => finding.code)).toEqual(['REVIEW_ACT_LEDGER_INVALID']);
+  const before = treeSnapshot(root);
+  expect((await command(root, act.actId)).exit).toBe(0);
+  expect(treeSnapshot(root)).toEqual(before);
+}, 90_000);
 
 /** Inject consumer API responses without materializing a saved Review export. */
 function fetchAdapter(root: string, act: { jobId: string }, raw: string | (() => string), png?: Buffer) {

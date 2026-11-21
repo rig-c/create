@@ -92,6 +92,9 @@ together. A replay uses the retained receipt.
 | `REOPEN_ACT_RETIRED` | `job acts` lists a finalized reopen act with no recorded receipt in `project.json.review_acts` as unavailable. For an interview correction register a fresh set with `interview-options`, record the owner's pick with `interview-answer` and re-sign the affected approvals. For an artifact correction use `amend` at the owning stage. Withdraw the retired act with `job withdraw-act <actId>` and relayed owner words. |
 | `REVIEW_ACT_FETCH_REFUSED` | The live job refused or could not complete finalized-act fetch. The diagnostic retains the producer refusal code without exposing its private details. Restore the live job and its writer grant. |
 | `REVIEW_ACT_SOURCE_STALE` | A fresh folded rig approval or approved parts verdict does not bind the exact current `project.json` bytes after undoing any trailing owner withdrawals for that job, predates its parts-review advance or component evidence, or a current source binding or retained version/draft-entry identity differs from the displayed act, including a plan-bound signoff act (`plan-approved`, `rigging-interview`, `post-interview`) whose `source.plan` step ids and hashes, in order, differ from the current `plan.steps`. Restore the retained bytes or publish the current plan and request a new review or sign-off. Replays also refuse without changing the recorded verdict. |
+| `REVIEW_ACT_BUST_CONFIG_STALE` | The original Review publication, matched by publication ID and source hash, lacks a seed for a chest edit or its `source.configHash` differs from the portable `config.json` SHA-256 in `versions[vN].review_package.files`. Publish the current rig and request a new chest edit. |
+| `REVIEW_ACT_BUST_SOURCE_CHANGED` | The working config supplied with `review --from-review … --config` differs from the frozen SHA-256 in `versions[vN].registration.config_source`. Restore a matching working copy or build and register a new version. |
+| `REVIEW_ACT_BUST_REPLAY` | WARN when the live writer replays a recorded chest edit. The record and evidence stay byte-identical. The writer prints the chain with the recorded working path and skips the first-ingest working config hash check. |
 | `REVIEW_ACT_REPLAY_CONFLICT` | A `(jobId, actId)` appears twice or its immutable value changed. Restore the original receipt and its single linked verdict. |
 | `REVIEW_ACT_LEDGER_INVALID` | `review_acts[]` or one receipt's identity, hash, target, linked verdict, linked signoff (the one `signoffs[]` entry whose `source` names the act, with the act's stage, `by`, `at` and words, and for rig-review or direction-review a `target.version` equal to the act's `source.selector` version), linked pick receipts for a derived stage sign-off, linked historical reopen (including its original status snapshot and exact exported reviewer, date and words), retained parts evidence, a folded parts receipt's `signoff` index and its human authority, draft and evidence pointer, a folded rig receipt's unique `signoff` index, human authority, exact words and version/verdict/package target, or a discarded act receipt (`kind: "discarded"`, `jobId`, `actId`, `at` and attribution with a reason or relayed owner words) is invalid. Restore the original receipt and recorded act together. |
 | `REVIEW_ACT_VERSION_UNVERIFIED` | WARN on ingest when the acknowledged publication receipt is unavailable. The version-entry comparison was skipped, and all explicit source bindings were checked. Preserve private acknowledged receipts for future ingests. |
@@ -1743,8 +1746,11 @@ Record publications use the existing two-phase `readRecordPublished` closure,
 the writer outbox and API@3. Mixed hosts retain Review's API@2/act@2 reuse
 markers and accept the ordinary API@2 finalized-act fetch. Record picks,
 checkpoints and sign-offs are act@4. Package comments are act@6, or act@7 when
-a comment carries per-comment `context`; a rig-review Request changes with mesh
-edits is act@8.
+a comment carries per-comment `context`. A rig-review Request changes with mesh
+edits is act@8, and one with chest landmark edits uses act@9. First ingest of
+act@9 requires `--config <project-relative working config>`
+(`REVIEW_OPTION_MISSING`). Paths outside the project, inside `evidence/` or
+`derived/`, or using a symlink or hardlink refuse with `JOB_PUBLICATION_INVALID`.
 The record reader discounts only pending transport holes for its own exact
 record hash and result while publishing; unrelated/stale outbox entries still
 block it, and ordinary `check` continues to report pending transport holes.

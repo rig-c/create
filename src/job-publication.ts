@@ -423,14 +423,14 @@ export function currentJobIdentity(saved: Pick<JobIdentity, 'root' | 'stateDir' 
 /** Mirrors Review's `jobPath` refused-character rule (`src/job-api.ts` in `@rig-c/review`). */
 export const REVIEW_REFUSED_JOB_PATH = /[\\:%?#]/;
 
+export function isPublicationPath(path: string): boolean {
+  return Boolean(path) && path.length <= 4096
+    && path.split('/').every(piece => piece && piece !== '.' && piece !== '..')
+    && !REVIEW_REFUSED_JOB_PATH.test(path) && !/[\x00-\x1f\x7f]/.test(path);
+}
+
 export function assertPublicationPath(path: string): void {
-  if (
-    !path ||
-    path.length > 4096 ||
-    path.split('/').some(piece => !piece || piece === '.' || piece === '..') ||
-    REVIEW_REFUSED_JOB_PATH.test(path) ||
-    /[\x00-\x1f\x7f]/.test(path)
-  ) {
+  if (!isPublicationPath(path)) {
     refuse(
       'JOB_PUBLICATION_INVALID',
       `project.json: declared publication path ${path} is refused by Review's jobPath rule (empty, ".", ".." or matching [\\:%?#]); restore a literal project-relative source`,
@@ -439,6 +439,10 @@ export function assertPublicationPath(path: string): void {
 }
 
 export function publicationFile(root: string, path: string): Buffer {
+  return readFileSync(publicationFilePath(root, path));
+}
+
+export function publicationFilePath(root: string, path: string): string {
   assertPublicationPath(path);
   const absolute = join(root, path);
   let regular = false;
@@ -446,7 +450,7 @@ export function publicationFile(root: string, path: string): Buffer {
   if (!regular) {
     refuse('JOB_PUBLICATION_INVALID', `project.json: ${path} must be a regular source without symlinks; restore its retained bytes`);
   }
-  return readFileSync(absolute);
+  return absolute;
 }
 
 export function composedPublishedBuildFiles(root: string, project: JsonObject, n: number): { doc: JsonObject; files: { path: string; sha256: string }[] } {
@@ -731,9 +735,10 @@ export function publishedDraft(project: JsonObject, id: string): JsonObject {
   return found[0];
 }
 
-export function publishedSourcePainting(root: string, project: JsonObject, label: string): { path: string; sha256: string } {
+export function publishedSourcePainting(root: string, project: JsonObject, label: string, declaredPath?: Json): { path: string; sha256: string } {
   const inputs = Array.isArray(project.inputs) ? project.inputs : [];
-  const first = inputs[0];
+  const first = declaredPath === undefined ? inputs[0] : inputs.find(input => isObject(input) && input.path === declaredPath);
+  const field = declaredPath === undefined ? 'inputs[0]' : 'painting';
   if (
     !isObject(first) ||
     typeof first.path !== 'string' ||
@@ -744,13 +749,17 @@ export function publishedSourcePainting(root: string, project: JsonObject, label
     !/^[a-f0-9]{64}$/.test(first.sha256) ||
     (first.bytes !== undefined && (typeof first.bytes !== 'number' || !Number.isSafeInteger(first.bytes) || first.bytes < 0))
   ) {
-    refuse('JOB_PUBLICATION_INVALID', `${label}: inputs[0] must record the original painting {path, sha256}; restore the declared inputs[0] entry in project.json before publishing`);
+    const message = declaredPath === undefined
+      ? 'inputs[0] must record the original painting {path, sha256}; restore the declared inputs[0] entry in project.json before publishing'
+      : 'painting must identify the original painting input {path, sha256}; restore the declared painting and its input in project.json';
+    refuse('JOB_PUBLICATION_INVALID', `${label}: ${message}`);
   }
   const path = first.path;
   const sha256 = first.sha256;
   const bytes = publicationFile(root, path);
   if (jobHash(bytes) !== sha256 || (typeof first.bytes === 'number' && bytes.length !== first.bytes)) {
-    refuse('JOB_PUBLICATION_INVALID', `${label}: inputs[0] (${path}) differs from its registered sha256; restore the original painting bytes before publishing`);
+    const remedy = declaredPath === undefined ? ' before publishing' : '';
+    refuse('JOB_PUBLICATION_INVALID', `${label}: ${field} (${path}) differs from its registered sha256; restore the original painting bytes${remedy}`);
   }
   return { path, sha256 };
 }

@@ -629,6 +629,30 @@ in the retained model refuses `JOB_PUBLICATION_INVALID`. A rig without a bust
 spec, a post and a draft publication carry no field, and Review shows the chest
 editor as read-only. Reviews before act@9 drop the field.
 
+Ingest the chest edit with
+`rig-create review <n> --from-review <actId> --config <working-config>`.
+On first ingest, Create matches the original publication's ID, source hash and
+chest row identities using the live Review event stream. Each seed must name
+the recorded portable config SHA-256. The working config must be a
+project-relative regular file outside `evidence/` and `derived/`, with no
+symlinks, hardlinks or `..` components. Its bytes must match the frozen
+`registration.config_source.sha256`. Create records the working path and its
+pre-edit SHA-256, retains the exact act bytes in `evidence/v<n>/<sha256>.act.json`,
+and records the bounced verdict. Mesh edits in the same act follow the existing
+mesh correction route. Drafts have no act@9 ingestion route.
+
+The writer and `rig-create next` print two commands to run in order from the
+project root with Parts 2.50.0 or later. `rig-parts bust-landmarks --from-act`
+uses the retained act, the registered parts directory and the working config
+with `--write-config`. Keep its landmarks JSON and the adjacent
+`.provenance.json` sidecar together under `evidence/`, outside the parts
+directory. `rig-parts propose` uses the same parts and working config, the
+recorded painting, a disposable output directory and the landmarks JSON.
+Parts may report `BUST_LANDMARKS_*` from the first command or `PROPOSE_BUST_*`
+and `PROPOSE_NECK_MODE` from the second. Replaying ingestion prints the same
+chain with `REVIEW_ACT_BUST_REPLAY` and uses the receipt's working path, even
+after Parts has updated that file.
+
 For Create's parts-bound package publications, Review metadata currently requires
 a PNG original painting. An SVG source reaches the PNG-only Parts view loader
 and refuses with `JOB_SOURCE_MISMATCH` from `PARTS_PAINTING_PNG` before projecting

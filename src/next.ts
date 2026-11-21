@@ -48,6 +48,7 @@ import { reopenLapseWarnings } from './reopen-lapses.ts';
 import { collectReopens, directionReviewClosed, liveSignoff, type Reopen } from './reopen.ts';
 import { acceptedReviewVerdict, latestAccepted, readVersions } from './review.ts';
 import { SIGNOFF_TARGET_KINDS } from './review-act.ts';
+import { bustLandmarkCommands } from './review-bust.ts';
 import {
   advanceOrder,
   directionReviewPostState,
@@ -157,6 +158,7 @@ export interface NextReport {
   accepted: boolean;
   refusals: NextRefusal[];
   warnings?: Finding[];
+  bust_landmark_commands?: string[];
   /** A view of existing answers, never a new project record. */
   answers?: { question_id: string; field: string; by: Json; at: Json; picks: { ask: Json; option_id: Json; label: Json }[]; command?: string }[];
   awaits: string[];
@@ -1198,7 +1200,23 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       ...(interviewStageOfGuide(item.id, item.kind === 'post', hasStageOrder(project)) === effectiveStage
         ? { command: optionCommand(item.id, dir) } : {}) }];
   });
-  const warningFields = { ...(structureWarnings.length ? { warnings: structureWarnings } : {}), answers };
+  const bustCommands: string[] = [];
+  const bustRefusals: Finding[] = [];
+  for (const [i, receipt] of asArray(project.review_acts).entries()) {
+    if (!isObject(receipt) || receipt.schema !== 'rig-create/review-act@1' || receipt.kind !== undefined || !isObject(receipt.bust_config)) continue;
+    const field = `review_acts[${i}]`;
+    if (report.refusals.some(finding => finding.path === field)) continue;
+    const version = asArray(project.versions).filter(isObject).find(v => v.n === receipt.version && v.kind === 'rig');
+    if (!version || typeof receipt.sha256 !== 'string' || typeof receipt.bust_config.path !== 'string') continue;
+    try {
+      bustCommands.push(...bustLandmarkCommands(dir, project, version, receipt.bust_config.path, receipt.sha256, true));
+    } catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      bustRefusals.push({ code: error.code, path: field, message: error.message });
+    }
+  }
+  const warningFields = { ...(structureWarnings.length ? { warnings: structureWarnings } : {}), answers,
+    ...(bustCommands.length ? { bust_landmark_commands: bustCommands } : {}) };
   const jobId = readOptionalJobId(dir);
   const holes = report.holes ?? [];
 
@@ -1211,7 +1229,7 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
         ? SCENE_OTHER_FOLLOW_UP
         : 'redraft with a tailored value option and have the person explicitly pick it before approval'}`,
     }));
-  const allRefusalFindings: Finding[] = [...report.refusals, ...pendingOtherFindings, ...holes];
+  const allRefusalFindings: Finding[] = [...report.refusals, ...bustRefusals, ...pendingOtherFindings, ...holes];
   const refusals: NextRefusal[] = allRefusalFindings.map(r => ({
     code: r.code,
     field: r.path,
@@ -2381,6 +2399,7 @@ export function formatNext(report: NextReport | NextCollectionReport): string {
     }`,
   );
   for (const w of report.warnings ?? []) lines.push(`  WARN [${w.code}]: ${w.message}`);
+  for (const command of report.bust_landmark_commands ?? []) lines.push(command);
   if (report.refusals.length > 0) {
     lines.push(`refusals (${report.refusals.length}):`);
     for (const r of report.refusals) {

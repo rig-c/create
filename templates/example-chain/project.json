@@ -129,7 +129,7 @@
         "verdict": "versions[0].verdicts[0]",
         "review_package": {
           "path": "versions[0].review_package",
-          "sha256": "142c54249a23315779174b8f5ae3e15a395f3a70b0926fa9397f28aaec0176f1"
+          "sha256": "43558bf5231a196d9444403b73222b9e1c307ff4ef6f2c9fb9c6bfe6080ca32a"
         }
       }
     },
@@ -166,13 +166,13 @@
         "verdict": "versions[1].verdicts[0]",
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "7329e3ce13223ed82d31c470f30f4c6bb26238730568059e03aa0bcf68df782e"
+          "sha256": "e370e12de1ff6be3b4d10f160f513bc862b036e95cfc2df954e260ec8d0f3f0d"
         }
       }
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.50.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.51.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -1384,8 +1384,8 @@
       "at": "2026-11-06T01:00:56.000Z",
       "built_by": "agent",
       "built_with": {
-        "@rig-c/parts": "2.50.0",
-        "@rig-c/core": "3.8.0"
+        "@rig-c/parts": "2.51.0",
+        "@rig-c/core": "3.8.1"
       },
       "changed": "Build the synthetic approved parts.",
       "outputs": [
@@ -1521,7 +1521,7 @@
           },
           {
             "path": "out/check/build/run.json",
-            "sha256": "17fc361f1f95782caef1a32096f18df07d061f1d632244aaa32ab52e2004ee1a"
+            "sha256": "e4f29435d1c157cea1f52b75e700a7800bcfa745b41637094cb5cfa5b975c402"
           },
           {
             "path": "out/check/build/skeleton.atlas",
@@ -1605,7 +1605,7 @@
           },
           {
             "path": "out/rig/run.json",
-            "sha256": "ae62347356355389e33da4af30e98879412a34f248d1c9a8fa7177bf1f5b4f7c"
+            "sha256": "2a77657ed436ea18c3d90090de25f87901a5a918d2bcf36cd87df2c77f033da7"
           }
         ],
         "open": "rig-review open 'derived/review/v1/out'"
@@ -1624,7 +1624,7 @@
       "outputs": [
         {
           "path": "evidence/direction/v2.json",
-          "sha256": "7329e3ce13223ed82d31c470f30f4c6bb26238730568059e03aa0bcf68df782e"
+          "sha256": "e370e12de1ff6be3b4d10f160f513bc862b036e95cfc2df954e260ec8d0f3f0d"
         }
       ],
       "evidence": [],
@@ -1644,11 +1644,11 @@
       "provenance": {
         "config": {
           "path": "evidence/direction/v2.json",
-          "sha256": "7329e3ce13223ed82d31c470f30f4c6bb26238730568059e03aa0bcf68df782e"
+          "sha256": "e370e12de1ff6be3b4d10f160f513bc862b036e95cfc2df954e260ec8d0f3f0d"
         },
         "direction": {
           "path": "evidence/direction/v2.json",
-          "sha256": "7329e3ce13223ed82d31c470f30f4c6bb26238730568059e03aa0bcf68df782e"
+          "sha256": "e370e12de1ff6be3b4d10f160f513bc862b036e95cfc2df954e260ec8d0f3f0d"
         },
         "sections": {
           "camera": [
@@ -2492,7 +2492,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.50.0"
+        "version": "2.51.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -2538,7 +2538,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "17fc361f1f95782caef1a32096f18df07d061f1d632244aaa32ab52e2004ee1a"
+          "sha256": "e4f29435d1c157cea1f52b75e700a7800bcfa745b41637094cb5cfa5b975c402"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -2594,7 +2594,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "ae62347356355389e33da4af30e98879412a34f248d1c9a8fa7177bf1f5b4f7c"
+          "sha256": "2a77657ed436ea18c3d90090de25f87901a5a918d2bcf36cd87df2c77f033da7"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",
@@ -2654,7 +2654,7 @@
     {
       "n": 1,
       "path": "evidence/scene/s1.json",
-      "sha256": "4b0da18ea74079c358edbf6ad7e98fb033c6c0b75cf283090857c9db496b70e7",
+      "sha256": "12c5a1f1d5e62d80d80a5f41543b8123e72c8d52492471799fbe2fdd2159aee5",
       "at": "2026-11-06T01:01:15.000Z",
       "by": "agent"
     }

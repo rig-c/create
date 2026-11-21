@@ -563,7 +563,7 @@ the record contradicts is refused by name (`FEEDBACK_ITEM_CONTRADICTS`):
 A `not-asked` item is written in the same turn as a new sentence in that
 answer's `additions[]`: `by` and `at` of the verdict, `verbatim` = the
 `--quote` fragment (default: the whole feedback; it must be a fragment of it),
-`value` = `--value` (default `null`, to be normalised before the next version)
+`value` = `--value` (defaults to `null`)
 and `source: "polish feedback, v<N>"`. The original sentence is not edited.
 Because the guide changed, the steps resting on it need the plan re-signed
 before they run again (`GUIDE_CHANGED_UNSIGNED`).
@@ -572,23 +572,52 @@ For the latest live rig at `rig-review`, an agent can route an owner's
 changes-requested verdict with exactly one page-level comment to an existing
 rig waypoint. Use the act ID from `job acts` and name the waypoint explicitly.
 
+With the rig verdict job still live, route the comment directly with
+`review --from-review <verdictActId> --item motion:not-asked`. To route after
+closing that job, ingest the verdict while the job is live, close the job
+that served the rig verdict, then route the same act from its retained receipt.
+
 ```sh
-rig-create review <version> --from-review <actId> [<project dir>] --item motion:not-asked
-rig-create next [<project dir>]
+rig-create review <version> <project> --from-review <verdictActId>
+rig-create job close <project>
+rig-create review <version> <project> --from-review <verdictActId> --item motion:not-asked
 ```
 
 The verdict keeps its exact words, owner attribution and date. The guide
-addition contains the exact comment text, including whitespace, and its
-`review_act` field points to the verdict's source. The receipt's
+addition contains the exact comment text, including whitespace, and records
+`value: null`. Its `review_act` field points to the verdict's source. The receipt's
 `feedback_route` records `by: "agent"`, the waypoint in `item`, the zero-based
 `comment_index` in the act's comment array, the comment in `verbatim`, and the
 routing time in `at`. The addition uses that time so the owner can re-sign the
 changed guide even if the previous signature was given after the comment.
-After the owner re-signs as prompted by `next`, the next rig version can cite
-the comment and answer the verdict with `rig-version --answers <version>:<verdict-index>`.
 
-The same command can attach the route to an already-ingested act while its
-verdict remains current, even after `job close`. It takes the words from the
+Run `rig-create next <project>` after routing to see which approval needs a
+new signature. Legacy stage order can name `plan-approved`. The example below
+applies when `next` names `rigging-interview`. While the project is still at
+`rig-review`, publish the revised plan for the owner using the
+[live Review job](LIVE-REVIEW.md#the-live-review-loop).
+
+```sh
+rig-create job open <project> --reviewer <owner> --role owner --plan
+```
+
+Have the owner re-sign the displayed `rigging-interview` plan in Review. Use
+the finalized signature act ID from `job acts` to record the re-sign.
+
+```sh
+rig-create job acts <project> --wait
+rig-create signoff rigging-interview <project> --from-review <signoffActId>
+rig-create next <project>
+```
+
+Follow `next` to build the next rig version. Cite the exact routed comment in
+its provenance and answer the verdict with
+`rig-version --answers <version>:<verdict-index>`.
+The routed addition's `value` remains `null`, and the new version cites its
+`verbatim` comment.
+
+The same `review` command can attach the route to an already-ingested act while
+its verdict remains current, even after `job close`. It takes the words from the
 act bytes in `review_acts[]` and verifies their SHA-256. Repeating the same
 route adds no second sentence. A different target is refused. Omit `--item`
 to ingest without routing, including when the verdict has multiple page-level

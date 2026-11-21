@@ -33,6 +33,7 @@ import { DRAFT_ID } from './draft-reuse.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import { bustLandmarkCommands, prepareBustConfig } from './review-bust.ts';
 import { newRefusals } from './refusal-baseline.ts';
+import { guideSignoffMatcher } from './signoff-answers.ts';
 import { ingestedVerdictPairFinding } from './signoff-pair.ts';
 import { dirname, join, resolve } from 'node:path';
 
@@ -554,10 +555,9 @@ function verdictCandidateFinding(dir: string, before: JsonObject, candidate: Jso
   const findings = newRefusals(dir, before, candidate, { now });
   if (!route) return findings[0];
   const steps = isObject(candidate.plan) ? asArray(candidate.plan.steps).filter(isObject) : [];
-  const affected = new Set(steps.filter(step => asArray(step.rests_on).includes(route.item)).map(step => `plan.steps[${String(step.id)}]`));
+  const affected = guideSignoffMatcher(steps, new Set([route.item]));
   // The new addition deliberately lapses the affected answer and step approvals until the owner re-signs.
-  return findings.find(finding => !(finding.code === 'SIGNOFF_ANSWERS_STALE' && finding.path.endsWith(`.answer_hashes[${route.item}]`))
-    && !(finding.code === 'GUIDE_CHANGED_UNSIGNED' && affected.has(finding.path)));
+  return findings.find(finding => !affected(finding));
 }
 
 function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fetched?: FetchedReviewAct, warnings: string[] = [], route?: FeedbackRoute): Recorded {

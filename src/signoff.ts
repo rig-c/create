@@ -4,7 +4,7 @@ import { pendingInterviewOptions, pendingInterviewOptionsPath } from './choices.
 import { assertSignoffCandidate, bindPartsSignoff } from './parts-signoff.ts';
 import { currentPartsAmendment } from './parts-act.ts';
 import { latestPartsVerdictFinding, partsReceiptDraftId, recordedPartsActReceipt, recordedPartsVerdict } from './parts-verdict-record.ts';
-import { selectAnswerHashes } from './signoff-answers.ts';
+import { selectAnswerHashes, staleSignoffAnswer } from './signoff-answers.ts';
 import { selectSignoffTarget } from './signoff-target.ts';
 import { assembleOnlyDraftTarget, assertDraftHasRig } from './draft-layout.ts';
 import { signoffPairFinding } from './signoff-pair.ts';
@@ -19,11 +19,12 @@ import { resolve } from 'node:path';
 import { jobHash } from './job-outbox.ts';
 import { assertActSubjectDeclared, decodeReviewAct, fetchReviewActBytes, isRecordDirectionSignoff, isRecordInterviewSignoff, matchesActProjectSource, partsVerdictSignoff, recordSignoffActVersion, PLAN_BOUND_SIGNOFF_STAGES, reviewActFindings, reviewActSignoff, reviewActTransport, SIGNOFF_TARGET_KINDS, signoffActIdentity, signoffActVersion, type ReviewActTransport, type SignoffAct } from './review-act.ts';
 
-import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type Finding } from './check.ts';
+import { asArray, checkProject, classify, collectItems, isObject, loadCollection, postNotPassed, type CheckReport, type Finding } from './check.ts';
 import { readProject } from './feedback.ts';
 import { riggingContext } from './structure.ts';
 import { readVerbatim } from './record-input.ts';
 import { refuse, USAGE_EXIT } from './refusal.ts';
+import { findingKey } from './refusal-baseline.ts';
 import { approvalStageOfStep, hasStageOrder, interviewStageOfGuide, isOpenInterviewStage, PARTS_REVIEW, PAUSED_STAGE, RIG_REVIEW, STAGE_ORDER_SPEC, STAGE_VALUES } from './stages.ts';
 import { assertRigReviewSignable } from './review.ts';
 import { stepHash } from './step-hash.ts';
@@ -146,19 +147,26 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   } finally { release(); }
 }
 
-/** Run the ingest writer's candidate gate with a stand-in signature, without writing or inventing an owner act. */
-export function assertPlanSignoffCandidate(dir: string, project: JsonObject, stage: string, now: number): readonly CheckRead[] {
-  return recordSignoff(stage, [stage, dir], { '--by': 'publication-preflight' }, false, now, {}, undefined, structuredClone(project)).reads ?? [];
+interface PlanResignPreflight {
+  readonly clear: readonly Finding[];
+  /** The full inventory check, available only on the live project. */
+  readonly baseline?: CheckReport;
 }
 
-function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff, preview?: JsonObject, retained?: RetainedPartsSignoff): { stdout: string; exit: number; reads?: readonly CheckRead[] } {
+/** Run the ingest writer's candidate gate with a stand-in signature, without writing or inventing an owner act. */
+export function assertPlanSignoffCandidate(dir: string, project: JsonObject, stage: string, now: number, resign?: PlanResignPreflight): readonly CheckRead[] {
+  return recordSignoff(stage, [stage, dir], { '--by': 'publication-preflight' }, false, now, {}, undefined,
+    { project: structuredClone(project), resign }).reads ?? [];
+}
+
+function recordSignoff(stage: string, positional: string[], opts: Record<string, string>, json: boolean, now: number, hooks: SignoffHooks, review?: FetchedSignoff, preview?: { project: JsonObject; resign?: PlanResignPreflight }, retained?: RetainedPartsSignoff): { stdout: string; exit: number; reads?: readonly CheckRead[] } {
   const actId = opts['--from-review'];
   let by = review === undefined ? opts['--by'] ?? '' : String(review.human.by);
   if (opts['--by'] === undefined && actId === undefined && !opts['--from-picks']) refuse('SIGNOFF_OPTION_INVALID', 'signoff needs --by', USAGE_EXIT);
   if (by.toLowerCase() === 'agent') refuse('SIGNOFF_NOT_HUMAN', `stage ${stage}: signed by agent`);
   const dir = resolve(positional[1] ?? process.cwd());
   const chat = readOwnerChat(opts, by, now, 'project.json.signoffs');
-  const { file, project } = retained ?? (preview ? { file: resolve(dir, 'project.json'), project: preview } : readProject(dir));
+  const { file, project } = retained ?? (preview ? { file: resolve(dir, 'project.json'), project: preview.project } : readProject(dir));
   if (stage in SIGNOFF_TARGET_KINDS) {
     const selector = review?.act.source.selector;
     const draftId = selector?.kind === 'draft' ? selector.id : opts['--draft'];
@@ -217,7 +225,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     }
   }
   // A plan publication may still display the record while its questions are pending.
-  if (preview === undefined && opts['--checkpoint'] === undefined && isOpenInterviewStage(stage)) {
+  if ((preview === undefined || preview.resign) && opts['--checkpoint'] === undefined && isOpenInterviewStage(stage)) {
     const split = hasStageOrder(project);
     const pending = collectItems(project, { collection: loadCollection(dir) }).find(item =>
       interviewStageOfGuide(item.id, item.kind === 'post', split) === stage && pendingInterviewOptions(item));
@@ -253,7 +261,7 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
     if (finding) refuse(finding.code, finding.message);
   }
   // The record as read: its refusals are the baseline the candidate is judged against below.
-  const asRead = checkProject(dir, project, { now, readOnly: preview !== undefined });
+  const asRead = preview?.resign?.baseline ?? checkProject(dir, project, { now, readOnly: preview !== undefined });
   if (carriedHuman && (project.stage === PAUSED_STAGE || asRead.effective_stage !== PARTS_REVIEW)) {
     refuse('PARTS_REVIEW_FOLD_NOT_READY', 'project.json.stage: carrying an amended verdict needs active parts-review; resume a paused project and amend the current parts before signing');
   }
@@ -375,7 +383,18 @@ function recordSignoff(stage: string, positional: string[], opts: Record<string,
   }
   const pair = signoffPairFinding(project, signoff, `signoffs[${project.signoffs.length - 1}]`, true);
   if (pair) refuse(pair.code, pair.message);
-  assertSignoffCandidate(dir, asRead, project, signoff, covered, now);
+  const candidateRefusals = assertSignoffCandidate(dir, asRead, project, signoff, covered, now);
+  if (preview?.resign || (review?.act.schema === 'rig-review/act@4' && PLAN_BOUND_SIGNOFF_STAGES.includes(stage))) {
+    // A Review re-sign must supersede the old answers at the act's actual time as well as in preview.
+    const clear = preview?.resign?.clear ?? asRead.refusals.filter(finding => {
+      const stale = staleSignoffAnswer(finding);
+      const prior = stale && (project.signoffs as JsonObject[])[stale.index];
+      return isObject(prior) && prior.stage === stage;
+    });
+    const keys = new Set(clear.map(findingKey));
+    const remaining = preview?.resign?.baseline ? candidateRefusals[0] : candidateRefusals.find(finding => keys.has(findingKey(finding)));
+    if (remaining) refuse(remaining.code, remaining.message);
+  }
   if (preview) return { stdout: '', exit: 0, reads: prepared.reads };
   if (ingest || picks || carried) commitIngestedSignoff(file, original!, project);
   else {

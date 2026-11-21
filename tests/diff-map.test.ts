@@ -29,7 +29,7 @@ beforeAll(() => {
     ['normal', 2, 40, false, false, false], ['owners', 2, 40, false, false, true], ['other', 2, 40, true, false, false],
     ['floor', 3, 40, false, false, false], ['threshold', 2, 41, false, false, false], ['empty', 2, 40, false, true, false],
   ] as const) {
-    const root = tempDir();
+    const root = tempDir('rig-create-test-', { scope: 'suite' });
     reportInputs.push(root);
     const inputs = join(root, name);
     reports[name] = generateDiffFixture(inputs, floor, threshold, other, identical, owners);

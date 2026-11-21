@@ -12,16 +12,22 @@ test('tempDir removes folders after each test, including after failure, unless K
     writeFileSync(
       childFile,
       [
-        "import { expect, test } from 'bun:test';",
+        "import { describe, expect, test } from 'bun:test';",
+        "import { existsSync } from 'node:fs';",
         `import { tempDir } from ${JSON.stringify(join(import.meta.dir, 'helpers.ts'))};`,
-        "test('passing test creates tempDir', () => {",
-        '  const dir = tempDir();',
-        '  expect(dir.length).toBeGreaterThan(0);',
-        '});',
-        "test('failing test creates tempDir', () => {",
-        '  const dir = tempDir();',
-        '  expect(dir.length).toBeGreaterThan(0);',
-        '  if (process.env.PLANT_TEST_FAILURE === "1") throw new Error("planted failure");',
+        "describe('suite scope', () => {",
+        "  const suiteDir = tempDir('rig-create-test-', { scope: 'suite' });",
+        "  test('passing test creates tempDir', () => {",
+        '    const dir = tempDir();',
+        '    expect(dir.length).toBeGreaterThan(0);',
+        '    expect(existsSync(suiteDir)).toBe(true);',
+        '  });',
+        "  test('failing test creates tempDir and still sees suite-scoped tempDir', () => {",
+        '    const dir = tempDir();',
+        '    expect(dir.length).toBeGreaterThan(0);',
+        '    expect(existsSync(suiteDir)).toBe(true);',
+        '    if (process.env.PLANT_TEST_FAILURE === "1") throw new Error("planted failure");',
+        '  });',
         '});',
       ].join('\n'),
     );
@@ -54,7 +60,7 @@ test('tempDir removes folders after each test, including after failure, unless K
     expect(keptProc.exitCode).toBe(0);
     const stdout = keptProc.stdout.toString();
     expect(stdout).toContain(`${KEEP_TMP_ENV}: keeping `);
-    expect(countMatchingTmpEntries(isolatedTmp)).toBe(2);
+    expect(countMatchingTmpEntries(isolatedTmp)).toBe(3);
 
     // Planted leak: runTmpLeakCheck exits 1 when count grows even if the command exits 0.
     const leakCheck = runTmpLeakCheck(

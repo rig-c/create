@@ -111,8 +111,8 @@ function anchorsOf(markdown: string): Set<string> {
 }
 
 describe('init --no-install writes the agent guide', () => {
-  const root = tempDir();
-  const env = gitEnv();
+  const root = tempDir('rig-create-test-', { scope: 'suite' });
+  const env = gitEnv(undefined, { scope: 'suite' });
   const dir = join(root, 'guide-project');
   const result = cli(['init', dir, '--no-install'], root, env);
   const agents = readFileSync(join(dir, 'AGENTS.md'), 'utf8');

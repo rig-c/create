@@ -22,8 +22,8 @@ function listTree(dir: string, prefix = ''): string[] {
 }
 
 describe('init --no-install into an empty folder', () => {
-  const root = tempDir();
-  const env = gitEnv();
+  const root = tempDir('rig-create-test-', { scope: 'suite' });
+  const env = gitEnv(undefined, { scope: 'suite' });
   const dir = join(root, 'demo-project');
   const result = cli(['init', dir, '--no-install'], root, env);
 

@@ -40,7 +40,7 @@ const V2_CONFIG: JsonObject = {
 };
 
 describe('the filled example', () => {
-  const report = checkProject(fixture());
+  const report = checkProject(fixture(() => {}, 'legacy-example-project.json', {}, false, { scope: 'suite' }));
 
   test('passes: 0 refusals, 0 warnings', () => {
     expect(report.refusals).toEqual([]);

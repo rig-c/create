@@ -12,7 +12,7 @@ import { STAGE_VALUES } from '../src/stages.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
 import { deriveWaypoints, SECTION_PLACEMENT } from '../src/waypoints.ts';
 import { rehashSignoffs, supersede } from './fixtures.ts';
-import { cli, gitEnv, tempDir } from './helpers.ts';
+import { cli, gitEnv, tempDir, type TempDirScope } from './helpers.ts';
 import { checkProject } from './clock.ts';
 
 /** The section list @rig-c/parts 2.3.0 and 2.4.0 export (its `CONFIG_SECTIONS`), used by the fake parts sources planted below. */
@@ -36,8 +36,8 @@ function plantParts(projectDir: string, version: string, source: string): void {
 type Mutate = (project: JsonObject) => void;
 
 /** A project folder in the OS temp dir holding the filled example, mutated in place. Nothing is copied into the repo. */
-function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json'): string {
-  return materializeFixture(join(tempDir(), 'project'), project => {
+function fixture(mutate: Mutate = () => {}, template = 'legacy-example-project.json', options?: { scope?: TempDirScope }): string {
+  return materializeFixture(join(tempDir('rig-create-test-', options), 'project'), project => {
     if (template === 'project.json') obj(project.interview).order = { spec: 'rig-create/stage-order@1', adopted_at: '2026-11-05T00:00:00Z' };
     mutate(project);
   }, template);
@@ -115,7 +115,7 @@ describe('the filled example', () => {
 });
 
 describe('the empty template at stage interview', () => {
-  const report = checkProject(fixture(() => {}, 'project.json'));
+  const report = checkProject(fixture(() => {}, 'project.json', { scope: 'suite' }));
 
   test('reports every unanswered item as INTERVIEW_INCOMPLETE and nothing else', () => {
     expect(new Set(codes(report))).toEqual(new Set(['INTERVIEW_INCOMPLETE']));

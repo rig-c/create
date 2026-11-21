@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll } from 'bun:test';
+import { afterAll, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,7 +46,9 @@ export function removeTrackedTempDirs(roots: Set<string> = perTestRoots): void {
   }
 }
 
-export function trackTempDir<T extends string>(dir: T, scope?: 'test' | 'suite'): T {
+export type TempDirScope = 'test' | 'suite';
+
+export function trackTempDir<T extends string>(dir: T, scope: TempDirScope = 'test'): T {
   if (!exitHookRegistered) {
     exitHookRegistered = true;
     process.on('exit', () => {
@@ -54,44 +56,26 @@ export function trackTempDir<T extends string>(dir: T, scope?: 'test' | 'suite')
       removeTrackedTempDirs(suiteRoots);
     });
   }
-  let insideTestOrHook = false;
-  let insideBunTest = false;
-  try {
-    beforeAll(() => {});
-    insideBunTest = true;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('inside a test')) {
-      insideTestOrHook = true;
-      insideBunTest = true;
-    }
-  }
-  const stack = new Error().stack ?? '';
-  const inBeforeAll = /\bat beforeAll\b/.test(stack) || /diff-map\.test\.ts:(?:2[789]|3\d):/.test(stack);
-  const resolvedScope = scope ?? (insideTestOrHook && !inBeforeAll ? 'test' : 'suite');
   if (keepTempDirs()) {
     console.log(`${KEEP_TMP_ENV}: keeping ${dir}`);
     return dir;
   }
-  if (resolvedScope === 'test') {
+  if (scope === 'test') {
     perTestRoots.add(dir);
-    if (insideBunTest) {
-      try {
-        afterEach(() => {
-          perTestRoots.delete(dir);
-          removeSingleTempDir(dir);
-        });
-      } catch {}
-    }
+    try {
+      afterEach(() => {
+        perTestRoots.delete(dir);
+        removeSingleTempDir(dir);
+      });
+    } catch {}
   } else {
     suiteRoots.add(dir);
-    if (insideBunTest) {
-      try {
-        afterAll(() => {
-          suiteRoots.delete(dir);
-          removeSingleTempDir(dir);
-        });
-      } catch {}
-    }
+    try {
+      afterAll(() => {
+        suiteRoots.delete(dir);
+        removeSingleTempDir(dir);
+      });
+    } catch {}
   }
   return dir;
 }
@@ -144,16 +128,16 @@ mock.module('node:fs', () => ({ ...fs, ...wrappers }));
 }
 
 /** A fresh folder under the OS temp dir — never inside the repo, whose node_modules would leak in. */
-export function tempDir(prefix = 'rig-create-test-'): string {
-  return trackTempDir(mkdtempSync(join(tmpdir(), prefix)));
+export function tempDir(prefix = 'rig-create-test-', options?: { scope?: TempDirScope }): string {
+  return trackTempDir(mkdtempSync(join(tmpdir(), prefix)), options?.scope);
 }
 
 /**
  * Environment that hides the machine's git config, so a test sees what CI
  * sees: no identity unless the test gives one, no hooks, no signing.
  */
-export function gitEnv(identity?: { name: string; email: string }): Record<string, string> {
-  const config = join(tempDir(), 'gitconfig');
+export function gitEnv(identity?: { name: string; email: string }, options?: { scope?: TempDirScope }): Record<string, string> {
+  const config = join(tempDir('rig-create-test-', options), 'gitconfig');
   const lines = ['[init]', '\tdefaultBranch = main'];
   if (identity) lines.push('[user]', `\tname = ${identity.name}`, `\temail = ${identity.email}`);
   writeFileSync(config, `${lines.join('\n')}\n`);

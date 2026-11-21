@@ -5,10 +5,10 @@ import { dirname, join } from 'node:path';
 import { COLLECTION_STAGE_VALUES } from '../src/collection.ts';
 import { checkCollection } from '../src/pins-check.ts';
 import { readTemplate, type Json, type JsonObject } from '../src/templates.ts';
-import { cli, gitEnv, run, tempDir } from './helpers.ts';
+import { cli, gitEnv, run, tempDir, type TempDirScope } from './helpers.ts';
 import { checkProject } from './clock.ts';
 
-const ENV = gitEnv({ name: 'Test User', email: 'test@example.com' });
+const ENV = gitEnv({ name: 'Test User', email: 'test@example.com' }, { scope: 'suite' });
 
 function readJson(file: string): JsonObject {
   return JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
@@ -33,8 +33,8 @@ const sha = (bytes: string): string => createHash('sha256').update(bytes).digest
 
 const ANSWER = (verbatim: string): JsonObject => ({ delegated: false, by: 'user', at: '2026-11-11T15:00:00Z', verbatim, value: verbatim, source: 'interview, chat' });
 
-function initCollection(): string {
-  const dir = join(tempDir(), 'harbour');
+function initCollection(options?: { scope?: TempDirScope }): string {
+  const dir = join(tempDir('rig-create-test-', options), 'harbour');
   const made = cli(['init', '--collection', dir, '--no-install'], dirname(dir), ENV);
   expect(made.stderr).toBe('');
   expect(made.code).toBe(0);
@@ -103,7 +103,7 @@ function collectionOutput(dir: string, n: number): void {
 }
 
 describe('init --collection', () => {
-  const dir = initCollection();
+  const dir = initCollection({ scope: 'suite' });
 
   test('writes the collection layout and commits exactly what it wrote', () => {
     const tracked = run(['git', 'ls-files'], dir, ENV).stdout.trim().split('\n').sort();

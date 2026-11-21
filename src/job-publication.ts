@@ -132,6 +132,8 @@ export type RecordOptionContext = RecordContextBase & {
 };
 export type RecordPlanContext = RecordContextBase & {
   readonly checkpointEvidence?: readonly CheckpointEvidence[];
+  /** Post stages only: the record's latest post picture, one raster entry of `files` (Review #983). */
+  readonly planPicture?: { readonly path: string; readonly sha256: string };
   readonly plan: NonNullable<JobPublishedContext['plan']>;
   readonly subjects: readonly RecordPlanSubject[];
 };
@@ -184,6 +186,31 @@ export function loadedPartsIdentity(dir: string, who: 'project' | 'host'): Recor
   }
   if (integrities.size !== 1) return missing(`${version} has different integrities in bun.lock and package-lock.json`);
   return { name: PARTS_PACKAGE, version, integrity: [...integrities][0]! };
+}
+
+/** The stages whose plan publication names the post picture the owner judges the plan against. */
+const PLAN_PICTURE_STAGES: ReadonlySet<string> = new Set(['post', 'direction-review']);
+/** Review draws only these rasters as a plan picture (its package page-image rule). */
+const PLAN_PICTURE_RASTER = /\.(png|jpe?g|webp)$/i;
+
+/**
+ * The latest picture the record already holds for its live post work: the newest live `kind: "post"`
+ * version's first raster in `evidence` (newest first, as verdict ingestion keeps it), then in `outputs`.
+ * The path and sha256 are the record's own; nothing is re-derived from a producer. A record without
+ * one, or whose named file is not on disk, publishes no picture.
+ */
+function postPlanPicture(root: string, project: JsonObject): { path: string; sha256: string } | undefined {
+  const reopens = collectReopens(project, []);
+  const post = asArray(project.versions).filter(isObject).filter(version => version.kind === 'post'
+    && liveSignoff(reopens, 'post', Date.parse(String(version.at)))).at(-1);
+  if (!post) return undefined;
+  const row = [...asArray(post.evidence), ...asArray(post.outputs)].filter(isObject).find(entry =>
+    typeof entry.path === 'string' && PLAN_PICTURE_RASTER.test(entry.path)
+      && typeof entry.sha256 === 'string' && /^[a-f0-9]{64}$/.test(entry.sha256));
+  if (!row) return undefined;
+  const path = String(row.path);
+  if (!existsSync(join(root, path))) return undefined;
+  return { path, sha256: String(row.sha256) };
 }
 
 /** Reuse check's eligibility and the exact retained evidence of its subject. No writes or locks. */
@@ -393,6 +420,10 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
       if (signable) subjects = [...subjects, { kind: 'signoff', stage: stage as RecordSignoffStage }];
       label = `plan / ${stage}`;
     } else throw Error('unknown record result');
+    // #665: a post-stage plan names its picture by the record's own identity, sealed into the closure.
+    const planPicture = result.kind === 'plan' && stage !== null && PLAN_PICTURE_STAGES.has(stage)
+      ? postPlanPicture(root, project) : undefined;
+    if (planPicture) seal(planPicture);
     // Detect record changes during closure reads as well as changes before entry.
     if (!publicationFile(root, record.path).equals(bytes)) throw Error('project.json changed while reading its closure');
     const files = [...seals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, sha256]) => ({ path, sha256 }));
@@ -401,7 +432,7 @@ export function readRecordPublished({ root, record, result, phase, parts: sealed
         subjects: [{ kind: 'interview-picks', questionId: result.questionId, setId: result.setId }] };
     }
     const evidence = checkpointEvidenceContext(root, project, subjects, files);
-    return { label, parts, inputs, files, ...evidence,
+    return { label, parts, inputs, files, ...evidence, ...(planPicture ? { planPicture } : {}),
       plan: { steps: steps.map(step => ({ id: String(step.id), hash: stepHash(step) })) }, subjects };
   } catch (error) {
     const failure = error instanceof Refusal && (phase === 'retained' || ['JOB_RECORD_SUBJECT_INVALID', 'JOB_RECORD_COLLECTION_EXTERNAL', 'JOB_RECORD_PARTS_LOCK_MISSING', 'JOB_DIRECTION_VERDICT_REQUIRED', 'REVIEW_ACT_RECORD_TARGET_INVALID', 'REVIEW_ACT_TARGET_MISMATCH', 'INTERVIEW_SIGNOFF_NOT_CLEAN', 'INTERVIEW_SIGNOFF_PLAN_REQUIRED'].includes(error.code))

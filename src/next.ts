@@ -23,7 +23,7 @@ import {
   type Item,
 } from './check.ts';
 import { amendedAnswerId, amendmentLapsedSteps, collectAmendments } from './amend.ts';
-import { pendingMeshDeltaRevision } from './corrections.ts';
+import { correctionApprovalFindings, pendingMeshDeltaRevision } from './corrections.ts';
 import {
   DIFF_MAP_AGENT_SINCE,
   DIFF_MAP_MAX_FLOOR_PX,
@@ -72,7 +72,7 @@ import {
 } from './stages.ts';
 import type { Json, JsonObject } from './templates.ts';
 import { currentScene, plateRegistration, sceneBytes, sceneCurrentAt, sceneRig, SceneError } from './scene.ts';
-import { depthPlanMoves, nextRigRegistrationNumber, turnExtraGroupMoves } from './rig-version.ts';
+import { depthPlanMoves, nextRigRegistrationNumber, NO_DRAFT_VERDICT, rigRegistrationCommand, RIG_VERSION_INPUTS, turnExtraGroupMoves } from './rig-version.ts';
 import { checkVersionDeclarations, type VersionDeclaration } from './version-declarations.ts';
 import { checkRigReport, parseRigCheckReport, RIG_CHECK_REPORT_FILE } from './rig-check-report.ts';
 import { validateRunRecord } from './run-record.ts';
@@ -83,7 +83,6 @@ import { DIRECTION_COMPOSE_SPEC } from './direction-compose.ts';
 export const NEXT_SCHEMA = 'rig-create/next@1';
 
 const BASELINES_AFTER_FINAL_ASSEMBLE = 'Finalize the assembly inputs (turn.depths and constraints.physics included), assemble again, and only then take edited-part baselines (from_sha256); a baseline from an earlier assembly refuses ASSEMBLE_EDITED_PART_BASELINE.';
-const RIG_VERSION_INPUTS = '--parts <dir> --rig <dir> --build <dir> --idle <dir> --config <file> --path-adapter <file> --compile-report <file> --check-report <check.json> --toolchain-lock <file> --run-record <run.json> --at-source <file> --at-pointer <pointer> --by <agent>';
 
 export const NEXT_HELP = `next [<project dir>] [--json]
   Derive the next moves and whose they are (agent | producer | human) from project.json.
@@ -384,15 +383,16 @@ function registrationDeclarations(dir: string, project: JsonObject, n: number, c
   ].join(' ');
 }
 
-function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild, declarations = ''): NextMove {
+function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild, declarations = '', pending?: Finding): NextMove {
   const bound: Record<string, string | undefined> = checked ? {
     '--parts': '<checked parts dir>', '--rig': checked.rig ?? '<checked rig dir>', '--idle': checked.idle ?? '<idle render dir>',
     '--build': checked.build, '--check-report': checked.check, '--run-record': checked.run, '--at-source': checked.run,
     '--at-pointer': '/finished_at', '--config': checked.config ?? '<config.json>', '--path-adapter': '<path-adapter.json>',
     '--compile-report': '<build-report.json>', '--toolchain-lock': '<build toolchain lock>',
   } : {};
-  const args = RIG_VERSION_INPUTS.replace(/(--[a-z-]+) (<[^>]+>)/g, (_, flag: string, placeholder: string) =>
-    `${flag} ${shellWord(bound[flag] ?? placeholder)}`);
+  const args = [...RIG_VERSION_INPUTS.matchAll(/(--[a-z-]+) (<[^>]+>)/g)]
+    .flatMap(([, flag, placeholder]) => [flag!, bound[flag!] ?? placeholder!]);
+  if (pending) args.push(NO_DRAFT_VERDICT);
   const act = checked
     ? [
       `Register the checked build from ${checked.source} as v${n}.`,
@@ -405,7 +405,8 @@ function rigRegistrationMove(dir: string, n: number, checked?: CheckedRigBuild, 
       'Supply your identity with --by and include --citations for applicable config sections.',
     ].join(' ') + declarations
     : `register a new rig version built after the reopen or amendment with rig-version ${n}, then publish it for one verdict`;
-  return { role: 'agent', field: 'versions', awaits: `versions[n=${n}]`, command: `rig-create rig-version ${n} ${shellWord(dir)} ${args}`, act };
+  return { role: 'agent', field: 'versions', awaits: `versions[n=${n}]`, command: rigRegistrationCommand([String(n), dir, ...args]),
+    act: pending ? `${pending.code}: ${pending.message}. Register without carrying the draft verdict. ${act}` : act };
 }
 
 function optionCommand(id: string, dir: string): string {
@@ -1386,8 +1387,11 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
   const approvalIdentity = approval && partsApprovalIdentity(approval);
   const checked = approvalIdentity ? latestCheckedRigBuild(dir, versions, Date.parse(approvalIdentity.signoff_at), reopens, now) : undefined;
   const checkedRigN = checked ? nextRigRegistrationNumber(dir, nextRigN) : undefined;
+  const pendingCarryCorrection = effectiveStage === 'rigging' && compiledVerdict?.value.verdict === 'approved'
+    ? correctionApprovalFindings(project, 'rig-review').find(finding => finding.code === 'CORRECTION_PENDING')
+    : undefined;
   const checkedRegistration = checked && checkedRigN !== undefined
-    ? rigRegistrationMove(dir, checkedRigN, checked, registrationDeclarations(dir, project, checkedRigN, checked))
+    ? rigRegistrationMove(dir, checkedRigN, checked, registrationDeclarations(dir, project, checkedRigN, checked), pendingCarryCorrection)
     : undefined;
 
   if (effectiveStage === 'rigging') {
@@ -2084,6 +2088,10 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     if (checkedRegistration) {
       addAwait(checkedRegistration.awaits);
       moves.push(checkedRegistration);
+    } else if (!checked && rigN === null && pendingCarryCorrection) {
+      const move = rigRegistrationMove(dir, nextRigN, undefined, '', pendingCarryCorrection);
+      addAwait(move.awaits);
+      moves.push(move);
     } else if (!checked && !hasOpenRigSteps && (!offerDraftReview || hasHistoryRig)) {
       if (effectiveStage === 'rigging' && rigN !== null) {
         const advCmd = candidateAdvance(dir, project, 'rig-review', now);

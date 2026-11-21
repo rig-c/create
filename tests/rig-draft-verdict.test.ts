@@ -50,15 +50,15 @@ function checkpoint(id: string): string {
   return root;
 }
 
-function spawn(root: string, args: string[], preload?: string, timeout = testTimeoutMs + 5_000) {
-  const commandAt = new Date(Date.now() + 1000).toISOString();
+function spawn(root: string, args: string[], preload?: string, timeout = testTimeoutMs + 5_000, now = Date.now() + 1000) {
+  const commandAt = new Date(now).toISOString();
   return Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), ...(preload ? ['--preload', preload] : []), join(import.meta.dir, 'cli-at.ts'), commandAt, ...args], {
     cwd: root, stdout: 'pipe', stderr: 'pipe', timeout,
   });
 }
 
-async function cli(root: string, args: string[], preload?: string, timeout?: number) {
-  const proc = spawn(root, args, preload, timeout);
+async function cli(root: string, args: string[], preload?: string, timeout?: number, now?: number) {
+  const proc = spawn(root, args, preload, timeout, now);
   const [stdout, stderr, exit] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
   return { stdout, stderr, exit };
 }
@@ -119,6 +119,12 @@ function rigging(build?: (root: string) => void): string {
   write(root, 'project.json', project);
   for (const path of ['outputs/v1', 'evidence/v1', 'derived/review/v1']) rmSync(join(root, path), { recursive: true, force: true });
 
+  prepareDraft(root, citations, EXAMPLE_NOW - 1000, build);
+  expect(checkProject(root, undefined, { now: EXAMPLE_NOW, readOnly: true }).effective_stage).toBe('rigging');
+  return root;
+}
+
+function prepareDraft(root: string, citations: JsonObject[string], draftAt: number, build?: (root: string) => void): void {
   // Use a real frozen build/idle/report set small enough for the writer. Keep the
   // chain's approved parts and config inputs as the inputs of both record writers.
   cpSync(join(import.meta.dir, 'fixtures/rig-registration'), join(root, 'producer'), { recursive: true });
@@ -133,9 +139,7 @@ function rigging(build?: (root: string) => void): string {
     cpSync(join(root, 'producer/build'), join(root, draft, 'out/check/build'), { recursive: true });
   }
   expect(draftRigCommand([draftId, root, '--config', `${draft}/config.json`, '--from', `${draft}/out`,
-    '--parts', `${draft}/out`], EXAMPLE_NOW - 1000).exit).toBe(0);
-  expect(checkProject(root, undefined, { now: EXAMPLE_NOW, readOnly: true }).effective_stage).toBe('rigging');
-  return root;
+    '--parts', `${draft}/out`], draftAt).exit).toBe(0);
 }
 
 async function page(root: string, url: URL, expectedSubject: JobSubject) {
@@ -315,7 +319,7 @@ test('#773 a draft ingest refused after its evidence write leaves the project tr
   expect(before.has(`${dirname(still)}/`)).toBe(false);
 }, testTimeoutMs);
 
-async function register(root: string, variant: 'identical' | 'changed') {
+async function register(root: string, variant: 'identical' | 'changed', n = 1, flags: string[] = []) {
   const reviewedConfig = readFileSync(join(root, draft, 'config.json'));
   const registrationConfig = variant === 'identical' ? reviewedConfig : Buffer.concat([reviewedConfig, Buffer.from('\n')]);
   // Preserve the shown inputs. The changed case has an unchanged model and
@@ -328,10 +332,10 @@ async function register(root: string, variant: 'identical' | 'changed') {
     started_at: new Date(EXAMPLE_NOW - 1000).toISOString(), finished_at: at,
     inputs: ['rig', 'motion'].map(role => ({ role, path: `rig/${role}.json`, sha256: jobHash(readFileSync(join(root, 'producer/rig', `${role}.json`))) })),
     outputs: [{ path: 'build/skeleton.model.json', sha256: jobHash(readFileSync(join(root, 'producer/build/skeleton.model.json'))) }] });
-  return await cli(root, ['rig-version', '1', root, '--parts', `${draft}/out`, '--rig', 'producer/rig',
+  return await cli(root, ['rig-version', String(n), root, '--parts', `${draft}/out`, '--rig', 'producer/rig',
     '--build', 'producer/build', '--idle', 'producer/idle', '--config', 'producer/config.json', '--path-adapter', 'producer/adapter.json',
     '--compile-report', 'producer/compile-report.json', '--toolchain-lock', 'producer/package-lock.json', '--run-record', 'producer/run.json',
-    '--at-source', 'producer/at-source.json', '--at-pointer', '/finished_at', '--citations', 'producer/citations.json', '--by', 'synthetic-registrant']);
+    '--at-source', 'producer/at-source.json', '--at-pointer', '/finished_at', '--citations', 'producer/citations.json', '--by', 'synthetic-registrant', ...flags]);
 }
 
 test.each(['identical', 'changed'] as const)('#712 registration with %s bytes determines whether the owner is asked again', async variant => {
@@ -375,4 +379,50 @@ test.each(['identical', 'changed'] as const)('#712 registration with %s bytes de
   (verdict.carried_from_draft as JsonObject).act_id = 'different-act';
   expect(checkProject(root, project, { now: Date.now(), readOnly: true }).refusals).toContainEqual(
     expect.objectContaining({ code: 'REVIEW_ACT_LEDGER_INVALID', path: 'versions[v1].verdicts[0]' }));
+}, testTimeoutMs);
+
+test('#803 a pending correction refuses carry and offers same-input registration without the verdict', async () => {
+  const root = checkpoint('3-rig-review');
+  const check = () => checkProject(root, undefined, { now: Date.now() + 2000, readOnly: true });
+  const initial = read(root);
+  const historyRig = (initial.versions as JsonObject[])[0]!;
+  const citations = (historyRig.provenance as JsonObject).sections;
+  const words = join(root, 'owner-words.txt');
+  writeFileSync(words, 'Revise the synthetic rig.\n');
+  const amendAt = EXAMPLE_NOW - 2000;
+  cpSync(join(root, 'derived/drafts/chain/config.json'), join(root, 'revised-config.json'));
+  // A forward amendment is the current writer that returns the effective stage to rigging.
+  assertSuccess(await cli(root, ['amend', 'rigging', root, '--kind', 'config-field', '--target', 'motion',
+    '--change', 'revised-config.json', '--by', 'synthetic-owner', '--owner-chat', words,
+    '--said-at', new Date(amendAt).toISOString(), '--relayed-by', 'synthetic-operator'], undefined, undefined, amendAt));
+  expect(check().effective_stage).toBe('rigging');
+  prepareDraft(root, citations, EXAMPLE_NOW - 1000);
+  const beforeCorrection = check();
+  expect(beforeCorrection.refusals.map(f => f.code)).toEqual([]);
+  assertSuccess(await cli(root, ['correction', 'record', root, '--stage', 'rig-review', '--version', '1',
+    '--path', 'described', '--id', 'revise-motion', '--by', 'synthetic-owner', '--verbatim-file', words]));
+  const afterCorrection = check();
+  expect(afterCorrection.refusals.map(f => f.code)).toEqual([]);
+  const opening = await open(root, draftId);
+  await submit(root, opening.url, 'approved');
+  assertSuccess(await cli(root, ['job', 'close', root]));
+
+  const before = readFileSync(join(root, 'project.json'));
+  const registrations = nextProject(root, Date.now() + 2000).moves.filter(move => move.command?.startsWith('rig-create rig-version '));
+  expect(registrations).toHaveLength(1);
+  const [move] = registrations;
+  expect(move?.act).toContain('CORRECTION_PENDING');
+  expect(move?.command).toStartWith('rig-create rig-version 2 ');
+  expect(move?.command).toEndWith(' --no-draft-verdict');
+  const carrying = await register(root, 'identical', 2);
+  expect(carrying.exit).toBe(1);
+  expect(carrying.stderr).toMatch(/\bCORRECTION_PENDING:/);
+  expect(carrying.stderr.trimEnd()).toEndWith('--by synthetic-registrant --no-draft-verdict');
+  expect(readFileSync(join(root, 'project.json'))).toEqual(before);
+  expect(check().refusals.map(f => f.code)).toEqual([]);
+  const plain = await register(root, 'identical', 2, ['--no-draft-verdict']);
+  assertSuccess(plain);
+  expect((read(root).versions as JsonObject[]).at(-1)).toMatchObject({ n: 2, verdicts: [], evidence: [] });
+  expect(read(root).corrections).toEqual((JSON.parse(before.toString()) as JsonObject).corrections);
+  expect(check().refusals.map(f => f.code)).toEqual([]);
 }, testTimeoutMs);

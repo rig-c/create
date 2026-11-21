@@ -1122,7 +1122,7 @@ patch, computes a producer check/diff, or launches an Apply.
 | `CORRECTION_UNSUPPORTED_OUTCOME` | a named unsupported operation attempts supported completion |
 | `CORRECTION_MESH_DELTA_INVALID` | `corrections` cannot bind a finalized mesh edit to one Parts result and its retained revision files, or the act and attachment already have a completion. Restore the exact source and Parts receipt, then replay on the recorded revision. |
 | `CORRECTION_MESH_DELTA_REVISION` | The next registered rig version does not bind the final Parts revision from the completed mesh corrections. Build and check that revision and supply the matching compile run record to `rig-version`. |
-| `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction |
+| `CORRECTION_PENDING` | attempted scoped approval/handoff relies on an unresolved active correction. If `rig-version` refuses while carrying a draft verdict, retry with `--no-draft-verdict` to register the frozen inputs without that verdict. Resolve the correction before approving rig-review. |
 | `CORRECTION_PATH_LEGACY` | WARN once when explicit corrections adoption is absent |
 | `DESCRIBED_DIRECTION_REQUIRED` | a described correction on a post with authored direction uses @1 on or after `DESCRIBED_DIRECTION_SINCE = 2026-11-06T00:00:00Z`. Preserve the evidence and capture a new correction@2 request with the exact direction identity |
 | `DESCRIBED_DIRECTION_LEGACY` | WARN for the same @1 authored-direction description before DESCRIBED_DIRECTION_SINCE, dated by correction.at. Preserve history and use correction@2 for the next request |

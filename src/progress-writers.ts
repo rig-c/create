@@ -11,7 +11,7 @@ import { refuse, USAGE_EXIT } from './refusal.ts';
 import { findingKey, newFindings, carriedRefusals } from './refusal-baseline.ts';
 import { collectAmendments } from './amend.ts';
 import { LEGACY_STAGE_VALUES, PARTS_REVIEW_SINCE, PAUSED_STAGE, STAGE_VALUES, hasStageOrder, interviewStageOfGuide, stageIndex, stageOfStep } from './stages.ts';
-import { advanceOrder, furthestStageSignoff, isSignoffIdentity, moveOwner, signoffIdentity, statusTransitionFinding, STEP_STATUSES } from './stage-progress.ts';
+import { advanceOrder, furthestStageSignoff, isSignoffIdentity, moveOwner, nextStepStatus, signoffIdentity, statusTransitionFinding, stepStatusFollows, STEP_STATUSES } from './stage-progress.ts';
 import { isPartsCheckMove, partsCheckLines, partsCheckRecord } from './parts-check.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -19,11 +19,13 @@ export const PROGRESS_HELP = `advance:
   <stage> [<project dir>] [--source <text>] [--parts-check <report> --parts <assembled dir>]
   Move one authorized stage forward and append advances[] with its stable signoff identity.
   The person's signoff is the move's authority; advance takes no --by or words of its own.
-  parts -> parts-review requires both: a passing rig-parts check-parts report retained
-  under the project and the project-relative assembled root it was run on.
+  parts -> parts-review requires both: a passing rig-parts check-parts report written
+  with --out <project>/evidence (a clone does not carry derived/) and the
+  project-relative assembled root it was run on.
 step-status:
   <step> <status> [<project dir>] --by <who> [--note-file <path>]
-  Record pending -> in-progress -> at-checkpoint -> done and status_history[].
+  Record pending -> in-progress -> at-checkpoint -> done and status_history[];
+  a step without a checkpoint may go from in-progress straight to done.
   The optional note is verbatim UTF-8, 1–1,000 bytes, with no controls except newline.
   A checkpointed done needs a live human checkpoint signature.
   An amended project also runs steps in the check's effective stage, keeping its stored stage.
@@ -163,11 +165,11 @@ export function stepStatusCommand(args: string[], now: number): { stdout: string
     }
   }
   const from = STEP_STATUSES.indexOf(entry.from_status as typeof STEP_STATUSES[number]);
-  if (from >= 0 && STEP_STATUSES.indexOf(entry.status as typeof STEP_STATUSES[number]) !== from + 1) {
-    const next = STEP_STATUSES[from + 1];
+  if (from >= 0 && !stepStatusFollows(entry.from_status, entry.status, enabled)) {
+    const next = nextStepStatus(String(entry.from_status), enabled);
     refuse('STEP_STATUS_TRANSITION', next === undefined
       ? `plan.steps[${positional[0]}].status: ${String(entry.from_status)} is the last status, so ${String(entry.status)} cannot follow it; to run the step again record a human amendment with rig-create amend ${stage}`
-      : `plan.steps[${positional[0]}].status: ${String(entry.status)} cannot follow ${String(entry.from_status)}; statuses move one at a time through ${STEP_STATUSES.join(' → ')}, so record rig-create step-status ${String(step.id)} ${next} next`);
+      : `plan.steps[${positional[0]}].status: ${String(entry.status)} cannot follow ${String(entry.from_status)}; statuses move one at a time through ${STEP_STATUSES.join(' → ')}${enabled ? '' : ' (a step without a checkpoint may go from in-progress straight to done)'}, so record rig-create step-status ${String(step.id)} ${next} next`);
   }
   const invalid = statusTransitionFinding(entry, `plan.steps[${positional[0]}].status_history`);
   if (invalid !== null) refuse(invalid.code, invalid.message);

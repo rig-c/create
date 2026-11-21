@@ -170,7 +170,7 @@ test('parsed YAML removes release-please, triggers on version tags, preserves le
 });
 
 test('CI and release share the exact proven toolchain and original staging command',()=>{
- const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {permissions:Record<string,string>;jobs:{check:{steps:Step[];permissions?:Record<string,string>}}};
+ const ci=Bun.YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8')) as {permissions:Record<string,string>;jobs:{check:{steps:Step[];permissions?:Record<string,string>};'source-linked':{steps:Step[]}}};
  const smokeSteps=ci.jobs.check.steps;
  const setup=smokeSteps.findIndex(step=>step.uses==='./.github/actions/stage-release');
  const pack=smokeSteps.findIndex(step=>step.name==='Pack, verify and dry-run both package names');
@@ -183,7 +183,8 @@ test('CI and release share the exact proven toolchain and original staging comma
   'oven-sh/setup-bun@v2','actions/setup-node@v4','npm install -g npm@12.2.2\nnpm --version\n',
   'bun install --frozen-lockfile','bun scripts/verify-example-seals.ts --stage "$RUNNER_TEMP/create-release-source"',
  ]);
- expect(setupSteps[0]!.with).toEqual({'bun-version':'latest'});
+ expect(setupSteps[0]!.with).toEqual({'bun-version':'1.4.5'});
+ expect(ci.jobs['source-linked'].steps.find(step=>step.uses==='oven-sh/setup-bun@v2')?.with).toEqual({'bun-version':'1.4.5'});
  expect(setupSteps[1]!.with).toEqual({'node-version':22,'registry-url':'https://registry.npmjs.org'});
  const smoke=smokeSteps[pack]!.run!;
  expect(smoke).toContain('staged="$RUNNER_TEMP/create-release-source"');

@@ -363,7 +363,7 @@ test('#558 a three-set publication seals each binding and refreshes the remainin
   const bytes = readFileSync(file);
   const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const sets = ['rig_type', 'reference', 'seethrough'].map(questionId => ({ questionId, setId: `chain-${questionId}` }));
-  const subjects = sets.map(set => ({ kind: 'interview-picks', ...set }));
+  const subjects = sets.map(set => ({ kind: 'interview-picks' as const, ...set }));
   const items = collectItems(project, { collection: null });
   const files = sets.map(({ questionId }, index) => {
     const path = paths[index]!;
@@ -383,7 +383,9 @@ test('#558 a three-set publication seals each binding and refreshes the remainin
       questionId, setId, optionSet: { id: setId, sha256: files[index]!.sha256 }, optionSetFile: files[index],
     })),
   });
-  for (const file of files) expect(publication.source.files).toContainEqual(file);
+  const source = publication.source;
+  if (!('files' in source)) throw Error('expected a record publication with sealed files');
+  for (const file of files) expect(source.files).toContainEqual(file);
   expect(pendingPublications(root)).toEqual([]);
   expect(readFileSync(file)).toEqual(bytes);
   await openRecordPublication(root, host, ['rig_type', 'reference', 'seethrough'], false, EXAMPLE_NOW);

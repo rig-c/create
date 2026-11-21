@@ -18,7 +18,7 @@ import { stageOfStep, stepCoveredByApproval } from './stages.ts';
 import { stepHash } from './step-hash.ts';
 import { checkStructure } from './structure.ts';
 import { createHash, randomUUID } from 'node:crypto';
-import type { JsonObject } from './templates.ts';
+import type { Json, JsonObject } from './templates.ts';
 
 export type AgentReply = {
   ok?: boolean;
@@ -427,7 +427,7 @@ function interviewAskItem(project: JsonObject, root: string, questionId: string)
   } catch { return undefined; }
 }
 
-function matchesInterviewBinding(root: string, binding: unknown, shown: OptionSetBinding): boolean {
+function matchesInterviewBinding(root: string, binding: Json | undefined, shown: OptionSetBinding): boolean {
   if (!isObject(binding) || binding.path !== shown.optionSetFile.path
     || binding.sha256 !== shown.optionSetFile.sha256 || binding.sha256 !== shown.optionSet.sha256) return false;
   try { return optionFile(root, binding).set.id === shown.setId; } catch { return false; }

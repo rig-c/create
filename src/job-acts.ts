@@ -342,7 +342,7 @@ export function jobActsText(result: { acts: readonly PendingJobAct[]; ingested?:
 export interface PendingTargetAsk {
   label: string;
   version: number | null;
-  staleInterviewAct?: boolean;
+  staleInterviewActId?: string;
 }
 
 function actMatchesAsk(act: ActV3, ask: PendingAskV3): boolean {
@@ -517,9 +517,9 @@ export function pendingJobAsksForTarget(
   const ingestedActs = actionableActs.filter(act => !unIngestedIds.has(act.actId));
   const unIngestedActs = actionableActs.filter(act => unIngestedIds.has(act.actId));
   const multiTarget = target.kind === 'option-set' && recordOptionSets(target).length > 1;
-  const staleInterviewAct = (act: ActV3 | undefined): boolean => act?.kind === 'interview-picks'
+  const staleInterviewAct = (act: ActV3 | undefined): string | undefined => act?.kind === 'interview-picks'
     && act.schema === 'rig-review/act@4' && isMultiOptionSource(act.source)
-    && record !== undefined && !matchesActProjectSource(act, record);
+    && record !== undefined && !matchesActProjectSource(act, record) ? act.actId : undefined;
   const pending: PendingTargetAsk[] = [];
   for (const ask of actionableAsks) {
     if (ingestedActs.some(act => actMatchesAsk(act, ask))) continue;
@@ -532,16 +532,18 @@ export function pendingJobAsksForTarget(
     if (!unIngestedAct && (multiInterview || multiTarget) && carriesInterviewAsk(project, root, ask, target)) continue;
     if (!unIngestedAct && info.selector?.kind === 'draft' && target.kind === 'draft') continue;
     const label = askSubjectText(ask.subject);
+    const staleInterviewActId = staleInterviewAct(unIngestedAct);
     pending.push({ label: multiInterview ? label : `${label} on ${info.label}`, version: info.version,
-      ...(staleInterviewAct(unIngestedAct) ? { staleInterviewAct: true } : {}) });
+      ...(staleInterviewActId === undefined ? {} : { staleInterviewActId }) });
   }
   for (const act of unIngestedActs) {
     if (actionableAsks.some(ask => actMatchesAsk(act, ask))) continue;
     const info = sourceTargetInfo(act.source);
     if (!isMultiOptionSource(act.source) && sameTarget(act.source, target)) continue;
     if (supersededVerdictSource(project, { kind: act.kind, stage: 'stage' in act.value ? String(act.value.stage) : undefined }, act.source)) continue;
+    const staleInterviewActId = staleInterviewAct(act);
     pending.push({ label: `${act.kind} (${act.actId}) on ${info.label}`, version: info.version,
-      ...(staleInterviewAct(act) ? { staleInterviewAct: true } : {}) });
+      ...(staleInterviewActId === undefined ? {} : { staleInterviewActId }) });
   }
   return pending;
 }

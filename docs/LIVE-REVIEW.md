@@ -464,7 +464,7 @@ open asks and finalized acts awaiting ingest still block replacement with
 
 After recording every pick, run `interview --check`, then `job open --plan`
 for the interview signature. The grouped, single-set and interview-signature routes are supported by
-release-pinned [Review 4.10.0](https://github.com/rig-c/review/tree/v4.10.0),
+release-pinned [Review 4.11.0](https://github.com/rig-c/review/tree/v4.11.0),
 including the
 [Review #803](https://github.com/rig-c/review/pull/803) carrier (issue #800) and the multi-set option-set publications of
 [Review #1004](https://github.com/rig-c/review/issues/1004).

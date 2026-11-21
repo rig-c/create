@@ -77,21 +77,77 @@ export function checkInputs(ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'war
 export const INPUT_HELP = `input add <path> [<project dir>] --origin <words> [--painting [--projects-root <dir>] [--same-artwork-reason <file>]] [--json]
   Register raw source bytes as {path, sha256, bytes, origin, at}.
   --painting declares the project's one painting and checks sibling inputs for the same artwork.
-  Paths are project-relative. Changed inputs require a new file name.`;
+  Paths are project-relative. Changed inputs require a new file name.
+input painting <path> [<project dir>] [--projects-root <dir>] [--same-artwork-reason <file>] [--json]
+  Declare an already-registered input as the project's one painting, with the same artwork check.`;
+
+type InputProject = Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'>;
+
+/** Register a new source; with --painting it is also declared the painting. */
+function addInput(dir: string, project: JsonObject, name: string, origin: string, painting: boolean, artwork: ArtworkOptions, now: number): { entry: JsonObject; bytes: Buffer } {
+  if (painting && project.painting !== undefined) refuse('INPUT_PAINTING_EXISTS', `painting: '${String(project.painting)}' is already declared; retain the project's painting and register other sources without --painting`);
+  const bytes = sourceBytes(dir, name, 'inputs[].path');
+  const entry: JsonObject = { path: name, sha256: sha256(bytes), bytes: bytes.length, origin, at: new Date(now).toISOString() };
+  const existing = asArray(project.inputs).filter(isObject).find(input => text(input.path) && resolve(dir, input.path) === resolve(dir, name));
+  if (existing) {
+    if (existing.sha256 !== entry.sha256 || existing.bytes !== entry.bytes) refuse('INPUT_FILE_CHANGED', `inputs[].path: '${name}' has changed under its registered name; restore the old bytes and register a new file name`);
+    refuse('INPUT_PATH_DUPLICATE', painting
+      ? `inputs[].path: '${name}' is already registered; declare it as the painting with input painting ${name}`
+      : `inputs[].path: '${name}' is already registered; keep its record and use a new name for changed bytes`);
+  }
+  inputsArray({ dir, project, refusals: [], warnings: [] });
+  if (painting) {
+    const same = sameArtworkFor(dir, name, String(entry.sha256), now, { ...artwork, index: asArray(project.inputs).length });
+    project.painting = name;
+    if (same !== null && project.same_artwork === undefined) project.same_artwork = same;
+  }
+  project.inputs = [...asArray(project.inputs), entry];
+  return { entry, bytes };
+}
+
+/** Declare a registered input as the painting; its record and bytes stay as registered. */
+function declarePainting(dir: string, project: JsonObject, name: string, artwork: ArtworkOptions, now: number): { entry: JsonObject; bytes: Buffer } {
+  if (project.painting !== undefined) refuse('INPUT_PAINTING_EXISTS', `painting: '${String(project.painting)}' is already declared; retain the project's painting and register other sources without --painting`);
+  inputsArray({ dir, project, refusals: [], warnings: [] });
+  const inputs = asArray(project.inputs);
+  const index = inputs.findIndex(input => isObject(input) && text(input.path) && resolve(dir, input.path) === resolve(dir, name));
+  if (index < 0) refuse('INPUT_PAINTING_UNREGISTERED', `painting: '${name}' is not a registered input; register and declare it with input add ${name} --origin <words> --painting`);
+  const entry = inputs[index] as JsonObject;
+  const recorded = entry.path as string;
+  if (typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256) || typeof entry.bytes !== 'number') {
+    refuse('INPUT_WRITER_MISSING', `inputs[${index}]: '${recorded}' lacks writer metadata {path, sha256, bytes}; preserve historical bytes and register the painting under a new source name with input add --origin --painting`);
+  }
+  const bytes = sourceBytes(dir, name, `inputs[${index}].path`);
+  if (sha256(bytes) !== entry.sha256 || bytes.length !== entry.bytes) refuse('INPUT_FILE_CHANGED', `inputs[${index}]: '${recorded}' differs from its recorded raw sha256 or bytes; restore the original file before declaring it the painting`);
+  const same = sameArtworkFor(dir, recorded, entry.sha256, now, { ...artwork, index });
+  project.painting = recorded;
+  if (same !== null && project.same_artwork === undefined) project.same_artwork = same;
+  return { entry, bytes };
+}
+
+/** A non-array inputs field refuses with the check's own finding. */
+function inputsArray(ctx: InputProject): void {
+  if (ctx.project.inputs === undefined || Array.isArray(ctx.project.inputs)) return;
+  checkInputs(ctx);
+  refuse(ctx.refusals[0]!.code, ctx.refusals[0]!.message);
+}
+
+interface ArtworkOptions { projectsRoot?: string; sameArtworkReason?: string }
 
 export function inputCommand(args: string[], now: number): { stdout: string; exit: number } {
-  if (args[0] !== 'add') refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
+  const mode = args[0];
+  if (mode !== 'add' && mode !== 'painting') refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
   const positional: string[] = [];
   let origin: string | undefined;
   let projectsRoot: string | undefined;
   let sameArtworkReason: string | undefined;
-  let painting = false;
+  let painting = mode === 'painting';
   let json = false;
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === '--json' && !json) json = true;
-    else if (arg === '--painting' && !painting) painting = true;
-    else if (arg === '--origin' && origin === undefined) {
+    else if (arg === '--painting' && mode === 'add' && !painting) painting = true;
+    else if (arg === '--origin' && mode === 'add' && origin === undefined) {
       origin = args[++index];
       if (!origin || origin.startsWith('--') || !origin.trim()) refuse('INPUT_USAGE', 'inputs[].origin: supply --origin with non-empty source words', USAGE_EXIT);
     } else if (arg === '--projects-root' && projectsRoot === undefined) {
@@ -103,7 +159,7 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
     } else if (arg.startsWith('-')) refuse('INPUT_USAGE', `inputs: unexpected or repeated option '${arg}'; ${INPUT_HELP}`, USAGE_EXIT);
     else positional.push(arg);
   }
-  if (positional.length < 1 || positional.length > 2 || origin === undefined) refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
+  if (positional.length < 1 || positional.length > 2 || (mode === 'add' && origin === undefined)) refuse('INPUT_USAGE', INPUT_HELP, USAGE_EXIT);
   if (!painting && (projectsRoot !== undefined || sameArtworkReason !== undefined)) refuse('INPUT_USAGE', 'painting: --projects-root and --same-artwork-reason require input add --painting', USAGE_EXIT);
   const dir = resolve(positional[1] ?? process.cwd());
   const name = inputPath(dir, positional[0]!);
@@ -114,34 +170,16 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
   let published = false;
   try {
     let before: Buffer;
-    try { before = readFileSync(file); } catch { refuse('PROJECT_JSON_INVALID', 'project.json: restore a readable project record before input add'); }
+    try { before = readFileSync(file); } catch { refuse('PROJECT_JSON_INVALID', `project.json: restore a readable project record before input ${mode}`); }
     const read = readJsonObject(file);
     if (!read.ok) refuse('PROJECT_JSON_INVALID', `project.json: ${read.error}`);
     const project = read.value;
-    if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', 'project.json.schema: input add reads rig-create/project@0');
-    if (painting && project.painting !== undefined) refuse('INPUT_PAINTING_EXISTS', `painting: '${String(project.painting)}' is already declared; retain the project's painting and register other sources without --painting`);
-    const bytes = sourceBytes(dir, name, 'inputs[].path');
-    const entry: JsonObject = { path: name, sha256: sha256(bytes), bytes: bytes.length, origin, at: new Date(now).toISOString() };
-    const existing = asArray(project.inputs).filter(isObject).find(input => text(input.path) && resolve(dir, input.path) === resolve(dir, name));
-    if (existing) {
-      if (existing.sha256 !== entry.sha256 || existing.bytes !== entry.bytes) refuse('INPUT_FILE_CHANGED', `inputs[].path: '${name}' has changed under its registered name; restore the old bytes and register a new file name`);
-      refuse('INPUT_PATH_DUPLICATE', `inputs[].path: '${name}' is already registered; keep its record and use a new name for changed bytes`);
-    }
-    const ctx: Pick<Ctx, 'dir' | 'project' | 'refusals' | 'warnings'> = { dir, project, refusals: [], warnings: [] };
-    if (project.inputs !== undefined && !Array.isArray(project.inputs)) {
-      checkInputs(ctx);
-      refuse(ctx.refusals[0]!.code, ctx.refusals[0]!.message);
-    }
-    if (painting) {
-      const same = sameArtworkFor(dir, name, String(entry.sha256), now, {
-        projectsRoot,
-        sameArtworkReason,
-        index: asArray(project.inputs).length,
-      });
-      project.painting = name;
-      if (same !== null && project.same_artwork === undefined) project.same_artwork = same;
-    }
-    project.inputs = [...asArray(project.inputs), entry];
+    if (project.schema !== 'rig-create/project@0') refuse('SCHEMA_UNKNOWN', `project.json.schema: input ${mode} reads rig-create/project@0`);
+    const artwork = { projectsRoot, sameArtworkReason };
+    const { entry, bytes } = mode === 'add'
+      ? addInput(dir, project, name, origin!, painting, artwork, now)
+      : declarePainting(dir, project, name, artwork, now);
+    const ctx: InputProject = { dir, project, refusals: [], warnings: [] };
     checkInputs(ctx);
     const finding = ctx.refusals[0];
     if (finding) refuse(finding.code, finding.message);
@@ -155,6 +193,9 @@ export function inputCommand(args: string[], now: number): { stdout: string; exi
       if (error instanceof Refusal) throw error;
       refuse('INPUT_WRITE_FAILED', 'inputs: could not publish the staged project.json record; restore writable project storage and retry');
     }
-    return { stdout: json ? JSON.stringify(entry, null, 2) : `input: recorded '${name}' (${bytes.length} bytes)`, exit: 0 };
+    const path = String(entry.path);
+    const stdout = json ? JSON.stringify(entry, null, 2)
+      : mode === 'add' ? `input: recorded '${path}' (${bytes.length} bytes)` : `input: declared '${path}' as the painting`;
+    return { stdout, exit: 0 };
   } finally { closeSync(fd); if (!published) unlinkSync(lock); }
 }

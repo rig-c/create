@@ -572,7 +572,7 @@ export function prepareLiveManifest(root: string, project: JsonObject, n: number
   catch (error) {
     const findings = { dir: root, project, refusals: [] as Finding[], warnings: [] as Finding[] };
     checkInputs(findings);
-    const legacy = findings.warnings.find(finding => finding.code === 'INPUT_WRITER_MISSING' && finding.path === 'inputs[0]');
+    const legacy = findings.warnings.find(finding => finding.code === 'INPUT_WRITER_MISSING' && finding.path === `inputs[${sourcePaintingIndex(project, `versions[v${n}]`)}]`);
     if (!legacy) throw error;
     if (existing) refuse('JOB_PUBLICATION_INVALID', `versions[v${n}]: ${path} already differs; preserve it and restore the writer-generated manifest`);
     warnings.push(legacy);
@@ -735,10 +735,23 @@ export function publishedDraft(project: JsonObject, id: string): JsonObject {
   return found[0];
 }
 
-export function publishedSourcePainting(root: string, project: JsonObject, label: string, declaredPath?: Json): { path: string; sha256: string } {
+/**
+ * The input that holds the source painting: the one `project.painting` declares, or `inputs[0]` when nothing is
+ * declared, so records made before the declaration existed publish unchanged. A declaration that names no
+ * registered input refuses rather than falling back to position.
+ */
+export function sourcePaintingIndex(project: JsonObject, label: string): number {
+  if (project.painting === undefined) return 0;
   const inputs = Array.isArray(project.inputs) ? project.inputs : [];
-  const first = declaredPath === undefined ? inputs[0] : inputs.find(input => isObject(input) && input.path === declaredPath);
-  const field = declaredPath === undefined ? 'inputs[0]' : 'painting';
+  const index = typeof project.painting === 'string' ? inputs.findIndex(input => isObject(input) && input.path === project.painting) : -1;
+  if (index < 0) refuse('JOB_PUBLICATION_INVALID', `${label}: painting must name a registered input; restore the declaration written by init --painting, input add --painting or input painting before publishing`);
+  return index;
+}
+
+export function publishedSourcePainting(root: string, project: JsonObject, label: string): { path: string; sha256: string } {
+  const inputs = Array.isArray(project.inputs) ? project.inputs : [];
+  const index = sourcePaintingIndex(project, label);
+  const first = inputs[index];
   if (
     !isObject(first) ||
     typeof first.path !== 'string' ||
@@ -749,17 +762,13 @@ export function publishedSourcePainting(root: string, project: JsonObject, label
     !/^[a-f0-9]{64}$/.test(first.sha256) ||
     (first.bytes !== undefined && (typeof first.bytes !== 'number' || !Number.isSafeInteger(first.bytes) || first.bytes < 0))
   ) {
-    const message = declaredPath === undefined
-      ? 'inputs[0] must record the original painting {path, sha256}; restore the declared inputs[0] entry in project.json before publishing'
-      : 'painting must identify the original painting input {path, sha256}; restore the declared painting and its input in project.json';
-    refuse('JOB_PUBLICATION_INVALID', `${label}: ${message}`);
+    refuse('JOB_PUBLICATION_INVALID', `${label}: inputs[${index}] must record the original painting {path, sha256}; restore the declared inputs[${index}] entry in project.json before publishing`);
   }
   const path = first.path;
   const sha256 = first.sha256;
   const bytes = publicationFile(root, path);
   if (jobHash(bytes) !== sha256 || (typeof first.bytes === 'number' && bytes.length !== first.bytes)) {
-    const remedy = declaredPath === undefined ? ' before publishing' : '';
-    refuse('JOB_PUBLICATION_INVALID', `${label}: ${field} (${path}) differs from its registered sha256; restore the original painting bytes${remedy}`);
+    refuse('JOB_PUBLICATION_INVALID', `${label}: inputs[${index}] (${path}) differs from its registered sha256; restore the original painting bytes before publishing`);
   }
   return { path, sha256 };
 }

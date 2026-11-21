@@ -128,7 +128,7 @@ test('invalid input array and a held writer lock preserve project bytes', () => 
   expect(readFileSync(join(dir, '.input.lock'), 'utf8')).toBe('another writer');
 });
 
-for (const args of [[], ['list'], ['add'], ['add', 'source.bin'], ['add', 'source.bin', '--origin'], ['add', 'source.bin', '--origin', ' '], ['add', 'source.bin', '--origin', 'words', '--projects-root'], ['add', 'source.bin', '--origin', 'words', '--same-artwork-reason'], ['add', 'a', 'b', 'c', '--origin', 'words'], ['add', 'a', '--origin', 'one', '--origin', 'two'], ['add', 'a', '--unknown'], ['add', 'a', '--origin', 'words', '--painting', '--painting'], ['add', 'a', '--origin', 'words', '--projects-root', 'root'], ['add', 'a', '--origin', 'words', '--same-artwork-reason', 'reason.txt']]) {
+for (const args of [[], ['list'], ['add'], ['add', 'source.bin'], ['add', 'source.bin', '--origin'], ['add', 'source.bin', '--origin', ' '], ['add', 'source.bin', '--origin', 'words', '--projects-root'], ['add', 'source.bin', '--origin', 'words', '--same-artwork-reason'], ['add', 'a', 'b', 'c', '--origin', 'words'], ['add', 'a', '--origin', 'one', '--origin', 'two'], ['add', 'a', '--unknown'], ['add', 'a', '--origin', 'words', '--painting', '--painting'], ['add', 'a', '--origin', 'words', '--projects-root', 'root'], ['add', 'a', '--origin', 'words', '--same-artwork-reason', 'reason.txt'], ['painting'], ['painting', 'a', 'b', 'c'], ['painting', 'a', '--origin', 'words'], ['painting', 'a', '--painting'], ['painting', 'a', '--json', '--json']]) {
   test(`usage refusal is byte-identical for ${JSON.stringify(args)}`, () => { const dir = project(); refused(dir, args, 'INPUT_USAGE', 2); });
 }
 
@@ -251,4 +251,54 @@ test('declaring a painting preserves a pre-existing artwork reason on an undecla
   inputCommand(['add', 'inputs/source.bin', second, '--painting', '--origin', 'synthetic', '--same-artwork-reason', reason]);
   expect(load(second).painting).toBe('inputs/source.bin');
   expect(load(second).same_artwork).toEqual(oldReason);
+});
+
+test('#404 input painting declares an already-registered later input and keeps its record', () => {
+  const dir = project();
+  const first = register(dir);
+  writeFileSync(join(dir, 'inputs/painting.bin'), 'synthetic painting bytes');
+  inputCommand(['add', 'inputs/painting.bin', dir, '--origin', 'synthetic painting']);
+  const before = load(dir);
+  // The old route meets a duplicate and now names the declaring writer.
+  refused(dir, ['add', 'inputs/painting.bin', dir, '--painting', '--origin', 'again'], 'INPUT_PATH_DUPLICATE');
+  refused(dir, ['painting', 'inputs/unknown.bin', dir], 'INPUT_PAINTING_UNREGISTERED');
+  const result = cli(['input', 'painting', './inputs/painting.bin', '--json'], dir, process.env as Record<string, string>);
+  expect(result.stderr).toBe(''); expect(result.code).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual((before.inputs as JsonObject[])[1]);
+  const after = load(dir);
+  expect(after.painting).toBe('inputs/painting.bin');
+  expect(after.inputs).toEqual([first, (before.inputs as JsonObject[])[1]]);
+  delete after.painting; expect(after).toEqual(before);
+  expect(checkProject(dir).refusals.filter(f => f.code.startsWith('INPUT_'))).toEqual([]);
+  refused(dir, ['painting', 'inputs/source.bin', dir], 'INPUT_PAINTING_EXISTS');
+  refused(dir, ['painting', 'inputs/painting.bin', dir], 'INPUT_PAINTING_EXISTS');
+});
+
+test('#404 input painting refuses changed bytes, legacy records and duplicate artwork byte-identically', () => {
+  const root = tempDir();
+  const first = project(root, 'first');
+  const second = project(root, 'second');
+  register(first);
+  const entry = register(second);
+  refused(second, ['painting', 'inputs/source.bin', second], 'INIT_ARTWORK_EXISTS');
+  const reason = join(root, 'reason.txt');
+  writeFileSync(reason, 'A second rig kind for the same synthetic painting.\n');
+  const otherRoot = tempDir(); dirs.push(otherRoot);
+  refused(second, ['painting', 'inputs/source.bin', second, '--projects-root', otherRoot, '--same-artwork-reason', reason], 'INIT_ARTWORK_USAGE', 2);
+  const bytes = readFileSync(join(second, 'inputs/source.bin'));
+  writeFileSync(join(second, 'inputs/source.bin'), 'changed');
+  refused(second, ['painting', 'inputs/source.bin', second, '--same-artwork-reason', reason], 'INPUT_FILE_CHANGED');
+  writeFileSync(join(second, 'inputs/source.bin'), bytes);
+  const legacy = load(second);
+  writeFileSync(join(second, 'project.json'), JSON.stringify({ ...legacy, inputs: [{ path: 'inputs/source.bin' }] }));
+  refused(second, ['painting', 'inputs/source.bin', second, '--same-artwork-reason', reason], 'INPUT_WRITER_MISSING');
+  writeFileSync(join(second, 'project.json'), JSON.stringify({ ...legacy, inputs: {} }));
+  refused(second, ['painting', 'inputs/source.bin', second], 'INPUTS_INVALID');
+  writeFileSync(join(second, 'project.json'), JSON.stringify(legacy));
+  inputCommand(['painting', 'inputs/source.bin', second, '--same-artwork-reason', reason]);
+  const declared = load(second);
+  expect(declared.painting).toBe('inputs/source.bin');
+  expect(declared.inputs).toEqual([entry]);
+  expect(declared.same_artwork).toEqual({ reason: 'A second rig kind for the same synthetic painting.', at: testClock.iso(), projects: ['first'] });
+  expect(existsSync(join(second, '.input.lock'))).toBe(false);
 });

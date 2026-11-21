@@ -649,9 +649,11 @@ with `--write-config`. Keep its landmarks JSON and the adjacent
 directory. `rig-parts propose` uses the same parts and working config, the
 recorded painting, a disposable output directory and the landmarks JSON.
 Parts may report `BUST_LANDMARKS_*` from the first command or `PROPOSE_BUST_*`
-and `PROPOSE_NECK_MODE` from the second. Replaying ingestion prints the same
-chain with `REVIEW_ACT_BUST_REPLAY` and uses the receipt's working path, even
-after Parts has updated that file.
+and `PROPOSE_NECK_MODE` from the second. The second command refuses
+`--bust-landmarks` with `PROPOSE_NECK_MODE` when the config uses a sampled
+body-turn neck. See [rig-c/parts#1436](https://github.com/rig-c/parts/issues/1436).
+Replaying ingestion prints the same chain with `REVIEW_ACT_BUST_REPLAY` and
+uses the receipt's working path, even after Parts has updated that file.
 
 For Create's parts-bound package publications, Review metadata currently requires
 a PNG original painting. An SVG source reaches the PNG-only Parts view loader

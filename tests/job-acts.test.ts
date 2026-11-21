@@ -10,7 +10,9 @@ import { plantLegacyReopen, fixture, retainSignoffs, arr, obj } from './fixtures
 import { stageIndex } from '../src/stages.ts';
 import { recordPartsReceipt } from './parts-receipt-fixture.ts';
 import { nextCommand, nextProject } from '../src/next.ts';
-import { pendingJobActs, jobActsText, shellWord, type PendingJobAct } from '../src/job-acts.ts';
+import { pendingJobActs, pendingJobAsksForTarget, jobActsText, shellWord, type PendingJobAct } from '../src/job-acts.ts';
+import { amendCommand } from './clock.ts';
+import type { PendingAskV3 } from '@rig-c/review/job-host';
 import { JOB_BINDING_FILE, writePrivateJson, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, readWriterBinding, type AcknowledgedPublication } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
 import { listCreateJobActs } from '../src/job-host.ts';
@@ -343,6 +345,28 @@ test('#756 job acts shows a pending act verdict and comments byte-equal to the h
   expect(afterRefusalText.stdout).toBe(text.stdout);
   expect(readFileSync(join(root, 'project.json'))).toEqual(projectBefore);
 }, 30_000);
+
+test('#760 a rig verdict ask and its un-ingested act on a rig the amendment superseded no longer hold a new ask', () => {
+  testClock.set(EXAMPLE_NOW);
+  const dir = fixture(() => {}, 'example-project.json');
+  const rig = { kind: 'rig', version: 2 } as const;
+  const ask = { askId: 'ask-rig', publicationId: 'pub-rig', status: 'pending', subject: { kind: 'review-verdict', stage: 'rig-review' }, source: { selector: rig } } as unknown as PendingAskV3;
+  const act = { jobId: 'job', actId: 'act-rig', askId: 'ask-rig', publicationId: 'pub-rig', kind: 'review-verdict', source: { selector: rig },
+    value: { stage: 'rig-review', verdict: 'approved' }, at: '2026-11-20T00:00:52.000Z' } as unknown as ActV3;
+  const signoff = { askId: 'ask-sign', publicationId: 'pub-v1', status: 'pending', subject: { kind: 'signoff', stage: 'rig-review' }, source: { selector: { kind: 'rig', version: 1 } } } as unknown as PendingAskV3;
+  const question = { kind: 'option-set', questionId: 'bones', setId: 'synthetic-set' } as const;
+  const pending = () => pendingJobAsksForTarget(read(dir), [ask, signoff], [act], dir, question).map(row => row.label);
+  const orphan = () => pendingJobAsksForTarget(read(dir), [], [act], dir, question).map(row => row.label);
+  // Control: on the live rig the approved verdict holds the job until it is ingested.
+  expect(pending()).toEqual(['review-verdict rig-review on rig v2', 'signoff rig-review on rig v1']);
+  expect(orphan()).toEqual(['review-verdict (act-rig) on rig v2']);
+  writeFileSync(join(dir, 'direction.txt'), 'Synthetic new direction.\n');
+  amendCommand(['rigging-interview', dir, '--kind', 'interview-answer', '--target', 'bones', '--change', 'direction.txt', '--by', 'owner', '--verbatim-file', join(dir, 'direction.txt')]);
+  expect(pending()).toEqual([]);
+  expect(orphan()).toEqual([]);
+  // The act stays readable for job acts.
+  expect(pendingJobActs(read(dir), [act], dir).map(row => row.actId)).toEqual(['act-rig']);
+});
 
 test('missing and stopped hosts refuse without bootstrapping or changing producer files', async () => {
   const root = copy('3-rig-review');

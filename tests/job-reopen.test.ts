@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { cpSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { startJobHost, type RecordPlanSubject } from '@rig-c/review/job-host';
+import { JOB_RECORD_ACT_SCHEMA, parseRecordAct, startJobHost, type JobOwnerHost, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { checkProject } from '../src/check.ts';
 import { askDeclaredSubjects, openCreateJob, openRecordPublication, reconcileCreateJob } from '../src/job-host.ts';
 import { agentCall, readHostActsAndAsks } from '../src/job-acts.ts';
@@ -42,7 +42,58 @@ function earlyPlan(): string {
   return root;
 }
 
-/** Seed a retained Review publication that predates removal of the Create writer. */
+/** Review stores a job as one document; its writer and event appender are private (review#995 retired the reopen builders). */
+interface ReviewJobDocument {
+  generation: number; reviewer: { id: string; role: string };
+  publications: Record<string, { retained: { source: unknown } }>;
+  asks: Record<string, { askId: string; status: string }>; acts: Record<string, unknown>;
+}
+type ReviewSessionInternals = {
+  jobId: string;
+  store: { update(jobId: string, revision: null, operation: (row: { data: ReviewJobDocument }) => { data: ReviewJobDocument }): unknown };
+  event(data: ReviewJobDocument, value: object): unknown;
+};
+
+/** One write to Review's stored job, appending events as Review does; nothing else changes. */
+function writeReviewJob<T>(host: JobOwnerHost, write: (data: ReviewJobDocument, append: (value: object) => void, jobId: string) => T): T {
+  const session = host.session as unknown as ReviewSessionInternals;
+  let written!: T;
+  session.store.update(session.jobId, null, ({ data }) => {
+    data.generation++;
+    written = write(data, value => { session.event(data, value); }, session.jobId);
+    return { data };
+  });
+  return written;
+}
+
+/** Store a pending reopen ask as Review <= 4.9 did: bound to the plan's retained source. */
+function seedReopenAsk(host: JobOwnerHost, publicationId: string, subject: RecordPlanSubject): string {
+  return writeReviewJob(host, (data, append) => {
+    const ask = { askId: crypto.randomUUID(), publicationId, subject, source: data.publications[publicationId]!.retained.source, status: 'pending' };
+    data.asks[ask.askId] = ask;
+    append({ type: 'pending', ask });
+    return ask.askId;
+  });
+}
+
+/** Store the owner's answered reopen act@4 for a seeded ask; Review's own stored-act decoder builds it. */
+function seedReopenAct(host: JobOwnerHost, askId: string, words: string): JsonObject {
+  return writeReviewJob(host, (data, append, jobId) => {
+    const ask = data.asks[askId] as unknown as { publicationId: string; subject: { stage: string }; source: unknown };
+    const act = parseRecordAct({
+      schema: JOB_RECORD_ACT_SCHEMA, actId: crypto.randomUUID(), jobId, askId, publicationId: ask.publicationId,
+      authority: { actor: 'human', channel: 'review-ui', reviewer: { ...data.reviewer } },
+      at: new Date().toISOString(), kind: 'reopen', source: ask.source, value: { stage: ask.subject.stage, words },
+    }) as unknown as JsonObject;
+    data.acts[String(act.actId)] = act;
+    data.asks[askId] = { ...data.asks[askId]!, status: 'answered' };
+    append({ type: 'act', act });
+    return act;
+  });
+}
+
+/** Seed a retained Review publication that predates removal of the Create writer.
+ * Review asks the subjects it still supports; a reopen subject's ask is seeded as Review <= 4.9 stored it. */
 async function openLegacyPlan(root: string, subjects: RecordPlanSubject[]) {
   const host = await openCreateJob(root, reviewer, Date.now(), options => startJobHost({
     ...options,
@@ -63,8 +114,12 @@ async function openLegacyPlan(root: string, subjects: RecordPlanSubject[]) {
       expect(reply.ok, JSON.stringify(reply.error)).toBe(true);
       const { publication, generation } = host.session.status();
       acknowledgePublication(entry, publication!.publicationId, generation, requestId, subjects);
-      expect(await askDeclaredSubjects(host, publication!.publicationId, subjects, false)).toEqual(
-        subjects.map(subject => ({ subject, status: 'asked' })));
+      const live = subjects.filter(subject => subject.kind !== 'reopen');
+      expect(await askDeclaredSubjects(host, publication!.publicationId, live, false)).toEqual(
+        live.map(subject => ({ subject, status: 'asked' })));
+      for (const subject of subjects) {
+        if (subject.kind === 'reopen') seedReopenAsk(host, publication!.publicationId, subject);
+      }
     });
     return host;
   } catch (error) {
@@ -81,26 +136,8 @@ test('#674 a retained un-ingested reopen act reports the correction route and le
     const { asks } = await readHostActsAndAsks(host);
     expect(asks.map(ask => ask.subject)).toEqual([legacyReopen]);
 
-    const url = new URL(host.ownerUrl);
-    const endpoint = url.origin + '/jobs/' + host.session.jobId + '/ui/';
-    const headers = {
-      origin: url.origin, 'X-Review-Capability': url.hash.slice('#cap='.length), 'content-type': 'application/json',
-    };
-    const post = async (route: string, body: object) => {
-      const response = await fetch(endpoint + route, { method: 'POST', headers, body: JSON.stringify(body) });
-      const payload = await response.json() as JsonObject;
-      expect(response.ok, JSON.stringify(payload)).toBe(true);
-      return obj(payload.value);
-    };
-    const { generation, publication } = host.session.status();
-    const { publicationId, source: { sourceHash } } = publication!;
-    const pageId = crypto.randomUUID();
-    const { displayedNonce } = await post('displayed', { publicationId, pageId, sourceHash });
     const value = { stage: 'interview', words: '  Please correct the first synthetic answer.\r\n' };
-    const exported = await post('acts', {
-      publicationId, askId: asks[0]!.askId, pageId, displayedNonce, expectedGeneration: generation,
-      submissionId: crypto.randomUUID(), kind: 'reopen', value,
-    });
+    const exported = seedReopenAct(host, asks[0]!.askId, value.words);
     expect(exported).toMatchObject({ schema: 'rig-review/act@4', kind: 'reopen', value });
     expect(recordBytes(root)).toEqual(original);
 
@@ -177,10 +214,7 @@ test('#677 job withdraw-act withdraws one pending act in place, leaves the job a
       publicationId, askId: signoffAsk.askId, pageId, displayedNonce, expectedGeneration: host.session.status().generation,
       submissionId: crypto.randomUUID(), kind: 'signoff', value: { stage: 'plan-approved', decision: 'approved', words: 'Approve the synthetic plan.\n' },
     });
-    const reopenAct = await post('acts', {
-      publicationId, askId: reopenAsk.askId, pageId, displayedNonce, expectedGeneration: host.session.status().generation,
-      submissionId: crypto.randomUUID(), kind: 'reopen', value: { stage: 'interview', words: 'Misclicked reopen.\n' },
-    });
+    const reopenAct = seedReopenAct(host, reopenAsk.askId, 'Misclicked reopen.\n');
 
     const listedBefore = JSON.parse((await cli(root, ['job', 'acts', root, '--json'])).stdout).acts as { actId: string }[];
     expect(listedBefore.map(act => act.actId)).toEqual([String(signoffAct.actId), String(reopenAct.actId)]);

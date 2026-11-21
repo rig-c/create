@@ -515,6 +515,22 @@ export function reviewActTransport(root: string, actId: string): ReviewActTransp
   return { origin: origin.origin, jobId: binding.jobId, actId, fetchCapability: binding.fetchCapability };
 }
 
+/** Only an ingested version verdict can supply the words for a later feedback route. */
+export function retainedVersionVerdict(project: JsonObject, actId: string): (FetchedReviewAct & { index: number; receipt: JsonObject }) | undefined {
+  const matches = asArray(project.review_acts).flatMap((receipt, index) =>
+    object(receipt) && receipt.actId === actId ? [{ receipt, index }] : []);
+  // Keep the transport's existing refusal for discarded acts, even on a closed job.
+  if (matches.some(({ receipt }) => isDiscardReceipt(receipt))) return;
+  if (matches.length > 1) failure('REVIEW_ACT_REPLAY_CONFLICT', 'act id matches more than one retained receipt');
+  const match = matches[0];
+  if (!match || match.receipt.schema === PARTS_CLI_RECEIPT || match.receipt.draft_id !== undefined
+    || (match.receipt.kind !== undefined && match.receipt.kind !== 'review-verdict')) return;
+  const invalid = reviewActFindings(project)[0];
+  if (invalid) refuse(invalid.code, invalid.message);
+  const bytes = match.receipt.bytes as string;
+  return { ...match, bytes, act: decodeReviewAct(bytes) };
+}
+
 export async function fetchReviewAct(transport: ReviewActTransport, fetchAdapter: typeof fetch = fetch): Promise<{ act: DecodedReviewAct; bytes: string; stillBytes?: string }> {
   const requestId = randomUUID();
   const request = JSON.stringify({ schema: 'rig-review/job-api@2', verb: 'fetch-act', jobId: transport.jobId, actId: transport.actId, requestId });

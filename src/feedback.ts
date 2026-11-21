@@ -26,9 +26,9 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from './check-reads
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
-import { jobHash } from './job-outbox.ts';
+import { acquireJobLock, jobHash, pendingPublications, readWriterBinding } from './job-outbox.ts';
 import { assertReviewActSource, decodeReviewAct, fetchBustPublicationSeeds, fetchReviewActRuntime, meshReviewVerdict, reviewActFindings, reviewActPublicationWarning, reviewActStill, reviewActTransport, reviewActVerbatim, reviewActVersionHash, type FetchedReviewAct } from './review-act.ts';
-import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, reviewActVerdict, reviewFeedbackComment, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
+import { assertDraftReviewActSource, draftReviewStillEvidence, isDraftReviewVerdict, retainedVersionVerdict, reviewActVerdict, reviewFeedbackComment, reviewStillEvidence, type ReviewVerdictAct } from './review-act.ts';
 import { DRAFT_ID } from './draft-reuse.ts';
 import { validCarriedRigDraftVerdict } from './rig-draft-verdict.ts';
 import { bustLandmarkCommands, prepareBustConfig } from './review-bust.ts';
@@ -399,17 +399,19 @@ export interface Recorded {
   readonly bust_landmark_commands?: [string, string];
 }
 
-export function readProject(dir: string): { file: string; project: JsonObject } {
+export function readProject(dir: string): { file: string; project: JsonObject; bytes: Buffer } {
   const file = join(dir, 'project.json');
   if (!existsSync(file)) refuse('PROJECT_JSON_MISSING', `${file} does not exist; run in a project folder or name one`);
+  let bytes: Buffer;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(file, 'utf8'));
+    bytes = readFileSync(file);
+    parsed = JSON.parse(bytes.toString('utf8'));
   } catch (e) {
     refuse('PROJECT_JSON_INVALID', `${file}: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) refuse('PROJECT_JSON_INVALID', `${file}: not a JSON object`);
-  return { file, project: parsed as JsonObject };
+  return { file, project: parsed as JsonObject, bytes };
 }
 
 function fetchVerdictAct<Act extends ReviewVerdictAct>(root: string, actId: string, now: number,
@@ -498,12 +500,12 @@ function retainReviewEvidence(root: string, files: ReviewEvidenceFile[], created
 function writeReviewActRecord(root: string, file: string, project: JsonObject, original: Buffer,
   target: ReviewEvidenceWrite, markCommitted?: () => void): void {
   const verdictName = target === 'draft' ? 'draft verdict' : 'verdict';
-  if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', `project.json: record changed during ${verdictName} validation; retry against the current live job`);
   const temporary = join(root, `.rig-create-review-act-${randomUUID()}.tmp`);
   const fd = openSync(temporary, 'wx', 0o600);
   try {
     writeFileSync(fd, `${JSON.stringify(project, null, 2)}\n`);
     fsyncSync(fd);
+    if (!readFileSync(file).equals(original)) refuse('REVIEW_ACT_SOURCE_STALE', `project.json: record changed during ${verdictName} validation; retry against the current project record`);
     renameSync(temporary, file);
     markCommitted?.();
     syncReviewDirectory(root);
@@ -562,8 +564,7 @@ function writeVerdict(projectDirArg: string, input: ReviewInput, now: number, fe
   if (!isHuman(input.by)) refuse('REVIEW_NOT_HUMAN', 'review must name a human, not agent');
   if (input.at !== undefined && !Number.isFinite(Date.parse(input.at))) refuse('REVIEW_OPTION_INVALID', '--at needs a valid timestamp', USAGE_EXIT);
   const dir = resolve(projectDirArg);
-  const { file, project } = readProject(dir);
-  const originalBytes = readFileSync(file);
+  const { file, project, bytes: originalBytes } = readProject(dir);
   const original = structuredClone(project);
   assertDraftHasRig(assembleOnlyDraftTarget(project, input.version), 'project.json.versions');
   const foldBaseline = fetched ? foldsRigVerdict(dir, original, fetched.act, now) : null;
@@ -791,25 +792,35 @@ export function recordDraftReviewAct(root: string, draftId: string, actId: strin
 /** The common #184 lock covers fetch, source validation and the atomic write. */
 export function recordReviewAct(root: string, requestedVersion: number, actId: string, now: number, afterGate?: () => void, config?: string, routeItem?: string): Recorded {
   root = resolve(root);
-  const release = acquireBoundJobWrite(root);
+  const release = routeItem === undefined ? acquireBoundJobWrite(root) : acquireJobLock(root)!;
   try {
-    // Progress starts only once the job gate passed: a refused write leaves the project untouched.
-    afterGate?.();
-    const fetched = fetchVerdictAct(root, actId, now, act => {
+    // Explicit routes share the job lock even after close and honor the bound publication gate.
+    if (routeItem !== undefined && readWriterBinding(root) && pendingPublications(root, true).length) {
+      refuse('JOB_PUBLISH_PENDING', 'project.json: an earlier committed publication is pending; run rig-create job reconcile before another bound write');
+    }
+    const snapshot = routeItem === undefined ? undefined : readProject(root);
+    const retained = snapshot && retainedVersionVerdict(snapshot.project, actId);
+    const select = (act: ReviewVerdictAct): ReviewVerdictAct => {
       const selector = act.source.selector!;
       if (!('version' in selector) || selector.version !== requestedVersion) refuse('REVIEW_ACT_KIND_MISMATCH', 'project.json.review_acts: act names a different version; invoke review for the displayed version');
       return act;
-    });
+    };
+    // Progress starts only once the gate passed and the call needs the live job.
+    if (!retained) afterGate?.();
+    const fetched = retained ?? fetchVerdictAct(root, actId, now, select);
     const { act } = fetched;
-    const originalBytes = routeItem === undefined ? undefined : readFileSync(join(root, 'project.json'));
-    const { file, project } = readProject(root);
-    const invalid = reviewActFindings(project)[0];
+    if (retained) {
+      select(act);
+      if (Date.parse(act.at) > now) refuse('REVIEW_ACT_INVALID', 'project.json.review_acts: act is dated in the future; restore the clock before recording');
+    }
+    const { file, project, bytes: originalBytes } = snapshot ?? readProject(root);
+    const invalid = retained ? undefined : reviewActFindings(project)[0];
     if (invalid) refuse(invalid.code, invalid.message);
     const chest = act.schema === JOB_CHEST_LANDMARKS_ACT_SCHEMA;
     if (!chest && config !== undefined) refuse('REVIEW_OPTION_INVALID', 'project.json.review_acts: --config applies to a live rig verdict with chest landmark edits', USAGE_EXIT);
     const assertSource = () => assertReviewActSource(root, project, act);
-    if (!chest) assertSource();
-    const replay = replayedVerdictAct(asArray(project.review_acts), fetched, chest ? assertSource : undefined);
+    if (!chest || retained) assertSource();
+    const replay = retained ?? replayedVerdictAct(asArray(project.review_acts), fetched, chest ? assertSource : undefined);
     const existing = replay?.receipt;
     const version = asArray(project.versions).filter(isObject).find(v => v.n === requestedVersion);
     const existingRoute = isObject(existing?.feedback_route) ? existing.feedback_route : undefined;
@@ -855,7 +866,7 @@ export function recordReviewAct(root: string, requestedVersion: number, actId: s
         const invalid = reviewActFindings(candidate)[0] ?? verdictCandidateFinding(root, project, candidate, now, route);
         if (invalid) refuse(invalid.code, invalid.message);
         assertSource();
-        writeReviewActRecord(root, file, candidate, originalBytes!, 'version');
+        writeReviewActRecord(root, file, candidate, originalBytes, 'version');
       }
       const recordedRoute = route ?? existingRoute;
       return { project_dir: root, verdict_path: `versions[v${requestedVersion}].verdicts[${existing.verdict}]`, verdict, items, stage: asString(project.stage),
@@ -886,9 +897,10 @@ export const REVIEW_HELP = `review:
   [<project dir>] --draft <id> --from-review <actId>  record a rigging draft verdict
   <version>        the version shown (3 or v3)
   [<project dir>]  the project folder (default: the current directory)
-  --from-review <actId>  fetch a rig/post verdict through the live job writer binding
+  --from-review <actId>  fetch a rig/post verdict through the live job writer binding on ingest
   --item <waypoint>:not-asked  with --from-review, route the unique page-level comment in an owner
                    changes-requested rig verdict to an existing rig waypoint. Supply one waypoint.
+                   An ingested verdict's receipt can supply the comment after the job closes.
   --config <path>  project-relative working config, required on first ingest of chest landmark edits
   --verdict <v>    accepted | bounced | provisional
   --by <who>       who gave it (the user's name or role)

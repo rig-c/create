@@ -8,12 +8,14 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { EXAMPLE_NOW } from '../scripts/example-time.ts';
 import { JOB_API_SCHEMA, JOB_API_V3_SCHEMA, startJobHost, type JobHostAttachFailure, type JobHostOptions, type JobOwnerHost } from '@rig-c/review/job-host';
-import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, publishPending, reconcileCreateJob } from '../src/job-host.ts';
+import { attachCreateJob, closeCreateJob, openCreateJob, openDraftPublication, openRecordPublication, publishPending, reconcileCreateJob, requestedRecordResult } from '../src/job-host.ts';
 import { acquireJobLock, cancelUncommittedIntent, enqueuePublication, failPublication, JOB_BINDING_FILE, jobHash, jobHostStateRoot, jobPrivateRoot, pendingPublications, publicationVersionHash, readAcknowledgedPublication, readWriterBinding, reconcilePublication, writePrivateJson } from '../src/job-outbox.ts';
 import { jobRuntimeExecArgv, prepareVersionIntent } from '../src/job-writer.ts';
-import { draftPublicationContext, draftPublishedContext, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
-import { checkProject, formatReport } from '../src/check.ts';
+import { draftPublicationContext, draftPublishedContext, loadedPartsIdentity, partsEnumerator, prepareDraftManifest, prepareLiveManifest, readPublished, readRecordPublished } from '../src/job-publication.ts';
+import { checkProject, collectItems, formatReport } from '../src/check.ts';
+import { interviewAnswerCommand, interviewOptionsCommand } from '../src/choice-writers.ts';
 import { structureSnapshotCommand } from '../src/structure-snapshot.ts';
 import { diffClassesCommand } from '../src/diff-classes.ts';
 import { advanceCommand } from '../src/progress-writers.ts';
@@ -288,6 +290,124 @@ test('public job CLI opens and explicitly closes its foreground host', async () 
     if (opening.exitCode === null) opening.kill();
   }
 });
+
+function stageQuestions(extra: readonly string[] = []) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-stage-questions-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/0a-interview-options'), root, { recursive: true });
+  const first = 'evidence/interview/rig_type.json';
+  const template = JSON.parse(readFileSync(join(root, first), 'utf8'));
+  const paths = [first];
+  for (const question of extra) {
+    const path = `evidence/interview/${question}.json`;
+    const ids = question === 'seethrough' ? ['layers', 'resolution', 'head_crop', 'seed'] : [question];
+    const bundled = ids.length > 1;
+    const set = { ...template, id: `chain-${question}`, question,
+      assembly: { rule: bundled ? 'concat' : 'single' },
+      asks: ids.map(id => ({ ...template.asks[0], id,
+        options: template.asks[0].options.map((option: JsonObject) => bundled && option.kind === 'value'
+          ? { ...option, fragment: [option.fragment] }
+          : option) })) };
+    writeFileSync(join(root, path), JSON.stringify(set));
+    interviewOptionsCommand([question, root, '--file', path], EXAMPLE_NOW);
+    paths.push(path);
+  }
+  return { root, paths, file: join(root, 'project.json') };
+}
+
+test('#558 a single pending set keeps the singular result and reader bytes', () => {
+  const { root, file, paths } = stageQuestions();
+  const bytes = readFileSync(file);
+  const result = requestedRecordResult(root, true, false, EXAMPLE_NOW);
+  const singular = '{"kind":"option-set","questionId":"rig_type","setId":"chain-rig_type"}';
+  expect(JSON.stringify(result)).toBe(singular);
+  expect(JSON.stringify(requestedRecordResult(root, 'rig_type', false, EXAMPLE_NOW))).toBe(singular);
+  if (!result || result.kind !== 'option-set') throw Error('missing option-set result');
+  const record = { path: 'project.json' as const, sha256: jobHash(bytes) };
+  const inputs = [{ path: 'inputs/painting.png', sha256: jobHash(readFileSync(join(root, 'inputs/painting.png'))) }];
+  const expected = { label: 'option-set rig_type / chain-rig_type', parts: loadedPartsIdentity(root, 'project'),
+    inputs, files: [{ path: paths[0]!, sha256: jobHash(readFileSync(join(root, paths[0]!))) }, ...inputs, record], plan: null,
+    subjects: [{ kind: 'interview-picks', questionId: 'rig_type', setId: 'chain-rig_type' }] };
+  expect(JSON.stringify(readRecordPublished({ root, record, result, phase: 'inventory' }, EXAMPLE_NOW))).toBe(JSON.stringify(expected));
+  expect(readFileSync(file)).toEqual(bytes);
+});
+
+test('#558 selects by effective stage or explicit order and rejects repetition before writing', () => {
+  const { root, file } = stageQuestions(['reference']);
+  const project = JSON.parse(readFileSync(file, 'utf8')) as JsonObject;
+  project.stage = 'paused';
+  project.signoffs = [...(project.signoffs as JsonObject[]),
+    { stage: 'paused', checkpoint: null, by: 'reviewer', at: new Date(EXAMPLE_NOW).toISOString(), verbatim: 'Pause the synthetic interview.' }];
+  writeFileSync(file, JSON.stringify(project));
+  const bytes = readFileSync(file);
+  expect(checkProject(root, project, { now: EXAMPLE_NOW, readOnly: true }).effective_stage).toBe('interview');
+  const rigType = { questionId: 'rig_type', setId: 'chain-rig_type' };
+  const reference = { questionId: 'reference', setId: 'chain-reference' };
+  expect(requestedRecordResult(root, true, false, EXAMPLE_NOW))
+    .toEqual({ kind: 'option-set', ...rigType, sets: [rigType, reference] });
+  expect(requestedRecordResult(root, ['reference', 'rig_type'], false, EXAMPLE_NOW))
+    .toEqual({ kind: 'option-set', ...reference, sets: [reference, rigType] });
+  const outcome = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, '../src/cli.ts'),
+    'job', 'open', root, '--reviewer', 'reviewer', '--role', 'owner', '--question', 'rig_type', '--question', 'rig_type'],
+  { stdout: 'pipe', stderr: 'pipe' });
+  expect(outcome.exitCode).toBe(1);
+  expect(outcome.stderr.toString().split(':')[0]).toBe('JOB_OPTION_SET_DUPLICATE');
+  expect(readWriterBinding(root)).toBeNull();
+  expect(readFileSync(file)).toEqual(bytes);
+}, 15_000);
+
+test('#558 a three-set publication seals each binding and refreshes the remaining ask', async () => {
+  const { root, file, paths } = stageQuestions(['reference', 'seethrough']);
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, EXAMPLE_NOW, undefined, true);
+  hosts.push(host);
+  const bytes = readFileSync(file);
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
+  const sets = ['rig_type', 'reference', 'seethrough'].map(questionId => ({ questionId, setId: `chain-${questionId}` }));
+  const subjects = sets.map(set => ({ kind: 'interview-picks', ...set }));
+  const items = collectItems(project, { collection: null });
+  const files = sets.map(({ questionId }, index) => {
+    const path = paths[index]!;
+    const binding = { path, sha256: jobHash(readFileSync(join(root, path))) };
+    expect(items.find(item => item.id === questionId)?.record.pending_options).toEqual(binding);
+    return binding;
+  });
+  await openRecordPublication(root, host, true, false, EXAMPLE_NOW);
+  const status = host.session.status();
+  const publication = status.publication!;
+  expect(status.pending.map(ask => ask.subject)).toEqual(subjects);
+  expect(publication.source).toMatchObject({
+    projectHash: jobHash(bytes),
+    selection: { kind: 'option-set', ...sets[0], sets },
+    subjects,
+    optionSets: sets.map(({ questionId, setId }, index) => ({
+      questionId, setId, optionSet: { id: setId, sha256: files[index]!.sha256 }, optionSetFile: files[index],
+    })),
+  });
+  for (const file of files) expect(publication.source.files).toContainEqual(file);
+  expect(pendingPublications(root)).toEqual([]);
+  expect(readFileSync(file)).toEqual(bytes);
+  await openRecordPublication(root, host, ['rig_type', 'reference', 'seethrough'], false, EXAMPLE_NOW);
+  expect(host.session.status()).toEqual(status);
+  await expect(openRecordPublication(root, host, 'reference', false, EXAMPLE_NOW)).rejects.toMatchObject({ code: 'JOB_ASK_PENDING' });
+  expect(host.session.status()).toEqual(status);
+
+  const words = join(root, 'owner-answer.txt');
+  writeFileSync(words, 'Use the kept choices for the rig type and reference.');
+  for (const [index, { questionId }] of sets.slice(0, 2).entries()) {
+    interviewAnswerCommand([questionId, root, '--set', files[index]!.path, '--sha256', files[index]!.sha256,
+      '--pick', `${questionId}=keep`, '--by', 'reviewer', '--owner-chat', words,
+      '--said-at', new Date(EXAMPLE_NOW).toISOString(), '--relayed-by', 'agent'], EXAMPLE_NOW);
+  }
+  const partiallyAnswered = readFileSync(file);
+  await openRecordPublication(root, host, true, false, EXAMPLE_NOW);
+  const refreshed = host.session.status();
+  expect(refreshed.publication?.publicationId).not.toBe(publication.publicationId);
+  expect(refreshed.publication?.source.projectHash).toBe(jobHash(partiallyAnswered));
+  expect(refreshed.pending.map(ask => ask.subject)).toEqual(subjects.slice(2));
+  expect(JSON.stringify(readAcknowledgedPublication(root, host.session.jobId, refreshed.publication!.publicationId)!.result))
+    .toBe('{"kind":"option-set","questionId":"seethrough","setId":"chain-seethrough"}');
+  expect(readFileSync(file)).toEqual(partiallyAnswered);
+}, 15_000);
 
 test('#676 job open --draft publishes a writer-recorded assemble-only draft and asks for its parts verdict', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-job-assemble-only-')));

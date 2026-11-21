@@ -90,7 +90,7 @@ test('active writer-generated fixture is 0/0, and @1 still has split semantics',
   expect(hasStageOrder({interview:{order:{spec:'rig-create/stage-order@1'}}})).toBe(true);
 });
 
-test('#670 next names every current-stage set and offers its question page before signoff', () => {
+test('#670 next names every current-stage set and offers one grouped question page before signoff', () => {
   const w = working('reference');
   const { dir } = w;
   const priorValue = obj(current(load(dir), 'reference').raw).value;
@@ -112,9 +112,9 @@ test('#670 next names every current-stage set and offers its question page befor
     expect.objectContaining({ role: 'human', command: null, field: 'interview.waypoints[seethrough].pending_options',
       awaits: 'interview.waypoints[seethrough].guide', review_act: { kind: 'interview-picks', stage: 'interview', question_id: 'seethrough', option_set_id: 'test-seethrough' } }),
   ]);
-  for (const question of ['reference', 'seethrough']) {
-    expect(report.moves.some(move => move.command?.startsWith('rig-create job open ') && move.command.includes(` --question ${question} `))).toBe(true);
-  }
+  const opens = report.moves.filter(move => move.command?.startsWith('rig-create job open '));
+  expect(opens).toHaveLength(1);
+  expect(opens[0]!.command).toEndWith(" --questions --reviewer '<reviewer>' --role owner");
   expect(report.awaits).not.toContain('signoffs[stage=interview]');
   expect(report.moves.some(move => move.review_act?.kind === 'signoff' && move.review_act.stage === 'interview')).toBe(false);
   expect(report.moves.some(move => move.command?.startsWith('rig-create signoff interview '))).toBe(false);

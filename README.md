@@ -109,6 +109,11 @@ rig-create parts-review <project dir> --from-review <actId>
 rig-create review <version> --from-review <actId> <project dir>
 ```
 
+For an interview stage with multiple pending option sets, use
+`job open --questions` to show them on one page. Collect all finalized act IDs
+with `job acts` and ingest them together as shown by `next`. For a single set,
+use `job open --question <id>`. Owner chat can still be relayed per set.
+
 The owner is asked for a parts verdict only at `parts-review`. As soon as the
 first draft has the agent's `check-parts` report, structure snapshot,
 `diff-components` report and `diff-classes` classifications, advance to

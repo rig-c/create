@@ -16,6 +16,7 @@ import { pendingJobActs, pendingJobAsksForTarget, readHostActs, readHostActsAndA
 import {
   acquireJobLock,
   JOB_BINDING_FILE,
+  jobHash,
   pendingPublications,
   retireRefusedPublications,
   readWriterBinding,
@@ -216,9 +217,10 @@ export async function assertNoPendingJobAsk(
  * open, or answered but not ingested. Returns the job's head publication.
  */
 export async function refusePendingJobAsks(root: string, jobId: string, host: JobOwnerHost, target: JobAskTarget): Promise<string | null> {
-  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const bytes = readFileSync(join(root, 'project.json'));
+  const project = JSON.parse(bytes.toString('utf8')) as JsonObject;
   const { head, asks, acts } = await readHostActsAndAsks(host);
-  const pending = pendingJobAsksForTarget(project, asks, acts, root, target);
+  const pending = pendingJobAsksForTarget(project, asks, acts, root, target, jobHash(bytes));
   if (pending.length > 0) {
     const listed = pending.map(item => item.label).join('; ');
     const version = pending.find(item => item.version !== null)?.version ?? null;
@@ -226,10 +228,11 @@ export async function refusePendingJobAsks(root: string, jobId: string, host: Jo
     const ingest = version === null || pending.some(item => item.version === null)
       ? `have the owner respond in Review, run ${wait}, and run the printed ingest commands`
       : `have the owner give the verdict in Review, run ${wait}, and ingest with rig-create review ${version} --from-review <actId> (review <n> --from-review <actId>)`;
-    refuse(
-      'JOB_ASK_PENDING',
-      `project.json: bound job ${jobId} holds pending owner ask(s) ${listed} with no ingested act; ${ingest}; re-run this command to publish into the existing job`,
-    );
+    const remedy = pending.some(item => item.staleInterviewAct)
+      ? `run rig-create job acts ${shellWord(root)} to inspect the finalized acts. After ingesting any current acts, use job close --discard-acts <reason> --by agent to record the stale acts, then open the remaining sets on the current record`
+      : `${ingest}; re-run this command to publish into the existing job`;
+    refuse('JOB_ASK_PENDING', `project.json: bound job ${jobId} holds pending owner ask(s) ${listed} with no ingested act; ${remedy}`);
+
   }
   return head;
 }

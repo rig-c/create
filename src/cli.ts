@@ -53,7 +53,7 @@ const HELP = `rig-create — create and run a rig project
 
 Usage:
   rig-create republish <rig> [<dir>] --reason <words>
-  rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --question <question> | --plan]
+  rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --questions | --question <question>... | --plan]
   rig-create job acts [<dir>] [--json] [--wait [--timeout-ms N]]
                                               list finalized acts and their ingest commands
                                               wait 1–600000 ms (default 600000), timeout exit 3
@@ -324,13 +324,19 @@ export function main(argv: string[], now: number): number {
       if (!['open', 'acts', 'reconcile', 'withdraw-act', 'close'].includes(action ?? '')) refuse('JOB_BINDING_INVALID', 'project.json: use job open|acts|reconcile|withdraw-act|close', USAGE_EXIT);
       const positional: string[] = [];
       const options: Record<string, string> = {};
+      const questions: string[] = [];
       for (let index = 0; index < args.length; index++) {
         const arg = args[index]!;
-        if (action === 'open' && ['--reviewer', '--role', '--draft', '--rig', '--question'].includes(arg)) {
+        if (action === 'open' && arg === '--question') {
+          const value = args[++index];
+          if (!value || value.startsWith('-')) refuse('JOB_BINDING_INVALID', 'project.json: job open requires a value for each --question', USAGE_EXIT);
+          questions.push(value);
+          options[arg] = value;
+        } else if (action === 'open' && ['--reviewer', '--role', '--draft', '--rig'].includes(arg)) {
           const value = args[++index];
           if (!value || value.startsWith('-') || options[arg]) refuse('JOB_BINDING_INVALID', 'project.json: job open requires one value for each reviewer option', USAGE_EXIT);
           options[arg] = value;
-        } else if (action === 'open' && arg === '--plan' && !options[arg]) options[arg] = 'true';
+        } else if (action === 'open' && ['--plan', '--questions'].includes(arg) && !options[arg]) options[arg] = 'true';
         else if (action === 'close' && arg === '--retire-refused' && !options[arg]) options[arg] = 'true';
         else if ((action === 'close' || action === 'withdraw-act') && ['--by', ...OWNER_CHAT_FLAGS].includes(arg) && options[arg] === undefined) {
           const value = args[++index];
@@ -387,11 +393,12 @@ export function main(argv: string[], now: number): number {
       if ((action !== 'withdraw-act' && positional.length > 1) || action === 'open' && (!options['--reviewer'] || !['owner', 'delegate'].includes(options['--role'] ?? ''))) {
         refuse('JOB_BINDING_INVALID', 'project.json: job open needs --reviewer <id> --role owner|delegate and one optional directory', USAGE_EXIT);
       }
-      if (['--draft', '--rig', '--question', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
-        refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --question or --plan; choose one recorded result', USAGE_EXIT);
+      if (['--draft', '--rig', '--question', '--questions', '--plan'].filter(flag => options[flag] !== undefined).length > 1) {
+        refuse('JOB_BINDING_INVALID', 'project.json: job open takes one of --draft, --rig, --question, --questions or --plan; choose one recorded result', USAGE_EXIT);
       }
       const rootArg = action === 'withdraw-act' ? (positional[1] ?? process.cwd()) : (positional[0] ?? process.cwd());
-      const stdin = Buffer.from(JSON.stringify({ root: rootArg, actId: action === 'withdraw-act' ? positional[0] : undefined, reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question: options['--question'], plan: options['--plan'] === 'true', json: options['--json'] === 'true', timeoutMs, retireRefused: options['--retire-refused'] === 'true', discardActs: action === 'withdraw-act' || options['--discard-acts'] !== undefined ? options : undefined, now }));
+      const question = options['--questions'] ? true : questions.length > 1 ? questions : questions[0];
+      const stdin = Buffer.from(JSON.stringify({ root: rootArg, actId: action === 'withdraw-act' ? positional[0] : undefined, reviewer: options['--reviewer'], role: options['--role'], draft: options['--draft'], rig: options['--rig'], question, plan: options['--plan'] === 'true', json: options['--json'] === 'true', timeoutMs, retireRefused: options['--retire-refused'] === 'true', discardActs: action === 'withdraw-act' || options['--discard-acts'] !== undefined ? options : undefined, now }));
       const runtime = join(import.meta.dir, 'job-runtime.ts');
       if (action === 'open' || timeoutMs !== undefined) {
         const child = Bun.spawn(jobRuntimeCommand(action, runtime), {

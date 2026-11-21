@@ -9,15 +9,16 @@
 2. Give the owner the printed private URL once. Keep it private. A successful
    open against the running host prints the same URL, including the same
    persisted UI capability in its fragment.
-3. Publish each new draft, rig, post, question or plan with the matching
+3. Publish each new draft, rig, post, set of stage questions or plan with the matching
    `job open` selector or a bound writer. Repeat the project, reviewer and role
    on each open. A reused open publishes and exits while the original host
    keeps serving. Have the owner leave the page open for live updates.
 4. After publishing, run `rig-create job acts --wait` in the background.
-5. Ingest the matching act with its printed
-   `--from-review` command. Ingest the current owner asks before sending a new
-   target. Run `advance` if the stage requires it, then publish the next ask
-   into the same host.
+5. For a grouped question page, collect every act from that publication and
+   ingest the batch together. For a single act, use its printed
+   `--from-review` command. Ingest the current owner asks before sending a
+   new target. Run `advance` if the stage requires it, then publish the next
+   ask into the same host.
 6. Use `job close` at the end, for an explicit act discard, or to retire the
    host across a [pin or hook bump](JOB-RETIREMENT.md). If the process stops
    while the job is active, run `job open` again in the background using the
@@ -28,12 +29,12 @@ A draft and a question share the same host and URL. If a legacy host
 reports `JOB_HOST_REUSE_MISMATCH` with
 `publicationMode expected=record-and-package found=package-only`, finish and
 ingest its pending acts and run `job close` once. Reopen in the background
-with `--question <id>` or `--plan` and share the new job's URL.
+with `--questions`, `--question <id>` or `--plan` and share the new job's URL.
 
 ## Job commands
 
 ```sh
-rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --question <question> | --plan]
+rig-create job open [<dir>] --reviewer <id> --role owner|delegate [--draft <id> | --rig <n> | --questions | --question <question>... | --plan]
 rig-create job acts [<dir>] [--json]
 rig-create job reconcile [<dir>]
 rig-create job close [<dir>] [--retire-refused]
@@ -431,14 +432,40 @@ Review's code. Run `job open` to retry the ask.
 | `plan-approved`, `rigging-interview`, `post-interview` | record plan | `job open --plan` in the approval stage |
 | `interview` | record plan, using release-pinned Review 4.11.0 with the interview carrier ([Review #803](https://github.com/rig-c/review/pull/803), issue #800) | `job open --plan` after `interview --check` passes and the displayed plan has steps; ingest `signoff interview --from-review <actId>`, then `advance plan-approved` |
 
-Interview picks use `job open --question <id>`, one question at a time: a
-new publication supersedes the open ask, so publish one question, run
-`job acts <dir> --json --wait`, ingest its act, then publish the next. A
-second `--question` while an ask is open refuses `JOB_ASK_PENDING`. After
-ingesting every pick, run `interview --check`, then `job open --plan` for
-the interview signature. This record route is supported by release-pinned
-[Review 4.11.0](https://github.com/rig-c/review/tree/v4.11.0), including the
-[Review #803](https://github.com/rig-c/review/pull/803) carrier (issue #800).
+Use `job open --questions` to publish the effective interview stage's
+registered pending sets on one Review page. The owner submits one act per
+set. Run `job acts <dir> --json --wait` and collect one finalized act ID for
+each set on that page before ingesting them together. A wait can return as
+soon as an act arrives. If only some have arrived, leave the project record
+unchanged and check `job acts --json` after the remaining submissions. The
+acts all bind the same displayed project bytes.
+
+```sh
+rig-create job open <dir> --questions --reviewer <id> --role owner
+rig-create job acts <dir> --json --wait
+rig-create interview-answer --batch <dir> --from-review <actId-1> --from-review <actId-2> ...
+```
+
+Use `job open --question <id>` for a single set and ingest the resulting act
+with `interview-answer <id> <dir> --from-review <actId>`. Finish the current
+asks before opening a different target or it refuses `JOB_ASK_PENDING`.
+As an alternative to publishing, relay owner chat separately for each set
+with the displayed set hash and explicit option IDs.
+
+Review checks the exact displayed `project.json` bytes when the owner
+submits. If a partial ingest or owner-chat write changes those bytes, open a
+fresh publication in the same host before the owner submits any remaining
+answers. Use one `--question <id>` per remaining question and retain its exact
+option set. Include every unresolved ask that needs refreshing. Unrelated
+open asks and finalized acts awaiting ingest still block replacement with
+`JOB_ASK_PENDING`.
+
+After recording every pick, run `interview --check`, then `job open --plan`
+for the interview signature. The grouped, single-set and interview-signature routes are supported by
+release-pinned [Review 4.10.0](https://github.com/rig-c/review/tree/v4.10.0),
+including the
+[Review #803](https://github.com/rig-c/review/pull/803) carrier (issue #800) and the multi-set option-set publications of
+[Review #1004](https://github.com/rig-c/review/issues/1004).
 The record subject is `plan`, with non-empty
 displayed steps, even though the signature approves the interview answers
 and does not approve or fill the plan's checkpoints. After advancing,

@@ -484,9 +484,29 @@ function ownerChatSignoffCommand(dir: string, project: JsonObject, act: NextRevi
   return `rig-create ${writer} ${shellWord(dir)}${version} ${OWNER_CHAT_COMMAND_FLAGS}`;
 }
 
-/** The person acts in Review; the agent only hosts and ingests its exported act.
- * A job holds one open interview question: `asked` names the earlier question in this report. */
-function reviewCommands(dir: string, project: JsonObject, move: NextMove, asked: { question?: string } = {}): NextMove[] {
+function ownerChatPickMove(dir: string, project: JsonObject, move: NextMove): NextMove[] {
+  const question = move.review_act?.question_id;
+  if (!question) return [];
+  const item = collectItems(project, { collection: loadCollection(dir) }).find(item => item.id === question);
+  const binding = item?.record.pending_options;
+  if (!isObject(binding) || typeof binding.path !== 'string' || typeof binding.sha256 !== 'string') return [];
+  try {
+    const { set } = optionFile(dir, binding);
+    const picks = asArray(set.asks).filter(isObject).map(ask => ` --pick ${shellWord(`${String(ask.id)}=<option-id>`)}`).join('');
+    return [{
+      ...move,
+      command: `rig-create interview-answer ${shellWord(question)} ${shellWord(dir)} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${OWNER_CHAT_COMMAND_FLAGS}${picks}`,
+      act: `${move.act}; or relay the owner chat answer and explicit option ids from the displayed set`,
+      review_act: undefined,
+    }];
+  } catch { /* The check's named option-file refusal supplies the repair route. */ }
+  return [];
+}
+
+const OPEN_REVIEW_HOST = 'run the first open in the background and share its URL once; later opens publish into the running host and exit';
+
+/** The person acts in Review; the agent only hosts and ingests its exported act. */
+function reviewCommands(dir: string, project: JsonObject, move: NextMove): NextMove[] {
   const act = move.review_act;
   if (move.role !== 'human' || move.unanswered_by_record || move.field === 'pauses' || !act) return [move];
   let selector: string;
@@ -519,35 +539,43 @@ function reviewCommands(dir: string, project: JsonObject, move: NextMove, asked:
     role: 'agent', field: move.field, awaits: move.awaits, command, act: description,
   });
   const root = shellWord(dir);
-  const chatMoves: NextMove[] = [];
   const chatSignoff = ownerChatSignoffCommand(dir, project, act, writer);
+  let chatMoves: NextMove[] = [];
   if (chatSignoff) {
-    chatMoves.push({ ...move, command: chatSignoff, act: `${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act: undefined });
-  } else if (act.kind === 'interview-picks' && act.question_id) {
-    const item = collectItems(project, {collection:loadCollection(dir)}).find(item => item.id === act.question_id);
-    const binding = item?.record.pending_options;
-    if (isObject(binding) && typeof binding.path === 'string' && typeof binding.sha256 === 'string') {
-      try {
-        const {set} = optionFile(dir,binding);
-        const picks = asArray(set.asks).filter(isObject).map(ask => ` --pick ${shellWord(`${String(ask.id)}=<option-id>`)}`).join('');
-        chatMoves.push({...move, command:`rig-create ${writer} ${root} --set ${shellWord(binding.path)} --sha256 ${shellWord(binding.sha256)} ${OWNER_CHAT_COMMAND_FLAGS}${picks}`, act:`${move.act}; or relay the owner chat answer and explicit option ids from the displayed set`, review_act:undefined});
-      } catch { /* The check's named option-file refusal supplies the repair route. */ }
-    }
-  }
-  let publish = 'publish this Review page; run the first open in the background and share its URL once; later opens publish into the running host and exit';
-  if (act.kind === 'interview-picks' && act.question_id) {
-    const earlier = asked.question;
-    asked.question ??= act.question_id;
-    publish = earlier === undefined
-      ? `${publish}; one question at a time: publish it, wait with job acts --json --wait, ingest, then publish the next question`
-      : `only after the ${earlier} act is ingested: one question at a time, so publish this one next, wait with job acts --json --wait and ingest (an open earlier question refuses JOB_ASK_PENDING)`;
-  }
+    chatMoves = [{ ...move, command: chatSignoff, act: `${move.act}; or relay the owner chat signoff with exact words, owner date and relay identity`, review_act: undefined }];
+  } else if (act.kind === 'interview-picks') chatMoves = ownerChatPickMove(dir, project, move);
+  const publish = `publish this Review page; ${OPEN_REVIEW_HOST}`
+    + (act.kind === 'interview-picks' ? '; one question at a time: publish it, wait with job acts --json --wait, ingest, then publish the next question' : '');
   return [
     ...chatMoves,
     agent(`rig-create job open ${root} ${selector} --reviewer '<reviewer>' --role owner`, publish),
     move,
     agent(`rig-create job acts ${root} --json --wait`, `wait in the background for the person to submit in Review, then use the matching actId below${act.kind === 'parts-verdict' ? '; approval also records the prepared parts-review signature' : act.stage === 'parts-review' ? '; run its reported legacy signoff preconditions before ingestion' : ''}`),
     agent(`rig-create ${writer} ${root} --from-review '<actId>'`, 'ingest the matching exported Review act; never supply the human answer or words'),
+  ];
+}
+
+function stageQuestionCommands(dir: string, project: JsonObject, stage: string, questions: NextMove[]): NextMove[] {
+  const root = shellWord(dir);
+  const questionIds = questions.map(move => move.review_act!.question_id);
+  const names = questionIds.join(', ');
+  const awaits = questions.map(move => move.awaits).join(', ');
+  const actArgs = questionIds.map(id => `--from-review ${shellWord(`<actId for ${id}>`)}`).join(' ');
+  const agent = (command: string, act: string): NextMove => ({ role: 'agent', field: 'interview', awaits, command, act });
+  return [
+    agent(`rig-create job open ${root} --questions --reviewer '<reviewer>' --role owner`,
+      `${stage} question loop: publish the pending sets for ${names} on one Review page; ${OPEN_REVIEW_HOST}`),
+    ...questions,
+    agent(`rig-create job acts ${root} --json --wait`,
+      `wait in the background and collect one finalized actId for each question (${names}) from this publication; if only some have arrived, wait for the remaining submissions before ingesting`),
+    agent(`rig-create interview-answer --batch ${root} ${actArgs}`,
+      'ingest every finalized act from this page in a single write after the whole group has submitted. '
+      + 'If partial ingest or owner chat changes project.json, refresh the exact remaining sets with job open and one --question per set before the owner can submit. '
+      + 'Include every unresolved question from this page. Unrelated asks still block publication with JOB_ASK_PENDING'),
+    ...questions.flatMap(move => ownerChatPickMove(dir, project, move).map(chat => ({
+      ...chat,
+      act: `${chat.act}. If the page is already open, refresh the remaining sets before asking the owner to submit in Review`,
+    }))),
   ];
 }
 
@@ -2361,12 +2389,17 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
     });
   }
 
-  const asked: { question?: string } = {};
+  const stageQuestions = moves.filter(move => move.role === 'human' && !move.unanswered_by_record
+    && move.review_act?.kind === 'interview-picks' && move.review_act.stage === effectiveStage);
+  const groupedQuestions = stageQuestions.length > 1 ? new Set(stageQuestions) : null;
   const runnableMoves = moves.flatMap(move => {
+    if (groupedQuestions?.has(move)) {
+      return move === stageQuestions[0] ? stageQuestionCommands(dir, project, effectiveStage, stageQuestions) : [];
+    }
     if (move.review_act && move.review_act.stage !== effectiveStage) return [move];
     if (move.review_act?.stage === 'direction-review' && move.review_act.kind === 'signoff'
       && moves.some(other => other.review_act?.stage === 'direction-review' && other.review_act.kind === 'review-verdict')) return [move];
-    return reviewCommands(dir, project, move, asked);
+    return reviewCommands(dir, project, move);
   });
 
   return {

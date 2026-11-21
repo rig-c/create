@@ -82,7 +82,7 @@
     }
   ],
   "interview": {
-    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.50.0)",
+    "question_set": "rig-create/interview@2 (waypoints read from @rig-c/parts 2.51.0)",
     "turn_question": "rig-create/turn-question@1",
     "held": false,
     "date": null,
@@ -1066,7 +1066,7 @@
       "at": "2026-11-06T01:00:32.000Z",
       "producer": {
         "name": "@rig-c/parts",
-        "version": "2.50.0"
+        "version": "2.51.0"
       },
       "config": {
         "path": "derived/drafts/chain/config.json",
@@ -1112,7 +1112,7 @@
       "files": [
         {
           "path": "derived/drafts/chain/out/check/build/run.json",
-          "sha256": "17fc361f1f95782caef1a32096f18df07d061f1d632244aaa32ab52e2004ee1a"
+          "sha256": "e4f29435d1c157cea1f52b75e700a7800bcfa745b41637094cb5cfa5b975c402"
         },
         {
           "path": "derived/drafts/chain/out/check/build/skeleton.atlas",
@@ -1168,7 +1168,7 @@
         },
         {
           "path": "derived/drafts/chain/out/run.json",
-          "sha256": "ae62347356355389e33da4af30e98879412a34f248d1c9a8fa7177bf1f5b4f7c"
+          "sha256": "2a77657ed436ea18c3d90090de25f87901a5a918d2bcf36cd87df2c77f033da7"
         },
         {
           "path": "derived/drafts/chain/input/recomposite_rig.png",

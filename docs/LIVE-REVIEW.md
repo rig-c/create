@@ -538,6 +538,17 @@ publication alone does not ask the owner to approve parts. Config, config inputs
 and retained outputs are sealed as publication files. Producer bytes are read
 and hash-bound. Publication performs no build or producer measurement.
 
+The manifest, and its rigging form `review-rigging-draft-<id>.json`, sits at
+the project root beside `project.json`. It is written when a bound `draft-rig`
+commits, by `job open --draft <id>` and by `job reconcile`. `parts-review`,
+`next` and draft review-verdict ingest read it at that exact path and refuse
+if it is missing or changed. It is live state, not scratch: projects commit it, and
+init's `.gitignore` does not ignore it. Each draft ID has one file for the
+project's life. Publishing the same draft again leaves identical bytes alone,
+and no command, `job close` and retirement included, deletes it. Only a
+retained legacy or orphaned form is rewritten; any other difference refuses
+`JOB_PUBLICATION_INVALID`.
+
 `parts-review` uses the shared API@2/act@2 reader and writer-owned fetch grant.
 It records all three verdict values and each part/mesh outcome and note exactly.
 The human words, host-attested reviewer, authority, time and original source

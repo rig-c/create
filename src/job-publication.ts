@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import partsPackage from '@rig-c/parts/package.json';
 import * as reviewJobHost from '@rig-c/review/job-host';
-import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobOptionContext, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type PublishResultV3, type RecordOptionResult as ReviewOptionResult, type RecordPicksSubject, type RecordPlanSubject, type RecordReaderInput } from '@rig-c/review/job-host';
+import { JOB_ACT_SCHEMA, JOB_API_SCHEMA, type JobPublicationReader, type JobPublishedContext, type JobSelector, type JobRecordSignoffStage, type PublishResultV3, type RecordPicksSubject, type RecordPlanSubject } from '@rig-c/review/job-host';
 import { stepHash } from './step-hash.ts';
 import { DIRECTION_COMPOSE_SPEC, composeInventory } from './direction-compose.ts';
 import { readDirection } from './direction.ts';
@@ -111,9 +111,7 @@ function reviewPackageIdentity(version: number, row: JsonObject) {
 export interface RecordPartsIdentity { readonly name: string; readonly version: string; readonly integrity: string }
 
 type OptionSetRef = Pick<RecordPicksSubject, 'questionId' | 'setId'>;
-// The release pin still has the singular option-set type. The source pin
-// accepts this optional list on the same v3 result.
-type RecordOptionResult = Extract<PublishResultV3, { kind: 'option-set' }> & { readonly sets?: readonly OptionSetRef[] };
+type RecordOptionResult = Extract<PublishResultV3, { kind: 'option-set' }>;
 export type RecordPublicationResult = RecordOptionResult | Extract<PublishResultV3, { kind: 'plan' }>;
 
 export function recordOptionSets(result: RecordOptionResult): readonly OptionSetRef[] {
@@ -224,10 +222,7 @@ function postPlanPicture(root: string, project: JsonObject): { path: string; sha
 }
 
 /** Reuse check's eligibility and the exact retained evidence of its subject. No writes or locks. */
-export function readRecordPublished(input: RecordPublicationRequest & { result: RecordOptionResult & { sets: readonly OptionSetRef[] } }, now?: number): RecordOptionContext;
-// The registry pin's reader can only be called for a singular set: its API
-// rejects `sets` before invoking this hook and expects a one-subject tuple.
-export function readRecordPublished(input: RecordReaderInput<ReviewOptionResult>, now?: number): JobOptionContext;
+export function readRecordPublished(input: RecordPublicationRequest & { result: RecordOptionResult }, now?: number): RecordOptionContext;
 export function readRecordPublished(input: RecordPublicationRequest & { result: { kind: 'plan' } }, now?: number): RecordPlanContext;
 export function readRecordPublished(input: RecordPublicationRequest, now?: number): RecordPublishedContext;
 export function readRecordPublished({ root, record, result, phase, parts: sealedParts }: RecordPublicationRequest, now = Date.now()): RecordPublishedContext {

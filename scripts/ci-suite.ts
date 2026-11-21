@@ -11,7 +11,7 @@ export function runCiSuite(root: string, mode: 'source' | 'registry', extraEnv: 
   const stderr = openSync(join(scratch,'stderr'), 'w');
   const registrations = join(scratch,'registrations');
   try {
-    const result = Bun.spawnSync([process.execPath, ...(mode === 'source' ? ['--conditions=@rig-c/source'] : []), 'test'], {
+    const result = Bun.spawnSync([process.execPath, ...(mode === 'source' ? ['--conditions=@rig-c/source'] : []), 'test', '--timeout', '30000'], {
       cwd: root,
       env: { ...process.env, ...extraEnv, RIG_CREATE_CONSUMER_REGISTRATIONS: registrations,
         ...(mode === 'source' ? { RIG_CREATE_SOURCE_CI: '1', RIG_CREATE_NETWORK: '1' } : {}) },

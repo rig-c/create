@@ -27,4 +27,6 @@ test('registry check invokes the coverage-enforcing full-suite runner', async()=
  expect(check).toContain('run: bun scripts/run-registry-ci.ts');
  const runner=await Bun.file(new URL('../scripts/run-registry-ci.ts',import.meta.url)).text();
  expect(runner).toContain("runCiSuite(resolve(import.meta.dir,'..'),'registry')");
+ const suite=await Bun.file(new URL('../scripts/ci-suite.ts',import.meta.url)).text();
+ expect(suite).toContain("'test', '--timeout', '30000'");
 });

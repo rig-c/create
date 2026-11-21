@@ -55,8 +55,9 @@ import {
   furthestStageSignoff,
   isSignoffIdentity,
   moveOwner,
+  nextStepStatus,
   signoffIdentity,
-  STEP_STATUSES,
+  stepStatusFollows,
 } from './stage-progress.ts';
 import {
   hasStageOrder,
@@ -719,8 +720,7 @@ function candidateStepStatus(
     checkpoint_required: enabled,
     signoff: null,
   };
-  const from = STEP_STATUSES.indexOf(entry.from_status as (typeof STEP_STATUSES)[number]);
-  if (from < 0 || STEP_STATUSES.indexOf(nextStatus as (typeof STEP_STATUSES)[number]) !== from + 1) return null;
+  if (!stepStatusFollows(entry.from_status, nextStatus, enabled)) return null;
   if (nextStatus === 'done' && enabled) {
     const reopens = collectReopens(clone, []);
     const signature = collectSignoffs(clone, [])
@@ -1928,10 +1928,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       for (const step of openPartsSteps) {
         const stepId = String(step.id);
         const currentStatus = String(step.status ?? 'pending');
-        const fromIdx = STEP_STATUSES.indexOf(currentStatus as (typeof STEP_STATUSES)[number]);
-        const nextStatus = fromIdx >= 0 ? STEP_STATUSES[fromIdx + 1] : undefined;
-        if (nextStatus === undefined) continue;
         const checkpointEnabled = checkpointRequired(project, step, now);
+        const nextStatus = nextStepStatus(currentStatus, checkpointEnabled);
+        if (nextStatus === undefined) continue;
         if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('parts', stepId)) {
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);
@@ -2035,10 +2034,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       for (const step of openRigSteps) {
         const stepId = String(step.id);
         const currentStatus = String(step.status ?? 'pending');
-        const fromIdx = STEP_STATUSES.indexOf(currentStatus as (typeof STEP_STATUSES)[number]);
-        const nextStatus = fromIdx >= 0 ? STEP_STATUSES[fromIdx + 1] : undefined;
-        if (nextStatus === undefined) continue;
         const checkpointEnabled = checkpointRequired(project, step, now);
+        const nextStatus = nextStepStatus(currentStatus, checkpointEnabled);
+        if (nextStatus === undefined) continue;
         if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('rigging', stepId)) {
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);
@@ -2227,10 +2225,9 @@ export function nextProject(projectDirArg: string, now: number = Date.now()): Ne
       for (const step of openPostSteps) {
         const stepId = String(step.id);
         const currentStatus = String(step.status ?? 'pending');
-        const fromIdx = STEP_STATUSES.indexOf(currentStatus as (typeof STEP_STATUSES)[number]);
-        const nextStatus = fromIdx >= 0 ? STEP_STATUSES[fromIdx + 1] : undefined;
-        if (nextStatus === undefined) continue;
         const checkpointEnabled = checkpointRequired(project, step, now);
+        const nextStatus = nextStepStatus(currentStatus, checkpointEnabled);
+        if (nextStatus === undefined) continue;
         if (nextStatus === 'done' && checkpointEnabled && !hasLiveCheckpointSignoff('post', stepId)) {
           const cpAwait = `signoffs[checkpoint=${stepId}]`;
           addAwait(cpAwait);

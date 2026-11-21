@@ -63,7 +63,7 @@ test('rendered guide fits its byte bar and scopes camera choices to the directio
   const guide = renderAgentGuide();
   expect(Buffer.byteLength(guide)).toBeLessThan(10_000);
   expect(guide).toContain('Reused opens exit. The page updates in place.');
-  expect(guide).toContain('Keep the job host up across bound writes; if it stopped, run `job open` again, then `job reconcile`.');
+  expect(guide).toContain('Keep the job host up across bound writes; if it stopped, run `job open` again with the same reviewer/role and URL, then `job reconcile`.');
   expect(guide).toContain('](AGENT-REFERENCE.md)');
   expect(readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8')).toMatch(/already retained in the accepted\s+assembled parts/);
   expect(`${guide}\n${readFileSync(new URL('../docs/AGENT-REFERENCE.md', import.meta.url), 'utf8')}`).not.toContain('when the plan has a head turn driven by depth');

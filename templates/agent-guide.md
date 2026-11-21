@@ -65,7 +65,7 @@ printed command, advance as needed and publish again.
 `job acts [--json]` lists each pending act's verdict and comments, even when ingest is refused.
 When all picks are ingested, complete the plan and follow `next` for
 `signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
-Keep the job host up across bound writes; if it stopped, run `job open` again, then `job reconcile`.
+Keep the job host up across bound writes; if it stopped, run `job open` again with the same reviewer/role and URL, then `job reconcile`.
 Legacy package-only host: ingest pending acts, run `job close` once, then ask a question or plan.
 
 Use `job withdraw-act <actId>` with owner-chat flags to keep the page. Successful

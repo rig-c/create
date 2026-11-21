@@ -6,7 +6,7 @@
       "name": "@rig-c/create",
       "dependencies": {
         "@rig-c/core": "3.8.1",
-        "@rig-c/parts": "2.52.0",
+        "@rig-c/parts": "2.52.1",
         "@rig-c/review": "4.12.0",
       },
       "devDependencies": {
@@ -76,7 +76,7 @@
 
     "@rig-c/core": ["@rig-c/core@3.8.1", "", { "bin": { "rigc": "bin/rigc.cjs" } }, "sha512-J6THui8mGf+uJItaAAe8ocXjkXlr3n504R6MkV7P7BfMmwOyNrB/6XBtLdIkTqPhg4paT8pOJyngzIBIeFXP5g=="],
 
-    "@rig-c/parts": ["@rig-c/parts@2.52.0", "", { "dependencies": { "@rig-c/core": "3.8.1", "ag-psd": "^31.0.2" }, "bin": { "rig-parts": "bin/rig-parts.cjs", "spine-parts": "bin/rig-parts.cjs" } }, "sha512-IiqgBDVm1Pl9Venh8hLH8L+/3oTW6XG89xxBPZTdbx3Dxi5r4QFuFbjznp7XTuTMrtupC4jO/sUOzYULstJhBg=="],
+    "@rig-c/parts": ["@rig-c/parts@2.52.1", "", { "dependencies": { "@rig-c/core": "3.8.1", "ag-psd": "^31.0.2" }, "bin": { "rig-parts": "bin/rig-parts.cjs", "spine-parts": "bin/rig-parts.cjs" } }, "sha512-VgJ2+YezAwZ9F/w57cMV5MrU5DHc18ER2xU7/1k73z35bK9hAjdxPtue9oMyosQufD00eWDFFJIxFOgGmnJMTw=="],
 
     "@rig-c/play": ["@rig-c/play@1.24.0", "", {}, "sha512-VuDesBdywQtYjeaArFdy7TazSmm6HlOBee24JwoDC3Bb4B2gvR8PN9ugDKLKISrlD8hHjfSXGaUkTinla5J4Sw=="],
 

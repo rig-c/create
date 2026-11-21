@@ -694,7 +694,7 @@ and records the bounced verdict. Mesh edits in the same act follow the existing
 mesh correction route. Drafts have no act@9 ingestion route.
 
 The writer and `rig-create next` print two commands to run in order from the
-project root with Parts 2.52.0 or later. `rig-parts bust-landmarks --from-act`
+project root with Parts 2.52.1 or later. `rig-parts bust-landmarks --from-act`
 uses the retained act, the registered parts directory and the working config
 with `--write-config`. Keep its landmarks JSON and the adjacent
 `.provenance.json` sidecar together under `evidence/`, outside the parts

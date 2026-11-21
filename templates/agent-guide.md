@@ -66,7 +66,7 @@ printed command, advance as needed and publish again.
 When all picks are ingested, complete the plan and follow `next` for
 `signoff <stage> --from-picks`. Keep the plan sign-off page for other answers.
 After a listener stop, reopen with the same reviewer/role and URL, then `job reconcile`.
-For a legacy package-only host, ingest pending acts and run `job close` once before asking a question or plan.
+Legacy package-only host: ingest pending acts, run `job close` once, then ask a question or plan.
 
 Use `job withdraw-act <actId>` with owner-chat flags to keep the page. Successful
 closes end it. Share a new URL after reopening.

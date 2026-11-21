@@ -725,8 +725,8 @@ async function publishedChest(mixed = false, mode: 'package-only' | 'record-and-
     const { chestLandmarks: _, ...withoutSeed } = context;
     return withoutSeed;
   };
-  const view = await published('3-rig-review', 1, 'owner', '', 'changes-requested', 1, false,
-    { root, rigVersion: 1, reader }, (root, source, publication) => {
+  const publishChestVersion = (n: number) => published('3-rig-review', 1, 'owner', '', 'changes-requested', 1, false,
+    { root, rigVersion: n, reader }, (root, source, publication) => {
       const seeds = publication.chestLandmarks as JsonObject[];
       expect(seeds).toHaveLength(1);
       expect(seeds[0]!.source).toMatchObject({ configHash: configSeal.sha256 });
@@ -739,6 +739,7 @@ async function publishedChest(mixed = false, mode: 'package-only' | 'record-and-
         skin: seed.skin, slot: seed.slot, source: { frame: { height, width }, hash } };
       return { chestLandmarks: [{ edit, sha256: jobHash(JSON.stringify(edit)) }], ...(mixed ? { meshEdits: meshEdits(root, source) } : {}) };
     }, mode);
+  const view = await publishChestVersion(1);
   expect(view.act.schema).toBe(JOB_CHEST_LANDMARKS_ACT_SCHEMA);
   async function publishWithoutSeed() {
     withSeed = false;
@@ -746,7 +747,7 @@ async function publishedChest(mixed = false, mode: 'package-only' | 'record-and-
     return view.agent('publish', { result: { path, selector: { kind: 'rig', version: 1 } },
       freeze: { kind: 'producer-held', holdId: 'synthetic-later-freeze', record: { path: 'project.json', sha256: jobHash(readFileSync(join(root, 'project.json'))) } } });
   }
-  return { ...view, working, sha256, publishWithoutSeed };
+  return { ...view, working, sha256, publishWithoutSeed, publishChestVersion };
 }
 
 function treeSnapshot(root: string): Record<string, string> {
@@ -811,6 +812,70 @@ test.each(['package-only', 'record-and-package'] as const)('#774 retains act@9 f
   expect(next.refusals.some(finding => finding.code === 'REVIEW_ACT_LEDGER_INVALID')).toBe(true);
 }, 30_000);
 
+test('#776 next prints only the current rig chest edit and skips superseded working files', async () => {
+  const { root, act, working, publishChestVersion } = await publishedChest();
+  expect(await command(root, act.actId, 1, false, ['--config', workingConfig])).toMatchObject({ exit: 0, stderr: '' });
+  expect(nextProject(root, testClock.now()).bust_landmark_commands).toHaveLength(2);
+
+  // Reuse synthetic producer bytes to declare a replacement rig with its own package.
+  testClock.set(testClock.now() + 1);
+  const project = projectAt(root);
+  const versions = project.versions as JsonObject[];
+  const second = structuredClone(versions[0]!);
+  Object.assign(second, { n: 2, at: testClock.iso(), changed: 'Build the replacement synthetic rig.', evidence: [], verdicts: [] });
+  delete second.review_package;
+  for (const output of second.outputs as JsonObject[]) {
+    output.path = String(output.path).replace('outputs/v1/', 'outputs/v2/');
+  }
+  cpSync(join(root, 'outputs/v1'), join(root, 'outputs/v2'), { recursive: true });
+  const nextFrozenConfig = 'evidence/v2/config-source.json';
+  const configPath = 'evidence/v2/config.json';
+  mkdirSync(join(root, 'evidence/v2'));
+  cpSync(join(root, frozenConfig), join(root, nextFrozenConfig));
+  cpSync(join(root, 'evidence/v1/config.json'), join(root, configPath));
+  cpSync(join(root, 'evidence/v1/interview-requirements.json'), join(root, 'evidence/v2/interview-requirements.json'));
+  ((second.registration as JsonObject).config_source as JsonObject).path = nextFrozenConfig;
+  ((second.provenance as JsonObject).config as JsonObject).path = configPath;
+  versions.push(second);
+  putProject(root, project);
+  expect(reviewPackageCommand(['2', root, '--config', configPath, '--from', 'outputs/v2/out']).exit).toBe(0);
+  rmSync(join(root, workingConfig));
+
+  const beforeEdit = nextProject(root, testClock.now());
+  expect(beforeEdit.effective_stage).toBe('rig-review');
+  expect(beforeEdit.bust_landmark_commands).toBeUndefined();
+  expect(beforeEdit.refusals.filter(finding => finding.field.startsWith('review_acts['))).toEqual([]);
+  const legacy = projectAt(root);
+  (reviewVerdictReceipts(legacy)[0]!.bust_config as JsonObject).path = 'outputs/historical-config.json';
+  expect(reviewActFindings(legacy)).toEqual([]);
+
+  const nextConfig = 'working/v2.json';
+  writeFileSync(join(root, nextConfig), working);
+  const newer = await publishChestVersion(2);
+  expect(newer.act.source.selector).toEqual({ kind: 'rig', version: 2 });
+  const result = await command(root, newer.act.actId, 2, false, ['--config', nextConfig]);
+  expect(result).toMatchObject({ exit: 0, stderr: '' });
+  const digest = jobHash(newer.host.session.readActExport(newer.act.actId, false));
+  const base = `evidence/v2/${digest}`;
+  const commands = [
+    `rig-parts bust-landmarks --from-act ${base}.act.json --parts outputs/v2/out --config ${nextConfig} --out ${base}.bust-landmarks.json --write-config`,
+    `rig-parts propose --parts outputs/v2/out --source inputs/painting.png --out ${base}.bust-proposal --write-config ${nextConfig} --bust-landmarks ${base}.bust-landmarks.json`,
+  ];
+  const afterEdit = nextProject(root, testClock.now());
+  expect(afterEdit.bust_landmark_commands).toEqual(commands);
+  expect(formatNext(afterEdit).split('\n').filter(line => line.startsWith('rig-parts '))).toEqual(commands);
+  expect(afterEdit.refusals.filter(finding => finding.field.startsWith('review_acts['))).toEqual([]);
+
+  testClock.set(testClock.now() + 1);
+  reviewCommand(['2', root, '--verdict', 'bounced', '--by', 'user', '--review', 'rig-review',
+    '--source', 'chat', '--verbatim', 'Request a different change.']);
+  rmSync(join(root, nextConfig));
+  const afterVerdict = nextProject(root, testClock.now());
+  expect(afterVerdict.effective_stage).toBe('rig-review');
+  expect(afterVerdict.bust_landmark_commands).toBeUndefined();
+  expect(afterVerdict.refusals.filter(finding => finding.field.startsWith('review_acts['))).toEqual([]);
+}, 30_000);
+
 test('#774 rejects either stale hash before output or any project tree change', async () => {
   const { root, act, working } = await publishedChest();
   const originalProject = projectAt(root);
@@ -842,6 +907,10 @@ test('#774 requires an explicit independent working config and refuses escapes a
   symlinkSync('evidence', join(root, 'alias-evidence'));
   symlinkSync('derived/review/v1', join(root, 'alias-package'));
   linkSync(join(root, frozenConfig), join(root, 'sealed-hardlink.json'));
+  mkdirSync(join(root, 'OuTpUtS'), { recursive: true });
+  for (const path of ['outputs/working-config.json', 'OuTpUtS/mixed-case-config.json']) {
+    writeFileSync(join(root, path), working);
+  }
   const before = treeSnapshot(root);
   const missing = await command(root, act.actId);
   expect(missing.exit).toBe(2);
@@ -849,7 +918,8 @@ test('#774 requires an explicit independent working config and refuses escapes a
   expect(missing.stderr).toContain('--config');
   expect(missing.stdout).toBe('');
   for (const path of [external, 'working/../' + workingConfig, frozenConfig, portableConfig, 'Evidence/v1/config-source.json',
-    'outside.json', 'alias-evidence/v1/config-source.json', 'alias-package/config.json', 'sealed-hardlink.json']) {
+    'outside.json', 'alias-evidence/v1/config-source.json', 'alias-package/config.json', 'sealed-hardlink.json',
+    'outputs/working-config.json', 'OuTpUtS/mixed-case-config.json']) {
     const result = await command(root, act.actId, 1, false, ['--config', path]);
     expect(result.exit).toBe(1);
     expect(result.stderr).toContain('JOB_PUBLICATION_INVALID');

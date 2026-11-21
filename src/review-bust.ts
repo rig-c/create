@@ -24,8 +24,9 @@ export function bustConfigPath(path: unknown): path is string {
 
 function bustConfigFile(root: string, path: string): string {
   const unsafe = () => refuse('JOB_PUBLICATION_INVALID',
-    `project.json.review_acts: --config ${JSON.stringify(path)} must name a project-relative working file outside evidence/ and derived/ with no symlinks or hardlinks; choose an independent working copy`);
-  if (!bustConfigPath(path)) return unsafe();
+    `project.json.review_acts: --config ${JSON.stringify(path)} must name a project-relative working file outside evidence/, derived/ and outputs/ with no symlinks or hardlinks; choose an independent working copy`);
+  // Keep the receipt path syntax accepted by the ledger for earlier acts.
+  if (!bustConfigPath(path) || /^outputs(?:\/|$)/i.test(path)) return unsafe();
   let absolute: string;
   try { absolute = publicationFilePath(root, path); }
   catch (error) {

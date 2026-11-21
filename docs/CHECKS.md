@@ -744,7 +744,7 @@ file unchanged. The shared `VERBATIM_*` codes also apply to `review`.
 | `VERBATIM_UNREADABLE` | a verbatim file or stdin cannot be read; relative --verbatim-file paths resolve against the current working directory, not the project folder; use an absolute path or run from the file's folder |
 | `VERBATIM_INVALID_UTF8` | the input cannot round-trip as UTF-8 through JSON (exit 2) |
 | `REVIEW_NOT_HUMAN` | the reviewer is `agent`, case-insensitively |
-| `REVIEW_OPTION_INVALID` | invalid `--at`, malformed feedback ref, both `--verbatim` and `--verbatim-file`, or competing human-value/feedback flags with `--from-review` (exit 2) |
+| `REVIEW_OPTION_INVALID` | invalid `--at`, malformed feedback ref, both `--verbatim` and `--verbatim-file`, competing human-value/feedback flags with `--from-review`, `--config` on an act without chest landmark edits, `--config` without `--from-review`, or a replay `--config` path that differs from the recorded one (exit 2) |
 | `FEEDBACK_REF_UNKNOWN` | `--answers-feedback` names no existing verdict on an earlier version; `rig-version` and `direction write/patch --answers` additionally require a human bounced verdict. Name an earlier human bounce in `versions[vN].answers_feedback` |
 | `FEEDBACK_REF_DUPLICATE` | the reference already exists or occurs twice in this command |
 
@@ -1749,8 +1749,8 @@ checkpoints and sign-offs are act@4. Package comments are act@6, or act@7 when
 a comment carries per-comment `context`. A rig-review Request changes with mesh
 edits is act@8, and one with chest landmark edits uses act@9. First ingest of
 act@9 requires `--config <project-relative working config>`
-(`REVIEW_OPTION_MISSING`). Paths outside the project, inside `evidence/` or
-`derived/`, or using a symlink or hardlink refuse with `JOB_PUBLICATION_INVALID`.
+(`REVIEW_OPTION_MISSING`). Paths outside the project, inside `evidence/`,
+`derived/` or `outputs/`, or using a symlink or hardlink refuse with `JOB_PUBLICATION_INVALID`.
 The record reader discounts only pending transport holes for its own exact
 record hash and result while publishing; unrelated/stale outbox entries still
 block it, and ordinary `check` continues to report pending transport holes.

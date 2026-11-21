@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { packagesCommand, jsonSpans } from '../src/packages-upgrade.ts';
+import { packagesCommand } from '../src/packages-upgrade.ts';
 import { packageUpgradeFindings } from '../src/package-upgrades.ts';
 import { PINNED_PACKAGES } from '../src/pins.ts';
 import { readTemplate } from '../src/templates.ts';
@@ -16,9 +16,9 @@ const pins = { ...PINNED_PACKAGES, '@rig-c/review': '4.11.0' };
 function fixture(dependencies: Record<string, string>) {
   const dir = tempDir(); roots.push(dir);
   const project = readTemplate('project.json');
-  const bytes = JSON.stringify(project, null, '\t') + '\n';
+  const bytes = `${JSON.stringify(project, null, 2)}\n`;
   writeFileSync(join(dir, 'project.json'), bytes);
-  writeFileSync(join(dir, 'package.json'), '{\n "name": "synthetic-project", "private": true, "description": "preserve  spaces",\n "dependencies": ' + JSON.stringify(dependencies) + '\n}\n');
+  writeFileSync(join(dir, 'package.json'), `${JSON.stringify({ name: 'synthetic-project', private: true, type: 'module', dependencies }, null, 2)}\n`);
   mkdirSync(join(dir, 'node_modules'));
   writeFileSync(join(dir, 'node_modules/sentinel'), 'original-install');
   writeFileSync(join(dir, 'bun.lock'), 'original-lock\n');
@@ -31,10 +31,12 @@ function snapshot(dir: string) {
   return ['project.json', 'package.json', 'bun.lock', 'node_modules/sentinel'].map(path => readFileSync(join(dir, path)).toString('base64'));
 }
 
-test('JSON spans preserve escaped keys, nested objects and unrelated whitespace', () => {
-  const text = '{ "dependencies": {"@rig-c/parts": "2.23.4"}, "other": ["\\\"", {"a": true}]}\n';
-  const span = jsonSpans(text).get(JSON.stringify(['dependencies', '@rig-c/parts']))!;
-  expect(text.slice(...span)).toBe('"2.23.4"');
+test('duplicate JSON keys in package.json or project.json refuse without touching bytes', () => {
+  const { dir } = fixture({ ...pins, '@rig-c/parts': '2.23.4' });
+  writeFileSync(join(dir, 'package.json'), '{\n  "name": "a",\n  "name": "b",\n  "dependencies": { "@rig-c/parts": "2.23.4" }\n}\n');
+  const before = snapshot(dir);
+  refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_INPUT');
+  expect(snapshot(dir)).toEqual(before);
 });
 
 test('already-current and newer pins refuse without touching bytes or install', () => {
@@ -56,9 +58,10 @@ test('malformed present history has the same named refusal in writer and project
   expect(snapshot(dir)).toEqual(before);
 });
 
-test('an older synthetic project upgrades all release pins and preserves unrelated bytes', () => {
+test('an older synthetic project upgrades all release pins and changes only the pin lines and package_upgrades on a formatted record', () => {
   const { dir, bytes } = fixture({ ...pins, '@rig-c/parts': '2.23.4', '@rig-c/review': '4.7.0' });
-  const manifest = readFileSync(join(dir, 'package.json'), 'utf8');
+  const manifest = `${JSON.stringify({ name: 'synthetic-project', private: true, type: 'module', dependencies: { ...pins, '@rig-c/parts': '2.23.4', '@rig-c/review': '4.7.0' } }, null, 2)}\n`;
+  writeFileSync(join(dir, 'package.json'), manifest);
   rmSync(join(dir, 'bun.lock'));
   const install = Bun.spawnSync([process.execPath, 'install', '--ignore-scripts'], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
   expect(install.exitCode).toBe(0);
@@ -67,9 +70,18 @@ test('an older synthetic project upgrades all release pins and preserves unrelat
   expect(result).toContain('package_upgrades[0]');
   const nextManifest = readFileSync(join(dir, 'package.json'), 'utf8');
   expect(nextManifest).toBe(manifest.replace('2.23.4', pins['@rig-c/parts']).replace('4.7.0', pins['@rig-c/review']));
+  const beforeLines = manifest.split('\n');
+  const afterLines = nextManifest.split('\n');
+  expect(afterLines.length).toBe(beforeLines.length);
+  expect(afterLines.filter((line, i) => line !== beforeLines[i])).toEqual([
+    `    "@rig-c/parts": "${pins['@rig-c/parts']}",`,
+    `    "@rig-c/review": "${pins['@rig-c/review']}"`,
+  ]);
   const record = readFileSync(join(dir, 'project.json'), 'utf8');
   const project = JSON.parse(record);
-  expect(record.slice(0, bytes.lastIndexOf('}'))).toBe(bytes.slice(0, bytes.lastIndexOf('}')));
+  const expected = `${JSON.stringify({ ...readTemplate('project.json'), package_upgrades: project.package_upgrades }, null, 2)}\n`;
+  expect(record).toBe(expected);
+  expect(record.slice(0, bytes.lastIndexOf('\n}'))).toBe(bytes.slice(0, bytes.lastIndexOf('\n}')));
   expect(project.package_upgrades[0]).toMatchObject({ by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: [{ name: '@rig-c/core', from: pins['@rig-c/core'], to: pins['@rig-c/core'] }, { name: '@rig-c/parts', from: '2.23.4', to: pins['@rig-c/parts'] }, { name: '@rig-c/review', from: '4.7.0', to: pins['@rig-c/review'] }] });
   expect(packageUpgradeFindings(project)).toEqual([]);
   expect(existsSync(join(dir, 'node_modules/sentinel'))).toBe(false);
@@ -179,14 +191,20 @@ test('a changed existing refusal message is refused even when its code and path 
   expect(snapshot(dir)).toEqual(before);
 }, 30000);
 
-test('adds an absent review pin while preserving earlier history bytes', () => {
+test('adds an absent review pin while preserving earlier history rows, detected manifest indentation and trailing newline', () => {
   const { dir } = fixture(PINNED_PACKAGES);
   const row = { by: 'earlier-operator', at: new Date(EXAMPLE_NOW - 1000).toISOString(), packages: Object.entries(pins).map(([name, to]) => ({ name, from: null, to })), lock_sha256: '0'.repeat(64) };
-  const original = readFileSync(join(dir, 'project.json'), 'utf8').replace(/}\n$/, ', "package_upgrades": [\n' + JSON.stringify(row, null, '\t') + '\n] }\n');
-  writeFileSync(join(dir, 'project.json'), original);
+  const initialProject = { ...readTemplate('project.json'), package_upgrades: [row] };
+  writeFileSync(join(dir, 'project.json'), `${JSON.stringify(initialProject, null, 2)}\n`);
+  const pkg = { name: 'synthetic-project', private: true, dependencies: { ...PINNED_PACKAGES } };
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, '\t'));
   packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
   const written = readFileSync(join(dir, 'project.json'), 'utf8');
   const rows = JSON.parse(written).package_upgrades;
+  expect(rows[0]).toEqual(row);
   expect(rows[1].packages[2]).toEqual({ name: '@rig-c/review', from: null, to: pins['@rig-c/review'] });
-  expect(written.replace(',' + JSON.stringify(rows[1]), '')).toBe(original);
+  expect(written).toBe(`${JSON.stringify({ ...initialProject, package_upgrades: rows }, null, 2)}\n`);
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(
+    JSON.stringify({ ...pkg, dependencies: pins }, null, '\t'),
+  );
 }, 30000);

@@ -6,56 +6,43 @@ import { isObject, type CheckReport } from './check.ts';
 import { acquireBoundJobWrite, jobRuntimeExecArgv } from './job-writer.ts';
 import { PACKAGE_NAMES, compareVersions, exactVersion, packageUpgradeFindings } from './package-upgrades.ts';
 import { PINNED_PACKAGES } from './pins.ts';
+import { writeRecord } from './record-input.ts';
 import { Refusal, refuse, USAGE_EXIT } from './refusal.ts';
 import type { JsonObject } from './templates.ts';
 
-/** Value spans permit literal edits without reserializing unrelated JSON. */
-export function jsonSpans(text: string): Map<string, [number, number]> {
-  JSON.parse(text);
+function checkNoDuplicateKeys(text: string): void {
   let at = 0;
-  const spans = new Map<string, [number, number]>();
   const ws = () => { while (/\s/.test(text[at] ?? '') && at < text.length) at++; };
   const string = () => { const start = at++; while (at < text.length) { if (text[at++] === '"') break; if (text[at - 1] === '\\') at++; } return JSON.parse(text.slice(start, at)) as string; };
-  const value = (path: string[]) => {
-    ws(); const start = at;
+  const value = () => {
+    ws();
     if (text[at] === '{') {
       at++; ws(); const keys = new Set<string>();
       while (text[at] !== '}') {
         const key = string();
         if (keys.has(key)) refuse('PACKAGE_UPGRADE_INPUT', 'package.json/project.json: duplicate JSON keys; remove the ambiguity before packages upgrade');
-        keys.add(key); ws(); at++; value([...path, key]); ws();
+        keys.add(key); ws(); at++; value(); ws();
         if (text[at] !== ',') break;
         at++; ws();
       }
       at++;
     } else if (text[at] === '[') {
-      at++; ws(); let index = 0;
-      while (text[at] !== ']') { value([...path, String(index++)]); ws(); if (text[at] !== ',') break; at++; ws(); }
+      at++; ws();
+      while (text[at] !== ']') { value(); ws(); if (text[at] !== ',') break; at++; ws(); }
       at++;
     } else if (text[at] === '"') string();
     else { while (at < text.length && !/[\s,\]}]/.test(text[at]!)) at++; }
-    spans.set(JSON.stringify(path), [start, at]);
   };
-  value([]); return spans;
+  value();
 }
-function edit(text: string, path: string[], replacement: string): string {
-  const spans = jsonSpans(text);
-  const span = spans.get(JSON.stringify(path));
-  if (span) return text.slice(0, span[0]) + replacement + text.slice(span[1]);
-  const parent = path.slice(0, -1);
-  const container = spans.get(JSON.stringify(parent));
-  if (!container) refuse('PACKAGE_UPGRADE_INPUT', 'package.json/project.json: missing object; restore the project manifest before packages upgrade');
-  const object = JSON.parse(text.slice(...container));
-  const pos = container[1] - 1;
-  return text.slice(0, pos) + `${Object.keys(object).length ? ',' : ''}\n  ${JSON.stringify(path.at(-1))}: ${replacement}\n` + text.slice(pos);
+
+function serializePackageJson(pkg: JsonObject, original: Buffer): string {
+  const text = original.toString('utf8');
+  const indent = text.match(/\n([ \t]+)"/)?.[1] ?? 2;
+  const trailing = text.match(/\r?\n$/)?.[0] ?? '';
+  return `${JSON.stringify(pkg, null, indent)}${trailing}`;
 }
-function appendUpgrade(text: string, row: object): string {
-  const span = jsonSpans(text).get(JSON.stringify(['package_upgrades']));
-  if (!span) return edit(text, ['package_upgrades'], JSON.stringify([row]));
-  const prior = JSON.parse(text.slice(...span));
-  const at = span[1] - 1;
-  return text.slice(0, at) + `${prior.length ? ',' : ''}${JSON.stringify(row)}` + text.slice(at);
-}
+
 function checked(dir: string, project: JsonObject, now: number): CheckReport {
   const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'packages-upgrade-check.ts')], { stdin: Buffer.from(JSON.stringify({ dir, project, now })), stdout: 'pipe', stderr: 'pipe' });
   if (child.exitCode !== 0) refuse('PACKAGE_UPGRADE_CHECK_FAILED', 'project.json: check process failed; restore the installed packages and retry packages upgrade');
@@ -87,8 +74,8 @@ export function packagesCommand(args: string[], now: number): string {
     const pkgBytes = originals.get('package.json'); const recordBytes = originals.get('project.json');
     if (!pkgBytes || !recordBytes) refuse('PACKAGE_UPGRADE_INPUT', 'project.json/package.json: missing record or manifest; restore them before packages upgrade');
     let pkg: JsonObject; let project: JsonObject;
-    try { pkg = JSON.parse(pkgBytes.toString()); project = JSON.parse(recordBytes.toString()); jsonSpans(pkgBytes.toString()); jsonSpans(recordBytes.toString()); }
-    catch { return refuse('PACKAGE_UPGRADE_INPUT', 'project.json/package.json: invalid JSON; restore valid objects before packages upgrade'); }
+    try { pkg = JSON.parse(pkgBytes.toString()); project = JSON.parse(recordBytes.toString()); checkNoDuplicateKeys(pkgBytes.toString()); checkNoDuplicateKeys(recordBytes.toString()); }
+    catch (error) { if (error instanceof Refusal) throw error; return refuse('PACKAGE_UPGRADE_INPUT', 'project.json/package.json: invalid JSON; restore valid objects before packages upgrade'); }
     if (!isObject(project) || !isObject(pkg)) refuse('PACKAGE_UPGRADE_INPUT', 'project.json/package.json: expected JSON objects; restore valid objects before packages upgrade');
     if (project.schema !== 'rig-create/project@0' || !pkg.dependencies || typeof pkg.dependencies !== 'object' || Array.isArray(pkg.dependencies)) refuse('PACKAGE_UPGRADE_INPUT', 'project.json/package.json: expected a project and dependencies object; restore them before packages upgrade');
     const malformed = packageUpgradeFindings(project)[0];
@@ -113,8 +100,9 @@ export function packagesCommand(args: string[], now: number): string {
     if (pkg.workspaces) refuse('PACKAGE_UPGRADE_INPUT', 'package.json.workspaces: upgrade a standalone project install; resolve workspace ownership before packages upgrade');
     const before = checked(dir, project, now);
     if (before.stage === null) refuse('PACKAGE_UPGRADE_CHECK_FAILED', 'project.json: check stopped before validating the project; repair its schema and stage before packages upgrade');
-    let manifest = pkgBytes.toString();
-    for (const pin of packages) manifest = edit(manifest, ['dependencies', pin.name], JSON.stringify(pin.to));
+    const nextDependencies: JsonObject = { ...dependencies };
+    for (const pin of packages) nextDependencies[pin.name] = pin.to;
+    const manifest = serializePackageJson({ ...pkg, dependencies: nextDependencies }, pkgBytes);
     scratch = mkdtempSync(join(tmpdir(), 'rig-create-packages-'));
     writeFileSync(join(scratch, 'package.json'), manifest);
     const oldLock = originals.get('bun.lock');
@@ -149,7 +137,7 @@ export function packagesCommand(args: string[], now: number): string {
       if (!count) refuse('PACKAGE_UPGRADE_REFUSAL', `project.json: ${finding.code} at ${finding.path} changed after upgrading ${packages.filter(pin => pin.from !== pin.to).map(pin => pin.name).join(', ')}; keep the original pins and resolve this finding before retrying (${finding.message})`);
       counts.set(key(finding), count - 1);
     }
-    writeFileSync(join(dir, 'project.json'), appendUpgrade(recordBytes.toString(), row));
+    writeRecord(join(dir, 'project.json'), recordBytes, candidate, 'packages', 'PACKAGE_UPGRADE_CONFLICT');
     committed = true;
     return `packages: upgraded ${packages.map(pin => `${pin.name} ${pin.from ?? '(absent)'} → ${pin.to}`).join(', ')}; recorded package_upgrades[${history.length - 1}]`;
   } catch (error) {

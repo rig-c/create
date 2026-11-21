@@ -1712,3 +1712,71 @@ test('#679 a draft publication carries no chest field, even when its config has 
   expect<unknown>({ ...after, files: after.files.map(file => file.path === draftConfig.path ? before.files.find(old => old.path === file.path)! : file) })
     .toEqual(before);
 });
+
+test('#743 retry of an unacknowledged pending draft publish uses the stored generation, sends a byte-identical request, and acknowledges once', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-743-draft-retry-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  cpSync(join(import.meta.dir, '../templates/example-chain/evidence/diff-components.json'), join(root, 'evidence/diff-components.json'));
+  structureSnapshotCommand([root, '--draft', 'chain', '--out', 'evidence/structure-chain.json']);
+  advanceCommand(['parts-review', root, '--parts-check', 'evidence/parts-check.json', '--parts', 'derived/drafts/chain/input'], now);
+  diffClassesCommand([root, '--diff-report', 'evidence/diff-components.json', '--by', 'agent'], now);
+
+  const host = await openCreateJob(root, { id: 'reviewer', role: 'owner' }, now);
+  hosts.push(host);
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const manifestRel = prepareDraftManifest(root, project, 'chain');
+  const entry = enqueuePublication(root, readWriterBinding(root)!, { path: manifestRel, selector: { kind: 'draft', id: 'chain' } });
+
+  const publishBodies: string[] = [];
+  const startObserve = async (options: JobHostOptions): Promise<JobOwnerHost> => {
+    const attached = await startJobHost(options);
+    return {
+      ...attached,
+      ports: {
+        ...attached.ports,
+        handleJobApi: async request => {
+          const cloned = await request.clone().json() as { verb?: string };
+          if (cloned.verb === 'publish') publishBodies.push(await request.clone().text());
+          return attached.ports.handleJobApi(request);
+        },
+      },
+    };
+  };
+
+  await expect(reconcileCreateJob(root, async item => {
+    await publishPending(item, undefined, undefined, startObserve);
+    rmSync(join(jobPrivateRoot(root), 'acknowledged-publications'), { recursive: true, force: true });
+    refuse('JOB_PUBLISH_PENDING', 'project.json: planted unacknowledged publish');
+  })).rejects.toMatchObject({ code: 'JOB_PUBLISH_PENDING' });
+
+  const pending = pendingPublications(root)[0]!;
+  expect(pending.generation).toBe(0);
+  const afterFirst = host.session.status();
+  expect(afterFirst.publication?.generation).toBe(1);
+  expect(afterFirst.pending).toHaveLength(1);
+  expect(afterFirst.generation).toBe(2);
+  expect(existsSync(join(jobPrivateRoot(root), 'acknowledged-publications'))).toBe(false);
+
+  expect(await reconcileCreateJob(root, item => publishPending(item, undefined, undefined, startObserve))).toBe(1);
+  expect(publishBodies).toHaveLength(2);
+  expect(publishBodies[1]).toBe(publishBodies[0]);
+  const parsed = JSON.parse(publishBodies[0]!) as { expectedGeneration: number; idempotencyKey: string; requestId: string };
+  expect(parsed.expectedGeneration).toBe(0);
+  expect(parsed.idempotencyKey).toBe(jobHash(JSON.stringify([entry.id, entry.recordHash, 0])));
+  expect(parsed.requestId).toBe(parsed.idempotencyKey);
+
+  const afterRetry = host.session.status();
+  expect(afterRetry.publication?.publicationId).toBe(afterFirst.publication?.publicationId);
+  expect(afterRetry.generation).toBe(afterFirst.generation);
+  expect(afterRetry.pending).toEqual(afterFirst.pending);
+  expect(pendingPublications(root)).toEqual([]);
+  const ackDir = join(jobPrivateRoot(root), 'acknowledged-publications');
+  expect(existsSync(ackDir)).toBe(true);
+  expect(readAcknowledgedPublication(root, host.session.jobId, afterRetry.publication!.publicationId)).toMatchObject({
+    publicationId: afterFirst.publication!.publicationId,
+    generation: 1,
+    requestId: parsed.requestId,
+    subjects: [{ kind: 'parts-verdict', draftId: 'chain' }],
+  });
+});

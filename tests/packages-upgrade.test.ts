@@ -208,3 +208,71 @@ test('adds an absent review pin while preserving earlier history rows, detected 
     JSON.stringify({ ...pkg, dependencies: pins }, null, '\t'),
   );
 }, 30000);
+
+test('an upgrade that moves parts also moves interview.question_set and records the move', () => {
+  const { dir } = fixture({ ...pins, '@rig-c/parts': '2.23.4' });
+  const original = readFileSync(join(dir, 'project.json'), 'utf8');
+  const stale = original.replace(`@rig-c/parts ${pins['@rig-c/parts']}`, '@rig-c/parts 2.23.4');
+  writeFileSync(join(dir, 'project.json'), stale);
+  const result = packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
+  expect(result).toContain('interview.question_set');
+  const written = readFileSync(join(dir, 'project.json'), 'utf8');
+  const project = JSON.parse(written);
+  expect(project.package_upgrades[0].question_set).toEqual({ from: JSON.parse(stale).interview.question_set, to: JSON.parse(original).interview.question_set });
+  // On the formatted record, only the question_set line changes before the appended package_upgrades.
+  const beforeLines = stale.slice(0, stale.lastIndexOf('\n}')).split('\n');
+  const afterLines = written.slice(0, stale.lastIndexOf('\n}')).split('\n');
+  expect(afterLines.filter((line, i) => line !== beforeLines[i])).toEqual([`    "question_set": ${JSON.stringify(JSON.parse(original).interview.question_set)},`]);
+  expect(written).toBe(`${JSON.stringify({ ...JSON.parse(original), package_upgrades: project.package_upgrades }, null, 2)}\n`);
+  expect(packageUpgradeFindings(project)).toEqual([]);
+  expect(checkProject(dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code)).not.toContain('QUESTION_SET_STALE');
+}, 30000);
+
+test('current pins with a stale question set or waypoint config record only those moves', () => {
+  const { dir } = fixture(pins);
+  const project = readTemplate('project.json');
+  const interview = project.interview as import('../src/templates.ts').JsonObject;
+  interview.question_set = String(interview.question_set).replace(`@rig-c/parts ${pins['@rig-c/parts']}`, '@rig-c/parts 2.23.4');
+  const assemble = (interview.waypoints as import('../src/templates.ts').JsonObject[]).find(w => w.id === 'assemble')!;
+  const placed = assemble.config;
+  assemble.config = ['assemble'];
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(project, null, '\t') + '\n');
+  expect(checkProject(dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code)).toEqual(expect.arrayContaining(['QUESTION_SET_STALE', 'WAYPOINT_CONFIG_STALE']));
+  packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW);
+  const written = JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8'));
+  const row = written.package_upgrades[0];
+  expect(row.packages.every((pin: { from: string; to: string }) => pin.from === pin.to)).toBe(true);
+  expect(row.question_set.to).toContain(`@rig-c/parts ${pins['@rig-c/parts']}`);
+  expect(row.waypoint_config).toEqual([{ id: 'assemble', from: ['assemble'], to: placed }]);
+  expect(written.interview.waypoints.find((w: { id: string }) => w.id === 'assemble').config).toEqual(placed);
+  const codes = checkProject(dir, undefined, { now: EXAMPLE_NOW, readOnly: true }).warnings.map(f => f.code);
+  expect(codes).not.toContain('QUESTION_SET_STALE'); expect(codes).not.toContain('WAYPOINT_CONFIG_STALE');
+  // Nothing left to move: the next run is already current.
+  const bytes = () => ['project.json', 'package.json', 'bun.lock'].map(path => readFileSync(join(dir, path)).toString('base64'));
+  const before = bytes();
+  refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_CURRENT');
+  expect(bytes()).toEqual(before);
+}, 60000);
+
+test('a malformed recorded question_set or waypoint_config move is the same named refusal', () => {
+  const project = readTemplate('project.json');
+  const row = { by: 'operator', at: new Date(EXAMPLE_NOW).toISOString(), packages: Object.entries(pins).map(([name, to]) => ({ name, from: to, to })), lock_sha256: '0'.repeat(64) };
+  project.package_upgrades = [{ ...row, question_set: { from: 'x' } }, { ...row, waypoint_config: [{ id: 'assemble', from: 'assemble', to: [] }] }, { ...row, question_set: { from: 'a @rig-c/parts 1.0.0', to: 'a @rig-c/parts 2.0.0' }, waypoint_config: [{ id: 'assemble', from: [], to: ['assemble'] }] }];
+  expect(packageUpgradeFindings(project).map(f => `${f.code} ${f.path}`)).toEqual(['PACKAGE_UPGRADE_MALFORMED package_upgrades[0].question_set', 'PACKAGE_UPGRADE_MALFORMED package_upgrades[1].waypoint_config']);
+});
+
+test('a refused upgrade with a pending question_set move leaves the record byte-identical', () => {
+  const { dir } = fixture({ ...pins, '@rig-c/parts': '2.23.4' });
+  const parts = join(dir, 'node_modules/@rig-c/parts');
+  mkdirSync(join(parts, 'src'), { recursive: true });
+  writeFileSync(join(parts, 'package.json'), JSON.stringify({ name: '@rig-c/parts', version: '2.23.4', type: 'module' }));
+  writeFileSync(join(parts, 'src/config.ts'), "export const CONFIG_SECTIONS = ['key'];\n");
+  const project = readTemplate('project.json');
+  const interview = project.interview as import('../src/templates.ts').JsonObject;
+  interview.waypoints = [];
+  interview.question_set = String(interview.question_set).replace(`@rig-c/parts ${pins['@rig-c/parts']}`, '@rig-c/parts 2.23.4');
+  writeFileSync(join(dir, 'project.json'), JSON.stringify(project));
+  const before = snapshot(dir);
+  refusal(() => packagesCommand(['upgrade', dir, '--by', 'operator'], EXAMPLE_NOW), 'PACKAGE_UPGRADE_REFUSAL');
+  expect(snapshot(dir)).toEqual(before);
+}, 30000);

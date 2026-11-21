@@ -484,6 +484,14 @@ function checkpointStages(ctx: Ctx, step: Step): string[] {
   return ctx.predatesPartsReview !== null && stage !== legacy ? [stage, legacy] : [stage];
 }
 
+/** The waypoints and post items a project is checked against at the installed parts (`packages upgrade` regenerates `config[]` from it). */
+export function deriveProjectWaypoints(project: JsonObject, parts: PartsSections): DerivedSet {
+  const interview = isObject(project.interview) ? project.interview : {};
+  const turnInterview = asArray(interview.waypoints).some(w => isObject(w) && w.id === 'turn')
+    || interview.turn_question === TURN_QUESTION_SPEC;
+  return deriveWaypoints(parts.sections, turnInterview);
+}
+
 // -------------------------------------------------------------------- checks
 
 function checkDerived(ctx: Ctx, parts: PartsSections, derived: DerivedSet): void {
@@ -503,7 +511,7 @@ function checkDerived(ctx: Ctx, parts: PartsSections, derived: DerivedSet): void
     ctx.warnings.push({
       code: 'QUESTION_SET_STALE',
       path: 'interview.question_set',
-      message: `interview.question_set is ${JSON.stringify(questionSet)}; the installed @rig-c/parts is ${parts.version}`,
+      message: `interview.question_set is ${JSON.stringify(questionSet)}; the installed @rig-c/parts is ${parts.version}; run rig-create packages upgrade --by <operator> to record the move`,
     });
   }
   const recordWaypoints = ctx.items.filter((i) => i.kind === 'waypoint');
@@ -516,7 +524,7 @@ function checkDerived(ctx: Ctx, parts: PartsSections, derived: DerivedSet): void
     const listed = asArray(w.record.config).filter((c): c is string => typeof c === 'string').sort();
     const expected = [...d.config].sort();
     if (listed.join(',') !== expected.join(',')) {
-      ctx.warnings.push({ code: 'WAYPOINT_CONFIG_STALE', path: `interview.waypoints[${d.id}].config`, message: `interview.waypoints[${d.id}].config lists [${listed.join(', ')}]; @rig-c/parts ${parts.version} places [${expected.join(', ')}] there` });
+      ctx.warnings.push({ code: 'WAYPOINT_CONFIG_STALE', path: `interview.waypoints[${d.id}].config`, message: `interview.waypoints[${d.id}].config lists [${listed.join(', ')}]; @rig-c/parts ${parts.version} places [${expected.join(', ')}] there; run rig-create packages upgrade --by <operator> to regenerate it` });
     }
   }
   for (const w of recordWaypoints) {
@@ -908,7 +916,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   const expectedValues = hasStageOrder(project) ? STAGE_VALUES : LEGACY_STAGE_VALUES;
   const recordValues = asArray(project.stage_values).filter((x): x is string => typeof x === 'string');
   if (recordValues.join(',') !== expectedValues.join(',')) {
-    warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the order in src/stages.ts is [${expectedValues.join(', ')}]` });
+    warnings.push({ code: 'STAGE_VALUES_STALE', path: 'stage_values', message: `stage_values is [${recordValues.join(', ')}]; the order in src/stages.ts is [${expectedValues.join(', ')}]; the next advance or step-status write regenerates it` });
   }
 
   refusals.push(...packageUpgradeFindings(project));
@@ -958,10 +966,7 @@ function checkProjectOnce(projectDirArg: string, candidate: JsonObject | undefin
   let derived: DerivedSet | null = null;
   try {
     parts = readPartsSections(dir);
-    const interview = isObject(project.interview) ? project.interview : {};
-    const turnInterview = asArray(interview.waypoints).some(w => isObject(w) && w.id === 'turn')
-      || interview.turn_question === TURN_QUESTION_SPEC;
-    derived = deriveWaypoints(parts.sections, turnInterview);
+    derived = deriveProjectWaypoints(project, parts);
     checkDerived(ctx, parts, derived);
   } catch (e) {
     if (!(e instanceof PartsUnreadable)) throw e;

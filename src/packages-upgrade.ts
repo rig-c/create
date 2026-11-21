@@ -43,10 +43,29 @@ function serializePackageJson(pkg: JsonObject, original: Buffer): string {
   return `${JSON.stringify(pkg, null, indent)}${trailing}`;
 }
 
-function checked(dir: string, project: JsonObject, now: number): CheckReport {
+type UpgradeCheck = CheckReport & { waypoint_configs: Record<string, string[]> | null };
+const PARTS_IN_QUESTION_SET = /@rig-c\/parts \d+\.\d+\.\d+/;
+/** The question set moves with the parts it names; a string naming no parts version is left for the warning. */
+function questionSetMove(project: JsonObject, parts: string): { from: string; to: string } | null {
+  const from = isObject(project.interview) ? project.interview.question_set : undefined;
+  if (typeof from !== 'string' || !PARTS_IN_QUESTION_SET.test(from) || from.includes(`@rig-c/parts ${parts}`)) return null;
+  return { from, to: from.replace(PARTS_IN_QUESTION_SET, `@rig-c/parts ${parts}`) };
+}
+/** Record waypoints whose config[] is not the set the installed parts places there, matched as the check matches them. */
+function waypointConfigMoves(project: JsonObject, placed: Record<string, string[]> | null): { index: number; id: string; from: string[]; to: string[] }[] {
+  const waypoints = isObject(project.interview) && Array.isArray(project.interview.waypoints) ? project.interview.waypoints : [];
+  return Object.entries(placed ?? {}).flatMap(([id, to]) => {
+    const index = waypoints.findIndex(w => isObject(w) && w.id === id);
+    if (index < 0) return [];
+    const raw = (waypoints[index] as JsonObject).config;
+    const from = (Array.isArray(raw) ? raw : []).filter((c): c is string => typeof c === 'string');
+    return [...from].sort().join(',') === [...to].sort().join(',') ? [] : [{ index, id, from, to }];
+  });
+}
+function checked(dir: string, project: JsonObject, now: number): UpgradeCheck {
   const child = Bun.spawnSync([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'packages-upgrade-check.ts')], { stdin: Buffer.from(JSON.stringify({ dir, project, now })), stdout: 'pipe', stderr: 'pipe' });
   if (child.exitCode !== 0) refuse('PACKAGE_UPGRADE_CHECK_FAILED', 'project.json: check process failed; restore the installed packages and retry packages upgrade');
-  return JSON.parse(child.stdout.toString()) as CheckReport;
+  return JSON.parse(child.stdout.toString()) as UpgradeCheck;
 }
 
 export function packagesCommand(args: string[], now: number): string {
@@ -91,7 +110,9 @@ export function packagesCommand(args: string[], now: number): string {
       }
       return { name, from, to };
     });
-    if (packages.every(pin => pin.from === pin.to)) refuse('PACKAGE_UPGRADE_CURRENT', 'package.json.dependencies: all packages already match Create release pins; no upgrade to record');
+    const current = packages.every(pin => pin.from === pin.to);
+    const questionSet = questionSetMove(project, pins['@rig-c/parts']);
+    const currentRefusal = () => refuse('PACKAGE_UPGRADE_CURRENT', 'package.json.dependencies: all packages already match Create release pins, and interview.question_set and waypoint config[] match the installed parts; no upgrade to record');
     // A staging install must not resolve local dependencies against a different directory.
     for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
       const entries = pkg[section];
@@ -100,6 +121,7 @@ export function packagesCommand(args: string[], now: number): string {
     if (pkg.workspaces) refuse('PACKAGE_UPGRADE_INPUT', 'package.json.workspaces: upgrade a standalone project install; resolve workspace ownership before packages upgrade');
     const before = checked(dir, project, now);
     if (before.stage === null) refuse('PACKAGE_UPGRADE_CHECK_FAILED', 'project.json: check stopped before validating the project; repair its schema and stage before packages upgrade');
+    if (current && questionSet === null && !before.warnings.some(w => w.code === 'WAYPOINT_CONFIG_STALE')) currentRefusal();
     const nextDependencies: JsonObject = { ...dependencies };
     for (const pin of packages) nextDependencies[pin.name] = pin.to;
     const manifest = serializePackageJson({ ...pkg, dependencies: nextDependencies }, pkgBytes);
@@ -110,9 +132,11 @@ export function packagesCommand(args: string[], now: number): string {
     const install = Bun.spawnSync([process.execPath, 'install', '--ignore-scripts'], { cwd: scratch, stdout: 'pipe', stderr: 'pipe' });
     if (install.exitCode !== 0 || !existsSync(join(scratch, 'bun.lock'))) refuse('PACKAGE_UPGRADE_INSTALL', 'package.json/bun.lock: staged bun install failed; check registry access and package versions before retrying packages upgrade');
     const nextLock = readFileSync(join(scratch, 'bun.lock'));
-    const row = { by, at: new Date(now).toISOString(), packages, lock_sha256: createHash('sha256').update(nextLock).digest('hex') };
+    const row: JsonObject = { by, at: new Date(now).toISOString(), packages, lock_sha256: createHash('sha256').update(nextLock).digest('hex') };
+    if (questionSet) row.question_set = questionSet;
     const history = [...(project.package_upgrades as JsonObject[] | undefined ?? []), row];
-    const candidate = { ...project, package_upgrades: history };
+    const candidate: JsonObject = { ...structuredClone(project), package_upgrades: history };
+    if (questionSet) (candidate.interview as JsonObject).question_set = questionSet.to;
     const invalid = packageUpgradeFindings(candidate)[0];
     if (invalid) refuse(invalid.code, invalid.message);
     for (const [path, bytes] of originals) {
@@ -128,7 +152,17 @@ export function packagesCommand(args: string[], now: number): string {
     // The check sees the candidate install and package pins, but never a committed history row.
     writeFileSync(join(dir, 'package.json'), manifest);
     writeFileSync(join(dir, 'bun.lock'), nextLock);
-    const after = checked(dir, candidate, now);
+    let after = checked(dir, candidate, now);
+    const configs = waypointConfigMoves(candidate, after.waypoint_configs);
+    if (configs.length > 0) {
+      const waypoints = (candidate.interview as JsonObject).waypoints as JsonObject[];
+      for (const move of configs) waypoints[move.index]!.config = move.to;
+      row.waypoint_config = configs.map(({ id, from, to }) => ({ id, from, to }));
+      const invalidMove = packageUpgradeFindings(candidate)[0];
+      if (invalidMove) refuse(invalidMove.code, invalidMove.message);
+      after = checked(dir, candidate, now);
+    }
+    if (current && questionSet === null && configs.length === 0) currentRefusal();
     const counts = new Map<string, number>();
     const key = (finding: CheckReport['refusals'][number]) => JSON.stringify(finding);
     for (const finding of before.refusals) counts.set(key(finding), (counts.get(key(finding)) ?? 0) + 1);
@@ -139,7 +173,8 @@ export function packagesCommand(args: string[], now: number): string {
     }
     writeRecord(join(dir, 'project.json'), recordBytes, candidate, 'packages', 'PACKAGE_UPGRADE_CONFLICT');
     committed = true;
-    return `packages: upgraded ${packages.map(pin => `${pin.name} ${pin.from ?? '(absent)'} → ${pin.to}`).join(', ')}; recorded package_upgrades[${history.length - 1}]`;
+    const moved = [...(questionSet ? [`interview.question_set → ${JSON.stringify(questionSet.to)}`] : []), ...configs.map(move => `interview.waypoints[${move.id}].config → [${move.to.join(', ')}]`)];
+    return `packages: upgraded ${packages.map(pin => `${pin.name} ${pin.from ?? '(absent)'} → ${pin.to}`).join(', ')}${moved.length ? `; ${moved.join('; ')}` : ''}; recorded package_upgrades[${history.length - 1}]`;
   } catch (error) {
     if (error instanceof Refusal) throw error;
     return refuse('PACKAGE_UPGRADE_INSTALL', 'project.json/package.json: package migration could not complete; restore filesystem access and retry packages upgrade');

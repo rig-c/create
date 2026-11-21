@@ -887,6 +887,24 @@ test('#382 draft publication binds inputs[0] in producer.source, seals it in fil
   expect(parsedNames.has('failed test')).toBe(false);
 });
 
+test('#404 draft publication binds the declared painting in producer.source when it is not inputs[0]', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-pub-test-')));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates/example-chain/checkpoints/1-parts-verdict'), root, { recursive: true });
+  rmSync(join(root, 'review-draft-chain.json'), { force: true });
+  const project = JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')) as JsonObject;
+  const first = (project.inputs as JsonObject[])[0]!;
+  const bytes = Buffer.concat([readFileSync(join(root, String(first.path))), Buffer.from([0x00])]);
+  writeFileSync(join(root, 'inputs/declared.png'), bytes);
+  project.inputs = [...(project.inputs as JsonObject[]), { path: 'inputs/declared.png', sha256: jobHash(bytes), bytes: bytes.length, origin: 'synthetic', at: String(first.at) }];
+  project.painting = 'inputs/declared.png';
+  const context = draftPublishedContext(root, project, 'chain');
+  expect(context.files).toContainEqual({ path: 'inputs/declared.png', sha256: jobHash(bytes) });
+  prepareDraftManifest(root, project, 'chain');
+  const parsed = JSON.parse(readFileSync(join(root, 'review-draft-chain.json'), 'utf8')) as JsonObject;
+  expect((parsed.producer as JsonObject).source).toBe('inputs/declared.png');
+});
+
 test('#382 source-linked draft publication serves /review-painting and stage-parts painting metadata with and without painting_in_rig', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'create-draft-source-consumer-')));
   roots.push(root);
@@ -1233,6 +1251,28 @@ test('an SVG original publishes exactly one image reference without dimensions',
   expect(readFileSync(join(root, 'project.json')).equals(before)).toBe(true);
 });
 
+
+test.each(['rig', 'post'] as const)('#404 a %s publication references the declared painting when it is not inputs[0]', kind => {
+  const { root, project } = setup();
+  if (kind === 'post') (project.versions as JsonObject[]).push({ n: 2, kind: 'post', rig_version: 1 });
+  const n = kind === 'post' ? 2 : 1;
+  const painting = (project.inputs as JsonObject[])[0]!;
+  const decoy = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>');
+  writeFileSync(join(root, 'derived/review/v1/sketch.svg'), decoy);
+  const sketch = { path: 'derived/review/v1/sketch.svg', sha256: jobHash(decoy), bytes: decoy.length, origin: 'synthetic sketch', at: new Date(now).toISOString() };
+  project.inputs = [sketch, painting];
+  // An undeclared record keeps the positional original.
+  const undeclared = prepareLiveManifest(root, project, n);
+  expect(JSON.parse(readFileSync(join(root, undeclared), 'utf8')).references).toEqual([{ id: 'original-painting', label: 'Original painting', type: 'image', path: sketch.path }]);
+  rmSync(join(root, undeclared));
+  project.painting = painting.path;
+  const declared = prepareLiveManifest(root, project, n);
+  expect(JSON.parse(readFileSync(join(root, declared), 'utf8')).references).toEqual([{ id: 'original-painting', label: 'Original painting', type: 'image', path: painting.path, width: 8, height: 16 }]);
+  rmSync(join(root, declared));
+  project.painting = 'derived/review/v1/unregistered.png';
+  expect(() => prepareLiveManifest(root, project, n)).toThrow(expect.objectContaining({ code: 'JOB_PUBLICATION_INVALID' }));
+  expect(existsSync(join(root, declared))).toBe(false);
+});
 
 test.each(['rig', 'post'] as const)('a %s publication without an original preserves the optional-input contract', kind => {
   for (const inputs of [undefined, []]) {

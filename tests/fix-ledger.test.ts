@@ -183,7 +183,9 @@ test('legacy records WARN: no ledger beside drafts, and a draft recorded before 
 
 test('restart keeps inputs and every ledger row, appends restarts[], and checks clean', () => {
   const dir = example();
-  const declared = load(dir); declared.painting = 'inputs/painting.png';
+  // The painting is inputs[1] here, declared through the writer rather than by hand (#404).
+  inputCommand(['painting', 'inputs/painting.png', dir]);
+  const declared = load(dir); expect(declared.painting).toBe('inputs/painting.png');
   declared.owner = { language: 'ko' };
   declared.same_artwork = { reason: 'A different synthetic rig kind.', at: testClock.iso(), projects: ['first'] };
   save(dir, declared); commit(dir);

@@ -75,7 +75,7 @@ export function bustLandmarkCommands(
   if (typeof parts !== 'string') refuse('JOB_PUBLICATION_INVALID', `${at}: restore the recorded parts directory before applying the chest edit`);
   publicationFilePath(root, `${parts}/parts.json`);
   bustConfigFile(root, config);
-  const source = publishedSourcePainting(root, project, `versions[v${n}]`, project.painting).path;
+  const source = publishedSourcePainting(root, project, `versions[v${n}]`).path;
   const act = retainedRigActPath(n, sha256);
   if (retained && jobHash(publicationFile(root, act)) !== sha256) {
     refuse('REVIEW_ACT_LEDGER_INVALID', `${act}: retained chest act bytes differ from the recorded SHA-256; restore the original act file`);

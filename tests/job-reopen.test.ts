@@ -372,3 +372,129 @@ test.each([
   expect(matchesActProjectSource(actFor(first), second.replace('first', 'edited'))).toBe(false);
   expect(matchesActProjectSource(actFor(original), second.replace('"synthetic"', '"changed"'))).toBe(false);
 });
+
+function copyCheckpoint(checkpoint: string): string {
+  const root = realpathSync(fixture(() => {}, `${checkpoint}/project.json`));
+  roots.push(root);
+  cpSync(join(import.meta.dir, '../templates', checkpoint), root, {
+    recursive: true, filter: path => !path.endsWith('/project.json'),
+  });
+  return root;
+}
+
+const refusalCode = (stderr: string): string | undefined => /^([A-Z][A-Z0-9_]*):/m.exec(stderr.trim())?.[1];
+
+test('#767 fake-clock reopen publishes a redrafted option set after advancing 1 s per CLI step', async () => {
+  const root = copyCheckpoint('example-chain/checkpoints/0a-interview-options');
+  let clock = Date.now();
+  const nextInstant = () => {
+    clock = Math.max(clock, Date.now()) + 1_000;
+    return new Date(clock).toISOString();
+  };
+  const stepCli = async (args: string[]) => {
+    const child = Bun.spawn([process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), nextInstant(), ...args], {
+      cwd: root, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { stdout, stderr, exit };
+  };
+
+  const hostProc = Bun.spawn([
+    process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), nextInstant(),
+    'job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'rig_type',
+  ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  try {
+    const reader = hostProc.stdout.getReader();
+    const decoder = new TextDecoder();
+    let initialOut = '';
+    while (!/\njob: .*\n$/.test(initialOut)) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      initialOut += decoder.decode(chunk.value);
+    }
+    reader.releaseLock();
+
+    const wordsFile = join(root, 'owner-words.txt');
+    writeFileSync(wordsFile, 'Use the synthetic rig_type.\n');
+    const setRel = 'evidence/interview/rig_type.json';
+    const setSha = jobHash(readFileSync(join(root, setRel)));
+    const saidAt = new Date(clock).toISOString();
+    const answered = await stepCli([
+      'interview-answer', 'rig_type', root, '--set', setRel, '--sha256', setSha,
+      '--by', 'user', '--pick', 'rig_type=keep',
+      '--owner-chat', wordsFile, '--said-at', saidAt, '--relayed-by', 'synthetic-operator',
+    ]);
+    expect(answered.exit, answered.stderr).toBe(0);
+
+    // Advance 1 s per CLI step so the fake clock leads wall time by several seconds.
+    const checked = await stepCli(['next', root, '--json']);
+    expect(checked.exit, checked.stderr).toBe(0);
+    const draftedAt = nextInstant();
+    expect(Date.parse(draftedAt)).toBeGreaterThan(Date.now());
+    const set = JSON.parse(readFileSync(join(root, setRel), 'utf8')) as JsonObject;
+    set.id = 'redraft-rig_type';
+    set.drafted_at = draftedAt;
+    const redraftRel = 'evidence/interview/redraft-rig_type.json';
+    writeFileSync(join(root, redraftRel), `${JSON.stringify(set, null, 2)}\n`);
+
+    const redrafted = await stepCli(['interview-options', 'rig_type', root, '--file', redraftRel]);
+    expect(redrafted.exit, redrafted.stderr).toBe(0);
+
+    const reopened = await stepCli(['job', 'open', root, '--reviewer', 'synthetic-owner', '--role', 'owner', '--question', 'rig_type']);
+    expect(reopened.exit, reopened.stderr).toBe(0);
+    expect(pendingPublications(root)).toEqual([]);
+    const binding = readWriterBinding(root);
+    expect(binding).not.toBeNull();
+    const checkHost = await openCreateJob(root, reviewer, clock, undefined, true);
+    try {
+      const { asks } = await readHostActsAndAsks(checkHost);
+      expect(asks.map(ask => ask.subject)).toEqual([{ kind: 'interview-picks', questionId: 'rig_type', setId: 'redraft-rig_type' }]);
+    } finally {
+      checkHost.stop();
+    }
+  } finally {
+    if (readWriterBinding(root)) await stepCli(['job', 'close', root]);
+    if (hostProc.exitCode === null) hostProc.kill();
+    await hostProc.exited;
+  }
+}, 30_000);
+
+test('#767 a planted refusal on job open prints its named code on stderr, keeps the host serving, and exits 1 when stopped', async () => {
+  const draftRoot = copyCheckpoint('example-chain/checkpoints/1-parts-verdict');
+  writeFileSync(join(draftRoot, 'derived/drafts/chain/config.json'), '{}\n');
+  const child = Bun.spawn([
+    process.execPath, ...jobRuntimeExecArgv(), join(import.meta.dir, 'cli-at.ts'), new Date().toISOString(),
+    'job', 'open', draftRoot, '--reviewer', 'synthetic-owner', '--role', 'owner',
+  ], { cwd: draftRoot, stdout: 'pipe', stderr: 'pipe' });
+  try {
+    const outReader = child.stdout.getReader();
+    const errReader = child.stderr.getReader();
+    const decoder = new TextDecoder();
+    let stdout = '';
+    while (!stdout.includes('\n')) {
+      const chunk = await outReader.read();
+      if (chunk.done) break;
+      stdout += decoder.decode(chunk.value);
+    }
+    outReader.releaseLock();
+    let stderr = '';
+    while (!stderr.includes('\n')) {
+      const chunk = await errReader.read();
+      if (chunk.done) break;
+      stderr += decoder.decode(chunk.value);
+    }
+    errReader.releaseLock();
+
+    const ownerUrl = stdout.trim().split('\n')[0]!;
+    expect(refusalCode(stderr)).toBe('JOB_PUBLICATION_INVALID');
+    expect(child.exitCode).toBeNull();
+    expect((await fetch(ownerUrl)).ok).toBe(true);
+
+    child.kill('SIGINT');
+    const exit = await child.exited;
+    expect(exit).toBe(1);
+  } finally {
+    if (child.exitCode === null) child.kill();
+    await child.exited;
+  }
+}, 30_000);

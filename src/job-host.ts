@@ -37,17 +37,25 @@ function reuseBinding(identity: JobIdentity): JobHostReuseBinding {
 }
 
 type WriterGrant = Pick<WriterBinding, 'jobId' | 'origin' | 'fetchCapability'>;
+type RecordPublishedReader = NonNullable<JobHostOptions['readRecordPublished']>;
 
 function options(
   identity: JobIdentity,
   install: boolean,
   binding?: Pick<WriterBinding, 'jobId' | 'origin' | 'listenerIncarnation'>,
   onGrant?: (grant: WriterGrant) => void,
+  now?: number,
 ): JobHostOptions {
+  const readRecord: RecordPublishedReader = now === undefined
+    ? readRecordPublished
+    : (input => readRecordPublished(input, now)) as RecordPublishedReader;
   return {
     root: identity.root, stateDir: identity.stateDir, fingerprint: identity.fingerprint, reviewer: identity.reviewer,
     readerId: identity.readerId, readPublished, partsEnumeratorId: identity.partsEnumeratorId, partsEnumerator,
-    ...(identity.publicationMode ? { publicationMode: identity.publicationMode, readRecordPublished } : {}),
+    ...(identity.publicationMode ? {
+      publicationMode: identity.publicationMode,
+      readRecordPublished: readRecord,
+    } : {}),
     bindingId: identity.bindingId,
     installWriterBinding: async grant => {
       if (install) onGrant?.(grant);
@@ -154,6 +162,7 @@ export async function attachCreateJob(
   requested = currentJobIdentity(entry.identity, entry.root),
   beforeAttach?: () => void | Promise<void>,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
+  now?: number,
 ): Promise<JobOwnerHost> {
   assertJobIdentity(entry.identity, requested);
   const binding = readWriterBinding(requested.root);
@@ -166,7 +175,7 @@ export async function attachCreateJob(
   assertJobIdentity(entry.identity, binding.identity);
   await beforeAttach?.();
   let host: JobOwnerHost;
-  try { host = await startHost(options(requested, false, binding)); }
+  try { host = await startHost(options(requested, false, binding, undefined, now)); }
   catch (error) {
     if (isAttachRefused(error)) {
       refuse('JOB_HOST_ATTACH_REFUSED', `project.json: live host attach refused (reason=${error.reason}, phase=${error.phase}); reopen or restore the bound live host before rig-create job reconcile`);
@@ -192,8 +201,9 @@ export async function publishPending(
   beforeAttach?: () => void | Promise<void>,
   startHost: (options: JobHostOptions) => Promise<JobOwnerHost> = startJobHost,
   onPublished?: (publication: { publicationId: string; replaced: boolean }) => void,
+  now?: number,
 ): Promise<AskOutcome[]> {
-  const host = await attachCreateJob(entry, requested, beforeAttach, startHost);
+  const host = await attachCreateJob(entry, requested, beforeAttach, startHost, now);
   try {
     const reportsProgress = await postJobProgress(entry.root, host, { phase: 'publish', text: 'Preparing the Review publication', step: { i: 1, n: 2 } });
     const bytes = readFileSync(join(entry.root, 'project.json'));
@@ -203,7 +213,7 @@ export async function publishPending(
     const project = JSON.parse(bytes.toString('utf8'));
     let subjects: readonly PublicationSubject[];
     if (isRecordResult(entry.result)) {
-      subjects = readRecordPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result, phase: 'inventory' }).subjects;
+      subjects = readRecordPublished({ root: entry.root, record: { path: 'project.json', sha256: entry.recordHash }, result: entry.result, phase: 'inventory' }, now).subjects;
     } else {
       if (!entry.result.selector) refuse('JOB_PUBLICATION_INVALID', 'project.json: a result selector is required for reconciliation');
       if (entry.result.selector.kind === 'draft') prepareDraftManifest(entry.root, project, entry.result.selector.id, entry.result.path);
@@ -431,7 +441,7 @@ export function refuseAskOutcomes(outcomes: readonly AskOutcome[]): void {
   refuse('JOB_ASK_REFUSED', `project.json: the publication is acknowledged but review refused the ask for ${named}; restore the published record bytes and run rig-create job open to ask again`);
 }
 
-export async function reconcileCreateJob(root: string, publish: (entry: PendingPublication) => Promise<unknown> = publishPending, now?: number): Promise<number> {
+export async function reconcileCreateJob(root: string, publish?: (entry: PendingPublication) => Promise<unknown>, now?: number): Promise<number> {
   root = realpathSync(root);
   const release = acquireJobLock(root)!;
   let outcomes: AskOutcome[];
@@ -439,7 +449,7 @@ export async function reconcileCreateJob(root: string, publish: (entry: PendingP
   try {
     const binding = readWriterBinding(root);
     if (!binding || binding.identity.stateDir === join(jobHostStateRoot(root), 'host')) await recoverReplacedJobHostState(root, now);
-    ({ count, outcomes } = await reconcileLocked(root, publish));
+    ({ count, outcomes } = await reconcileLocked(root, publish, now));
   }
   finally { release(); }
   refuseAskOutcomes(outcomes);
@@ -447,7 +457,11 @@ export async function reconcileCreateJob(root: string, publish: (entry: PendingP
 }
 
 /** Publish every pending entry under the caller's job lock. Ask outcomes are returned, not thrown. */
-async function reconcileLocked(root: string, publish: (entry: PendingPublication) => Promise<unknown>): Promise<{ count: number; outcomes: AskOutcome[] }> {
+async function reconcileLocked(
+  root: string,
+  publish: (entry: PendingPublication) => Promise<unknown> = entry => publishPending(entry, undefined, undefined, undefined, undefined, now),
+  now?: number,
+): Promise<{ count: number; outcomes: AskOutcome[] }> {
   const outcomes: AskOutcome[] = [];
   const entries = pendingPublications(root, true);
   for (const entry of entries) {
@@ -623,7 +637,7 @@ export async function openRecordPublication(root: string, host: JobOwnerHost, qu
         pending.generation = generation;
         failPublication(root, pending, pending.failure);
       }
-      ({ outcomes } = await reconcileLocked(root, publishPending));
+      ({ outcomes } = await reconcileLocked(root, undefined, now));
     }
   } finally { release(); }
   const label = result.kind === 'plan' ? 'plan' : `option-set ${recordOptionSets(result).map(({ questionId, setId }) => `${questionId}/${setId}`).join(', ')}`;
@@ -696,7 +710,7 @@ export async function openDraftPublication(root: string, host: JobOwnerHost, now
       const result = selectorResult(root, targetSelector, rigging);
       if (rigSelector) prepareLiveManifest(root, current, rigSelector.version, warnings);
       enqueuePublication(root, binding, result);
-      ({ outcomes } = await reconcileLocked(root, publishPending));
+      ({ outcomes } = await reconcileLocked(root, undefined, now));
     } finally { release(); }
     selector = targetSelector;
     published = true;

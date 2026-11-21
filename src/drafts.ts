@@ -2,7 +2,7 @@ import { assemblyChangeDetail, assemblyConfigChanges } from '@rig-c/parts/assemb
 import { readPartsManifest } from '@rig-c/parts/src/parts.ts';
 import { latestPartsVerdictStatus } from './parts-verdict-record.ts';
 import { randomUUID } from 'node:crypto';
-import { acquireBoundJobWrite, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress, prepareDraftIntent, publishCommittedVersion, takePublishedLines } from './job-writer.ts';
 import { cancelUncommittedIntent, readWriterBinding, type PendingPublication } from './job-outbox.ts';
 /** Draft identity is create-owned inventory, never producer provenance or a measurement. */
 import { ConfigInputsUnavailable, configInputBindings, configInputReferences, DIRECTORY_INPUT_RECEIPT, DRAFT_CONFIG_INPUTS_SINCE, draftUnboundInputs, inputsUndeclaredByInstall, receiptSpec, releaseAfter } from './config-inputs.ts';
@@ -396,6 +396,8 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
   });
   const dir = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(dir);
+  // The first milestone waits for the job gate: a refused write leaves the project untouched.
+  const progress = beginJobProgress(dir, 'build', 'Starting draft registration');
   let intent: PendingPublication | null = null;
   const temporary = join(dir, `.draft-rig-record-${randomUUID()}.tmp`);
   try {
@@ -482,6 +484,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     project.drafts = [...asArray(project.drafts), record];
     if (opts['--ledger-report']) Object.assign(record, draftLedgerFields(dir, project, asArray(project.drafts).length - 1, opts['--ledger-report'], reasons, now));
     if (sourceSnapshot !== undefined) retainDraftReuseRecord(dir, sourceSnapshot);
+    progress?.('Validating the retained draft', { i: 1, n: 2 });
     const errors: Finding[] = [];
     checkDrafts(dir, project, errors);
     const ledger: Finding[] = [];
@@ -511,6 +514,7 @@ export function draftRigCommand(args: string[], now: number): { stdout: string; 
     renameSync(temporary, file);
     const directory = openSync(dir, 'r');
     try { fsyncSync(directory); } finally { closeSync(directory); }
+    progress?.('Draft registration finished', { i: 2, n: 2 });
     if (intent) publishCommittedVersion(dir, id);
     if (json) {
       // A bound project reports whether the open page was updated or the update was deferred; the record itself is unchanged.

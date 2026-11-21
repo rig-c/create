@@ -17,6 +17,7 @@ import { rigVerdictDeferred } from './rig-signoff.ts';
 import type { JsonObject } from './templates.ts';
 import { recoverReplacedJobHostState, replacedRootRefusal } from './job-host-state.ts';
 import { requireOwnerLanguage } from './owner-language.ts';
+import { postJobProgress } from './job-progress.ts';
 
 function installBinding(root: string, binding: WriterBinding): void {
   ensureJobPrivateIgnores(root);
@@ -193,6 +194,7 @@ export async function publishPending(
 ): Promise<AskOutcome[]> {
   const host = await attachCreateJob(entry, requested, beforeAttach, startHost);
   try {
+    const reportsProgress = await postJobProgress(entry.root, host, { phase: 'publish', text: 'Preparing the Review publication', step: { i: 1, n: 2 } });
     const bytes = readFileSync(join(entry.root, 'project.json'));
     if (publicationVersionHash(bytes, entry.result) !== entry.versionHash) refuse('JOB_PUBLICATION_STALE', 'project.json: pending version changed; restore its retained entry/files before reconciling');
     const currentHash = jobHash(bytes);
@@ -221,6 +223,9 @@ export async function publishPending(
       requestId: attempt, idempotencyKey: attempt, expectedGeneration: entry.generation,
       result: entry.result, freeze: { kind: 'producer-held', holdId: entry.id, record: { path: 'project.json', sha256: entry.recordHash } },
     };
+    if (reportsProgress) {
+      await postJobProgress(entry.root, host, { phase: 'publish', text: 'Sending the publication to Review', step: { i: 2, n: 2 } });
+    }
     const response = await host.ports.handleJobApi(new Request(`${host.origin}/jobs/${entry.jobId}/api`, {
       method: 'POST', headers: { authorization: `Bearer ${host.session.hostCredentials().agent}`, 'content-type': 'application/json' },
       body: JSON.stringify(request),

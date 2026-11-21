@@ -231,6 +231,15 @@ a host that predates the token. A field-level mismatch keeps its `field`,
 `expected` and `actual` values in `JOB_HOST_REUSE_MISMATCH`. A reuse-only
 attach never writes the binding.
 
+When an open Review host advertises progress, Create reports milestones while
+ingesting live acts, preparing drafts, versions and review packages, checking
+or advancing the project, planning its next actions, and preparing a
+publication. The page shows the latest line between asks. Create keeps the
+sequence in the private job directory across CLI invocations. Review clears
+the display when a publication, ask or close commits. Commands continue with
+their usual output and exit status if the host is absent, lacks the capability
+or refuses an update.
+
 Cross-process subscription delivery uses a **30-second server wait cycle**.
 Scheduling, transport and rendering add elapsed time. Review 2.8.0 defines
 `jobWaitLimitMs = 30_000` in `src/job-api.ts` and reads durable events

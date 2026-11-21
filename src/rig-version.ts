@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, linkSync, mkdirSync, mkdtempSync, openSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from './check-reads.ts';
-import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import { partsFileReferences } from '@rig-c/parts/src/parts.ts';
 import { tmpdir } from 'node:os';
@@ -1370,8 +1370,11 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
   const outputFiles: JsonObject[] = [];
   let releasePublication = () => {};
   let publicationIntent: PendingPublication | null = null;
+  let progress: ReturnType<typeof beginJobProgress>;
   try {
     releasePublication = acquireBoundJobWrite(dir, { kind: 'rig', version: n });
+    // The first milestone waits for the job gate: a refused write leaves the project untouched.
+    progress = beginJobProgress(dir, 'build', 'Starting rig registration');
     ({ file, project } = readProject(dir));
     original = readFileSync(file);
     if (project.schema !== 'rig-create/project@0') fail('SCHEMA_UNKNOWN', 'schema', 'rig-version reads rig-create/project@0');
@@ -1605,6 +1608,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     const problem = rigRegistrationFindings(dir, candidate)[0];
     if (problem) refuse(problem.code, problem.message);
     created.push(join(dir, pkg));
+    progress?.('Preparing and checking the retained rig package', { i: 1, n: 2 });
     prepareRigReviewPackage([String(n), dir, '--config', String(configBinding.path), '--from', `${out}/out`], candidate, partReferences.map(reference => reference.path));
     if (asRead.effective_stage === 'rigging') {
       const carried = carryRigDraftVerdict(dir, project, version, resolve(dir, options['--config']!), configInputSources, now);
@@ -1632,6 +1636,7 @@ export function rigVersionCommand(args: string[], now: number): { stdout: string
     writeFileSync(pending, recordBytes);
     renameSync(pending, file);
     created.length = 0;
+    progress?.('Rig registration finished', { i: 2, n: 2 });
     publishCommittedVersion(dir, n);
     return { stdout: json ? JSON.stringify(version, null, 2) : `rig-version: v${n} registered; ${String((version.review_package as JsonObject).open)}`, exit: 0 };
   } catch (error) {

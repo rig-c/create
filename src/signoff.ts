@@ -12,7 +12,7 @@ import { assertDirectionApproval } from './direction.ts';
 import { assertCorrectionApproval } from './correction-writers.ts';
 import { writeFileSync } from 'node:fs';
 import { readFileSync, recordCheckReads, type CheckRead } from './check-reads.ts';
-import { acquireBoundJobWrite } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress } from './job-writer.ts';
 import { assertInterviewRecordSignable, checkpointProblem } from './signable.ts';
 import { checkpointReceipt, commitIngestedSignoff, ingestCheckpointAct, type CheckpointIngest, type SignoffHooks } from './signoff-checkpoint-act.ts';
 import { resolve } from 'node:path';
@@ -116,6 +116,8 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
   // One bound write lock per route covers the fetch, validation and the write.
   const root = resolve(positional[1] ?? process.cwd());
   const release = acquireBoundJobWrite(root);
+  // The first milestone waits for the job gate: a refused write leaves the project untouched.
+  const progress = actId !== undefined ? beginJobProgress(root, 'ingest', 'Reading the Review signoff') : undefined;
   try {
     if (stage === PARTS_REVIEW && actId !== undefined && opts['--checkpoint'] === undefined) {
       const { file } = readProject(root);
@@ -128,7 +130,9 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
         const recordedDraft = partsReceiptDraftId(receipt);
         const target = receipt.signoff === undefined ? amendedDraft ?? recordedDraft : recordedDraft;
         if (target !== undefined) opts['--draft'] ??= target;
-        return recordSignoff(stage, positional, opts, json, now, hooks, undefined, undefined, { file, project, original, receipt });
+        const result = recordSignoff(stage, positional, opts, json, now, hooks, undefined, undefined, { file, project, original, receipt });
+        progress?.('Review signoff recorded');
+        return result;
       }
       if (amendedDraft !== undefined && checkProject(root, project, { now }).effective_stage === PARTS_REVIEW) {
         refuse('PARTS_VERDICT_RECEIPT_REQUIRED', `project.json.review_acts: parts verdict act ${actId} was not ingested; record it with parts-review --from-review before signing the amendment`);
@@ -136,7 +140,9 @@ export function signoffCommand(args: string[], now: number, hooks: SignoffHooks 
     }
     // With --checkpoint the passed checkpoint act is fetched inside the writer; without it, the stage signoff act.
     const review = actId !== undefined && opts['--checkpoint'] === undefined ? fetchSignoffAct(root, stage, actId, now, hooks) : undefined;
-    return recordSignoff(stage, positional, opts, json, now, hooks, review);
+    const result = recordSignoff(stage, positional, opts, json, now, hooks, review);
+    progress?.('Review signoff recorded');
+    return result;
   } finally { release(); }
 }
 

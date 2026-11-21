@@ -12,7 +12,7 @@ import { refuse, USAGE_EXIT } from './refusal.ts';
 import { baselineOf, newFindings } from './refusal-baseline.ts';
 import { parseFeedbackAnswers } from './feedback.ts';
 import { handoff } from './review.ts';
-import { acquireBoundJobWrite, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
+import { acquireBoundJobWrite, beginJobProgress, prepareVersionIntent, publishCommittedVersion } from './job-writer.ts';
 import { cancelUncommittedIntent, type PendingPublication } from './job-outbox.ts';
 import type { JsonObject } from './templates.ts';
 
@@ -71,8 +71,11 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
   let published:string|null=null;const staged:string[]=[];
   let releasePublication = () => {};
   let publicationIntent: PendingPublication | null = null;
+  let progress: ReturnType<typeof beginJobProgress>;
   try{
     releasePublication = acquireBoundJobWrite(dir);
+    // The first milestone waits for the job gate: a refused write leaves the project untouched.
+    if (action === 'write') progress = beginJobProgress(dir, 'build', 'Preparing the direction post');
     const next=structuredClone(project);const contract=directionContract(project,now);
     let bytes:Buffer|undefined;let doc:JsonObject|undefined;const snapshots=new Map<string,Buffer>([['project.json',original]]);
     const snapshot=(path:string):Buffer=>{const value=directionBytes(dir,path);snapshots.set(path,value);return value;};
@@ -118,6 +121,7 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
       if(existsSync(join(dir,binding.path)))directionFail('DIRECTION_SOURCE_CHANGED',binding.path,'immutable document already exists');
       const temp=join(parent,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,bytes,{flag:'wx'});renameSync(temp,join(dir,binding.path));published=join(dir,binding.path);
     }
+    progress?.('Validating the direction post', { i: 1, n: 2 });
     ownValidation(dir,next,now);prospective(dir,project,next,now);
     hooks.beforeCommit?.();
     verifyCompose?.();
@@ -128,6 +132,7 @@ function command(args:string[],now:number,hooks:DirectionWriteHooks):{stdout:str
     const recordBytes = Buffer.from(`${JSON.stringify(next,null,2)}\n`);
     if (action !== '--adopt') publicationIntent = prepareVersionIntent(dir, recordBytes, n);
     const temp=join(dir,`.direction-${crypto.randomUUID()}.tmp`);staged.push(temp);writeFileSync(temp,recordBytes,{flag:'wx'});renameSync(temp,file);published=null;rollbackCompose.length=0;
+    progress?.('Direction post recorded', { i: 2, n: 2 });
     if (action !== '--adopt') publishCommittedVersion(dir, n);
     return{stdout:action==='--adopt'?'direction: adopted; historical posts preserved':`direction: v${n} recorded; stage unchanged`,exit:0};
   }finally{cancelUncommittedIntent(dir,publicationIntent);if(published)rmSync(published,{force:true});for(const path of staged)rmSync(path,{force:true});rollbackComposeDirectories(dir,n,rollbackCompose);closeSync(fd);rmSync(lock);releasePublication();}

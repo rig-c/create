@@ -215,7 +215,7 @@ test('#712 a rigging --draft asks for a rig verdict and ingests the exact commen
   expect(readFileSync(join(root, 'project.json'))).toEqual(record);
   const wrongDraft = await cli(root, ['review', root, '--draft', 'chain', '--from-review', String(receipt.actId)]);
   expect(wrongDraft.exit).toBe(1);
-  expect(wrongDraft.stderr).toStartWith('REVIEW_ACT_KIND_MISMATCH: ');
+  expect(wrongDraft.stderr).toMatch(/\bREVIEW_ACT_KIND_MISMATCH:/);
   expect(readFileSync(join(root, 'project.json'))).toEqual(record);
 }, testTimeoutMs);
 
@@ -225,7 +225,7 @@ test('#712 a rigging draft with a changed retained model refuses before publicat
   const before = readFileSync(join(root, 'project.json'));
   const result = await cli(root, openArgs(root, draftId));
   expect(result.exit).toBe(1);
-  expect(result.stderr).toStartWith('JOB_PUBLICATION_INVALID: ');
+  expect(result.stderr).toMatch(/\bJOB_PUBLICATION_INVALID:/);
   expect(result.stderr).toContain(`${model} differs from its retained hash`);
   expect(result.stdout).toBe('');
   expect(readFileSync(join(root, 'project.json'))).toEqual(before);

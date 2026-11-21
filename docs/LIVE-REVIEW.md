@@ -452,6 +452,17 @@ and current interview stage. Refusals leave `project.json` byte-identical.
 Immutable replay returns the recorded signature before current-stage checks.
 The CLI `--by` route and earlier package-mode acts retain their behavior.
 
+In `post` and `direction-review`, `job open --plan` names the picture the owner
+judges the plan against as `planPicture: {path, sha256}`
+([Review #983](https://github.com/rig-c/review/issues/983), issue #665). It is the
+first `.png`, `.jpg`, `.jpeg` or `.webp` row of the newest live `kind: "post"`
+version, read from `evidence` (newest first) and then `outputs`. The path and
+SHA-256 are the record's own, and the file joins `files` like any sealed read. A
+record without such a row, or whose named file is absent, publishes no field, as
+before. Earlier stages and option sets never carry it. The field needs a served
+Review with the #983 contract; an earlier Review refuses it with
+`JOB_SOURCE_MISMATCH`.
+
 ## Rig approval in one sitting
 
 At effective `rig-review`, a fresh publication declares one `review-verdict`.

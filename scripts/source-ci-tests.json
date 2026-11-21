@@ -249,5 +249,10 @@
     "file": "tests/job-acts.test.ts",
     "name": "#698 wait wakes on a finalized pick and reuses the strict attach without timer re-listing",
     "reason": "Exercises the host-bound waiter against the pinned Review source"
+  },
+  {
+    "file": "tests/plan-picture-publication.test.ts",
+    "name": "#665 a post-stage plan publication names the live post picture as a files entry, and Review retains it",
+    "reason": "Review retains planPicture only from the #983 contract, before its release"
   }
 ]

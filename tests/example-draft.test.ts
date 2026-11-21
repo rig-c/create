@@ -260,6 +260,6 @@ test('one byte changed in any bound draft file is refused by code and path', () 
 
 test('the fixture declares synthetic pixels, approvals, producer version and regeneration', () => {
   const text = readFileSync(join(import.meta.dir, '../templates/example-draft/README.md'), 'utf8');
-  for (const phrase of ['Every pixel is generated', 'fixture sign-offs', '@rig-c/parts` 2.48.0',
+  for (const phrase of ['Every pixel is generated', 'fixture sign-offs', '@rig-c/parts` 2.49.1',
     'generate-example-order.ts', 'generate-example-draft.ts', 'empty track set fails rigc']) expect(text).toContain(phrase);
 });

@@ -64,7 +64,7 @@ jobs:
           path: create
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.5
       - name: Read pinned sibling SHAs
         id: pins
         working-directory: create
